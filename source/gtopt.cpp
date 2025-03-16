@@ -1,11 +1,11 @@
 #include <fmt/format.h>
-#include <greeter/greeter.h>
+#include <gtopt/gtopt.h>
 
-using namespace greeter;
+using namespace gtopt;
 
-Greeter::Greeter(std::string _name) : name(std::move(_name)) {}
+Gtopt::Gtopt(std::string _name) : name(std::move(_name)) {}
 
-std::string Greeter::greet(LanguageCode lang) const {
+std::string Gtopt::greet(LanguageCode lang) const {
   switch (lang) {
     default:
     case LanguageCode::EN:
