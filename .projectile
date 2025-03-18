@@ -1,0 +1,7 @@
+-/CMakeFiles
+-/build*
+-/TAGS
+-/.cache/
+-/compile_commands.json
+*.log
+*.lp

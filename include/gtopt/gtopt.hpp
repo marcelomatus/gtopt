@@ -18,14 +18,14 @@ namespace gtopt {
      * @brief Creates a new gtopt
      * @param name the name to greet
      */
-    Gtopt(std::string name);
+    explicit Gtopt(std::string name);
 
     /**
      * @brief Creates a localized string containing the greeting
      * @param lang the language to greet in
      * @return a string containing the greeting
      */
-    std::string greet(LanguageCode lang = LanguageCode::EN) const;
+    [[nodiscard]] std::string greet(LanguageCode lang = LanguageCode::EN) const;
   };
 
 }  // namespace gtopt

@@ -1,0 +1,26 @@
+/**
+ * @file      bus.hpp
+ * @brief     Header of
+ * @date      Tue Mar 18 13:31:45 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * Bus class defines an electric Busbar.
+ */
+
+#pragma once
+
+#include <gtopt/basic_types.hpp>
+
+namespace gtopt {
+
+  struct Bus {
+    Uid uid{};
+    Name name{};
+
+    OptReal voltage{};
+    OptReal theta_ref{};
+    OptBool use_kirchhoff{};
+  };
+
+}  // namespace gtopt

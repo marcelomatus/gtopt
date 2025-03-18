@@ -1,11 +1,20 @@
+#include <string>
+
 #include <fmt/format.h>
-#include <gtopt/gtopt.h>
+#include <gtopt/basic_types.hpp>
+#include <gtopt/bus.hpp>
+#include <gtopt/gtopt.hpp>
+#include <gtopt/json/json_bus.hpp>
 
 using namespace gtopt;
 
-Gtopt::Gtopt(std::string _name) : name(std::move(_name)) {}
+Gtopt::Gtopt(std::string name)
+    : name(std::move(name))
+{
+}
 
-std::string Gtopt::greet(LanguageCode lang) const {
+std::string Gtopt::greet(LanguageCode lang) const
+{
   switch (lang) {
     default:
     case LanguageCode::EN:
