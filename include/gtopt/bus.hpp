@@ -12,15 +12,17 @@
 
 #include <gtopt/basic_types.hpp>
 
-namespace gtopt {
+namespace gtopt
+{
 
-  struct Bus {
-    Uid uid{};
-    Name name{};
+struct Bus
+{
+  Uid uid {};
+  Name name {};
 
-    OptReal voltage{};
-    OptReal theta_ref{};
-    OptBool use_kirchhoff{};
-  };
+  OptReal voltage {};
+  OptReal theta_ref {};
+  OptBool use_kirchhoff {};
+};
 
 }  // namespace gtopt

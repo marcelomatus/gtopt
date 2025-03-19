@@ -1,10 +1,11 @@
+#include <string>
+
 #include <doctest/doctest.h>
 #include <gtopt/gtopt.h>
 #include <gtopt/version.h>
 
-#include <string>
-
-TEST_CASE("Gtopt") {
+TEST_CASE("Gtopt")
+{
   using namespace gtopt;
 
   Gtopt gtopt("Tests");
@@ -15,7 +16,8 @@ TEST_CASE("Gtopt") {
   CHECK(gtopt.greet(LanguageCode::FR) == "Bonjour Tests!");
 }
 
-TEST_CASE("Gtopt version") {
+TEST_CASE("Gtopt version")
+{
   static_assert(std::string_view(GTOPT_VERSION) == std::string_view("1.0"));
   CHECK(std::string(GTOPT_VERSION) == std::string("1.0"));
 }
