@@ -1,7 +1,7 @@
 #include <string>
 
 #include <doctest/doctest.h>
-#include <gtopt/gtopt.h>
+#include <gtopt/gtopt.hpp>
 #include <gtopt/version.h>
 
 TEST_CASE("Gtopt")

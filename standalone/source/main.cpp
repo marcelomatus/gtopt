@@ -3,7 +3,7 @@
 #include <unordered_map>
 
 #include <cxxopts.hpp>
-#include <gtopt/gtopt.h>
+#include <gtopt/gtopt.hpp>
 #include <gtopt/version.h>
 
 auto main(int argc, char** argv) -> int
