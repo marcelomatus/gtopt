@@ -29,12 +29,8 @@ include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
-
-CPMAddPackage(
-  NAME Ccache.cmake
-  GITHUB_REPOSITORY TheLartians/Ccache.cmake
-  VERSION 1.2.5
-)
+CPMAddPackage("gh:TheLartians/Format.cmake@1.8.2")
+CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
 
 CPMAddPackage(
   NAME fmt
