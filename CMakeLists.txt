@@ -80,9 +80,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PRIVATE daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PRIVATE strong_type::strong_type)
 
-find_package(Arrow REQUIRED)
-find_package(Parquet REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared)
+# find_package(Arrow REQUIRED)
+# find_package(Parquet REQUIRED)
+# target_link_libraries(${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared)
 
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
