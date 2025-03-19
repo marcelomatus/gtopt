@@ -1,13 +1,14 @@
-#include <gtopt/gtopt.h>
-#include <gtopt/version.h>
-
-#include <cxxopts.hpp>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 
-auto main(int argc, char** argv) -> int {
-  const std::unordered_map<std::string, gtopt::LanguageCode> languages{
+#include <cxxopts.hpp>
+#include <gtopt/gtopt.h>
+#include <gtopt/version.h>
+
+auto main(int argc, char** argv) -> int
+{
+  const std::unordered_map<std::string, gtopt::LanguageCode> languages {
       {"en", gtopt::LanguageCode::EN},
       {"de", gtopt::LanguageCode::DE},
       {"es", gtopt::LanguageCode::ES},

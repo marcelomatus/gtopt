@@ -11,7 +11,6 @@ project(
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -20,7 +19,6 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
       "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
   )
 endif()
-
 
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
@@ -43,9 +41,7 @@ CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.1
-  OPTIONS
-    "SPDLOG_FMT_EXTERNAL 1"
-    "SPDLOG_INSTALL YES" # create an installable target
+  OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable target
 )
 
 CPMAddPackage(
@@ -99,7 +95,6 @@ target_include_directories(
 # the location where the project's version header will be placed should match the project's regular
 # header paths
 string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
-
 
 packageProject(
   NAME ${PROJECT_NAME}
