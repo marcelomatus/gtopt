@@ -31,6 +31,12 @@ include(cmake/CPM.cmake)
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 
 CPMAddPackage(
+  NAME Ccache.cmake
+  GITHUB_REPOSITORY TheLartians/Ccache.cmake
+  VERSION 1.2.5
+)
+
+CPMAddPackage(
   NAME fmt
   GIT_TAG 11.1.4
   GITHUB_REPOSITORY fmtlib/fmt
@@ -41,8 +47,9 @@ CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.1
-  OPTIONS "SPDLOG_FMT_EXTERNAL 1"
-  OPTIONS "SPDLOG_INSTALL YES" # create an installable target
+  OPTIONS
+    "SPDLOG_FMT_EXTERNAL 1"
+    "SPDLOG_INSTALL YES" # create an installable target
 )
 
 CPMAddPackage(
@@ -70,8 +77,7 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
-
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON)
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
@@ -108,6 +114,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "fmt 11.1.4"
-  DEPENDENCIES "spdlog 1.15.1"
+  DEPENDENCIES "fmt 11.1.4; spdlog 1.15.1"
 )
