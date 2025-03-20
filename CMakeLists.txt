@@ -27,8 +27,8 @@ include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
-CPMAddPackage("gh:TheLartians/Format.cmake@1.8.2")
 CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
+CPMAddPackage("gh:TheLartians/Format.cmake@1.8.2")
 
 CPMAddPackage(
   NAME fmt
@@ -69,16 +69,16 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/
 # target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON)
+
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
-target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
-target_link_libraries(${PROJECT_NAME} PRIVATE daw::daw-json-link)
-target_link_libraries(${PROJECT_NAME} PRIVATE strong_type::strong_type)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
+target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
+target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
+target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
 
 # find_package(Arrow REQUIRED)
 # find_package(Parquet REQUIRED)
@@ -105,5 +105,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "fmt 11.1.4; spdlog 1.15.1"
+  DEPENDENCIES "fmt 11.1.4; spdlog 1.15.1; strong_type 15; daw 3.30.2"
 )
