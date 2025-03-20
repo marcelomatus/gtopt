@@ -5,6 +5,8 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/gtopt.hpp>
 #include <gtopt/json/json_bus.hpp>
+#include <gtopt/json/json_system.hpp>
+#include <gtopt/system.hpp>
 
 using namespace gtopt;
 

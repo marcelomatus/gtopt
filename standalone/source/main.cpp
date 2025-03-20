@@ -6,6 +6,8 @@
 #include <gtopt/gtopt.hpp>
 #include <gtopt/version.h>
 
+using std::cout;
+
 auto main(int argc, char** argv) -> int
 {
   const std::unordered_map<std::string, gtopt::LanguageCode> languages {
@@ -32,23 +34,23 @@ auto main(int argc, char** argv) -> int
   auto result = options.parse(argc, argv);
 
   if (result["help"].as<bool>()) {
-    std::cout << options.help() << std::endl;
+    cout << options.help() << '\n';
     return 0;
   }
 
   if (result["version"].as<bool>()) {
-    std::cout << "Gtopt, version " << GTOPT_VERSION << std::endl;
+    cout << "Gtopt, version " << GTOPT_VERSION << '\n';
     return 0;
   }
 
   auto langIt = languages.find(language);
   if (langIt == languages.end()) {
-    std::cerr << "unknown language code: " << language << std::endl;
+    std::cerr << "unknown language code: " << language << '\n';
     return 1;
   }
 
   gtopt::Gtopt gtopt(name);
-  std::cout << gtopt.greet(langIt->second) << std::endl;
+  std::cout << gtopt.greet(langIt->second) << '\n';
 
   return 0;
 }

@@ -5,7 +5,7 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Bus class defines an electric Busbar.
+ * This module defines the Bus class, which defines an electric Busbar.
  */
 
 #pragma once
