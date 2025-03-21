@@ -15,6 +15,7 @@ Checks: "*,\
   -google-build-using-namespace,\
   -readability-identifier-length,\
   -readability-identifier-naming,\
+  -readability-redundant-member-init, \
   -modernize-use-trailing-return-type,\
   -bugprone-easily-swappable-parameters,\
   -identifier-naming,\
