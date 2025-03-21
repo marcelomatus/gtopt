@@ -26,6 +26,7 @@ using StrongUidType = strong::type<uid_t,
                                    Type,
                                    strong::regular,
                                    strong::hashable,
+                                   strong::arithmetic,
                                    strong::implicitly_convertible_to<uid_t>>;
 
 using Uid = uid_t;
