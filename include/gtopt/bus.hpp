@@ -21,8 +21,8 @@ struct Bus
   Name name {};
 
   OptReal voltage {};
-  OptReal theta_ref {};
-  OptBool use_kirchhoff {};
+  OptReal reference_theta {};
+  OptBool skip_kirchhoff {};
 };
 
 }  // namespace gtopt
