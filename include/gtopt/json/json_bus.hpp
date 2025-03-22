@@ -18,13 +18,16 @@ struct json_data_contract<Bus>
   using type = json_member_list<json_number<"uid", Uid>,
                                 json_string<"name", Name>,
                                 json_number_null<"voltage", OptReal>,
-                                json_number_null<"theta_ref", OptReal>,
-                                json_bool_null<"use_kirchhoff", OptBool>>;
+                                json_number_null<"reference_theta", OptReal>,
+                                json_bool_null<"skip_kirchhoff", OptBool>>;
 
   constexpr static auto to_json_data(Bus const& bus)
   {
-    return std::forward_as_tuple(
-        bus.uid, bus.name, bus.voltage, bus.theta_ref, bus.use_kirchhoff);
+    return std::forward_as_tuple(bus.uid,
+                                 bus.name,
+                                 bus.voltage,
+                                 bus.reference_theta,
+                                 bus.skip_kirchhoff);
   }
 };
 
