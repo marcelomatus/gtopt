@@ -19,6 +19,7 @@ Checks: "*,\
   -modernize-use-trailing-return-type,\
   -bugprone-easily-swappable-parameters,\
   -identifier-naming,\
+  -deduced_class_template_ctor_no_viable,\
 #  -modernize-use-nodiscard,\
   -readability-magic-numbers,\
   -readability-function-cognitive-complexity,\

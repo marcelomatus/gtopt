@@ -24,14 +24,13 @@ using gtopt::System;
 template<>
 struct json_data_contract<System>
 {
-  using type =
-      json_member_list<json_string_null<"name", Name>,
-                       json_string_null<"version", Name>,
-                       json_array_null<"bus_v", std::vector<Bus>, Bus>>;
+  using type = json_member_list<json_string_null<"name", Name>,
+                                json_string_null<"version", Name>,
+                                json_array_null<"bus_array", Array<Bus>, Bus>>;
 
   constexpr static auto to_json_data(System const& system)
   {
-    return std::forward_as_tuple(system.name, system.version, system.bus_v);
+    return std::forward_as_tuple(system.name, system.version, system.bus_array);
   }
 };
 

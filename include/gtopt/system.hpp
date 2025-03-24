@@ -10,8 +10,6 @@
 
 #pragma once
 
-#include <vector>
-
 #include <gtopt/bus.hpp>
 
 namespace gtopt
@@ -22,7 +20,7 @@ struct System
   Name name;
   String version;
 
-  std::vector<Bus> bus_v;
+  Array<Bus> bus_array;
 };
 
 }  // namespace gtopt
