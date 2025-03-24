@@ -1,5 +1,3 @@
-#include <string>
-
 #include <doctest/doctest.h>
 #include <gtopt/bus.hpp>
 #include <gtopt/json/json_bus.hpp>

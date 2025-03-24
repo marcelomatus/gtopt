@@ -1,0 +1,130 @@
+#pragma once
+
+#include <gtopt/field_sched.hpp>
+#include <gtopt/input_context.hpp>
+
+namespace gtopt
+{
+
+template<typename Type, typename... Index>
+class Schedule : InputTraits
+{
+public:
+  using traits = mvector_traits<Type, Index...>;
+  using value_type = Type;
+  using vector_type = typename traits::vector_type;
+  using FSched = FieldSched<Type, vector_type>;
+
+private:
+  FSched sched;
+  array_index_t<Index...> array_index;
+
+public:
+  Schedule() = default;
+
+  explicit Schedule(const FSched& psched)
+      : sched(psched)
+  {
+  }
+
+  explicit Schedule(FSched&& psched) noexcept
+      : sched(std::move(psched))
+  {
+  }
+
+  template<typename InputContext>
+  explicit Schedule(const InputContext& ic,
+                    const std::string_view& cname,
+                    const Id& id,
+                    FSched&& psched)
+      : sched(std::move(psched))
+      , array_index(
+            ic.template get_array_index<FSched, Index...>(sched, cname, id))
+  {
+  }
+
+  template<typename InputContext>
+  explicit Schedule(const InputContext& ic, FSched&& psched)
+      : sched(std::move(psched))
+  {
+    (void)ic;
+  }
+
+  constexpr auto at(Index... index) const
+  {
+    return at_sched<Type>(sched, array_index, index...);
+  }
+};
+
+template<typename Type, typename... Index>
+class OptSchedule : InputTraits
+{
+public:
+  using traits = mvector_traits<Type, Index...>;
+  using value_type = Type;
+  using vector_type = typename traits::vector_type;
+  using FSched = FieldSched<Type, vector_type>;
+  using OptFSched = std::optional<FSched>;
+
+private:
+  OptFSched sched;
+  array_index_t<Index...> array_index;
+
+public:
+  OptSchedule() = default;
+
+  explicit OptSchedule(const OptFSched& psched)
+      : sched(psched)
+  {
+  }
+
+  explicit OptSchedule(OptFSched&& psched) noexcept
+      : sched(std::move(psched))
+  {
+  }
+
+  template<typename InputContext>
+  explicit OptSchedule(const InputContext& ic,
+                       const std::string_view& cname,
+                       const Id& id,
+                       OptFSched&& psched)
+      : sched(std::move(psched))
+      , array_index(
+            ic.template get_array_index<OptFSched, Index...>(sched, cname, id))
+  {
+  }
+
+  [[nodiscard]] constexpr bool has_value() const { return sched.has_value(); }
+
+  constexpr explicit operator bool() const { return has_value(); }
+
+  constexpr std::optional<Type> at(Index... index) const
+  {
+    if (sched) {
+      return at_sched<Type>(sched.value(), array_index, index...);
+    }
+    return {};
+  }
+
+  constexpr std::optional<Type> optval(Index... index) const
+  {
+    if (sched) {
+      return optval_sched<Type>(sched.value(), array_index, index...);
+    }
+    return {};
+  }
+};
+
+using ActiveSched = Schedule<IntBool, StageIndex>;
+
+using TRealSched = Schedule<Real, StageIndex>;
+using STRealSched = Schedule<Real, SceneryIndex, StageIndex>;
+using TBRealSched = Schedule<Real, StageIndex, BlockIndex>;
+using STBRealSched = Schedule<Real, SceneryIndex, StageIndex, BlockIndex>;
+
+using OptTRealSched = OptSchedule<Real, StageIndex>;
+using OptSTRealSched = OptSchedule<Real, SceneryIndex, StageIndex>;
+using OptTBRealSched = OptSchedule<Real, StageIndex, BlockIndex>;
+using OptSTBRealSched = OptSchedule<Real, SceneryIndex, StageIndex, BlockIndex>;
+
+}  // namespace gtopt

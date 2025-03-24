@@ -17,7 +17,7 @@ include(../cmake/CPM.cmake)
 
 CPMAddPackage("gh:doctest/doctest@2.4.11")
 CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
-CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
+CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 if(TEST_INSTALLED_VERSION)
   find_package(Gtopt REQUIRED)
@@ -27,7 +27,10 @@ endif()
 
 # ---- Create binary ----
 
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+file(GLOB sources CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/source/json/*.cpp)
+
 add_executable(${PROJECT_NAME} ${sources})
 target_link_libraries(${PROJECT_NAME} doctest::doctest Gtopt::Gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)

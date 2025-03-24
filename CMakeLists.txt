@@ -23,23 +23,15 @@ endif()
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
 
+set(CPM_USE_LOCAL_PACKAGES ON)
+
 include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
+CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
-CPMAddPackage(
-  NAME Format.cmake
-  VERSION 1.8.3
-  GITHUB_REPOSITORY TheLartians/Format.cmake
-  OPTIONS # set to yes skip cmake formatting
-          "FORMAT_SKIP_CMAKE NO"
-          # set to yes skip clang formatting
-          "FORMAT_SKIP_CLANG NO"
-          # path to exclude (optional, supports regular expressions)
-          "CMAKE_FORMAT_EXCLUDE cmake/CPM.cmake"
-)
 
 CPMAddPackage(
   NAME fmt
@@ -87,26 +79,43 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
 add_library(${PROJECT_NAME} ${headers} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
 
+# Set experimental flag to enable `import std` support from CMake.
+# This must be enabled before C++ language support.
+set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+  # This specific value changes as experimental support evolves. See
+  # `Help/dev/experimental.rst` in the CMake source corresponding to
+  # your CMake build for the exact value to use.
+  "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
+
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(
   ${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->"
 )
 
 # Link dependencies
+
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
 
-# find_package(Arrow REQUIRED) find_package(Parquet REQUIRED)
-# target_link_libraries(${PROJECT_NAME} PRIVATE Arrow::arrow_shared
-# Parquet::parquet_shared)
+# find_package(range-v3 REQUIRED)
+# target_link_libraries(${PROJECT_NAME} PRIVATE range-v3::range-v3)
+
+find_package(Arrow REQUIRED)
+find_package(Parquet REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared)
 
 target_include_directories(
   ${PROJECT_NAME}
   PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
          $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
+
+find_package(Boost REQUIRED COMPONENTS program_options container serialization)
+include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE Boost::program_options Boost::container Boost::serialization)
+
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.

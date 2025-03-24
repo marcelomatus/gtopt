@@ -11,6 +11,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/field_sched.hpp>
 
 namespace gtopt
 {
@@ -23,6 +24,8 @@ struct Bus
   OptReal voltage {};
   OptReal reference_theta {};
   OptBool skip_kirchhoff {};
+
+  // OptActiveSchedule active_sched {};
 };
 
 }  // namespace gtopt
