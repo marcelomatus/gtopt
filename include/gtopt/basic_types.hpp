@@ -55,9 +55,6 @@ using OptIntBool = std::optional<IntBool>;
 constexpr IntBool True = static_cast<IntBool>(true);
 constexpr IntBool False = static_cast<IntBool>(false);
 
-using Active = IntBool;
-using OptActive = OptIntBool;
-
 template<typename Type>
 using Array = std::vector<Type>;
 

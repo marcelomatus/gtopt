@@ -39,9 +39,6 @@ using OptIntBool = gtopt::OptIntBool;
 using IntBool = gtopt::IntBool;
 using OptIntBool = gtopt::OptIntBool;
 
-using Active = gtopt::Active;
-using OptActive = gtopt::OptActive;
-
 template<typename Type>
 using Array = gtopt::Array<Type>;
 

@@ -16,7 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   message(
     FATAL_ERROR
-      "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
+      "In-source builds not allowed."
   )
 endif()
 
@@ -101,6 +101,15 @@ target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
 
 # find_package(range-v3 REQUIRED)
 # target_link_libraries(${PROJECT_NAME} PRIVATE range-v3::range-v3)
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
+
+option(COIN_USE_CLP "Use Clp"    ON)
+option(COIN_USE_CBC "Use Cbc"    OFF)
+option(COIN_USE_CPX "Use Cplex"  OFF)
+
+set(COIN_ROOT_DIR "/opt/coinor" CACHE PATH "Coinor root directory")
+include(cmake_local/Solver.cmake)
+target_link_libraries(${PROJECT_NAME} PRIVATE "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}")
 
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)

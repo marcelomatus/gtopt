@@ -1,0 +1,171 @@
+/**
+ * @file      input_context.cpp
+ * @brief     Header of
+ * @date      Mon Mar 24 00:00:36 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
+#include <filesystem>
+#include <stdexcept>
+
+#include <arrow/api.h>
+#include <arrow/compute/cast.h>
+#include <arrow/csv/api.h>
+#include <arrow/dataset/dataset.h>
+#include <arrow/dataset/discovery.h>
+#include <arrow/dataset/file_base.h>
+#include <arrow/dataset/file_ipc.h>
+#include <arrow/dataset/file_parquet.h>
+#include <arrow/dataset/scanner.h>
+#include <arrow/filesystem/filesystem.h>
+#include <arrow/io/api.h>
+#include <arrow/result.h>
+#include <arrow/scalar.h>
+#include <arrow/table.h>
+#include <arrow/type.h>
+#include <arrow/type_fwd.h>
+#include <arrow/type_traits.h>
+#include <arrow/util/iterator.h>
+#include <easylogging++.h>
+#include <gtopt/input_context.hpp>
+#include <gtopt/system_context.hpp>
+#include <parquet/arrow/reader.h>
+#include <parquet/arrow/writer.h>
+
+#include "parquet/arrow/reader.h"
+#include "spdlog/spdlog.h"
+
+namespace gtopt
+{
+using ArrowTable = std::shared_ptr<arrow::Table>;
+
+inline auto csv_read_table(auto&& fpath) -> ArrowTable
+{
+  const auto filename = fpath.string() + ".csv";
+
+  auto maybe_infile = arrow::io::ReadableFile::Open(filename);
+  if (!maybe_infile.ok()) {
+    SPDLOG_WARN("can't open file {}", filename);
+    return nullptr;
+  }
+  const std::shared_ptr<arrow::io::ReadableFile> infile = *maybe_infile;
+
+  const arrow::io::IOContext& io_context = arrow::io::default_io_context();
+  auto read_options = arrow::csv::ReadOptions::Defaults();
+  read_options.autogenerate_column_names = false;
+
+  auto parse_options = arrow::csv::ParseOptions::Defaults();
+
+  const std::string scenery_str {Scenery::column_name};
+  const std::string stage_str {Stage::column_name};
+  const std::string block_str {Block::column_name};
+
+  auto convert_options = arrow::csv::ConvertOptions::Defaults();
+  convert_options.column_types[scenery_str] = ArrowTraits<Uid>::type();
+  convert_options.column_types[stage_str] = ArrowTraits<Uid>::type();
+  convert_options.column_types[block_str] = ArrowTraits<Uid>::type();
+
+  convert_options.include_missing_columns = true;
+
+  auto maybe_reader = arrow::csv::TableReader::Make(
+      io_context, infile, read_options, parse_options, convert_options);
+  if (!maybe_reader.ok()) {
+    SPDLOG_WARN("can't read file {}", filename);
+  }
+
+  const std::shared_ptr<arrow::csv::TableReader> reader = *maybe_reader;
+
+  auto maybe_table = reader->Read();
+  if (!maybe_table.ok()) {
+    SPDLOG_WARN("can't read table {}", filename);
+    return {};
+  }
+
+  ArrowTable table = *maybe_table;
+  SPDLOG_INFO("read table from file {}", filename);
+
+  return table;
+}
+
+inline auto parquet_read_table(auto&& fpath) -> ArrowTable
+{
+  const auto filename = fpath.string() + ".parquet";
+
+  auto maybe_infile = arrow::io::ReadableFile::Open(filename);
+  if (!maybe_infile.ok()) {
+    SPDLOG_WARN("can't open file {}", filename);
+    return {};
+  }
+  const std::shared_ptr<arrow::io::ReadableFile> infile = *maybe_infile;
+
+  arrow::Status st;
+  std::unique_ptr<parquet::arrow::FileReader> reader;
+  st = parquet::arrow::OpenFile(infile, arrow::default_memory_pool(), &reader);
+
+  if (!st.ok()) {
+    SPDLOG_WARN("can't read file {}", filename);
+  }
+
+  ArrowTable table;
+  st = reader->ReadTable(&table);
+  if (!st.ok()) {
+    SPDLOG_WARN("can't read table {}", filename);
+    return {};
+  }
+
+  SPDLOG_INFO("read table from file {}", filename);
+
+  return table;
+}
+
+template<>
+auto InputTraits::read_table(const SystemContext& sc,
+                             const std::string_view& cname,
+                             const std::string_view& fname) -> ArrowTable
+{
+  auto fpath = std::filesystem::path(sc.options().input_directory());
+
+  const auto pos = fname.find('@');
+  if (pos != std::string::npos) {
+    fpath /= fname.substr(0, pos);  // class name
+    fpath /= fname.substr(pos + 1, fname.size());  // field name
+  } else {
+    fpath /= cname;
+    fpath /= fname;
+  }
+
+  ArrowTable table;
+  if (sc.options().input_format() == "parquet") {
+    table = parquet_read_table(fpath);
+    if (!table) {
+      SPDLOG_WARN("can't read parquet file {}, trying to read csv file",
+                  fpath.string());
+
+      table = csv_read_table(fpath);
+    }
+  } else {
+    table = csv_read_table(fpath);
+    if (!table) {
+      SPDLOG_WARN("can't read csv file {}, trying to read parquet file",
+                  fpath.string());
+
+      table = parquet_read_table(fpath);
+    }
+  }
+
+  if (!table) {
+    const auto msg = fmt::format(
+        "can't read table with class '{}' and field '{}'", cname, fname);
+    SPDLOG_CRITICAL(msg);
+    throw std::runtime_error(msg);
+  }
+
+  SPDLOG_INFO(
+      "successfully loading table for class {} and field {}", cname, fname);
+  return table;
+}
+
+}  // namespace gtopt

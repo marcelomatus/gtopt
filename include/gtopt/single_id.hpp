@@ -14,6 +14,38 @@
 
 namespace gtopt
 {
+template<typename Obj>
+constexpr auto get_uid(const Obj& obj) -> Uid
+{
+  return obj.uid();
+}
+
+template<typename Obj>
+constexpr auto get_name(const Obj& obj)
+{
+  return obj.name();
+}
+
+template<>
+constexpr auto get_uid<Id>(const Id& obj) -> Uid
+{
+  return obj.first;
+}
+
+template<>
+constexpr auto get_name<Id>(const Id& obj)
+{
+  return obj.second;
+}
+
+template<typename Object>
+struct ObjectId : Id
+{
+  constexpr explicit ObjectId(const Id& id)
+      : Id(id)
+  {
+  }
+};
 
 using SingleId = std::variant<Uid, Name>;
 using OptSingleId = std::optional<SingleId>;
