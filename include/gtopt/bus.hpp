@@ -21,6 +21,8 @@ struct Bus
   Uid uid {};
   Name name {};
 
+  OptActiveFieldSched active {};
+
   OptReal voltage {};
   OptReal reference_theta {};
   OptBool skip_kirchhoff {};

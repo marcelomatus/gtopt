@@ -1,7 +1,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
-#include <gtopt/input_context.hpp>
+#include <gtopt/input_traits.hpp>
 
 namespace gtopt
 {
