@@ -2,9 +2,7 @@
 
 #include <functional>
 #include <numeric>
-#include <ranges>
 #include <span>
-#include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block_lp.hpp>
@@ -31,9 +29,7 @@ public:
       : stage(std::move(pstage))
       , block_span(
             std::span(pblocks).subspan(stage.first_block, stage.count_block))
-      , block_indexes(std::ranges::iota_view(BlockIndex {},
-                                             BlockIndex {stage.count_block})
-                      | std::ranges::to<std::vector>())  // NOLINT
+      , block_indexes(stage.count_block)
       , span_duration(std::transform_reduce(block_span.begin(),
                                             block_span.end(),
                                             0.0,
@@ -43,6 +39,7 @@ public:
       , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
                                         span_duration / avg_year_hours))
   {
+    std::ranges::iota(block_indexes, BlockIndex {});
   }
 
   [[nodiscard]] constexpr auto duration() const { return span_duration; }

@@ -9,37 +9,19 @@
  */
 
 #include <filesystem>
-#include <stdexcept>
 
-#include <arrow/api.h>
-#include <arrow/compute/cast.h>
 #include <arrow/csv/api.h>
-#include <arrow/dataset/dataset.h>
-#include <arrow/dataset/discovery.h>
-#include <arrow/dataset/file_base.h>
-#include <arrow/dataset/file_ipc.h>
-#include <arrow/dataset/file_parquet.h>
-#include <arrow/dataset/scanner.h>
-#include <arrow/filesystem/filesystem.h>
 #include <arrow/io/api.h>
-#include <arrow/result.h>
-#include <arrow/scalar.h>
-#include <arrow/table.h>
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
-#include <arrow/type_traits.h>
-#include <arrow/util/iterator.h>
-#include <easylogging++.h>
+#include <fmt/format.h>
 #include <gtopt/input_context.hpp>
-#include <gtopt/system_context.hpp>
 #include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
 
-#include "parquet/arrow/reader.h"
 #include "spdlog/spdlog.h"
 
-namespace gtopt
+namespace
 {
+using namespace gtopt;
+
 using ArrowTable = std::shared_ptr<arrow::Table>;
 
 inline auto csv_read_table(auto&& fpath) -> ArrowTable
@@ -51,7 +33,7 @@ inline auto csv_read_table(auto&& fpath) -> ArrowTable
     SPDLOG_WARN("can't open file {}", filename);
     return nullptr;
   }
-  const std::shared_ptr<arrow::io::ReadableFile> infile = *maybe_infile;
+  const auto& infile = *maybe_infile;
 
   const arrow::io::IOContext& io_context = arrow::io::default_io_context();
   auto read_options = arrow::csv::ReadOptions::Defaults();
@@ -76,7 +58,7 @@ inline auto csv_read_table(auto&& fpath) -> ArrowTable
     SPDLOG_WARN("can't read file {}", filename);
   }
 
-  const std::shared_ptr<arrow::csv::TableReader> reader = *maybe_reader;
+  const auto& reader = *maybe_reader;
 
   auto maybe_table = reader->Read();
   if (!maybe_table.ok()) {
@@ -94,23 +76,21 @@ inline auto parquet_read_table(auto&& fpath) -> ArrowTable
 {
   const auto filename = fpath.string() + ".parquet";
 
-  auto maybe_infile = arrow::io::ReadableFile::Open(filename);
-  if (!maybe_infile.ok()) {
-    SPDLOG_WARN("can't open file {}", filename);
-    return {};
-  }
-  const std::shared_ptr<arrow::io::ReadableFile> infile = *maybe_infile;
+  std::shared_ptr<arrow::io::RandomAccessFile> input;
+  GTOPT_ARROW_ASSING_OR_RAISE(
+      input,
+      arrow::io::ReadableFile::Open(filename),
+      fmt::format("arrow can't open file {}", filename));
 
-  arrow::Status st;
+  auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
-  st = parquet::arrow::OpenFile(infile, arrow::default_memory_pool(), &reader);
-
-  if (!st.ok()) {
-    SPDLOG_WARN("can't read file {}", filename);
-  }
+  GTOPT_ARROW_ASSING_OR_RAISE(
+      reader,
+      parquet::arrow::OpenFile(input, pool),
+      fmt::format("parquet can't read file {}", filename));
 
   ArrowTable table;
-  st = reader->ReadTable(&table);
+  arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
     SPDLOG_WARN("can't read table {}", filename);
     return {};
@@ -120,6 +100,12 @@ inline auto parquet_read_table(auto&& fpath) -> ArrowTable
 
   return table;
 }
+
+}  // namespace
+
+namespace gtopt
+{
+using ArrowTable = std::shared_ptr<arrow::Table>;
 
 template<>
 auto InputTraits::read_table(const SystemContext& sc,

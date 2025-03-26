@@ -2,9 +2,9 @@
 #include <memory>
 
 #include <coin/CoinPackedVector.hpp>
-#include <easylogging++.h>
 #include <fmt/core.h>
 #include <gtopt/linear_interface.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -47,7 +47,8 @@ void LinearInterface::open_log_handler(const int log_level)
       const auto msg = fmt::format(
           "failed to open solver log file {} : errno", log_file, errno);
 
-      LOG(FATAL) << msg;  // NOLINT
+      SPDLOG_CRITICAL(msg);
+      throw std::runtime_error(msg);
     }
   }
 
