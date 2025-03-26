@@ -1,32 +1,25 @@
-#include <exception>
-#include <filesystem>
-#include <stdexcept>
-#include <thread>
-#include <vector>
+/**
+ * @file      output_context.cpp
+ * @brief     Header of
+ * @date      Wed Mar 26 01:05:05 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
-#include <arrow/api.h>
-#include <arrow/compute/cast.h>
+#include <filesystem>
+
 #include <arrow/csv/api.h>
-#include <arrow/dataset/dataset.h>
-#include <arrow/dataset/discovery.h>
-#include <arrow/dataset/file_base.h>
-#include <arrow/dataset/file_ipc.h>
-#include <arrow/dataset/file_parquet.h>
-#include <arrow/dataset/scanner.h>
-#include <arrow/filesystem/filesystem.h>
-#include <arrow/result.h>
-#include <arrow/scalar.h>
-#include <arrow/table.h>
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
-#include <arrow/type_traits.h>
-#include <arrow/util/iterator.h>
-#include <easylogging++.h>
+#include <arrow/io/api.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
+#include <spdlog/spdlog.h>
 
-namespace gtopt
+namespace
 {
+
+using namespace gtopt;
 
 template<typename Type = arrow::DoubleType,
          typename Values,
@@ -39,14 +32,14 @@ inline auto make_array(Values&& values, Valids&& valids = {})
                            : builder.AppendValues(std::forward<Values>(values),
                                                   std::forward<Valids>(valids));
   if (!st.ok()) {
-    const auto msg = fmt::format("can't append values");
-    LOG(FATAL) << msg;  // NOLINT
+    SPDLOG_CRITICAL("can't append values");
+    throw std::runtime_error("can't append values");
   }
 
   ArrowArray array;
   if (!builder.Finish(&array).ok()) {
-    const auto msg = fmt::format("can't build values");
-    LOG(FATAL) << msg;  // NOLINT
+    SPDLOG_CRITICAL("can't build values");
+    throw std::runtime_error("can't build values");
   }
 
   return array;
@@ -160,7 +153,7 @@ inline auto parquet_write_table(const auto& fpath,
                                       props);
   if (!status.ok()) {
     const auto msg = fmt::format("can' t write to file {}", fpath.string());
-    LOG(ERROR) << msg;  // NOLINT
+    SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
   return status;
@@ -179,7 +172,7 @@ inline auto csv_write_table(const auto& fpath,
   status = WriteCSV(*table.get(), write_options, output.get());
   if (!status.ok()) {
     const auto msg = fmt::format("can' t write to file {}", fpath.string());
-    LOG(ERROR) << msg;  // NOLINT
+    SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
 
@@ -224,6 +217,11 @@ inline auto create_tables(auto&& output_directory, auto&& field_vector_map)
   return path_tables;
 }
 
+}  // namespace
+
+namespace gtopt
+{
+
 void OutputContext::write() const
 {
   const auto fmt = options().output_format();
@@ -238,7 +236,8 @@ void OutputContext::write() const
         [&]
         {
           if (!write_table(fmt, path, table, zfmt).ok()) {
-            LOG(ERROR) << "can't write file " << path.string();  // NOLINT
+            const auto msg = fmt::format("can't write file {}", path.string());
+            throw std::runtime_error(msg);
           }
         });
   }

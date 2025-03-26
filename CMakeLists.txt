@@ -20,6 +20,7 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   )
 endif()
 
+
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
 
@@ -59,6 +60,15 @@ CPMAddPackage(
   GITHUB_REPOSITORY rollbear/strong_type
   VERSION 15
 )
+
+#
+#
+
+set(CCACHE YES)
+# set(USE_STATIC_ANALYZER clang-tidy)
+include(cmake/tools.cmake)
+
+
 
 # ---- Add source files ----
 

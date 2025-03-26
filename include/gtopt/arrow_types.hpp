@@ -41,4 +41,16 @@ struct ArrowTraits<double>
   using Type = arrow::DoubleType;
   static constexpr auto type() { return arrow::float64(); }
 };
+
 }  // namespace gtopt
+
+#define GTOPT_ARROW_ASSING_OR_RAISE(lhs, rexpr, msg) \
+  { \
+    auto&& __name = (rexpr); \
+    { \
+      if (not((__name).ok())) { \
+        throw std::runtime_error((msg)); \
+      } \
+    } \
+    (lhs) = std ::move((__name)).ValueUnsafe(); \
+  }

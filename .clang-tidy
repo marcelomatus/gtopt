@@ -12,6 +12,7 @@ Checks: "*,\
   -llvm-header-guard,\
   -llvm-include-order,\
   -llvmlibc-*,\
+  -cppcoreguidelines-macro-usage,\
   -google-build-using-namespace,\
   -readability-identifier-length,\
   -readability-identifier-naming,\
