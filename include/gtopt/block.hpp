@@ -1,3 +1,13 @@
+/**
+ * @file      block.hpp
+ * @brief     Header of
+ * @date      Wed Mar 26 12:12:08 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <iterator>

@@ -43,9 +43,9 @@ public:
   {
     return bus().voltage.value_or(1);
   }
-  [[nodiscard]] constexpr auto skip_kirchhoff() const -> bool
+  [[nodiscard]] constexpr auto use_kirchhoff() const -> bool
   {
-    return bus().skip_kirchhoff.value_or(true);
+    return bus().use_kirchhoff.value_or(true);
   }
   [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const -> bool;
 

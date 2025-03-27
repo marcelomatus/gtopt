@@ -1,8 +1,5 @@
 #pragma once
 
-#include <list>
-#include <string>
-
 #include <daw/json/daw_json_link.h>
 #include <gtopt/bus.hpp>
 #include <gtopt/json/json_basic_types.hpp>
@@ -16,13 +13,13 @@ using gtopt::Bus;
 template<>
 struct json_data_contract<Bus>
 {
-  using type = json_member_list<
-      json_number<"uid", Uid>,
-      json_string<"name", Name>,
-      json_variant_null<"active", OptActiveFieldSched, jvtl_ActiveFieldSched>,
-      json_number_null<"voltage", OptReal>,
-      json_number_null<"reference_theta", OptReal>,
-      json_bool_null<"skip_kirchhoff", OptBool>>;
+  using type =
+      json_member_list<json_number<"uid", Uid>,
+                       json_string<"name", Name>,
+                       json_variant_null<"active", OptActive, jvtl_Active>,
+                       json_number_null<"voltage", OptReal>,
+                       json_number_null<"reference_theta", OptReal>,
+                       json_bool_null<"use_kirchhoff", OptBool>>;
 
   constexpr static auto to_json_data(Bus const& bus)
   {
@@ -31,7 +28,7 @@ struct json_data_contract<Bus>
                                  bus.active,
                                  bus.voltage,
                                  bus.reference_theta,
-                                 bus.skip_kirchhoff);
+                                 bus.use_kirchhoff);
   }
 };
 

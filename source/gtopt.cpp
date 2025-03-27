@@ -1,6 +1,15 @@
-#include <utility>
+/**
+ * @file      gtopt.cpp
+ * @brief     Header of
+ * @date      Wed Mar 26 14:38:29 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
-#include <fmt/format.h>
+#include <format>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/gtopt.hpp>
@@ -20,12 +29,12 @@ std::string Gtopt::greet(LanguageCode lang) const
   switch (lang) {
     default:
     case LanguageCode::EN:
-      return fmt::format("Hello, {}!", name);
+      return std::format("Hello, {}!", name);
     case LanguageCode::DE:
-      return fmt::format("Hallo {}!", name);
+      return std::format("Hallo {}!", name);
     case LanguageCode::ES:
-      return fmt::format("¡Hola {}!", name);
+      return std::format("¡Hola {}!", name);
     case LanguageCode::FR:
-      return fmt::format("Bonjour {}!", name);
+      return std::format("Bonjour {}!", name);
   }
 }

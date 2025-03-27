@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <format>
 #include <ranges>
 
 #include <gtopt/basic_types.hpp>
@@ -25,7 +26,7 @@ constexpr auto as_label() -> std::string
 
 constexpr auto as_string(const auto& arg) -> std::string
 {
-  return fmt::format("{}", arg);
+  return std::format("{}", arg);
 }
 
 template<typename Arg>

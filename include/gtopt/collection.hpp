@@ -115,7 +115,7 @@ public:
 
       if (!puid_map.emplace(uid, i).second) {
         const auto msg =
-            fmt::format("in class {}, non-unique uid {} or name {}",
+            std::format("in class {}, non-unique uid {} or name {}",
                         Type::ClassName,
                         uid,
                         name);
@@ -125,7 +125,7 @@ public:
 
       if (!pname_map.emplace(name_t {name}, i).second) {
         const auto msg =
-            fmt::format("in class {}, non-unique name {} or uid {}",
+            std::format("in class {}, non-unique name {} or uid {}",
                         Type::ClassName,
                         name,
                         uid);
@@ -164,7 +164,7 @@ public:
     const auto idx = element_vector.size();
 
     if (!uid_map.emplace(uid, idx).second) {
-      const auto msg = fmt::format("in class {}, non-unique uid {} or name {}",
+      const auto msg = std::format("in class {}, non-unique uid {} or name {}",
                                    Type::ClassName,
                                    uid,
                                    name);
@@ -173,7 +173,7 @@ public:
     }
 
     if (!name_map.emplace(name_t {name}, idx).second) {
-      const auto msg = fmt::format("in class {}, non-unique name {} or uid {}",
+      const auto msg = std::format("in class {}, non-unique name {} or uid {}",
                                    Type::ClassName,
                                    name,
                                    uid);

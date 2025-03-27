@@ -1,6 +1,6 @@
 #include <gtopt/system_options.hpp>
 
-namespace gtopt
+namespace
 {
 
 template<typename T>
@@ -10,7 +10,7 @@ void merge_opt(std::optional<T>& a, const std::optional<T>& b)
     return;
   }
 
-  a = b.value();
+  a = b;
 }
 
 template<typename T>
@@ -20,10 +20,15 @@ void merge_opt(std::optional<T>& a, std::optional<T>&& b)
     return;
   }
 
-  a = std::move(b.value());
+  a = std::move(b);
 }
 
-SystemOptions& SystemOptions::merge(SystemOptions&& sys)
+}  // namespace
+
+namespace gtopt
+{
+
+SystemOptions& SystemOptions::merge(SystemOptions& sys)
 {
   merge_opt(input_directory, std::move(sys.input_directory));
   merge_opt(input_format, std::move(sys.input_format));

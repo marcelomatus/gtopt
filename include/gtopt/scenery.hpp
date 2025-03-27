@@ -1,3 +1,13 @@
+/**
+ * @file      scenery.hpp
+ * @brief     Header of
+ * @date      Wed Mar 26 12:12:32 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/basic_types.hpp>
@@ -26,4 +36,5 @@ struct Scenery
 
 using SceneryUid = StrongUidType<struct suid_>;
 using SceneryIndex = StrongIndexType<Scenery>;
+
 }  // namespace gtopt

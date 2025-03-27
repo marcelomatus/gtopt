@@ -24,27 +24,18 @@ endif()
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
 
-set(CPM_USE_LOCAL_PACKAGES ON)
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` before downloading dependencies" ON)
 
 include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
 CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
-CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
-
-
-CPMAddPackage(
-  NAME fmt
-  GIT_TAG 11.1.4
-  GITHUB_REPOSITORY fmtlib/fmt
-  OPTIONS "FMT_INSTALL YES" # create an installable target
-)
 
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.15.1
+  VERSION 1.12.0
   OPTIONS "SPDLOG_FMT_EXTERNAL 1"
           "SPDLOG_INSTALL YES" # create an installable target
 )
@@ -64,8 +55,8 @@ CPMAddPackage(
 #
 #
 
-set(CCACHE YES)
-# set(USE_STATIC_ANALYZER clang-tidy)
+#set(CCACHE YES)
+#set(USE_STATIC_ANALYZER clang-tidy)
 include(cmake/tools.cmake)
 
 
@@ -104,7 +95,6 @@ target_compile_options(
 
 # Link dependencies
 
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
@@ -152,5 +142,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "fmt 11.1.4; spdlog 1.15.1; strong_type 15; daw 3.30.2"
+  DEPENDENCIES "spdlog 1.12.0; strong_type 15; daw 3.30.2"
 )
