@@ -93,7 +93,7 @@ struct GetArrayIndex : InputTraits
           }
         }
       } else {
-        const auto str = fmt::format(
+        const auto str = std::format(
             "can't create table or index for {} and {}", fname, name);
 
         SPDLOG_CRITICAL(str);
@@ -120,7 +120,7 @@ struct GetArrayIndex : InputTraits
         }
       } else {
         const auto str =
-            fmt::format("can't find element {} in table {}", fname, name);
+            std::format("can't find element {} in table {}", fname, name);
         SPDLOG_CRITICAL(str);
         throw std::runtime_error(str);
       }

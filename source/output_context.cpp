@@ -152,7 +152,7 @@ inline auto parquet_write_table(const auto& fpath,
                                       1024 * 1024,  // NOLINT
                                       props);
   if (!status.ok()) {
-    const auto msg = fmt::format("can' t write to file {}", fpath.string());
+    const auto msg = std::format("can' t write to file {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
@@ -171,7 +171,7 @@ inline auto csv_write_table(const auto& fpath,
   const auto write_options = arrow::csv::WriteOptions::Defaults();
   status = WriteCSV(*table.get(), write_options, output.get());
   if (!status.ok()) {
-    const auto msg = fmt::format("can' t write to file {}", fpath.string());
+    const auto msg = std::format("can' t write to file {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
@@ -236,7 +236,7 @@ void OutputContext::write() const
         [&]
         {
           if (!write_table(fmt, path, table, zfmt).ok()) {
-            const auto msg = fmt::format("can't write file {}", path.string());
+            const auto msg = std::format("can't write file {}", path.string());
             throw std::runtime_error(msg);
           }
         });

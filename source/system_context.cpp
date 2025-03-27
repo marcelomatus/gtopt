@@ -3,8 +3,10 @@
 #include <range/v3/view/all.hpp>
 #include <range/v3/view/filter.hpp>
 
-namespace gtopt
+namespace
 {
+using namespace gtopt;
+
 template<typename Index, typename Container>
 constexpr auto active_indices(const Container& container)
 {
@@ -49,17 +51,102 @@ auto active_stage_block_indices(const Stage& stages)
   return indices;
 }
 
-const SystemOptionsLP& SystemContext::options() const
-{
-  return system().options();
-}
-
 constexpr auto cost_factor(const auto p_scale_obj,
                            const auto p_probability_factor,
                            const auto p_discount_factor,
                            const auto p_duration)
 {
   return p_probability_factor * p_discount_factor * p_duration / p_scale_obj;
+}
+
+template<typename SystemContext, typename Operation = decltype(true_fnc)>
+constexpr STBUids make_stb_uids(const SystemContext& sc,
+                                Operation op = true_fnc)
+{
+  const auto size = sc.get_scenery_size() * sc.get_block_size();
+  std::vector<Uid> scenery_uids;
+  scenery_uids.reserve(size);
+  std::vector<Uid> stage_uids;
+  stage_uids.reserve(size);
+  std::vector<Uid> block_uids;
+  block_uids.reserve(size);
+
+  for (auto&& scenery : sc.system().sceneries() | ranges::views::filter(op)) {
+    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+      for (auto&& block : stage.blocks()) {
+        scenery_uids.push_back(scenery.uid());
+        stage_uids.push_back(stage.uid());
+        block_uids.push_back(block.uid());
+      }
+    }
+  }
+
+  scenery_uids.shrink_to_fit();
+  stage_uids.shrink_to_fit();
+  block_uids.shrink_to_fit();
+
+  return {scenery_uids, stage_uids, block_uids};
+}
+
+template<typename SystemContext, typename Operation = decltype(true_fnc)>
+constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
+{
+  const auto size = sc.get_scenery_size() * sc.get_stage_size();
+  std::vector<Uid> scenery_uids;
+  scenery_uids.reserve(size);
+  std::vector<Uid> stage_uids;
+  stage_uids.reserve(size);
+
+  for (auto&& scenery : sc.system().sceneries() | ranges::views::filter(op)) {
+    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+      scenery_uids.push_back(scenery.uid());
+      stage_uids.push_back(stage.uid());
+    }
+  }
+
+  scenery_uids.shrink_to_fit();
+  stage_uids.shrink_to_fit();
+
+  return {scenery_uids, stage_uids};
+}
+
+template<typename SystemContext, typename Operation = decltype(true_fnc)>
+constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
+{
+  const auto size = sc.get_stage_size();
+  std::vector<Uid> stage_uids;
+  stage_uids.reserve(size);
+
+  for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+    stage_uids.push_back(stage.uid());
+  }
+
+  stage_uids.shrink_to_fit();
+
+  return stage_uids;
+}
+
+constexpr auto stage_factors(auto&& stages)
+{
+  std::vector<double> factors(stages.size(), 1.0);
+
+  double discount_factor = 1.0;
+  for (auto&& [ti, st] : enumerate_active(stages)) {
+    factors[ti] = discount_factor;
+    discount_factor *= st.discount_factor();
+  }
+
+  return factors;
+}
+
+}  // namespace
+
+namespace gtopt
+{
+
+const SystemOptionsLP& SystemContext::options() const
+{
+  return system().options();
 }
 
 double SystemContext::block_cost(const BlockLP& block, const double cost) const
@@ -122,35 +209,6 @@ auto SystemContext::stage_cost_factors() const -> std::vector<double>
   return factors;
 }
 
-template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr STBUids make_stb_uids(const SystemContext& sc,
-                                Operation op = true_fnc)
-{
-  const auto size = sc.get_scenery_size() * sc.get_block_size();
-  std::vector<Uid> scenery_uids;
-  scenery_uids.reserve(size);
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
-  std::vector<Uid> block_uids;
-  block_uids.reserve(size);
-
-  for (auto&& scenery : sc.system().sceneries() | ranges::views::filter(op)) {
-    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
-      for (auto&& block : stage.blocks()) {
-        scenery_uids.push_back(scenery.uid());
-        stage_uids.push_back(stage.uid());
-        block_uids.push_back(block.uid());
-      }
-    }
-  }
-
-  scenery_uids.shrink_to_fit();
-  stage_uids.shrink_to_fit();
-  block_uids.shrink_to_fit();
-
-  return {scenery_uids, stage_uids, block_uids};
-}
-
 auto SystemContext::stb_active_uids() const -> STBUids
 {
   return make_stb_uids(*this, active_fnc);
@@ -159,28 +217,6 @@ auto SystemContext::stb_active_uids() const -> STBUids
 auto SystemContext::stb_uids() const -> STBUids
 {
   return make_stb_uids(*this);
-}
-
-template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
-{
-  const auto size = sc.get_scenery_size() * sc.get_stage_size();
-  std::vector<Uid> scenery_uids;
-  scenery_uids.reserve(size);
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
-
-  for (auto&& scenery : sc.system().sceneries() | ranges::views::filter(op)) {
-    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
-      scenery_uids.push_back(scenery.uid());
-      stage_uids.push_back(stage.uid());
-    }
-  }
-
-  scenery_uids.shrink_to_fit();
-  stage_uids.shrink_to_fit();
-
-  return {scenery_uids, stage_uids};
 }
 
 auto SystemContext::st_active_uids() const -> STUids
@@ -193,22 +229,6 @@ auto SystemContext::st_uids() const -> STUids
   return make_st_uids(*this);
 }
 
-template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
-{
-  const auto size = sc.get_stage_size();
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
-
-  for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
-    stage_uids.push_back(stage.uid());
-  }
-
-  stage_uids.shrink_to_fit();
-
-  return stage_uids;
-}
-
 auto SystemContext::t_active_uids() const -> TUids
 {
   return make_t_uids(*this, active_fnc);
@@ -217,19 +237,6 @@ auto SystemContext::t_active_uids() const -> TUids
 auto SystemContext::t_uids() const -> TUids
 {
   return make_t_uids(*this);
-}
-
-constexpr auto stage_factors(auto&& stages)
-{
-  std::vector<double> factors(stages.size(), 1.0);
-
-  double discount_factor = 1.0;
-  for (auto&& [ti, st] : enumerate_active(stages)) {
-    factors[ti] = discount_factor;
-    discount_factor *= st.discount_factor();
-  }
-
-  return factors;
 }
 
 SystemContext::SystemContext(SystemLP& psystem)

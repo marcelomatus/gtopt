@@ -40,8 +40,8 @@ using jvtl_IntBoolFieldSched =
                            json_link_no_name<std::vector<IntBool>>,
                            FileSched>;
 
-using ActiveFieldSched = gtopt::ActiveFieldSched;
-using OptActiveFieldSched = gtopt::OptActiveFieldSched;
-using jvtl_ActiveFieldSched = jvtl_IntBoolFieldSched;
+using Active = gtopt::Active;
+using OptActive = gtopt::OptActive;
+using jvtl_Active = jvtl_IntBoolFieldSched;
 
 }  // namespace daw::json

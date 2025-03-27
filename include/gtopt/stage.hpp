@@ -1,3 +1,13 @@
+/**
+ * @file      stage.hpp
+ * @brief     Header of
+ * @date      Wed Mar 26 12:11:10 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <optional>

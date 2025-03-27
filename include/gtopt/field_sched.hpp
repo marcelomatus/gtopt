@@ -33,7 +33,7 @@ using OptBoolFieldSched = std::optional<BoolFieldSched>;
 using IntBoolFieldSched = FieldSched<IntBool>;
 using OptIntBoolFieldSched = std::optional<IntBoolFieldSched>;
 
-using ActiveFieldSched = IntBoolFieldSched;
-using OptActiveFieldSched = OptIntBoolFieldSched;
+using Active = IntBoolFieldSched;
+using OptActive = OptIntBoolFieldSched;
 
 }  // namespace gtopt

@@ -34,7 +34,7 @@ struct SystemOptions
   OptBool use_lp_names {};
   OptBool use_uid_fname {};
 
-  SystemOptions& merge(SystemOptions&& sys);
+  SystemOptions& merge(SystemOptions& sys);
 };
 
 }  // namespace gtopt

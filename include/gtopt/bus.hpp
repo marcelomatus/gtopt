@@ -21,13 +21,11 @@ struct Bus
   Uid uid {};
   Name name {};
 
-  OptActiveFieldSched active {};
+  OptActive active {};
 
   OptReal voltage {};
   OptReal reference_theta {};
-  OptBool skip_kirchhoff {};
-
-  // OptActiveSchedule active_sched {};
+  OptBool use_kirchhoff {};
 };
 
 }  // namespace gtopt

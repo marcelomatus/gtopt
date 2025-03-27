@@ -9,10 +9,10 @@
  */
 
 #include <filesystem>
+#include <format>
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
-#include <fmt/format.h>
 #include <gtopt/input_context.hpp>
 #include <parquet/arrow/reader.h>
 
@@ -80,14 +80,14 @@ inline auto parquet_read_table(auto&& fpath) -> ArrowTable
   GTOPT_ARROW_ASSING_OR_RAISE(
       input,
       arrow::io::ReadableFile::Open(filename),
-      fmt::format("arrow can't open file {}", filename));
+      std::format("arrow can't open file {}", filename));
 
   auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
   GTOPT_ARROW_ASSING_OR_RAISE(
       reader,
       parquet::arrow::OpenFile(input, pool),
-      fmt::format("parquet can't read file {}", filename));
+      std::format("parquet can't read file {}", filename));
 
   ArrowTable table;
   arrow::Status st = reader->ReadTable(&table);
@@ -143,7 +143,7 @@ auto InputTraits::read_table(const SystemContext& sc,
   }
 
   if (!table) {
-    const auto msg = fmt::format(
+    const auto msg = std::format(
         "can't read table with class '{}' and field '{}'", cname, fname);
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);

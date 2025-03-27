@@ -1,14 +1,24 @@
+/**
+ * @file      stage_lp.hpp
+ * @brief     Header of
+ * @date      Wed Mar 26 12:10:25 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <functional>
 #include <numeric>
 #include <span>
 
+#include <fmt/core.h>
 #include <gtopt/basic_types.hpp>
+#include <gtopt/block.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/stage.hpp>
-
-#include "gtopt/block.hpp"
 
 namespace gtopt
 {
@@ -32,14 +42,17 @@ public:
       , block_indexes(stage.count_block)
       , span_duration(std::transform_reduce(block_span.begin(),
                                             block_span.end(),
-                                            0.0,
+                                            0,
                                             std::plus(),
                                             [](auto&& b)
                                             { return b.duration(); }))
       , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
                                         span_duration / avg_year_hours))
   {
-    std::ranges::iota(block_indexes, BlockIndex {});
+    std::iota(  // NOLINT
+        block_indexes.begin(),
+        block_indexes.end(),
+        BlockIndex {});
   }
 
   [[nodiscard]] constexpr auto duration() const { return span_duration; }

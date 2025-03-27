@@ -27,7 +27,7 @@ TEST_CASE("Json Bus 1")
   CHECK(bus.name == "CRUCERO");
   CHECK(bus.voltage.has_value() == false);
   CHECK(bus.reference_theta.has_value() == false);
-  CHECK(bus.skip_kirchhoff.has_value() == false);
+  CHECK(bus.use_kirchhoff.has_value() == false);
 }
 
 TEST_CASE("Json Bus 2")
@@ -39,7 +39,7 @@ TEST_CASE("Json Bus 2")
     "name":"CRUCERO",
     "voltage":200,
     "reference_theta":1,
-    "skip_kirchhoff":true,
+    "use_kirchhoff":true,
     })";
 
   Bus bus = daw::json::from_json<Bus>(json_data);
@@ -48,5 +48,5 @@ TEST_CASE("Json Bus 2")
   CHECK(bus.name == "CRUCERO");
   CHECK(bus.voltage.value() == 200);
   CHECK(bus.reference_theta.value() == 1);
-  CHECK(bus.skip_kirchhoff.value() == true);
+  CHECK(bus.use_kirchhoff.value() == true);
 }
