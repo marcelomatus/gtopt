@@ -10,11 +10,11 @@
 
 #pragma once
 
+#include <format>
 #include <functional>
 #include <numeric>
 #include <span>
 
-#include <fmt/core.h>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/block_lp.hpp>

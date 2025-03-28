@@ -1,12 +1,10 @@
 
-
-FIND_LIBRARY(COIN_OSICPX_LIBRARY
+find_library(
+  COIN_OSICPX_LIBRARY
   NAMES OsiCpx libOsiCpx
   HINTS ${COIN_ROOT_DIR}/lib/coin
   HINTS ${COIN_ROOT_DIR}/lib
 )
 
-INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(OSICPX DEFAULT_MSG
-  COIN_OSICPX_LIBRARY
-)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(OSICPX DEFAULT_MSG COIN_OSICPX_LIBRARY)

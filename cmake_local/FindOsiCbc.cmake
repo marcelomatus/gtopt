@@ -1,12 +1,9 @@
-
-FIND_LIBRARY(COIN_OSICBC_LIBRARY
+find_library(
+  COIN_OSICBC_LIBRARY
   NAMES OsiCbc libOsiCbc
   HINTS ${COIN_ROOT_DIR}/lib/coin
   HINTS ${COIN_ROOT_DIR}/lib
 )
 
-INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(OsiCbc DEFAULT_MSG
-  COIN_OSICBC_LIBRARY
-)
-
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(OsiCbc DEFAULT_MSG COIN_OSICBC_LIBRARY)

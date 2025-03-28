@@ -1,14 +1,11 @@
-FIND_LIBRARY(COIN_CBC_LIBRARY
+find_library(
+  COIN_CBC_LIBRARY
   NAMES Cbc libCbc
   HINTS ${COIN_ROOT_DIR}/lib/coin
   HINTS ${COIN_ROOT_DIR}/lib
 )
 
-INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(Cbc DEFAULT_MSG
-  COIN_CBC_LIBRARY
-)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(Cbc DEFAULT_MSG COIN_CBC_LIBRARY)
 
-SET(COIN_CBC_LIBRARIES "${COIN_CBC_LIBRARY}")
-
-
+set(COIN_CBC_LIBRARIES "${COIN_CBC_LIBRARY}")

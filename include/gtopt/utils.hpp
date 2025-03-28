@@ -43,6 +43,11 @@ constexpr auto as_string(const string_convertable auto& arg) -> std::string
 
 constexpr auto&& as_string(std::string&& arg)
 {
+  return std::move(arg);
+}
+
+constexpr auto as_string(std::string arg)
+{
   return arg;
 }
 

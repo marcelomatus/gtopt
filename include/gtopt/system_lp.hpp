@@ -3,7 +3,6 @@
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/input_context.hpp>
-#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/scenery_lp.hpp>

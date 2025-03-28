@@ -15,6 +15,8 @@
 #include <string_view>
 #include <vector>
 
+#include "strong_type/formattable.hpp"
+
 #define STRONG_HAS_FMT_FORMAT 1
 #include <strong_type/strong_type.hpp>
 
@@ -61,6 +63,7 @@ using Array = std::vector<Type>;
 template<typename Type>
 using StrongUidType = strong::type<uid_t,
                                    Type,
+                                   strong::formattable,
                                    strong::regular,
                                    strong::hashable,
                                    strong::arithmetic,
@@ -69,6 +72,7 @@ using StrongUidType = strong::type<uid_t,
 template<typename Type>
 using StrongIndexType = strong::type<size_t,
                                      Type,
+                                     strong::formattable,
                                      strong::regular,
                                      strong::hashable,
                                      strong::arithmetic,

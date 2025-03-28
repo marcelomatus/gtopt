@@ -1,14 +1,11 @@
-FIND_LIBRARY(COIN_CLP_LIBRARY
+find_library(
+  COIN_CLP_LIBRARY
   NAMES Clp libClp
   HINTS ${COIN_ROOT_DIR}/lib/coin
   HINTS ${COIN_ROOT_DIR}/lib
 )
 
-INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(Clp DEFAULT_MSG
-  COIN_CLP_LIBRARY
-)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(Clp DEFAULT_MSG COIN_CLP_LIBRARY)
 
-SET(COIN_CLP_LIBRARIES "${COIN_CLP_LIBRARY}")
-
-
+set(COIN_CLP_LIBRARIES "${COIN_CLP_LIBRARY}")

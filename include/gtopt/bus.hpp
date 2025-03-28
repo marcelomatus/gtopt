@@ -16,16 +16,30 @@
 namespace gtopt
 {
 
+struct BusAttrs
+{
+#define GTOPT_BUS_ATTRS \
+  OptReal voltage {}; \
+  OptReal reference_theta {}; \
+  OptBool use_kirchhoff {}
+
+  GTOPT_BUS_ATTRS;
+};
+
 struct Bus
 {
   Uid uid {};
   Name name {};
-
   OptActive active {};
 
-  OptReal voltage {};
-  OptReal reference_theta {};
-  OptBool use_kirchhoff {};
+  GTOPT_BUS_ATTRS;
+
+  [[nodiscard]] auto id() const -> Id { return {uid, name}; }
+
+  [[nodiscard]] constexpr bool needs_kirchhoff(const double v_threshold) const
+  {
+    return use_kirchhoff.value_or(true) && voltage.value_or(1) > v_threshold;
+  }
 };
 
 }  // namespace gtopt
