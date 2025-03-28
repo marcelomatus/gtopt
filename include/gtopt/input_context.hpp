@@ -10,10 +10,10 @@
 
 #pragma once
 
+#include <format>
 #include <stdexcept>
 #include <utility>
 
-#include <fmt/core.h>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
@@ -27,8 +27,6 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
-
-// #include "system_context.hpp"
 
 namespace gtopt
 {
@@ -150,11 +148,8 @@ struct GetArrayIndex<Map, std::optional<FieldSched>, Index...> : InputTraits
   }
 };
 
-template<typename SystemContextType,
-         typename Map,
-         typename FieldSched,
-         typename... Index>
-constexpr static auto make_array_index(const SystemContextType& sc,
+template<typename Map, typename FieldSched, typename... Index>
+constexpr static auto make_array_index(const SystemContext& sc,
                                        const std::string_view& ClassName,
                                        Map& array_table_map,
                                        const FieldSched& sched,
