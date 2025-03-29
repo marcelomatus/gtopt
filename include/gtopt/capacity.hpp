@@ -34,19 +34,24 @@ struct CapacityId
 
 struct CapacityAttrs
 {
-  TRealFieldSched capacity {};
-  OptTRealFieldSched expcap {};
-  OptTRealFieldSched expmod {};
-  OptTRealFieldSched capmax {};
-  OptTRealFieldSched annual_capcost {};
-  OptTRealFieldSched annual_derating {};
+#define GTOPT_CAPACITY_ATTRS \
+  OptTRealFieldSched capacity {}; \
+  OptTRealFieldSched expcap {}; \
+  OptTRealFieldSched expmod {}; \
+  OptTRealFieldSched capmax {}; \
+  OptTRealFieldSched annual_capcost {}; \
+  OptTRealFieldSched annual_derating {}
+
+  GTOPT_CAPACITY_ATTRS;
 };
 
-struct Capacity : CapacityAttrs
+struct Capacity
 {
   Uid uid {};
   Name name {};
   OptActive active {};
+
+  GTOPT_CAPACITY_ATTRS;
 
   [[nodiscard]] auto id() const -> Id { return {uid, name}; }
 };

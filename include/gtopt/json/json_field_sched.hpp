@@ -44,4 +44,31 @@ using Active = gtopt::Active;
 using OptActive = gtopt::OptActive;
 using jvtl_Active = jvtl_IntBoolFieldSched;
 
+using TBRealFieldSched = gtopt::TBRealFieldSched;
+using OptTBRealFieldSched = gtopt::OptTBRealFieldSched;
+
+using jvtl_RealFieldSched1 = jvtl_RealFieldSched;
+
+using jvtl_RealFieldSched2 =
+    json_variant_type_list<Real,
+                           json_link_no_name<std::vector<std::vector<Real>>>,
+                           FileSched>;
+
+using jvtl_RealFieldSched3 = json_variant_type_list<
+    Real,
+    json_link_no_name<std::vector<std::vector<std::vector<Real>>>>,
+    FileSched>;
+
+using jvtl_TBRealFieldSched = jvtl_RealFieldSched2;
+using jvtl_STBRealFieldSched = jvtl_RealFieldSched3;
+using jvtl_TRealFieldSched = jvtl_RealFieldSched1;
+
+using gtopt::OptRealFieldSched2;
+using gtopt::OptRealFieldSched3;
+
+using OptTRealFieldSched = OptRealFieldSched;
+using OptTBRealFieldSched = OptRealFieldSched2;
+using OptSTRealFieldSched = OptRealFieldSched2;
+using OptSTBRealFieldSched = OptRealFieldSched3;
+
 }  // namespace daw::json
