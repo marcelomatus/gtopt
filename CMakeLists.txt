@@ -53,7 +53,8 @@ CPMAddPackage(
 
 #
 
-# set(CCACHE YES) set(USE_STATIC_ANALYZER clang-tidy)
+set(CCACHE YES)
+# set(USE_STATIC_ANALYZER clang-tidy)
 include(cmake/tools.cmake)
 
 # ---- Add source files ----

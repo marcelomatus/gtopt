@@ -17,18 +17,17 @@ namespace gtopt
 {
 
 struct CapacityId
-
 {
   using object_type = struct Capacity;
   OptUid uid;
   OptName name;
 
   template<typename Class = class CapacityLP>
-  constexpr auto sid() const
+  [[nodiscard]] constexpr auto sid() const
   {
-    return ObjectSingleId<Class>  //
-        {uid.has_value() ? SingleId {uid.value()}
-                         : SingleId {name.value_or(Name {})}};
+    return ObjectSingleId<Class> {uid.has_value()
+                                      ? SingleId {uid.value()}
+                                      : SingleId {name.value_or(Name {})}};
   }
 };
 
@@ -52,8 +51,6 @@ struct Capacity
   OptActive active {};
 
   GTOPT_CAPACITY_ATTRS;
-
-  [[nodiscard]] auto id() const -> Id { return {uid, name}; }
 };
 
 using CapacityValue = std::variant<Real, CapacityId>;

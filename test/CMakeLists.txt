@@ -8,7 +8,7 @@ option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 
 # --- Import tools ----
-
+set(CCACHE YES)
 include(../cmake/tools.cmake)
 
 # ---- Dependencies ----

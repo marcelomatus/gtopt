@@ -34,8 +34,6 @@ struct Bus
 
   GTOPT_BUS_ATTRS;
 
-  [[nodiscard]] auto id() const -> Id { return {uid, name}; }
-
   [[nodiscard]] constexpr bool needs_kirchhoff(const double v_threshold) const
   {
     return use_kirchhoff.value_or(true) && voltage.value_or(1) > v_threshold;

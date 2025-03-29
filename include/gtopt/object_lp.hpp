@@ -11,6 +11,12 @@ class OutputContext;
 class SystemContext;
 class LinearProblem;
 
+template<typename Obj>
+auto id(const Obj& obj) -> Id
+{
+  return {obj.uid, obj.name};
+}
+
 template<typename Object>
 class ObjectLP
 {
@@ -36,7 +42,7 @@ public:
   }
 
   constexpr auto uid() const { return m_object_.uid; }
-  auto id() const { return m_object_.id(); }
+  auto id() const { return gtopt::id(m_object_); }
 
   constexpr auto is_active(const StageIndex stage_index) const
   {
