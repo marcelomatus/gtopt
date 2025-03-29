@@ -36,8 +36,6 @@ struct Demand
   OptActive active {};
 
   GTOPT_DEMAND_ATTRS;
-
-  [[nodiscard]] auto id() const -> Id { return {uid, name}; }
 };
 
 using DemandVar = std::variant<Uid, Name, DemandAttrs>;
