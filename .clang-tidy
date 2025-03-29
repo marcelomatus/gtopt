@@ -24,7 +24,7 @@ Checks: "*,\
 #  -modernize-use-nodiscard,\
   -readability-magic-numbers,\
   -readability-function-cognitive-complexity,\
-#  -cppcoreguidelines-avoid-magic-numbers,\
+  -cppcoreguidelines-avoid-magic-numbers,\
 #  -clang-analyzer-core.uninitialized.UndefReturn,\
 #  -constexpr_local_var_non_literal_type,\
   -misc-non-private-member-variables-in-classes"

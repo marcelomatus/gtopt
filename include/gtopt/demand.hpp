@@ -10,33 +10,32 @@
 
 #pragma once
 
-#include <gtopt/field_sched.hpp>
-#include <gtopt/single_id.hpp>
+#include <gtopt/capacity.hpp>
 
 namespace gtopt
 {
+
 struct DemandAttrs
 {
-  SingleId bus {};
-  OptTBRealFieldSched lmax {};
-  OptTRealFieldSched lossfactor {};
-  OptTRealFieldSched fcost {};
-  OptTRealFieldSched emin {};
-  OptTRealFieldSched ecost {};
+#define GTOPT_DEMAND_ATTRS \
+  SingleId bus {}; \
+  OptTBRealFieldSched lmax {}; \
+  OptTRealFieldSched lossfactor {}; \
+  OptTRealFieldSched fcost {}; \
+  OptTRealFieldSched emin {}; \
+  OptTRealFieldSched ecost {}; \
+  GTOPT_CAPACITY_ATTRS
 
-  OptTRealFieldSched capacity {};
-  OptTRealFieldSched expcap {};
-  OptTRealFieldSched expmod {};
-  OptTRealFieldSched capmax {};
-  OptTRealFieldSched annual_capcost {};
-  OptTRealFieldSched annual_derating {};
+  GTOPT_DEMAND_ATTRS;
 };
 
-struct Demand : DemandAttrs
+struct Demand
 {
   Uid uid {};
   Name name {};
   OptActive active {};
+
+  GTOPT_DEMAND_ATTRS;
 
   [[nodiscard]] auto id() const -> Id { return {uid, name}; }
 };
