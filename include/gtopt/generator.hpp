@@ -1,8 +1,16 @@
+/**
+ * @file      generator.hpp
+ * @brief     Header of
+ * @date      Sat Mar 29 11:52:29 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
-#include <gtopt/bus.hpp>
 #include <gtopt/capacity.hpp>
-#include <gtopt/single_id.hpp>
 
 namespace gtopt
 {
@@ -14,19 +22,17 @@ struct GeneratorAttrs
   OptTBRealFieldSched pmin {}; \
   OptTBRealFieldSched pmax {}; \
   OptTRealFieldSched lossfactor {}; \
-  OptTRealFieldSched gcost {}; \
-  GTOPT_CAPACITY_ATTRS
+  OptTRealFieldSched gcost {}
 
   GTOPT_GENERATOR_ATTRS;
+  GTOPT_CAPACITY_ATTRS;
 };
 
 struct Generator
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
-
+  GTOPT_OBJECT_ATTRS;
   GTOPT_GENERATOR_ATTRS;
+  GTOPT_CAPACITY_ATTRS;
 };
 
 using GeneratorVar = std::variant<Uid, Name, GeneratorAttrs>;

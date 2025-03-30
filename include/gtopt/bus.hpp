@@ -10,8 +10,7 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
-#include <gtopt/field_sched.hpp>
+#include <gtopt/object.hpp>
 
 namespace gtopt
 {
@@ -28,10 +27,7 @@ struct BusAttrs
 
 struct Bus
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
-
+  GTOPT_OBJECT_ATTRS;
   GTOPT_BUS_ATTRS;
 
   [[nodiscard]] constexpr bool needs_kirchhoff(const double v_threshold) const

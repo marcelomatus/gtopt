@@ -6,20 +6,20 @@ project(GtoptTests LANGUAGES CXX)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
+option(USE_CCACHE "use ccache" YES)
 
 # --- Import tools ----
-set(CCACHE YES)
+
 include(../cmake/tools.cmake)
+option(USE_CCACHE "use ccache" YES)
 
 # ---- Dependencies ----
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` before downloading dependencies"
-       ON
-)
 
 include(../cmake/CPM.cmake)
 
 CPMAddPackage("gh:doctest/doctest@2.4.11")
-CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
+
 CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
 
 if(TEST_INSTALLED_VERSION)
@@ -37,12 +37,13 @@ file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp
 add_executable(${PROJECT_NAME} ${sources})
 target_link_libraries(${PROJECT_NAME} doctest::doctest Gtopt::Gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    # target_compile_options(Gtopt PUBLIC -Wall -Wpedantic -Wextra -Werror)
-    target_compile_options(Gtopt PUBLIC -Wall -Wpedantic -Wextra)
+    target_compile_options(Gtopt PUBLIC -Wall -Wpedantic -Wextra -Werror)
   elseif(MSVC)
     target_compile_options(Gtopt PUBLIC /W4 /WX)
     target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)

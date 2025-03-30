@@ -10,26 +10,10 @@
 
 #pragma once
 
-#include <gtopt/field_sched.hpp>
-#include <gtopt/single_id.hpp>
+#include <gtopt/object.hpp>
 
 namespace gtopt
 {
-
-struct CapacityId
-{
-  using object_type = struct Capacity;
-  OptUid uid;
-  OptName name;
-
-  template<typename Class = class CapacityLP>
-  [[nodiscard]] constexpr auto sid() const
-  {
-    return ObjectSingleId<Class> {uid.has_value()
-                                      ? SingleId {uid.value()}
-                                      : SingleId {name.value_or(Name {})}};
-  }
-};
 
 struct CapacityAttrs
 {
@@ -44,16 +28,10 @@ struct CapacityAttrs
   GTOPT_CAPACITY_ATTRS;
 };
 
-struct Capacity
+struct Capacity : Object
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
-
+  GTOPT_OBJECT_ATTRS;
   GTOPT_CAPACITY_ATTRS;
 };
-
-using CapacityValue = std::variant<Real, CapacityId>;
-using OptCapacityValue = std::optional<CapacityValue>;
 
 }  // namespace gtopt

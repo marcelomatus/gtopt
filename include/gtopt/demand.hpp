@@ -23,22 +23,17 @@ struct DemandAttrs
   OptTRealFieldSched lossfactor {}; \
   OptTRealFieldSched fcost {}; \
   OptTRealFieldSched emin {}; \
-  OptTRealFieldSched ecost {}; \
-  GTOPT_CAPACITY_ATTRS
+  OptTRealFieldSched ecost {}
 
   GTOPT_DEMAND_ATTRS;
+  GTOPT_CAPACITY_ATTRS;
 };
 
 struct Demand
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
-
+  GTOPT_OBJECT_ATTRS;
   GTOPT_DEMAND_ATTRS;
+  GTOPT_CAPACITY_ATTRS;
 };
-
-using DemandVar = std::variant<Uid, Name, DemandAttrs>;
-using OptDemandVar = std::optional<DemandVar>;
 
 }  // namespace gtopt

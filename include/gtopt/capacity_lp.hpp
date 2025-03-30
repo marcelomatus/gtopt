@@ -72,7 +72,7 @@ public:
   }
 
 private:
-  TRealSched capacity;
+  OptTRealSched capacity;
   OptTRealSched expcap;
   OptTRealSched capmax;
   OptTRealSched annual_capcost;

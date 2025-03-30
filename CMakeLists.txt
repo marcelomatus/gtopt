@@ -20,21 +20,27 @@ endif()
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
 
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` before downloading dependencies"
-       ON
-)
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
 
 include(cmake/CPM.cmake)
 
+# option(USE_STATIC_ANALYZER "static analyzer" clang-tidy)
+include(cmake/tools.cmake)
+
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
+
 CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
+option(USE_CCACHE "use ccache" YES)
+
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
+
+CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.15.1
+  VERSION 1.12.0
   OPTIONS "SPDLOG_FMT_EXTERNAL 1"
           "SPDLOG_INSTALL YES" # create an installable target
 )
@@ -51,11 +57,6 @@ CPMAddPackage(
   VERSION 15
 )
 
-#
-
-set(CCACHE YES)
-# set(USE_STATIC_ANALYZER clang-tidy)
-include(cmake/tools.cmake)
 
 # ---- Add source files ----
 
@@ -95,6 +96,7 @@ target_compile_options(
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
+target_link_libraries(${PROJECT_NAME} PUBLIC range-v3::range-v3)
 
 # find_package(range-v3 REQUIRED) target_link_libraries(${PROJECT_NAME} PRIVATE
 # range-v3::range-v3)
@@ -109,8 +111,10 @@ set(COIN_ROOT_DIR
     CACHE PATH "Coinor root directory"
 )
 include(cmake_local/Solver.cmake)
+
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
 target_link_libraries(
-  ${PROJECT_NAME} PRIVATE "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
+  ${PROJECT_NAME} PUBLIC "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
 find_package(Arrow REQUIRED)
