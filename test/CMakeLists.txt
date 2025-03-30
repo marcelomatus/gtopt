@@ -11,6 +11,9 @@ option(USE_CCACHE "use ccache" YES)
 
 # --- Import tools ----
 
+#set(USE_STATIC_ANALYZER "cppcheck")
+set(USE_CCACHE YES)
+
 include(../cmake/tools.cmake)
 option(USE_CCACHE "use ccache" YES)
 

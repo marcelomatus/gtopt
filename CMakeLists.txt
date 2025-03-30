@@ -22,10 +22,12 @@ endif()
 
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
 
-include(cmake/CPM.cmake)
 
-# option(USE_STATIC_ANALYZER "static analyzer" clang-tidy)
+#set(USE_STATIC_ANALYZER "cppcheck")
+set(USE_CCACHE YES)
 include(cmake/tools.cmake)
+
+include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
@@ -129,11 +131,10 @@ target_include_directories(
          $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
 
-find_package(Boost REQUIRED COMPONENTS program_options container serialization)
+find_package(Boost REQUIRED COMPONENTS container serialization)
 include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 target_link_libraries(
-  ${PROJECT_NAME} PRIVATE Boost::program_options Boost::container
-                          Boost::serialization
+  ${PROJECT_NAME} PUBLIC Boost::container Boost::serialization
 )
 
 # ---- Create an installable target ----
