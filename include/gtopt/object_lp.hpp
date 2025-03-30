@@ -2,6 +2,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/object.hpp>
 #include <gtopt/schedule.hpp>
 
 namespace gtopt
@@ -11,25 +12,19 @@ class OutputContext;
 class SystemContext;
 class LinearProblem;
 
-template<typename Obj>
-auto id(const Obj& obj) -> Id
-{
-  return {obj.uid, obj.name};
-}
-
-template<typename Object>
+template<typename ObjectType>
 class ObjectLP
 {
-  Object m_object_;
+  ObjectType m_object_;
   ActiveSched active;
 
 public:
-  using object_type = Object;
+  using object_type = ObjectType;
 
   explicit ObjectLP(const InputContext& /*ic*/,
                     const std::string_view& /*ClassName*/,
-                    Object&& pobject)
-      : m_object_(std::forward<Object>(pobject))
+                    ObjectType&& pobject)
+      : m_object_(std::move(pobject))
       , active(m_object_.active.value_or(True))
   {
   }
@@ -42,7 +37,7 @@ public:
   }
 
   constexpr auto uid() const { return m_object_.uid; }
-  auto id() const { return gtopt::id(m_object_); }
+  constexpr auto id() const { return gtopt::id(m_object_); }
 
   constexpr auto is_active(const StageIndex stage_index) const
   {

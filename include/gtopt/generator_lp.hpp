@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>

@@ -1,10 +1,16 @@
-#include <optional>
+/**
+ * @file      capacity_lp.cpp
+ * @brief     Header of
+ * @date      Sat Mar 29 18:43:24 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
-#include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/system_lp.hpp>
 
 namespace gtopt
 {
@@ -52,7 +58,7 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
   SparseRow capacity_row {.name = sc.t_label(cname, "capcity", uid())};
   SparseRow capacost_row {.name = sc.t_label(cname, "capcost", uid())};
 
-  const auto capacity_lb = stage_capacity;
+  const auto capacity_lb = stage_capacity.value_or(0.0);
   const auto capacity_ub = stage_capmax.has_value()
       ? stage_capmax.value()
       : stage_maxexpcap + capacity_lb;
@@ -90,7 +96,8 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
     capacost_row[prev_capacost_col.value()] = -1;
   }
 
-  const auto delta_capacity = prev_stage_capacity - stage_capacity;
+  const auto delta_capacity =
+      prev_stage_capacity.value_or(0.0) - stage_capacity.value_or(0.0);
 
   capacity_rows[stage_index] =
       lp.add_row(std::move(capacity_row.equal(delta_capacity)));

@@ -8,6 +8,7 @@
 
 namespace gtopt
 {
+
 GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
     : CapacityBase(ic, ClassName, std::move(pgenerator))
     , pmin(ic, ClassName, id(), std::move(generator().pmin))

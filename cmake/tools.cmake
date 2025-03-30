@@ -2,8 +2,6 @@
 # each tool is enabled during configuration by passing an additional
 # `-DUSE_<TOOL>=<VALUE>` argument to CMake
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 # only activate tools for top level project
 if(NOT PROJECT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
   return()

@@ -1,8 +1,24 @@
+/**
+ * @file      system_lp.hpp
+ * @brief     Header of
+ * @date      Sat Mar 29 19:16:40 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
+
+#include <tuple>
+#include <vector>
 
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/collection.hpp>
+#include <gtopt/demand_lp.hpp>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/input_context.hpp>
+#include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/scenery_lp.hpp>
@@ -93,6 +109,7 @@ private:
   System m_system_;
 
   SystemOptionsLP m_options_;
+
   std::vector<BlockLP> m_blocks_;
   std::vector<StageLP> m_stages_;
   std::vector<SceneryLP> m_sceneries_;
@@ -100,7 +117,11 @@ private:
   SystemContext sc;
   InputContext ic;
 
-  std::tuple<Collection<BusLP>> m_collections_;
+  std::tuple<Collection<BusLP>,
+             Collection<DemandLP>,
+             Collection<GeneratorLP>,
+             Collection<LineLP>>
+      m_collections_;
 };
 
 }  // namespace gtopt
