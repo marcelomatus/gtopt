@@ -57,10 +57,10 @@ public:
 
   explicit SystemLP(System&& psystem = {});
 
-  constexpr auto&& sceneries() const { return m_sceneries_; }
-  constexpr auto&& stages() const { return m_stages_; }
-  constexpr auto&& blocks() const { return m_blocks_; }
-  constexpr auto&& options() const { return m_options_; }
+  constexpr const auto& sceneries() const { return m_sceneries_; }
+  constexpr const auto& stages() const { return m_stages_; }
+  constexpr const auto& blocks() const { return m_blocks_; }
+  constexpr const auto& options() const { return m_options_; }
   auto&& scenery(const SceneryIndex s) const { return sceneries().at(s); }
 
   template<typename Element>

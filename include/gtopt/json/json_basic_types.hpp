@@ -42,4 +42,6 @@ using OptIntBool = gtopt::OptIntBool;
 template<typename Type>
 using Array = gtopt::Array<Type>;
 
+using Size = gtopt::Size;
+
 }  // namespace daw::json

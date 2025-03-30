@@ -33,7 +33,7 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr const auto& bus() const { return object(); }
+  [[nodiscard]] constexpr auto bus() const { return object(); }
 
   [[nodiscard]] constexpr auto reference_theta() const
   {

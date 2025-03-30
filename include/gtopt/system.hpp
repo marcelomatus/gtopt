@@ -37,6 +37,8 @@ struct System
   Array<Demand> demand_array;
   Array<Generator> generator_array;
   Array<Line> line_array;
+
+  System& merge(System& sys);
 };
 
 }  // namespace gtopt
