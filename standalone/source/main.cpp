@@ -9,6 +9,8 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/version.h>
+
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
 #include <spdlog/cfg/argv.h>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
@@ -48,8 +50,8 @@ int Main(const std::vector<std::string>& system_files,
       daw::json::options::UseExactMappingsByDefault::yes>;
 
   const auto strict_parsing = !fast_parsing.value_or(false);
-  if (strict_parsing) {
-    SPDLOG_INFO("using strict json parsing");
+  if (!strict_parsing) {
+    spdlog::info("using fast json parsing");
   }
 
   System system;
@@ -62,10 +64,10 @@ int Main(const std::vector<std::string>& system_files,
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {
-        spdlog::critical("problem reading input file ", system_file);
+        spdlog::critical("problem reading input file {}", system_file);
         return 1;
       }
-      spdlog::info("parsing input file ", fpath.string());
+      spdlog::info("parsing input file {}", fpath.string());
 
       auto&& json_doc = json_result.value();
       try {
@@ -77,7 +79,7 @@ int Main(const std::vector<std::string>& system_files,
           system.merge(sys);
         }
       } catch (daw::json::json_exception const& jex) {
-        spdlog::critical("parsing file '{}' failed, {}",
+        spdlog::critical("parsing file {} failed, {}",
                          fpath.string(),
                          to_formatted_string(jex, json_doc.c_str()));
       } catch (...) {
@@ -85,7 +87,7 @@ int Main(const std::vector<std::string>& system_files,
       }
     }
 
-    spdlog::info(" parsing all json files  {}", sw);
+    spdlog::info("parsing all json files {}", sw);
   }
 
   //
@@ -179,7 +181,7 @@ int Main(const std::vector<std::string>& system_files,
   }
 
   if (just_create.value_or(false)) {
-    spdlog::info("just creating the problem, finishing now");
+    spdlog::info("just creating the problem, exiting now");
     return 0;
   }
 

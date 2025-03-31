@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <format>
 #include <functional>
 #include <numeric>
 #include <span>
