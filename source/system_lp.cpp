@@ -61,7 +61,7 @@ constexpr void system_apply(Collections& collections, SContext& sc, Op op)
     }
   }
 
-  SPDLOG_INFO("successfully visited and applied {} elements", count);
+  SPDLOG_TRACE("successfully visited and applied {} elements", count);
 }
 
 template<typename Out, typename Inp, typename InputContext>

@@ -67,7 +67,7 @@ inline auto csv_read_table(auto&& fpath) -> ArrowTable
   }
 
   ArrowTable table = *maybe_table;
-  SPDLOG_INFO("read table from file {}", filename);
+  SPDLOG_TRACE("read table from file {}", filename);
 
   return table;
 }
@@ -96,7 +96,7 @@ inline auto parquet_read_table(auto&& fpath) -> ArrowTable
     return {};
   }
 
-  SPDLOG_INFO("read table from file {}", filename);
+  SPDLOG_TRACE("read table from file {}", filename);
 
   return table;
 }
@@ -149,7 +149,7 @@ auto InputTraits::read_table(const SystemContext& sc,
     throw std::runtime_error(msg);
   }
 
-  SPDLOG_INFO(
+  SPDLOG_TRACE(
       "successfully loading table for class {} and field {}", cname, fname);
   return table;
 }

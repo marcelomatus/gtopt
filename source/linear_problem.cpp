@@ -64,7 +64,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
         ai.reserve(avg_size);
       }
 
-      SPDLOG_INFO("reserving matrix with avg_size of {}", avg_size);
+      SPDLOG_TRACE("reserving matrix with avg_size of {}", avg_size);
     }
 
     const auto eps = opts.eps;
@@ -179,11 +179,11 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     }
   }
 
-#ifdef GTOPT_INFO_LINEAR_PROBLEM
+#ifdef GTOPT_TRACE_LINEAR_PROBLEM
   {
     const double s_ratio = static_cast<double>(nnzero)
         / static_cast<double>(nrows) / static_cast<double>(ncols);
-    SPDLOG_INFO(
+    SPDLOG_TRACE(
         "flattening lp with "
         " {} constraints, "
         " {} variables, "
