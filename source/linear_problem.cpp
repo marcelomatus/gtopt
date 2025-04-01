@@ -42,7 +42,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 {
   const size_t ncols = get_numcols();
   const size_t nrows = get_numrows();
-  if (ncols == 0 || nrows == 0) {
+  if (ncols == 0 || nrows == 0) [[unlikely]] {
     return {};
   }
 
@@ -68,14 +68,14 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     }
 
     const auto eps = opts.eps;
-    if (eps < 0) {
+    if (eps < 0) [[unlikely]] {
       for (size_t i = 0; i < nrows; ++i) {
         for (auto [j, v] : rows[i].cmap) {
           A[j].emplace(i, v);
           ++nnzero;
         }
       }
-    } else {
+    } else [[likely]] {
       for (size_t i = 0; i < nrows; ++i) {
         for (auto [j, v] : rows[i].cmap) {
           if (v > eps || -v > eps) [[likely]] {  // std::abs(v) > eps
@@ -130,13 +130,13 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
   fp_name_vec_t colnm;
-  if (opts.col_with_names || opts.col_with_name_map) {
+  if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
     colnm.reserve(ncols);
     if (opts.move_names) [[likely]] {
       for (auto& col : cols) {
         colnm.emplace_back(std::move(col.name));
       }
-    } else {
+    } else [[unlikely]] {
       for (auto& col : cols) {
         colnm.emplace_back(col.name);
       }
@@ -144,13 +144,13 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   }
 
   fp_name_vec_t rownm;
-  if (opts.row_with_names || opts.row_with_name_map) {
+  if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
     rownm.reserve(nrows);
     if (opts.move_names) [[likely]] {
       for (auto& row : rows) {
         rownm.emplace_back(std::move(row.name));
       }
-    } else {
+    } else [[unlikely]] {
       for (auto& row : rows) {
         rownm.emplace_back(row.name);
       }
@@ -163,7 +163,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   if (opts.col_with_name_map) [[unlikely]] {
     colmp.reserve(ncols);
     for (fp_index_t i = 0; auto&& name : colnm) {
-      if (!colmp.emplace(name, i++).second) {
+      if (!colmp.emplace(name, i++).second) [[unlikely]] {
         SPDLOG_WARN("repeated column name {}", name);
       }
     }
@@ -173,7 +173,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   if (opts.row_with_name_map) [[unlikely]] {
     rowmp.reserve(nrows);
     for (fp_index_t i = 0; auto&& name : rownm) {
-      if (!rowmp.emplace(name, i++).second) {
+      if (!rowmp.emplace(name, i++).second) [[unlikely]] {
         SPDLOG_WARN("repeated row name {}", name);
       }
     }
