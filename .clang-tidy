@@ -6,11 +6,16 @@ Checks: "*,\
 #  -system-headers,\
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\
-  -altera-*,\
-  -fuchsia-*,\
-  -fuchsia-multiple-inheritance,\
-  -llvm-header-guard,\
-  -llvm-include-order,\
+#  -altera-*,\
+   -altera-unroll-loops,\
+#  -fuchsia-*,\
+#  -fuchsia-multiple-inheritance,\
+   -fuchsia-default-arguments-calls,\
+   -fuchsia-default-arguments-declarations,\
+   -fuchsia-trailing-return,\
+   clang-analyzer-*,\
+#  -llvm-header-guard,\
+#  -llvm-include-order,\
   -llvmlibc-*,\
   -cppcoreguidelines-macro-usage,\
   -google-build-using-namespace,\
@@ -20,7 +25,7 @@ Checks: "*,\
   -modernize-use-trailing-return-type,\
   -bugprone-easily-swappable-parameters,\
   -identifier-naming,\
-  -deduced_class_template_ctor_no_viable,\
+#  -deduced_class_template_ctor_no_viable,\
 #  -modernize-use-nodiscard,\
   -readability-magic-numbers,\
   -readability-function-cognitive-complexity,\

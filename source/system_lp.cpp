@@ -22,7 +22,7 @@ constexpr size_t visit_elements(Collections&& collections, Op op)
         ((rgs::for_each(std::forward<decltype(c)>(c).elements(),
                         [&](auto&& e)
                         {
-                          if (op(e)) {
+                          if (op(e)) [[likely]] {
                             ++count;
                           }
                         })),
@@ -82,7 +82,7 @@ constexpr auto make_collection(InputContext& ic,
                                std::optional<std::vector<Inp>>& input)
     -> Collection<Out>
 {
-  if (input.has_value()) {
+  if (input.has_value()) [[likely]] {
     return make_collection<Out>(ic, input.value());
   }
   return Collection<Out> {};

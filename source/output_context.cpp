@@ -99,10 +99,10 @@ constexpr auto make_field_arrays(auto&& field_vector)
   for (bool first = true;
        auto&& [fname, fvalues, fvalids, prelude] : field_vector)
   {
-    if (fvalues.empty()) {
+    if (fvalues.empty()) [[unlikely]] {
       continue;
     }
-    if (first && prelude) {
+    if (first && prelude) [[likely]] {
       auto&& [pfields, parrays] = *prelude;
       fields = pfields;
       arrays = parrays;
@@ -235,7 +235,7 @@ void OutputContext::write() const
     tasks.emplace_back(
         [&]
         {
-          if (!write_table(fmt, path, table, zfmt).ok()) {
+          if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
             const auto msg = std::format("can't write file {}", path.string());
             throw std::runtime_error(msg);
           }

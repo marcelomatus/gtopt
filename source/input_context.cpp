@@ -24,7 +24,7 @@ using namespace gtopt;
 
 using ArrowTable = std::shared_ptr<arrow::Table>;
 
-inline auto csv_read_table(auto&& fpath) -> ArrowTable
+inline ArrowTable csv_read_table(auto&& fpath)
 {
   const auto filename = fpath.string() + ".csv";
 
@@ -72,7 +72,7 @@ inline auto csv_read_table(auto&& fpath) -> ArrowTable
   return table;
 }
 
-inline auto parquet_read_table(auto&& fpath) -> ArrowTable
+inline ArrowTable parquet_read_table(auto&& fpath)
 {
   const auto filename = fpath.string() + ".parquet";
 
@@ -108,9 +108,9 @@ namespace gtopt
 using ArrowTable = std::shared_ptr<arrow::Table>;
 
 template<>
-auto InputTraits::read_table(const SystemContext& sc,
-                             const std::string_view& cname,
-                             const std::string_view& fname) -> ArrowTable
+ArrowTable InputTraits::read_table(const SystemContext& sc,
+                                   const std::string_view& cname,
+                                   const std::string_view& fname)
 {
   auto fpath = std::filesystem::path(sc.options().input_directory());
 
