@@ -166,7 +166,7 @@ int Main(const std::vector<std::string>& system_files,
     auto flat_lp = linear_problem.to_flat(flat_opts);
     spdlog::info("lp flattening {}", sw);
 
-    lp_interface.load_flat(linear_problem.to_flat(flat_opts));
+    lp_interface.load_flat(flat_lp);
 
     spdlog::info("lp loading {}", sw);
   }
