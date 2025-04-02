@@ -15,11 +15,14 @@
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_generator.hpp>
+#include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_line.hpp>
 #include <gtopt/json/json_scenery.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/json/json_system_options.hpp>
 #include <gtopt/system.hpp>
+
+#include "gtopt/generator_profile.hpp"
 
 namespace daw::json
 {
@@ -39,7 +42,10 @@ struct json_data_contract<System>
       json_array_null<"bus_array", Array<Bus>, Bus>,
       json_array_null<"demand_array", Array<Demand>, Demand>,
       json_array_null<"generator_array", Array<Generator>, Generator>,
-      json_array_null<"line_array", Array<Line>, Line> >;
+      json_array_null<"line_array", Array<Line>, Line>,
+      json_array_null<"generator_profile_array",
+                      Array<GeneratorProfile>,
+                      GeneratorProfile> >;
 
   constexpr static auto to_json_data(System const& system)
   {
@@ -52,7 +58,8 @@ struct json_data_contract<System>
                                  system.bus_array,
                                  system.demand_array,
                                  system.generator_array,
-                                 system.line_array);
+                                 system.line_array,
+                                 system.generator_profile_array);
   }
 };
 

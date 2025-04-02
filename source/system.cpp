@@ -45,10 +45,11 @@ System& System::merge(System& sys)
   append_vector(demand_array, (sys.demand_array));
   append_vector(generator_array, (sys.generator_array));
   append_vector(line_array, (sys.line_array));
+  append_vector(generator_profile_array, (sys.generator_profile_array));
+  append_vector(demand_profile_array, (sys.demand_profile_array));
+  append_vector(battery_array, (sys.battery_array));
 
 #ifdef NONE
-  append_vector(generator_profiles, (sys.generator_profiles));
-  append_vector(demand_profiles, (sys.demand_profiles));
   append_vector(batteries, (sys.batteries));
   append_vector(converters, (sys.converters));
   append_vector(junctions, (sys.junctions));

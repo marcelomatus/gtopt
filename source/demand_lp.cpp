@@ -36,11 +36,11 @@ bool DemandLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   }
 
   const auto stage_index = sc.stage_index();
-  if (!is_active(stage_index)) {
+  if (!is_active(stage_index)) [[unlikely]] {
     return true;
   }
   const auto& bus = sc.element(bus_index);
-  if (!bus.is_active(stage_index)) {
+  if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
   const auto scenery_index = sc.scenery_index();
@@ -57,7 +57,7 @@ bool DemandLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
                             auto stage_emin,
                             auto stage_ecost) -> std::optional<size_t>
   {
-    if (!stage_emin) {
+    if (!stage_emin) [[unlikely]] {
       return std::nullopt;
     }
 

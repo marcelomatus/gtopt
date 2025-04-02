@@ -13,11 +13,17 @@
 #include <gtopt/block.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/demand_profile.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/generator_profile.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/scenery.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_options.hpp>
+
+#include "gtopt/basic_types.hpp"
+#include "gtopt/battery.hpp"
+#include "gtopt/converter.hpp"
 
 namespace gtopt
 {
@@ -29,14 +35,20 @@ struct System
 
   SystemOptions options {};
 
-  Array<Block> block_array;
-  Array<Stage> stage_array;
-  Array<Scenery> scenery_array;
+  Array<Block> block_array {};
+  Array<Stage> stage_array {};
+  Array<Scenery> scenery_array {};
 
-  Array<Bus> bus_array;
-  Array<Demand> demand_array;
-  Array<Generator> generator_array;
-  Array<Line> line_array;
+  Array<Bus> bus_array {};
+  Array<Demand> demand_array {};
+  Array<Generator> generator_array {};
+  Array<Line> line_array {};
+
+  Array<GeneratorProfile> generator_profile_array {};
+  Array<DemandProfile> demand_profile_array {};
+
+  Array<Battery> battery_array {};
+  Array<Converter> converter_array {};
 
   System& merge(System& sys);
 };

@@ -104,4 +104,9 @@ struct json_data_contract<Demand>
   }
 };
 
+using gtopt::DemandVar;
+using gtopt::OptDemandVar;
+using jvtl_DemandVar =
+    json_variant_type_list<Uid, Name, json_class_no_name<DemandAttrs>>;
+
 }  // namespace daw::json

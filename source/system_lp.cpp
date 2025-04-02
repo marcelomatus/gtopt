@@ -88,7 +88,7 @@ constexpr auto make_collection(InputContext& ic,
   return Collection<Out> {};
 }
 
-constexpr bool needs_theta_ref(const auto& buses, const auto& options)
+constexpr bool needs_ref_theta(const auto& buses, const auto& options)
 {
   return buses.size() > 1 && !options.use_single_bus()
       && options.use_kirchhoff()
@@ -159,7 +159,7 @@ SystemLP::SystemLP(System&& psystem)
   //
   // check if one bus with theta_ref set is needed and present
   //
-  if (needs_theta_ref(m_system_.bus_array, m_options_)) {
+  if (needs_ref_theta(m_system_.bus_array, m_options_)) {
     auto& bus = m_system_.bus_array.front();
     bus.reference_theta = 0;
     SPDLOG_WARN(
@@ -180,59 +180,55 @@ SystemLP::SystemLP(System&& psystem)
   std::get<Collection<LineLP>>(m_collections_) =
       make_collection<LineLP>(ic, m_system_.line_array);
 
-#ifdef GTOPT_EXTRA
   std::get<Collection<GeneratorProfileLP>>(m_collections_) =
-      make_collection<GeneratorProfileLP>(
-          ic, std::move(m_system_.generator_profiles));
+      make_collection<GeneratorProfileLP>(ic,
+                                          (m_system_.generator_profile_array));
 
   std::get<Collection<DemandProfileLP>>(m_collections_) =
-      make_collection<DemandProfileLP>(ic,
-                                       std::move(m_system_.demand_profiles));
+      make_collection<DemandProfileLP>(ic, (m_system_.demand_profile_array));
 
   std::get<Collection<BatteryLP>>(m_collections_) =
-      make_collection<BatteryLP>(ic, std::move(m_system_.batteries));
+      make_collection<BatteryLP>(ic, (m_system_.battery_array));
 
   std::get<Collection<ConverterLP>>(m_collections_) =
-      make_collection<ConverterLP>(ic, std::move(m_system_.converters));
+      make_collection<ConverterLP>(ic, (m_system_.converter_array));
 
+#ifdef GTOPT_EXTRA
   std::get<Collection<JunctionLP>>(m_collections_) =
-      make_collection<JunctionLP>(ic, std::move(m_system_.junctions));
+      make_collection<JunctionLP>(ic, (m_system_.junctions));
 
   std::get<Collection<WaterwayLP>>(m_collections_) =
-      make_collection<WaterwayLP>(ic, std::move(m_system_.waterways));
+      make_collection<WaterwayLP>(ic, (m_system_.waterways));
 
   std::get<Collection<InflowLP>>(m_collections_) =
-      make_collection<InflowLP>(ic, std::move(m_system_.inflows));
+      make_collection<InflowLP>(ic, (m_system_.inflows));
 
   std::get<Collection<OutflowLP>>(m_collections_) =
-      make_collection<OutflowLP>(ic, std::move(m_system_.outflows));
+      make_collection<OutflowLP>(ic, (m_system_.outflows));
 
   std::get<Collection<ReservoirLP>>(m_collections_) =
-      make_collection<ReservoirLP>(ic, std::move(m_system_.reservoirs));
+      make_collection<ReservoirLP>(ic, (m_system_.reservoirs));
 
   std::get<Collection<FiltrationLP>>(m_collections_) =
-      make_collection<FiltrationLP>(ic, std::move(m_system_.filtrations));
+      make_collection<FiltrationLP>(ic, (m_system_.filtrations));
 
   std::get<Collection<TurbineLP>>(m_collections_) =
-      make_collection<TurbineLP>(ic, std::move(m_system_.turbines));
+      make_collection<TurbineLP>(ic, (m_system_.turbines));
 
   std::get<Collection<ReserveZoneLP>>(m_collections_) =
-      make_collection<ReserveZoneLP>(ic, std::move(m_system_.reserve_zones));
+      make_collection<ReserveZoneLP>(ic, (m_system_.reserve_zones));
 
   std::get<Collection<ReserveProvisionLP>>(m_collections_) =
-      make_collection<ReserveProvisionLP>(
-          ic, std::move(m_system_.reserve_provisions));
+      make_collection<ReserveProvisionLP>(ic, (m_system_.reserve_provisions));
 
   std::get<Collection<EmissionZoneLP>>(m_collections_) =
-      make_collection<EmissionZoneLP>(ic, std::move(m_system_.emission_zones));
+      make_collection<EmissionZoneLP>(ic, (m_system_.emission_zones));
 
   std::get<Collection<GeneratorEmissionLP>>(m_collections_) =
-      make_collection<GeneratorEmissionLP>(
-          ic, std::move(m_system_.generator_emissions));
+      make_collection<GeneratorEmissionLP>(ic, (m_system_.generator_emissions));
 
   std::get<Collection<DemandEmissionLP>>(m_collections_) =
-      make_collection<DemandEmissionLP>(ic,
-                                        std::move(m_system_.demand_emissions));
+      make_collection<DemandEmissionLP>(ic, (m_system_.demand_emissions));
 
 #endif
 }
