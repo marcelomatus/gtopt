@@ -33,6 +33,24 @@ struct Generator
   GTOPT_OBJECT_ATTRS;
   GTOPT_GENERATOR_ATTRS;
   GTOPT_CAPACITY_ATTRS;
+
+  auto& set_attrs(auto&& attrs)
+  {
+    bus = std::exchange(attrs.bus, {});
+    pmin = std::move(attrs.pmin);
+    pmax = std::move(attrs.pmax);
+    lossfactor = std::move(attrs.lossfactor);
+    gcost = std::move(attrs.gcost);
+
+    capacity = std::move(attrs.capacity);
+    expcap = std::move(attrs.expcap);
+    expmod = std::move(attrs.expmod);
+    capmax = std::move(attrs.capmax);
+    annual_capcost = std::move(attrs.annual_capcost);
+    annual_derating = std::move(attrs.annual_derating);
+
+    return *this;
+  }
 };
 
 using GeneratorVar = std::variant<Uid, Name, GeneratorAttrs>;

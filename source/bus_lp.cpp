@@ -39,7 +39,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   const auto [iter, inserted] =
       sc.emplace_bholder(theta_cols, std::move(tblocks), EmptyOk);
 
-  if (inserted) {
+  if (inserted) [[likely]] {
     return iter->second;
   }
 

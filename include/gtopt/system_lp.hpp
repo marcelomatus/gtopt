@@ -13,10 +13,14 @@
 #include <tuple>
 #include <vector>
 
+#include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/collection.hpp>
+#include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
+#include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -24,6 +28,8 @@
 #include <gtopt/scenery_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+
+#include "gtopt/battery_lp.hpp"
 
 namespace gtopt
 {
@@ -120,7 +126,11 @@ private:
   std::tuple<Collection<BusLP>,
              Collection<DemandLP>,
              Collection<GeneratorLP>,
-             Collection<LineLP>>
+             Collection<LineLP>,
+             Collection<GeneratorProfileLP>,
+             Collection<DemandProfileLP>,
+             Collection<BatteryLP>,
+             Collection<ConverterLP>>
       m_collections_;
 };
 

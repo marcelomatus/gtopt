@@ -28,7 +28,7 @@ struct CapacityAttrs
   GTOPT_CAPACITY_ATTRS;
 };
 
-struct Capacity : Object
+struct Capacity
 {
   GTOPT_OBJECT_ATTRS;
   GTOPT_CAPACITY_ATTRS;

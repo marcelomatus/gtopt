@@ -1,3 +1,13 @@
+/**
+ * @file      generator_lp.cpp
+ * @brief     Header of
+ * @date      Tue Apr  1 22:03:55 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #include <ranges>
 
 #include <gtopt/generator_lp.hpp>
@@ -22,16 +32,16 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
 bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
 {
   constexpr std::string_view cname = "gen";
-  if (!CapacityBase::add_to_lp(sc, lp, cname)) {
+  if (!CapacityBase::add_to_lp(sc, lp, cname)) [[unlikely]] {
     return false;
   }
 
   const auto stage_index = sc.stage_index();
-  if (!is_active(stage_index)) {
+  if (!is_active(stage_index)) [[unlikely]] {
     return true;
   }
   auto&& bus = sc.element(bus_index);
-  if (!bus.is_active(stage_index)) {
+  if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
   const auto scenery_index = sc.scenery_index();

@@ -8,11 +8,13 @@ Checks: "*,\
 #  -google-readability-todo,\
 #  -altera-*,\
    -altera-unroll-loops,\
+   -altera-struct-pack-align,\
 #  -fuchsia-*,\
 #  -fuchsia-multiple-inheritance,\
    -fuchsia-default-arguments-calls,\
    -fuchsia-default-arguments-declarations,\
    -fuchsia-trailing-return,\
+   -fuchsia-overloaded-operator,\
    clang-analyzer-*,\
 #  -llvm-header-guard,\
 #  -llvm-include-order,\
