@@ -1,9 +1,18 @@
-#include <ranges>
+/**
+ * @file      demand_profile_lp.cpp
+ * @brief     Header of
+ * @date      Sat Apr  5 23:12:03 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -52,7 +61,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   BIndexHolder srows;
   srows.reserve(blocks.size());
   for (auto&& [block_index, block, lcol] :
-       std::ranges::views::zip(block_indexes, blocks, load_cols))
+       ranges::views::zip(block_indexes, blocks, load_cols))
   {
     const auto block_profile =
         profile.at(scenery_index, stage_index, block_index);

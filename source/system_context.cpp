@@ -24,7 +24,7 @@ constexpr auto active_block_indices(const Stage& stages)
   std::vector<Index> indices;
   indices.reserve(stages.size());
 
-  for (Index idx {}; auto&& s : stages) {
+  for (Index idx {}; const auto& s : stages) {
     for (size_t i = 0; i < s.blocks().size(); ++i) {
       if (s.is_active()) {
         indices.push_back(idx);

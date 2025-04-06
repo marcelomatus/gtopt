@@ -12,6 +12,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -63,7 +64,7 @@ bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   crows.reserve(blocks.size());
 
   for (auto&& [block, gcol, lcol, fcol] :
-       std::ranges::views::zip(blocks, gen_cols, load_cols, flow_cols))
+       ranges::views::zip(blocks, gen_cols, load_cols, flow_cols))
   {
     SparseRow rrow {.name = sc.stb_label(block, cname, "conv", uid())};
 

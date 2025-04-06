@@ -8,13 +8,12 @@
  * This module
  */
 
-#include <ranges>
-
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -60,7 +59,7 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   crows.reserve(blocks.size());
 
   for (auto&& [block_index, block, balance_row] :
-       std::ranges::views::zip(block_indexes, blocks, balance_rows))
+       ranges::views::zip(block_indexes, blocks, balance_rows))
   {
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(block_index, pmax, pmin, stage_capacity);

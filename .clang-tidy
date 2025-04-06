@@ -6,15 +6,14 @@ Checks: "*,\
 #  -system-headers,\
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\
-#  -altera-*,\
-   -altera-unroll-loops,\
-   -altera-struct-pack-align,\
+   -altera-*,\
 #  -fuchsia-*,\
 #  -fuchsia-multiple-inheritance,\
    -fuchsia-default-arguments-calls,\
    -fuchsia-default-arguments-declarations,\
    -fuchsia-trailing-return,\
    -fuchsia-overloaded-operator,\
+   -misc-include-cleaner,\
    clang-analyzer-*,\
 #  -llvm-header-guard,\
 #  -llvm-include-order,\

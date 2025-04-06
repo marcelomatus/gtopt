@@ -8,13 +8,12 @@
  * This module
  */
 
-#include <ranges>
-
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -68,7 +67,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   srows.reserve(blocks.size());
 
   for (auto&& [block_index, block, gcol] :
-       std::ranges::views::zip(block_indexes, blocks, generation_cols))
+       ranges::views::zip(block_indexes, blocks, generation_cols))
   {
     const auto block_profile =
         profile.at(scenery_index, stage_index, block_index);

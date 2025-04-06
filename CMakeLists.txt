@@ -23,7 +23,8 @@ endif()
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
 
 
-#set(USE_STATIC_ANALYZER "cppcheck")
+# set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
+# set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 set(USE_CCACHE YES)
 include(cmake/tools.cmake)
 

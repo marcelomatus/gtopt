@@ -7,12 +7,11 @@
  *
  * This module
  */
-
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/view/zip.hpp>
+#include <range/v3/all.hpp>
 
 namespace gtopt
 {

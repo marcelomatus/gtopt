@@ -48,9 +48,11 @@ System& System::merge(System& sys)
   append_vector(generator_profile_array, (sys.generator_profile_array));
   append_vector(demand_profile_array, (sys.demand_profile_array));
   append_vector(battery_array, (sys.battery_array));
+  append_vector(converter_array, (sys.converter_array));
+  append_vector(reserve_zone_array, (sys.reserve_zone_array));
+  append_vector(reserve_provision_array, (sys.reserve_provision_array));
 
 #ifdef NONE
-  append_vector(batteries, (sys.batteries));
   append_vector(converters, (sys.converters));
   append_vector(junctions, (sys.junctions));
   append_vector(waterways, (sys.waterways));
@@ -59,8 +61,6 @@ System& System::merge(System& sys)
   append_vector(reservoirs, (sys.reservoirs));
   append_vector(filtrations, (sys.filtrations));
   append_vector(turbines, (sys.turbines));
-  append_vector(reserve_zones, (sys.reserve_zones));
-  append_vector(reserve_provisions, (sys.reserve_provisions));
   append_vector(emission_zones, (sys.emission_zones));
   append_vector(generator_emissions, (sys.generator_emissions));
   append_vector(demand_emissions, (sys.demand_emissions));

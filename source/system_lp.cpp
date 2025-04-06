@@ -3,7 +3,6 @@
 
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
-#include <range/v3/view/iota.hpp>
 #include <spdlog/spdlog.h>
 
 namespace
@@ -13,19 +12,17 @@ using namespace gtopt;
 template<typename Collections, typename Op>
 constexpr size_t visit_elements(Collections&& collections, Op op)
 {
-  namespace rgs = std::ranges;
-
   size_t count = 0;
   std::apply(
       [&](auto&&... c)
       {
-        ((rgs::for_each(std::forward<decltype(c)>(c).elements(),
-                        [&](auto&& e)
-                        {
-                          if (op(e)) [[likely]] {
-                            ++count;
-                          }
-                        })),
+        ((ranges::for_each(std::forward<decltype(c)>(c).elements(),
+                           [&](auto&& e)
+                           {
+                             if (op(e)) [[likely]] {
+                               ++count;
+                             }
+                           })),
          ...);
       },
       collections);
@@ -193,6 +190,13 @@ SystemLP::SystemLP(System&& psystem)
   std::get<Collection<ConverterLP>>(m_collections_) =
       make_collection<ConverterLP>(ic, (m_system_.converter_array));
 
+  std::get<Collection<ReserveZoneLP>>(m_collections_) =
+      make_collection<ReserveZoneLP>(ic, (m_system_.reserve_zone_array));
+
+  std::get<Collection<ReserveProvisionLP>>(m_collections_) =
+      make_collection<ReserveProvisionLP>(ic,
+                                          (m_system_.reserve_provision_array));
+
 #ifdef GTOPT_EXTRA
   std::get<Collection<JunctionLP>>(m_collections_) =
       make_collection<JunctionLP>(ic, (m_system_.junctions));
@@ -214,12 +218,6 @@ SystemLP::SystemLP(System&& psystem)
 
   std::get<Collection<TurbineLP>>(m_collections_) =
       make_collection<TurbineLP>(ic, (m_system_.turbines));
-
-  std::get<Collection<ReserveZoneLP>>(m_collections_) =
-      make_collection<ReserveZoneLP>(ic, (m_system_.reserve_zones));
-
-  std::get<Collection<ReserveProvisionLP>>(m_collections_) =
-      make_collection<ReserveProvisionLP>(ic, (m_system_.reserve_provisions));
 
   std::get<Collection<EmissionZoneLP>>(m_collections_) =
       make_collection<EmissionZoneLP>(ic, (m_system_.emission_zones));

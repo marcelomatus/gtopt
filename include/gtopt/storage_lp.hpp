@@ -96,7 +96,7 @@ public:
     crows.reserve(blocks.size());
 
     for (size_t prev_vc = vicol; auto&& [block_index, block] :
-                                 std::ranges::views::zip(block_indexes, blocks))
+                                 ranges::views::zip(block_indexes, blocks))
     {
       SparseRow vrow {.name = sc.stb_label(block, cname, "vol", uid())};
 
