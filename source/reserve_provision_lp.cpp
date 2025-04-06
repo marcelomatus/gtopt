@@ -1,0 +1,246 @@
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/classification.hpp>
+#include <gtopt/linear_problem.hpp>
+#include <gtopt/output_context.hpp>
+#include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
+
+namespace
+{
+using namespace gtopt;
+
+inline bool add_provision(const SystemContext& sc,
+                          LinearProblem& lp,
+                          const auto capacity_col,
+                          const auto& generation_cols,
+                          const auto uid,
+                          auto& rp,
+                          const auto pname,
+                          const auto& requirement_rows,
+                          auto provision_row)
+{
+  constexpr std::string_view cname = "rprov";
+
+  const auto stage_index = sc.stage_index();
+  const auto scenery_index = sc.scenery_index();
+
+  auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
+
+  const auto stage_provision_factor = rp.provision_factor.optval(stage_index);
+  if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
+    return true;
+  }
+
+  const auto stage_cost = rp.cost.optval(stage_index).value_or(0.0);
+  const auto stage_capacity_factor = rp.capacity_factor.optval(stage_index);
+  const auto use_capacity = capacity_col && stage_capacity_factor;
+
+  for (auto&& [block_index, gcol] :
+       ranges::views::zip(block_indexes, generation_cols))
+  {
+    using STBKey = GSTBIndexHolder::key_type;
+    const STBKey stb_k {scenery_index, stage_index, block_index};
+
+    const auto requirement_row = get_optvalue(requirement_rows, stb_k);
+    if (!requirement_row) {
+      continue;
+    }
+
+    auto provision_col = get_optvalue(rp.provision_cols, stb_k);
+    if (!provision_col) {
+      //
+      // create the provision col and row when needed and if possible, i.e.,
+      // if there is a rmax provision defined for the stage and block
+      //
+      auto block_rmax = rp.max.optval(stage_index, block_index);
+      if (!block_rmax) {
+        if (use_capacity) {
+          block_rmax = lp.get_col_uppb(gcol);
+        } else {
+          continue;
+        }
+      }
+
+      const auto& block = blocks[block_index];
+      const auto block_rcost = sc.block_cost(block, stage_cost);
+      const auto name = sc.stb_label(block, cname, pname, uid);
+      const auto rcol = lp.add_col(
+          {.name = name, .uppb = block_rmax.value(), .cost = block_rcost});
+
+      rp.provision_cols[stb_k] = rcol;
+      rp.provision_rows[stb_k] = lp.add_row(provision_row(name, gcol, rcol));
+
+      if (use_capacity) {
+        SparseRow crow {.name = sc.label("cap", name)};
+        crow[capacity_col.value()] = stage_capacity_factor.value();
+        crow[rcol] = -1;
+        rp.capacity_rows[stb_k] = lp.add_row(std::move(crow.greater_equal(0)));
+      }
+
+      provision_col = rcol;
+    }
+
+    //
+    // add the reserve provision to the requirement balance
+    //
+    lp.set_coeff(  //
+        requirement_row.value(),
+        provision_col.value(),
+        stage_provision_factor.value());
+  }
+
+  return true;
+}
+
+inline auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
+{
+  std::vector<std::string> rzones;
+  boost::split(rzones, rzstr, boost::is_any_of(":"));
+
+  constexpr auto is_uid = [](const auto& s)
+  { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };
+  constexpr auto str2uid = [](const auto& s)
+  { return static_cast<Uid>(std::stoi(s)); };
+
+  return rzones
+      | ranges::views::transform(
+             [&](auto rz)
+             {
+               using RZoneId = ObjectSingleId<ReserveZoneLP>;
+               return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
+                                                  : RZoneId {std::move(rz)});
+             })
+      | ranges::to<std::vector>;
+}
+
+}  // namespace
+
+namespace gtopt
+{
+
+ReserveProvisionLP::Provision::Provision(const InputContext& ic,
+                                         const std::string_view& cname,
+                                         const Id& id,
+                                         auto&& rmax,
+                                         auto&& rcost,
+                                         auto&& rcapf,
+                                         auto&& rprof)
+    : max(ic, cname, id, std::forward<decltype(rmax)>(rmax))
+    , cost(ic, cname, id, std::forward<decltype(rcost)>(rcost))
+    , capacity_factor(ic, cname, id, std::forward<decltype(rcapf)>(rcapf))
+    , provision_factor(ic, cname, id, std::forward<decltype(rprof)>(rprof))
+{
+}
+
+ReserveProvisionLP::ReserveProvisionLP(const InputContext& ic,
+                                       ReserveProvision&& preserve_provision)
+    : Base(ic, ClassName, std::move(preserve_provision))
+    , up(ic,
+         ClassName,
+         id(),
+         std::move(reserve_provision().urmax),
+         std::move(reserve_provision().urcost),
+         std::move(reserve_provision().ur_capacity_factor),
+         std::move(reserve_provision().ur_provision_factor))
+    , dp(ic,
+         ClassName,
+         id(),
+         std::move(reserve_provision().drmax),
+         std::move(reserve_provision().drcost),
+         std::move(reserve_provision().dr_capacity_factor),
+         std::move(reserve_provision().dr_provision_factor))
+    , generator_index(ic.element_index(generator()))
+    , reserve_zone_indexes(
+          make_rzone_indexes(ic, reserve_provision().reserve_zones))
+{
+}
+
+bool ReserveProvisionLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
+{
+  const auto stage_index = sc.stage_index();
+  if (!is_active(stage_index)) {
+    return true;
+  }
+  const auto scenery_index = sc.scenery_index();
+
+  auto&& generator_lp = sc.element(generator_index);
+  if (!generator_lp.is_active(stage_index)) {
+    return true;
+  }
+
+  auto&& generation_cols =
+      generator_lp.generation_cols_at(scenery_index, stage_index);
+
+  const auto [stage_capacity, capacity_col] =
+      generator_lp.capacity_and_col(sc, lp);
+
+  auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+  {
+    SparseRow rrow {.name = row_name};
+    rrow[rcol] = rrow[gcol] = 1;
+
+    if (capacity_col) {
+      rrow[capacity_col.value()] = -1;
+      return rrow.less_equal(0.0);
+    }
+    return rrow.less_equal(lp.get_col_uppb(gcol));
+  };
+
+  auto dprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+  {
+    SparseRow rrow {.name = row_name};
+    rrow[gcol] = 1;
+    rrow[rcol] = -1;
+    return rrow.greater_equal(lp.get_col_lowb(gcol));
+  };
+
+  for (auto&& reserve_zone_index : reserve_zone_indexes) {
+    auto&& reserve_zone = sc.element(reserve_zone_index);
+    if (!reserve_zone.is_active(stage_index)) {
+      continue;
+    }
+
+    add_provision(sc,
+                  lp,
+                  capacity_col,
+                  generation_cols,
+                  uid(),
+                  up,
+                  "uprov",
+                  reserve_zone.urequirement_rows(),
+                  uprov_row);
+
+    add_provision(sc,
+                  lp,
+                  capacity_col,
+                  generation_cols,
+                  uid(),
+                  dp,
+                  "dprov",
+                  reserve_zone.drequirement_rows(),
+                  dprov_row);
+  }
+
+  return true;
+}
+
+bool ReserveProvisionLP::add_to_output(OutputContext& out) const
+{
+  constexpr std::string_view cname = ClassName;
+  const auto pid = id();
+
+  out.add_col_sol(cname, "uprovision", pid, up.provision_cols);
+  out.add_col_cost(cname, "uprovision", pid, up.provision_cols);
+  out.add_row_dual(cname, "uprovision", pid, up.provision_rows);
+  out.add_row_dual(cname, "ucapacity", pid, up.capacity_rows);
+
+  out.add_col_sol(cname, "dprovision", pid, dp.provision_cols);
+  out.add_col_cost(cname, "dprovision", pid, dp.provision_cols);
+  out.add_row_dual(cname, "dprovision", pid, dp.provision_rows);
+  out.add_row_dual(cname, "dcapacity", pid, dp.capacity_rows);
+
+  return true;
+}
+
+}  // namespace gtopt

@@ -3,6 +3,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -65,7 +66,7 @@ bool LineLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   cnrows.reserve(blocks.size());
 
   for (auto [block_index, balance_row_a, balance_row_b] :
-       std::ranges::views::zip(block_indexes, balance_rows_a, balance_rows_b))
+       ranges::views::zip(block_indexes, balance_rows_a, balance_rows_b))
   {
     const auto [block_tmax, block_tmin] = sc.block_maxmin_at(
         block_index, tmax, tmin, stage_capacity, -stage_capacity);

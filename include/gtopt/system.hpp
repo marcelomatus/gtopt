@@ -1,4 +1,4 @@
-/**
+/**c
  * @file      system.hpp<gtopt>
  * @brief     Header of System class
  * @date      Wed Mar 19 21:59:12 2025
@@ -24,6 +24,8 @@
 #include "gtopt/basic_types.hpp"
 #include "gtopt/battery.hpp"
 #include "gtopt/converter.hpp"
+#include "gtopt/reserve_provision.hpp"
+#include "gtopt/reserve_zone.hpp"
 
 namespace gtopt
 {
@@ -49,6 +51,9 @@ struct System
 
   Array<Battery> battery_array {};
   Array<Converter> converter_array {};
+
+  Array<ReserveZone> reserve_zone_array {};
+  Array<ReserveProvision> reserve_provision_array {};
 
   System& merge(System& sys);
 };

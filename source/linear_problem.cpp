@@ -15,7 +15,7 @@
 namespace gtopt
 {
 
-LinearProblem::LinearProblem(std::string name, size_t rsize)
+LinearProblem::LinearProblem(std::string name, const size_t rsize)
     : pname(std::move(name))
 {
   rows.reserve(rsize);
@@ -24,8 +24,8 @@ LinearProblem::LinearProblem(std::string name, size_t rsize)
 
 void LinearProblem::set_coeff(const index_t row,
                               const index_t col,
-                              double coeff,
-                              double eps)
+                              const double coeff,
+                              const double eps)
 {
   if (std::abs(coeff) > eps) {
     rows[row][col] = coeff;

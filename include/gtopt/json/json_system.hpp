@@ -10,19 +10,21 @@
 
 #pragma once
 
-#include <daw/json/daw_json_link.h>
+#include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_block.hpp>
 #include <gtopt/json/json_bus.hpp>
+#include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
+#include <gtopt/json/json_demand_profile.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_line.hpp>
+#include <gtopt/json/json_reserve_provision.hpp>
+#include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_scenery.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/json/json_system_options.hpp>
 #include <gtopt/system.hpp>
-
-#include "gtopt/generator_profile.hpp"
 
 namespace daw::json
 {
@@ -45,7 +47,16 @@ struct json_data_contract<System>
       json_array_null<"line_array", Array<Line>, Line>,
       json_array_null<"generator_profile_array",
                       Array<GeneratorProfile>,
-                      GeneratorProfile> >;
+                      GeneratorProfile>,
+      json_array_null<"demand_profile_array",
+                      Array<DemandProfile>,
+                      DemandProfile>,
+      json_array_null<"battery_array", Array<Battery>, Battery>,
+      json_array_null<"converter_array", Array<Converter>, Converter>,
+      json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
+      json_array_null<"reserve_provision_array",
+                      Array<ReserveProvision>,
+                      ReserveProvision> >;
 
   constexpr static auto to_json_data(System const& system)
   {
@@ -59,7 +70,12 @@ struct json_data_contract<System>
                                  system.demand_array,
                                  system.generator_array,
                                  system.line_array,
-                                 system.generator_profile_array);
+                                 system.generator_profile_array,
+                                 system.demand_profile_array,
+                                 system.battery_array,
+                                 system.converter_array,
+                                 system.reserve_zone_array,
+                                 system.reserve_provision_array);
   }
 };
 

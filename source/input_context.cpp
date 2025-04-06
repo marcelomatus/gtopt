@@ -90,7 +90,7 @@ inline ArrowTable parquet_read_table(auto&& fpath)
       std::format("parquet can't read file {}", filename));
 
   ArrowTable table;
-  arrow::Status st = reader->ReadTable(&table);
+  const arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
     SPDLOG_WARN("can't read table {}", filename);
     return {};

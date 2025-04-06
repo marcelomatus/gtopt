@@ -25,11 +25,11 @@
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reserve_provision_lp.hpp>
+#include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/scenery_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
-
-#include "gtopt/battery_lp.hpp"
 
 namespace gtopt
 {
@@ -130,7 +130,9 @@ private:
              Collection<GeneratorProfileLP>,
              Collection<DemandProfileLP>,
              Collection<BatteryLP>,
-             Collection<ConverterLP>>
+             Collection<ConverterLP>,
+             Collection<ReserveZoneLP>,
+             Collection<ReserveProvisionLP>>
       m_collections_;
 };
 
