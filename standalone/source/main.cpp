@@ -7,6 +7,7 @@
 #include <daw/daw_read_file.h>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/simulation.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/version.h>
 
@@ -142,81 +143,10 @@ int Main(const std::vector<std::string>& system_files,
   // create and load the lp
   //
 
-  SystemLP system_lp {std::move(system)};
+  auto result = Simulation::run_lp(
+      system, lp_file, use_lp_names, matrix_eps, just_create);
 
-  LinearInterface lp_interface;
-  {
-    spdlog::stopwatch sw;
-
-    constexpr size_t reserve_size = 1'024;
-    LinearProblem linear_problem(system_lp.name(), reserve_size);
-    system_lp.add_to_lp(linear_problem);
-    spdlog::info("lp creation {}", sw);
-
-    const auto eps = matrix_eps.value_or(0);
-    const auto lp_names = use_lp_names.value_or(0);
-    const FlatOptions flat_opts {.eps = eps,
-                                 .col_with_names = lp_names > 0,
-                                 .row_with_names = lp_names > 0,
-                                 .col_with_name_map = lp_names > 1,
-                                 .row_with_name_map = lp_names > 1,
-                                 .reserve_matrix = false,
-                                 .reserve_factor = 2};
-
-    auto flat_lp = linear_problem.to_flat(flat_opts);
-    spdlog::info("lp flattening {}", sw);
-
-    lp_interface.load_flat(flat_lp);
-
-    spdlog::info("lp loading {}", sw);
-  }
-
-  if (lp_file) {
-    spdlog::stopwatch sw;
-
-    const std::filesystem::path lpath {lp_file.value()};
-    lp_interface.write_lp(lpath.stem());
-
-    spdlog::info("lp writing {}", sw);
-  }
-
-  if (just_create.value_or(false)) {
-    spdlog::info("just creating the problem, exiting now");
-    return 0;
-  }
-
-  //
-  // solve the problem
-  //
-  {
-    spdlog::stopwatch sw;
-
-    const LPOptions lp_opts {};
-    const auto status = lp_interface.resolve(lp_opts);
-
-    if (!status) {
-      lp_interface.write_lp("error");
-
-      spdlog::error("problem is not feasible, check the error.lp file");
-
-      return 1;
-    }
-
-    spdlog::info("lp solving {}", sw);
-  }
-
-  //
-  // write the output
-  //
-  {
-    spdlog::stopwatch sw;
-
-    system_lp.write_out(lp_interface);
-
-    spdlog::info("write output {}", sw);
-  }
-
-  return 0;
+  return result ? result.value() : 1;
 }
 
 }  // namespace

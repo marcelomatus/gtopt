@@ -21,12 +21,12 @@ template<>
 struct json_data_contract<Block>
 {
   using type = json_member_list<json_number<"uid", Uid>,
-                                json_number<"duration", Real>,
-                                json_string_null<"name", OptName>>;
+                                json_string_null<"name", OptName>,
+                                json_number<"duration", Real>>;
 
   constexpr static auto to_json_data(Block const& block)
   {
-    return std::forward_as_tuple(block.uid, block.duration, block.name);
+    return std::forward_as_tuple(block.uid, block.name, block.duration);
   }
 };
 

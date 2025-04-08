@@ -105,7 +105,6 @@ TEST_CASE("System daw json test 1")
           == doctest::Approx(220));
 }
 
-#ifdef NONE
 TEST_CASE("System daw json test 3")
 {
   const size_t size = 1000;
@@ -139,29 +138,13 @@ TEST_CASE("System daw json test 3")
                               .bus_array = bus_array,
                               .demand_array = demand_array,
                               .generator_array = generator_array,
-                              .line_array = line_array,
-                              .generator_profiles = {},
-                              .demand_profiles = {},
-                              .batteries = {},
-                              .converters = {},
-                              .junctions = {},
-                              .waterways = {},
-                              .inflows = {},
-                              .outflows = {},
-                              .reservoirs = {},
-                              .filtrations = {},
-                              .turbines = {},
-                              .reserve_zones = {},
-                              .reserve_provisions = {},
-                              .emission_zones = {},
-                              .generator_emissions = {},
-                              .demand_emissions = {}};
+                              .line_array = line_array};
 
   REQUIRE(system.bus_array.size() == size);
   REQUIRE(system.generator_array.size() == size);
   auto json_data = daw::json::to_json(system);
 
-  std::cout << "The json data size is " << json_data.size() << std::endl;
+  std::cout << "The json data size is " << json_data.size() << '\n';
 
   gtopt::System sys;
   REQUIRE(!sys.bus_array.empty() == false);
@@ -175,7 +158,6 @@ TEST_CASE("System daw json test 3")
   REQUIRE(sys.bus_array.size() == size);
   REQUIRE(sys.generator_array.size() == size);
 
-  SECTION("Check all elements")
   {
     gtopt::Uid uid = 0;
     for (size_t i = 0; i < size; ++i) {
@@ -187,5 +169,3 @@ TEST_CASE("System daw json test 3")
     }
   }
 }
-
-#endif

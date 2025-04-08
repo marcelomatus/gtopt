@@ -13,7 +13,6 @@
 #include <iterator>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -21,21 +20,14 @@ namespace gtopt
 struct Block
 {
   Uid uid {};
-  double duration {};
   OptName name {};
 
-  static constexpr std::string_view column_name = "block";
+  Real duration {};
 
-  [[nodiscard]] constexpr auto id() const -> Id
-  {
-    if (name.has_value()) {
-      return {uid, name.value()};
-    }
-    return {uid, as_label(Block::column_name, uid)};
-  }
+  static constexpr std::string_view class_name = "block";
 };
 
-using BlockUid = StrongUidType<struct buid_>;
+using BlockUid = StrongUidType<struct Block>;
 using BlockIndex = StrongIndexType<Block>;
 
 }  // namespace gtopt

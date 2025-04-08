@@ -40,14 +40,14 @@ class string_view_or_owner
 
 public:
   // For lvalue strings - view first, then owner (empty)
-  explicit string_view_or_owner(const std::string& s) noexcept
+  constexpr explicit string_view_or_owner(const std::string& s) noexcept
       : view(s)
       , owner(nullptr)
   {
   }
 
   // For rvalue strings - create owner first, then view from it
-  explicit string_view_or_owner(std::string&& s)
+  constexpr explicit string_view_or_owner(std::string&& s)
       : view()
       , owner(std::make_unique<std::string>(std::move(s)))
   {
@@ -55,14 +55,14 @@ public:
   }
 
   // For string_views - view first, owner empty
-  explicit string_view_or_owner(const std::string_view& s) noexcept
+  constexpr explicit string_view_or_owner(const std::string_view& s) noexcept
       : view(s)
       , owner(nullptr)
   {
   }
 
   // For C strings - view first, owner empty
-  explicit string_view_or_owner(const char* s) noexcept
+  constexpr explicit string_view_or_owner(const char* s) noexcept
       : view(s)
       , owner(nullptr)
   {
@@ -70,7 +70,7 @@ public:
 
   // For directly convertible types - view first, owner empty
   template<direct_string_viewable T>
-  explicit string_view_or_owner(const T& value) noexcept
+  constexpr explicit string_view_or_owner(const T& value) noexcept
       : view(static_cast<std::string_view>(value))
       , owner(nullptr)
   {
@@ -79,14 +79,14 @@ public:
   // For other types - create owner first, then view from it
   template<typename T>
     requires(!direct_string_viewable<T>)
-  explicit string_view_or_owner(const T& value)
+  constexpr explicit string_view_or_owner(const T& value)
       : view()
       , owner(std::make_unique<std::string>(std::format("{}", value)))
   {
     view = *owner;
   }
 
-  explicit operator std::string_view() const noexcept { return view; }
+  constexpr explicit operator std::string_view() const noexcept { return view; }
 
   [[nodiscard]] std::string_view get() const noexcept { return view; }
 };
@@ -109,7 +109,7 @@ struct size_calculation
 }  // namespace detail
 
 template<char sep = '_', typename... Args>
-std::string as_label(Args&&... args)
+constexpr std::string as_label(Args&&... args)
 {
   std::array<detail::string_view_or_owner, sizeof...(Args)> owners {
       detail::string_view_or_owner(std::forward<Args>(args))...};
@@ -128,7 +128,7 @@ std::string as_label(Args&&... args)
 
   bool needs_separator = false;
   for (const auto& owner : owners) {
-    auto view = owner.get();
+    const auto view = owner.get();
     if (view.empty()) [[unlikely]] {
       continue;
     }

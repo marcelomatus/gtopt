@@ -51,9 +51,9 @@ template<typename Type = Uid>
 inline auto make_stb_prelude(auto&& stb_active_uids)
 {
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Scenery::column_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::column_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Block::column_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Scenery::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
       make_array<Type>(std::get<0>(stb_active_uids)),
@@ -67,8 +67,8 @@ template<typename Type = Uid>
 inline auto make_st_prelude(auto&& st_active_uids)
 {
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Scenery::column_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::column_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Scenery::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
       make_array<Type>(std::get<0>(st_active_uids)),
@@ -81,7 +81,7 @@ template<typename Type = Uid>
 inline auto make_t_prelude(auto&& t_active_uids)
 {
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Stage::column_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {make_array<Uid>(t_active_uids)};
 
@@ -89,7 +89,7 @@ inline auto make_t_prelude(auto&& t_active_uids)
 }
 
 template<typename Type = double>
-constexpr auto make_field_arrays(auto&& field_vector)
+inline auto make_field_arrays(auto&& field_vector)
 {
   std::vector<ArrowField> fields;
   fields.reserve(field_vector.size() + 3);

@@ -25,6 +25,7 @@
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/period_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/scenery_lp.hpp>
@@ -51,9 +52,15 @@ static_assert(AddToLP<BusLP>);
 
 class SystemLP
 {
-public:
-  using scenery_vector_t = std::vector<SceneryLP>;
+  std::vector<BlockLP> create_block_array();
+  std::vector<StageLP> create_stage_array();
+  std::vector<SceneryLP> create_scenery_array();
+  std::vector<PeriodLP> create_period_array();
+  void validate_system_components();
+  void setup_reference_bus();
+  void initialize_collections();
 
+public:
   SystemLP(SystemLP&&) noexcept = default;
   SystemLP(const SystemLP&) = default;
   SystemLP() = delete;
@@ -61,11 +68,11 @@ public:
   SystemLP& operator=(const SystemLP&) noexcept = default;
   ~SystemLP() = default;
 
-  explicit SystemLP(System&& psystem = {});
+  explicit SystemLP(System psystem = {});
 
-  constexpr const auto& sceneries() const { return m_sceneries_; }
-  constexpr const auto& stages() const { return m_stages_; }
-  constexpr const auto& blocks() const { return m_blocks_; }
+  constexpr const auto& sceneries() const { return m_scenery_array_; }
+  constexpr const auto& stages() const { return m_stage_array_; }
+  constexpr const auto& blocks() const { return m_block_array_; }
   constexpr const auto& options() const { return m_options_; }
   auto&& scenery(const SceneryIndex s) const { return sceneries().at(s); }
 
@@ -113,12 +120,12 @@ public:
 
 private:
   System m_system_;
-
   SystemOptionsLP m_options_;
 
-  std::vector<BlockLP> m_blocks_;
-  std::vector<StageLP> m_stages_;
-  std::vector<SceneryLP> m_sceneries_;
+  std::vector<BlockLP> m_block_array_;
+  std::vector<StageLP> m_stage_array_;
+  std::vector<SceneryLP> m_scenery_array_;
+  std::vector<PeriodLP> m_period_array_;
 
   SystemContext sc;
   InputContext ic;
