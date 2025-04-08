@@ -25,7 +25,7 @@ inline bool add_provision(const SystemContext& sc,
   const auto stage_index = sc.stage_index();
   const auto scenery_index = sc.scenery_index();
 
-  auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
+  const auto& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
 
   const auto stage_provision_factor = rp.provision_factor.optval(stage_index);
   if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
@@ -98,10 +98,9 @@ inline auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
   std::vector<std::string> rzones;
   boost::split(rzones, rzstr, boost::is_any_of(":"));
 
-  constexpr auto is_uid = [](const auto& s)
+  auto is_uid = [](const auto& s)
   { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };
-  constexpr auto str2uid = [](const auto& s)
-  { return static_cast<Uid>(std::stoi(s)); };
+  auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
 
   return rzones
       | ranges::views::transform(

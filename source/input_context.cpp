@@ -15,8 +15,7 @@
 #include <arrow/io/api.h>
 #include <gtopt/input_context.hpp>
 #include <parquet/arrow/reader.h>
-
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
 
 namespace
 {
@@ -37,13 +36,14 @@ inline ArrowTable csv_read_table(auto&& fpath)
 
   const arrow::io::IOContext& io_context = arrow::io::default_io_context();
   auto read_options = arrow::csv::ReadOptions::Defaults();
+
   read_options.autogenerate_column_names = false;
 
   auto parse_options = arrow::csv::ParseOptions::Defaults();
 
-  const std::string scenery_str {Scenery::column_name};
-  const std::string stage_str {Stage::column_name};
-  const std::string block_str {Block::column_name};
+  const std::string scenery_str {Scenery::class_name};
+  const std::string stage_str {Stage::class_name};
+  const std::string block_str {Block::class_name};
 
   auto convert_options = arrow::csv::ConvertOptions::Defaults();
   convert_options.column_types[scenery_str] = ArrowTraits<Uid>::type();

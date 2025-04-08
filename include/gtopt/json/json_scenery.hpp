@@ -21,15 +21,16 @@ using gtopt::Scenery;
 template<>
 struct json_data_contract<Scenery>
 {
-  using type = json_member_list<json_number<"uid", Uid>,
-                                json_number_null<"probability_factor", OptReal>,
-                                json_number_null<"active", OptBool>,
-                                json_string_null<"name", OptName>>;
+  using type =
+      json_member_list<json_number<"uid", Uid>,
+                       json_string_null<"name", OptName>,
+                       json_number_null<"active", OptBool>,
+                       json_number_null<"probability_factor", OptReal>>;
 
   constexpr static auto to_json_data(Scenery const& scenery)
   {
     return std::forward_as_tuple(
-        scenery.uid, scenery.probability_factor, scenery.active, scenery.name);
+        scenery.uid, scenery.name, scenery.active, scenery.probability_factor);
   }
 };
 

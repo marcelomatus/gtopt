@@ -209,4 +209,31 @@ public:
   constexpr auto size() const { return element_vector.size(); }
 };
 
+template<typename Collections, typename Op>
+constexpr auto visit_elements(Collections&& collections, Op op)
+{
+  std::size_t count = 0;
+
+  std::apply(
+      [&](auto&&... collections)
+      {
+        (void)((
+            ... ||
+            [&]()
+            {
+              for (auto&& element :
+                   std::forward<decltype(collections)>(collections).elements())
+              {
+                if (op(element)) [[likely]] {
+                  ++count;
+                }
+              }
+              return false;
+            }()));
+      },
+      std::forward<Collections>(collections));
+
+  return count;
+}
+
 }  // namespace gtopt

@@ -67,9 +67,9 @@ struct IndexToIdx<SceneryIndex, StageIndex, BlockIndex>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto sceneries = make_uid_column(table, Scenery::column_name);
-    const auto stages = make_uid_column(table, Stage::column_name);
-    const auto blocks = make_uid_column(table, Block::column_name);
+    const auto sceneries = make_uid_column(table, Scenery::class_name);
+    const auto stages = make_uid_column(table, Stage::class_name);
+    const auto blocks = make_uid_column(table, Block::class_name);
 
     base_map_t<std::tuple<Uid, Uid, Uid>, ArrowIndex> index_uids;
     index_uids.reserve(static_cast<size_t>(table->num_rows()));
@@ -111,8 +111,8 @@ struct IndexToIdx<StageIndex, BlockIndex> : IndexTraits<StageIndex, BlockIndex>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto stages = make_uid_column(table, Stage::column_name);
-    const auto blocks = make_uid_column(table, Block::column_name);
+    const auto stages = make_uid_column(table, Stage::class_name);
+    const auto blocks = make_uid_column(table, Block::class_name);
 
     base_map_t<std::tuple<Uid, Uid>, ArrowIndex> index_uids;
     index_uids.reserve(static_cast<size_t>(table->num_rows()));
@@ -151,8 +151,8 @@ struct IndexToIdx<SceneryIndex, StageIndex>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto sceneries = make_uid_column(table, Scenery::column_name);
-    const auto stages = make_uid_column(table, Stage::column_name);
+    const auto sceneries = make_uid_column(table, Scenery::class_name);
+    const auto stages = make_uid_column(table, Stage::class_name);
 
     base_map_t<std::tuple<Uid, Uid>, ArrowIndex> index_uids;
     index_uids.reserve(static_cast<size_t>(table->num_rows()));
@@ -191,7 +191,7 @@ struct IndexToIdx<StageIndex> : IndexTraits<StageIndex>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto stages = make_uid_column(table, Stage::column_name);
+    const auto stages = make_uid_column(table, Stage::class_name);
 
     base_map_t<std::tuple<Uid>, ArrowIndex> index_uids;
     index_uids.reserve(static_cast<size_t>(table->num_rows()));

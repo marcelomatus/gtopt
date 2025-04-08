@@ -12,13 +12,13 @@
 
 #include <utility>
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/scenery_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_options_lp.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -553,10 +553,10 @@ public:
     return push_back(*this, std::forward<Element>(element));
   }
 
-  [[nodiscard]] constexpr auto system() -> SystemLP& { return m_system_.get(); }
-  [[nodiscard]] constexpr auto system() const -> const SystemLP&
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system(this Self&& self)
   {
-    return m_system_.get();
+    return std::forward<Self>(self).m_system_.get();
   }
 
   [[nodiscard]] constexpr auto get_scenery_size() const { return scenery_size; }

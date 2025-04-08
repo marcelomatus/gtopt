@@ -10,22 +10,21 @@
 
 #pragma once
 
+#include <gtopt/battery.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/bus.hpp>
+#include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/period.hpp>
+#include <gtopt/reserve_provision.hpp>
+#include <gtopt/reserve_zone.hpp>
 #include <gtopt/scenery.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_options.hpp>
-
-#include "gtopt/basic_types.hpp"
-#include "gtopt/battery.hpp"
-#include "gtopt/converter.hpp"
-#include "gtopt/reserve_provision.hpp"
-#include "gtopt/reserve_zone.hpp"
 
 namespace gtopt
 {
@@ -40,6 +39,7 @@ struct System
   Array<Block> block_array {};
   Array<Stage> stage_array {};
   Array<Scenery> scenery_array {};
+  Array<Period> period_array {};
 
   Array<Bus> bus_array {};
   Array<Demand> demand_array {};

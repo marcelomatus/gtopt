@@ -36,7 +36,7 @@ inline bool add_requirement(const SystemContext& sc,
     }
     const STBKey stb_k {scenery_index, stage_index, block_index};
 
-    auto name = sc.stb_label(block, cname, rname, uid);
+    const auto name = sc.stb_label(block, cname, rname, uid);
     const auto rcol = stage_rcost
         ? lp.add_col({.name = name,
                       .lowb = 0.0,
