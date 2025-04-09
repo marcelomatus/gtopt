@@ -19,7 +19,7 @@
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_line.hpp>
-#include <gtopt/json/json_period.hpp>
+#include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_scenery.hpp>
@@ -42,7 +42,7 @@ struct json_data_contract<System>
       json_array_null<"block_array", Array<Block>, Block>,
       json_array_null<"stage_array", Array<Stage>, Stage>,
       json_array_null<"scenery_array", Array<Scenery>, Scenery>,
-      json_array_null<"period_array", Array<Period>, Period>,
+      json_array_null<"phase_array", Array<Phase>, Phase>,
       json_array_null<"bus_array", Array<Bus>, Bus>,
       json_array_null<"demand_array", Array<Demand>, Demand>,
       json_array_null<"generator_array", Array<Generator>, Generator>,
@@ -68,7 +68,7 @@ struct json_data_contract<System>
                                  system.block_array,
                                  system.stage_array,
                                  system.scenery_array,
-                                 system.period_array,
+                                 system.phase_array,
                                  system.bus_array,
                                  system.demand_array,
                                  system.generator_array,

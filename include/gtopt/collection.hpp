@@ -209,27 +209,27 @@ public:
   constexpr auto size() const { return element_vector.size(); }
 };
 
-template<typename Collections, typename Op>
-constexpr auto visit_elements(Collections&& collections, Op op)
+template<typename Collections, typename Op, typename... Args>
+constexpr auto visit_elements(Collections&& collections,
+                              Op op,
+                              Args&&... args)  // NOLINT
 {
   std::size_t count = 0;
 
   std::apply(
-      [&](auto&&... collections)
+      [&](auto&&... coll)
       {
-        (void)((
-            ... ||
-            [&]()
-            {
-              for (auto&& element :
-                   std::forward<decltype(collections)>(collections).elements())
-              {
-                if (op(element)) [[likely]] {
-                  ++count;
-                }
-              }
-              return false;
-            }()));
+        (void)((... ||
+                [&]()
+                {
+                  for (auto&& element :
+                       std::forward<decltype(coll)>(coll).elements()) {
+                    if (op(element, std::forward<Args>(args)...)) [[likely]] {
+                      ++count;
+                    }
+                  }
+                  return false;
+                }()));
       },
       std::forward<Collections>(collections));
 

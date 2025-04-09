@@ -19,11 +19,13 @@ namespace
 using namespace gtopt;
 
 template<typename Collections, typename SContext, typename Op>
-constexpr void system_apply(Collections& collections, SContext& sc, Op op)
+constexpr void system_apply(Collections& collections,
+                            SContext& system_context,
+                            Op op)
 {
   std::size_t count = 0;
-  const auto& system = sc.system();
-  const bool use_single_bus = sc.options().use_single_bus();
+  const auto& system = system_context.system();
+  const bool use_single_bus = system_context.options().use_single_bus();
 
   // Create overload pattern once outside the loops
   auto overload = [&](auto& e) -> bool
@@ -31,7 +33,8 @@ constexpr void system_apply(Collections& collections, SContext& sc, Op op)
     using T = std::decay_t<decltype(e)>;
 
     if constexpr (std::is_same_v<T, BusLP>) {
-      return !use_single_bus || sc.is_single_bus(e.id()) ? op(e) : true;
+      return !use_single_bus || system_context.is_single_bus(e.id()) ? op(e)
+                                                                     : true;
     } else if constexpr (std::is_same_v<T, LineLP>) {
       return !use_single_bus ? op(e) : true;
     } else {
@@ -43,13 +46,13 @@ constexpr void system_apply(Collections& collections, SContext& sc, Op op)
   for (auto&& [scenery_index, scenery] :
        enumerate_active<SceneryIndex>(system.sceneries()))
   {
-    sc.set_scenery(scenery_index, scenery);
+    system_context.set_scenery(scenery_index, scenery);
 
     // Iterate through active stages
     for (auto&& [stage_index, stage] :
          enumerate_active<StageIndex>(system.stages()))
     {
-      sc.set_stage(stage_index, stage);
+      system_context.set_stage(stage_index, stage);
 
       // Process elements
       const auto napply = visit_elements(collections, overload);
@@ -153,14 +156,20 @@ inline std::vector<SceneryLP> SystemLP::create_scenery_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<PeriodLP> SystemLP::create_period_array()
+inline std::vector<PhaseLP> SystemLP::create_phase_array()
 {
-  return m_system_.period_array | ranges::views::move
+  if (m_system_.phase_array.empty()) {
+    m_system_.phase_array = {{.uid = 0,
+                              .name = "",
+                              .active = true,
+                              .first_stage = 0,
+                              .count_stage = m_stage_array_.size()}};
+  }
+
+  return m_system_.phase_array | ranges::views::move
       | ranges::views::transform(
              [this](auto&& s)
-             {
-               return PeriodLP {std::forward<decltype(s)>(s), m_stage_array_};
-             })
+             { return PhaseLP {std::forward<decltype(s)>(s), m_stage_array_}; })
       | ranges::to<std::vector>();
 }
 
@@ -181,7 +190,8 @@ inline void SystemLP::validate_system_components()
 
   if (nblocks != m_block_array_.size()) {
     throw std::runtime_error(
-        "Number of blocks in stages doesn't match the total number of blocks");
+        "Number of blocks in stages doesn't match the total number of "
+        "blocks");
   }
 }
 
@@ -198,26 +208,28 @@ inline void SystemLP::setup_reference_bus()
 inline void SystemLP::initialize_collections()
 {
   std::get<Collection<BusLP>>(m_collections_) =
-      make_collection<BusLP>(ic, m_system_.bus_array);
+      make_collection<BusLP>(input_context, m_system_.bus_array);
   std::get<Collection<DemandLP>>(m_collections_) =
-      make_collection<DemandLP>(ic, m_system_.demand_array);
+      make_collection<DemandLP>(input_context, m_system_.demand_array);
   std::get<Collection<GeneratorLP>>(m_collections_) =
-      make_collection<GeneratorLP>(ic, m_system_.generator_array);
+      make_collection<GeneratorLP>(input_context, m_system_.generator_array);
   std::get<Collection<LineLP>>(m_collections_) =
-      make_collection<LineLP>(ic, m_system_.line_array);
+      make_collection<LineLP>(input_context, m_system_.line_array);
   std::get<Collection<GeneratorProfileLP>>(m_collections_) =
-      make_collection<GeneratorProfileLP>(ic,
+      make_collection<GeneratorProfileLP>(input_context,
                                           m_system_.generator_profile_array);
   std::get<Collection<DemandProfileLP>>(m_collections_) =
-      make_collection<DemandProfileLP>(ic, m_system_.demand_profile_array);
+      make_collection<DemandProfileLP>(input_context,
+                                       m_system_.demand_profile_array);
   std::get<Collection<BatteryLP>>(m_collections_) =
-      make_collection<BatteryLP>(ic, m_system_.battery_array);
+      make_collection<BatteryLP>(input_context, m_system_.battery_array);
   std::get<Collection<ConverterLP>>(m_collections_) =
-      make_collection<ConverterLP>(ic, m_system_.converter_array);
+      make_collection<ConverterLP>(input_context, m_system_.converter_array);
   std::get<Collection<ReserveZoneLP>>(m_collections_) =
-      make_collection<ReserveZoneLP>(ic, m_system_.reserve_zone_array);
+      make_collection<ReserveZoneLP>(input_context,
+                                     m_system_.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(m_collections_) =
-      make_collection<ReserveProvisionLP>(ic,
+      make_collection<ReserveProvisionLP>(input_context,
                                           m_system_.reserve_provision_array);
 }
 
@@ -253,25 +265,63 @@ SystemLP::SystemLP(System psystem)
     , m_block_array_(create_block_array())
     , m_stage_array_(create_stage_array())
     , m_scenery_array_(create_scenery_array())
-    , m_period_array_(create_period_array())
-    , sc(*this)
-    , ic(sc)
+    , m_phase_array_(create_phase_array())
+    , system_context(*this)
+    , input_context(system_context)
 {
   validate_system_components();
   setup_reference_bus();
   initialize_collections();
 }
 
+void SystemLP::add_to_lp(LinearProblem& lp,
+                         const StageIndex& stage_index,
+                         const StageLP& stage,
+                         const SceneryIndex& scenery_index,
+                         const SceneryLP& scenery)
+{
+  const bool use_single_bus = system_context.options().use_single_bus();
+
+  auto op = [&](auto& e) { return e.add_to_lp(system_context, lp); };
+
+  // Create overload pattern once outside the loops
+  auto overload = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+
+    if constexpr (std::is_same_v<T, BusLP>) {
+      return !use_single_bus || system_context.is_single_bus(e.id()) ? op(e)
+                                                                     : true;
+    } else if constexpr (std::is_same_v<T, LineLP>) {
+      return !use_single_bus ? op(e) : true;
+    } else {
+      return op(e);
+    }
+  };
+
+  system_context.set_scenery(scenery_index, scenery);
+  system_context.set_stage(stage_index, stage);
+
+  visit_elements(m_collections_, overload);
+}
+
 void SystemLP::add_to_lp(LinearProblem& lp)
 {
-  system_apply(m_collections_,
-               this->sc,
-               [this, &lp](auto& e) { return e.add_to_lp(this->sc, lp); });
+  // Iterate through active sceneries
+  for (auto&& [scenery_index, scenery] :
+       enumerate_active<SceneryIndex>(sceneries()))
+  {
+    // Iterate through active stages
+    for (auto&& [stage_index, stage] : enumerate_active<StageIndex>(stages())) {
+      // Process elements
+      add_to_lp(lp, stage_index, stage, scenery_index, scenery);
+    }
+  }
 }
 
 void SystemLP::write_out(const LinearInterface& li) const
 {
-  OutputContext oc(this->sc, li);
+  OutputContext oc(this->system_context, li);
 
   visit_elements(m_collections_,
                  [&oc](const auto& e) { return e.add_to_output(oc); });

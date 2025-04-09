@@ -1,5 +1,5 @@
 /**
- * @file      period_lp.hpp
+ * @file      phase_lp.hpp
  * @brief     Header of
  * @date      Wed Mar 26 12:10:25 2025
  * @author    marcelo
@@ -15,28 +15,28 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/period.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
 
-class PeriodLP
+class PhaseLP
 {
 public:
   using StageSpan = std::span<const StageLP>;
   using StageIndexes = std::vector<StageIndex>;
   using StageIndexSpan = std::span<const StageIndex>;
 
-  PeriodLP() = default;
+  PhaseLP() = default;
 
   template<class Stages>
-  explicit PeriodLP(Period pperiod, const Stages& pstages)
-      : period(std::move(pperiod))
+  explicit PhaseLP(Phase pphase, const Stages& pstages)
+      : phase(std::move(pphase))
       , stage_span(
-            std::span(pstages).subspan(period.first_stage, period.count_stage))
-      , stage_indexes(period.count_stage)
+            std::span(pstages).subspan(phase.first_stage, phase.count_stage))
+      , stage_indexes(phase.count_stage)
       , span_duration(std::transform_reduce(stage_span.begin(),
                                             stage_span.end(),
                                             0,
@@ -53,9 +53,9 @@ public:
   [[nodiscard]] constexpr auto duration() const { return span_duration; }
   [[nodiscard]] constexpr auto is_active() const
   {
-    return period.active.value_or(true);
+    return phase.active.value_or(true);
   }
-  [[nodiscard]] constexpr auto uid() const { return PeriodUid {period.uid}; }
+  [[nodiscard]] constexpr auto uid() const { return PhaseUid {phase.uid}; }
   [[nodiscard]] constexpr auto&& stages() const { return stage_span; }
   [[nodiscard]] constexpr auto indexes() const
   {
@@ -63,7 +63,7 @@ public:
   }
 
 private:
-  Period period;
+  Phase phase;
   StageSpan stage_span;
   StageIndexes stage_indexes;
 
