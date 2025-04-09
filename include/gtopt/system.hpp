@@ -19,7 +19,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/line.hpp>
-#include <gtopt/period.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/scenery.hpp>
@@ -39,7 +39,7 @@ struct System
   Array<Block> block_array {};
   Array<Stage> stage_array {};
   Array<Scenery> scenery_array {};
-  Array<Period> period_array {};
+  Array<Phase> phase_array {};
 
   Array<Bus> bus_array {};
   Array<Demand> demand_array {};

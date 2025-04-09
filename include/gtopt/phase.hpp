@@ -1,5 +1,5 @@
 /**
- * @file      period.hpp
+ * @file      phase.hpp
  * @brief     Header of
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
@@ -15,7 +15,7 @@
 namespace gtopt
 {
 
-struct Period
+struct Phase
 {
   Uid uid {};
   OptName name {};
@@ -24,11 +24,11 @@ struct Period
   Size first_stage {};
   Size count_stage {};
 
-  static constexpr std::string_view class_name = "period";
+  static constexpr std::string_view class_name = "phase";
 };
 
-using PeriodUid = StrongUidType<struct Period>;
-using PeriodIndex = StrongIndexType<Period>;
-using OptPeriodIndex = std::optional<PeriodIndex>;
+using PhaseUid = StrongUidType<struct Phase>;
+using PhaseIndex = StrongIndexType<Phase>;
+using OptPhaseIndex = std::optional<PhaseIndex>;
 
 }  // namespace gtopt

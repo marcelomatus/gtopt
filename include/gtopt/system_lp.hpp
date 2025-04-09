@@ -25,7 +25,7 @@
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/period_lp.hpp>
+#include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/scenery_lp.hpp>
@@ -55,7 +55,7 @@ class SystemLP
   std::vector<BlockLP> create_block_array();
   std::vector<StageLP> create_stage_array();
   std::vector<SceneryLP> create_scenery_array();
-  std::vector<PeriodLP> create_period_array();
+  std::vector<PhaseLP> create_phase_array();
   void validate_system_components();
   void setup_reference_bus();
   void initialize_collections();
@@ -115,7 +115,14 @@ public:
 
   const auto& name() const { return m_system_.name; }
 
+  void add_to_lp(LinearProblem& lp,
+                 const StageIndex& stage_index,
+                 const StageLP& stage,
+                 const SceneryIndex& scenery_index,
+                 const SceneryLP& scenery);
+
   void add_to_lp(LinearProblem& lp);
+
   void write_out(const LinearInterface& li) const;
 
 private:
@@ -125,10 +132,10 @@ private:
   std::vector<BlockLP> m_block_array_;
   std::vector<StageLP> m_stage_array_;
   std::vector<SceneryLP> m_scenery_array_;
-  std::vector<PeriodLP> m_period_array_;
+  std::vector<PhaseLP> m_phase_array_;
 
-  SystemContext sc;
-  InputContext ic;
+  SystemContext system_context;
+  InputContext input_context;
 
   std::tuple<Collection<BusLP>,
              Collection<DemandLP>,
