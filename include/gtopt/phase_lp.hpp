@@ -1,11 +1,14 @@
 /**
  * @file      phase_lp.hpp
- * @brief     Header of
- * @date      Wed Mar 26 12:10:25 2025
+ * @brief     Header file for the PhaseLP class, which represents a linear
+ * program phase
+ * @date      Wed Apr  9 22:04:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides functionality for managing a phase in a linear
+ * programming context, encapsulating a collection of StageLP objects and their
+ * properties.
  */
 
 #pragma once
@@ -21,53 +24,103 @@
 
 namespace gtopt
 {
-
+/**
+ * @class PhaseLP
+ * @brief Represents a phase in a linear programming optimization problem
+ *
+ * PhaseLP encapsulates a sequence of StageLP objects that form a cohesive
+ * phase in the optimization process. It provides access to the contained
+ * stages and calculates aggregate properties such as total duration.
+ */
 class PhaseLP
 {
 public:
-  using StageSpan = std::span<const StageLP>;
-  using StageIndexes = std::vector<StageIndex>;
-  using StageIndexSpan = std::span<const StageIndex>;
+  using StageSpan = std::span<const StageLP>;  ///< Span of StageLP objects
+  using StageIndexes =
+      std::vector<StageIndex>;  ///< Collection of stage indices
+  using StageIndexSpan =
+      std::span<const StageIndex>;  ///< Span of stage indices
 
-  PhaseLP() = default;
+  /**
+   * @brief Default constructor
+   */
+  PhaseLP() noexcept = default;
 
+  /**
+   * @brief Constructs a PhaseLP from a Phase object and a collection of
+   * stages
+   *
+   * @tparam Stages Type of the stages collection
+   * @param pphase The Phase object containing phase metadata
+   * @param pstages Collection of StageLP objects
+   */
   template<class Stages>
   explicit PhaseLP(Phase pphase, const Stages& pstages)
       : phase(std::move(pphase))
       , stage_span(
             std::span(pstages).subspan(phase.first_stage, phase.count_stage))
-      , stage_indexes(phase.count_stage)
+      , stage_indexes(stage_span.size())
       , span_duration(std::transform_reduce(stage_span.begin(),
                                             stage_span.end(),
-                                            0,
-                                            std::plus(),
-                                            [](auto&& b)
+                                            0.0,
+                                            std::plus<>(),
+                                            [](const auto& b) noexcept
                                             { return b.duration(); }))
   {
+    // Initialize stage indexes with sequential values starting from 0
     std::iota(  // NOLINT
         stage_indexes.begin(),
         stage_indexes.end(),
         StageIndex {});
   }
 
-  [[nodiscard]] constexpr auto duration() const { return span_duration; }
-  [[nodiscard]] constexpr auto is_active() const
+  /**
+   * @brief Get the total duration of the phase
+   * @return Total duration as a double
+   */
+  [[nodiscard]] constexpr auto duration() const noexcept
+  {
+    return span_duration;
+  }
+
+  /**
+   * @brief Check if the phase is active
+   * @return true if the phase is active, false otherwise
+   */
+  [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return phase.active.value_or(true);
   }
-  [[nodiscard]] constexpr auto uid() const { return PhaseUid {phase.uid}; }
-  [[nodiscard]] constexpr auto&& stages() const { return stage_span; }
-  [[nodiscard]] constexpr auto indexes() const
+
+  /**
+   * @brief Get the unique identifier of the phase
+   * @return Phase UID
+   */
+  [[nodiscard]] constexpr auto uid() const noexcept
+  {
+    return PhaseUid {phase.uid};
+  }
+
+  /**
+   * @brief Get a span of all stages in this phase
+   * @return Span of StageLP objects
+   */
+  [[nodiscard]] constexpr auto& stages() const noexcept { return stage_span; }
+
+  /**
+   * @brief Get a span of all stage indexes in this phase
+   * @return Span of stage indexes
+   */
+  [[nodiscard]] constexpr auto indexes() const noexcept
   {
     return StageIndexSpan {stage_indexes};
   }
 
 private:
-  Phase phase;
-  StageSpan stage_span;
-  StageIndexes stage_indexes;
-
-  double span_duration {0};
+  Phase phase;  ///< The underlying Phase object
+  StageSpan stage_span;  ///< Span of StageLP objects in this phase
+  StageIndexes stage_indexes;  ///< Collection of stage indices
+  double span_duration {0.0};  ///< Total duration of all stages in this phase
 };
 
 }  // namespace gtopt

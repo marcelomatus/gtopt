@@ -33,3 +33,14 @@ using StageIndex = StrongIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
 
 }  // namespace gtopt
+
+namespace std
+{
+
+template<>
+struct incrementable_traits<gtopt::StageIndex>
+{
+  using difference_type = int;
+};
+
+}  // namespace std

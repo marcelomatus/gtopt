@@ -1,11 +1,12 @@
 /**
  * @file      json_phase.hpp
- * @brief     Header of
+ * @brief     JSON serialization for Phase objects
  * @date      Sun Mar 30 17:33:28 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides JSON serialization and deserialization for Phase objects
+ * using the daw::json library.
  */
 
 #pragma once
@@ -26,7 +27,7 @@ struct json_data_contract<Phase>
                                 json_number<"first_stage", Size>,
                                 json_number<"count_stage", Size>>;
 
-  constexpr static auto to_json_data(Phase const& phase)
+  [[nodiscard]] constexpr static auto to_json_data(Phase const& phase)
   {
     return std::forward_as_tuple(phase.uid,
                                  phase.name,

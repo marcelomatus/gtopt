@@ -19,12 +19,9 @@ namespace gtopt
 
 struct ObjectAttrs
 {
-#define GTOPT_OBJECT_ATTRS \
-  Uid uid {}; \
-  Name name {}; \
-  OptActive active {}
-
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 };
 
 template<typename Obj>

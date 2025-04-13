@@ -17,7 +17,9 @@ namespace gtopt
 
 struct ReserveZone
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   OptTBRealFieldSched urreq {};  // up reserve requirement
   OptTBRealFieldSched drreq {};  // down reserve requirement

@@ -1,12 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 
-set(CMAKE_CONFIGURATION_TYPES "Debug" CACHE STRING "" FORCE)
+set(CMAKE_CONFIGURATION_TYPES
+    "Debug"
+    CACHE STRING "" FORCE
+)
 
 project(gtoptStandalone LANGUAGES CXX)
 
 # --- Options ----
 
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 
 # --- Import tools ----
 

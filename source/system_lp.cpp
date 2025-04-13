@@ -64,8 +64,8 @@ constexpr void system_apply(Collections& collections,
 }
 
 template<typename Out, typename Inp, typename InputContext>
-constexpr auto make_collection(InputContext& ic, std::vector<Inp>& input)
-    -> Collection<Out>
+constexpr auto make_collection(InputContext& input_context,
+                               std::vector<Inp>& input) -> Collection<Out>
 {
   // Reserve space for the output vector
   std::vector<Out> output;
@@ -75,18 +75,19 @@ constexpr auto make_collection(InputContext& ic, std::vector<Inp>& input)
   std::transform(std::make_move_iterator(input.begin()),
                  std::make_move_iterator(input.end()),
                  std::back_inserter(output),
-                 [&ic](Inp&& element) { return Out {ic, std::move(element)}; });
+                 [&input_context](Inp&& element)
+                 { return Out {input_context, std::move(element)}; });
 
   return Collection<Out> {std::move(output)};
 }
 
 template<typename Out, typename Inp, typename InputContext>
-constexpr auto make_collection(InputContext& ic,
+constexpr auto make_collection(InputContext& input_context,
                                const std::optional<std::vector<Inp>>& input)
     -> Collection<Out>
 {
   if (input) [[likely]] {
-    return make_collection<Out>(ic, *input);
+    return make_collection<Out>(input_context, *input);
   }
   return Collection<Out> {};
 }
@@ -173,6 +174,25 @@ inline std::vector<PhaseLP> SystemLP::create_phase_array()
       | ranges::to<std::vector>();
 }
 
+inline std::vector<SceneLP> SystemLP::create_scene_array()
+{
+  if (m_system_.scene_array.empty()) {
+    m_system_.scene_array = {{.uid = 0,
+                              .name = "",
+                              .active = true,
+                              .first_scenery = 0,
+                              .count_scenery = m_scenery_array_.size()}};
+  }
+
+  return m_system_.scene_array | ranges::views::move
+      | ranges::views::transform(
+             [this](auto&& s)
+             {
+               return SceneLP {std::forward<decltype(s)>(s), m_scenery_array_};
+             })
+      | ranges::to<std::vector>();
+}
+
 inline void SystemLP::validate_system_components()
 {
   if (m_block_array_.empty() || m_stage_array_.empty()
@@ -234,28 +254,30 @@ inline void SystemLP::initialize_collections()
 }
 
 #ifdef GTOPT_EXTRA
-void SystemLP::initializeExtraCollections()
+void SystemLP::initialize_extra_collections()
 {
   std::get<Collection<JunctionLP>>(m_collections_) =
-      make_collection<JunctionLP>(ic, m_system_.junctions);
+      make_collection<JunctionLP>(input_context, m_system_.junctions);
   std::get<Collection<WaterwayLP>>(m_collections_) =
-      make_collection<WaterwayLP>(ic, m_system_.waterways);
+      make_collection<WaterwayLP>(input_context, m_system_.waterways);
   std::get<Collection<InflowLP>>(m_collections_) =
-      make_collection<InflowLP>(ic, m_system_.inflows);
+      make_collection<InflowLP>(input_context, m_system_.inflows);
   std::get<Collection<OutflowLP>>(m_collections_) =
-      make_collection<OutflowLP>(ic, m_system_.outflows);
+      make_collection<OutflowLP>(input_context, m_system_.outflows);
   std::get<Collection<ReservoirLP>>(m_collections_) =
-      make_collection<ReservoirLP>(ic, m_system_.reservoirs);
+      make_collection<ReservoirLP>(input_context, m_system_.reservoirs);
   std::get<Collection<FiltrationLP>>(m_collections_) =
-      make_collection<FiltrationLP>(ic, m_system_.filtrations);
+      make_collection<FiltrationLP>(input_context, m_system_.filtrations);
   std::get<Collection<TurbineLP>>(m_collections_) =
-      make_collection<TurbineLP>(ic, m_system_.turbines);
+      make_collection<TurbineLP>(input_context, m_system_.turbines);
   std::get<Collection<EmissionZoneLP>>(m_collections_) =
-      make_collection<EmissionZoneLP>(ic, m_system_.emission_zones);
+      make_collection<EmissionZoneLP>(input_context, m_system_.emission_zones);
   std::get<Collection<GeneratorEmissionLP>>(m_collections_) =
-      make_collection<GeneratorEmissionLP>(ic, m_system_.generator_emissions);
+      make_collection<GeneratorEmissionLP>(input_context,
+                                           m_system_.generator_emissions);
   std::get<Collection<DemandEmissionLP>>(m_collections_) =
-      make_collection<DemandEmissionLP>(ic, m_system_.demand_emissions);
+      make_collection<DemandEmissionLP>(input_context,
+                                        m_system_.demand_emissions);
 }
 #endif
 
@@ -266,12 +288,17 @@ SystemLP::SystemLP(System psystem)
     , m_stage_array_(create_stage_array())
     , m_scenery_array_(create_scenery_array())
     , m_phase_array_(create_phase_array())
+    , m_scene_array_(create_scene_array())
     , system_context(*this)
     , input_context(system_context)
 {
   validate_system_components();
   setup_reference_bus();
   initialize_collections();
+
+#ifdef GTOPT_EXTRA
+  initialize_extra_collections();
+#endif
 }
 
 void SystemLP::add_to_lp(LinearProblem& lp,
@@ -280,29 +307,27 @@ void SystemLP::add_to_lp(LinearProblem& lp,
                          const SceneryIndex& scenery_index,
                          const SceneryLP& scenery)
 {
+  system_context.set_scenery(scenery_index, scenery);
+  system_context.set_stage(stage_index, stage);
+
   const bool use_single_bus = system_context.options().use_single_bus();
 
-  auto op = [&](auto& e) { return e.add_to_lp(system_context, lp); };
-
-  // Create overload pattern once outside the loops
-  auto overload = [&](auto& e) -> bool
+  auto visitor = [&](auto& e) -> bool
   {
     using T = std::decay_t<decltype(e)>;
 
     if constexpr (std::is_same_v<T, BusLP>) {
-      return !use_single_bus || system_context.is_single_bus(e.id()) ? op(e)
-                                                                     : true;
+      return !use_single_bus || system_context.is_single_bus(e.id())
+          ? e.add_to_lp(system_context, lp)
+          : true;
     } else if constexpr (std::is_same_v<T, LineLP>) {
-      return !use_single_bus ? op(e) : true;
+      return !use_single_bus ? e.add_to_lp(system_context, lp) : true;
     } else {
-      return op(e);
+      return e.add_to_lp(system_context, lp);
     }
   };
 
-  system_context.set_scenery(scenery_index, scenery);
-  system_context.set_stage(stage_index, stage);
-
-  visit_elements(m_collections_, overload);
+  visit_elements(m_collections_, visitor);
 }
 
 void SystemLP::add_to_lp(LinearProblem& lp)

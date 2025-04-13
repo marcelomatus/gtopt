@@ -17,18 +17,19 @@ namespace gtopt
 
 struct BusAttrs
 {
-#define GTOPT_BUS_ATTRS \
-  OptReal voltage {}; \
-  OptReal reference_theta {}; \
-  OptBool use_kirchhoff {}
-
-  GTOPT_BUS_ATTRS;
+  OptReal voltage {};
+  OptReal reference_theta {};
+  OptBool use_kirchhoff {};
 };
 
 struct Bus
 {
-  GTOPT_OBJECT_ATTRS;
-  GTOPT_BUS_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
+  OptReal voltage {};
+  OptReal reference_theta {};
+  OptBool use_kirchhoff {};
 
   [[nodiscard]] constexpr bool needs_kirchhoff(const double v_threshold) const
   {

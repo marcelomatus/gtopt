@@ -28,6 +28,7 @@
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/scene_lp.hpp>
 #include <gtopt/scenery_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
@@ -56,6 +57,8 @@ class SystemLP
   std::vector<StageLP> create_stage_array();
   std::vector<SceneryLP> create_scenery_array();
   std::vector<PhaseLP> create_phase_array();
+  std::vector<SceneLP> create_scene_array();
+
   void validate_system_components();
   void setup_reference_bus();
   void initialize_collections();
@@ -70,11 +73,12 @@ public:
 
   explicit SystemLP(System psystem = {});
 
+  constexpr const auto& scenes() const { return m_scene_array_; }
   constexpr const auto& sceneries() const { return m_scenery_array_; }
+  constexpr const auto& phases() const { return m_phase_array_; }
   constexpr const auto& stages() const { return m_stage_array_; }
   constexpr const auto& blocks() const { return m_block_array_; }
   constexpr const auto& options() const { return m_options_; }
-  auto&& scenery(const SceneryIndex s) const { return sceneries().at(s); }
 
   template<typename Element>
   constexpr auto push_back(Element&& e)
@@ -133,6 +137,7 @@ private:
   std::vector<StageLP> m_stage_array_;
   std::vector<SceneryLP> m_scenery_array_;
   std::vector<PhaseLP> m_phase_array_;
+  std::vector<SceneLP> m_scene_array_;
 
   SystemContext system_context;
   InputContext input_context;

@@ -12,13 +12,18 @@
 #include <filesystem>
 #include <string>
 
+#include <boost/multi_array/base.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
+#include "gtopt/scenery.hpp"
+#include "gtopt/stage.hpp"
+
 namespace gtopt
 {
+using std::move;
 
 auto Simulation::run_lp(System system,
                         const std::optional<std::string>& lp_file,
@@ -102,6 +107,44 @@ auto Simulation::run_lp(System system,
   }
 
   return {0};
+}
+
+void Simulation::create_lp()
+{
+  // Use type aliases for better readability
+  using index_t = boost::multi_array_types::index;
+
+  // Get dimensions once
+  const auto n_phase = static_cast<index_t>(system_lp.phases().size());
+  const auto n_scene = static_cast<index_t>(system_lp.scenes().size());
+
+  // Pre-allocate the matrix
+  lp_matrix.resize(boost::extents[n_phase][n_scene]);
+
+  // Process all active scenes
+  for (const auto& [scene_index, scene] :
+       enumerate_active<SceneIndex>(system_lp.scenes()))
+  {
+    // Process all active phases for each scenery
+    for (const auto& [phase_index, phase] :
+         enumerate_active<PhaseIndex>(system_lp.phases()))
+    {
+      auto& lp = lp_matrix[phase_index][scene_index];
+
+      // Process all active sceneries in current scene
+      for (const auto& [scenery_index, scenery] :
+           enumerate_active<SceneryIndex>(scene.sceneries()))
+      {
+        // Process all active stages in current phase
+        for (const auto& [stage_index, stage] :
+             enumerate_active<StageIndex>(phase.stages()))
+        {
+          // Add to linear program
+          system_lp.add_to_lp(lp, stage_index, stage, scenery_index, scenery);
+        }
+      }
+    }
+  }
 }
 
 }  // namespace gtopt

@@ -1,11 +1,12 @@
 /**
  * @file      generator.hpp
- * @brief     Header of
+ * @brief     Header for generator components in power system optimization
  * @date      Sat Mar 29 11:52:29 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines data structures for representing generators in power
+ * system optimization models
  */
 
 #pragma once
@@ -14,40 +15,78 @@
 
 namespace gtopt
 {
-
+/**
+ * @struct GeneratorAttrs
+ * @brief Contains the core attributes for a generator
+ */
 struct GeneratorAttrs
 {
-#define GTOPT_GENERATOR_ATTRS \
-  SingleId bus {}; \
-  OptTBRealFieldSched pmin {}; \
-  OptTBRealFieldSched pmax {}; \
-  OptTRealFieldSched lossfactor {}; \
-  OptTRealFieldSched gcost {}
+  SingleId bus {};  ///< Bus ID where the generator is connected
+  OptTBRealFieldSched pmin {};  ///< Minimum active power output schedule
+  OptTBRealFieldSched pmax {};  ///< Maximum active power output schedule
+  OptTRealFieldSched lossfactor {};  ///< Loss factor for the generator
+  OptTRealFieldSched gcost {};  ///< Generation cost
 
-  GTOPT_GENERATOR_ATTRS;
-  GTOPT_CAPACITY_ATTRS;
+  OptTRealFieldSched capacity {};  ///< Installed capacity
+  OptTRealFieldSched expcap {};  ///< Expansion capacity
+  OptTRealFieldSched expmod {};  ///< Expansion module size
+  OptTRealFieldSched capmax {};  ///< Maximum capacity limit
+  OptTRealFieldSched annual_capcost {};  ///< Annual capacity cost
+  OptTRealFieldSched annual_derating {};  ///< Annual derating factor
 };
 
+/**
+ * @struct Generator
+ * @brief Represents a generator in a power system optimization model
+ */
 struct Generator
 {
-  GTOPT_OBJECT_ATTRS;
-  GTOPT_GENERATOR_ATTRS;
-  GTOPT_CAPACITY_ATTRS;
+  Uid uid {};  ///< Unique identifier
+  Name name {};  ///< Generator name
+  OptActive active {};  ///< Generator active status
 
+  SingleId bus {};  ///< Bus ID where the generator is connected
+  OptTBRealFieldSched pmin {};  ///< Minimum active power output schedule
+  OptTBRealFieldSched pmax {};  ///< Maximum active power output schedule
+  OptTRealFieldSched lossfactor {};  ///< Loss factor for the generator
+  OptTRealFieldSched gcost {};  ///< Generation cost
+
+  OptTRealFieldSched capacity {};  ///< Installed capacity
+  OptTRealFieldSched expcap {};  ///< Expansion capacity
+  OptTRealFieldSched expmod {};  ///< Expansion module size
+  OptTRealFieldSched capmax {};  ///< Maximum capacity limit
+  OptTRealFieldSched annual_capcost {};  ///< Annual capacity cost
+  OptTRealFieldSched annual_derating {};  ///< Annual derating factor
+
+  /**
+   * @brief Sets generator attributes from a GeneratorAttrs object
+   * @param attrs Generator attributes to be set
+   * @return Reference to this Generator object
+   *
+   * @code{.cpp}
+   * // Example usage:
+   * Generator gen;
+   * GeneratorAttrs attrs;
+   * attrs.bus = 1;
+   * attrs.pmax = 100.0;
+   * gen.set_attrs(std::move(attrs));
+   * // gen.bus should now be 1, and attrs.bus should be empty
+   * @endcode
+   */
   auto& set_attrs(auto&& attrs)
   {
     bus = std::exchange(attrs.bus, {});
-    pmin = std::move(attrs.pmin);
-    pmax = std::move(attrs.pmax);
-    lossfactor = std::move(attrs.lossfactor);
-    gcost = std::move(attrs.gcost);
+    pmin = std::exchange(attrs.pmin, {});
+    pmax = std::exchange(attrs.pmax, {});
+    lossfactor = std::exchange(attrs.lossfactor, {});
+    gcost = std::exchange(attrs.gcost, {});
 
-    capacity = std::move(attrs.capacity);
-    expcap = std::move(attrs.expcap);
-    expmod = std::move(attrs.expmod);
-    capmax = std::move(attrs.capmax);
-    annual_capcost = std::move(attrs.annual_capcost);
-    annual_derating = std::move(attrs.annual_derating);
+    capacity = std::exchange(attrs.capacity, {});
+    expcap = std::exchange(attrs.expcap, {});
+    expmod = std::exchange(attrs.expmod, {});
+    capmax = std::exchange(attrs.capmax, {});
+    annual_capcost = std::exchange(attrs.annual_capcost, {});
+    annual_derating = std::exchange(attrs.annual_derating, {});
 
     return *this;
   }

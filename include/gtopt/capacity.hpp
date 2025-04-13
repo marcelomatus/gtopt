@@ -17,21 +17,26 @@ namespace gtopt
 
 struct CapacityAttrs
 {
-#define GTOPT_CAPACITY_ATTRS \
-  OptTRealFieldSched capacity {}; \
-  OptTRealFieldSched expcap {}; \
-  OptTRealFieldSched expmod {}; \
-  OptTRealFieldSched capmax {}; \
-  OptTRealFieldSched annual_capcost {}; \
-  OptTRealFieldSched annual_derating {}
-
-  GTOPT_CAPACITY_ATTRS;
+  OptTRealFieldSched capacity {};
+  OptTRealFieldSched expcap {};
+  OptTRealFieldSched expmod {};
+  OptTRealFieldSched capmax {};
+  OptTRealFieldSched annual_capcost {};
+  OptTRealFieldSched annual_derating {};
 };
 
 struct Capacity
 {
-  GTOPT_OBJECT_ATTRS;
-  GTOPT_CAPACITY_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
+
+  OptTRealFieldSched capacity {};
+  OptTRealFieldSched expcap {};
+  OptTRealFieldSched expmod {};
+  OptTRealFieldSched capmax {};
+  OptTRealFieldSched annual_capcost {};
+  OptTRealFieldSched annual_derating {};
 };
 
 }  // namespace gtopt

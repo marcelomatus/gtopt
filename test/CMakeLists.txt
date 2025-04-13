@@ -6,12 +6,12 @@ project(gtoptTests LANGUAGES CXX)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 # --- Import tools ----
 
-#set(USE_STATIC_ANALYZER "cppcheck")
+# set(USE_STATIC_ANALYZER "cppcheck")
 set(USE_CCACHE YES)
 
 include(../cmake/tools.cmake)
@@ -42,7 +42,6 @@ target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -67,6 +66,8 @@ doctest_discover_tests(${PROJECT_NAME})
 # ---- code coverage ----
 
 if(ENABLE_TEST_COVERAGE)
-  target_compile_options(${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
+  target_compile_options(
+    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
+  )
   target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
 endif()

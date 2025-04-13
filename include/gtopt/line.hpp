@@ -7,25 +7,39 @@ namespace gtopt
 
 struct LineAttrs
 {
-#define GTOPT_LINE_ATTRS \
-  SingleId bus_a {}; \
-  SingleId bus_b {}; \
-  OptTRealFieldSched voltage {}; \
-  OptTRealFieldSched resistance {}; \
-  OptTRealFieldSched reactance {}; \
-  OptTRealFieldSched lossfactor {}; \
-  OptTBRealFieldSched tmin {}; \
-  OptTBRealFieldSched tmax {}; \
-  OptTRealFieldSched tcost {}
-
-  GTOPT_LINE_ATTRS;
+  SingleId bus_a {};
+  SingleId bus_b {};
+  OptTRealFieldSched voltage {};
+  OptTRealFieldSched resistance {};
+  OptTRealFieldSched reactance {};
+  OptTRealFieldSched lossfactor {};
+  OptTBRealFieldSched tmin {};
+  OptTBRealFieldSched tmax {};
+  OptTRealFieldSched tcost {};
 };
 
 struct Line
 {
-  GTOPT_OBJECT_ATTRS;
-  GTOPT_LINE_ATTRS;
-  GTOPT_CAPACITY_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
+
+  SingleId bus_a {};
+  SingleId bus_b {};
+  OptTRealFieldSched voltage {};
+  OptTRealFieldSched resistance {};
+  OptTRealFieldSched reactance {};
+  OptTRealFieldSched lossfactor {};
+  OptTBRealFieldSched tmin {};
+  OptTBRealFieldSched tmax {};
+  OptTRealFieldSched tcost {};
+
+  OptTRealFieldSched capacity {};
+  OptTRealFieldSched expcap {};
+  OptTRealFieldSched expmod {};
+  OptTRealFieldSched capmax {};
+  OptTRealFieldSched annual_capcost {};
+  OptTRealFieldSched annual_derating {};
 };
 
 }  // namespace gtopt

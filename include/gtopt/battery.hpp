@@ -17,7 +17,9 @@ namespace gtopt
 
 struct Battery
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   OptTRealFieldSched annual_loss {};
   OptTRealFieldSched vmin {};

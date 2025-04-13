@@ -1,11 +1,13 @@
 /**
  * @file      json_system.hpp
- * @brief     Header of
+ * @brief     JSON serialization/deserialization for the System class
  * @date      Wed Mar 19 22:42:24 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides JSON data contract definitions for the System class,
+ * enabling serialization and deserialization of system objects with all their
+ * components including buses, generators, lines, etc.
  */
 
 #pragma once
@@ -22,6 +24,7 @@
 #include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
+#include <gtopt/json/json_scene.hpp>
 #include <gtopt/json/json_scenery.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/json/json_system_options.hpp>
@@ -43,6 +46,7 @@ struct json_data_contract<System>
       json_array_null<"stage_array", Array<Stage>, Stage>,
       json_array_null<"scenery_array", Array<Scenery>, Scenery>,
       json_array_null<"phase_array", Array<Phase>, Phase>,
+      json_array_null<"scene_array", Array<Scene>, Scene>,
       json_array_null<"bus_array", Array<Bus>, Bus>,
       json_array_null<"demand_array", Array<Demand>, Demand>,
       json_array_null<"generator_array", Array<Generator>, Generator>,
@@ -60,7 +64,7 @@ struct json_data_contract<System>
                       Array<ReserveProvision>,
                       ReserveProvision> >;
 
-  constexpr static auto to_json_data(System const& system)
+  [[nodiscard]] constexpr static auto to_json_data(System const& system)
   {
     return std::forward_as_tuple(system.name,
                                  system.version,
@@ -69,6 +73,7 @@ struct json_data_contract<System>
                                  system.stage_array,
                                  system.scenery_array,
                                  system.phase_array,
+                                 system.scene_array,
                                  system.bus_array,
                                  system.demand_array,
                                  system.generator_array,
@@ -81,5 +86,4 @@ struct json_data_contract<System>
                                  system.reserve_provision_array);
   }
 };
-
 }  // namespace daw::json

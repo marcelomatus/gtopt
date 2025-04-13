@@ -9,7 +9,9 @@ namespace gtopt
 
 struct Converter
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   SingleId battery {};
 

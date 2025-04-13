@@ -17,7 +17,9 @@ namespace gtopt
 
 struct ReserveProvision
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   SingleId generator {};
   String reserve_zones {};
