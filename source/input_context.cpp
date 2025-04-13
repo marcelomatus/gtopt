@@ -41,12 +41,12 @@ inline ArrowTable csv_read_table(auto&& fpath)
 
   auto parse_options = arrow::csv::ParseOptions::Defaults();
 
-  const std::string scenery_str {Scenery::class_name};
+  const std::string scenario_str {Scenario::class_name};
   const std::string stage_str {Stage::class_name};
   const std::string block_str {Block::class_name};
 
   auto convert_options = arrow::csv::ConvertOptions::Defaults();
-  convert_options.column_types[scenery_str] = ArrowTraits<Uid>::type();
+  convert_options.column_types[scenario_str] = ArrowTraits<Uid>::type();
   convert_options.column_types[stage_str] = ArrowTraits<Uid>::type();
   convert_options.column_types[block_str] = ArrowTraits<Uid>::type();
 

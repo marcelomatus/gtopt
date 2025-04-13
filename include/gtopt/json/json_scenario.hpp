@@ -12,14 +12,14 @@
 
 #include <gtopt/json/json_basic_types.hpp>
 
-#include "gtopt/scenery.hpp"
+#include "gtopt/scenario.hpp"
 
 namespace daw::json
 {
-using gtopt::Scenery;
+using gtopt::Scenario;
 
 template<>
-struct json_data_contract<Scenery>
+struct json_data_contract<Scenario>
 {
   using type =
       json_member_list<json_number<"uid", Uid>,
@@ -27,10 +27,12 @@ struct json_data_contract<Scenery>
                        json_number_null<"active", OptBool>,
                        json_number_null<"probability_factor", OptReal>>;
 
-  constexpr static auto to_json_data(Scenery const& scenery)
+  constexpr static auto to_json_data(Scenario const& scenario)
   {
-    return std::forward_as_tuple(
-        scenery.uid, scenery.name, scenery.active, scenery.probability_factor);
+    return std::forward_as_tuple(scenario.uid,
+                                 scenario.name,
+                                 scenario.active,
+                                 scenario.probability_factor);
   }
 };
 

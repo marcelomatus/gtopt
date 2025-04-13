@@ -118,13 +118,14 @@ public:
 using ActiveSched = Schedule<IntBool, StageIndex>;
 
 using TRealSched = Schedule<Real, StageIndex>;
-using STRealSched = Schedule<Real, SceneryIndex, StageIndex>;
+using STRealSched = Schedule<Real, ScenarioIndex, StageIndex>;
 using TBRealSched = Schedule<Real, StageIndex, BlockIndex>;
-using STBRealSched = Schedule<Real, SceneryIndex, StageIndex, BlockIndex>;
+using STBRealSched = Schedule<Real, ScenarioIndex, StageIndex, BlockIndex>;
 
 using OptTRealSched = OptSchedule<Real, StageIndex>;
-using OptSTRealSched = OptSchedule<Real, SceneryIndex, StageIndex>;
+using OptSTRealSched = OptSchedule<Real, ScenarioIndex, StageIndex>;
 using OptTBRealSched = OptSchedule<Real, StageIndex, BlockIndex>;
-using OptSTBRealSched = OptSchedule<Real, SceneryIndex, StageIndex, BlockIndex>;
+using OptSTBRealSched =
+    OptSchedule<Real, ScenarioIndex, StageIndex, BlockIndex>;
 
 }  // namespace gtopt

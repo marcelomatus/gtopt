@@ -35,13 +35,13 @@ TEST_CASE("SystemLP 1")
                       {.uid = Uid {5}, .duration = 3}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
                       {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
-      .scenery_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .line_array = {}};
 
-  REQUIRE(system.scenery_array.size() == 1);
+  REQUIRE(system.scenario_array.size() == 1);
   REQUIRE(system.stage_array.size() == 2);
   REQUIRE(system.block_array.size() == 3);
   REQUIRE(system.bus_array.size() == 1);

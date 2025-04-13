@@ -42,11 +42,11 @@ constexpr void system_apply(Collections& collections,
     }
   };
 
-  // Iterate through active sceneries
-  for (auto&& [scenery_index, scenery] :
-       enumerate_active<SceneryIndex>(system.sceneries()))
+  // Iterate through active scenerios
+  for (auto&& [scenario_index, scenario] :
+       enumerate_active<ScenarioIndex>(system.scenerios()))
   {
-    system_context.set_scenery(scenery_index, scenery);
+    system_context.set_scenario(scenario_index, scenario);
 
     // Iterate through active stages
     for (auto&& [stage_index, stage] :
@@ -146,13 +146,13 @@ inline std::vector<StageLP> SystemLP::create_stage_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<SceneryLP> SystemLP::create_scenery_array()
+inline std::vector<ScenarioLP> SystemLP::create_scenario_array()
 {
-  return m_system_.scenery_array | ranges::views::move
+  return m_system_.scenario_array | ranges::views::move
       | ranges::views::transform(
              [this](auto&& s)
              {
-               return SceneryLP {std::forward<decltype(s)>(s), m_stage_array_};
+               return ScenarioLP {std::forward<decltype(s)>(s), m_stage_array_};
              })
       | ranges::to<std::vector>();
 }
@@ -180,15 +180,15 @@ inline std::vector<SceneLP> SystemLP::create_scene_array()
     m_system_.scene_array = {{.uid = 0,
                               .name = "",
                               .active = true,
-                              .first_scenery = 0,
-                              .count_scenery = m_scenery_array_.size()}};
+                              .first_scenario = 0,
+                              .count_scenario = m_scenario_array_.size()}};
   }
 
   return m_system_.scene_array | ranges::views::move
       | ranges::views::transform(
              [this](auto&& s)
              {
-               return SceneLP {std::forward<decltype(s)>(s), m_scenery_array_};
+               return SceneLP {std::forward<decltype(s)>(s), m_scenario_array_};
              })
       | ranges::to<std::vector>();
 }
@@ -196,10 +196,10 @@ inline std::vector<SceneLP> SystemLP::create_scene_array()
 inline void SystemLP::validate_system_components()
 {
   if (m_block_array_.empty() || m_stage_array_.empty()
-      || m_scenery_array_.empty())
+      || m_scenario_array_.empty())
   {
     throw std::runtime_error(
-        "System must contain at least one block, stage, and scenery");
+        "System must contain at least one block, stage, and scenario");
   }
 
   const auto nblocks = std::accumulate(m_stage_array_.begin(),  // NOLINT
@@ -286,7 +286,7 @@ SystemLP::SystemLP(System psystem)
     , m_options_(std::move(m_system_.options))
     , m_block_array_(create_block_array())
     , m_stage_array_(create_stage_array())
-    , m_scenery_array_(create_scenery_array())
+    , m_scenario_array_(create_scenario_array())
     , m_phase_array_(create_phase_array())
     , m_scene_array_(create_scene_array())
     , system_context(*this)
@@ -304,10 +304,10 @@ SystemLP::SystemLP(System psystem)
 void SystemLP::add_to_lp(LinearProblem& lp,
                          const StageIndex& stage_index,
                          const StageLP& stage,
-                         const SceneryIndex& scenery_index,
-                         const SceneryLP& scenery)
+                         const ScenarioIndex& scenario_index,
+                         const ScenarioLP& scenario)
 {
-  system_context.set_scenery(scenery_index, scenery);
+  system_context.set_scenario(scenario_index, scenario);
   system_context.set_stage(stage_index, stage);
 
   const bool use_single_bus = system_context.options().use_single_bus();
@@ -332,14 +332,14 @@ void SystemLP::add_to_lp(LinearProblem& lp,
 
 void SystemLP::add_to_lp(LinearProblem& lp)
 {
-  // Iterate through active sceneries
-  for (auto&& [scenery_index, scenery] :
-       enumerate_active<SceneryIndex>(sceneries()))
+  // Iterate through active scenerios
+  for (auto&& [scenario_index, scenario] :
+       enumerate_active<ScenarioIndex>(scenerios()))
   {
     // Iterate through active stages
     for (auto&& [stage_index, stage] : enumerate_active<StageIndex>(stages())) {
       // Process elements
-      add_to_lp(lp, stage_index, stage, scenery_index, scenery);
+      add_to_lp(lp, stage_index, stage, scenario_index, scenario);
     }
   }
 }

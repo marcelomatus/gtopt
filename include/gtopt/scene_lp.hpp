@@ -1,74 +1,73 @@
 /**
  * @file      scene_lp.hpp
  * @brief     Header for SceneLP class that represents a logical scene with LP
- * scenery elements
+ * scenario elements
  * @date      Wed Mar 26 12:10:25 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * This module provides a logical view of a Scene combined with its associated
- * SceneryLP elements, enabling efficient access and management of scene
+ * ScenarioLP elements, enabling efficient access and management of scene
  * components for linear programming optimization.
  */
 
 #pragma once
 
-#include <functional>
 #include <numeric>
 #include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/scenario.hpp>
+#include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene.hpp>
-#include <gtopt/scenery.hpp>
-#include <gtopt/scenery_lp.hpp>
 
 namespace gtopt
 {
 
 /**
  * @class SceneLP
- * @brief Represents a logical scene with linear programming scenery elements
+ * @brief Represents a logical scene with linear programming scenario elements
  *
- * This class combines a Scene with its associated SceneryLP elements,
+ * This class combines a Scene with its associated ScenarioLP elements,
  * providing a unified interface for scene management in linear programming
  * contexts.
  */
 class SceneLP
 {
 public:
-  using ScenerySpan =
-      std::span<const SceneryLP>;  ///< Span of SceneryLP elements
-  using SceneryIndexes =
-      std::vector<SceneryIndex>;  ///< Vector of scenery indices
-  using SceneryIndexSpan =
-      std::span<const SceneryIndex>;  ///< Span of scenery indices
+  using ScenarioSpan =
+      std::span<const ScenarioLP>;  ///< Span of ScenarioLP elements
+  using ScenarioIndexes =
+      std::vector<ScenarioIndex>;  ///< Vector of scenario indices
+  using ScenarioIndexSpan =
+      std::span<const ScenarioIndex>;  ///< Span of scenario indices
 
   /** @brief Default constructor */
   SceneLP() = default;
 
   /**
-   * @brief Construct a SceneLP from a Scene and a collection of SceneryLP
+   * @brief Construct a SceneLP from a Scene and a collection of ScenarioLP
    * elements
    *
-   * @tparam Scenerys Container type for SceneryLP elements
+   * @tparam Scenarios Container type for ScenarioLP elements
    * @param pscene The Scene object
-   * @param pscenerys Collection of SceneryLP elements
+   * @param pscenarios Collection of ScenarioLP elements
    *
    * Initializes the SceneLP with the given Scene and extracts the relevant
-   * SceneryLP elements based on the Scene's first_scenery and count_scenery.
-   * Also initializes scenery indexes with sequential values.
+   * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
+   * Also initializes scenario indexes with sequential values.
    */
-  template<class Scenerys>
-  explicit SceneLP(Scene pscene, const Scenerys& pscenerys)
+  template<class Scenarios>
+  explicit SceneLP(Scene pscene, const Scenarios& pscenarios)
       : scene(std::move(pscene))
-      , scenery_span(std::span(pscenerys).subspan(scene.first_scenery,
-                                                  scene.count_scenery))
-      , scenery_indexes(scenery_span.size())
+      , scenario_span(std::span(pscenarios)
+                          .subspan(scene.first_scenario, scene.count_scenario))
+      , scenario_indexes(scenario_span.size())
   {
     std::iota(  // NOLINT
-        scenery_indexes.begin(),
-        scenery_indexes.end(),
-        SceneryIndex {});
+        scenario_indexes.begin(),
+        scenario_indexes.end(),
+        ScenarioIndex {});
   }
 
   /**
@@ -87,24 +86,24 @@ public:
   [[nodiscard]] constexpr auto uid() const { return SceneUid {scene.uid}; }
 
   /**
-   * @brief Get all scenery elements associated with this scene
-   * @return Span of SceneryLP elements
+   * @brief Get all scenario elements associated with this scene
+   * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr auto&& sceneries() const { return scenery_span; }
+  [[nodiscard]] constexpr auto&& scenerios() const { return scenario_span; }
 
   /**
-   * @brief Get the indexes of all scenery elements
-   * @return Span of scenery indexes
+   * @brief Get the indexes of all scenario elements
+   * @return Span of scenario indexes
    */
   [[nodiscard]] constexpr auto indexes() const
   {
-    return SceneryIndexSpan {scenery_indexes};
+    return ScenarioIndexSpan {scenario_indexes};
   }
 
 private:
   Scene scene;  ///< The underlying scene
-  ScenerySpan scenery_span;  ///< Span of SceneryLP elements for this scene
-  SceneryIndexes scenery_indexes;  ///< Indexed access to scenery elements
+  ScenarioSpan scenario_span;  ///< Span of ScenarioLP elements for this scene
+  ScenarioIndexes scenario_indexes;  ///< Indexed access to scenario elements
 };
 
 }  // namespace gtopt

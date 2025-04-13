@@ -43,14 +43,14 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   auto&& [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
 
   const auto stage_gcost = gcost.optval(stage_index).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
 
-  auto&& balance_rows = bus.balance_rows_at(scenery_index, stage_index);
+  auto&& balance_rows = bus.balance_rows_at(scenario_index, stage_index);
   auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
 
   BIndexHolder gcols;

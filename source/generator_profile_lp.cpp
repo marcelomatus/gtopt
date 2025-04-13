@@ -36,7 +36,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     return true;
   }
 
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   auto&& generator_lp = sc.element(generator_index);
   if (!generator_lp.is_active(stage_index)) {
@@ -44,7 +44,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   }
 
   auto&& generation_cols =
-      generator_lp.generation_cols_at(scenery_index, stage_index);
+      generator_lp.generation_cols_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(sc, lp);
@@ -70,7 +70,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
        ranges::views::zip(block_indexes, blocks, generation_cols))
   {
     const auto block_profile =
-        profile.at(scenery_index, stage_index, block_index);
+        profile.at(scenario_index, stage_index, block_index);
 
     const auto block_scost = sc.block_cost(block, stage_scost);
     auto name = sc.stb_label(block, cname, "prof", uid());

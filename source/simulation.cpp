@@ -18,7 +18,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
-#include "gtopt/scenery.hpp"
+#include "gtopt/scenario.hpp"
 #include "gtopt/stage.hpp"
 
 namespace gtopt
@@ -125,22 +125,22 @@ void Simulation::create_lp()
   for (const auto& [scene_index, scene] :
        enumerate_active<SceneIndex>(system_lp.scenes()))
   {
-    // Process all active phases for each scenery
+    // Process all active phases for each scenario
     for (const auto& [phase_index, phase] :
          enumerate_active<PhaseIndex>(system_lp.phases()))
     {
       auto& lp = lp_matrix[phase_index][scene_index];
 
-      // Process all active sceneries in current scene
-      for (const auto& [scenery_index, scenery] :
-           enumerate_active<SceneryIndex>(scene.sceneries()))
+      // Process all active scenerios in current scene
+      for (const auto& [scenario_index, scenario] :
+           enumerate_active<ScenarioIndex>(scene.scenerios()))
       {
         // Process all active stages in current phase
         for (const auto& [stage_index, stage] :
              enumerate_active<StageIndex>(phase.stages()))
         {
           // Add to linear program
-          system_lp.add_to_lp(lp, stage_index, stage, scenery_index, scenery);
+          system_lp.add_to_lp(lp, stage_index, stage, scenario_index, scenario);
         }
       }
     }

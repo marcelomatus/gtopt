@@ -16,7 +16,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/fmap.hpp>
-#include <gtopt/scenery.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/stage.hpp>
 
 namespace gtopt
@@ -60,14 +60,14 @@ struct IndexToIdx : IndexTraits<Index...>
 class SystemContext;
 
 template<>
-struct IndexToIdx<SceneryIndex, StageIndex, BlockIndex>
-    : IndexTraits<SceneryIndex, StageIndex, BlockIndex>
+struct IndexToIdx<ScenarioIndex, StageIndex, BlockIndex>
+    : IndexTraits<ScenarioIndex, StageIndex, BlockIndex>
 {
   template<typename SystemContextType = class SystemContext>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto sceneries = make_uid_column(table, Scenery::class_name);
+    const auto scenerios = make_uid_column(table, Scenario::class_name);
     const auto stages = make_uid_column(table, Stage::class_name);
     const auto blocks = make_uid_column(table, Block::class_name);
 
@@ -76,7 +76,7 @@ struct IndexToIdx<SceneryIndex, StageIndex, BlockIndex>
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       decltype(index_uids)::key_type key {
-          sceneries->Value(i), stages->Value(i), blocks->Value(i)};
+          scenerios->Value(i), stages->Value(i), blocks->Value(i)};
 
       if (!index_uids.emplace(key, i).second) {
         throw std::runtime_error("can't insert non-unique key");
@@ -86,11 +86,11 @@ struct IndexToIdx<SceneryIndex, StageIndex, BlockIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [si, scenery] : enumerate<SceneryIndex>(sc.sceneries())) {
+    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sc.scenerios())) {
       for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
         for (auto&& [bi, block] : enumerate<BlockIndex>(stage.blocks())) {
           decltype(index_uids)::key_type uid_key {
-              scenery.uid(), stage.uid(), block.uid()};
+              scenario.uid(), stage.uid(), block.uid()};
           decltype(index_idx)::key_type idx_key {si, ti, bi};
 
           if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {
@@ -144,21 +144,21 @@ struct IndexToIdx<StageIndex, BlockIndex> : IndexTraits<StageIndex, BlockIndex>
 };
 
 template<>
-struct IndexToIdx<SceneryIndex, StageIndex>
-    : IndexTraits<SceneryIndex, StageIndex>
+struct IndexToIdx<ScenarioIndex, StageIndex>
+    : IndexTraits<ScenarioIndex, StageIndex>
 {
   template<typename SystemContextType>
   static auto make_index_idx(const SystemContextType& sc,
                              const ArrowTable& table)
   {
-    const auto sceneries = make_uid_column(table, Scenery::class_name);
+    const auto scenerios = make_uid_column(table, Scenario::class_name);
     const auto stages = make_uid_column(table, Stage::class_name);
 
     base_map_t<std::tuple<Uid, Uid>, ArrowIndex> index_uids;
     index_uids.reserve(static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      decltype(index_uids)::key_type key {sceneries->Value(i),
+      decltype(index_uids)::key_type key {scenerios->Value(i),
                                           stages->Value(i)};
 
       if (!index_uids.emplace(key, i).second) {
@@ -169,9 +169,9 @@ struct IndexToIdx<SceneryIndex, StageIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [si, scenery] : enumerate<SceneryIndex>(sc.sceneries())) {
+    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sc.scenerios())) {
       for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
-        decltype(index_uids)::key_type uid_key {scenery.uid(), stage.uid()};
+        decltype(index_uids)::key_type uid_key {scenario.uid(), stage.uid()};
         decltype(index_idx)::key_type idx_key {si, ti};
 
         if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {

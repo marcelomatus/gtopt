@@ -86,7 +86,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
                  LinearProblem& lp,
                  const std::string_view& cname)
   {
-    if (!sc.is_first_scenery()) {
+    if (!sc.is_first_scenario()) {
       return true;
     }
 

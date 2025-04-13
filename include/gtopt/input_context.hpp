@@ -22,7 +22,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/input_traits.hpp>
 #include <gtopt/overload.hpp>
-#include <gtopt/scenery.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_context.hpp>
@@ -232,8 +232,8 @@ public:
 private:
   std::reference_wrapper<SystemContext> sc;
 
-  mutable std::tuple<array_table_map_t<SceneryIndex, StageIndex, BlockIndex>,
-                     array_table_map_t<SceneryIndex, StageIndex>,
+  mutable std::tuple<array_table_map_t<ScenarioIndex, StageIndex, BlockIndex>,
+                     array_table_map_t<ScenarioIndex, StageIndex>,
                      array_table_map_t<StageIndex, BlockIndex>,
                      array_table_map_t<StageIndex>>
       m_array_table_maps_;

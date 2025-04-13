@@ -19,7 +19,7 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
                                 LinearProblem& lp) const
 {
   constexpr std::string_view cname = "cap";
-  if (!sc.is_first_scenery()) {
+  if (!sc.is_first_scenario()) {
     return true;
   }
 

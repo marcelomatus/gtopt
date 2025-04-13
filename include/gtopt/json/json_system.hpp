@@ -24,8 +24,8 @@
 #include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
+#include <gtopt/json/json_scenario.hpp>
 #include <gtopt/json/json_scene.hpp>
-#include <gtopt/json/json_scenery.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/json/json_system_options.hpp>
 #include <gtopt/system.hpp>
@@ -44,7 +44,7 @@ struct json_data_contract<System>
       json_class_null<"options", SystemOptions>,
       json_array_null<"block_array", Array<Block>, Block>,
       json_array_null<"stage_array", Array<Stage>, Stage>,
-      json_array_null<"scenery_array", Array<Scenery>, Scenery>,
+      json_array_null<"scenario_array", Array<Scenario>, Scenario>,
       json_array_null<"phase_array", Array<Phase>, Phase>,
       json_array_null<"scene_array", Array<Scene>, Scene>,
       json_array_null<"bus_array", Array<Bus>, Bus>,
@@ -71,7 +71,7 @@ struct json_data_contract<System>
                                  system.options,
                                  system.block_array,
                                  system.stage_array,
-                                 system.scenery_array,
+                                 system.scenario_array,
                                  system.phase_array,
                                  system.scene_array,
                                  system.bus_array,

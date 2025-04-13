@@ -3,34 +3,34 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/scenery.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
 
-class SceneryLP
+class ScenarioLP
 {
 public:
   using StageSpan = std::span<const StageLP>;
 
-  SceneryLP() = default;
+  ScenarioLP() = default;
 
   template<class Stages>
-  explicit SceneryLP(Scenery pscenery, const Stages& pstages)
-      : scenery(std::move(pscenery))
+  explicit ScenarioLP(Scenario pscenario, const Stages& pstages)
+      : scenario(std::move(pscenario))
       , stage_span(pstages)
   {
   }
 
   [[nodiscard]] constexpr auto is_active() const
   {
-    return scenery.active.value_or(true);
+    return scenario.active.value_or(true);
   }
-  [[nodiscard]] constexpr auto uid() const { return SceneryUid(scenery.uid); }
+  [[nodiscard]] constexpr auto uid() const { return ScenarioUid(scenario.uid); }
   [[nodiscard]] constexpr auto probability_factor() const
   {
-    return scenery.probability_factor.value_or(1.0);
+    return scenario.probability_factor.value_or(1.0);
   }
 
   [[nodiscard]] constexpr auto&& stage(const StageIndex index) const
@@ -40,7 +40,7 @@ public:
   [[nodiscard]] constexpr auto&& stages() const { return stage_span; }
 
 private:
-  Scenery scenery;
+  Scenario scenario;
   StageSpan stage_span;
 };
 
