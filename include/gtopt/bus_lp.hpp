@@ -52,10 +52,10 @@ public:
   [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] auto&& balance_rows_at(const SceneryIndex scenery_index,
+  [[nodiscard]] auto&& balance_rows_at(const ScenarioIndex scenario_index,
                                        const StageIndex stage_index) const
   {
-    return balance_rows.at({scenery_index, stage_index});
+    return balance_rows.at({scenario_index, stage_index});
   }
 
   using BlockSpan = StageLP::BlockSpan;
@@ -66,7 +66,7 @@ public:
       -> const BIndexHolder&
   {
     const auto oiter =
-        get_optiter(theta_cols, {sc.scenery_index(), sc.stage_index()});
+        get_optiter(theta_cols, {sc.scenario_index(), sc.stage_index()});
     return oiter ? oiter.value()->second : lazy_add_theta(sc, lp, blocks);
   }
 

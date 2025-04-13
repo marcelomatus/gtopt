@@ -39,7 +39,7 @@ System& System::merge(System& sys)
 
   append_vector(block_array, (sys.block_array));
   append_vector(stage_array, (sys.stage_array));
-  append_vector(scenery_array, (sys.scenery_array));
+  append_vector(scenario_array, (sys.scenario_array));
 
   append_vector(bus_array, (sys.bus_array));
   append_vector(demand_array, (sys.demand_array));

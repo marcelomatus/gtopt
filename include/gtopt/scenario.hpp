@@ -1,5 +1,5 @@
 /**
- * @file      scenery.hpp
+ * @file      scenario.hpp
  * @brief     Header of
  * @date      Wed Mar 26 12:12:32 2025
  * @author    marcelo
@@ -15,7 +15,7 @@
 namespace gtopt
 {
 
-struct Scenery
+struct Scenario
 {
   Uid uid {};
   OptName name {};
@@ -23,10 +23,10 @@ struct Scenery
 
   OptReal probability_factor {1};
 
-  static constexpr std::string_view class_name = "scenery";
+  static constexpr std::string_view class_name = "scenario";
 };
 
-using SceneryUid = StrongUidType<struct Scenery>;
-using SceneryIndex = StrongIndexType<Scenery>;
+using ScenarioUid = StrongUidType<struct Scenario>;
+using ScenarioIndex = StrongIndexType<struct Scenario>;
 
 }  // namespace gtopt

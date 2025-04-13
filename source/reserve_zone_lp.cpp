@@ -18,7 +18,7 @@ inline bool add_requirement(const SystemContext& sc,
 {
   constexpr std::string_view cname = "rzone";
   const auto stage_index = sc.stage_index();
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
   auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
 
   using STBKey = GSTBIndexHolder::key_type;
@@ -34,7 +34,7 @@ inline bool add_requirement(const SystemContext& sc,
     if (!block_rreq) {
       continue;
     }
-    const STBKey stb_k {scenery_index, stage_index, block_index};
+    const STBKey stb_k {scenario_index, stage_index, block_index};
 
     const auto name = sc.stb_label(block, cname, rname, uid);
     const auto rcol = stage_rcost

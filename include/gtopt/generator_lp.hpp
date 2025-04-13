@@ -37,7 +37,7 @@ public:
   [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] auto&& generation_cols_at(const SceneryIndex scenary_index,
+  [[nodiscard]] auto&& generation_cols_at(const ScenarioIndex scenary_index,
                                           const StageIndex stage_index) const
   {
     return generation_cols.at({scenary_index, stage_index});

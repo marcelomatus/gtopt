@@ -28,8 +28,8 @@
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
-#include <gtopt/scenery_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
 
@@ -55,7 +55,7 @@ class SystemLP
 {
   std::vector<BlockLP> create_block_array();
   std::vector<StageLP> create_stage_array();
-  std::vector<SceneryLP> create_scenery_array();
+  std::vector<ScenarioLP> create_scenario_array();
   std::vector<PhaseLP> create_phase_array();
   std::vector<SceneLP> create_scene_array();
 
@@ -74,7 +74,7 @@ public:
   explicit SystemLP(System psystem = {});
 
   constexpr const auto& scenes() const { return m_scene_array_; }
-  constexpr const auto& sceneries() const { return m_scenery_array_; }
+  constexpr const auto& scenerios() const { return m_scenario_array_; }
   constexpr const auto& phases() const { return m_phase_array_; }
   constexpr const auto& stages() const { return m_stage_array_; }
   constexpr const auto& blocks() const { return m_block_array_; }
@@ -122,8 +122,8 @@ public:
   void add_to_lp(LinearProblem& lp,
                  const StageIndex& stage_index,
                  const StageLP& stage,
-                 const SceneryIndex& scenery_index,
-                 const SceneryLP& scenery);
+                 const ScenarioIndex& scenario_index,
+                 const ScenarioLP& scenario);
 
   void add_to_lp(LinearProblem& lp);
 
@@ -135,7 +135,7 @@ private:
 
   std::vector<BlockLP> m_block_array_;
   std::vector<StageLP> m_stage_array_;
-  std::vector<SceneryLP> m_scenery_array_;
+  std::vector<ScenarioLP> m_scenario_array_;
   std::vector<PhaseLP> m_phase_array_;
   std::vector<SceneLP> m_scene_array_;
 

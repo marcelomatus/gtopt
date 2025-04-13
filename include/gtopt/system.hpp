@@ -22,8 +22,8 @@
 #include <gtopt/phase.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
-#include <gtopt/scenery.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_options.hpp>
 
@@ -42,11 +42,11 @@ struct System
 
   Array<Block> block_array {};
   Array<Stage> stage_array {};
-  Array<Scenery> scenery_array {};
+  Array<Scenario> scenario_array {};
   Array<Phase> phase_array {
       Phase {.first_stage = 0, .count_stage = static_cast<Size>(-1)}};
   Array<Scene> scene_array {
-      Scene {.first_scenery = 0, .count_scenery = static_cast<Size>(-1)}};
+      Scene {.first_scenario = 0, .count_scenario = static_cast<Size>(-1)}};
 
   Array<Bus> bus_array {};
   Array<Demand> demand_array {};

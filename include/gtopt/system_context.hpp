@@ -8,7 +8,7 @@
  *
  * This module provides the SystemContext class which represents the current
  * execution context for a power system optimization problem, including the
- * active scenery, stage, and block information. It also defines ElementTraits
+ * active scenario, stage, and block information. It also defines ElementTraits
  * for accessing system elements.
  */
 
@@ -19,7 +19,7 @@
 #include <gtopt/collection.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/scenery_lp.hpp>
+#include <gtopt/scenario_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_options_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -130,16 +130,16 @@ class SystemContext
 public:
   explicit SystemContext(SystemLP& psystem);
 
-  [[nodiscard]] constexpr auto scenery_index() const
+  [[nodiscard]] constexpr auto scenario_index() const
   {
-    return m_scenery_index_;
+    return m_scenario_index_;
   }
 
-  [[nodiscard]] constexpr auto scenery_uid() const { return m_scenery_uid_; }
+  [[nodiscard]] constexpr auto scenario_uid() const { return m_scenario_uid_; }
 
-  [[nodiscard]] constexpr auto scenery_probability_factor() const
+  [[nodiscard]] constexpr auto scenario_probability_factor() const
   {
-    return m_scenery_probability_factor_;
+    return m_scenario_probability_factor_;
   }
 
   [[nodiscard]] constexpr auto stage_index() const { return m_stage_index_; }
@@ -204,7 +204,7 @@ public:
     if (!options().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., scenery_uid(), stage_uid());
+    return gtopt::as_label(var..., scenario_uid(), stage_uid());
   }
 
   template<typename... Types>
@@ -215,7 +215,7 @@ public:
     if (!options().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., scenery_uid(), stage_uid(), block.uid());
+    return gtopt::as_label(var..., scenario_uid(), stage_uid(), block.uid());
   }
 
   template<typename LossFactor>
@@ -247,19 +247,19 @@ public:
     return fc ? fc : options().reserve_fail_cost();
   }
 
-  [[nodiscard]] auto is_first_scenery() const
+  [[nodiscard]] auto is_first_scenario() const
   {
-    return scenery_index() == active_sceneries.front();
+    return scenario_index() == active_scenerios.front();
   }
 
-  [[nodiscard]] auto is_last_scenery() const
+  [[nodiscard]] auto is_last_scenario() const
   {
-    return scenery_index() == active_sceneries.back();
+    return scenario_index() == active_scenerios.back();
   }
 
-  [[nodiscard]] auto active_scenery_count() const
+  [[nodiscard]] auto active_scenario_count() const
   {
-    return active_sceneries.size();
+    return active_scenerios.size();
   }
   [[nodiscard]] auto active_stage_count() const { return active_stages.size(); }
   [[nodiscard]] auto active_block_count() const { return active_blocks.size(); }
@@ -275,7 +275,7 @@ public:
 
   [[nodiscard]] auto is_first() const
   {
-    return is_first_scenery() && is_first_stage();
+    return is_first_scenario() && is_first_stage();
   }
 
   [[nodiscard]] double block_cost(const BlockLP& block, double cost) const;
@@ -297,7 +297,7 @@ public:
                       Projection proj,
                       const Span& factor = {}) const
   {
-    const auto size = active_scenery_count() * active_block_count();
+    const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
 
@@ -310,7 +310,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_sceneries) {
+    for (size_t count = 0; auto&& sindex : active_scenerios) {
       for (auto&& tindex : active_stages) {
         for (auto&& bindex : active_stage_blocks[tindex]) {
           auto&& stbiter = hstb.find({sindex, tindex, bindex});
@@ -336,7 +336,7 @@ public:
                       Projection proj,
                       const Span& factor = {}) const
   {
-    const auto size = active_scenery_count() * active_block_count();
+    const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
 
@@ -349,7 +349,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_sceneries) {
+    for (size_t count = 0; auto&& sindex : active_scenerios) {
       for (auto&& tindex : active_stages) {
         auto&& stiter = hstb.find({sindex, tindex});
         const auto has_stindex =
@@ -378,7 +378,7 @@ public:
                       Projection proj,
                       const Span& factor = {}) const
   {
-    const auto size = active_scenery_count() * active_stage_count();
+    const auto size = active_scenario_count() * active_stage_count();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
 
@@ -391,7 +391,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_sceneries) {
+    for (size_t count = 0; auto&& sindex : active_scenerios) {
       for (auto&& tindex : active_stages) {
         auto&& stiter = hst.find({sindex, tindex});
         const auto has_stindex = stiter != hst.end();
@@ -500,12 +500,12 @@ public:
   //
   // set&get the variable data
   //
-  constexpr void set_scenery(const SceneryIndex sindex,
-                             const SceneryLP& scenery)
+  constexpr void set_scenario(const ScenarioIndex sindex,
+                              const ScenarioLP& scenario)
   {
-    m_scenery_index_ = sindex;
-    m_scenery_uid_ = scenery.uid();
-    m_scenery_probability_factor_ = scenery.probability_factor();
+    m_scenario_index_ = sindex;
+    m_scenario_uid_ = scenario.uid();
+    m_scenario_probability_factor_ = scenario.probability_factor();
   }
 
   void set_stage(const StageIndex tindex, const StageLP& stage)
@@ -568,11 +568,14 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
-  [[nodiscard]] constexpr auto get_scenery_size() const { return scenery_size; }
+  [[nodiscard]] constexpr auto get_scenario_size() const
+  {
+    return scenario_size;
+  }
   [[nodiscard]] constexpr auto get_stage_size() const { return stage_size; }
   [[nodiscard]] constexpr auto get_block_size() const { return block_size; }
 
-  [[nodiscard]] auto sceneries() const -> const std::vector<SceneryLP>&;
+  [[nodiscard]] auto scenerios() const -> const std::vector<ScenarioLP>&;
   [[nodiscard]] auto stages() const -> const std::vector<StageLP>&;
   [[nodiscard]] auto blocks() const -> const std::vector<BlockLP>&;
 
@@ -588,7 +591,7 @@ public:
 
     using Key = typename Map::key_type;
     return (empty_insert || !holder.empty())
-        ? map.emplace(Key {m_scenery_index_, m_stage_index_},
+        ? map.emplace(Key {m_scenario_index_, m_stage_index_},
                       std::forward<BHolder>(holder))
         : std::make_pair(map.end(), true);
   }
@@ -597,7 +600,7 @@ public:
   constexpr auto emplace_value(Map& map, size_t value) const
   {
     using Key = typename Map::key_type;
-    return map.emplace(Key {m_scenery_index_, m_stage_index_}, value);
+    return map.emplace(Key {m_scenario_index_, m_stage_index_}, value);
   }
 
   template<typename Map>
@@ -609,12 +612,12 @@ public:
 
 private:
   std::reference_wrapper<SystemLP> m_system_;
-  std::vector<SceneryIndex> active_sceneries;
+  std::vector<ScenarioIndex> active_scenerios;
   std::vector<StageIndex> active_stages;
   std::vector<BlockIndex> active_blocks;
   std::vector<std::vector<BlockIndex>> active_stage_blocks;
 
-  size_t scenery_size;
+  size_t scenario_size;
   size_t stage_size;
   size_t block_size;
 
@@ -622,9 +625,9 @@ private:
 
   /// variable members
   mutable std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
-  SceneryIndex m_scenery_index_;
-  SceneryUid m_scenery_uid_;
-  double m_scenery_probability_factor_ {1};
+  ScenarioIndex m_scenario_index_;
+  ScenarioUid m_scenario_uid_;
+  double m_scenario_probability_factor_ {1};
 
   StageUid m_stage_uid_;
   StageIndex m_stage_index_;

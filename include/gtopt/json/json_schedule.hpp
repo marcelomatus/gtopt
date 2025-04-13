@@ -7,7 +7,7 @@
 namespace daw::json
 {
 using gtopt::Block;
-using gtopt::Scenery;
+using gtopt::Scenario;
 using gtopt::Stage;
 
 template<>
@@ -45,17 +45,19 @@ struct json_data_contract<Stage>
 };
 
 template<>
-struct json_data_contract<Scenery>
+struct json_data_contract<Scenario>
 {
   using type = json_member_list<json_number<"uid", Uid>,
                                 json_number_null<"probability_factor", OptReal>,
                                 json_number_null<"active", OptBool>,
                                 json_string_null<"name", OptName>>;
 
-  constexpr static auto to_json_data(Scenery const& scenery)
+  constexpr static auto to_json_data(Scenario const& scenario)
   {
-    return std::forward_as_tuple(
-        scenery.uid, scenery.probability_factor, scenery.active, scenery.name);
+    return std::forward_as_tuple(scenario.uid,
+                                 scenario.probability_factor,
+                                 scenario.active,
+                                 scenario.name);
   }
 };
 

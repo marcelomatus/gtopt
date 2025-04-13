@@ -13,7 +13,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/fmap.hpp>
-#include <gtopt/scenery.hpp>
+#include <gtopt/scenario.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
@@ -42,13 +42,13 @@ using IndexHolder3 =
 
 using BIndexHolder = IndexHolder0<BlockIndex>;
 using TIndexHolder = IndexHolder1<StageIndex>;
-using STIndexHolder = IndexHolder2<SceneryIndex, StageIndex>;
-using STBIndexHolder = IndexHolder3<SceneryIndex, StageIndex, BlockIndex>;
+using STIndexHolder = IndexHolder2<ScenarioIndex, StageIndex>;
+using STBIndexHolder = IndexHolder3<ScenarioIndex, StageIndex, BlockIndex>;
 
 using GSTIndexHolder =
-    tuple_map_t<std::tuple<SceneryIndex, StageIndex>, size_t>;
+    tuple_map_t<std::tuple<ScenarioIndex, StageIndex>, size_t>;
 
 using GSTBIndexHolder =
-    tuple_map_t<std::tuple<SceneryIndex, StageIndex, BlockIndex>, size_t>;
+    tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, size_t>;
 
 }  // namespace gtopt

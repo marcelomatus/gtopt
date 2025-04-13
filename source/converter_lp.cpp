@@ -45,18 +45,18 @@ bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   const auto stage_conversion_rate =
       conversion_rate.at(stage_index).value_or(1.0);
 
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   auto&& blocks = sc.stage_blocks();
 
   auto&& generator = sc.element(generator_index);
-  auto&& gen_cols = generator.generation_cols_at(scenery_index, stage_index);
+  auto&& gen_cols = generator.generation_cols_at(scenario_index, stage_index);
 
   auto&& demand = sc.element(demand_index);
-  auto&& load_cols = demand.load_cols_at(scenery_index, stage_index);
+  auto&& load_cols = demand.load_cols_at(scenario_index, stage_index);
 
   auto&& battery = sc.element(battery_index);
-  auto&& flow_cols = battery.flow_cols_at(scenery_index, stage_index);
+  auto&& flow_cols = battery.flow_cols_at(scenario_index, stage_index);
 
   BIndexHolder rrows;
   rrows.reserve(blocks.size());

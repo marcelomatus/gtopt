@@ -24,16 +24,16 @@ struct json_data_contract<Scene>
   using type = json_member_list<json_number<"uid", Uid>,
                                 json_string_null<"name", OptName>,
                                 json_number_null<"active", OptBool>,
-                                json_number<"first_scenery", Size>,
-                                json_number<"count_scenery", Size>>;
+                                json_number<"first_scenario", Size>,
+                                json_number<"count_scenario", Size>>;
 
   [[nodiscard]] constexpr static auto to_json_data(Scene const& scene)
   {
     return std::forward_as_tuple(scene.uid,
                                  scene.name,
                                  scene.active,
-                                 scene.first_scenery,
-                                 scene.count_scenery);
+                                 scene.first_scenario,
+                                 scene.count_scenario);
   }
 };
 }  // namespace daw::json

@@ -42,13 +42,13 @@ bool DemandLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
   const auto stage_fcost = sc.demand_fail_cost(fcost);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
 
-  const auto& balance_rows = bus.balance_rows_at(scenery_index, stage_index);
+  const auto& balance_rows = bus.balance_rows_at(scenario_index, stage_index);
   const auto& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
 
   // adding the minimum energy constraint
@@ -72,7 +72,7 @@ bool DemandLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
                .lowb = stage_emin.value(),
                .uppb = stage_emin.value()});
 
-    const GSTIndexHolder::key_type st_k {sc.scenery_index(), sc.stage_index()};
+    const GSTIndexHolder::key_type st_k {sc.scenario_index(), sc.stage_index()};
     emin_cols[st_k] = emin_col;
 
     SparseRow row {.name = std::move(name)};

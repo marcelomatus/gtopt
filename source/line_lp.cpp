@@ -43,11 +43,11 @@ bool LineLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     return true;
   }
 
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
   const auto& balance_rows_a =
-      bus_a.balance_rows_at(scenery_index, stage_index);
+      bus_a.balance_rows_at(scenario_index, stage_index);
   const auto& balance_rows_b =
-      bus_b.balance_rows_at(scenery_index, stage_index);
+      bus_b.balance_rows_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
   const auto stage_tcost = tcost.at(stage_index).value_or(0.0);

@@ -23,7 +23,7 @@ inline bool add_provision(const SystemContext& sc,
   constexpr std::string_view cname = "rprov";
 
   const auto stage_index = sc.stage_index();
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   const auto& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
 
@@ -40,7 +40,7 @@ inline bool add_provision(const SystemContext& sc,
        ranges::views::zip(block_indexes, generation_cols))
   {
     using STBKey = GSTBIndexHolder::key_type;
-    const STBKey stb_k {scenery_index, stage_index, block_index};
+    const STBKey stb_k {scenario_index, stage_index, block_index};
 
     const auto requirement_row = get_optvalue(requirement_rows, stb_k);
     if (!requirement_row) {
@@ -161,7 +161,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   if (!is_active(stage_index)) {
     return true;
   }
-  const auto scenery_index = sc.scenery_index();
+  const auto scenario_index = sc.scenario_index();
 
   auto&& generator_lp = sc.element(generator_index);
   if (!generator_lp.is_active(stage_index)) {
@@ -169,7 +169,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   }
 
   auto&& generation_cols =
-      generator_lp.generation_cols_at(scenery_index, stage_index);
+      generator_lp.generation_cols_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(sc, lp);

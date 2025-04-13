@@ -41,16 +41,16 @@ public:
   {
   }
 
-  constexpr auto vfin_col_at(const SceneryIndex scenery,
+  constexpr auto vfin_col_at(const ScenarioIndex scenario,
                              const StageIndex stage) const
   {
-    return vfin_cols.at({scenery, stage});
+    return vfin_cols.at({scenario, stage});
   }
 
-  constexpr auto vini_col_at(const SceneryIndex scenery,
+  constexpr auto vini_col_at(const ScenarioIndex scenario,
                              const StageIndex stage) const
   {
-    return vini_cols.at({scenery, stage});
+    return vini_cols.at({scenario, stage});
   }
 
   bool add_to_lp(const SystemContext& sc,
@@ -65,7 +65,7 @@ public:
       return true;
     }
 
-    const auto scenery_index = sc.scenery_index();
+    const auto scenario_index = sc.scenario_index();
 
     const auto prev_stage_index = !sc.is_first_stage()
         ? OptStageIndex {stage_index - 1}
@@ -81,7 +81,7 @@ public:
         sc.stage_maxmin_at(vmax, vmin, stage_capacity);
 
     const auto vicol = prev_stage_index.has_value()
-        ? vfin_col_at(scenery_index, prev_stage_index.value())
+        ? vfin_col_at(scenario_index, prev_stage_index.value())
         : lp.add_col({.name = sc.st_label(cname, "vini", uid()),
                       .lowb = storage().vini.value_or(stage_vmin),
                       .uppb = storage().vini.value_or(stage_vmax)});
