@@ -20,8 +20,7 @@ endif()
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
 
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first"  ON)
-
+option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 
 # set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
 # set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
@@ -44,8 +43,8 @@ CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.12.0
-#  OPTIONS "SPDLOG_FMT_EXTERNAL 1"
-#          "SPDLOG_INSTALL YES" # create an installable target
+  # OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable
+  # target
 )
 
 CPMAddPackage(
@@ -59,7 +58,6 @@ CPMAddPackage(
   GITHUB_REPOSITORY rollbear/strong_type
   VERSION 15
 )
-
 
 # ---- Add source files ----
 
@@ -134,9 +132,7 @@ target_include_directories(
 
 find_package(Boost REQUIRED COMPONENTS container serialization)
 include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
-target_link_libraries(
-  ${PROJECT_NAME} PUBLIC Boost::container Boost::serialization
-)
+target_link_libraries(${PROJECT_NAME} PUBLIC Boost::container Boost::serialization)
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.

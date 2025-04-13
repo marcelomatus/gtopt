@@ -10,7 +10,9 @@
 
 #include <expected>
 
-#include <gtopt/system.hpp>
+#include <boost/multi_array.hpp>
+#include <gtopt/linear_problem.hpp>
+#include <gtopt/system_lp.hpp>
 
 namespace gtopt
 {
@@ -25,6 +27,14 @@ public:
                             const std::optional<int>& use_lp_names,
                             const std::optional<double>& matrix_eps,
                             const std::optional<bool>& just_create);
+
+  void create_lp();
+
+private:
+  SystemLP system_lp;
+
+  using lp_matrix_t = boost::multi_array<LinearProblem, 2>;
+  lp_matrix_t lp_matrix;
 };
 
 }  // namespace gtopt

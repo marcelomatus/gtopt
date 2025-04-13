@@ -1,16 +1,17 @@
 /**
  * @file      stage_lp.hpp
- * @brief     Header of
+ * @brief     Header file defining the StageLP class for linear programming
+ * stages
  * @date      Wed Mar 26 12:10:25 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides functionality for managing stages in linear programming
+ * optimization problems
  */
 
 #pragma once
 
-#include <functional>
 #include <numeric>
 #include <span>
 
@@ -22,6 +23,13 @@
 namespace gtopt
 {
 
+/**
+ * @brief A class representing a stage in a linear programming optimization
+ * problem
+ *
+ * Encapsulates a collection of blocks with time duration, discounting, and
+ * indexing
+ */
 class StageLP
 {
 public:
@@ -31,6 +39,15 @@ public:
 
   StageLP() = default;
 
+  /**
+   * @brief Constructs a StageLP from a Stage and a collection of blocks
+   *
+   * @tparam Blocks Container type for BlockLP objects
+   * @param pstage The stage definition
+   * @param pblocks Collection of blocks
+   * @param annual_discount_rate Annual discount rate for time value
+   * calculations
+   */
   template<class Blocks>
   explicit StageLP(Stage pstage,
                    const Blocks& pblocks,
@@ -38,12 +55,12 @@ public:
       : stage(std::move(pstage))
       , block_span(
             std::span(pblocks).subspan(stage.first_block, stage.count_block))
-      , block_indexes(stage.count_block)
+      , block_indexes(block_span.size())
       , span_duration(std::transform_reduce(block_span.begin(),
                                             block_span.end(),
-                                            0,
+                                            0.0,
                                             std::plus(),
-                                            [](auto&& b)
+                                            [](const auto& b)
                                             { return b.duration(); }))
       , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
                                         span_duration / avg_year_hours))
@@ -54,29 +71,50 @@ public:
         BlockIndex {});
   }
 
-  [[nodiscard]] constexpr auto duration() const { return span_duration; }
-  [[nodiscard]] constexpr auto discount_factor() const
+  /// @return Total duration of the stage in hours
+  [[nodiscard]] constexpr auto duration() const noexcept
+  {
+    return span_duration;
+  }
+
+  /// @return Combined discount factor (annual and stage-specific)
+  [[nodiscard]] constexpr auto discount_factor() const noexcept
   {
     return annual_discount_factor * stage.discount_factor.value_or(1.0);
   }
-  [[nodiscard]] constexpr auto is_active() const
+
+  /// @return Whether this stage is active in the optimization
+  [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return stage.active.value_or(true);
   }
-  [[nodiscard]] constexpr auto uid() const { return StageUid {stage.uid}; }
-  [[nodiscard]] constexpr auto&& blocks() const { return block_span; }
-  [[nodiscard]] constexpr auto indexes() const
+
+  /// @return Unique identifier for this stage
+  [[nodiscard]] constexpr auto uid() const noexcept
+  {
+    return StageUid {stage.uid};
+  }
+
+  /// @return Span of blocks in this stage
+  [[nodiscard]] constexpr const auto& blocks() const noexcept
+  {
+    return block_span;
+  }
+
+  /// @return Span of block indexes
+  [[nodiscard]] constexpr auto indexes() const noexcept
   {
     return BlockIndexSpan {block_indexes};
   }
 
 private:
-  Stage stage;
-  BlockSpan block_span;
-  BlockIndexes block_indexes;
+  Stage stage;  ///< Stage definition
+  BlockSpan block_span;  ///< View of blocks in this stage
+  BlockIndexes block_indexes;  ///< Vector of block indexes
 
-  double span_duration {0};
-  double annual_discount_factor {1};
+  double span_duration {0.0};  ///< Total duration of all blocks
+  double annual_discount_factor {
+      1.0};  ///< Applied discount factor based on duration
 };
 
 }  // namespace gtopt

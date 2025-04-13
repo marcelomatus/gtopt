@@ -17,7 +17,9 @@ namespace gtopt
 
 struct GeneratorProfile
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   GeneratorVar generator {};
   STBRealFieldSched profile {};

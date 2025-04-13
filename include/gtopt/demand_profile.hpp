@@ -17,7 +17,9 @@ namespace gtopt
 
 struct DemandProfile
 {
-  GTOPT_OBJECT_ATTRS;
+  Uid uid {};
+  Name name {};
+  OptActive active {};
 
   DemandVar demand {};
   STBRealFieldSched profile {};

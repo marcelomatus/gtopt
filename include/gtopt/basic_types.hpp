@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,9 +45,10 @@ using OptReal = std::optional<Real>;
 using Int = int;
 using OptInt = std::optional<Int>;
 
-using size_t = std::size_t;
-using Size = size_t;
+using Size = std::size_t;
 using OptSize = std::optional<Size>;
+
+using Index = std::int64_t;
 
 using Bool = bool;
 using OptBool = std::optional<Bool>;
@@ -70,18 +72,16 @@ using StrongUidType = strong::type<uid_t,
                                    strong::implicitly_convertible_to<uid_t>>;
 
 template<typename Type>
-using StrongIndexType = strong::type<size_t,
+using StrongIndexType = strong::type<Index,
                                      Type,
                                      strong::formattable,
                                      strong::regular,
                                      strong::hashable,
                                      strong::arithmetic,
                                      strong::bicrementable,
-                                     strong::implicitly_convertible_to<size_t>>;
+                                     strong::implicitly_convertible_to<Index>>;
 
 // basic constants
-
-// 365*24 + 24/4; // includes leap year
-constexpr double avg_year_hours = (365 * 24) + (24 * 0.25);
+constexpr double avg_year_hours = (365 * 24);
 
 }  // namespace gtopt

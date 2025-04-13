@@ -1,4 +1,3 @@
-
 find_library(
   COIN_OSICPX_LIBRARY
   NAMES OsiCpx libOsiCpx

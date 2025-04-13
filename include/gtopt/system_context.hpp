@@ -1,11 +1,15 @@
 /**
  * @file      system_context.hpp
- * @brief     Header of
+ * @brief     Header file defining the SystemContext class and related
+ * functionality
  * @date      Sun Mar 23 21:54:14 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the SystemContext class which represents the current
+ * execution context for a power system optimization problem, including the
+ * active scenery, stage, and block information. It also defines ElementTraits
+ * for accessing system elements.
  */
 
 #pragma once
@@ -120,6 +124,7 @@ using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
 using TUids = std::vector<Uid>;
 
 class SystemLP;
+
 class SystemContext
 {
 public:
@@ -321,8 +326,9 @@ public:
       }
     }
 
-    return std::make_pair(need_values ? values : std::vector<double> {},
-                          need_valids ? valid : std::vector<bool> {});
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
   template<typename Projection, typename Span = std::span<double>>
@@ -362,8 +368,9 @@ public:
       }
     }
 
-    return std::make_pair(need_values ? values : std::vector<double> {},
-                          need_valids ? valid : std::vector<bool> {});
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
   template<typename Projection, typename Span = std::span<double>>
@@ -400,8 +407,9 @@ public:
       }
     }
 
-    return std::make_pair(need_values ? values : std::vector<double> {},
-                          need_valids ? valid : std::vector<bool> {});
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
   template<typename Projection = std::identity,
@@ -437,8 +445,9 @@ public:
       need_valids |= count != ++idx;
     }
 
-    return std::make_pair(need_values ? values : std::vector<double> {},
-                          need_valids ? valid : std::vector<bool> {});
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
   template<typename Max>
