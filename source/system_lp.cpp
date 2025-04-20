@@ -1,11 +1,16 @@
 /**
  * @file      system_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of SystemLP class for power system LP formulation
  * @date      Tue Apr  8 01:20:31 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the SystemLP class, which is responsible for creating
+ * and managing the linear programming formulation of power system optimization
+ * problems. It handles conversion of system components to their LP
+ * representations, coordinates constraint generation across the system, and
+ * provides utilities for adding constraints to the linear problem and
+ * extracting results.
  */
 
 #include <algorithm>
@@ -18,6 +23,25 @@ namespace
 {
 using namespace gtopt;
 
+/**
+ * @brief Applies an operation to all elements in collections across active
+ * scenarios and stages
+ *
+ * This function iterates through all active scenarios and stages in the system
+ * and applies the given operation to each element in the collections. It
+ * handles special cases for buses and lines when single-bus mode is enabled.
+ *
+ * @tparam Collections Type of the collections container
+ * @tparam SContext Type of the system context
+ * @tparam Op Type of the operation to apply
+ * @param collections Collections of system elements
+ * @param system_context System context containing current state
+ * @param op Operation to apply to each element
+ *
+ * The operation should have the signature:
+ * `bool op(ElementType& element)`
+ * and should return true if the operation succeeded, false otherwise.
+ */
 template<typename Collections, typename SContext, typename Op>
 constexpr void system_apply(Collections& collections,
                             SContext& system_context,
@@ -42,9 +66,9 @@ constexpr void system_apply(Collections& collections,
     }
   };
 
-  // Iterate through active scenerios
+  // Iterate through active scenarios
   for (auto&& [scenario_index, scenario] :
-       enumerate_active<ScenarioIndex>(system.scenerios()))
+       enumerate_active<ScenarioIndex>(system.scenarios()))
   {
     system_context.set_scenario(scenario_index, scenario);
 
@@ -63,6 +87,19 @@ constexpr void system_apply(Collections& collections,
   SPDLOG_TRACE("Successfully visited and applied {} elements", count);
 }
 
+/**
+ * @brief Creates a collection of LP elements from system elements
+ *
+ * This function transforms a vector of system elements into a collection
+ * of their corresponding LP representations.
+ *
+ * @tparam Out Output LP element type
+ * @tparam Inp Input system element type
+ * @tparam InputContext Type of input context
+ * @param input_context Context for input processing
+ * @param input Vector of system elements to transform
+ * @return Collection of LP elements
+ */
 template<typename Out, typename Inp, typename InputContext>
 constexpr auto make_collection(InputContext& input_context,
                                std::vector<Inp>& input) -> Collection<Out>
@@ -81,6 +118,19 @@ constexpr auto make_collection(InputContext& input_context,
   return Collection<Out> {std::move(output)};
 }
 
+/**
+ * @brief Creates a collection of LP elements from optional system elements
+ *
+ * Overload for optional vector input that handles the case when the input
+ * vector might not be present.
+ *
+ * @tparam Out Output LP element type
+ * @tparam Inp Input system element type
+ * @tparam InputContext Type of input context
+ * @param input_context Context for input processing
+ * @param input Optional vector of system elements
+ * @return Collection of LP elements or empty collection if input is empty
+ */
 template<typename Out, typename Inp, typename InputContext>
 constexpr auto make_collection(InputContext& input_context,
                                const std::optional<std::vector<Inp>>& input)
@@ -92,6 +142,24 @@ constexpr auto make_collection(InputContext& input_context,
   return Collection<Out> {};
 }
 
+/**
+ * @brief Determines if the system needs a reference bus for voltage angle
+ *
+ * This function checks if the system requires setting a reference bus with a
+ * fixed voltage angle (theta) for power flow calculations. A reference bus is
+ * needed if:
+ * - There are multiple buses
+ * - Single-bus mode is not active
+ * - Kirchhoff's laws are being used
+ * - No bus has already been designated as a reference
+ * - At least one bus needs Kirchhoff constraints based on threshold
+ *
+ * @tparam BusContainer Type of container holding buses
+ * @tparam OptionsType Type of system options
+ * @param buses Container of system buses
+ * @param options System options
+ * @return True if a reference bus needs to be set, false otherwise
+ */
 template<typename BusContainer, typename OptionsType>
 constexpr bool needs_ref_theta(const BusContainer& buses,
                                const OptionsType& options)
@@ -333,9 +401,9 @@ void SystemLP::add_to_lp(LinearProblem& lp,
 
 void SystemLP::add_to_lp(LinearProblem& lp)
 {
-  // Iterate through active scenerios
+  // Iterate through active scenarios
   for (auto&& [scenario_index, scenario] :
-       enumerate_active<ScenarioIndex>(scenerios()))
+       enumerate_active<ScenarioIndex>(scenarios()))
   {
     // Iterate through active stages
     for (auto&& [stage_index, stage] : enumerate_active<StageIndex>(stages())) {

@@ -9,7 +9,6 @@
  * techniques, supporting multi-phase, multi-scene scenarios.
  */
 
-
 #include <expected>
 #include <filesystem>
 #include <string>
@@ -109,7 +108,7 @@ auto Simulation::run_lp(System system,
         }
 
         constexpr auto e =
-          std::unexpected("Problem is not feasible, check the error.lp file");
+            std::unexpected("Problem is not feasible, check the error.lp file");
         SPDLOG_CRITICAL(e.error());
         return e;
       }
@@ -159,7 +158,7 @@ void Simulation::create_lp()
 
       // Process all active scenarios in current scene
       for (const auto& [scenario_index, scenario] :
-           enumerate_active<ScenarioIndex>(scene.scenerios()))
+           enumerate_active<ScenarioIndex>(scene.scenarios()))
       {
         // Process all active stages in current phase
         for (const auto& [stage_index, stage] :

@@ -71,7 +71,7 @@ constexpr STBUids make_stb_uids(const SystemContext& sc,
   std::vector<Uid> block_uids;
   block_uids.reserve(size);
 
-  for (auto&& scenario : sc.system().scenerios() | ranges::views::filter(op)) {
+  for (auto&& scenario : sc.system().scenarios() | ranges::views::filter(op)) {
     for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
       for (auto&& block : stage.blocks()) {
         scenario_uids.push_back(scenario.uid());
@@ -97,7 +97,7 @@ constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
   std::vector<Uid> stage_uids;
   stage_uids.reserve(size);
 
-  for (auto&& scenario : sc.system().scenerios() | ranges::views::filter(op)) {
+  for (auto&& scenario : sc.system().scenarios() | ranges::views::filter(op)) {
     for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
       scenario_uids.push_back(scenario.uid());
       stage_uids.push_back(stage.uid());
@@ -164,7 +164,7 @@ auto SystemContext::block_cost_factors() const -> std::vector<double>
 
   const auto scale_obj = options().scale_objective();
 
-  for (size_t idx {}; auto&& scenario : active(system().scenerios())) {
+  for (size_t idx {}; auto&& scenario : active(system().scenarios())) {
     const auto probability_factor = scenario.probability_factor();
     for (auto&& [ti, stage] : enumerate_active(system().stages())) {
       for (auto&& block : stage.blocks()) {
@@ -195,7 +195,7 @@ auto SystemContext::stage_cost_factors() const -> std::vector<double>
 
   const auto scale_obj = options().scale_objective();
 
-  for (size_t idx = {}; auto&& scenario : active(system().scenerios())) {
+  for (size_t idx = {}; auto&& scenario : active(system().scenarios())) {
     const auto probability_factor = scenario.probability_factor();
     for (auto&& [ti, stage] : enumerate_active(system().stages())) {
       const auto cfactor = cost_factor(scale_obj,
@@ -241,12 +241,12 @@ auto SystemContext::t_uids() const -> TUids
 
 SystemContext::SystemContext(SystemLP& psystem)
     : m_system_(psystem)
-    , active_scenerios(active_indices<ScenarioIndex>(psystem.scenerios()))
+    , active_scenarios(active_indices<ScenarioIndex>(psystem.scenarios()))
     , active_stages(active_indices<StageIndex>(psystem.stages()))
     , active_blocks(active_block_indices<BlockIndex>(psystem.stages()))
     , active_stage_blocks(
           active_stage_block_indices<BlockIndex>(psystem.stages()))
-    , scenario_size(psystem.scenerios().size())
+    , scenario_size(psystem.scenarios().size())
     , stage_size(psystem.stages().size())
     , block_size(psystem.blocks().size())
     , stage_discount_factors(stage_factors(psystem.stages()))
@@ -274,9 +274,9 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
   return system().element(get_bus_index(id));
 }
 
-auto SystemContext::scenerios() const -> const std::vector<ScenarioLP>&
+auto SystemContext::scenarios() const -> const std::vector<ScenarioLP>&
 {
-  return system().scenerios();
+  return system().scenarios();
 }
 
 auto SystemContext::stages() const -> const std::vector<StageLP>&

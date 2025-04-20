@@ -1,11 +1,18 @@
 /**
  * @file      generator_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of GeneratorLP class for generator LP formulation
  * @date      Tue Apr  1 22:03:55 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the GeneratorLP class, which handles the
+ * representation of power generators in linear programming problems. It
+ * includes methods to:
+ * - Create variables for generation across time blocks
+ * - Add capacity constraints
+ * - Add bus power balance contributions
+ * - Process generation costs in the objective function
+ * - Output optimization results for generation variables
  */
 
 #include <gtopt/generator_lp.hpp>
@@ -18,6 +25,14 @@
 namespace gtopt
 {
 
+/**
+ * @brief Constructs a GeneratorLP from a Generator
+ * @param ic Input context for parameter processing
+ * @param pgenerator Generator object to convert to LP representation
+ *
+ * Creates an LP representation of a generator including time-dependent
+ * parameters like minimum/maximum generation limits, loss factors, and costs.
+ */
 GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
     : CapacityBase(ic, ClassName, std::move(pgenerator))
     , pmin(ic, ClassName, id(), std::move(generator().pmin))
@@ -28,6 +43,23 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
 {
 }
 
+/**
+ * @brief Adds generator variables and constraints to the linear problem
+ * @param sc System context containing current state
+ * @param lp Linear problem to add variables and constraints to
+ * @return True if successful, false otherwise
+ *
+ * This method creates:
+ * 1. Generation variables for each time block
+ * 2. Capacity constraints linking generation to installed capacity
+ * 3. Contributions to bus power balance equations
+ *
+ * It handles:
+ * - Time-dependent generation limits
+ * - Generator loss factors
+ * - Generation costs in the objective function
+ * - Capacity constraints when capacity expansion is modeled
+ */
 bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
 {
   constexpr std::string_view cname = "gen";
@@ -64,6 +96,7 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(block_index, pmax, pmin, stage_capacity);
 
+    // Create generation variable for this time block
     const auto gc =
         lp.add_col({.name = sc.stb_label(block, cname, "gen", uid()),
                     .lowb = block_pmin,
@@ -71,11 +104,13 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
                     .cost = sc.block_cost(block, stage_gcost)});
     gcols.push_back(gc);
 
-    // adding gc to the bus balance
+    // Add generator output to the bus power balance equation
+    // Factor (1-lossfactor) accounts for generator losses
     auto& brow = lp.row_at(balance_row);
     brow[gc] = 1 - stage_lossfactor;
 
-    // adding the capacity constraint
+    // Add capacity constraint if capacity expansion is modeled
+    // Ensures generation <= installed capacity
     if (capacity_col.has_value()) {
       SparseRow crow {.name = sc.stb_label(block, cname, "cap", uid())};
       crow[capacity_col.value()] = 1;
@@ -88,6 +123,16 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
       && sc.emplace_bholder(generation_cols, std::move(gcols)).second;
 }
 
+/**
+ * @brief Adds generator output results to the output context
+ * @param out Output context to add results to
+ * @return True if successful, false otherwise
+ *
+ * Processes optimization results for:
+ * - Generation variables (primal solution and costs)
+ * - Capacity constraint dual values (shadow prices)
+ * - Capacity-related outputs via base class
+ */
 bool GeneratorLP::add_to_output(OutputContext& out) const
 {
   constexpr std::string_view cname = ClassName;

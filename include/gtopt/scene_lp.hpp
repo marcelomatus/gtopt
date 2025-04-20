@@ -89,7 +89,7 @@ public:
    * @brief Get all scenario elements associated with this scene
    * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr auto&& scenerios() const { return scenario_span; }
+  [[nodiscard]] constexpr auto&& scenarios() const { return scenario_span; }
 
   /**
    * @brief Get the indexes of all scenario elements
