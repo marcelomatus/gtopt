@@ -249,17 +249,17 @@ public:
 
   [[nodiscard]] auto is_first_scenario() const
   {
-    return scenario_index() == active_scenerios.front();
+    return scenario_index() == active_scenarios.front();
   }
 
   [[nodiscard]] auto is_last_scenario() const
   {
-    return scenario_index() == active_scenerios.back();
+    return scenario_index() == active_scenarios.back();
   }
 
   [[nodiscard]] auto active_scenario_count() const
   {
-    return active_scenerios.size();
+    return active_scenarios.size();
   }
   [[nodiscard]] auto active_stage_count() const { return active_stages.size(); }
   [[nodiscard]] auto active_block_count() const { return active_blocks.size(); }
@@ -310,7 +310,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_scenerios) {
+    for (size_t count = 0; auto&& sindex : active_scenarios) {
       for (auto&& tindex : active_stages) {
         for (auto&& bindex : active_stage_blocks[tindex]) {
           auto&& stbiter = hstb.find({sindex, tindex, bindex});
@@ -349,7 +349,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_scenerios) {
+    for (size_t count = 0; auto&& sindex : active_scenarios) {
       for (auto&& tindex : active_stages) {
         auto&& stiter = hstb.find({sindex, tindex});
         const auto has_stindex =
@@ -391,7 +391,7 @@ public:
         ? proj_type {proj}
         : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
 
-    for (size_t count = 0; auto&& sindex : active_scenerios) {
+    for (size_t count = 0; auto&& sindex : active_scenarios) {
       for (auto&& tindex : active_stages) {
         auto&& stiter = hst.find({sindex, tindex});
         const auto has_stindex = stiter != hst.end();
@@ -575,7 +575,7 @@ public:
   [[nodiscard]] constexpr auto get_stage_size() const { return stage_size; }
   [[nodiscard]] constexpr auto get_block_size() const { return block_size; }
 
-  [[nodiscard]] auto scenerios() const -> const std::vector<ScenarioLP>&;
+  [[nodiscard]] auto scenarios() const -> const std::vector<ScenarioLP>&;
   [[nodiscard]] auto stages() const -> const std::vector<StageLP>&;
   [[nodiscard]] auto blocks() const -> const std::vector<BlockLP>&;
 
@@ -612,7 +612,7 @@ public:
 
 private:
   std::reference_wrapper<SystemLP> m_system_;
-  std::vector<ScenarioIndex> active_scenerios;
+  std::vector<ScenarioIndex> active_scenarios;
   std::vector<StageIndex> active_stages;
   std::vector<BlockIndex> active_blocks;
   std::vector<std::vector<BlockIndex>> active_stage_blocks;

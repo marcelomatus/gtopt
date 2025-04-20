@@ -142,9 +142,9 @@ ArrowTable InputTraits::read_table(const SystemContext& sc,
   } else {
     table = csv_read_table(fpath);
     if (!table) {
-      const auto msg = std::format(
-          "can't read csv file {}, trying to read parquet file",
-          fpath.string());
+      const auto msg =
+          std::format("can't read csv file {}, trying to read parquet file",
+                      fpath.string());
       SPDLOG_ERROR(msg);
 
       table = parquet_read_table(fpath);
