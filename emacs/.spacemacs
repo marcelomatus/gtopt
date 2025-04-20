@@ -34,8 +34,6 @@ This function should only modify configuration layer settings."
    dotspacemacs-configuration-layers
    '(csv
      yaml
-     javascript
-     toml
      ;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
@@ -68,7 +66,10 @@ This function should only modify configuration layer settings."
 
      (llm-client :variables llm-client-enable-gptel t)
 
-     (c-c++ :variables c-c++-enable-clang-support t)
+     (c-c++ :variables
+            c-c++-enable-clang-support t
+            c-c++-enable-clang-format-on-save t)
+
      multiple-cursors
      ;; org
      ;; (shell :variables
@@ -80,9 +81,6 @@ This function should only modify configuration layer settings."
      treemacs)
 
 
-   ;; Add gptel to dotspacemacs-additional-packages
-   ;; Add (require 'gptel) to dotspacemacs/user-config
-
    ;; List of additional packages that will be installed without being wrapped
    ;; in a layer (generally the packages are installed only and should still be
    ;; loaded using load/require/use-package in the user-config section below in
@@ -91,9 +89,7 @@ This function should only modify configuration layer settings."
    ;; `dotspacemacs/user-config'. To use a local version of a package, use the
    ;; `:location' property: '(your-package :location "~/path/to/your-package/")
    ;; Also include the dependencies as they will not be resolved automatically.
-   dotspacemacs-additional-packages '(gptel
-                                      numpydoc
-                                      ruff-format)
+   dotspacemacs-additional-packages '(gptel)
 
    ;; A list of packages that cannot be updated.
    dotspacemacs-frozen-packages '()
@@ -118,37 +114,6 @@ It should only modify the values of Spacemacs settings."
   ;; This setq-default sexp is an exhaustive list of all the supported
   ;; spacemacs settings.
   (setq-default
-   ;; If non-nil then enable support for the portable dumper. You'll need to
-   ;; compile Emacs 27 from source following the instructions in file
-   ;; EXPERIMENTAL.org at to root of the git repository.
-   ;;
-   ;; WARNING: pdumper does not work with Native Compilation, so it's disabled
-   ;; regardless of the following setting when native compilation is in effect.
-   ;;
-   ;; (default nil)
-   dotspacemacs-enable-emacs-pdumper nil
-
-   ;; Name of executable file pointing to emacs 27+. This executable must be
-   ;; in your PATH.
-   ;; (default "emacs")
-   dotspacemacs-emacs-pdumper-executable-file "emacs"
-
-   ;; Name of the Spacemacs dump file. This is the file will be created by the
-   ;; portable dumper in the cache directory under dumps sub-directory.
-   ;; To load it when starting Emacs add the parameter `--dump-file'
-   ;; when invoking Emacs 27.1 executable on the command line, for instance:
-   ;;   ./emacs --dump-file=$HOME/.emacs.d/.cache/dumps/spacemacs-27.1.pdmp
-   ;; (default (format "spacemacs-%s.pdmp" emacs-version))
-   dotspacemacs-emacs-dumper-dump-file (format "spacemacs-%s.pdmp" emacs-version)
-
-   ;; If non-nil ELPA repositories are contacted via HTTPS whenever it's
-   ;; possible. Set it to nil if you have no way to use HTTPS in your
-   ;; environment, otherwise it is strongly recommended to let it set to t.
-   ;; This variable has no effect if Emacs is launched with the parameter
-   ;; `--insecure' which forces the value of this variable to nil.
-   ;; (default t)
-   dotspacemacs-elpa-https t
-
    ;; Maximum allowed time in seconds to contact an ELPA repository.
    ;; (default 5)
    dotspacemacs-elpa-timeout 5
@@ -239,7 +204,7 @@ It should only modify the values of Spacemacs settings."
    dotspacemacs-startup-buffer-multi-digit-delay 0.4
 
    ;; If non-nil, show file icons for entries and headings on Spacemacs home buffer.
-   ;; This has no effect in terminal or if "all-the-icons" package or the font
+   ;; This has no effect in terminal or if "nerd-icons" package or the font
    ;; is not installed. (default nil)
    dotspacemacs-startup-buffer-show-icons nil
 
@@ -314,10 +279,10 @@ It should only modify the values of Spacemacs settings."
    dotspacemacs-major-mode-leader-key ","
 
    ;; Major mode leader key accessible in `emacs state' and `insert state'.
-   ;; (default "C-M-m" for terminal mode, "<M-return>" for GUI mode).
+   ;; (default "C-M-m" for terminal mode, "M-<return>" for GUI mode).
    ;; Thus M-RET should work as leader key in both GUI and terminal modes.
    ;; C-M-m also should work in terminal mode, but not in GUI mode.
-   dotspacemacs-major-mode-emacs-leader-key (if window-system "<M-return>" "C-M-m")
+   dotspacemacs-major-mode-emacs-leader-key (if window-system "M-<return>" "C-M-m")
 
    ;; These variables control whether separate commands are bound in the GUI to
    ;; the key pairs `C-i', `TAB' and `C-m', `RET'.
@@ -617,16 +582,6 @@ It is mostly for variables that should be set before packages are loaded.
 If you are unsure, try setting them in `dotspacemacs/user-config' first."
   )
 
-
-(defun dotspacemacs/user-load ()
-  "Library to load while dumping.
-This function is called only while dumping Spacemacs configuration. You can
-`require' or `load' the libraries of your choice that will be included in the
-dump."
-  (load-library gptel-openai-extras)
-  )
-
-
 (defun dotspacemacs/user-config ()
   "Configuration for user code:
 This function is called at the very end of Spacemacs startup, after layer
@@ -634,94 +589,40 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
-
-  (gptel-make-deepseek "DeepSeek"
-    :stream t
-    (custom-set-variables
-     ;; custom-set-variables was added by Custom.
-     ;; If you edit it by hand, you could mess it up, so be careful.
-     ;; Your init file should contain only one such instance.
-     ;; If there is more than one, they won't work right.
-     '(custom-enabled-themes '(leuven-dark))
-     '(custom-safe-themes
-       '("bbb13492a15c3258f29c21d251da1e62f1abb8bbd492386a673dcfab474186af"
-         "7fd8b914e340283c189980cd1883dbdef67080ad1a3a9cc3df864ca53bdc89cf"
-         "d7bf35cbf07fe90b420ca85625d4e1baff08fd64282562dde9dc788ed89c8242" default))
-     '(f90-auto-keyword-case 'upcase-word)
-     '(gptel-api-key "sk-a05396f7bbf042acafc23699647cfccf")
-     '(gptel-model 'deepseek-o1)
-     '(lsp-pyls-plugins-pylint-enabled nil)
-     '(lsp-pylsp-plugins-black-enabled t)
-     '(lsp-pylsp-plugins-isort-enabled t)
-     '(lsp-pylsp-plugins-jedi-completion-fuzzy t)
-     '(lsp-pylsp-plugins-pylint-enabled nil)
-     '(lsp-semgrep-metrics-enabled nil)
-     '(lsp-semgrep-scan-exclude [src tests])
-     '(lsp-semgrep-scan-jobs 4)
-     '(package-selected-packages
-       '(ace-link add-node-modules-path aggressive-indent all-the-icons auto-compile
-                  auto-dictionary auto-highlight-symbol auto-yasnippet bui
-                  centered-cursor-mode clean-aindent-mode cmake-font-lock cmake-ide
-                  cmake-mode cmake-project column-enforce-mode company
-                  company-anaconda compleseus-spacemacs-help consult consult-lsp
-                  consult-yasnippet counsel counsel-gtags csv-mode dap-mode
-                  define-word devdocs diminish dired-quick-sort dockerfile-mode
-                  dotenv-mode drag-stuff dumb-jump eaf editorconfig elisp-def
-                  elisp-demos elisp-slime-nav embark embark-consult emr eval-sexp-fu
-                  evil-anzu evil-args evil-cleverparens evil-collection evil-escape
-                  evil-evilified-state evil-exchange evil-goggles evil-iedit-state
-                  evil-indent-plus evil-lion evil-lisp-state evil-matchit evil-mc
-                  evil-nerd-commenter evil-numbers evil-surround evil-textobj-line
-                  evil-tutor evil-unimpaired evil-vimish-fold evil-visual-mark-mode
-                  evil-visualstar expand-region eyebrowse fancy-battery flx-ido
-                  flycheck-elsa flycheck-mypy flycheck-package flycheck-pos-tip
-                  flymake-python-pyflakes flymake-ruff flyspell-correct
-                  flyspell-correct-popup ggtags gh-md gnu-elpa-keyring-update
-                  golden-ratio google google-this google-translate gpastel grizzl
-                  hide-comnt hierarchy highlight-indentation highlight-numbers
-                  highlight-parentheses hl-todo holy-mode htmlize hungry-delete
-                  hybrid-mode impatient-mode import-js indent-guide info+ inspector
-                  ivy journalctl-mode js-doc js2-mode js2-refactor json-mode
-                  json-navigator json-reformat json-snatcher lazy-ruff link-hint
-                  livid-mode lorem-ipsum lsp-docker lsp-mode lsp-origami
-                  lsp-treemacs lsp-ui macrostep marginalia markdown-toc multi-line
-                  multiple-cursors mwim nameless nodejs-repl npm-mode numpydoc
-                  open-junk-file orderless org-rich-yank org-superstar origami
-                  overseer paradox password-generator pcre2el popwin pos-tip
-                  prettier-js python-black quickrun rainbow-delimiters request
-                  restart-emacs ruff-format simple-httpd skewer-mode space-doc
-                  spaceline spacemacs-purpose-popwin spacemacs-whitespace-cleanup
-                  string-edit-at-point string-inflection swiper symbol-overlay symon
-                  term-cursor tern toc-org toml-mode treemacs-icons-dired
-                  treemacs-persp treemacs-projectile undo-tree unfill uuidgen
-                  vertico vi-tilde-fringe vim-powerline vimish-fold
-                  volatile-highlights web-beautify wgrep which-key winum
-                  writeroom-mode ws-butler yasnippet yasnippet-snippets))
-     '(safe-local-variable-values '((lsp-ui-imenu-window-fix-width))))
-    (custom-set-faces
-     ;; custom-set-faces was added by Custom.
-     ;; If you edit it by hand, you could mess it up, so be careful.
-     ;; Your init file should contain only one such instance.
-     ;; If there is more than one, they won't work right.
-     )
-    )    :key "sk-a05396f7bbf042acafc23699647cfccf")
-
-
-
-(module/misc/yasnippet)
-)
-
-;;;; Yasnippet
-(defun module/misc/yasnippet ()
-  "Yassnippet bindings and config."
-  (use-package yasnippet-snippet
-    :defer t
+  ;; gptel configuration for Claude
+  (use-package gptel
     :config
-    (push 'yas-installed-snippets-dir yas-snippet-dirs)
-    )
+    ;; Set your Anthropic API key
 
+    :init (setq gptel-backend (gptel-make-anthropic
+                                  "Claude"
+                                :models '("claude-3-7-sonnet-20250219"
+                                          "claude-3-5-sonnet-20240620"
+                                          "claude-3-opus-20240229")
+                                :stream t
+                                :key gptel-api-key))
 
+    ;; Configure for Claude
+    (setq gptel-model "claude-3-7-sonnet-20250219")
+    (setq gptel-host 'anthropic)
+
+    ;; Configure gptel specifically for Anthropic
+    (gptel-make-anthropic
+        "Claude"
+      :models '("claude-3-7-sonnet-20250219"
+                "claude-3-5-sonnet-20240620"
+                "claude-3-opus-20240229")
+      :stream t
+      :key gptel-api-key)
+
+    ;; Optional: Set a default system prompt
+    (setq gptel-system-prompt "You are Claude, a helpful AI assistant.")
+
+    ;; Optional: Set up keybindings in Spacemacs style
+    (spacemacs/set-leader-keys "aig" 'gptel)
+    (spacemacs/set-leader-keys "ais" 'gptel-send))
   )
+
 
 ;; Do not write anything past this comment. This is where Emacs will
 ;; auto-generate custom variable definitions.
@@ -730,3 +631,4 @@ before packages are loaded."
 This is an auto-generated function, do not modify its content directly, use
 Emacs customize menu instead.
 This function is called at the very end of Spacemacs initialization."
+  )

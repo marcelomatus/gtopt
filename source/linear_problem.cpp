@@ -1,11 +1,14 @@
 /**
  * @file      linear_problem.cpp
- * @brief     Header of
+ * @brief     Implementation of the linear programming problem representation
  * @date      Fri Mar 28 22:18:17 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the core data structures and operations for building
+ * and manipulating linear programming problems. It handles the sparse matrix
+ * representation, problem flattening, and matrix operations needed for
+ * efficient solver integration.
  */
 
 #include <gtopt/basic_types.hpp>
@@ -164,7 +167,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     colmp.reserve(ncols);
     for (fp_index_t i = 0; auto&& name : colnm) {
       if (!colmp.emplace(name, i++).second) [[unlikely]] {
-        SPDLOG_WARN("repeated column name {}", name);
+        const auto msg = std::format("repeated column name {}", name);
+        SPDLOG_WARN(msg);
       }
     }
   }
@@ -174,7 +178,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     rowmp.reserve(nrows);
     for (fp_index_t i = 0; auto&& name : rownm) {
       if (!rowmp.emplace(name, i++).second) [[unlikely]] {
-        SPDLOG_WARN("repeated row name {}", name);
+        const auto msg = std::format("repeated row name {}", name);
+        SPDLOG_WARN(msg);
       }
     }
   }

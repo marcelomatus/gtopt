@@ -24,7 +24,6 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
@@ -41,12 +40,8 @@ template<typename T,
          typename OC = OutputContext,
          typename LP = LinearProblem>
 concept AddToLP = requires(T obj, const SC& sc, OC& oc, LP& lp) {
-  {
-    obj.add_to_lp(sc, lp)
-  } -> std::same_as<bool>;
-  {
-    obj.add_to_output(oc)
-  } -> std::same_as<bool>;
+  { obj.add_to_lp(sc, lp) } -> std::same_as<bool>;
+  { obj.add_to_output(oc) } -> std::same_as<bool>;
 };
 
 static_assert(AddToLP<BusLP>);

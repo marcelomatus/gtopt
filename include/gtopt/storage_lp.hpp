@@ -12,7 +12,8 @@
 
 #include <gtopt/input_context.hpp>
 #include <gtopt/object_lp.hpp>
-#include <gtopt/output_context.hpp>
+
+#include "gtopt/output_context.hpp"
 
 namespace gtopt
 {
@@ -137,6 +138,7 @@ public:
         && sc.emplace_bholder(volumen_cols, std::move(vcols)).second;
   }
 
+  template<typename OutputContext>
   bool add_to_output(OutputContext& out, const std::string_view& cname) const
   {
     const auto pid = id();
