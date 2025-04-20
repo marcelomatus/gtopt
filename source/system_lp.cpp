@@ -220,8 +220,9 @@ inline void SystemLP::setup_reference_bus()
   if (needs_ref_theta(m_system_.bus_array, m_options_)) {
     auto& bus = m_system_.bus_array.front();
     bus.reference_theta = 0;
-    SPDLOG_WARN("Setting bus '{}' as reference bus (reference_theta=0)",
-                bus.name);
+    const auto msg = std::format(
+        "Setting bus '{}' as reference bus (reference_theta=0)", bus.name);
+    SPDLOG_WARN(msg);
   }
 }
 

@@ -1,11 +1,14 @@
 /**
  * @file      linear_interface.hpp
- * @brief     Header of
+ * @brief     Interface to linear programming solvers
  * @date      Mon Mar 24 09:41:39 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides a unified interface to various linear programming
+ * solvers through the OSI (Open Solver Interface) library. It enables
+ * problem construction, solving, and solution retrieval in a solver-agnostic
+ * manner, simplifying the integration of different optimization engines.
  */
 
 #pragma once
@@ -25,38 +28,103 @@ public:
   using SolverInterface = ::osiSolverInterface;
   using solver_ptr_t = std::shared_ptr<SolverInterface>;
 
+  /** @brief Copy constructor disabled */
   LinearInterface(const LinearInterface&) = delete;
+  /** @brief Copy assignment disabled */
   LinearInterface& operator=(const LinearInterface&) = delete;
+  /** @brief Move constructor disabled */
   LinearInterface(LinearInterface&&) = delete;
+  /** @brief Move assignment disabled */
   LinearInterface& operator=(LinearInterface&&) = delete;
 
+  /**
+   * @brief Constructs interface with an existing solver
+   * @param psolver Pre-configured solver pointer
+   * @param plog_file Path to log file for solver output
+   */
   LinearInterface(solver_ptr_t psolver, std::string plog_file);
+
+  /**
+   * @brief Constructs interface with a default solver
+   * @param plog_file Path to log file for solver output
+   */
   explicit LinearInterface(const std::string& plog_file = {});
+
+  /**
+   * @brief Constructs interface and loads a problem
+   * @param flat_lp Flattened linear problem to load
+   * @param plog_file Path to log file for solver output
+   */
   explicit LinearInterface(const FlatLinearProblem& flat_lp,
                            const std::string& plog_file = {});
 
   ~LinearInterface() = default;
 
+  /**
+   * @brief Loads a flattened linear problem into the solver
+   * @param flat_lp The flattened problem representation
+   * @throws std::runtime_error if the problem cannot be loaded
+   */
   void load_flat(const FlatLinearProblem& flat_lp);
 
+  /**
+   * @brief Adds a new column (variable) to the problem
+   * @param name The name of the column
+   * @return The index of the newly added column
+   */
   size_t add_col(const std::string& name);
+
+  /**
+   * @brief Adds a new column (variable) with bounds to the problem
+   * @param name The name of the column
+   * @param collb Lower bound for the column
+   * @param colub Upper bound for the column
+   * @return The index of the newly added column
+   */
   size_t add_col(const std::string& name, double collb, double colub);
+
+  /**
+   * @brief Adds a new unbounded column (free variable) to the problem
+   * @param name The name of the column
+   * @return The index of the newly added column
+   */
   size_t add_free_col(const std::string& name);
 
+  /**
+   * @brief Adds a new constraint row to the problem
+   * @param row The sparse row representation of the constraint
+   * @param eps Epsilon value for coefficient filtering (values below this are
+   * ignored)
+   * @return The index of the newly added row
+   */
   size_t add_row(const SparseRow& row, double eps = 0.0);
 
+  /**
+   * @brief Gets the number of constraint rows in the problem
+   * @return Number of rows
+   */
   [[nodiscard]] size_t get_numrows() const;
+
+  /**
+   * @brief Gets the number of variable columns in the problem
+   * @return Number of columns
+   */
   [[nodiscard]] size_t get_numcols() const;
 
   void set_rhs(size_t row, double rhs);
   void set_row_low(size_t index, double value);
   void set_row_upp(size_t index, double value);
+
 #ifdef OSI_EXTENDED
   double get_coeff(size_t row, size_t column) const;
   void set_coeff(size_t row, size_t column, double value);
 #endif
+
   void set_obj_coeff(size_t index, double value);
-  [[nodiscard]] double get_obj_coeff(size_t index) const;
+  [[nodiscard]] constexpr auto get_obj_coeff() const
+  {
+    return std::span(solver->getObjCoefficients(), get_numcols());
+  }
 
   void set_col_low(size_t index, double value);
   void set_col_upp(size_t index, double value);
@@ -64,57 +132,153 @@ public:
 
   [[nodiscard]] double get_obj_value() const;
 
+  /**
+   * @brief Writes the problem to an LP format file
+   * @param filename Name of the file to write (without extension)
+   */
   void write_lp(const std::string& filename) const;
 
+  /**
+   * @brief Performs initial solve of the problem from scratch
+   * @param lp_options Options controlling the solve process
+   * @return True if the solve was successful, false otherwise
+   */
   [[nodiscard]] bool initial_solve(const LPOptions& lp_options = {});
+
+  /**
+   * @brief Resolves the problem with updated data using warm start
+   * @param lp_options Options controlling the solve process
+   * @return True if the solve was successful, false otherwise
+   */
   [[nodiscard]] bool resolve(const LPOptions& lp_options = {});
 
+  /**
+   * @brief Gets the condition number of the basis matrix (if available)
+   * @return Condition number kappa, or -1 if not available
+   */
   [[nodiscard]] double get_kappa() const;
+
+  /**
+   * @brief Gets the solver-specific status code
+   * @return Status code (interpretation depends on solver)
+   */
   [[nodiscard]] int get_status() const;
+
+  /**
+   * @brief Checks if the solution is optimal
+   * @return True if optimal solution found, false otherwise
+   */
   [[nodiscard]] bool is_optimal() const;
+
+  /**
+   * @brief Checks if the problem is dual infeasible
+   * @return True if dual infeasible, false otherwise
+   */
   [[nodiscard]] bool is_dual_infeasible() const;
+
+  /**
+   * @brief Checks if the problem is primal infeasible
+   * @return True if primal infeasible, false otherwise
+   */
   [[nodiscard]] bool is_prim_infeasible() const;
 
+  /**
+   * @brief Sets a variable to be continuous (floating-point)
+   * @param index Column index to modify
+   */
   void set_continuous(size_t index);
+
+  /**
+   * @brief Sets a variable to be integer
+   * @param index Column index to modify
+   */
   void set_integer(size_t index);
+
+  /**
+   * @brief Sets a variable to be binary (0-1 integer)
+   * @param index Column index to modify
+   */
   void set_binary(size_t index);
 
+  /**
+   * @brief Checks if a variable is continuous
+   * @param index Column index to check
+   * @return True if continuous, false otherwise
+   */
   [[nodiscard]] bool is_continuous(size_t index) const;
+
+  /**
+   * @brief Checks if a variable is integer
+   * @param index Column index to check
+   * @return True if integer, false otherwise
+   */
   [[nodiscard]] bool is_integer(size_t index) const;
 
+  /**
+   * @brief Sets a time limit for the solver
+   * @param time_limit Maximum solve time in seconds
+   */
   void set_time_limit(double time_limit);
 
-  [[nodiscard]] auto get_row_low() const
+  /**
+   * @brief Gets the lower bounds for all constraint rows
+   * @return Span view of row lower bounds
+   */
+  [[nodiscard]] constexpr auto get_row_low() const
   {
     return std::span(solver->getRowLower(), get_numrows());
   }
 
-  [[nodiscard]] auto get_row_upp() const
+  /**
+   * @brief Gets the upper bounds for all constraint rows
+   * @return Span view of row upper bounds
+   */
+  [[nodiscard]] constexpr auto get_row_upp() const
   {
     return std::span(solver->getRowUpper(), get_numrows());
   }
 
-  [[nodiscard]] auto get_col_low() const
+  /**
+   * @brief Gets the lower bounds for all variable columns
+   * @return Span view of column lower bounds
+   */
+  [[nodiscard]] constexpr auto get_col_low() const
   {
     return std::span(solver->getColLower(), get_numcols());
   }
 
-  [[nodiscard]] auto get_col_upp() const
+  /**
+   * @brief Gets the upper bounds for all variable columns
+   * @return Span view of column upper bounds
+   */
+  [[nodiscard]] constexpr auto get_col_upp() const
   {
     return std::span(solver->getColUpper(), get_numcols());
   }
 
-  [[nodiscard]] auto get_col_sol() const
+  /**
+   * @brief Gets the solution values for all variables
+   * @return Span view of solution values
+   */
+  [[nodiscard]] constexpr auto get_col_sol() const
   {
     return std::span(solver->getColSolution(), get_numcols());
   }
 
-  [[nodiscard]] auto get_col_cost() const
+  /**
+   * @brief Gets the reduced costs for all variables
+   * @return Span view of reduced costs
+   */
+  [[nodiscard]] constexpr auto get_col_cost() const
   {
     return std::span(solver->getReducedCost(), get_numcols());
   }
 
-  [[nodiscard]] auto get_row_dual() const
+  /**
+   * @brief Gets the dual values (shadow prices) for all constraints
+   * @return Span view of dual values
+   */
+  [[nodiscard]] constexpr auto get_row_dual() const
   {
     return std::span(solver->getRowPrice(), get_numrows());
   }
@@ -149,7 +313,7 @@ private:
     HandlerGuard(HandlerGuard&&) = delete;
     HandlerGuard& operator=(HandlerGuard&&) = delete;
 
-    explicit HandlerGuard(LinearInterface& pinterface, int log_level)
+    constexpr explicit HandlerGuard(LinearInterface& pinterface, int log_level)
         : interface(&pinterface)
     {
       interface->open_log_handler(log_level);

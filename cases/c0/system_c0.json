@@ -1,20 +1,104 @@
 {
-"name":"system_c0"
-,"block_array":[{"uid":1,"duration":1},{"uid":2,"duration":2},{"uid":3,"duration":3},{"uid":4,"duration":4},{"uid":5,"duration":5}]
-,"stage_array":[{"uid":1,"first_block":0,"count_block":1,"active":1},{"uid":2,"first_block":1,"count_block":1,"active":1},{"uid":3,"first_block":2,"count_block":1,"active":1},{"uid":4,"first_block":3,"count_block":1,"active":1},{"uid":5,"first_block":4,"count_block":1,"active":1}]
-,"scenario_array":[{"uid":1,"probability_factor":1}]
-,"bus_array":[{"uid":1,"name":"b1"}]
-,"generator_array":[{"uid":1,"name":"g1","bus":"b1","gcost":100,"capacity":20,"expcap":null,"expmod":null,"annual_capcost":null}]
-,"demand_array":[{"uid":1,"name":"d1","bus":"b1","lmax":"lmax","capacity":0,"expcap":20,"expmod":10,"annual_capcost":8760}]
-,"options":{
-"annual_discount_rate":0.1,
-"use_lp_names":true,
-"output_format":"csv",
-"use_single_bus":false,
-"demand_fail_cost":1000,
-"scale_objective":1000,
-"use_kirchhoff":true,
-"input_directory":"system_c0",
-"input_format":"parquet"
-}
+  "name": "system_c0",
+  "block_array": [
+    {
+      "uid": 1,
+      "duration": 1
+    },
+    {
+      "uid": 2,
+      "duration": 2
+    },
+    {
+      "uid": 3,
+      "duration": 3
+    },
+    {
+      "uid": 4,
+      "duration": 4
+    },
+    {
+      "uid": 5,
+      "duration": 5
+    }
+  ],
+  "stage_array": [
+    {
+      "uid": 1,
+      "first_block": 0,
+      "count_block": 1,
+      "active": 1
+    },
+    {
+      "uid": 2,
+      "first_block": 1,
+      "count_block": 1,
+      "active": 1
+    },
+    {
+      "uid": 3,
+      "first_block": 2,
+      "count_block": 1,
+      "active": 1
+    },
+    {
+      "uid": 4,
+      "first_block": 3,
+      "count_block": 1,
+      "active": 1
+    },
+    {
+      "uid": 5,
+      "first_block": 4,
+      "count_block": 1,
+      "active": 1
+    }
+  ],
+  "scenario_array": [
+    {
+      "uid": 1,
+      "probability_factor": 1
+    }
+  ],
+  "bus_array": [
+    {
+      "uid": 1,
+      "name": "b1"
+    }
+  ],
+  "generator_array": [
+    {
+      "uid": 1,
+      "name": "g1",
+      "bus": "b1",
+      "gcost": 100,
+      "capacity": 20,
+      "expcap": null,
+      "expmod": null,
+      "annual_capcost": null
+    }
+  ],
+  "demand_array": [
+    {
+      "uid": 1,
+      "name": "d1",
+      "bus": "b1",
+      "lmax": "lmax",
+      "capacity": 0,
+      "expcap": 20,
+      "expmod": 10,
+      "annual_capcost": 8760
+    }
+  ],
+  "options": {
+    "annual_discount_rate": 0.1,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "use_single_bus": false,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "use_kirchhoff": true,
+    "input_directory": "system_c0",
+    "input_format": "parquet"
+  }
 }

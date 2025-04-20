@@ -29,7 +29,8 @@ inline ArrowTable csv_read_table(auto&& fpath)
 
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (!maybe_infile.ok()) {
-    SPDLOG_WARN("can't open file {}", filename);
+    const auto msg = std::format("can't open file {}", filename);
+    SPDLOG_ERROR(msg);
     return nullptr;
   }
   const auto& infile = *maybe_infile;
@@ -55,14 +56,17 @@ inline ArrowTable csv_read_table(auto&& fpath)
   auto maybe_reader = arrow::csv::TableReader::Make(
       io_context, infile, read_options, parse_options, convert_options);
   if (!maybe_reader.ok()) {
-    SPDLOG_WARN("can't read file {}", filename);
+    const auto msg = std::format("can't read file {}", filename);
+    SPDLOG_ERROR(msg);
+    return {};
   }
 
   const auto& reader = *maybe_reader;
 
   auto maybe_table = reader->Read();
   if (!maybe_table.ok()) {
-    SPDLOG_WARN("can't read table {}", filename);
+    const auto msg = std::format("can't read table {}", filename);
+    SPDLOG_ERROR(msg);
     return {};
   }
 
@@ -92,7 +96,8 @@ inline ArrowTable parquet_read_table(auto&& fpath)
   ArrowTable table;
   const arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
-    SPDLOG_WARN("can't read table {}", filename);
+    const auto msg = std::format("can't read table {}", filename);
+    SPDLOG_ERROR(msg);
     return {};
   }
 
@@ -127,16 +132,20 @@ ArrowTable InputTraits::read_table(const SystemContext& sc,
   if (sc.options().input_format() == "parquet") {
     table = parquet_read_table(fpath);
     if (!table) {
-      SPDLOG_WARN("can't read parquet file {}, trying to read csv file",
-                  fpath.string());
+      const auto msg =
+          std::format("can't read parquet file {}, trying to read csv file",
+                      fpath.string());
+      SPDLOG_ERROR(msg);
 
       table = csv_read_table(fpath);
     }
   } else {
     table = csv_read_table(fpath);
     if (!table) {
-      SPDLOG_WARN("can't read csv file {}, trying to read parquet file",
-                  fpath.string());
+      const auto msg = std::format(
+          "can't read csv file {}, trying to read parquet file",
+          fpath.string());
+      SPDLOG_ERROR(msg);
 
       table = parquet_read_table(fpath);
     }

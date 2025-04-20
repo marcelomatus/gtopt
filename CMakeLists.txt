@@ -22,8 +22,8 @@ endif()
 
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 
-# set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
-# set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
+#set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
+#set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 set(USE_CCACHE YES)
 include(cmake/tools.cmake)
 
@@ -43,8 +43,14 @@ CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.12.0
-  # OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable
+  OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable
   # target
+)
+
+CPMAddPackage(
+  NAME fmt
+  GITHUB_REPOSITORY fmtlib/fmt
+  GIT_TAG 9.1.0 # Use a specific version compatible with spdlog
 )
 
 CPMAddPackage(
@@ -95,6 +101,7 @@ target_compile_options(
 # Link dependencies
 
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
 target_link_libraries(${PROJECT_NAME} PUBLIC range-v3::range-v3)
@@ -150,5 +157,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "spdlog 1.12.0; strong_type 15; daw 3.30.2"
+  DEPENDENCIES "range-v3 0.12.0; spdlog 1.12.0; fmt 9.1.0; strong_type 15; daw 3.30.2"
 )

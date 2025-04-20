@@ -26,6 +26,8 @@ enum class LPAlgo : uint8_t
 
 struct LPOptions
 {
+  constexpr LPOptions() noexcept = default;
+  
   LPAlgo algorithm {};
   int threads {};
   bool presolve {true};

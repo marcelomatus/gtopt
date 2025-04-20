@@ -12,8 +12,9 @@
 
 #include <gtopt/capacity.hpp>
 #include <gtopt/object_lp.hpp>
-#include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+
+#include "gtopt/output_context.hpp"
 
 namespace gtopt
 {
@@ -175,6 +176,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
                .second;
   }
 
+  template<typename OutputContext>
   bool add_to_output(OutputContext& out, std::string_view cname) const
   {
     out.add_col_sol(cname, "capainst", id(), capainst_cols);
