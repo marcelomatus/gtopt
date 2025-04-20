@@ -103,9 +103,4 @@ TEST_CASE("Battery field schedules")
 
   CHECK(*vmin_real_ptr == 10.0);
   CHECK(*vmax_real_ptr == 90.0);
-
-  // Additional test for validation
-  auto validation = battery.validate();
-  CHECK(validation.has_value());
-  CHECK(validation.value() == true);
 }

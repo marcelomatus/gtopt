@@ -63,7 +63,7 @@ public:
                                             [](const auto& b)
                                             { return b.duration(); }))
       , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
-                                        span_duration / avg_year_hours))
+                                        span_duration / hours_per_year))
   {
     std::iota(  // NOLINT
         block_indexes.begin(),

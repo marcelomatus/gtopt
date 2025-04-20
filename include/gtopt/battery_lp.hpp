@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <expected>
-
 #include <gtopt/battery.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/storage_lp.hpp>
@@ -58,7 +56,7 @@ public:
    * @param ic Input context for parameter processing
    * @param pbattery Battery object to convert to LP representation
    */
-  template<BatteryLike BatteryT>
+  template<typename BatteryT>
   explicit BatteryLP(const InputContext& ic, BatteryT&& pbattery)
       : StorageBase(ic, ClassName, std::forward<BatteryT>(pbattery))
   {
@@ -89,22 +87,6 @@ public:
                                     const StageIndex stage_index) const
   {
     return flow_cols.at({scenary_index, stage_index});
-  }
-
-  /**
-   * @brief Validates the battery LP model for consistency
-   * @return Expected with success (true) or error message
-   */
-  [[nodiscard]] std::expected<bool, std::string> validate() const
-  {
-    // First validate the underlying battery object
-    if (auto result = battery().validate(); !result) {
-      return result;
-    }
-
-    // Add LP-specific validations here
-
-    return true;
   }
 
 private:

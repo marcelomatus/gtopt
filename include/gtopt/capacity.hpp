@@ -1,11 +1,19 @@
 /**
  * @file      capacity.hpp
- * @brief     Header of
+ * @brief     Defines capacity-related structures for optimization models
  * @date      Thu Mar 27 10:45:31 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines structures representing capacity attributes and entities
+ * in optimization models, including current capacity, expansion capabilities,
+ * and associated costs. Capacity is a foundational concept used by many
+ * components in the system modeling framework.
+ *
+ * @details Capacity modeling includes both fixed capacity and investment
+ * decisions, providing the framework for generation, transmission, and storage
+ * expansion planning. Time-scheduled parameters allow representing capacity
+ * changes over the planning horizon.
  */
 
 #pragma once
@@ -15,28 +23,37 @@
 namespace gtopt
 {
 
-struct CapacityAttrs
-{
-  OptTRealFieldSched capacity {};
-  OptTRealFieldSched expcap {};
-  OptTRealFieldSched expmod {};
-  OptTRealFieldSched capmax {};
-  OptTRealFieldSched annual_capcost {};
-  OptTRealFieldSched annual_derating {};
-};
-
+/**
+ * @struct Capacity
+ * @brief Complete capacity entity with identification and attributes
+ *
+ * @details This structure represents a full capacity entity with unique
+ * identification and all capacity-related attributes.
+ *
+ * Capacity entities can be used directly or as base components for more
+ * specialized system elements like generators, lines, or batteries.
+ *
+ * @see CapacityLP for optimization model formulation
+ */
 struct Capacity
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
+  Uid uid {};  ///< Unique identifier for database references
+  Name name {};  ///< Human-readable descriptive name
+  OptActive active {};  ///< Activation status (whether this entity is modeled)
 
-  OptTRealFieldSched capacity {};
-  OptTRealFieldSched expcap {};
-  OptTRealFieldSched expmod {};
-  OptTRealFieldSched capmax {};
-  OptTRealFieldSched annual_capcost {};
-  OptTRealFieldSched annual_derating {};
+  // Capacity attributes
+  OptTRealFieldSched
+      capacity {};  ///< Current operational capacity (installed units)
+  OptTRealFieldSched expcap {};  ///< Potential expansion capacity (additional
+                                 ///< units that can be built)
+  OptTRealFieldSched expmod {};  ///< Expansion module size (minimum capacity
+                                 ///< addition increment)
+  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity limit (upper
+                                 ///< bound on total capacity)
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annual cost of capacity (per unit per year)
+  OptTRealFieldSched annual_derating {};  ///< Annual derating factor (capacity
+                                          ///< degradation rate)
 };
 
 }  // namespace gtopt

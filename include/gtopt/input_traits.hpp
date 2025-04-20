@@ -318,8 +318,7 @@ struct InputTraits
       }
     }
 
-    const std::string msg = "bad created or form schedule at";
-    throw std::runtime_error(msg);
+    throw std::runtime_error("bad created or form schedule");
   }
 
   template<typename Type,
