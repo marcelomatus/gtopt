@@ -36,8 +36,12 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
 
+#include "gtopt/linear_interface.hpp"
+
 namespace gtopt
 {
+
+class LinearInterface;
 
 template<typename T,
          typename SC = SystemContext,

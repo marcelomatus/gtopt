@@ -13,8 +13,6 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/object_lp.hpp>
 
-#include "gtopt/output_context.hpp"
-
 namespace gtopt
 {
 
@@ -76,7 +74,7 @@ public:
         / sc.stage_duration();
 
     const auto hour_loss =
-        annual_loss.at(stage_index).value_or(0.0) / avg_year_hours;
+        annual_loss.at(stage_index).value_or(0.0) / hours_per_year;
 
     const auto [stage_vmax, stage_vmin] =
         sc.stage_maxmin_at(vmax, vmin, stage_capacity);

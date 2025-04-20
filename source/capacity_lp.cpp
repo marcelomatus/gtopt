@@ -45,13 +45,13 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
 
   const auto stage_capacity = capacity_at(stage_index);
   const auto stage_hour_capcost =
-      annual_capcost.at(stage_index).value_or(0.0) / avg_year_hours;
+      annual_capcost.at(stage_index).value_or(0.0) / hours_per_year;
   const auto prev_stage_capacity =
       capacity_or(prev_stage_index, stage_capacity);
   const auto prev_capacost_col =
       get_optvalue_optkey(capacost_cols, prev_stage_index);
   const auto hour_derating =
-      annual_derating.at(stage_index).value_or(0.0) / avg_year_hours;
+      annual_derating.at(stage_index).value_or(0.0) / hours_per_year;
   const auto stage_derating =
       hour_derating * sc.stage_duration(prev_stage_index);
 

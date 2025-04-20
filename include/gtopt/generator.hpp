@@ -73,6 +73,7 @@ struct Generator
    * // gen.bus should now be 1, and attrs.bus should be empty
    * @endcode
    */
+
   auto& set_attrs(auto&& attrs)
   {
     bus = std::exchange(attrs.bus, {});

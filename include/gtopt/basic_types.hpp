@@ -120,9 +120,6 @@ using StrongIndexType = strong::type<Index,
                                      strong::bicrementable,
                                      strong::implicitly_convertible_to<Index>>;
 
-/** @brief Average hours in a year for time-based calculations */
-constexpr double avg_year_hours = (365 * 24);
-
 /** @brief Seconds in a standard hour */
 constexpr double seconds_per_hour = 3600.0;
 
@@ -134,5 +131,8 @@ constexpr double days_per_year = 365.0;
 
 /** @brief Hours in a standard day */
 constexpr double hours_per_day = 24.0;
+
+/** @brief Hours in a standard year */
+constexpr double hours_per_year = days_per_year * hours_per_day;
 
 }  // namespace gtopt

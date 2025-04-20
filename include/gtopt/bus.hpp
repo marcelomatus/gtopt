@@ -17,18 +17,6 @@ namespace gtopt
 {
 
 /**
- * @brief Attributes for a busbar
- *
- * Contains electrical parameters and operational flags for a busbar.
- */
-struct BusAttrs
-{
-  OptReal voltage {};  ///< Bus voltage magnitude (KV)
-  OptReal reference_theta {};  ///< Voltage angle reference (radians)
-  OptBool use_kirchhoff {};  ///< Flag for Kirchhoff's law application
-};
-
-/**
  * @brief Electrical busbar model
  *
  * Represents a busbar in power system analysis with electrical properties
