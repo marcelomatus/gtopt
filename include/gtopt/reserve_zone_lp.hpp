@@ -1,3 +1,13 @@
+/**
+ * @file      reserve_zone_lp.hpp
+ * @brief     Header of
+ * @date      Mon Apr 21 22:23:18 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/object_lp.hpp>
@@ -13,12 +23,18 @@ public:
 
   using Base = ObjectLP<ReserveZone>;
 
-  explicit ReserveZoneLP(const InputContext& ic, ReserveZone&& preserve_zone);
+  explicit ReserveZoneLP(const InputContext& ic, ReserveZone preserve_zone);
 
-  [[nodiscard]] constexpr auto&& reserve_zone() { return object(); }
-  [[nodiscard]] constexpr auto&& reserve_zone() const { return object(); }
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& reserve_zone(this Self& self)
+  {
+    return std::forward<Self>(self).object();
+  }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& urequirement_rows() const { return ur.requirement_rows; }

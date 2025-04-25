@@ -17,21 +17,89 @@
  * - Multiple stages (time steps within phases)
  */
 
-#include <expected>
-#include <filesystem>
-#include <string>
-
 #include <boost/multi_array/base.hpp>
-#include <gtopt/simulation.hpp>
-#include <gtopt/system_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
-#include "gtopt/scenario.hpp"
-#include "gtopt/stage.hpp"
-
 namespace gtopt
 {
+
+inline std::vector<BlockLP> SimulationLP::create_block_array()
+{
+  return m_simulation_.block_array | ranges::views::move
+      | ranges::views::transform(
+             [](auto&& s) { return BlockLP {std::forward<decltype(s)>(s)}; })
+      | ranges::to<std::vector>();
+}
+
+inline std::vector<StageLP> SimulationLP::create_stage_array()
+{
+  return m_simulation_.stage_array | ranges::views::move
+      | ranges::views::transform(
+             [this](auto&& s)
+             {
+               return StageLP {std::forward<decltype(s)>(s),
+                               m_block_array_,
+                               options().annual_discount_rate()};
+             })
+      | ranges::to<std::vector>();
+}
+
+inline std::vector<ScenarioLP> SimulationLP::create_scenario_array()
+{
+  return m_simulation_.scenario_array | ranges::views::move
+      | ranges::views::transform(
+             [this](auto&& s)
+             {
+               return ScenarioLP {std::forward<decltype(s)>(s), m_stage_array_};
+             })
+      | ranges::to<std::vector>();
+}
+
+inline std::vector<PhaseLP> SimulationLP::create_phase_array()
+{
+  return m_simulation_.phase_array | ranges::views::move
+      | ranges::views::transform(
+             [this](auto&& s)
+             { return PhaseLP {std::forward<decltype(s)>(s), m_stage_array_}; })
+      | ranges::to<std::vector>();
+}
+
+inline std::vector<SceneLP> SimulationLP::create_scene_array()
+{
+  return m_simulation_.scene_array | ranges::views::move
+      | ranges::views::transform(
+             [this](auto&& s)
+             {
+               return SceneLP {std::forward<decltype(s)>(s), m_scenario_array_};
+             })
+      | ranges::to<std::vector>();
+}
+
+inline void SimulationLP::validate_components()
+{
+  if (m_block_array_.empty() || m_stage_array_.empty()
+      || m_scenario_array_.empty())
+  {
+    throw std::runtime_error(
+        "System must contain at least one block, stage, and scenario");
+  }
+
+  const auto nblocks = std::accumulate(m_stage_array_.begin(),  // NOLINT
+                                       m_stage_array_.end(),
+                                       0U,
+                                       [](size_t a, const auto& s)
+                                       { return a + s.blocks().size(); });
+
+  if (nblocks != m_block_array_.size()) {
+    throw std::runtime_error(
+        "Number of blocks in stages doesn't match the total number of "
+        "blocks");
+  }
+}
+
 /**
  * @brief Constructs a simulation object with the given system
  * @param system Power system model to be simulated
@@ -39,9 +107,17 @@ namespace gtopt
  * Initializes the simulation with the provided system model, which contains
  * all components (buses, generators, lines, etc.) and their attributes.
  */
-Simulation::Simulation(System system)
-    : system_lp(std::move(system))
+
+SimulationLP::SimulationLP(Simulation simulation, const OptionsLP& options)
+    : m_simulation_(std::move(simulation))
+    , m_options_(options)
+    , m_block_array_(create_block_array())
+    , m_stage_array_(create_stage_array())
+    , m_scenario_array_(create_scenario_array())
+    , m_phase_array_(create_phase_array())
+    , m_scene_array_(create_scene_array())
 {
+  validate_components();
 }
 
 /**
@@ -66,11 +142,14 @@ Simulation::Simulation(System system)
  *
  * Performance is tracked via stopwatch measurements at key points.
  */
-auto Simulation::run_lp(System system,
-                        const std::optional<std::string>& lp_file,
-                        const std::optional<int>& use_lp_names,
-                        const std::optional<double>& matrix_eps,
-                        const std::optional<bool>& just_create) -> result_type
+
+#ifdef NONE
+auto SimulationLP::run_lp(System system,
+                          const std::optional<std::string>& lp_file,
+                          const std::optional<int>& use_lp_names,
+                          const std::optional<double>& matrix_eps,
+                          const std::optional<bool>& just_create)
+    -> SimulationLP::result_type
 {
   spdlog::stopwatch sw;  // Timer for performance tracking
 
@@ -188,14 +267,14 @@ auto Simulation::run_lp(System system,
  * For each valid combination, it adds the corresponding system components
  * to the appropriate LP subproblem.
  */
-void Simulation::create_lp()
+void SimulationLP::create_lp()
 {
   // Use type aliases for better readability
   using index_t = boost::multi_array_types::index;
 
   // Get dimensions once for efficiency
-  const auto n_phase = static_cast<index_t>(system_lp.phases().size());
-  const auto n_scene = static_cast<index_t>(system_lp.scenes().size());
+  const auto n_phase = static_cast<index_t>(phases().size());
+  const auto n_scene = static_cast<index_t>(scenes().size());
 
   // Validate dimensions
   if (n_phase == 0 || n_scene == 0) {
@@ -209,11 +288,11 @@ void Simulation::create_lp()
 
   // Process all active scenes (independent system states)
   for (const auto& [scene_index, scene] :
-       enumerate_active<SceneIndex>(system_lp.scenes()))
+       enumerate_active<SceneIndex>(scenes()))
   {
     // Process all active phases for each scenario (time horizons)
     for (const auto& [phase_index, phase] :
-         enumerate_active<PhaseIndex>(system_lp.phases()))
+         enumerate_active<PhaseIndex>(phases()))
     {
       // Get reference to the specific LP subproblem for this phase-scene
       // combination
@@ -229,11 +308,14 @@ void Simulation::create_lp()
         {
           // Add system components to the linear program for this specific
           // combination of phase, scene, scenario, and stage
-          system_lp.add_to_lp(lp, stage_index, stage, scenario_index, scenario);
+
+          // system_lp.add_to_lp(scenario_index, stage_index, lp);
         }
       }
     }
   }
 }
+
+#endif
 
 }  // namespace gtopt

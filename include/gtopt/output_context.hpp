@@ -53,7 +53,7 @@ public:
     return sc.get().flat(holder, op, factor);
   }
 
-  [[nodiscard]] auto field_name(const Id& id) const
+  [[nodiscard]] constexpr auto field_name(const Id& id) const
   {
     return options().use_uid_fname() ? as_label<':'>("uid", get_uid(id))
                                      : as_label<':'>(get_name(id), get_uid(id));
@@ -72,7 +72,7 @@ public:
                  const Span& value_span,
                  const Prelude* prelude,
                  Operation op,
-                 const Factor& factor = {})
+                 const Factor& factor)
   {
     if (holder.empty()) {
       return;
@@ -97,8 +97,15 @@ public:
                              const GSTBIndexHolder& holder,
                              Operation op = {})
   {
-    return add_field(
-        cname, col_name, "sol", id, holder, col_sol_span, &stb_prelude, op);
+    return add_field(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     col_sol_span,
+                     &stb_prelude,
+                     op,
+                     block_factor_matrix_t {});
   }
 
   template<typename Operation = std::identity>
@@ -108,8 +115,15 @@ public:
                              const STBIndexHolder& holder,
                              Operation op = {})
   {
-    return add_field(
-        cname, col_name, "sol", id, holder, col_sol_span, &stb_prelude, op);
+    return add_field(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     col_sol_span,
+                     &stb_prelude,
+                     op,
+                     block_factor_matrix_t {});
   }
 
   template<typename Operation = std::identity>
@@ -192,8 +206,15 @@ public:
                              const STIndexHolder& holder,
                              Operation op = {})
   {
-    return add_field(
-        cname, col_name, "sol", id, holder, col_sol_span, &st_prelude, op);
+    return add_field(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     col_sol_span,
+                     &st_prelude,
+                     op,
+                     scenario_stage_factor_matrix_t {});
   }
 
   template<typename Operation = std::identity>
@@ -211,7 +232,7 @@ public:
                      col_cost_span,
                      &st_prelude,
                      op,
-                     block_cost_factors);
+                     scenario_stage_cost_factors);
   }
 
   template<typename Operation = std::identity>
@@ -229,7 +250,7 @@ public:
                      row_dual_span,
                      &st_prelude,
                      op,
-                     block_cost_factors);
+                     scenario_stage_cost_factors);
   }
 
   template<typename Operation = std::identity>
@@ -239,8 +260,15 @@ public:
                              const TIndexHolder& holder,
                              Operation op = {})
   {
-    return add_field(
-        cname, col_name, "sol", id, holder, col_sol_span, &t_prelude, op);
+    return add_field(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     col_sol_span,
+                     &t_prelude,
+                     op,
+                     stage_factor_matrix_t {});
   }
 
   template<typename Operation = std::identity>
@@ -281,6 +309,11 @@ public:
 
   void write() const;
 
+  using block_factor_matrix_t = SystemContext::block_factor_matrix_t;
+  using stage_factor_matrix_t = SystemContext::stage_factor_matrix_t;
+  using scenario_stage_factor_matrix_t =
+      SystemContext::scenario_stage_factor_matrix_t;
+
 private:
   std::reference_wrapper<const SystemContext> sc;
 
@@ -292,8 +325,9 @@ private:
   ColCostSpan col_cost_span;
   RowDualSpan row_dual_span;
 
-  std::vector<double> block_cost_factors;
-  std::vector<double> stage_cost_factors;
+  block_factor_matrix_t block_cost_factors;
+  stage_factor_matrix_t stage_cost_factors;
+  scenario_stage_factor_matrix_t scenario_stage_cost_factors;
 
   ArrowFieldArrays stb_prelude;
   ArrowFieldArrays st_prelude;

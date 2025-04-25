@@ -11,13 +11,13 @@
  * capacity constraints.
  */
 
-#include <iostream>
 #include <ranges>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -34,51 +34,68 @@ namespace gtopt
  * 2. State of charge tracking constraints between time blocks
  * 3. Capacity constraints linking battery operation to installed capacity
  */
-bool BatteryLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
+bool BatteryLP::add_to_lp(const SystemContext& sc,
+                          const ScenarioIndex& scenario_index,
+                          const StageIndex& stage_index,
+                          LinearProblem& lp)
 {
   constexpr std::string_view cname = "batt";
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, lp, cname)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
+      [[unlikely]]
+  {
     return false;
   }
 
-  const auto stage_index = sc.stage_index();
   if (!is_active(stage_index)) [[unlikely]] {
     return true;
   }
 
   // Get capacity information
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
+  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
 
   // Get blocks for this stage
-  auto&& blocks = sc.stage_blocks();
+  const auto& blocks = sc.stage_blocks(stage_index);
 
   // Create flow variables for each time block
   BIndexHolder fcols;
   fcols.reserve(blocks.size());
 
   // Use C++23 ranges to process blocks
-  for (auto&& block :
+  for (auto&& name :
        blocks
            | std::views::transform(
-               [&](auto&& b) { return sc.stb_label(b, cname, "flow", uid()); }))
+               [&](auto&& b)
+               {
+                 return sc.stb_label(
+                     scenario_index, stage_index, b, cname, "flow", uid());
+               }))
   {
-    SparseCol fcol {.name = block};
+    SparseCol fcol {.name = name};
     fcols.push_back(lp.add_col(std::move(fcol.free())));
   }
 
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
-  if (!StorageBase::add_to_lp(
-          sc, lp, cname, fcols, stage_capacity, capacity_col)) [[unlikely]]
+  if (!StorageBase::add_to_lp(sc,
+                              scenario_index,
+                              stage_index,
+                              lp,
+                              cname,
+                              fcols,
+                              stage_capacity,
+                              capacity_col)) [[unlikely]]
   {
-    std::cerr << "Failed to add storage constraints for battery " << uid()
-              << std::endl;
+    SPDLOG_CRITICAL(
+        fmt::format("Failed to add storage constraints for battery {}", uid()));
+
     return false;
   }
 
   // Store flow variable indices for later use
-  return sc.emplace_bholder(flow_cols, std::move(fcols)).second;
+  return emplace_bholder(
+             scenario_index, stage_index, flow_cols, std::move(fcols))
+      .second;
 }
 
 /**

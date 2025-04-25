@@ -11,8 +11,10 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/index_holder.hpp>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
-#include <gtopt/system_context.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -48,17 +50,15 @@ struct CapacityObjectLP : public ObjectLP<Object>
   explicit CapacityObjectLP(const InputContext& ic,
                             const std::string_view& ClassName,
                             ObjectT&& pobject)
-      : ObjectLP<Object>(ic, ClassName, std::forward<ObjectT>(pobject))
+      : ObjectLP<Object>(std::forward<ObjectT>(pobject))
   {
     set_attrs(ic, ClassName, object());
   }
 
-  template<typename SystemContext,
-           typename Out = std::pair<double, std::optional<size_t>>>
-  constexpr auto capacity_and_col(const SystemContext& sc,
+  template<typename Out = std::pair<double, std::optional<Index>>>
+  constexpr auto capacity_and_col(const StageIndex& stage_index,
                                   LinearProblem& lp) const -> Out
   {
-    const auto stage_index = sc.stage_index();
     auto&& capacity_col = capacity_col_at(stage_index);
     if (capacity_col.has_value()) {
       return {lp.get_col_uppb(capacity_col.value()), capacity_col};
@@ -81,15 +81,17 @@ struct CapacityObjectLP : public ObjectLP<Object>
         : def_capacity;
   }
 
+  template<typename SystemContext>
   bool add_to_lp(const SystemContext& sc,
+                 const ScenarioIndex& scenario_index,
+                 const StageIndex& stage_index,
                  LinearProblem& lp,
                  const std::string_view& cname)
   {
-    if (!sc.is_first_scenario()) {
+    if (!sc.is_first_scenario(scenario_index)) {
       return true;
     }
 
-    const auto stage_index = sc.stage_index();
     if (!is_active(stage_index)) {
       return true;
     }
@@ -99,8 +101,9 @@ struct CapacityObjectLP : public ObjectLP<Object>
     const auto stage_expmod = expmod.at(stage_index).value_or(0.0);
     const auto stage_maxexpcap = stage_expcap * stage_expmod;
 
-    const auto prev_stage_index =
-        !sc.is_first_stage() ? OptStageIndex {stage_index - 1} : std::nullopt;
+    const auto prev_stage_index = !sc.is_first_stage(stage_index)
+        ? OptStageIndex {stage_index - 1}
+        : std::nullopt;
 
     const auto prev_capainst_col =
         get_optvalue_optkey(capainst_cols, prev_stage_index);
@@ -121,8 +124,10 @@ struct CapacityObjectLP : public ObjectLP<Object>
     const auto stage_derating =
         hour_derating * sc.stage_duration(prev_stage_index);
 
-    SparseRow capainst_row {.name = sc.t_label(cname, "capainst", uid())};
-    SparseRow capacost_row {.name = sc.t_label(cname, "capacost", uid())};
+    SparseRow capainst_row {
+        .name = sc.t_label(stage_index, cname, "capainst", uid())};
+    SparseRow capacost_row {
+        .name = sc.t_label(stage_index, cname, "capacost", uid())};
 
     const auto capainst_lb = stage_capacity;
     const auto capainst_ub = stage_capmax.has_value()
@@ -136,16 +141,17 @@ struct CapacityObjectLP : public ObjectLP<Object>
 
     capainst_row[capainst_col] = -1;
 
-    const auto capacost_col = lp.add_col({// capacost variable
-                                          .name = capacost_row.name,
-                                          .cost = sc.stage_cost(1.0)});
+    const auto capacost_col =
+        lp.add_col({// capacost variable
+                    .name = capacost_row.name,
+                    .cost = sc.stage_cost(stage_index, 1.0)});
 
     capacost_row[capacost_col] = +1;
 
     if (stage_maxexpcap > 0) {
       const auto expmod_col = expmod_cols[stage_index] =
           lp.add_col({// expmod variable
-                      .name = sc.t_label(cname, "expmod", uid()),
+                      .name = sc.t_label(stage_index, cname, "expmod", uid()),
                       .uppb = stage_expmod});
 
       capainst_row[expmod_col] = +stage_expcap;
@@ -191,7 +197,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
     return true;
   }
 
-  constexpr auto capacity_col_at(const StageIndex stage_index) const
+  constexpr auto capacity_col_at(const StageIndex& stage_index) const
   {
     return get_optvalue(capainst_cols, stage_index);
   }

@@ -36,27 +36,27 @@ public:
   {
   }
 
-  constexpr static bool add_to_lp(const SystemContext& /*sc*/,
-                                  LinearProblem& /*lp*/)
-  {
-    return true;
-  }
-  bool lazy_add_to_lp(const SystemContext& sc, LinearProblem& lp) const;
+  bool lazy_add_to_lp(const SystemContext& sc,
+                      const ScenarioIndex& scenario_index,
+                      const StageIndex& stage_index,
+                      LinearProblem& lp) const;
 
   bool add_to_output(OutputContext& out) const;
 
   constexpr auto capacity_col_at(const SystemContext& sc,
+                                 const ScenarioIndex& scenario_index,
+                                 const StageIndex& stage_index,
                                  LinearProblem& lp) const
       -> std::optional<size_t>
   {
-    const auto stage_index = sc.stage_index();
     const auto ocol = get_optvalue(capacity_cols, stage_index);
     if (ocol.has_value()) [[likely]] {
       return ocol;
     }
 
-    return lazy_add_to_lp(sc, lp) ? get_optvalue(capacity_cols, stage_index)
-                                  : std::nullopt;
+    return lazy_add_to_lp(sc, scenario_index, stage_index, lp)
+        ? get_optvalue(capacity_cols, stage_index)
+        : std::nullopt;
   }
 
   constexpr auto capacity_at(const StageIndex stage_index) const

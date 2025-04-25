@@ -14,8 +14,7 @@
 
 #pragma once
 
-#include <tuple>
-#include <vector>
+#include <functional>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -25,34 +24,47 @@
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
-#include <gtopt/input_context.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/options_lp.hpp>
+#include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
+#include <gtopt/schedule.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
-
-#include "gtopt/linear_interface.hpp"
 
 namespace gtopt
 {
 
 class LinearInterface;
 
-template<typename T,
-         typename SC = SystemContext,
-         typename OC = OutputContext,
-         typename LP = LinearProblem>
-concept AddToLP = requires(T obj, const SC& sc, OC& oc, LP& lp) {
-  { obj.add_to_lp(sc, lp) } -> std::same_as<bool>;
-  { obj.add_to_output(oc) } -> std::same_as<bool>;
+template<typename T>
+concept AddToLP = requires(T obj,
+                           const SystemContext& system_context,
+                           const ScenarioIndex& scenario_index,
+                           const StageIndex& stage_index,
+                           LinearProblem& lp,
+                           OutputContext& output_context) {
+  {
+    obj.add_to_lp(system_context, scenario_index, stage_index, lp)
+  } -> std::same_as<bool>;
+  { obj.add_to_output(output_context) } -> std::same_as<bool>;
 };
 
 static_assert(AddToLP<BusLP>);
+static_assert(AddToLP<DemandLP>);
+static_assert(AddToLP<GeneratorLP>);
+static_assert(AddToLP<LineLP>);
+static_assert(AddToLP<GeneratorProfileLP>);
+static_assert(AddToLP<DemandProfileLP>);
+static_assert(AddToLP<BatteryLP>);
+static_assert(AddToLP<ConverterLP>);
+static_assert(AddToLP<ReserveZoneLP>);
+static_assert(AddToLP<ReserveProvisionLP>);
 
 /**
  * @class SystemLP
@@ -75,50 +87,9 @@ static_assert(AddToLP<BusLP>);
 class SystemLP
 {
   /**
-   * @brief Creates LP representation of blocks from system blocks
-   * @return Vector of BlockLP objects
-   */
-  std::vector<BlockLP> create_block_array();
-
-  /**
-   * @brief Creates LP representation of stages from system stages
-   * @return Vector of StageLP objects
-   */
-  std::vector<StageLP> create_stage_array();
-
-  /**
-   * @brief Creates LP representation of scenarios from system scenarios
-   * @return Vector of ScenarioLP objects
-   */
-  std::vector<ScenarioLP> create_scenario_array();
-
-  /**
-   * @brief Creates LP representation of phases from system phases
-   * @return Vector of PhaseLP objects
-   */
-  std::vector<PhaseLP> create_phase_array();
-
-  /**
-   * @brief Creates LP representation of scenes from system scenes
-   * @return Vector of SceneLP objects
-   */
-  std::vector<SceneLP> create_scene_array();
-
-  /**
-   * @brief Validates system components for consistency
-   * @throws std::runtime_error if validation fails
-   */
-  void validate_system_components();
-
-  /**
-   * @brief Sets up a reference bus for voltage angle if needed
-   */
-  void setup_reference_bus();
-
-  /**
    * @brief Initializes collections of LP components from system components
    */
-  void initialize_collections();
+  void initialize_collections(const SystemContext& system_context);
 
 public:
   /** @brief Move constructor */
@@ -143,43 +114,27 @@ public:
    * @brief Constructs a SystemLP from a System
    * @param psystem The system to convert to LP representation
    */
-  explicit SystemLP(System psystem = {});
-
-  /**
-   * @brief Gets all scene LP objects
-   * @return Reference to the vector of SceneLP objects
-   */
-  constexpr const auto& scenes() const { return m_scene_array_; }
-
-  /**
-   * @brief Gets all scenario LP objects
-   * @return Reference to the vector of ScenarioLP objects
-   */
-  constexpr const auto& scenarios() const { return m_scenario_array_; }
-
-  /**
-   * @brief Gets all phase LP objects
-   * @return Reference to the vector of PhaseLP objects
-   */
-  constexpr const auto& phases() const { return m_phase_array_; }
-
-  /**
-   * @brief Gets all stage LP objects
-   * @return Reference to the vector of StageLP objects
-   */
-  constexpr const auto& stages() const { return m_stage_array_; }
-
-  /**
-   * @brief Gets all block LP objects
-   * @return Reference to the vector of BlockLP objects
-   */
-  constexpr const auto& blocks() const { return m_block_array_; }
+  explicit SystemLP(System system, const SimulationLP& simulation);
 
   /**
    * @brief Gets system options LP representation
-   * @return Reference to the SystemOptionsLP object
+   * @return Reference to the options object
    */
-  constexpr const auto& options() const { return m_options_; }
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system(this Self& self)
+  {
+    return std::forward<Self>(self).m_system_;
+  }
+
+  [[nodiscard]] constexpr const auto& system_context() const
+  {
+    return m_system_context_;
+  }
+
+  [[nodiscard]] constexpr const auto& options() const
+  {
+    return system_context().options();
+  }
 
   /**
    * @brief Adds an element to its corresponding collection
@@ -259,46 +214,28 @@ public:
    * @brief Gets the system name
    * @return System name
    */
-  const auto& name() const { return m_system_.name; }
+  [[nodiscard]] const auto& name() const { return system().name; }
 
   /**
    * @brief Adds LP formulation for a specific stage and scenario
    * @param lp Linear problem to add constraints to
-   * @param stage_index Index of the stage
-   * @param stage Stage LP representation
-   * @param scenario_index Index of the scenario
-   * @param scenario Scenario LP representation
+   * @param system_context
    */
-  void add_to_lp(LinearProblem& lp,
-                 const StageIndex& stage_index,
-                 const StageLP& stage,
+  void add_to_lp(const SystemContext& system_context,
                  const ScenarioIndex& scenario_index,
-                 const ScenarioLP& scenario);
-
-  /**
-   * @brief Adds the complete LP formulation for all active stages and scenarios
-   * @param lp Linear problem to add constraints to
-   */
-  void add_to_lp(LinearProblem& lp);
+                 const StageIndex& stage_index,
+                 LinearProblem& lp);
 
   /**
    * @brief Writes optimization results to output context
    * @param li Linear interface containing the solved problem
    */
-  void write_out(const LinearInterface& li) const;
+  void write_out(const SystemContext& system_context,
+                 const LinearInterface& li) const;
 
 private:
   System m_system_;
-  SystemOptionsLP m_options_;
-
-  std::vector<BlockLP> m_block_array_;
-  std::vector<StageLP> m_stage_array_;
-  std::vector<ScenarioLP> m_scenario_array_;
-  std::vector<PhaseLP> m_phase_array_;
-  std::vector<SceneLP> m_scene_array_;
-
-  SystemContext system_context;
-  InputContext input_context;
+  SystemContext m_system_context_;
 
   std::tuple<Collection<BusLP>,
              Collection<DemandLP>,

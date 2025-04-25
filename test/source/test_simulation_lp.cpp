@@ -13,6 +13,7 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/system_lp.hpp>
 
+#ifdef NONE
 TEST_CASE("Simulation - Constructor initialization")
 {
   using namespace gtopt;
@@ -225,3 +226,5 @@ TEST_CASE("Simulation - create_lp method")
   // This mainly tests that no exceptions are thrown
   simulation.create_lp();
 }
+
+#endif

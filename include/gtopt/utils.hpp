@@ -10,13 +10,6 @@
 
 #pragma once
 
-#include <array>
-#include <concepts>
-#include <format>
-#include <memory_resource>
-#include <string>
-#include <string_view>
-#include <type_traits>
 #include <utility>
 
 #include <gtopt/as_label.hpp>
@@ -26,14 +19,14 @@
 namespace gtopt
 {
 
-template<typename IndexType = size_t, typename Range>
-constexpr auto enumerate(const Range& range)
+template<typename IndexType = size_t, typename... Ranges>
+constexpr auto enumerate(const Ranges&... ranges)
 {
   return ranges::views::zip(
       ranges::views::iota(0)
           | ranges::views::transform([](size_t i)
                                      { return static_cast<IndexType>(i); }),
-      range);
+      ranges...);
 }
 
 template<typename IndexType = size_t, typename Range, typename Op>
@@ -77,6 +70,16 @@ template<typename T, typename K>
 constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
 {
   return key.has_value() ? get_optvalue(map, key.value()) : std::nullopt;
+}
+
+template<typename OptA, typename OptB>
+constexpr auto& merge_opt(OptA& a, OptB&& b)
+{
+  if (!b.has_value()) {
+    return a;
+  }
+
+  return a = std::forward<OptB>(b);
 }
 
 }  // namespace gtopt

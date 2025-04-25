@@ -32,7 +32,7 @@ public:
   [[nodiscard]] constexpr auto&& converter() { return object(); }
   [[nodiscard]] constexpr auto&& converter() const { return object(); }
 
-  explicit ConverterLP(InputContext& ic, Converter&& pconverter);
+  explicit ConverterLP(InputContext& ic, Converter pconverter);
 
   [[nodiscard]] auto battery() const
   {
@@ -92,7 +92,10 @@ public:
     throw std::runtime_error(msg);
   }
 
-  bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  bool add_to_lp(const SystemContext& sc,
+                 const ScenarioIndex& scenario_index,
+                 const StageIndex& stage_index,
+                 LinearProblem& lp);
 
   bool add_to_output(OutputContext& out) const;
 

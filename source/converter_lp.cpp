@@ -9,15 +9,18 @@
  */
 
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/element_context.hpp>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
 
 namespace gtopt
 {
 
-ConverterLP::ConverterLP(InputContext& ic, Converter&& pconverter)
+ConverterLP::ConverterLP(InputContext& ic, Converter pconverter)
     : CapacityBase(ic, ClassName, std::move(pconverter))
     , conversion_rate(
           ic, ClassName, id(), std::move(converter().conversion_rate))
@@ -28,26 +31,29 @@ ConverterLP::ConverterLP(InputContext& ic, Converter&& pconverter)
 {
 }
 
-bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
+bool ConverterLP::add_to_lp(const SystemContext& sc,
+                            const ScenarioIndex& scenario_index,
+                            const StageIndex& stage_index,
+                            LinearProblem& lp)
 {
   constexpr std::string_view cname = "conv";
-  if (!CapacityBase::add_to_lp(sc, lp, cname)) [[unlikely]] {
+
+  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
+      [[unlikely]]
+  {
     return false;
   }
 
-  const auto stage_index = sc.stage_index();
   if (!is_active(stage_index)) [[unlikely]] {
     return true;
   }
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
+  const auto [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
 
   const auto stage_conversion_rate =
       conversion_rate.at(stage_index).value_or(1.0);
 
-  const auto scenario_index = sc.scenario_index();
-
-  auto&& blocks = sc.stage_blocks();
+  auto&& blocks = sc.stage_blocks(stage_index);
 
   auto&& generator = sc.element(generator_index);
   auto&& gen_cols = generator.generation_cols_at(scenario_index, stage_index);
@@ -66,7 +72,9 @@ bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   for (auto&& [block, gcol, lcol, fcol] :
        ranges::views::zip(blocks, gen_cols, load_cols, flow_cols))
   {
-    SparseRow rrow {.name = sc.stb_label(block, cname, "conv", uid())};
+    SparseRow rrow {
+        .name = sc.stb_label(
+            scenario_index, stage_index, block, cname, "conv", uid())};
 
     rrow[fcol] = -stage_conversion_rate;
     rrow[gcol] = +1;
@@ -76,7 +84,9 @@ bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
 
     // adding the capacity constraint
     if (capacity_col.has_value()) {
-      SparseRow crow {.name = sc.stb_label(block, cname, "cap", uid())};
+      SparseRow crow {
+          .name = sc.stb_label(
+              scenario_index, stage_index, block, cname, "cap", uid())};
 
       crow[capacity_col.value()] = 1;
       crow[gcol] = -1;
@@ -86,8 +96,12 @@ bool ConverterLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     }
   }
 
-  return sc.emplace_bholder(capacity_rows, std::move(crows)).second
-      && sc.emplace_bholder(conversion_rows, std::move(rrows)).second;
+  return emplace_bholder(
+             scenario_index, stage_index, capacity_rows, std::move(crows))
+             .second
+      && emplace_bholder(
+             scenario_index, stage_index, conversion_rows, std::move(rrows))
+             .second;
 }
 
 bool ConverterLP::add_to_output(OutputContext& out) const

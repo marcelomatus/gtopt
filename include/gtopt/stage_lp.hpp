@@ -55,7 +55,6 @@ public:
       : stage(std::move(pstage))
       , block_span(
             std::span(pblocks).subspan(stage.first_block, stage.count_block))
-      , block_indexes(block_span.size())
       , span_duration(std::transform_reduce(block_span.begin(),
                                             block_span.end(),
                                             0.0,
@@ -65,10 +64,6 @@ public:
       , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
                                         span_duration / hours_per_year))
   {
-    std::iota(  // NOLINT
-        block_indexes.begin(),
-        block_indexes.end(),
-        BlockIndex {});
   }
 
   /// @return Total duration of the stage in hours
@@ -101,16 +96,9 @@ public:
     return block_span;
   }
 
-  /// @return Span of block indexes
-  [[nodiscard]] constexpr auto indexes() const noexcept
-  {
-    return BlockIndexSpan {block_indexes};
-  }
-
 private:
   Stage stage;  ///< Stage definition
   BlockSpan block_span;  ///< View of blocks in this stage
-  BlockIndexes block_indexes;  ///< Vector of block indexes
 
   double span_duration {0.0};  ///< Total duration of all blocks
   double annual_discount_factor {

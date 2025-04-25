@@ -51,4 +51,42 @@ using GSTIndexHolder =
 using GSTBIndexHolder =
     tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, size_t>;
 
+template<typename Map, typename BHolder>
+constexpr auto emplace_bholder(const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               Map& map,
+                               BHolder&& holder,
+                               bool empty_insert = false)
+{
+  // if empty_insert, holders that are empty will be inserted. Otherwise,
+  // there will be skipped.
+
+  // holder.shrink_to_fit();
+
+  using Key = typename Map::key_type;
+  return (empty_insert || !holder.empty())
+      ? map.emplace(Key {scenario_index, stage_index},
+                    std::forward<BHolder>(holder))
+      : std::make_pair(map.end(), true);
+}
+
+template<typename Map, typename Value = typename Map::value_type>
+constexpr auto emplace_value(const ScenarioIndex& scenario_index,
+                             const StageIndex& stage_index,
+                             Map& map,
+                             Value&& value)
+{
+  using Key = typename Map::key_type;
+  return map.emplace(Key {scenario_index, stage_index},
+                     std::forward<Value>(value));
+}
+
+template<typename Map, typename Value = typename Map::value_type>
+constexpr auto emplace_stage_value(const StageIndex& stage_index,
+                                   Map& map,
+                                   Value&& value)
+{
+  return map.emplace(stage_index, std::forward<Value>(value));
+}
+
 }  // namespace gtopt

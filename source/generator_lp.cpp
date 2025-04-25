@@ -22,6 +22,8 @@
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
 
+#include "gtopt/block.hpp"
+
 namespace gtopt
 {
 
@@ -33,7 +35,7 @@ namespace gtopt
  * Creates an LP representation of a generator including time-dependent
  * parameters like minimum/maximum generation limits, loss factors, and costs.
  */
-GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
+GeneratorLP::GeneratorLP(const InputContext& ic, Generator pgenerator)
     : CapacityBase(ic, ClassName, std::move(pgenerator))
     , pmin(ic, ClassName, id(), std::move(generator().pmin))
     , pmax(ic, ClassName, id(), std::move(generator().pmax))
@@ -60,30 +62,34 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator&& pgenerator)
  * - Generation costs in the objective function
  * - Capacity constraints when capacity expansion is modeled
  */
-bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
+bool GeneratorLP::add_to_lp(const SystemContext& sc,
+                            const ScenarioIndex& scenario_index,
+                            const StageIndex& stage_index,
+                            LinearProblem& lp)
 {
   constexpr std::string_view cname = "gen";
-  if (!CapacityBase::add_to_lp(sc, lp, cname)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
+      [[unlikely]]
+  {
     return false;
   }
 
-  const auto stage_index = sc.stage_index();
   if (!is_active(stage_index)) [[unlikely]] {
     return true;
   }
+
   auto&& bus = sc.element(bus_index);
   if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
-  const auto scenario_index = sc.scenario_index();
 
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(sc, lp);
+  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
 
   const auto stage_gcost = gcost.optval(stage_index).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
 
-  auto&& balance_rows = bus.balance_rows_at(scenario_index, stage_index);
-  auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
+  const auto& balance_rows = bus.balance_rows_at(scenario_index, stage_index);
+  const auto& blocks = sc.stage_blocks(stage_index);
 
   BIndexHolder gcols;
   gcols.reserve(blocks.size());
@@ -91,17 +97,19 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
   crows.reserve(blocks.size());
 
   for (auto&& [block_index, block, balance_row] :
-       ranges::views::zip(block_indexes, blocks, balance_rows))
+       enumerate<BlockIndex>(blocks, balance_rows))
   {
-    const auto [block_pmax, block_pmin] =
-        sc.block_maxmin_at(block_index, pmax, pmin, stage_capacity);
+    const auto [block_pmax, block_pmin] = sc.block_maxmin_at(
+        stage_index, block_index, pmax, pmin, stage_capacity);
 
     // Create generation variable for this time block
-    const auto gc =
-        lp.add_col({.name = sc.stb_label(block, cname, "gen", uid()),
-                    .lowb = block_pmin,
-                    .uppb = block_pmax,
-                    .cost = sc.block_cost(block, stage_gcost)});
+    const auto gc = lp.add_col(
+        {.name = sc.stb_label(
+             scenario_index, stage_index, block, cname, "gen", uid()),
+         .lowb = block_pmin,
+         .uppb = block_pmax,
+         .cost =
+             sc.block_cost(scenario_index, stage_index, block, stage_gcost)});
     gcols.push_back(gc);
 
     // Add generator output to the bus power balance equation
@@ -112,15 +120,21 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
     if (capacity_col.has_value()) {
-      SparseRow crow {.name = sc.stb_label(block, cname, "cap", uid())};
+      SparseRow crow {
+          .name = sc.stb_label(
+              scenario_index, stage_index, block, cname, "cap", uid())};
       crow[capacity_col.value()] = 1;
       crow[gc] = -1;
 
       crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
     }
   }
-  return sc.emplace_bholder(capacity_rows, std::move(crows)).second
-      && sc.emplace_bholder(generation_cols, std::move(gcols)).second;
+  return emplace_bholder(
+             scenario_index, stage_index, capacity_rows, std::move(crows))
+             .second
+      && emplace_bholder(
+             scenario_index, stage_index, generation_cols, std::move(gcols))
+             .second;
 }
 
 /**

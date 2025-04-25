@@ -7,7 +7,6 @@
  *
  * This module
  */
-
 #pragma once
 
 #include <gtopt/bus_lp.hpp>
@@ -17,7 +16,6 @@
 
 namespace gtopt
 {
-
 using GeneratorLPId = ObjectId<class GeneratorLP>;
 using GeneratorLPSId = ObjectSingleId<class GeneratorLP>;
 
@@ -28,13 +26,16 @@ public:
 
   using CapacityBase = CapacityObjectLP<Generator>;
 
-  explicit GeneratorLP(const InputContext& ic, Generator&& pgenerator);
+  explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
 
   [[nodiscard]] constexpr auto&& generator() { return object(); }
   [[nodiscard]] constexpr auto&& generator() const { return object(); }
   [[nodiscard]] auto bus() const { return BusLPSId {generator().bus}; }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& generation_cols_at(const ScenarioIndex scenary_index,

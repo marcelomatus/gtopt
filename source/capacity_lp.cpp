@@ -16,14 +16,15 @@ namespace gtopt
 {
 
 bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
+                                const ScenarioIndex& scenario_index,
+                                const StageIndex& stage_index,
                                 LinearProblem& lp) const
 {
   constexpr std::string_view cname = "cap";
-  if (!sc.is_first_scenario()) {
+  if (!sc.is_first_scenario(scenario_index)) {
     return true;
   }
 
-  const auto stage_index = sc.stage_index();
   if (!is_active(stage_index)) {
     return true;
   }
@@ -33,8 +34,9 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
   const auto stage_expmod = expmod.at(stage_index).value_or(0.0);
   const auto stage_maxexpcap = stage_expcap * stage_expmod;
 
-  const auto prev_stage_index =
-      !sc.is_first_stage() ? OptStageIndex {stage_index - 1} : std::nullopt;
+  const auto prev_stage_index = !sc.is_first_stage(stage_index)
+      ? OptStageIndex {stage_index - 1}
+      : std::nullopt;
 
   const auto prev_capacity_col =
       get_optvalue_optkey(capacity_cols, prev_stage_index);
@@ -55,8 +57,10 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
   const auto stage_derating =
       hour_derating * sc.stage_duration(prev_stage_index);
 
-  SparseRow capacity_row {.name = sc.t_label(cname, "capcity", uid())};
-  SparseRow capacost_row {.name = sc.t_label(cname, "capcost", uid())};
+  SparseRow capacity_row {.name =
+                              sc.t_label(stage_index, cname, "capcity", uid())};
+  SparseRow capacost_row {.name =
+                              sc.t_label(stage_index, cname, "capcost", uid())};
 
   const auto capacity_lb = stage_capacity.value_or(0.0);
   const auto capacity_ub = stage_capmax.has_value()
@@ -74,14 +78,14 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
   const auto capacost_col = capacost_cols[stage_index] =
       lp.add_col({// capacost variable
                   .name = capacost_row.name,
-                  .cost = sc.stage_cost(1.0)});
+                  .cost = sc.stage_cost(stage_index, 1.0)});
 
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage_index] =
         lp.add_col({// expmod variable
-                    .name = sc.t_label(cname, "expmod", uid()),
+                    .name = sc.t_label(stage_index, cname, "expmod", uid()),
                     .uppb = stage_expmod});
 
     capacity_row[expmod_col] = +stage_expcap;
@@ -108,16 +112,19 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
 
 bool CapacityLP::add_to_output(OutputContext& out) const
 {
-  out.add_col_sol("Capacity", "capacity", id(), capacity_cols);
-  out.add_col_sol("Capacity", "capacost", id(), capacost_cols);
-  out.add_col_sol("Capacity", "expmod", id(), expmod_cols);
+  constexpr std::string_view cname = "Capacity";
+  const auto pid = id();
 
-  out.add_col_cost("Capacity", "capacity", id(), capacity_cols);
-  out.add_col_cost("Capacity", "capacost", id(), capacost_cols);
-  out.add_col_cost("Capacity", "expmod", id(), expmod_cols);
+  out.add_col_sol(cname, "capacity", pid, capacity_cols);
+  out.add_col_sol(cname, "capacost", pid, capacost_cols);
+  out.add_col_sol(cname, "expmod", pid, expmod_cols);
 
-  out.add_row_dual("Capacity", "capacity", id(), capacity_rows);
-  out.add_row_dual("Capacity", "capacost", id(), capacost_rows);
+  out.add_col_cost(cname, "capacity", pid, capacity_cols);
+  out.add_col_cost(cname, "capacost", pid, capacost_cols);
+  out.add_col_cost(cname, "expmod", pid, expmod_cols);
+
+  out.add_row_dual(cname, "capacity", pid, capacity_rows);
+  out.add_row_dual(cname, "capacost", pid, capacost_rows);
 
   return true;
 }

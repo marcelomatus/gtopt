@@ -15,7 +15,7 @@ public:
 
   using CapacityBase = CapacityObjectLP<Demand>;
 
-  explicit DemandLP(const InputContext& ic, Demand&& pdemand);
+  explicit DemandLP(const InputContext& ic, Demand pdemand);
 
   [[nodiscard]] constexpr auto&& demand() { return object(); }
   [[nodiscard]] constexpr auto&& demand() const { return object(); }
@@ -24,7 +24,10 @@ public:
     return ObjectSingleId<BusLP> {demand().bus};
   }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& load_cols_at(const ScenarioIndex scenary_index,
@@ -44,8 +47,6 @@ private:
   STBIndexHolder capacity_rows;
   GSTIndexHolder emin_cols;
   GSTIndexHolder emin_rows;
-
-  ElementIndex<BusLP> bus_index;
 };
 
 }  // namespace gtopt

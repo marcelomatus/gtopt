@@ -1,3 +1,4 @@
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <range/v3/view/all.hpp>
@@ -35,8 +36,8 @@ constexpr auto active_block_indices(const Stage& stages)
   return indices;
 }
 
-template<typename Index, typename Stage>
-auto active_stage_block_indices(const Stage& stages)
+template<typename Index, typename Stages>
+auto active_stage_block_indices(const Stages& stages)
 {
   std::vector<std::vector<Index>> indices(stages.size());
   for (auto&& [i, e] : enumerate_active<Index>(stages)) {
@@ -63,7 +64,7 @@ template<typename SystemContext, typename Operation = decltype(true_fnc)>
 constexpr STBUids make_stb_uids(const SystemContext& sc,
                                 Operation op = true_fnc)
 {
-  const auto size = sc.get_scenario_size() * sc.get_block_size();
+  const auto size = sc.scenarios().size() * sc.blocks().size();
   std::vector<Uid> scenario_uids;
   scenario_uids.reserve(size);
   std::vector<Uid> stage_uids;
@@ -71,8 +72,10 @@ constexpr STBUids make_stb_uids(const SystemContext& sc,
   std::vector<Uid> block_uids;
   block_uids.reserve(size);
 
-  for (auto&& scenario : sc.system().scenarios() | ranges::views::filter(op)) {
-    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+  for (auto&& scenario :
+       sc.simulation().scenarios() | ranges::views::filter(op))
+  {
+    for (auto&& stage : sc.simulation().stages() | ranges::views::filter(op)) {
       for (auto&& block : stage.blocks()) {
         scenario_uids.push_back(scenario.uid());
         stage_uids.push_back(stage.uid());
@@ -91,14 +94,16 @@ constexpr STBUids make_stb_uids(const SystemContext& sc,
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
 constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
 {
-  const auto size = sc.get_scenario_size() * sc.get_stage_size();
+  const auto size = sc.scenarios().size() * sc.stages().size();
   std::vector<Uid> scenario_uids;
   scenario_uids.reserve(size);
   std::vector<Uid> stage_uids;
   stage_uids.reserve(size);
 
-  for (auto&& scenario : sc.system().scenarios() | ranges::views::filter(op)) {
-    for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+  for (auto&& scenario :
+       sc.simulation().scenarios() | ranges::views::filter(op))
+  {
+    for (auto&& stage : sc.simulation().stages() | ranges::views::filter(op)) {
       scenario_uids.push_back(scenario.uid());
       stage_uids.push_back(stage.uid());
     }
@@ -113,11 +118,11 @@ constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
 constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
 {
-  const auto size = sc.get_stage_size();
+  const auto size = sc.stages().size();
   std::vector<Uid> stage_uids;
   stage_uids.reserve(size);
 
-  for (auto&& stage : sc.system().stages() | ranges::views::filter(op)) {
+  for (auto&& stage : sc.simulation().stages() | ranges::views::filter(op)) {
     stage_uids.push_back(stage.uid());
   }
 
@@ -126,7 +131,7 @@ constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
   return stage_uids;
 }
 
-constexpr auto stage_factors(auto&& stages)
+constexpr auto stage_factors(const auto& stages)
 {
   std::vector<double> factors(stages.size(), 1.0);
 
@@ -144,35 +149,38 @@ constexpr auto stage_factors(auto&& stages)
 namespace gtopt
 {
 
-const SystemOptionsLP& SystemContext::options() const
-{
-  return system().options();
-}
-
-double SystemContext::block_cost(const BlockLP& block, const double cost) const
+double SystemContext::block_cost(const ScenarioIndex& scenario_index,
+                                 const StageIndex& stage_index,
+                                 const BlockLP& block,
+                                 const double cost) const
 {
   return cost
       * cost_factor(options().scale_objective(),
-                    scenario_probability_factor(),
-                    stage_discount_factor(),
+                    scenario_probability_factor(scenario_index),
+                    stage_discount_factor(stage_index),
                     block.duration());
 }
 
-auto SystemContext::block_cost_factors() const -> std::vector<double>
+auto SystemContext::block_cost_factors() const -> block_factor_matrix_t
 {
-  std::vector<double> factors(active_scenario_count() * active_block_count());
+  const auto n_scenarios = static_cast<Index>(active_scenario_count());
+  const auto n_stages = static_cast<Index>(active_block_count());
+  block_factor_matrix_t factors(boost::extents[n_scenarios][n_stages]);
 
   const auto scale_obj = options().scale_objective();
 
-  for (size_t idx {}; auto&& scenario : active(system().scenarios())) {
+  for (auto&& [si, scenario] :
+       enumerate_active<Index>(simulation().scenarios()))
+  {
     const auto probability_factor = scenario.probability_factor();
-    for (auto&& [ti, stage] : enumerate_active(system().stages())) {
-      for (auto&& block : stage.blocks()) {
+    for (auto&& [ti, stage] : enumerate_active<Index>(simulation().stages())) {
+      factors[si][ti].resize(stage.blocks().size());
+      for (auto&& [bi, block] : enumerate<Index>(stage.blocks())) {
         const auto cfactor = cost_factor(scale_obj,
                                          probability_factor,
                                          stage_discount_factors[ti],
                                          block.duration());
-        factors[idx++] = 1.0 / cfactor;
+        factors[si][ti][bi] = 1.0 / cfactor;
       }
     }
   }
@@ -180,29 +188,66 @@ auto SystemContext::block_cost_factors() const -> std::vector<double>
   return factors;
 }
 
-double SystemContext::stage_cost(const double cost) const
+double SystemContext::stage_cost(const StageIndex& stage_index,
+                                 const double cost) const
+{
+  const auto probability_factor = 1.0;
+
+  return cost
+      * cost_factor(options().scale_objective(),
+                    probability_factor,
+                    stage_discount_factor(stage_index),
+                    stage_duration(stage_index));
+}
+
+auto SystemContext::stage_cost_factors() const -> stage_factor_matrix_t
+{
+  const auto n_stages = static_cast<Index>(active_block_count());
+  stage_factor_matrix_t factors(n_stages);
+
+  const auto scale_obj = options().scale_objective();
+  const auto probability_factor = 1.0;
+  for (auto&& [ti, stage] : enumerate_active<Index>(simulation().stages())) {
+    const auto cfactor = cost_factor(scale_obj,
+                                     probability_factor,
+                                     stage_discount_factors[ti],
+                                     stage.duration());
+    factors[ti] = 1.0 / cfactor;
+  }
+
+  return factors;
+}
+
+double SystemContext::scenario_stage_cost(const ScenarioIndex& scenario_index,
+                                          const StageIndex& stage_index,
+                                          const double cost) const
 {
   return cost
       * cost_factor(options().scale_objective(),
-                    scenario_probability_factor(),
-                    stage_discount_factor(),
-                    stage_duration());
+                    scenario_probability_factor(scenario_index),
+                    stage_discount_factor(stage_index),
+                    stage_duration(stage_index));
 }
 
-auto SystemContext::stage_cost_factors() const -> std::vector<double>
+auto SystemContext::scenario_stage_cost_factors() const
+    -> scenario_stage_factor_matrix_t
 {
-  std::vector<double> factors(active_scenario_count() * active_stage_count());
+  const auto n_scenarios = static_cast<Index>(active_scenario_count());
+  const auto n_stages = static_cast<Index>(active_block_count());
+  scenario_stage_factor_matrix_t factors(boost::extents[n_scenarios][n_stages]);
 
   const auto scale_obj = options().scale_objective();
 
-  for (size_t idx = {}; auto&& scenario : active(system().scenarios())) {
+  for (auto&& [si, scenario] :
+       enumerate_active<Index>(simulation().scenarios()))
+  {
     const auto probability_factor = scenario.probability_factor();
-    for (auto&& [ti, stage] : enumerate_active(system().stages())) {
+    for (auto&& [ti, stage] : enumerate_active<Index>(simulation().stages())) {
       const auto cfactor = cost_factor(scale_obj,
                                        probability_factor,
                                        stage_discount_factors[ti],
                                        stage.duration());
-      factors[idx++] = 1.0 / cfactor;
+      factors[si][ti] = 1.0 / cfactor;
     }
   }
 
@@ -239,33 +284,29 @@ auto SystemContext::t_uids() const -> TUids
   return make_t_uids(*this);
 }
 
-SystemContext::SystemContext(SystemLP& psystem)
-    : m_system_(psystem)
-    , active_scenarios(active_indices<ScenarioIndex>(psystem.scenarios()))
-    , active_stages(active_indices<StageIndex>(psystem.stages()))
-    , active_blocks(active_block_indices<BlockIndex>(psystem.stages()))
-    , active_stage_blocks(
-          active_stage_block_indices<BlockIndex>(psystem.stages()))
-    , scenario_size(psystem.scenarios().size())
-    , stage_size(psystem.stages().size())
-    , block_size(psystem.blocks().size())
-    , stage_discount_factors(stage_factors(psystem.stages()))
+SystemContext::SystemContext(const SimulationLP& psimulation, SystemLP& psystem)
+    : m_simulation_(psimulation)
+    , m_system_(psystem)
+    , m_active_scenarios_(
+          active_indices<ScenarioIndex>(simulation().scenarios()))
+    , m_active_stages_(active_indices<StageIndex>(simulation().stages()))
+    , m_active_blocks_(active_block_indices<BlockIndex>(simulation().stages()))
+    , m_active_stage_blocks_(
+          active_stage_block_indices<BlockIndex>(simulation().stages()))
+    , stage_discount_factors(stage_factors(simulation().stages()))
 {
+  if (options().use_single_bus()) {
+    const auto& buses = system().elements<BusLP>();
+    if (!buses.empty()) {
+      m_single_bus_id_ = buses.front().uid();
+    }
+  }
 }
 
 auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
     -> ElementIndex<BusLP>
 {
-  const auto use_single_bus = options().use_single_bus();
-
-  if (use_single_bus && !m_single_bus_id_) {
-    m_single_bus_id_ = id;
-  }
-
-  const auto bus =
-      use_single_bus && m_single_bus_id_ ? m_single_bus_id_.value() : id;
-
-  return system().element_index(bus);
+  return system().element_index(m_single_bus_id_.value_or(id));
 }
 
 auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
@@ -276,17 +317,17 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
 
 auto SystemContext::scenarios() const -> const std::vector<ScenarioLP>&
 {
-  return system().scenarios();
+  return simulation().scenarios();
 }
 
 auto SystemContext::stages() const -> const std::vector<StageLP>&
 {
-  return system().stages();
+  return simulation().stages();
 }
 
 auto SystemContext::blocks() const -> const std::vector<BlockLP>&
 {
-  return system().blocks();
+  return simulation().blocks();
 }
 
 }  // namespace gtopt

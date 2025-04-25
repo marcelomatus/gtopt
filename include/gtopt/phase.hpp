@@ -21,13 +21,13 @@ struct Phase
   OptName name {};
   OptBool active {};
 
-  Size first_stage {};
-  Size count_stage {};
+  Size first_stage {0};
+  Size count_stage {std::numeric_limits<Size>::max()};
 
   static constexpr std::string_view class_name = "phase";
 };
 
-using PhaseUid = StrongUidType<struct Phase>;
+using PhaseUid = StrongUidType<Phase>;
 using PhaseIndex = StrongIndexType<Phase>;
 using OptPhaseIndex = std::optional<PhaseIndex>;
 

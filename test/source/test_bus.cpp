@@ -50,3 +50,70 @@ TEST_CASE("Json Bus 2")
   CHECK(bus.reference_theta.value() == 1);
   CHECK(bus.use_kirchhoff.value() == true);
 }
+
+TEST_CASE("Bus needs_kirchhoff method")
+{
+  using namespace gtopt;
+
+  SUBCASE("Default values") {
+    Bus bus(1, "bus_1");
+    CHECK(bus.needs_kirchhoff(0.5) == true);  // Default is true with default voltage > threshold
+  }
+
+  SUBCASE("With explicit true") {
+    Bus bus(1, "bus_1");
+    bus.use_kirchhoff = true;
+    CHECK(bus.needs_kirchhoff(0.5) == true);
+  }
+
+  SUBCASE("With explicit false") {
+    Bus bus(1, "bus_1");
+    bus.use_kirchhoff = false;
+    CHECK(bus.needs_kirchhoff(0.5) == false);
+  }
+
+  SUBCASE("With low voltage") {
+    Bus bus(1, "bus_1");
+    bus.voltage = 0.1;
+    CHECK(bus.needs_kirchhoff(0.5) == false);
+  }
+
+  SUBCASE("With high voltage") {
+    Bus bus(1, "bus_1");
+    bus.voltage = 1.5;
+    CHECK(bus.needs_kirchhoff(0.5) == true);
+  }
+}
+
+TEST_CASE("Bus serialization")
+{
+  using namespace gtopt;
+
+  SUBCASE("Minimal bus") {
+    Bus bus(1, "bus_1");
+    auto json = daw::json::to_json(bus);
+    auto roundtrip = daw::json::from_json<Bus>(json);
+    
+    CHECK(roundtrip.uid == 1);
+    CHECK(roundtrip.name == "bus_1");
+    CHECK(!roundtrip.voltage.has_value());
+    CHECK(!roundtrip.reference_theta.has_value());
+    CHECK(!roundtrip.use_kirchhoff.has_value());
+  }
+
+  SUBCASE("Full bus") {
+    Bus bus(5, "CRUCERO");
+    bus.voltage = 200;
+    bus.reference_theta = 1;
+    bus.use_kirchhoff = true;
+    
+    auto json = daw::json::to_json(bus);
+    Bus roundtrip = daw::json::from_json<Bus>(json);
+    
+    CHECK(roundtrip.uid == 5);
+    CHECK(roundtrip.name == "CRUCERO");
+    CHECK(roundtrip.voltage.value() == 200);
+    CHECK(roundtrip.reference_theta.value() == 1);
+    CHECK(roundtrip.use_kirchhoff.value() == true);
+  }
+}
