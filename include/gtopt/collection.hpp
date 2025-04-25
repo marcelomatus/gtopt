@@ -146,19 +146,14 @@ public:
   Collection& operator=(const Collection&) noexcept = default;
   ~Collection() = default;
 
-  explicit Collection(const vector_t& pelements)
-      : element_vector(pelements)
-  {
-    build_maps();
-  }
-
-  explicit Collection(vector_t&& pelements)
+  explicit Collection(vector_t pelements)
       : element_vector(std::move(pelements))
   {
     build_maps();
   }
 
-  auto push_back(element_type&& element)
+  template<typename EType>
+  auto push_back(EType&& element)
   {
     auto&& [uid, name] = element.id();
     const auto idx = element_vector.size();
@@ -181,7 +176,7 @@ public:
       throw std::runtime_error(msg);
     }
 
-    element_vector.emplace_back(std::move(element));
+    element_vector.emplace_back(std::forward<EType>(element));
 
     return IndexType {idx};
   }
@@ -212,7 +207,7 @@ public:
 template<typename Collections, typename Op, typename... Args>
 constexpr auto visit_elements(Collections&& collections,
                               Op op,
-                              Args&&... args)  // NOLINT
+                              Args&&... args) noexcept  // NOLINT
 {
   std::size_t count = 0;
 
