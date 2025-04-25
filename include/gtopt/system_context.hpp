@@ -16,106 +16,24 @@
 
 #include <utility>
 
+#include <boost/multi_array.hpp>
+#include <gtopt/block_lp.hpp>
 #include <gtopt/collection.hpp>
+#include <gtopt/element_traits.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/options_lp.hpp>
+#include <gtopt/overload.hpp>
 #include <gtopt/scenario_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/single_id.hpp>
-#include <gtopt/system_options_lp.hpp>
+#include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
 {
-
 class Bus;
 class BusLP;
-
-template<typename SystemContext, typename Element>
-struct ElementTraits
-{
-  constexpr static auto&& get_elements(SystemContext& sc)
-  {
-    return sc.system().template elements<Element>();
-  }
-
-  template<template<typename> class Id>
-  constexpr static auto get_element_index(SystemContext& sc,
-                                          const Id<Element>& id)
-  {
-    return sc.system().element_index(id);
-  }
-
-  template<template<typename> class Id>
-  constexpr static auto&& get_element(SystemContext& sc, const Id<Element>& id)
-  {
-    return sc.system().element(id);
-  }
-
-  template<typename ET>
-  constexpr static auto push_back(SystemContext& sc, ET&& e)
-  {
-    return sc.system().template push_back<Element>(std::forward<ET>(e));
-  }
-};
-
-template<typename SystemContext>
-struct ElementTraits<SystemContext, BusLP>
-{
-  constexpr static auto&& get_elements(SystemContext& sc)
-  {
-    return sc.system().template elements<BusLP>();
-  }
-
-  constexpr static auto get_element_index(SystemContext& sc,
-                                          const ObjectSingleId<BusLP>& id)
-  {
-    return sc.get_bus_index(id);
-  }
-
-  constexpr static auto&& get_element(SystemContext& sc,
-                                      const ObjectSingleId<BusLP>& id)
-  {
-    return sc.get_bus(id);
-  }
-
-  template<typename BusType>
-  constexpr static auto&& get_element(SystemContext& sc,
-                                      const ElementIndex<BusType>& id)
-  {
-    return sc.system().element(id);
-  }
-
-  template<typename ET>
-  constexpr static auto push_back(SystemContext& sc, ET&& e)
-  {
-    return sc.system().template push_back<BusLP>(std::forward<ET>(e));
-  }
-};
-
-template<typename Element, typename SystemContext>
-constexpr auto&& get_elements(SystemContext& sc)
-{
-  return ElementTraits<SystemContext, Element>::get_elements(sc);
-}
-
-template<typename Element, typename SystemContext, template<typename> class Id>
-constexpr auto get_element_index(SystemContext& sc, const Id<Element>& id)
-{
-  return ElementTraits<SystemContext, Element>::get_element_index(sc, id);
-}
-
-template<typename Element, typename SystemContext, template<typename> class Id>
-constexpr auto&& get_element(SystemContext& sc, const Id<Element>& id)
-{
-  return ElementTraits<SystemContext, Element>::get_element(sc, id);
-}
-
-template<typename Element, typename SystemContext>
-constexpr auto push_back(SystemContext& sc, Element&& e)
-{
-  return ElementTraits<SystemContext, Element>::push_back(
-      sc, std::forward<Element>(e));
-}
 
 using STBUids =
     std::tuple<std::vector<Uid>, std::vector<Uid>, std::vector<Uid>>;
@@ -124,29 +42,50 @@ using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
 using TUids = std::vector<Uid>;
 
 class SystemLP;
+class SimulationLP;
 
 class SystemContext
 {
 public:
-  explicit SystemContext(SystemLP& psystem);
+  explicit SystemContext(const SimulationLP& psimulation, SystemLP& psystem);
 
-  [[nodiscard]] constexpr auto scenario_index() const
+  [[nodiscard]] constexpr auto&& simulation() const
   {
-    return m_scenario_index_;
+    return m_simulation_.get();
   }
 
-  [[nodiscard]] constexpr auto scenario_uid() const { return m_scenario_uid_; }
-
-  [[nodiscard]] constexpr auto scenario_probability_factor() const
+  [[nodiscard]] constexpr auto&& options() const
   {
-    return m_scenario_probability_factor_;
+    return simulation().options();
   }
 
-  [[nodiscard]] constexpr auto stage_index() const { return m_stage_index_; }
-  [[nodiscard]] constexpr auto stage_uid() const { return m_stage_uid_; }
-  [[nodiscard]] constexpr auto stage_discount_factor() const
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system(this Self&& self)
   {
-    return m_stage_discount_factor_;
+    return std::forward<Self>(self).m_system_.get();
+  }
+
+  [[nodiscard]] constexpr auto scenario_uid(
+      const ScenarioIndex& scenario_index) const
+  {
+    return scenarios()[scenario_index].uid();
+  }
+
+  [[nodiscard]] constexpr auto scenario_probability_factor(
+      const ScenarioIndex& scenario_index) const
+  {
+    return scenarios()[scenario_index].probability_factor();
+  }
+
+  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const
+  {
+    return stages()[stage_index].uid();
+  }
+
+  [[nodiscard]] constexpr auto stage_discount_factor(
+      const StageIndex& stage_index) const
+  {
+    return stages()[stage_index].discount_factor();
   }
 
   [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index,
@@ -156,133 +95,99 @@ public:
                        : prev_duration;
   }
 
-  [[nodiscard]] constexpr auto stage_duration() const
+  [[nodiscard]] constexpr auto stage_duration(
+      const StageIndex& stage_index) const
   {
-    return m_stage_duration_;
+    return stages()[stage_index].duration();
   }
-  [[nodiscard]] constexpr auto&& stage_blocks() const
+  [[nodiscard]] constexpr auto&& stage_blocks(
+      const StageIndex& stage_index) const
   {
-    return m_stage_blocks_;
-  }
-  [[nodiscard]] constexpr auto&& stage_block_indexes() const
-  {
-    return m_stage_block_indexes_;
-  }
-
-  [[nodiscard]] constexpr std::pair<const StageLP::BlockSpan&,
-                                    const StageLP::BlockIndexSpan&>
-  stage_blocks_and_indexes() const
-  {
-    return {m_stage_blocks_, m_stage_block_indexes_};
-  }
-
-  [[nodiscard]] const SystemOptionsLP& options() const;
-
-  template<typename... Types>
-  constexpr auto label(const Types&... var) const -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var...);
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto t_label(const Types&... var) const -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var..., stage_uid());
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto st_label(const Types&... var) const -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var..., scenario_uid(), stage_uid());
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const BlockLP& block, const Types&... var) const
-      -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var..., scenario_uid(), stage_uid(), block.uid());
+    return stages()[stage_index].blocks();
   }
 
   template<typename LossFactor>
-  constexpr auto stage_lossfactor(const LossFactor& lfact) const
+  constexpr auto stage_lossfactor(const StageIndex& stage_index,
+                                  const LossFactor& lfact) const
   {
     return options().use_line_losses()
-        ? std::max(lfact.at(stage_index()).value_or(0.0), 0.0)
+        ? std::max(lfact.at(stage_index).value_or(0.0), 0.0)
         : 0.0;
   }
 
   template<typename Reactance>
-  constexpr auto stage_reactance(const Reactance& reactance) const
+  constexpr auto stage_reactance(const StageIndex& stage_index,
+                                 const Reactance& reactance) const
   {
-    return options().use_kirchhoff() ? reactance.at(stage_index())
-                                     : decltype(reactance.at(stage_index())) {};
+    return options().use_kirchhoff() ? reactance.at(stage_index)
+                                     : decltype(reactance.at(stage_index)) {};
   }
 
   template<typename FailCost>
-  constexpr auto demand_fail_cost(const FailCost& fcost) const
+  constexpr auto demand_fail_cost(const StageIndex& stage_index,
+                                  const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage_index());
+    const auto fc = fcost.optval(stage_index);
     return fc ? fc : options().demand_fail_cost();
   }
 
   template<typename FailCost>
-  constexpr auto reserve_fail_cost(const FailCost& fcost) const
+  constexpr auto reserve_fail_cost(const StageIndex& stage_index,
+                                   const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage_index());
+    const auto fc = fcost.optval(stage_index);
     return fc ? fc : options().reserve_fail_cost();
   }
 
-  [[nodiscard]] auto is_first_scenario() const
+  [[nodiscard]] auto is_first_scenario(
+      const ScenarioIndex& scenario_index) const
   {
-    return scenario_index() == active_scenarios.front();
-  }
-
-  [[nodiscard]] auto is_last_scenario() const
-  {
-    return scenario_index() == active_scenarios.back();
+    return scenario_index == m_active_scenarios_.front();
   }
 
   [[nodiscard]] auto active_scenario_count() const
   {
-    return active_scenarios.size();
+    return m_active_scenarios_.size();
   }
-  [[nodiscard]] auto active_stage_count() const { return active_stages.size(); }
-  [[nodiscard]] auto active_block_count() const { return active_blocks.size(); }
-
-  [[nodiscard]] auto is_first_stage() const
+  [[nodiscard]] auto active_stage_count() const
   {
-    return stage_index() == active_stages.front();
+    return m_active_stages_.size();
   }
-  [[nodiscard]] auto is_last_stage() const
+  [[nodiscard]] auto active_block_count() const
   {
-    return stage_index() == active_stages.back();
+    return m_active_blocks_.size();
   }
 
-  [[nodiscard]] auto is_first() const
+  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
   {
-    return is_first_scenario() && is_first_stage();
+    return stage_index == m_active_stages_.front();
+  }
+  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
+  {
+    return stage_index == m_active_stages_.back();
   }
 
-  [[nodiscard]] double block_cost(const BlockLP& block, double cost) const;
-  [[nodiscard]] auto block_cost_factors() const -> std::vector<double>;
+  [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
+                                  const StageIndex& stage_index,
+                                  const BlockLP& block,
+                                  double cost) const;
 
-  [[nodiscard]] double stage_cost(double cost) const;
-  [[nodiscard]] auto stage_cost_factors() const -> std::vector<double>;
+  using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
+  [[nodiscard]] auto block_cost_factors() const -> block_factor_matrix_t;
+
+  [[nodiscard]] double stage_cost(const StageIndex& stage_index,
+                                  double cost) const;
+
+  using stage_factor_matrix_t = std::vector<double>;
+  [[nodiscard]] auto stage_cost_factors() const -> stage_factor_matrix_t;
+
+  [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
+                                           const StageIndex& stage_index,
+                                           double cost) const;
+
+  using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
+  [[nodiscard]] auto scenario_stage_cost_factors() const
+      -> scenario_stage_factor_matrix_t;
 
   [[nodiscard]] auto stb_active_uids() const -> STBUids;
   [[nodiscard]] auto st_active_uids() const -> STUids;
@@ -292,10 +197,10 @@ public:
   [[nodiscard]] auto st_uids() const -> STUids;
   [[nodiscard]] auto t_uids() const -> TUids;
 
-  template<typename Projection, typename Span = std::span<double>>
+  template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const GSTBIndexHolder& hstb,
                       Projection proj,
-                      const Span& factor = {}) const
+                      const Factor& factor = {}) const
   {
     const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
@@ -305,17 +210,14 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    using proj_type = std::function<double(size_t)>;
-    const auto proj2 = factor.empty()
-        ? proj_type {proj}
-        : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
-
-    for (size_t count = 0; auto&& sindex : active_scenarios) {
-      for (auto&& tindex : active_stages) {
-        for (auto&& bindex : active_stage_blocks[tindex]) {
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
+        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
           auto&& stbiter = hstb.find({sindex, tindex, bindex});
           if (stbiter != hstb.end()) {
-            values[idx] = proj2(stbiter->second);
+            const auto fact =
+                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
+            values[idx] = proj(stbiter->second) * fact;
             valid[idx] = true;
             ++count;
 
@@ -331,10 +233,10 @@ public:
         need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
-  template<typename Projection, typename Span = std::span<double>>
+  template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const STBIndexHolder& hstb,
                       Projection proj,
-                      const Span& factor = {}) const
+                      const Factor& factor = {}) const
   {
     const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
@@ -344,20 +246,17 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    using proj_type = std::function<double(size_t)>;
-    const auto proj2 = factor.empty()
-        ? proj_type {proj}
-        : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
-
-    for (size_t count = 0; auto&& sindex : active_scenarios) {
-      for (auto&& tindex : active_stages) {
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
         auto&& stiter = hstb.find({sindex, tindex});
         const auto has_stindex =
             stiter != hstb.end() && !stiter->second.empty();
 
-        for (auto&& bindex : active_stage_blocks[tindex]) {
+        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
           if (has_stindex) {
-            values[idx] = proj2(stiter->second.at(bindex));
+            const auto fact =
+                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
+            values[idx] = proj(stiter->second.at(bindex)) * fact;
             valid[idx] = true;
             ++count;
 
@@ -373,10 +272,11 @@ public:
         need_valids ? std::move(valid) : std::vector<bool> {});
   }
 
-  template<typename Projection, typename Span = std::span<double>>
+  template<typename Projection,
+           typename Factor = scenario_stage_factor_matrix_t>
   constexpr auto flat(const STIndexHolder& hst,
                       Projection proj,
-                      const Span& factor = {}) const
+                      const Factor& factor = {}) const
   {
     const auto size = active_scenario_count() * active_stage_count();
     std::vector<double> values(size);
@@ -386,18 +286,14 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    using proj_type = std::function<double(size_t)>;
-    const auto proj2 = factor.empty()
-        ? proj_type {proj}
-        : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
-
-    for (size_t count = 0; auto&& sindex : active_scenarios) {
-      for (auto&& tindex : active_stages) {
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
         auto&& stiter = hst.find({sindex, tindex});
         const auto has_stindex = stiter != hst.end();
 
         if (has_stindex) {
-          values[idx] = proj2(stiter->second);
+          const auto fact = factor.empty() ? 1.0 : factor[sindex][tindex];
+          values[idx] = proj(stiter->second) * fact;
           valid[idx] = true;
           ++count;
 
@@ -413,10 +309,10 @@ public:
   }
 
   template<typename Projection = std::identity,
-           typename Span = std::span<double>>
+           typename Factor = stage_factor_matrix_t>
   constexpr auto flat(const TIndexHolder& ht,
                       Projection proj = {},
-                      const Span& factor = {}) const
+                      const Factor& factor = {}) const
   {
     const auto size = active_stage_count();
     std::vector<double> values(size);
@@ -426,17 +322,13 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    using proj_type = std::function<double(size_t)>;
-    const auto proj2 = factor.empty()
-        ? proj_type {proj}
-        : proj_type {[&](auto index) { return proj(index) * factor[idx]; }};
-
-    for (size_t count = 0; auto&& tindex : active_stages) {
+    for (size_t count = 0; auto&& tindex : m_active_stages_) {
       auto&& titer = ht.find(tindex);
       const auto has_tindex = titer != ht.end();
 
       if (has_tindex) {
-        values[idx] = proj2(titer->second);
+        double fact = factor.empty() ? 1.0 : factor[tindex];
+        values[idx] = proj(titer->second) * fact;
         valid[idx] = true;
         ++count;
 
@@ -451,19 +343,21 @@ public:
   }
 
   template<typename Max>
-  constexpr auto block_max_at(const BlockIndex block_index,
+  constexpr auto block_max_at(const StageIndex& stage_index,
+                              const BlockIndex& block_index,
                               const Max& lmax,
                               const double capacity_max = CoinDblMax) const
   {
     const auto lmax_at =
-        lmax.at(stage_index(), block_index).value_or(capacity_max);
+        lmax.at(stage_index, block_index).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return lmax_block;
   }
 
   template<typename Min, typename Max>
-  constexpr auto block_maxmin_at(const BlockIndex block_index,
+  constexpr auto block_maxmin_at(const StageIndex& stage_index,
+                                 const BlockIndex& block_index,
                                  const Max& lmax,
                                  const Min& lmin,
                                  const double capacity_max,
@@ -471,27 +365,28 @@ public:
       -> std::pair<double, double>
   {
     const auto lmin_at =
-        lmin.at(stage_index(), block_index).value_or(capacity_min);
+        lmin.at(stage_index, block_index).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
     const auto lmax_at =
-        lmax.at(stage_index(), block_index).value_or(capacity_max);
+        lmax.at(stage_index, block_index).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
   }
 
   template<typename Min, typename Max>
-  constexpr auto stage_maxmin_at(const Min& lmax,
+  constexpr auto stage_maxmin_at(const StageIndex& stage_index,
+                                 const Min& lmax,
                                  const Max& lmin,
                                  const double capacity_max,
                                  const double capacity_min = 0.0) const
       -> std::pair<double, double>
   {
-    const auto lmin_at = lmin.at(stage_index()).value_or(capacity_min);
+    const auto lmin_at = lmin.at(stage_index).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
-    const auto lmax_at = lmax.at(stage_index()).value_or(capacity_max);
+    const auto lmax_at = lmax.at(stage_index).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
@@ -500,23 +395,6 @@ public:
   //
   // set&get the variable data
   //
-  constexpr void set_scenario(const ScenarioIndex sindex,
-                              const ScenarioLP& scenario)
-  {
-    m_scenario_index_ = sindex;
-    m_scenario_uid_ = scenario.uid();
-    m_scenario_probability_factor_ = scenario.probability_factor();
-  }
-
-  void set_stage(const StageIndex tindex, const StageLP& stage)
-  {
-    m_stage_index_ = tindex;
-    m_stage_uid_ = stage.uid();
-    m_stage_blocks_ = stage.blocks();
-    m_stage_block_indexes_ = stage.indexes();
-    m_stage_duration_ = stage.duration();
-    m_stage_discount_factor_ = stage_discount_factors.at(tindex);
-  }
 
   [[nodiscard]] constexpr auto&& single_bus_id() const
   {
@@ -563,78 +441,76 @@ public:
   }
 
   template<typename Self>
-  [[nodiscard]] constexpr auto&& system(this Self&& self)
+  [[nodiscard]] constexpr auto&& simulation(this Self&& self)
   {
-    return std::forward<Self>(self).m_system_.get();
+    return std::forward<Self>(self).m_simulation_.get();
   }
-
-  [[nodiscard]] constexpr auto get_scenario_size() const
-  {
-    return scenario_size;
-  }
-  [[nodiscard]] constexpr auto get_stage_size() const { return stage_size; }
-  [[nodiscard]] constexpr auto get_block_size() const { return block_size; }
 
   [[nodiscard]] auto scenarios() const -> const std::vector<ScenarioLP>&;
   [[nodiscard]] auto stages() const -> const std::vector<StageLP>&;
   [[nodiscard]] auto blocks() const -> const std::vector<BlockLP>&;
 
-  template<typename Map, typename BHolder>
-  constexpr auto emplace_bholder(Map& map,
-                                 BHolder&& holder,
-                                 bool empty_insert = false) const
+  template<typename... Types>
+  constexpr auto label(const Types&... var) const -> std::string
   {
-    // if empty_insert, holders that are empty will be inserted. Otherwise,
-    // there will be skipped.
-
-    // holder.shrink_to_fit();
-
-    using Key = typename Map::key_type;
-    return (empty_insert || !holder.empty())
-        ? map.emplace(Key {m_scenario_index_, m_stage_index_},
-                      std::forward<BHolder>(holder))
-        : std::make_pair(map.end(), true);
+    if (!options().use_lp_names()) [[likely]] {
+      return {};
+    }
+    return gtopt::as_label(var...);
   }
 
-  template<typename Map>
-  constexpr auto emplace_value(Map& map, size_t value) const
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto t_label(const StageIndex& stage_index,
+                         const Types&... var) const -> std::string
   {
-    using Key = typename Map::key_type;
-    return map.emplace(Key {m_scenario_index_, m_stage_index_}, value);
+    if (!options().use_lp_names()) [[likely]] {
+      return {};
+    }
+    return gtopt::as_label(var..., stage_uid(stage_index));
   }
 
-  template<typename Map>
-  constexpr auto emplace_stage_value(Map&& map, size_t value) const
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto st_label(const ScenarioIndex& scenario_index,
+                          const StageIndex& stage_index,
+                          const Types&... var) const -> std::string
   {
-    map.emplace(m_stage_index_, value);
-    return std::forward(map);
+    if (!options().use_lp_names()) [[likely]] {
+      return {};
+    }
+    return gtopt::as_label(
+        var..., scenario_uid(scenario_index), stage_uid(stage_index));
+  }
+
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto stb_label(const ScenarioIndex& scenario_index,
+                           const StageIndex& stage_index,
+                           const BlockLP& block,
+                           const Types&... var) const -> std::string
+  {
+    if (!options().use_lp_names()) [[likely]] {
+      return {};
+    }
+    return gtopt::as_label(var...,
+                           scenario_uid(scenario_index),
+                           stage_uid(stage_index),
+                           block.uid());
   }
 
 private:
+  std::reference_wrapper<const SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
-  std::vector<ScenarioIndex> active_scenarios;
-  std::vector<StageIndex> active_stages;
-  std::vector<BlockIndex> active_blocks;
-  std::vector<std::vector<BlockIndex>> active_stage_blocks;
 
-  size_t scenario_size;
-  size_t stage_size;
-  size_t block_size;
+  std::vector<ScenarioIndex> m_active_scenarios_;
+  std::vector<StageIndex> m_active_stages_;
+  std::vector<BlockIndex> m_active_blocks_;
+  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
 
   std::vector<double> stage_discount_factors;
 
-  /// variable members
-  mutable std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
-  ScenarioIndex m_scenario_index_;
-  ScenarioUid m_scenario_uid_;
-  double m_scenario_probability_factor_ {1};
-
-  StageUid m_stage_uid_;
-  StageIndex m_stage_index_;
-  double m_stage_duration_ {0};
-  double m_stage_discount_factor_ {1};
-  StageLP::BlockSpan m_stage_blocks_ {};
-  StageLP::BlockIndexSpan m_stage_block_indexes_ {};
+  std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
 
 }  // namespace gtopt

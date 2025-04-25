@@ -20,14 +20,18 @@ class DemandProfileLP : public ObjectLP<DemandProfile>
 public:
   constexpr static std::string_view ClassName = "DemandProfile";
 
-  explicit DemandProfileLP(InputContext& ic, DemandProfile&& pdemand_profile);
+  explicit DemandProfileLP(InputContext& ic, DemandProfile pdemand_profile);
 
   [[nodiscard]] constexpr auto&& demand_profile() { return object(); }
   [[nodiscard]] constexpr auto&& demand_profile() const { return object(); }
 
   [[nodiscard]] auto&& demand() const { return demand_profile().demand; }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
+
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:

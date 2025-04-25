@@ -266,6 +266,7 @@ OutputContext::OutputContext(const SystemContext& psc,
     , row_dual_span(linear_interface.get_row_dual())
     , block_cost_factors(psc.block_cost_factors())
     , stage_cost_factors(psc.stage_cost_factors())
+    , scenario_stage_cost_factors(psc.scenario_stage_cost_factors())
     , stb_prelude(make_stb_prelude(psc.stb_active_uids()))
     , st_prelude(make_st_prelude(psc.st_active_uids()))
     , t_prelude(make_t_prelude(psc.t_active_uids()))

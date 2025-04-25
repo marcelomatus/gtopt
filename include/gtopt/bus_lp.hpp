@@ -11,7 +11,6 @@
 #pragma once
 
 #include <gtopt/bus.hpp>
-#include <gtopt/input_context.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -28,8 +27,8 @@ class BusLP : public ObjectLP<Bus>
 public:
   constexpr static std::string_view ClassName = "Bus";
 
-  explicit BusLP(const InputContext& ic, Bus&& pbus)
-      : ObjectLP<Bus>(ic, ClassName, std::move(pbus))
+  explicit BusLP(const InputContext& /*ic*/, Bus pbus)
+      : ObjectLP<Bus>(std::move(pbus))
   {
   }
 
@@ -49,7 +48,11 @@ public:
   }
   [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const -> bool;
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
+
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& balance_rows_at(const ScenarioIndex scenario_index,
@@ -61,17 +64,21 @@ public:
   using BlockSpan = StageLP::BlockSpan;
 
   [[nodiscard]] auto theta_cols_at(const SystemContext& sc,
+                                   const ScenarioIndex& scenario_index,
+                                   const StageIndex& stage_index,
                                    LinearProblem& lp,
                                    const BlockSpan& blocks) const
       -> const BIndexHolder&
   {
-    const auto oiter =
-        get_optiter(theta_cols, {sc.scenario_index(), sc.stage_index()});
-    return oiter ? oiter.value()->second : lazy_add_theta(sc, lp, blocks);
+    const auto oiter = get_optiter(theta_cols, {scenario_index, stage_index});
+    return oiter ? oiter.value()->second
+                 : lazy_add_theta(sc, scenario_index, stage_index, lp, blocks);
   }
 
 private:
   auto lazy_add_theta(const SystemContext& sc,
+                      const ScenarioIndex& scenario_index,
+                      const StageIndex& stage_index,
                       LinearProblem& lp,
                       const BlockSpan& blocks) const -> const BIndexHolder&;
 

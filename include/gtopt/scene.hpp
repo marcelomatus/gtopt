@@ -21,8 +21,8 @@ struct Scene
   OptName name {};
   OptBool active {};
 
-  Size first_scenario {};
-  Size count_scenario {};
+  Size first_scenario {0};
+  Size count_scenario {std::numeric_limits<Size>::max()};
 
   static constexpr std::string_view class_name = "scene";
 };

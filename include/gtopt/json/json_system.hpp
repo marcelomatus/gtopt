@@ -13,7 +13,6 @@
 #pragma once
 
 #include <gtopt/json/json_battery.hpp>
-#include <gtopt/json/json_block.hpp>
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
@@ -21,13 +20,8 @@
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_line.hpp>
-#include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
-#include <gtopt/json/json_scenario.hpp>
-#include <gtopt/json/json_scene.hpp>
-#include <gtopt/json/json_stage.hpp>
-#include <gtopt/json/json_system_options.hpp>
 #include <gtopt/system.hpp>
 
 namespace daw::json
@@ -41,12 +35,6 @@ struct json_data_contract<System>
   using type = json_member_list<
       json_string_null<"name", Name>,
       json_string_null<"version", Name>,
-      json_class_null<"options", SystemOptions>,
-      json_array_null<"block_array", Array<Block>, Block>,
-      json_array_null<"stage_array", Array<Stage>, Stage>,
-      json_array_null<"scenario_array", Array<Scenario>, Scenario>,
-      json_array_null<"phase_array", Array<Phase>, Phase>,
-      json_array_null<"scene_array", Array<Scene>, Scene>,
       json_array_null<"bus_array", Array<Bus>, Bus>,
       json_array_null<"demand_array", Array<Demand>, Demand>,
       json_array_null<"generator_array", Array<Generator>, Generator>,
@@ -68,12 +56,6 @@ struct json_data_contract<System>
   {
     return std::forward_as_tuple(system.name,
                                  system.version,
-                                 system.options,
-                                 system.block_array,
-                                 system.stage_array,
-                                 system.scenario_array,
-                                 system.phase_array,
-                                 system.scene_array,
                                  system.bus_array,
                                  system.demand_array,
                                  system.generator_array,

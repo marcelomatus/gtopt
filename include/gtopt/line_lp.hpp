@@ -32,9 +32,12 @@ public:
   [[nodiscard]] auto bus_a() const { return BusLPSId {line().bus_a}; }
   [[nodiscard]] auto bus_b() const { return BusLPSId {line().bus_b}; }
 
-  explicit LineLP(const InputContext& ic, Line&& pline);
+  explicit LineLP(const InputContext& ic, Line pline);
 
-  bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  bool add_to_lp(const SystemContext& sc,
+                 const ScenarioIndex& scenario_index,
+                 const StageIndex& stage_index,
+                 LinearProblem& lp);
 
   bool add_to_output(OutputContext& out) const;
 
@@ -52,9 +55,6 @@ private:
   STBIndexHolder capacityn_rows;
 
   STBIndexHolder theta_rows;
-
-  ElementIndex<BusLP> bus_a_index;
-  ElementIndex<BusLP> bus_b_index;
 };
 
 }  // namespace gtopt

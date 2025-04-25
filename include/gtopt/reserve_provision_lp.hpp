@@ -1,8 +1,19 @@
+/**
+ * @file      reserve_provision_lp.hpp
+ * @brief     Header of
+ * @date      Mon Apr 21 22:23:43 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/schedule.hpp>
 
 namespace gtopt
 {
@@ -15,7 +26,7 @@ public:
   using Base = ObjectLP<ReserveProvision>;
 
   explicit ReserveProvisionLP(const InputContext& ic,
-                              ReserveProvision&& preserve_provision);
+                              ReserveProvision preserve_provision);
 
   [[nodiscard]] constexpr auto&& reserve_provision() { return object(); }
   [[nodiscard]] constexpr auto&& reserve_provision() const { return object(); }
@@ -25,7 +36,10 @@ public:
     return GeneratorLPSId {reserve_provision().generator};
   }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioIndex& scenario_index,
+                               const StageIndex& stage_index,
+                               LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:

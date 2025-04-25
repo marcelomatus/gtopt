@@ -11,7 +11,6 @@
 #pragma once
 
 #include <gtopt/battery.hpp>
-#include <gtopt/block.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
@@ -19,13 +18,9 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/line.hpp>
-#include <gtopt/phase.hpp>
+#include <gtopt/options.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
-#include <gtopt/scenario.hpp>
-#include <gtopt/scene.hpp>
-#include <gtopt/stage.hpp>
-#include <gtopt/system_options.hpp>
 
 namespace gtopt
 {
@@ -37,16 +32,6 @@ struct System
 {
   Name name {};
   String version {};
-
-  SystemOptions options {};
-
-  Array<Block> block_array {};
-  Array<Stage> stage_array {};
-  Array<Scenario> scenario_array {};
-  Array<Phase> phase_array {
-      Phase {.first_stage = 0, .count_stage = static_cast<Size>(-1)}};
-  Array<Scene> scene_array {
-      Scene {.first_scenario = 0, .count_scenario = static_cast<Size>(-1)}};
 
   Array<Bus> bus_array {};
   Array<Demand> demand_array {};
@@ -68,6 +53,8 @@ struct System
    * @return Reference to this system after merge
    */
   System& merge(System& sys);
+
+  void setup_reference_bus(const Options& options);
 };
 
 }  // namespace gtopt

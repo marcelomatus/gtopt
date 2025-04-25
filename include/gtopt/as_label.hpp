@@ -7,6 +7,7 @@
  *
  * This module
  */
+#pragma once
 
 #include <array>
 #include <format>

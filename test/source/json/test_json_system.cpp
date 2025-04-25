@@ -15,9 +15,6 @@ TEST_CASE("System daw json test 1")
 {
   const std::string_view json_data = R"({
     "name":"SEN",
-    "block_array":[{"uid": 1, "duration": 2}],
-    "stage_array":[],
-    "scenario_array":[],
     "bus_array":[{
        "uid":5,
        "name":"CRUCERO"
@@ -59,13 +56,6 @@ TEST_CASE("System daw json test 1")
   using gtopt::True;
 
   REQUIRE(sys.name == "SEN");
-
-  REQUIRE(sys.block_array.size() == 1);
-  REQUIRE(sys.block_array[0].uid == 1);
-  REQUIRE(sys.block_array[0].duration == 2);
-
-  REQUIRE(sys.stage_array.size() == 0);
-  REQUIRE(sys.scenario_array.size() == 0);
 
   REQUIRE(sys.bus_array.size() == 2);
   REQUIRE(sys.bus_array[0].uid == 5);
@@ -132,9 +122,6 @@ TEST_CASE("System daw json test 3")
   }
 
   const gtopt::System system {.name = "system",
-                              .block_array = {},
-                              .stage_array = {},
-                              .scenario_array = {},
                               .bus_array = bus_array,
                               .demand_array = demand_array,
                               .generator_array = generator_array,

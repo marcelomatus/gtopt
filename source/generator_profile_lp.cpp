@@ -16,11 +16,13 @@
 #include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
+#include "gtopt/block.hpp"
+
 namespace gtopt
 {
 GeneratorProfileLP::GeneratorProfileLP(InputContext& ic,
-                                       GeneratorProfile&& pgenerator_profile)
-    : ObjectLP<GeneratorProfile>(ic, ClassName, std::move(pgenerator_profile))
+                                       GeneratorProfile pgenerator_profile)
+    : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
     , scost(ic, ClassName, id(), std::move(generator_profile().scost))
     , profile(ic, ClassName, id(), std::move(generator_profile().profile))
     , generator_index(
@@ -28,15 +30,16 @@ GeneratorProfileLP::GeneratorProfileLP(InputContext& ic,
 {
 }
 
-bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
+bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
+                                   const ScenarioIndex& scenario_index,
+                                   const StageIndex& stage_index,
+                                   LinearProblem& lp)
 {
   constexpr std::string_view cname = "gprof";
-  const auto stage_index = sc.stage_index();
+
   if (!is_active(stage_index)) {
     return true;
   }
-
-  const auto scenario_index = sc.scenario_index();
 
   auto&& generator_lp = sc.element(generator_index);
   if (!generator_lp.is_active(stage_index)) {
@@ -47,7 +50,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
       generator_lp.generation_cols_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] =
-      generator_lp.capacity_and_col(sc, lp);
+      generator_lp.capacity_and_col(stage_index, lp);
 
   if (!capacity_col && !generator_lp.generator().capacity) {
     SPDLOG_WARN(
@@ -59,21 +62,23 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
 
   const auto stage_scost = scost.optval(stage_index).value_or(0.0);
 
-  auto&& [blocks, block_indexes] = sc.stage_blocks_and_indexes();
+  const auto& blocks = sc.stage_blocks(stage_index);
 
   BIndexHolder scols;
   scols.reserve(blocks.size());
   BIndexHolder srows;
   srows.reserve(blocks.size());
 
-  for (auto&& [block_index, block, gcol] :
-       ranges::views::zip(block_indexes, blocks, generation_cols))
+  for (const auto& [block_index, block, gcol] :
+       enumerate<BlockIndex>(blocks, generation_cols))
   {
     const auto block_profile =
         profile.at(scenario_index, stage_index, block_index);
 
-    const auto block_scost = sc.block_cost(block, stage_scost);
-    auto name = sc.stb_label(block, cname, "prof", uid());
+    const auto block_scost =
+        sc.block_cost(scenario_index, stage_index, block, stage_scost);
+    auto name =
+        sc.stb_label(scenario_index, stage_index, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
     scols.push_back(scol);
 
@@ -90,8 +95,12 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc, LinearProblem& lp)
     }
   }
 
-  return sc.emplace_bholder(spillover_cols, std::move(scols)).second
-      && sc.emplace_bholder(spillover_rows, std::move(srows)).second;
+  return emplace_bholder(
+             scenario_index, stage_index, spillover_cols, std::move(scols))
+             .second
+      && emplace_bholder(
+             scenario_index, stage_index, spillover_rows, std::move(srows))
+             .second;
 }
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
