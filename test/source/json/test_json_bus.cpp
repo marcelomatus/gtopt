@@ -83,27 +83,30 @@ TEST_CASE("Bus daw json test 4")
 TEST_CASE("Bus with active property serialization")
 {
   using namespace gtopt;
-  
-  SUBCASE("With boolean active") {
+
+  SUBCASE("With boolean active")
+  {
     Bus bus(1, "test_bus");
     bus.active = True;
-    
+
     auto json = daw::json::to_json(bus);
     Bus roundtrip = daw::json::from_json<Bus>(json);
-    
+
     REQUIRE(roundtrip.active.has_value());
     CHECK(std::get<IntBool>(roundtrip.active.value()) == True);
   }
-  
-  SUBCASE("With schedule active") {
+
+  SUBCASE("With schedule active")
+  {
     Bus bus(1, "test_bus");
-    bus.active = std::vector<IntBool>{True, False, True, False};
-    
+    bus.active = std::vector<IntBool> {True, False, True, False};
+
     auto json = daw::json::to_json(bus);
     Bus roundtrip = daw::json::from_json<Bus>(json);
-    
+
     REQUIRE(roundtrip.active.has_value());
-    const auto& active = std::get<std::vector<IntBool>>(roundtrip.active.value());
+    const auto& active =
+        std::get<std::vector<IntBool>>(roundtrip.active.value());
     REQUIRE(active.size() == 4);
     CHECK(active[0] == True);
     CHECK(active[1] == False);
@@ -115,7 +118,7 @@ TEST_CASE("Bus with active property serialization")
 TEST_CASE("Bus with empty optional fields")
 {
   using namespace gtopt;
-  
+
   std::string_view json_data = R"({
     "uid":5,
     "name":"CRUCERO",
@@ -123,9 +126,9 @@ TEST_CASE("Bus with empty optional fields")
     "reference_theta":null,
     "use_kirchhoff":null
     })";
-    
+
   Bus bus = daw::json::from_json<Bus>(json_data);
-  
+
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");
   CHECK(bus.voltage.has_value() == false);
