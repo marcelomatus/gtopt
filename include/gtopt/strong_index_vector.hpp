@@ -30,7 +30,7 @@ public:
       : std::vector<T>(first, last)
   {
   }
-  StrongIndexVector(std::initializer_list<T> init)
+  StrongIndexVector(std::initializer_list<T> init) noexcept
       : std::vector<T>(std::move(init))
   {
   }
@@ -39,12 +39,12 @@ public:
 
   ~StrongIndexVector() = default;
 
-  typename std::vector<T>::reference operator[](Index pos)
+  typename std::vector<T>::reference operator[](Index pos) noexcept
   {
     return std::vector<T>::operator[](pos.value_of());
   }
 
-  typename std::vector<T>::const_reference operator[](Index pos) const
+  typename std::vector<T>::const_reference operator[](Index pos) const noexcept
   {
     return std::vector<T>::operator[](pos.value_of());
   }
@@ -62,7 +62,7 @@ public:
   using typename std::vector<T>::reverse_iterator;
   using typename std::vector<T>::const_reverse_iterator;
 
-  StrongIndexVector& operator=(StrongIndexVector const& other) = default;
+  StrongIndexVector& operator=(StrongIndexVector const& other) noexcept = default;
   StrongIndexVector& operator=(StrongIndexVector&& other) noexcept = default;
   using std::vector<T>::operator=;
 

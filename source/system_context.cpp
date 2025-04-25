@@ -9,18 +9,18 @@ namespace
 using namespace gtopt;
 
 template<typename Index, typename Container>
-constexpr auto active_indices(const Container& container)
+constexpr auto active_indices(const Container& container) noexcept
 {
   std::vector<Index> indices;
   indices.reserve(container.size());
   for (auto&& [i, e] : enumerate_active<Index>(container)) {
     indices.push_back(i);
   }
-  return indices;
+  return std::move(indices);
 }
 
 template<typename Index, typename Stage>
-constexpr auto active_block_indices(const Stage& stages)
+constexpr auto active_block_indices(const Stage& stages) noexcept
 {
   std::vector<Index> indices;
   indices.reserve(stages.size());
@@ -33,11 +33,11 @@ constexpr auto active_block_indices(const Stage& stages)
       ++idx;
     }
   }
-  return indices;
+  return std::move(indices);
 }
 
 template<typename Index, typename Stages>
-auto active_stage_block_indices(const Stages& stages)
+auto active_stage_block_indices(const Stages& stages) noexcept
 {
   std::vector<std::vector<Index>> indices(stages.size());
   for (auto&& [i, e] : enumerate_active<Index>(stages)) {
@@ -49,7 +49,7 @@ auto active_stage_block_indices(const Stages& stages)
 
     indices[i] = std::move(v);
   }
-  return indices;
+  return std::move(indices);
 }
 
 constexpr auto cost_factor(const auto p_scale_obj,
@@ -62,7 +62,7 @@ constexpr auto cost_factor(const auto p_scale_obj,
 
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
 constexpr STBUids make_stb_uids(const SystemContext& sc,
-                                Operation op = true_fnc)
+                                Operation op = true_fnc) noexcept
 {
   const auto size = sc.scenarios().size() * sc.blocks().size();
   std::vector<Uid> scenario_uids;
@@ -88,11 +88,11 @@ constexpr STBUids make_stb_uids(const SystemContext& sc,
   stage_uids.shrink_to_fit();
   block_uids.shrink_to_fit();
 
-  return {scenario_uids, stage_uids, block_uids};
+  return {std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
 }
 
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
+constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc) noexcept
 {
   const auto size = sc.scenarios().size() * sc.stages().size();
   std::vector<Uid> scenario_uids;
@@ -112,11 +112,11 @@ constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc)
   scenario_uids.shrink_to_fit();
   stage_uids.shrink_to_fit();
 
-  return {scenario_uids, stage_uids};
+  return {std::move(scenario_uids), std::move(stage_uids)};
 }
 
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
+constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc) noexcept
 {
   const auto size = sc.stages().size();
   std::vector<Uid> stage_uids;
@@ -128,10 +128,10 @@ constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc)
 
   stage_uids.shrink_to_fit();
 
-  return stage_uids;
+  return std::move(stage_uids);
 }
 
-constexpr auto stage_factors(const auto& stages)
+constexpr auto stage_factors(const auto& stages) noexcept
 {
   std::vector<double> factors(stages.size(), 1.0);
 
@@ -141,7 +141,7 @@ constexpr auto stage_factors(const auto& stages)
     discount_factor *= st.discount_factor();
   }
 
-  return factors;
+  return std::move(factors);
 }
 
 }  // namespace
