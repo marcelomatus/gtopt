@@ -8,6 +8,14 @@ namespace
 {
 using namespace gtopt;
 
+/**
+ * Creates a vector of active indices from a container.
+ * Uses move semantics for efficient return value optimization and
+ * is marked noexcept to enable compiler optimizations.
+ *
+ * @param container The container to extract indices from
+ * @return Vector of active indices, moved rather than copied
+ */
 template<typename Index, typename Container>
 constexpr auto active_indices(const Container& container) noexcept
 {
@@ -16,6 +24,7 @@ constexpr auto active_indices(const Container& container) noexcept
   for (auto&& [i, e] : enumerate_active<Index>(container)) {
     indices.push_back(i);
   }
+  // Explicitly move the vector to ensure RVO optimization
   return std::move(indices);
 }
 
@@ -60,6 +69,15 @@ constexpr auto cost_factor(const auto p_scale_obj,
   return p_probability_factor * p_discount_factor * p_duration / p_scale_obj;
 }
 
+/**
+ * Creates a structure of scenario, stage, and block UIDs.
+ * Leverages move semantics for all vectors to avoid unnecessary copies
+ * and is marked noexcept to enable compiler optimizations.
+ *
+ * @param sc System context containing scenarios, stages, and blocks
+ * @param op Optional operation to filter elements
+ * @return Struct containing vectors of UIDs, using move semantics
+ */
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
 constexpr STBUids make_stb_uids(const SystemContext& sc,
                                 Operation op = true_fnc) noexcept
@@ -88,11 +106,14 @@ constexpr STBUids make_stb_uids(const SystemContext& sc,
   stage_uids.shrink_to_fit();
   block_uids.shrink_to_fit();
 
-  return {std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
+  // Explicitly move all vectors into the return struct to avoid copying
+  return {
+      std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
 }
 
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc) noexcept
+constexpr STUids make_st_uids(const SystemContext& sc,
+                              Operation op = true_fnc) noexcept
 {
   const auto size = sc.scenarios().size() * sc.stages().size();
   std::vector<Uid> scenario_uids;
@@ -116,7 +137,8 @@ constexpr STUids make_st_uids(const SystemContext& sc, Operation op = true_fnc) 
 }
 
 template<typename SystemContext, typename Operation = decltype(true_fnc)>
-constexpr TUids make_t_uids(const SystemContext& sc, Operation op = true_fnc) noexcept
+constexpr TUids make_t_uids(const SystemContext& sc,
+                            Operation op = true_fnc) noexcept
 {
   const auto size = sc.stages().size();
   std::vector<Uid> stage_uids;

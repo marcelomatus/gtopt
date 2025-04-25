@@ -1,11 +1,14 @@
 /**
  * @file      strong_index_vector.hpp
- * @brief     Header of
+ * @brief     Header for type-safe vector access with strong typing
  * @date      Sun Mar 23 22:13:51 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides a type-safe vector implementation that requires
+ * strongly-typed indices for element access, preventing accidental
+ * access with incorrect index types. The implementation leverages
+ * move semantics for efficient memory management and operations.
  */
 
 #pragma once
@@ -15,25 +18,38 @@
 namespace gtopt
 {
 
+/**
+ * A vector that enforces access through a strongly-typed index.
+ * Inherits privately from std::vector to ensure type safety.
+ * Implements efficient move operations marked with noexcept to
+ * enable compiler optimizations.
+ */
 template<typename Index, typename T>
 class StrongIndexVector : private std::vector<T>
 {
 public:
+  // Standard constructors with appropriate move semantics
   StrongIndexVector() = default;
+
   explicit StrongIndexVector(typename std::vector<T>::size_type count,
                              const T& value = T())
       : std::vector<T>(count, value)
   {
   }
+
   template<class InputIt>
   StrongIndexVector(InputIt first, InputIt last)
       : std::vector<T>(first, last)
   {
   }
+
+  // Uses move semantics for initializer lists to avoid unnecessary copies
   StrongIndexVector(std::initializer_list<T> init) noexcept
       : std::vector<T>(std::move(init))
   {
   }
+
+  // Special member functions with appropriate noexcept specifications
   StrongIndexVector(StrongIndexVector const& other) = default;
   StrongIndexVector(StrongIndexVector&& other) noexcept = default;
 
@@ -62,7 +78,11 @@ public:
   using typename std::vector<T>::reverse_iterator;
   using typename std::vector<T>::const_reverse_iterator;
 
-  StrongIndexVector& operator=(StrongIndexVector const& other) noexcept = default;
+  // Assignment operators with noexcept for move operations
+  // This allows the compiler to optimize moves and provide stronger exception
+  // safety
+  StrongIndexVector& operator=(StrongIndexVector const& other) noexcept =
+      default;
   StrongIndexVector& operator=(StrongIndexVector&& other) noexcept = default;
   using std::vector<T>::operator=;
 

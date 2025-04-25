@@ -12,7 +12,7 @@
 
 #include <utility>
 
-#include <gtopt/collection.hpp>
+#include <gtopt/element_index.hpp>
 #include <gtopt/single_id.hpp>
 
 namespace gtopt
