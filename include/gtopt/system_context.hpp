@@ -49,6 +49,12 @@ class SystemContext
 public:
   explicit SystemContext(const SimulationLP& psimulation, SystemLP& psystem);
 
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system(this Self&& self)
+  {
+    return std::forward<Self>(self).m_system_.get();
+  }
+
   [[nodiscard]] constexpr auto&& simulation() const
   {
     return m_simulation_.get();
@@ -57,12 +63,6 @@ public:
   [[nodiscard]] constexpr auto&& options() const
   {
     return simulation().options();
-  }
-
-  template<typename Self>
-  [[nodiscard]] constexpr auto&& system(this Self&& self)
-  {
-    return std::forward<Self>(self).m_system_.get();
   }
 
   [[nodiscard]] constexpr auto scenario_uid(
@@ -485,18 +485,26 @@ public:
 
   template<typename... Types>
     requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
+  constexpr auto stb_label(const ScenarioLP& scenario,
+                           const StageLP& stage,
                            const BlockLP& block,
                            const Types&... var) const -> std::string
   {
     if (!options().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var...,
-                           scenario_uid(scenario_index),
-                           stage_uid(stage_index),
-                           block.uid());
+    return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
+  }
+
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto stb_label(const ScenarioIndex& scenario_index,
+                           const StageIndex& stage_index,
+                           const BlockLP& block,
+                           const Types&... var) const -> std::string
+  {
+    return stb_label(
+        scenarios()[scenario_index], stages()[stage_index], block, var...);
   }
 
 private:

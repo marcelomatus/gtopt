@@ -216,6 +216,12 @@ public:
    */
   [[nodiscard]] const auto& name() const { return system().name; }
 
+  void create_linear_problems(const SimulationLP& simulation,
+                              const SceneLP& scene,
+                              const std::vector<PhaseLP>& phases);
+
+  bool solve_linear_problems();
+
   /**
    * @brief Adds LP formulation for a specific stage and scenario
    * @param lp Linear problem to add constraints to
@@ -230,12 +236,16 @@ public:
    * @brief Writes optimization results to output context
    * @param li Linear interface containing the solved problem
    */
-  void write_out(const SystemContext& system_context,
-                 const LinearInterface& li) const;
+  constexpr void write_out(const SystemContext& system_context,
+                           const LinearInterface& li) const;
+
+  void write_out() const;
 
 private:
   System m_system_;
   SystemContext m_system_context_;
+
+  std::vector<LinearInterface> m_linear_problems_;
 
   std::tuple<Collection<BusLP>,
              Collection<DemandLP>,

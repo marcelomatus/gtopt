@@ -33,8 +33,8 @@ endif()
 
 # ---- Create binary ----
 
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp
-     ${CMAKE_CURRENT_SOURCE_DIR}/source/json/*.cpp
+file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp
 )
 
 add_executable(${PROJECT_NAME} ${sources})

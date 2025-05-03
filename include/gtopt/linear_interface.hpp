@@ -29,13 +29,13 @@ public:
   using solver_ptr_t = std::shared_ptr<SolverInterface>;
 
   /** @brief Copy constructor disabled */
-  LinearInterface(const LinearInterface&) = delete;
+  explicit LinearInterface(const LinearInterface&) = delete;
   /** @brief Copy assignment disabled */
   LinearInterface& operator=(const LinearInterface&) = delete;
   /** @brief Move constructor disabled */
-  LinearInterface(LinearInterface&&) = delete;
+  LinearInterface(LinearInterface&&) = default;
   /** @brief Move assignment disabled */
-  LinearInterface& operator=(LinearInterface&&) = delete;
+  LinearInterface& operator=(LinearInterface&&) = default;
 
   /**
    * @brief Constructs interface with an existing solver

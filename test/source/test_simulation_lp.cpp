@@ -6,17 +6,19 @@
  * @copyright BSD-3-Clause
  */
 
-#include <filesystem>
-
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/options_lp.hpp>
 #include <gtopt/simulation.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-#ifdef NONE
+#include "gtopt/bus_lp.hpp"
+
+using namespace gtopt;
+
 TEST_CASE("Simulation - Constructor initialization")
 {
-  using namespace gtopt;
   using Uid = gtopt::Uid;
 
   // Create arrays for system components
@@ -30,23 +32,30 @@ TEST_CASE("Simulation - Constructor initialization")
                                              .capacity = 100.0}};
 
   // Create minimal system
-  System system {
-      .name = "TestSys",
-      .options = {},
+  Options options = {};
+
+  Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = {}};
+  };
+
+  System system {.name = "TestSys",
+                 .bus_array = bus_array,
+                 .demand_array = demand_array,
+                 .generator_array = generator_array,
+                 .line_array = {}};
 
   // Test constructor
-  Simulation simulation(system);
+  OptionsLP options_lp(options);
+  SimulationLP simulation_lp(simulation, options_lp);
 
-  // Since system_lp is private, we can't directly test its state
-  // but we can indirectly test the behavior
-  // The fact that this doesn't throw an exception is a test in itself
+  SystemLP system_lp(system, simulation_lp);
+  SystemContext system_context(simulation_lp, system_lp);
+  InputContext ic(system_context);
+
+  CHECK(ic.system_context().system().elements<BusLP>().size()
+        == system.bus_array.size());
 }
 
 TEST_CASE("Simulation - Basic LP run without solving")
@@ -64,29 +73,35 @@ TEST_CASE("Simulation - Basic LP run without solving")
                                              .gcost = 50.0,
                                              .capacity = 100.0}};
 
-  // Create minimal system
-  System system {
-      .name = "TestSys",
-      .options = {},
+  Options options = {};
+
+  Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = {}};
+  };
+
+  System system {.name = "TestSys",
+                 .bus_array = bus_array,
+                 .demand_array = demand_array,
+                 .generator_array = generator_array,
+                 .line_array = {}};
+
+  // Test constructor
+  OptionsLP options_lp(options);
+  SimulationLP simulation_lp(simulation, options_lp);
+
+  SystemLP system_lp(system, simulation_lp);
+  SystemContext system_context(simulation_lp, system_lp);
+  InputContext ic(system_context);
+
+  // Create minimal system
 
   // Test just creating the LP without solving
-  auto result = Simulation::run_lp(system,
-                                   std::nullopt,  // no LP file
-                                   1,  // use names
-                                   0.0,  // no matrix filtering
-                                   true);  // just create, don't solve
-
-  // Check result is successful
-  REQUIRE(result.has_value());
-  REQUIRE(result.value() == 0);
+  // simulation_lp.create_lp(system_lp);
 }
+
+#ifdef NONE
 
 TEST_CASE("Simulation - Full LP run with solving")
 {

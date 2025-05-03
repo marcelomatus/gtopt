@@ -59,7 +59,6 @@ public:
       : phase(std::move(pphase))
       , stage_span(
             std::span(pstages).subspan(phase.first_stage, phase.count_stage))
-      , stage_indexes(stage_span.size())
       , span_duration(std::transform_reduce(stage_span.begin(),
                                             stage_span.end(),
                                             0.0,
@@ -67,11 +66,6 @@ public:
                                             [](const auto& b) noexcept
                                             { return b.duration(); }))
   {
-    // Initialize stage indexes with sequential values starting from 0
-    std::iota(  // NOLINT
-        stage_indexes.begin(),
-        stage_indexes.end(),
-        StageIndex {});
   }
 
   /**
@@ -107,19 +101,19 @@ public:
    */
   [[nodiscard]] constexpr auto& stages() const noexcept { return stage_span; }
 
-  /**
-   * @brief Get a span of all stage indexes in this phase
-   * @return Span of stage indexes
-   */
-  [[nodiscard]] constexpr auto indexes() const noexcept
+  [[nodiscard]] constexpr auto first_stage() const
   {
-    return StageIndexSpan {stage_indexes};
+    return StageIndex {phase.first_stage};
+  }
+
+  [[nodiscard]] constexpr auto count_stage() const
+  {
+    return static_cast<Index>(phase.count_stage);
   }
 
 private:
   Phase phase;  ///< The underlying Phase object
   StageSpan stage_span;  ///< Span of StageLP objects in this phase
-  StageIndexes stage_indexes;  ///< Collection of stage indices
   double span_duration {0.0};  ///< Total duration of all stages in this phase
 };
 

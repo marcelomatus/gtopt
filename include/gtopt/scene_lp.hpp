@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <numeric>
 #include <span>
 
 #include <gtopt/basic_types.hpp>
@@ -62,12 +61,7 @@ public:
       : scene(std::move(pscene))
       , scenario_span(std::span(pscenarios)
                           .subspan(scene.first_scenario, scene.count_scenario))
-      , scenario_indexes(scenario_span.size())
   {
-    std::iota(  // NOLINT
-        scenario_indexes.begin(),
-        scenario_indexes.end(),
-        ScenarioIndex {});
   }
 
   /**
@@ -91,19 +85,19 @@ public:
    */
   [[nodiscard]] constexpr auto&& scenarios() const { return scenario_span; }
 
-  /**
-   * @brief Get the indexes of all scenario elements
-   * @return Span of scenario indexes
-   */
-  [[nodiscard]] constexpr auto indexes() const
+  [[nodiscard]] auto first_scenario() const
   {
-    return ScenarioIndexSpan {scenario_indexes};
+    return ScenarioIndex {scene.first_scenario};
+  }
+
+  [[nodiscard]] auto count_scenario() const
+  {
+    return static_cast<Index>(scene.count_scenario);
   }
 
 private:
   Scene scene;  ///< The underlying scene
   ScenarioSpan scenario_span;  ///< Span of ScenarioLP elements for this scene
-  ScenarioIndexes scenario_indexes;  ///< Indexed access to scenario elements
 };
 
 }  // namespace gtopt

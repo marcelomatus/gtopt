@@ -44,7 +44,7 @@ struct ArrowTraits<double>
 
 }  // namespace gtopt
 
-#define GTOPT_ARROW_ASSING_OR_RAISE(lhs, rexpr, msg) \
+#define GTOPT_ARROW_ASSIGN_OR_RAISE(lhs, rexpr, msg) \
   { \
     auto&& __name = (rexpr); \
     { \

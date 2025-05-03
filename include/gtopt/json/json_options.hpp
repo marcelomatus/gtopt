@@ -37,7 +37,7 @@ struct json_data_contract<Options>
                        json_string_null<"output_format", OptName>,
                        json_string_null<"compression_format", OptName>,
                        json_bool_null<"use_lp_names", OptBool>,
-                       json_bool_null<"use_uid_fname ", OptBool>,
+                       json_bool_null<"use_uid_fname", OptBool>,
                        json_number_null<"annual_discount_rate", OptReal> >;
 
   constexpr static auto to_json_data(Options const& opt)

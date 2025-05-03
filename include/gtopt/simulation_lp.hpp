@@ -21,10 +21,11 @@
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/system.hpp>
 
 namespace gtopt
 {
-
+class SystemLP;
 /**
  * @class Simulation
  * @brief Coordinates the creation, solution, and analysis of power system
@@ -45,37 +46,37 @@ class SimulationLP
    * @brief Creates LP representation of blocks from system blocks
    * @return Vector of BlockLP objects
    */
-  std::vector<BlockLP> create_block_array();
+  constexpr std::vector<BlockLP> create_block_array();
 
   /**
    * @brief Creates LP representation of stages from system stages
    * @return Vector of StageLP objects
    */
-  std::vector<StageLP> create_stage_array();
+  constexpr std::vector<StageLP> create_stage_array();
 
   /**
    * @brief Creates LP representation of scenarios from system scenarios
    * @return Vector of ScenarioLP objects
    */
-  std::vector<ScenarioLP> create_scenario_array();
+  constexpr std::vector<ScenarioLP> create_scenario_array();
 
   /**
    * @brief Creates LP representation of phases from system phases
    * @return Vector of PhaseLP objects
    */
-  std::vector<PhaseLP> create_phase_array();
+  constexpr std::vector<PhaseLP> create_phase_array();
 
   /**
    * @brief Creates LP representation of scenes from system scenes
    * @return Vector of SceneLP objects
    */
-  std::vector<SceneLP> create_scene_array();
+  constexpr std::vector<SceneLP> create_scene_array();
 
   /**
    * @brief Validates components for consistency
    * @throws std::runtime_error if validation fails
    */
-  void validate_components();
+  constexpr void validate_components();
 
 public:
   /**
@@ -182,6 +183,7 @@ public:
       const std::optional<double>& matrix_eps,
       const std::optional<bool>& just_create);
 
+#endif
   /**
    * @brief Creates the linear programming matrix for all system components
    * @throws std::runtime_error if system_lp is not properly initialized
@@ -194,13 +196,12 @@ public:
    * The result is stored in the lp_matrix member variable, organized by
    * scenario and stage.
    */
-  void create_lp();
-
-#endif
+  void create_linear_problems(System system);
 
 private:
   Simulation m_simulation_;
   std::reference_wrapper<const OptionsLP> m_options_;
+  std::vector<SystemLP> m_system_lps_;
 
   std::vector<BlockLP> m_block_array_;
   std::vector<StageLP> m_stage_array_;

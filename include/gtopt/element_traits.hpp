@@ -101,11 +101,11 @@ constexpr auto&& get_element(SystemContext& sc, const Id<Element>& id)
   return ElementTraits<SystemContext, Element>::get_element(sc, id);
 }
 
-template<typename Element, typename SystemContext>
-constexpr auto push_back(SystemContext& sc, Element&& e)
+template<typename Element, typename SystemContext, typename E>
+auto push_back(SystemContext& sc, E&& element)
 {
   return ElementTraits<SystemContext, Element>::push_back(
-      sc, std::forward<Element>(e));
+      sc, std::forward<E>(element));
 }
 
 }  // namespace gtopt

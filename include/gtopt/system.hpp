@@ -18,13 +18,13 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/line.hpp>
-#include <gtopt/options.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 
 namespace gtopt
 {
 
+class OptionsLP;
 /**
  * @brief Represents a complete power system model
  */
@@ -54,7 +54,7 @@ struct System
    */
   System& merge(System& sys);
 
-  void setup_reference_bus(const Options& options);
+  System& setup_reference_bus(const OptionsLP& options);
 };
 
 }  // namespace gtopt
