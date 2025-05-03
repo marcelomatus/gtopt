@@ -16,14 +16,16 @@
 #include <algorithm>
 #include <cstdlib>
 
-#include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
+#include <range/v3/view/iota.hpp>  // for ranges::views::iota#include <gtopt/input_context.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
+#include "gtopt/scenario.hpp"
+#include "gtopt/simulation_lp.hpp"
 #include "gtopt/system_context.hpp"
 
 namespace
@@ -185,8 +187,36 @@ void SystemLP::add_to_lp(const SystemContext& system_context,
   visit_elements(m_collections_, visitor);
 }
 
-void SystemLP::write_out(const SystemContext& system_context,
-                         const LinearInterface& li) const
+void SystemLP::create_linear_problems(const SimulationLP& simulation,
+                                      const SceneLP& scene,
+                                      const std::vector<PhaseLP>& phases)
+{
+  std::vector<LinearInterface> linear_problems;
+  linear_problems.reserve(phases.size());
+
+  SystemContext system_context(simulation, *this);
+  for (const auto scenario_index :
+       ranges::views::iota(0, scene.count_scenario())
+           | ranges::views::transform([](auto i) { return ScenarioIndex {i}; }))
+  {
+    LinearProblem lp;
+    for (const auto& phase : phases) {
+      for (const auto stage_index : ranges::views::iota(0, phase.count_stage())
+               | ranges::views::transform([](auto i)
+                                          { return StageIndex {i}; }))
+      {
+        add_to_lp(system_context, scenario_index, stage_index, lp);
+      }
+    }
+
+    linear_problems.emplace_back(lp.to_flat());
+  }
+
+  m_linear_problems_ = std::move(linear_problems);
+}
+
+constexpr void SystemLP::write_out(const SystemContext& system_context,
+                                   const LinearInterface& li) const
 {
   OutputContext oc(system_context, li);
 
@@ -194,6 +224,24 @@ void SystemLP::write_out(const SystemContext& system_context,
                  [&oc](const auto& e) { return e.add_to_output(oc); });
 
   oc.write();
+}
+
+void SystemLP::write_out() const
+{
+  for (auto&& li : m_linear_problems_) {
+    write_out(m_system_context_, li);
+  }
+}
+
+bool SystemLP::solve_linear_problems()
+{
+  for (auto&& lp : m_linear_problems_) {
+    auto result = lp.resolve();
+    if (!result) {
+      return result;
+    }
+  }
+  return true;
 }
 
 }  // namespace gtopt

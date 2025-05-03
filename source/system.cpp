@@ -8,19 +8,13 @@
  * This module
  */
 
+#include <gtopt/options_lp.hpp>
 #include <gtopt/system.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace
 {
-
-template<typename T>
-constexpr void append_vector(std::vector<T>& a, std::vector<T>& b)
-{
-  a.insert(a.end(),
-           std::make_move_iterator(b.begin()),
-           std::make_move_iterator(b.end()));
-}
 
 /**
  * @brief Determines if the system needs a reference bus for voltage angle
@@ -29,7 +23,7 @@ constexpr void append_vector(std::vector<T>& a, std::vector<T>& b)
  * fixed voltage angle (theta) for power flow calculations. A reference bus is
  * needed if:
  * - There are multiple buses
- * - Single-bus mode is not active
+ * - Single-bus mode is not activeLa reu
  * - Kirchhoff's laws are being used
  * - No bus has already been designated as a reference
  * - At least one bus needs Kirchhoff constraints based on threshold
@@ -45,8 +39,7 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
                                const OptionsType& options)
 {
   // Early return conditions
-  if (buses.size() <= 1 || options.use_single_bus.value_or(false)
-      || !options.use_kirchhoff.value_or(true))
+  if (buses.size() <= 1 || options.use_single_bus() || !options.use_kirchhoff())
   {
     return false;
   }
@@ -62,7 +55,7 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
   }
 
   // Check if any bus needs Kirchhoff according to the threshold
-  const auto kirchhoff_threshold = options.kirchhoff_threshold.value_or(0.0);
+  const auto kirchhoff_threshold = options.kirchhoff_threshold();
   return std::any_of(buses.begin(),
                      buses.end(),
                      [kirchhoff_threshold](const auto& bus)
@@ -84,43 +77,43 @@ System& System::merge(System& sys)
     version = std::move(sys.version);
   }
 
-  append_vector(bus_array, (sys.bus_array));
-  append_vector(demand_array, (sys.demand_array));
-  append_vector(generator_array, (sys.generator_array));
-  append_vector(line_array, (sys.line_array));
-  append_vector(generator_profile_array, (sys.generator_profile_array));
-  append_vector(demand_profile_array, (sys.demand_profile_array));
-  append_vector(battery_array, (sys.battery_array));
-  append_vector(converter_array, (sys.converter_array));
-  append_vector(reserve_zone_array, (sys.reserve_zone_array));
-  append_vector(reserve_provision_array, (sys.reserve_provision_array));
+  gtopt::merge(bus_array, sys.bus_array);
+  gtopt::merge(demand_array, sys.demand_array);
+  gtopt::merge(generator_array, sys.generator_array);
+  gtopt::merge(line_array, sys.line_array);
+  gtopt::merge(generator_profile_array, sys.generator_profile_array);
+  gtopt::merge(demand_profile_array, sys.demand_profile_array);
+  gtopt::merge(battery_array, sys.battery_array);
+  gtopt::merge(converter_array, sys.converter_array);
+  gtopt::merge(reserve_zone_array, sys.reserve_zone_array);
+  gtopt::merge(reserve_provision_array, sys.reserve_provision_array);
 
 #ifdef NONE
-  append_vector(converters, (sys.converters));
-  append_vector(junctions, (sys.junctions));
-  append_vector(waterways, (sys.waterways));
-  append_vector(inflows, (sys.inflows));
-  append_vector(outflows, (sys.outflows));
-  append_vector(reservoirs, (sys.reservoirs));
-  append_vector(filtrations, (sys.filtrations));
-  append_vector(turbines, (sys.turbines));
-  append_vector(emission_zones, (sys.emission_zones));
-  append_vector(generator_emissions, (sys.generator_emissions));
-  append_vector(demand_emissions, (sys.demand_emissions));
+  gtopt::merge(converters, sys.converters);
+  gtopt::merge(junctions, sys.junctions);
+  gtopt::merge(waterways, sys.waterways);
+  gtopt::merge(inflows, sys.inflows);
+  gtopt::merge(outflows, sys.outflows);
+  gtopt::merge(reservoirs, sys.reservoirs);
+  gtopt::merge(filtrations, sys.filtrations);
+  gtopt::merge(turbines, sys.turbines);
+  gtopt::merge(emission_zones, sys.emission_zones);
+  gtopt::merge(generator_emissions, sys.generator_emissions);
+  gtopt::merge(demand_emissions, sys.demand_emissions);
 #endif
 
   return *this;
 }
 
-void System::setup_reference_bus(const Options& options)
+System& System::setup_reference_bus(const OptionsLP& options)
 {
   if (needs_ref_theta(bus_array, options)) {
     auto& bus = bus_array.front();
     bus.reference_theta = 0;
-    const auto msg = std::format(
-        "Setting bus '{}' as reference bus (reference_theta=0)", bus.name);
-    SPDLOG_WARN(msg);
+    SPDLOG_INFO(std::format(
+        "Setting bus '{}' as reference bus (reference_theta=0)", bus.name));
   }
+  return *this;
 }
 
 }  // namespace gtopt

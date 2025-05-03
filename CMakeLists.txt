@@ -11,6 +11,8 @@ project(
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+cmake_policy(SET CMP0167 NEW)
+
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -74,7 +76,7 @@ file(GLOB_RECURSE headers CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
 )
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
 # ---- Create library ----

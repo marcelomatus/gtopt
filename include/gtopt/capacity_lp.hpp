@@ -14,6 +14,7 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {

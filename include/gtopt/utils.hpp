@@ -19,6 +19,51 @@
 namespace gtopt
 {
 
+/**
+ * Efficiently appends elements from source vector to destination vector using
+ * move semantics. After the operation, the source vector will be empty but in a
+ * valid state.
+ *
+ * @tparam T Type of elements in the vectors (must be move-constructible)
+ * @param dest Destination vector (will receive elements)
+ * @param src Source vector (will be emptied)
+ *
+ */
+template<typename T>
+constexpr void merge(std::vector<T>& dest, std::vector<T>&& src) noexcept(
+    std::is_nothrow_move_constructible_v<T>)
+{
+  static_assert(std::is_move_constructible_v<T>,
+                "Type T must be move-constructible for efficient append");
+
+  if (&dest == &src) {
+    // Handle self-append safely
+    std::vector<T> tmp = dest;
+    merge(dest, std::move(tmp));
+    return;
+  }
+
+  if (dest.empty()) {
+    dest = std::move(src);  // Complete takeover
+  } else if (!src.empty()) {  // Skip if src is empty
+    dest.reserve(dest.size() + src.size());
+    dest.insert(dest.end(),
+                std::make_move_iterator(src.begin()),
+                std::make_move_iterator(src.end()));
+  }
+  src.clear();  // Leave source in valid empty state
+}
+
+/**
+ * Overload for lvalue source vector (converts to rvalue reference)
+ */
+template<typename T>
+constexpr void merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
+    std::is_nothrow_move_constructible_v<T>)
+{
+  merge(dest, std::move(src));
+}
+
 template<typename IndexType = size_t, typename... Ranges>
 constexpr auto enumerate(const Ranges&... ranges)
 {

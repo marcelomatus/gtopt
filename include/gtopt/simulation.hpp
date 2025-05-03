@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gtopt/block.hpp>
+#include <gtopt/options.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
@@ -30,6 +31,8 @@ struct Simulation
   Array<Scenario> scenario_array {};
   Array<Phase> phase_array {Phase {}};
   Array<Scene> scene_array {Scene {}};
+
+  Simulation& merge(Simulation& sim);
 };
 
 }  // namespace gtopt

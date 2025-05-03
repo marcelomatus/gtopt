@@ -20,13 +20,14 @@
 #include <boost/multi_array/base.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
 namespace gtopt
 {
 
-inline std::vector<BlockLP> SimulationLP::create_block_array()
+constexpr std::vector<BlockLP> SimulationLP::create_block_array()
 {
   return m_simulation_.block_array | ranges::views::move
       | ranges::views::transform(
@@ -34,7 +35,7 @@ inline std::vector<BlockLP> SimulationLP::create_block_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<StageLP> SimulationLP::create_stage_array()
+constexpr std::vector<StageLP> SimulationLP::create_stage_array()
 {
   return m_simulation_.stage_array | ranges::views::move
       | ranges::views::transform(
@@ -47,7 +48,7 @@ inline std::vector<StageLP> SimulationLP::create_stage_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<ScenarioLP> SimulationLP::create_scenario_array()
+constexpr std::vector<ScenarioLP> SimulationLP::create_scenario_array()
 {
   return m_simulation_.scenario_array | ranges::views::move
       | ranges::views::transform(
@@ -58,7 +59,7 @@ inline std::vector<ScenarioLP> SimulationLP::create_scenario_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<PhaseLP> SimulationLP::create_phase_array()
+constexpr std::vector<PhaseLP> SimulationLP::create_phase_array()
 {
   return m_simulation_.phase_array | ranges::views::move
       | ranges::views::transform(
@@ -67,7 +68,7 @@ inline std::vector<PhaseLP> SimulationLP::create_phase_array()
       | ranges::to<std::vector>();
 }
 
-inline std::vector<SceneLP> SimulationLP::create_scene_array()
+constexpr std::vector<SceneLP> SimulationLP::create_scene_array()
 {
   return m_simulation_.scene_array | ranges::views::move
       | ranges::views::transform(
@@ -78,7 +79,7 @@ inline std::vector<SceneLP> SimulationLP::create_scene_array()
       | ranges::to<std::vector>();
 }
 
-inline void SimulationLP::validate_components()
+constexpr void SimulationLP::validate_components()
 {
   if (m_block_array_.empty() || m_stage_array_.empty()
       || m_scenario_array_.empty())
@@ -252,22 +253,14 @@ auto SimulationLP::run_lp(System system,
     return std::unexpected(std::string("Unexpected error: ") + e.what());
   }
 }
+#endif
 
 /**
  * @brief Creates the multi-dimensional LP problem structure
  *
- * @details This method initializes the multi-dimensional matrix of LP problems
- * based on the system's phase and scene structure. It organizes optimization
- * problems in a hierarchical structure:
- * - Phases (top level time horizons)
- * - Scenes (system configurations)
- * - Scenarios (stochastic variants)
- * - Stages (time steps)
- *
- * For each valid combination, it adds the corresponding system components
- * to the appropriate LP subproblem.
  */
-void SimulationLP::create_lp()
+
+void SimulationLP::create_linear_problems(System system)
 {
   // Use type aliases for better readability
   using index_t = boost::multi_array_types::index;
@@ -276,46 +269,15 @@ void SimulationLP::create_lp()
   const auto n_phase = static_cast<index_t>(phases().size());
   const auto n_scene = static_cast<index_t>(scenes().size());
 
-  // Validate dimensions
-  if (n_phase == 0 || n_scene == 0) {
-    const auto msg = std::format("Empty phases or scenes in create_lp");
-    SPDLOG_WARN(msg);
-    return;
-  }
-
   // Pre-allocate the multi-dimensional matrix of LP problems
-  lp_matrix.resize(boost::extents[n_phase][n_scene]);
+  std::vector<SystemLP> system_lps;
+  system_lps.reserve(n_scene);
 
-  // Process all active scenes (independent system states)
-  for (const auto& [scene_index, scene] :
-       enumerate_active<SceneIndex>(scenes()))
-  {
-    // Process all active phases for each scenario (time horizons)
-    for (const auto& [phase_index, phase] :
-         enumerate_active<PhaseIndex>(phases()))
-    {
-      // Get reference to the specific LP subproblem for this phase-scene
-      // combination
-      auto& lp = lp_matrix[phase_index][scene_index];
-
-      // Process all active scenarios in current scene (stochastic variants)
-      for (const auto& [scenario_index, scenario] :
-           enumerate_active<ScenarioIndex>(scene.scenarios()))
-      {
-        // Process all active stages in current phase (time steps)
-        for (const auto& [stage_index, stage] :
-             enumerate_active<StageIndex>(phase.stages()))
-        {
-          // Add system components to the linear program for this specific
-          // combination of phase, scene, scenario, and stage
-
-          // system_lp.add_to_lp(scenario_index, stage_index, lp);
-        }
-      }
-    }
+  system.setup_reference_bus(options());
+  for (auto&& [scene_index, scene] : enumerate_active(scenes())) {
+    auto& system_lp = system_lps.emplace_back(system, *this);
+    system_lp.create_linear_problems(*this, scene, phases());
   }
 }
-
-#endif
 
 }  // namespace gtopt

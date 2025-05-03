@@ -5,10 +5,8 @@
 
 #include <boost/program_options.hpp>
 #include <daw/daw_read_file.h>
-#include <gtopt/json/json_system.hpp>
+#include <gtopt/json/json_optimization.hpp>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/simulation.hpp>
-#include <gtopt/system_lp.hpp>
 #include <gtopt/version.h>
 
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
@@ -21,7 +19,7 @@ namespace
 {
 using namespace gtopt;
 
-int Main(const std::vector<std::string>& system_files,
+int Main(const std::vector<std::string>& optimization_files,
          const std::optional<std::string>& input_directory,
          const std::optional<std::string>& input_format,
          const std::optional<std::string>& output_directory,
@@ -55,71 +53,75 @@ int Main(const std::vector<std::string>& system_files,
     spdlog::info("using fast json parsing");
   }
 
-  System system;
+  Optimization optimization;
   {
     spdlog::stopwatch sw;
 
-    for (auto&& system_file : system_files) {
-      std::filesystem::path fpath(system_file);
+    for (auto&& optimization_file : optimization_files) {
+      std::filesystem::path fpath(optimization_file);
       fpath.replace_extension(".json");
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {
-        spdlog::critical("problem reading input file {}", system_file);
+        spdlog::critical(
+            fmt::format("problem reading input file {}", optimization_file));
         return 1;
       }
-      spdlog::info("parsing input file {}", fpath.string());
+      spdlog::info(fmt::format("parsing input file {}", fpath.string()));
 
       auto&& json_doc = json_result.value();
       try {
         if (strict_parsing) {
-          auto sys = daw::json::from_json<System>(json_doc, StrictParsePolicy);
-          system.merge(sys);
+          auto sys =
+              daw::json::from_json<Optimization>(json_doc, StrictParsePolicy);
+          optimization.merge(sys);
         } else {
-          auto sys = daw::json::from_json<System>(json_doc, FastParsePolicy);
-          system.merge(sys);
+          auto sys =
+              daw::json::from_json<Optimization>(json_doc, FastParsePolicy);
+          optimization.merge(sys);
         }
       } catch (daw::json::json_exception const& jex) {
-        spdlog::critical("parsing file {} failed, {}",
-                         fpath.string(),
-                         to_formatted_string(jex, json_doc.c_str()));
+        spdlog::critical(
+            fmt::format("parsing file {} failed, {}",
+                        fpath.string(),
+                        to_formatted_string(jex, json_doc.c_str())));
       } catch (...) {
         throw;
       }
     }
 
-    spdlog::info("parsing all json files {}", sw);
+    spdlog::info(fmt::format("parsing all json files {}", sw));
   }
 
   //
-  // update the system options
+  // update the optimization options
   //
   if (use_single_bus) {
-    system.options.use_single_bus = use_single_bus;
+    optimization.options.use_single_bus = use_single_bus;
   }
 
   if (use_lp_names) {
-    system.options.use_lp_names = use_lp_names.value();
+    optimization.options.use_lp_names = use_lp_names.value();
   }
 
   if (output_directory) {
-    system.options.output_directory = output_directory.value();
+    optimization.options.output_directory = output_directory.value();
   }
 
   if (input_directory) {
-    system.options.input_directory = input_directory.value();
+    optimization.options.input_directory = input_directory.value();
   }
 
   if (output_format) {
-    system.options.output_format = output_format.value();
+    optimization.options.output_format = output_format.value();
   }
 
   if (compression_format) {
-    system.options.compression_format = compression_format.value();
+    optimization.options.compression_format = compression_format.value();
   }
 
   if (input_format) {
-    system.options.input_format = input_format.value();
+    optimization.options.input_format = input_format.value();
   }
 
   //
@@ -131,22 +133,24 @@ int Main(const std::vector<std::string>& system_files,
     jpath.replace_extension(".json");
     std::ofstream jfile(jpath);
     if (jfile) {
-      jfile << daw::json::to_json(system) << '\n';
+      jfile << daw::json::to_json(optimization) << '\n';
     } else {
-      spdlog::error("can't create json file {}", jpath.string());
+      spdlog::error(fmt::format("can't create json file {}", jpath.string()));
     }
 
-    spdlog::info("writing system json file {}", sw);
+    spdlog::info(fmt::format("writing system json file {}", sw));
   }
 
   //
   // create and load the lp
   //
 
-  auto result = Simulation::run_lp(
-      system, lp_file, use_lp_names, matrix_eps, just_create);
+  // auto result = Simulation::run_lp(
+  // system, lp_file, use_lp_names, matrix_eps, just_create);
 
-  return result ? result.value() : 1;
+  // return result ? result.value() : 1;
+
+  return 0;
 }
 
 }  // namespace

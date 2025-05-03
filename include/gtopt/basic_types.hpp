@@ -18,9 +18,8 @@
 #include <string_view>
 #include <vector>
 
-#include "strong_type/formattable.hpp"
-
 #define STRONG_HAS_FMT_FORMAT 1
+#include <strong_type/formattable.hpp>
 #include <strong_type/strong_type.hpp>
 
 namespace gtopt

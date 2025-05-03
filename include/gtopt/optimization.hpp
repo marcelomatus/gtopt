@@ -26,6 +26,8 @@ struct Optimization
   Options options {};
   Simulation simulation {};
   System system {};
+
+  Optimization& merge(Optimization& opt);
 };
 
 }  // namespace gtopt
