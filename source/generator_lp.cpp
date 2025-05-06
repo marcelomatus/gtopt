@@ -12,7 +12,7 @@
  * - Add capacity constraints
  * - Add bus power balance contributions
  * - Process generation costs in the objective function
- * - Output optimization results for generation variables
+ * - Output planning results for generation variables
  */
 
 #include <gtopt/generator_lp.hpp>
@@ -142,7 +142,7 @@ bool GeneratorLP::add_to_lp(const SystemContext& sc,
  * @param out Output context to add results to
  * @return True if successful, false otherwise
  *
- * Processes optimization results for:
+ * Processes planning results for:
  * - Generation variables (primal solution and costs)
  * - Capacity constraint dual values (shadow prices)
  * - Capacity-related outputs via base class

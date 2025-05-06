@@ -20,11 +20,11 @@
 #include <gtopt/line.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
 
-class OptionsLP;
 /**
  * @brief Represents a complete power system model
  */
@@ -49,12 +49,45 @@ struct System
 
   /**
    * @brief Merges another system into this one
-   * @param sys The system to merge from
+   *
+   * This is a unified template method that handles both lvalue and rvalue
+   * references. When merging from an rvalue reference, move semantics are used
+   * automatically.
+   *
+   * @tparam T System reference type (can be lvalue or rvalue reference)
+   * @param sys The system to merge from (will be moved from if it's an rvalue)
    * @return Reference to this system after merge
    */
-  System& merge(System& sys);
+  template<typename T>
+  constexpr System& merge(T&& sys)
+  {
+    if (!sys.name.empty()) {
+      name = std::forward<T>(sys).name;
+    }
 
-  System& setup_reference_bus(const OptionsLP& options);
+    if (!sys.version.empty()) {
+      version = std::forward<T>(sys).version;
+    }
+
+    // Using std::forward to preserve value category (lvalue vs rvalue)
+    gtopt::merge(bus_array, std::forward<T>(sys).bus_array);
+    gtopt::merge(demand_array, std::forward<T>(sys).demand_array);
+    gtopt::merge(generator_array, std::forward<T>(sys).generator_array);
+    gtopt::merge(line_array, std::forward<T>(sys).line_array);
+    gtopt::merge(generator_profile_array,
+                 std::forward<T>(sys).generator_profile_array);
+    gtopt::merge(demand_profile_array,
+                 std::forward<T>(sys).demand_profile_array);
+    gtopt::merge(battery_array, std::forward<T>(sys).battery_array);
+    gtopt::merge(converter_array, std::forward<T>(sys).converter_array);
+    gtopt::merge(reserve_zone_array, std::forward<T>(sys).reserve_zone_array);
+    gtopt::merge(reserve_provision_array,
+                 std::forward<T>(sys).reserve_provision_array);
+
+    return *this;
+  }
+
+  System& setup_reference_bus(const class OptionsLP& options);
 };
 
 }  // namespace gtopt

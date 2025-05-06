@@ -1,4 +1,15 @@
 {
+    "options": {
+        "annual_discount_rate": 0.0,
+        "use_lp_names": true,
+        "output_format": "csv",
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000,
+        "use_kirchhoff": true,
+        "input_directory": "system_c0",
+        "input_format": "parquet"
+    },
     "simulation": {
         "block_array": [
             {
@@ -92,17 +103,6 @@
                 "expmod": 10,
                 "annual_capcost": 8760
             }
-        ],
-        "options": {
-            "annual_discount_rate": 0.1,
-            "use_lp_names": true,
-            "output_format": "csv",
-            "use_single_bus": false,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
-            "use_kirchhoff": true,
-            "input_directory": "system_c0",
-            "input_format": "parquet"
-        }
+        ]
     }
 }

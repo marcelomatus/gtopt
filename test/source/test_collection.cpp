@@ -94,6 +94,8 @@ public:
   auto elements() const { return data; }  // NOLINT
   auto elements() { return data; }
 
+  [[nodiscard]] auto empty() const { return data.empty(); }
+
 private:
   std::vector<int> data;
 };
@@ -185,6 +187,8 @@ TEST_CASE("visit_elements constexpr usage")
     {
       return std::array {1, 2, 3, 4, 5};
     }
+
+    [[nodiscard]] auto empty() const { return elements().empty(); }
   };
 
   constexpr ConstMyCollection cc;

@@ -67,44 +67,6 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
 namespace gtopt
 {
 
-System& System::merge(System& sys)
-{
-  if (!sys.name.empty()) {
-    name = std::move(sys.name);
-  }
-
-  if (!sys.version.empty()) {
-    version = std::move(sys.version);
-  }
-
-  gtopt::merge(bus_array, sys.bus_array);
-  gtopt::merge(demand_array, sys.demand_array);
-  gtopt::merge(generator_array, sys.generator_array);
-  gtopt::merge(line_array, sys.line_array);
-  gtopt::merge(generator_profile_array, sys.generator_profile_array);
-  gtopt::merge(demand_profile_array, sys.demand_profile_array);
-  gtopt::merge(battery_array, sys.battery_array);
-  gtopt::merge(converter_array, sys.converter_array);
-  gtopt::merge(reserve_zone_array, sys.reserve_zone_array);
-  gtopt::merge(reserve_provision_array, sys.reserve_provision_array);
-
-#ifdef NONE
-  gtopt::merge(converters, sys.converters);
-  gtopt::merge(junctions, sys.junctions);
-  gtopt::merge(waterways, sys.waterways);
-  gtopt::merge(inflows, sys.inflows);
-  gtopt::merge(outflows, sys.outflows);
-  gtopt::merge(reservoirs, sys.reservoirs);
-  gtopt::merge(filtrations, sys.filtrations);
-  gtopt::merge(turbines, sys.turbines);
-  gtopt::merge(emission_zones, sys.emission_zones);
-  gtopt::merge(generator_emissions, sys.generator_emissions);
-  gtopt::merge(demand_emissions, sys.demand_emissions);
-#endif
-
-  return *this;
-}
-
 System& System::setup_reference_bus(const OptionsLP& options)
 {
   if (needs_ref_theta(bus_array, options)) {

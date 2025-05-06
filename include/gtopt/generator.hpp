@@ -1,12 +1,12 @@
 /**
  * @file      generator.hpp
- * @brief     Header for generator components in power system optimization
+ * @brief     Header for generator components in power system planning
  * @date      Sat Mar 29 11:52:29 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * This module defines data structures for representing generators in power
- * system optimization models
+ * system planning models
  */
 
 #pragma once
@@ -37,7 +37,7 @@ struct GeneratorAttrs
 
 /**
  * @struct Generator
- * @brief Represents a generator in a power system optimization model
+ * @brief Represents a generator in a power system planning model
  */
 struct Generator
 {

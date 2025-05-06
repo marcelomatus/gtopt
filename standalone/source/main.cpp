@@ -5,8 +5,9 @@
 
 #include <boost/program_options.hpp>
 #include <daw/daw_read_file.h>
-#include <gtopt/json/json_optimization.hpp>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/version.h>
 
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
@@ -19,7 +20,7 @@ namespace
 {
 using namespace gtopt;
 
-int Main(const std::vector<std::string>& optimization_files,
+int Main(const std::vector<std::string>& planning_files,
          const std::optional<std::string>& input_directory,
          const std::optional<std::string>& input_format,
          const std::optional<std::string>& output_directory,
@@ -53,18 +54,18 @@ int Main(const std::vector<std::string>& optimization_files,
     spdlog::info("using fast json parsing");
   }
 
-  Optimization optimization;
+  Planning planning;
   {
     spdlog::stopwatch sw;
 
-    for (auto&& optimization_file : optimization_files) {
-      std::filesystem::path fpath(optimization_file);
+    for (auto&& planning_file : planning_files) {
+      std::filesystem::path fpath(planning_file);
       fpath.replace_extension(".json");
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {
         spdlog::critical(
-            fmt::format("problem reading input file {}", optimization_file));
+            fmt::format("problem reading input file {}", planning_file));
         return 1;
       }
       spdlog::info(fmt::format("parsing input file {}", fpath.string()));
@@ -72,13 +73,12 @@ int Main(const std::vector<std::string>& optimization_files,
       auto&& json_doc = json_result.value();
       try {
         if (strict_parsing) {
-          auto sys =
-              daw::json::from_json<Optimization>(json_doc, StrictParsePolicy);
-          optimization.merge(sys);
+          auto plan =
+              daw::json::from_json<Planning>(json_doc, StrictParsePolicy);
+          planning.merge(std::move(plan));
         } else {
-          auto sys =
-              daw::json::from_json<Optimization>(json_doc, FastParsePolicy);
-          optimization.merge(sys);
+          auto plan = daw::json::from_json<Planning>(json_doc, FastParsePolicy);
+          planning.merge(std::move(plan));
         }
       } catch (daw::json::json_exception const& jex) {
         spdlog::critical(
@@ -94,34 +94,34 @@ int Main(const std::vector<std::string>& optimization_files,
   }
 
   //
-  // update the optimization options
+  // update the planning options
   //
   if (use_single_bus) {
-    optimization.options.use_single_bus = use_single_bus;
+    planning.options.use_single_bus = use_single_bus;
   }
 
   if (use_lp_names) {
-    optimization.options.use_lp_names = use_lp_names.value();
+    planning.options.use_lp_names = use_lp_names.value();
   }
 
   if (output_directory) {
-    optimization.options.output_directory = output_directory.value();
+    planning.options.output_directory = output_directory.value();
   }
 
   if (input_directory) {
-    optimization.options.input_directory = input_directory.value();
+    planning.options.input_directory = input_directory.value();
   }
 
   if (output_format) {
-    optimization.options.output_format = output_format.value();
+    planning.options.output_format = output_format.value();
   }
 
   if (compression_format) {
-    optimization.options.compression_format = compression_format.value();
+    planning.options.compression_format = compression_format.value();
   }
 
   if (input_format) {
-    optimization.options.input_format = input_format.value();
+    planning.options.input_format = input_format.value();
   }
 
   //
@@ -133,7 +133,7 @@ int Main(const std::vector<std::string>& optimization_files,
     jpath.replace_extension(".json");
     std::ofstream jfile(jpath);
     if (jfile) {
-      jfile << daw::json::to_json(optimization) << '\n';
+      jfile << daw::json::to_json(planning) << '\n';
     } else {
       spdlog::error(fmt::format("can't create json file {}", jpath.string()));
     }
@@ -145,12 +145,47 @@ int Main(const std::vector<std::string>& optimization_files,
   // create and load the lp
   //
 
-  // auto result = Simulation::run_lp(
-  // system, lp_file, use_lp_names, matrix_eps, just_create);
+  const auto eps = matrix_eps.value_or(0);  // Default to exact matching
+  const auto lp_names = use_lp_names.value_or(0);  // Default to no names
 
-  // return result ? result.value() : 1;
+  FlatOptions flat_opts;
+  flat_opts.eps = eps;  // Coefficient epsilon tolerance
+  flat_opts.col_with_names = lp_names > 0;  // Include variable names?
+  flat_opts.row_with_names = lp_names > 0;  // Include constraint names?
+  flat_opts.col_with_name_map = lp_names > 1;  // Include variable name mapping?
+  flat_opts.row_with_name_map =
+      lp_names > 1;  // Include constraint name mapping?
+  flat_opts.reserve_matrix = false;  // Don't pre-reserve matrix (already done)
+  flat_opts.reserve_factor = 2;  // Memory reservation factor
 
-  return 0;
+  PlanningLP planning_lp {planning, flat_opts};
+
+  if (lp_file) {
+    planning_lp.write_lp(lp_file.value());
+  }
+
+  if (just_create.value_or(false)) {
+    return 0;
+  }
+
+  bool optimal = false;
+  {
+    spdlog::stopwatch sw;
+
+    auto result = planning_lp.run_lp();
+    spdlog::info(fmt::format("planning  {}", sw));
+
+    optimal = result.has_value();
+  }
+
+  if (optimal) {
+    spdlog::stopwatch sw;
+
+    planning_lp.write_out();
+    spdlog::info(fmt::format("writing output  {}", sw));
+  }
+
+  return optimal ? 0 : 1;
 }
 
 }  // namespace
@@ -314,7 +349,7 @@ int main(int argc, char** argv)
       spdlog::cfg::load_env_levels();
       spdlog::cfg::load_argv_levels(argc, argv);
 
-      spdlog::info("starting gtopt {}", GTOPT_VERSION);
+      spdlog::info(fmt::format("starting gtopt {}", GTOPT_VERSION));
     }
 
     //
@@ -335,11 +370,12 @@ int main(int argc, char** argv)
                 fast_parsing);
 
   } catch (daw::json::json_exception const& jex) {
-    spdlog::critical("exception thrown by json parser: {}", jex.reason());
+    spdlog::critical(
+        fmt::format("exception thrown by json parser: {}", jex.reason()));
   } catch (std::exception const& ex) {
-    spdlog::critical("exception thrown: {}", ex.what());
+    spdlog::critical(fmt::format("exception thrown: {}", ex.what()));
   } catch (...) {
-    spdlog::critical("unknown exception");
+    spdlog::critical(fmt::format("unknown exception"));
   }
 
   return 1;

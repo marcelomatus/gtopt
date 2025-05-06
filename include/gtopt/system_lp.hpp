@@ -7,7 +7,7 @@
  * @copyright BSD-3-Clause
  *
  * This module defines the SystemLP class, which coordinates the formulation of
- * the entire power system optimization model as a linear programming problem.
+ * the entire power system planning model as a linear programming problem.
  * It manages collections of all system components and their LP representations,
  * and provides methods to build the complete LP model from these components.
  */
@@ -25,7 +25,7 @@
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/line_lp.hpp>
-#include <gtopt/linear_problem.hpp>
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
@@ -36,6 +36,8 @@
 #include <gtopt/schedule.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+
+#include "gtopt/solver_options.hpp"
 
 namespace gtopt
 {
@@ -78,18 +80,31 @@ static_assert(AddToLP<ReserveProvisionLP>);
  * components
  * - Providing a unified interface to add all system constraints to a
  * LinearProblem
- * - Managing output of optimization results
+ * - Managing output of planning results
  *
- * It serves as the central coordinator for the optimization model formulation,
+ * It serves as the central coordinator for the planning model formulation,
  * handling time structure (blocks, stages, scenarios), grid components, and
  * their interactions in the LP formulation.
  */
 class SystemLP
 {
+  using collections_t = std::tuple<Collection<BusLP>,
+                                   Collection<DemandLP>,
+                                   Collection<GeneratorLP>,
+                                   Collection<LineLP>,
+                                   Collection<GeneratorProfileLP>,
+                                   Collection<DemandProfileLP>,
+                                   Collection<BatteryLP>,
+                                   Collection<ConverterLP>,
+                                   Collection<ReserveZoneLP>,
+                                   Collection<ReserveProvisionLP>>;
+
   /**
    * @brief Initializes collections of LP components from system components
    */
-  void initialize_collections(const SystemContext& system_context);
+  constexpr collections_t create_collections();
+  constexpr std::vector<LinearInterface> create_linear_interfaces(
+      const SimulationLP& simulation, const FlatOptions& flat_opts);
 
 public:
   /** @brief Move constructor */
@@ -102,10 +117,10 @@ public:
   SystemLP() = delete;
 
   /** @brief Move assignment operator */
-  SystemLP& operator=(SystemLP&&) noexcept = default;
+  constexpr SystemLP& operator=(SystemLP&&) noexcept = default;
 
   /** @brief Copy assignment operator */
-  SystemLP& operator=(const SystemLP&) noexcept = default;
+  constexpr SystemLP& operator=(const SystemLP&) noexcept = default;
 
   /** @brief Destructor */
   ~SystemLP() = default;
@@ -114,7 +129,9 @@ public:
    * @brief Constructs a SystemLP from a System
    * @param psystem The system to convert to LP representation
    */
-  explicit SystemLP(System system, const SimulationLP& simulation);
+  explicit SystemLP(const System& system,
+                    const SimulationLP& simulation,
+                    const FlatOptions& flat_opts = {});
 
   /**
    * @brief Gets system options LP representation
@@ -123,7 +140,13 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self& self)
   {
-    return std::forward<Self>(self).m_system_;
+    return std::forward<Self>(self).m_system_.get();
+  }
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& linear_interfaces(this Self& self)
+  {
+    return std::forward<Self>(self).m_linear_interfaces_;
   }
 
   [[nodiscard]] constexpr const auto& system_context() const
@@ -216,11 +239,11 @@ public:
    */
   [[nodiscard]] const auto& name() const { return system().name; }
 
-  void create_linear_problems(const SimulationLP& simulation,
-                              const SceneLP& scene,
-                              const std::vector<PhaseLP>& phases);
+  void write_lp(const std::string& filename) const;
 
-  bool solve_linear_problems();
+  bool resolve(const SolverOptions& lp_opts);
+
+  void write_out() const;
 
   /**
    * @brief Adds LP formulation for a specific stage and scenario
@@ -233,31 +256,21 @@ public:
                  LinearProblem& lp);
 
   /**
-   * @brief Writes optimization results to output context
+   * @brief Writes planning results to output context
    * @param li Linear interface containing the solved problem
    */
   constexpr void write_out(const SystemContext& system_context,
                            const LinearInterface& li) const;
 
-  void write_out() const;
-
 private:
-  System m_system_;
+  //
+  // Data members
+  //
+
+  std::reference_wrapper<const System> m_system_;
   SystemContext m_system_context_;
-
-  std::vector<LinearInterface> m_linear_problems_;
-
-  std::tuple<Collection<BusLP>,
-             Collection<DemandLP>,
-             Collection<GeneratorLP>,
-             Collection<LineLP>,
-             Collection<GeneratorProfileLP>,
-             Collection<DemandProfileLP>,
-             Collection<BatteryLP>,
-             Collection<ConverterLP>,
-             Collection<ReserveZoneLP>,
-             Collection<ReserveProvisionLP>>
-      m_collections_;
+  collections_t m_collections_;
+  std::vector<LinearInterface> m_linear_interfaces_;
 };
 
 }  // namespace gtopt

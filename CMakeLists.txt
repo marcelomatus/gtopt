@@ -21,8 +21,18 @@ endif()
 
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
+# Set cache directory (default is ${CMAKE_BINARY_DIR}/cmake)
+# set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm_cache")
 
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
+# You can also set a global cache location for all projects
+set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/cpm")
+
+# Force cache usage (will fail if package not in cache)
+set(CPM_USE_LOCAL_PACKAGES ON)
+
+# Or make it fallback to download if not in cache
+set(CPM_DOWNLOAD_ALL ON)
+
 
 #set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
 #set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")

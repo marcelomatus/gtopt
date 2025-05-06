@@ -10,8 +10,8 @@ using namespace gtopt;
 
 /**
  * Creates a vector of active indices from a container.
- * Uses move semantics for efficient return value optimization and
- * is marked noexcept to enable compiler optimizations.
+ * Uses move semantics for efficient return value planning and
+ * is marked noexcept to enable compiler plannings.
  *
  * @param container The container to extract indices from
  * @return Vector of active indices, moved rather than copied
@@ -24,7 +24,7 @@ constexpr auto active_indices(const Container& container) noexcept
   for (auto&& [i, e] : enumerate_active<Index>(container)) {
     indices.push_back(i);
   }
-  // Explicitly move the vector to ensure RVO optimization
+  // Explicitly move the vector to ensure RVO planning
   return std::move(indices);
 }
 
@@ -72,7 +72,7 @@ constexpr auto cost_factor(const auto p_scale_obj,
 /**
  * Creates a structure of scenario, stage, and block UIDs.
  * Leverages move semantics for all vectors to avoid unnecessary copies
- * and is marked noexcept to enable compiler optimizations.
+ * and is marked noexcept to enable compiler plannings.
  *
  * @param sc System context containing scenarios, stages, and blocks
  * @param op Optional operation to filter elements

@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * This module defines the LP representation of batteries in power system
- * optimization.
+ * planning.
  */
 
 #pragma once

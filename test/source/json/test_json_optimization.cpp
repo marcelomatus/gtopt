@@ -1,25 +1,25 @@
 /**
- * @file      test_json_optimization.cpp
- * @brief     Unit tests for Optimization JSON serialization
+ * @file      test_json_planning.cpp
+ * @brief     Unit tests for Planning JSON serialization
  * @date      Fri May  2 20:35:00 2025
  * @author    Claude
  * @copyright BSD-3-Clause
  *
  * This module contains the unit tests for JSON serialization/deserialization
- * of the Optimization class.
+ * of the Planning class.
  */
 
 #include <string>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_optimization.hpp>
+#include <gtopt/json/json_planning.hpp>
 
-TEST_CASE("JSON Optimization - Serialize empty")
+TEST_CASE("JSON Planning - Serialize empty")
 {
   using namespace gtopt;
 
-  // Create empty optimization
-  Optimization opt {};
+  // Create empty planning
+  Planning opt {};
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(opt);
@@ -30,11 +30,11 @@ TEST_CASE("JSON Optimization - Serialize empty")
   CHECK(json_data.find("\"system\":") != std::string::npos);
 }
 
-TEST_CASE("JSON Optimization - Round trip serialization")
+TEST_CASE("JSON Planning - Round trip serialization")
 {
   using namespace gtopt;
 
-  // Create optimization with components
+  // Create planning with components
   Options options {};
   Simulation simulation {};
 
@@ -46,14 +46,14 @@ TEST_CASE("JSON Optimization - Round trip serialization")
                  .bus_array = bus_array,
                  .generator_array = gen_array};
 
-  Optimization original {
+  Planning original {
       .options = options, .simulation = simulation, .system = system};
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(original);
 
   // Deserialize back to an object
-  const auto deserialized = daw::json::from_json<Optimization>(json_data);
+  const auto deserialized = daw::json::from_json<Planning>(json_data);
 
   // Verify the deserialized object matches the original
   CHECK(deserialized.system.name == original.system.name);
@@ -69,12 +69,12 @@ TEST_CASE("JSON Optimization - Round trip serialization")
         == original.system.generator_array[0].name);
 }
 
-TEST_CASE("JSON Optimization - Partial filled objects")
+TEST_CASE("JSON Planning - Partial filled objects")
 {
   using namespace gtopt;
 
-  // Create optimization with only some components filled
-  Optimization opt1 {
+  // Create planning with only some components filled
+  Planning opt1 {
       .options = {},
       .simulation = {},  // Empty simulation
       .system = {}  // Empty system
@@ -82,19 +82,19 @@ TEST_CASE("JSON Optimization - Partial filled objects")
 
   // Serialize and deserialize
   const auto json_data1 = daw::json::to_json(opt1);
-  const auto deserialized1 = daw::json::from_json<Optimization>(json_data1);
+  const auto deserialized1 = daw::json::from_json<Planning>(json_data1);
 
   // Check that partial filling works correctly
   CHECK(deserialized1.system.name.empty());
 
   // Another test with different components filled
-  Optimization opt2 {.options = {},  // Empty options
-                     .simulation = {},  // Empty simulation
-                     .system = {.name = "TestSystem"}};
+  Planning opt2 {.options = {},  // Empty options
+                 .simulation = {},  // Empty simulation
+                 .system = {.name = "TestSystem"}};
 
   // Serialize and deserialize
   const auto json_data2 = daw::json::to_json(opt2);
-  const auto deserialized2 = daw::json::from_json<Optimization>(json_data2);
+  const auto deserialized2 = daw::json::from_json<Planning>(json_data2);
 
   // Check that partial filling works correctly
   CHECK(deserialized2.system.name == "TestSystem");

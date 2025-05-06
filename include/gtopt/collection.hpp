@@ -32,7 +32,7 @@ namespace gtopt
 /**
  * Concept that ensures a type can be safely moved.
  * Types must be both move constructible and provide the noexcept guarantee
- * for their move operations to enable compiler optimizations.
+ * for their move operations to enable compiler plannings.
  */
 template<typename Type>
 concept CopyMove = std::is_move_constructible<Type>::value  // NOLINT
@@ -199,7 +199,7 @@ public:
 
   /**
    * Special member functions with explicit noexcept specifications
-   * to enable move optimizations and provide strong exception-safety
+   * to enable move plannings and provide strong exception-safety
    * guarantees.
    */
   Collection(Collection&&) noexcept = default;
@@ -313,6 +313,8 @@ public:
    * @return The element count
    */
   constexpr auto size() const noexcept { return element_vector.size(); }
+
+  constexpr auto empty() const noexcept { return element_vector.empty(); }
 };
 
 /**
@@ -320,7 +322,7 @@ public:
  * Uses perfect forwarding throughout to minimize copies and maximize
  * performance.
  *
- * This function is marked noexcept to enable compiler optimizations and
+ * This function is marked noexcept to enable compiler plannings and
  * provide stronger exception safety guarantees.
  *
  * @param collections Tuple of collections to visit
@@ -341,6 +343,10 @@ constexpr auto visit_elements(Collections&& collections,
         (void)((... ||
                 [&]()
                 {
+                  if (coll.elements().empty()) {
+                    return false;
+                  }
+
                   for (auto&& element :
                        std::forward<decltype(coll)>(coll).elements()) {
                     if (op(element, std::forward<Args>(args)...)) [[likely]] {
