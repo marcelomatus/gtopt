@@ -11,17 +11,18 @@ option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
+cmake_policy(SET CMP0167 NEW)
+
 # --- Import tools ----
 
 # set(USE_STATIC_ANALYZER "cppcheck")
 set(USE_CCACHE YES)
 
-include(../cmake/tools.cmake)
-option(USE_CCACHE "use ccache" YES)
 
 # ---- Dependencies ----
 
 include(../cmake/CPM.cmake)
+include(../cmake/tools.cmake)
 
 CPMAddPackage("gh:doctest/doctest@2.4.11")
 

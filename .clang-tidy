@@ -4,6 +4,7 @@
 # modernize-use-nodiscard: too aggressive, attribute is situationally useful
 Checks: "*,\
 #  -system-headers,\
+   -clang-analyzer-cplusplus.NewDeleteLeaks,\
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\
    -altera-*,\

@@ -36,10 +36,12 @@ set(CPM_DOWNLOAD_ALL ON)
 
 #set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
 #set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
+
 set(USE_CCACHE YES)
-include(cmake/tools.cmake)
 
 include(cmake/CPM.cmake)
+include(cmake/tools.cmake)
+
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
@@ -150,7 +152,7 @@ target_include_directories(
 )
 
 find_package(Boost REQUIRED COMPONENTS container serialization)
-include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PUBLIC Boost::container Boost::serialization)
 
 # ---- Create an installable target ----
