@@ -11,6 +11,8 @@ project(gtoptStandalone LANGUAGES CXX)
 
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 
+cmake_policy(SET CMP0167 NEW)
+
 # --- Import tools ----
 
 include(../cmake/tools.cmake)
