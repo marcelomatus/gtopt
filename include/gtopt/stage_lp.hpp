@@ -7,7 +7,7 @@
  * @copyright BSD-3-Clause
  *
  * This module provides functionality for managing stages in linear programming
- * optimization problems
+ * planning problems
  */
 
 #pragma once
@@ -24,7 +24,7 @@ namespace gtopt
 {
 
 /**
- * @brief A class representing a stage in a linear programming optimization
+ * @brief A class representing a stage in a linear programming planning
  * problem
  *
  * Encapsulates a collection of blocks with time duration, discounting, and
@@ -48,61 +48,70 @@ public:
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
    */
-  template<class Blocks>
+  template<typename Blocks>
   explicit StageLP(Stage pstage,
                    const Blocks& pblocks,
                    double annual_discount_rate = 0.0)
-      : stage(std::move(pstage))
-      , block_span(
-            std::span(pblocks).subspan(stage.first_block, stage.count_block))
-      , span_duration(std::transform_reduce(block_span.begin(),
-                                            block_span.end(),
-                                            0.0,
-                                            std::plus(),
-                                            [](const auto& b)
-                                            { return b.duration(); }))
-      , annual_discount_factor(std::pow(1.0 / (1.0 + annual_discount_rate),
-                                        span_duration / hours_per_year))
+      : m_stage_(std::move(pstage))
+      , m_blocks_(std::span(pblocks).subspan(m_stage_.first_block,
+                                             m_stage_.count_block))
+      , m_timeinit_(
+            std::transform_reduce(pblocks.begin(),
+                                  pblocks.begin() + m_stage_.first_block,
+                                  0.0,
+                                  std::plus(),
+                                  [](const auto& b) { return b.duration(); }))
+      , m_duration_(std::transform_reduce(m_blocks_.begin(),
+                                          m_blocks_.end(),
+                                          0.0,
+                                          std::plus(),
+                                          [](const auto& b)
+                                          { return b.duration(); }))
+      , m_discount_factor_(std::pow(1.0 / (1.0 + annual_discount_rate),
+                                    m_timeinit_ / hours_per_year))
   {
   }
 
-  /// @return Total duration of the stage in hours
-  [[nodiscard]] constexpr auto duration() const noexcept
+  [[nodiscard]] constexpr const auto& stage() const noexcept
   {
-    return span_duration;
+    return m_stage_;
   }
+
+  [[nodiscard]] constexpr auto timeinit() const noexcept { return m_timeinit_; }
+
+  /// @return Total duration of the stage in hours
+  [[nodiscard]] constexpr auto duration() const noexcept { return m_duration_; }
 
   /// @return Combined discount factor (annual and stage-specific)
   [[nodiscard]] constexpr auto discount_factor() const noexcept
   {
-    return annual_discount_factor * stage.discount_factor.value_or(1.0);
+    return m_discount_factor_ * stage().discount_factor.value_or(1.0);
   }
 
-  /// @return Whether this stage is active in the optimization
+  /// @return Whether this stage is active in the planning
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return stage.active.value_or(true);
+    return stage().active.value_or(true);
   }
 
   /// @return Unique identifier for this stage
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return StageUid {stage.uid};
+    return StageUid {stage().uid};
   }
 
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
-    return block_span;
+    return m_blocks_;
   }
 
 private:
-  Stage stage;  ///< Stage definition
-  BlockSpan block_span;  ///< View of blocks in this stage
-
-  double span_duration {0.0};  ///< Total duration of all blocks
-  double annual_discount_factor {
-      1.0};  ///< Applied discount factor based on duration
+  Stage m_stage_;  ///< Stage definition
+  BlockSpan m_blocks_;  ///< View of blocks in this m_stage_
+  double m_timeinit_ {0.0};
+  double m_duration_ {0.0};  ///< Total duration of the m_stage_
+  double m_discount_factor_ {1.0};
 };
 
 }  // namespace gtopt

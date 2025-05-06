@@ -270,31 +270,31 @@ void LinearInterface::write_lp(const std::string& filename) const
   solver->writeLp(filename.c_str());
 }
 
-void LinearInterface::set_solver_opts(const LPOptions& lp_options)
+void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
 {
-  const auto oeps = lp_options.optimal_eps;
+  const auto oeps = solver_options.optimal_eps;
   if (oeps > 0) {
     solver->setDblParam(OsiDualTolerance, oeps);
   }
 
-  const auto feps = lp_options.feasible_eps;
+  const auto feps = solver_options.feasible_eps;
   if (feps > 0) {
     solver->setDblParam(OsiPrimalTolerance, feps);
   }
 
 #ifdef OSI_EXTENDED
-  const auto beps = lp_options.barrier_eps;
+  const auto beps = solver_options.barrier_eps;
   if (beps > 0) {
     solver->setDblParam(OsiBarrierTolerance, beps);
   }
 #endif
 
-  const auto presolve = lp_options.presolve;
+  const auto presolve = solver_options.presolve;
   solver->setHintParam(OsiDoPresolveInInitial, presolve, OsiHintDo);
 
   const bool On = true;
   const bool Off = false;
-  const auto lp_algo = lp_options.algorithm;
+  const auto lp_algo = static_cast<LPAlgo>(solver_options.algorithm);
 
   switch (lp_algo) {
     case LPAlgo::default_algo:
@@ -321,7 +321,7 @@ void LinearInterface::set_solver_opts(const LPOptions& lp_options)
     }
     case LPAlgo::barrier: {
 #ifdef OSI_EXTENDED
-      const auto threads = lp_options.threads;
+      const auto threads = solver_options.threads;
       if (threads > 0) {
         solver->setIntParam(OsiNumThreads, threads);
       }
@@ -338,21 +338,21 @@ void LinearInterface::set_solver_opts(const LPOptions& lp_options)
   }
 }
 
-bool LinearInterface::initial_solve(const LPOptions& lp_options)
+bool LinearInterface::initial_solve(const SolverOptions& solver_options)
 {
-  set_solver_opts(lp_options);
+  set_solver_opts(solver_options);
 
-  const HandlerGuard guard(*this, lp_options.log_level);
+  const HandlerGuard guard(*this, solver_options.log_level);
   solver->initialSolve();
 
   return is_optimal();
 }
 
-bool LinearInterface::resolve(const LPOptions& lp_options)
+bool LinearInterface::resolve(const SolverOptions& solver_options)
 {
-  set_solver_opts(lp_options);
+  set_solver_opts(solver_options);
 
-  const HandlerGuard guard(*this, lp_options.log_level);
+  const HandlerGuard guard(*this, solver_options.log_level);
   solver->resolve();
 
   return is_optimal();

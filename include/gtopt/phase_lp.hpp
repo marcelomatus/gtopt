@@ -26,10 +26,10 @@ namespace gtopt
 {
 /**
  * @class PhaseLP
- * @brief Represents a phase in a linear programming optimization problem
+ * @brief Represents a phase in a linear programming planning problem
  *
  * PhaseLP encapsulates a sequence of StageLP objects that form a cohesive
- * phase in the optimization process. It provides access to the contained
+ * phase in the planning process. It provides access to the contained
  * stages and calculates aggregate properties such as total duration.
  */
 class PhaseLP
@@ -101,15 +101,9 @@ public:
    */
   [[nodiscard]] constexpr auto& stages() const noexcept { return stage_span; }
 
-  [[nodiscard]] constexpr auto first_stage() const
-  {
-    return StageIndex {phase.first_stage};
-  }
+  [[nodiscard]] constexpr auto first_stage() const { return phase.first_stage; }
 
-  [[nodiscard]] constexpr auto count_stage() const
-  {
-    return static_cast<Index>(phase.count_stage);
-  }
+  [[nodiscard]] constexpr auto count_stage() const { return phase.count_stage; }
 
 private:
   Phase phase;  ///< The underlying Phase object

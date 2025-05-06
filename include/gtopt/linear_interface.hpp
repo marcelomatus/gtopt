@@ -8,7 +8,7 @@
  * This module provides a unified interface to various linear programming
  * solvers through the OSI (Open Solver Interface) library. It enables
  * problem construction, solving, and solution retrieval in a solver-agnostic
- * manner, simplifying the integration of different optimization engines.
+ * manner, simplifying the integration of different planning engines.
  */
 
 #pragma once
@@ -16,8 +16,8 @@
 #include <memory>
 
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/lp_options.hpp>
 #include <gtopt/osi_solver.hpp>
+#include <gtopt/solver_options.hpp>
 
 namespace gtopt
 {
@@ -140,17 +140,17 @@ public:
 
   /**
    * @brief Performs initial solve of the problem from scratch
-   * @param lp_options Options controlling the solve process
+   * @param solver_options Options controlling the solve process
    * @return True if the solve was successful, false otherwise
    */
-  [[nodiscard]] bool initial_solve(const LPOptions& lp_options = {});
+  [[nodiscard]] bool initial_solve(const SolverOptions& solver_options = {});
 
   /**
    * @brief Resolves the problem with updated data using warm start
-   * @param lp_options Options controlling the solve process
+   * @param solver_options Options controlling the solve process
    * @return True if the solve was successful, false otherwise
    */
-  [[nodiscard]] bool resolve(const LPOptions& lp_options = {});
+  [[nodiscard]] bool resolve(const SolverOptions& solver_options = {});
 
   /**
    * @brief Gets the condition number of the basis matrix (if available)
@@ -292,7 +292,7 @@ public:
   void set_prob_name(const std::string& pname);
 
 private:
-  void set_solver_opts(const LPOptions& lp_options);
+  void set_solver_opts(const SolverOptions& solver_options);
 
   size_t add_row(const std::string& name,
                  size_t numberElements,

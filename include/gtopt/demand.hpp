@@ -1,13 +1,13 @@
 /**
  * @file      demand.hpp
  * @brief     Header file defining demand-related structures for power system
- * optimization
+ * planning
  * @date      Thu Mar 27 09:12:21 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * This module provides structures and types to represent and manipulate
- * electrical demand entities within the optimization framework.
+ * electrical demand entities within the planning framework.
  */
 
 #pragma once

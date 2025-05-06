@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * This module implements the SystemLP class, which is responsible for creating
- * and managing the linear programming formulation of power system optimization
+ * and managing the linear programming formulation of power system planning
  * problems. It handles conversion of system components to their LP
  * representations, coordinates constraint generation across the system, and
  * provides utilities for adding constraints to the linear problem and
@@ -20,13 +20,14 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
-#include <range/v3/view/iota.hpp>  // for ranges::views::iota#include <gtopt/input_context.hpp>
+#include <range/v3/view/all.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
 #include "gtopt/scenario.hpp"
 #include "gtopt/simulation_lp.hpp"
 #include "gtopt/system_context.hpp"
+#include "gtopt/utils.hpp"
 
 namespace
 {
@@ -92,72 +93,105 @@ constexpr auto make_collection(InputContext& input_context,
 namespace gtopt
 {
 
-inline void SystemLP::initialize_collections(
-    const SystemContext& system_context)
+constexpr auto SystemLP::create_collections() -> collections_t
 {
-  InputContext input_context(system_context);
+  const auto& system_context = m_system_context_;
+  const auto& sys = system();
 
-  std::get<Collection<BusLP>>(m_collections_) =
-      make_collection<BusLP>(input_context, system().bus_array);
-  std::get<Collection<DemandLP>>(m_collections_) =
-      make_collection<DemandLP>(input_context, system().demand_array);
-  std::get<Collection<GeneratorLP>>(m_collections_) =
-      make_collection<GeneratorLP>(input_context, system().generator_array);
-  std::get<Collection<LineLP>>(m_collections_) =
-      make_collection<LineLP>(input_context, system().line_array);
-  std::get<Collection<GeneratorProfileLP>>(m_collections_) =
-      make_collection<GeneratorProfileLP>(input_context,
-                                          system().generator_profile_array);
-  std::get<Collection<DemandProfileLP>>(m_collections_) =
-      make_collection<DemandProfileLP>(input_context,
-                                       system().demand_profile_array);
-  std::get<Collection<BatteryLP>>(m_collections_) =
-      make_collection<BatteryLP>(input_context, system().battery_array);
-  std::get<Collection<ConverterLP>>(m_collections_) =
-      make_collection<ConverterLP>(input_context, system().converter_array);
-  std::get<Collection<ReserveZoneLP>>(m_collections_) =
-      make_collection<ReserveZoneLP>(input_context,
-                                     system().reserve_zone_array);
-  std::get<Collection<ReserveProvisionLP>>(m_collections_) =
-      make_collection<ReserveProvisionLP>(input_context,
-                                          system().reserve_provision_array);
-}
+  InputContext ic(system_context);
+  collections_t colls;
+
+  std::get<Collection<BusLP>>(colls) =
+      make_collection<BusLP>(ic, sys.bus_array);
+  std::get<Collection<DemandLP>>(colls) =
+      make_collection<DemandLP>(ic, sys.demand_array);
+  std::get<Collection<GeneratorLP>>(colls) =
+      make_collection<GeneratorLP>(ic, sys.generator_array);
+  std::get<Collection<LineLP>>(colls) =
+      make_collection<LineLP>(ic, sys.line_array);
+  std::get<Collection<GeneratorProfileLP>>(colls) =
+      make_collection<GeneratorProfileLP>(ic, sys.generator_profile_array);
+  std::get<Collection<DemandProfileLP>>(colls) =
+      make_collection<DemandProfileLP>(ic, sys.demand_profile_array);
+  std::get<Collection<BatteryLP>>(colls) =
+      make_collection<BatteryLP>(ic, sys.battery_array);
+  std::get<Collection<ConverterLP>>(colls) =
+      make_collection<ConverterLP>(ic, sys.converter_array);
+  std::get<Collection<ReserveZoneLP>>(colls) =
+      make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
+  std::get<Collection<ReserveProvisionLP>>(colls) =
+      make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
 
 #ifdef GTOPT_EXTRA
-void SystemLP::initialize_extra_collections()
-{
-  InputContext input_context(options(), *this);
-
-  std::get<Collection<JunctionLP>>(m_collections_) =
-      make_collection<JunctionLP>(input_context, m_system_.junctions);
-  std::get<Collection<WaterwayLP>>(m_collections_) =
-      make_collection<WaterwayLP>(input_context, m_system_.waterways);
-  std::get<Collection<InflowLP>>(m_collections_) =
-      make_collection<InflowLP>(input_context, m_system_.inflows);
-  std::get<Collection<OutflowLP>>(m_collections_) =
-      make_collection<OutflowLP>(input_context, m_system_.outflows);
-  std::get<Collection<ReservoirLP>>(m_collections_) =
-      make_collection<ReservoirLP>(input_context, m_system_.reservoirs);
-  std::get<Collection<FiltrationLP>>(m_collections_) =
-      make_collection<FiltrationLP>(input_context, m_system_.filtrations);
-  std::get<Collection<TurbineLP>>(m_collections_) =
-      make_collection<TurbineLP>(input_context, m_system_.turbines);
-  std::get<Collection<EmissionZoneLP>>(m_collections_) =
-      make_collection<EmissionZoneLP>(input_context, m_system_.emission_zones);
-  std::get<Collection<GeneratorEmissionLP>>(m_collections_) =
-      make_collection<GeneratorEmissionLP>(input_context,
-                                           m_system_.generator_emissions);
-  std::get<Collection<DemandEmissionLP>>(m_collections_) =
-      make_collection<DemandEmissionLP>(input_context,
-                                        m_system_.demand_emissions);
-}
+  std::get<Collection<JunctionLP>>(colls) =
+      make_collection<JunctionLP>(ic, sys.junctions);
+  std::get<Collection<WaterwayLP>>(colls) =
+      make_collection<WaterwayLP>(ic, sys.waterways);
+  std::get<Collection<InflowLP>>(colls) =
+      make_collection<InflowLP>(ic, sys.inflows);
+  std::get<Collection<OutflowLP>>(colls) =
+      make_collection<OutflowLP>(ic, sys.outflows);
+  std::get<Collection<ReservoirLP>>(colls) =
+      make_collection<ReservoirLP>(ic, sys.reservoirs);
+  std::get<Collection<FiltrationLP>>(colls) =
+      make_collection<FiltrationLP>(ic, sys.filtrations);
+  std::get<Collection<TurbineLP>>(colls) =
+      make_collection<TurbineLP>(ic, sys.turbines);
+  std::get<Collection<EmissionZoneLP>>(colls) =
+      make_collection<EmissionZoneLP>(ic, sys.emission_zones);
+  std::get<Collection<GeneratorEmissionLP>>(colls) =
+      make_collection<GeneratorEmissionLP>(ic, sys.generator_emissions);
+  std::get<Collection<DemandEmissionLP>>(colls) =
+      make_collection<DemandEmissionLP>(ic, sys.demand_emissions);
 #endif
 
-SystemLP::SystemLP(System system, const SimulationLP& simulation)
-    : m_system_(std::move(system))
-    , m_system_context_(simulation, *this)
+  return colls;
+}
+
+/// Creates linear interfaces for each phase in the simulation by constructing
+/// and flattening LinearProblem instances.
+///
+/// @param simulation The simulation containing phases, stages, and scenarios
+/// @return Vector of LinearInterface objects, one per simulation phase
+constexpr std::vector<LinearInterface> SystemLP::create_linear_interfaces(
+    const SimulationLP& simulation, const FlatOptions& flat_opts)
 {
-  initialize_collections(m_system_context_);
+  std::vector<LinearInterface> linear_interfaces;
+  const auto& phases = simulation.phases();
+  linear_interfaces.reserve(phases.size());
+
+  constexpr size_t reserve_size = 1'024;  // Pre-allocate memory for efficiency
+
+  for (const auto& phase : phases) {
+    LinearProblem lp(system().name, reserve_size);
+
+    // Process all active stages in phase
+    for (auto&& [stage_index, stage] :
+         enumerate_active<StageIndex>(phase.stages()))
+    {
+      // Process all active scenarios in simulation
+      for (auto&& [scenario_index, scenario] :
+           enumerate_active<ScenarioIndex>(simulation.scenarios()))
+      {
+        add_to_lp(m_system_context_, scenario_index, stage_index, lp);
+      }
+    }
+
+    // Convert and store the flattened LP representation
+    linear_interfaces.emplace_back(lp.to_flat(flat_opts));
+  }
+
+  return linear_interfaces;
+}
+
+SystemLP::SystemLP(const System& system,
+                   const SimulationLP& simulation,
+                   const FlatOptions& flat_opts)
+    : m_system_(system)
+    , m_system_context_(simulation, *this)
+    , m_collections_(create_collections())
+    , m_linear_interfaces_(create_linear_interfaces(simulation, flat_opts))
+{
 }
 
 void SystemLP::add_to_lp(const SystemContext& system_context,
@@ -187,34 +221,6 @@ void SystemLP::add_to_lp(const SystemContext& system_context,
   visit_elements(m_collections_, visitor);
 }
 
-void SystemLP::create_linear_problems(const SimulationLP& simulation,
-                                      const SceneLP& scene,
-                                      const std::vector<PhaseLP>& phases)
-{
-  std::vector<LinearInterface> linear_problems;
-  linear_problems.reserve(phases.size());
-
-  SystemContext system_context(simulation, *this);
-  for (const auto scenario_index :
-       ranges::views::iota(0, scene.count_scenario())
-           | ranges::views::transform([](auto i) { return ScenarioIndex {i}; }))
-  {
-    LinearProblem lp;
-    for (const auto& phase : phases) {
-      for (const auto stage_index : ranges::views::iota(0, phase.count_stage())
-               | ranges::views::transform([](auto i)
-                                          { return StageIndex {i}; }))
-      {
-        add_to_lp(system_context, scenario_index, stage_index, lp);
-      }
-    }
-
-    linear_problems.emplace_back(lp.to_flat());
-  }
-
-  m_linear_problems_ = std::move(linear_problems);
-}
-
 constexpr void SystemLP::write_out(const SystemContext& system_context,
                                    const LinearInterface& li) const
 {
@@ -228,15 +234,23 @@ constexpr void SystemLP::write_out(const SystemContext& system_context,
 
 void SystemLP::write_out() const
 {
-  for (auto&& li : m_linear_problems_) {
+  for (auto&& li : m_linear_interfaces_) {
     write_out(m_system_context_, li);
   }
 }
 
-bool SystemLP::solve_linear_problems()
+void SystemLP::write_lp(const std::string& filename) const
 {
-  for (auto&& lp : m_linear_problems_) {
-    auto result = lp.resolve();
+  for (auto&& [index, li] : enumerate(m_linear_interfaces_)) {
+    const auto fname = fmt::format("{}_{}", filename, index);
+    li.write_lp(fname);
+  }
+}
+
+bool SystemLP::resolve(const SolverOptions& lp_opts)
+{
+  for (auto&& lp : m_linear_interfaces_) {
+    auto result = lp.resolve(lp_opts);
     if (!result) {
       return result;
     }

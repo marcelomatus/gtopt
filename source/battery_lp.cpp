@@ -17,7 +17,6 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -66,7 +65,7 @@ bool BatteryLP::add_to_lp(const SystemContext& sc,
   for (auto&& name :
        blocks
            | std::views::transform(
-               [&](auto&& b)
+               [&](const auto& b)
                {
                  return sc.stb_label(
                      scenario_index, stage_index, b, cname, "flow", uid());
@@ -103,7 +102,7 @@ bool BatteryLP::add_to_lp(const SystemContext& sc,
  * @param out Output context to add results to
  * @return True if successful, false otherwise
  *
- * Processes optimization results for:
+ * Processes planning results for:
  * - Flow variables (charge/discharge decisions)
  * - Storage levels
  * - Capacity-related outputs

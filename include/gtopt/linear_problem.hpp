@@ -1,12 +1,12 @@
 /**
  * @file      linear_problem.hpp
- * @brief     Header defining data structures for sparse linear optimization
+ * @brief     Header defining data structures for sparse linear planning
  * problems
  * @date      Sun Mar 23 14:50:34 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module provides representations for sparse linear optimization problems,
+ * This module provides representations for sparse linear planning problems,
  * including data structures for rows, columns, and matrices, as well as
  * conversion utilities for different problem formats.
  */
@@ -271,7 +271,7 @@ struct FlatOptions
 
 /**
  * @class LinearProblem
- * @brief Main class for building and manipulating linear optimization problems
+ * @brief Main class for building and manipulating linear planning problems
  *
  * This class provides functionality to construct a linear problem by adding
  * variables (columns) and constraints (rows), setting coefficients, and

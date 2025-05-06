@@ -4,6 +4,8 @@ project(gtoptTests LANGUAGES CXX)
 
 # ---- Options ----
 
+set(CMAKE_BUILD_TYPE Debug)
+
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)

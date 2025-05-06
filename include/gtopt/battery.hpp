@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * This module defines data structures for representing battery energy storage
- * systems in power system optimization models. Batteries are modeled with
+ * systems in power system planning models. Batteries are modeled with
  * energy storage capabilities, efficiency parameters, and expansion options.
  *
  * @details Batteries in power systems provide services like energy arbitrage,
@@ -24,7 +24,7 @@ namespace gtopt
 /**
  * @struct Battery
  * @brief Represents a battery energy storage system in a power system
- * optimization model
+ * planning model
  *
  * @details This structure defines a complete battery entity with
  * identification, technical parameters, and economic attributes.
@@ -33,7 +33,7 @@ namespace gtopt
  * its operational constraints. The state of charge is tracked between time
  * periods, accounting for efficiency losses.
  *
- * @see BatteryLP for optimization model formulation
+ * @see BatteryLP for planning model formulation
  */
 struct Battery
 {

@@ -2,7 +2,7 @@
 
 # Gtopt
 
-a new C++ generation and transmission optimization project.
+a new C++ generation and transmission planning project.
 
 ## Features
 

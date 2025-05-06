@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * This module defines data structures for representing transmission lines
- * in power system optimization models.
+ * in power system planning models.
  */
 
 #pragma once
@@ -18,7 +18,7 @@ namespace gtopt
 
 /**
  * @struct Line
- * @brief Represents a transmission line in a power system optimization model
+ * @brief Represents a transmission line in a power system planning model
  */
 struct Line
 {

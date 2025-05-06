@@ -11,7 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/lp_options.hpp>
+#include <gtopt/solver_options.hpp>
 
 TEST_CASE("LinearInterface - Constructor and basic operations")
 {
@@ -96,7 +96,7 @@ TEST_CASE("LinearInterface - LP solution")
   interface.add_row(row1);
 
   // Solve the problem
-  LPOptions options;
+  SolverOptions options;
 
   const bool status = interface.initial_solve(options);
   REQUIRE(status);

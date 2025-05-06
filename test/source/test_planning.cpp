@@ -1,28 +1,28 @@
 /**
- * @file      test_optimization.cpp
- * @brief     Unit tests for the Optimization class
+ * @file      test_planning.cpp
+ * @brief     Unit tests for the Planning class
  * @date      Fri May  2 20:35:00 2025
  * @author    Claude
  * @copyright BSD-3-Clause
  *
- * This module contains the unit tests for the Optimization class.
+ * This module contains the unit tests for the Planning class.
  */
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_optimization.hpp>
-#include <gtopt/optimization.hpp>
+#include <gtopt/json/json_planning.hpp>
+#include <gtopt/planning.hpp>
 
-TEST_CASE("Optimization - Default construction")
+TEST_CASE("Planning - Default construction")
 {
   using namespace gtopt;
 
-  Optimization opt {};
+  Planning opt {};
 
-  // Default optimization should have empty components
+  // Default planning should have empty components
   CHECK(opt.system.name.empty());
 }
 
-TEST_CASE("Optimization - Construction with properties")
+TEST_CASE("Planning - Construction with properties")
 {
   using namespace gtopt;
 
@@ -34,29 +34,28 @@ TEST_CASE("Optimization - Construction with properties")
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   System system {.name = "TestSystem", .bus_array = bus_array};
 
-  // Create optimization with components
-  Optimization opt {
-      .options = options, .simulation = simulation, .system = system};
+  // Create planning with components
+  Planning opt {.options = options, .simulation = simulation, .system = system};
 
-  // Verify the optimization properties
+  // Verify the planning properties
   CHECK(opt.system.name == "TestSystem");
   REQUIRE(opt.system.bus_array.size() == 1);
   CHECK(opt.system.bus_array[0].name == "b1");
 }
 
-TEST_CASE("Optimization - Merge operation")
+TEST_CASE("Planning - Merge operation")
 {
   using namespace gtopt;
 
-  // Create first optimization
-  Optimization opt1 {
+  // Create first planning
+  Planning opt1 {
       .options = {}, .simulation = {}, .system = {.name = "Opt1System"}};
 
-  // Create second optimization with different components
+  // Create second planning with different components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  Optimization opt2 {.options = {},
-                     .simulation = {},
-                     .system = {.name = "Opt2System", .bus_array = bus_array}};
+  Planning opt2 {.options = {},
+                 .simulation = {},
+                 .system = {.name = "Opt2System", .bus_array = bus_array}};
 
   // Merge second into first
   opt1.merge(opt2);
@@ -69,23 +68,22 @@ TEST_CASE("Optimization - Merge operation")
   CHECK(opt1.system.bus_array[0].name == "b1");
 }
 
-TEST_CASE("Optimization - JSON serialization/deserialization")
+TEST_CASE("Planning - JSON serialization/deserialization")
 {
   using namespace gtopt;
 
-  // Create optimization with components
+  // Create planning with components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
-  Optimization original {
-      .options = {},
-      .simulation = {},
-      .system = {.name = "JsonSystem", .bus_array = bus_array}};
+  Planning original {.options = {},
+                     .simulation = {},
+                     .system = {.name = "JsonSystem", .bus_array = bus_array}};
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(original);
 
   // Should be able to deserialize back to an object
-  const auto deserialized = daw::json::from_json<Optimization>(json_data);
+  const auto deserialized = daw::json::from_json<Planning>(json_data);
 
   // Verify the deserialized object
   CHECK(deserialized.system.name == "JsonSystem");

@@ -1,12 +1,12 @@
 /**
  * @file      basic_types.hpp
- * @brief     Fundamental type definitions for power system optimization
+ * @brief     Fundamental type definitions for power system planning
  * @date      Tue Mar 18 13:10:21 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * This module provides the basic types and type aliases used throughout the
- * gtopt codebase for power system optimization modeling. It includes numeric
+ * gtopt codebase for power system planning modeling. It includes numeric
  * types, string types, optional variants, and strong types for type safety.
  */
 

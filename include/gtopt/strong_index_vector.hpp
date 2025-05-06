@@ -22,7 +22,7 @@ namespace gtopt
  * A vector that enforces access through a strongly-typed index.
  * Inherits privately from std::vector to ensure type safety.
  * Implements efficient move operations marked with noexcept to
- * enable compiler optimizations.
+ * enable compiler plannings.
  */
 template<typename Index, typename T>
 class StrongIndexVector : private std::vector<T>

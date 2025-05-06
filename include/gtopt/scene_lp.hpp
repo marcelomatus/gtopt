@@ -8,7 +8,7 @@
  *
  * This module provides a logical view of a Scene combined with its associated
  * ScenarioLP elements, enabling efficient access and management of scene
- * components for linear programming optimization.
+ * components for linear programming planning.
  */
 
 #pragma once

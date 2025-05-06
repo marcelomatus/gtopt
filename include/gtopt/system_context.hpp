@@ -7,7 +7,7 @@
  * @copyright BSD-3-Clause
  *
  * This module provides the SystemContext class which represents the current
- * execution context for a power system optimization problem, including the
+ * execution context for a power system planning problem, including the
  * active scenario, stage, and block information. It also defines ElementTraits
  * for accessing system elements.
  */

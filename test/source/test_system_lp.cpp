@@ -72,7 +72,7 @@ TEST_CASE("SystemLP 1")
 
   // lp_interface.write_lp("system4");
 
-  const LPOptions lp_opts {};
+  const SolverOptions lp_opts {};
 
   const auto status = lp_interface.resolve(lp_opts);
   REQUIRE(status == 1);
