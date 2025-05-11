@@ -19,6 +19,8 @@
 
 #include <span>
 
+#include "gtopt/simulation.hpp"
+
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <range/v3/all.hpp>
@@ -27,60 +29,65 @@
 namespace gtopt
 {
 
-constexpr std::vector<BlockLP> SimulationLP::create_block_array()
+namespace
 {
-  return simulation().block_array | ranges::views::move
+constexpr std::vector<BlockLP> create_block_array(const auto& simulation)
+{
+  return simulation.block_array | ranges::views::move
       | ranges::views::transform(
              [](auto&& s) { return BlockLP {std::forward<decltype(s)>(s)}; })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<StageLP> SimulationLP::create_stage_array()
+constexpr std::vector<StageLP> create_stage_array(const auto& simulation,
+                                                  const auto& options,
+                                                  const auto& block_array)
 {
-  return simulation().stage_array | ranges::views::move
+  return simulation.stage_array | ranges::views::move
       | ranges::views::transform(
-             [this](auto&& s)
+             [&](auto&& s)
              {
                return StageLP {std::forward<decltype(s)>(s),
-                               m_block_array_,
-                               options().annual_discount_rate()};
+                               block_array,
+                               options.annual_discount_rate()};
              })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<ScenarioLP> SimulationLP::create_scenario_array(
-    const Scene& scene)
+constexpr std::vector<ScenarioLP> create_scenario_array(const auto& simulation,
+                                                        const auto& stage_array,
+                                                        const Scene& scene)
 {
-  return std::span(simulation().scenario_array)
+  return std::span(simulation.scenario_array)
       | ranges::views::drop(scene.first_scenario)
       | ranges::views::take(scene.count_scenario) | ranges::views::move
       | ranges::views::transform(
-             [this](auto&& s)
-             {
-               return ScenarioLP {std::forward<decltype(s)>(s), m_stage_array_};
-             })
+             [&](auto&& s)
+             { return ScenarioLP {std::forward<decltype(s)>(s), stage_array}; })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<PhaseLP> SimulationLP::create_phase_array()
+constexpr std::vector<PhaseLP> create_phase_array(const auto& simulation,
+                                                  const auto& stage_array)
 {
-  return simulation().phase_array | ranges::views::move
+  return simulation.phase_array | ranges::views::move
       | ranges::views::transform(
-             [this](auto&& s)
-             { return PhaseLP {std::forward<decltype(s)>(s), m_stage_array_}; })
+             [&](auto&& s)
+             { return PhaseLP {std::forward<decltype(s)>(s), stage_array}; })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<SceneLP> SimulationLP::create_scene_array()
+constexpr std::vector<SceneLP> create_scene_array(const auto& simulation,
+                                                  const auto& scenario_array)
 {
-  return simulation().scene_array | ranges::views::move
+  return simulation.scene_array | ranges::views::move
       | ranges::views::transform(
-             [this](auto&& s)
-             {
-               return SceneLP {std::forward<decltype(s)>(s), m_scenario_array_};
-             })
+             [&](auto&& s)
+             { return SceneLP {std::forward<decltype(s)>(s), scenario_array}; })
       | ranges::to<std::vector>();
 }
+
+}  // namespace
 
 constexpr void SimulationLP::validate_components()
 {
@@ -112,16 +119,18 @@ constexpr void SimulationLP::validate_components()
  * all components (buses, generators, lines, etc.) and their attributes.
  */
 
-SimulationLP::SimulationLP(const Simulation& simulation,
-                           const OptionsLP& options,
-                           const Scene& scene)
-    : m_simulation_(simulation)
-    , m_options_(options)
-    , m_block_array_(create_block_array())
-    , m_stage_array_(create_stage_array())
-    , m_scenario_array_(create_scenario_array(scene))
-    , m_phase_array_(create_phase_array())
-    , m_scene_array_(create_scene_array())
+SimulationLP::SimulationLP(const Simulation& psimulation,
+                           const OptionsLP& poptions,
+                           const Scene& pscene)
+    : m_simulation_(psimulation)
+    , m_options_(poptions)
+    , m_block_array_(create_block_array(simulation()))
+    , m_stage_array_(
+          create_stage_array(simulation(), options(), m_block_array_))
+    , m_scenario_array_(
+          create_scenario_array(simulation(), m_stage_array_, pscene))
+    , m_phase_array_(create_phase_array(simulation(), m_stage_array_))
+    , m_scene_array_(create_scene_array(simulation(), m_scenario_array_))
 {
   // validate_components();
 }

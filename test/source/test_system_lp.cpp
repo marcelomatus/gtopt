@@ -53,24 +53,13 @@ TEST_CASE("SystemLP 1")
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
-  SystemContext sc(simulation_lp, system_lp);
+  auto&& lp_interfaces = system_lp.linear_interfaces();
+  REQUIRE(lp_interfaces.size() == 1);
 
-  LinearProblem linear_problem;
-  REQUIRE(linear_problem.get_numrows() == 0);
+  auto&& lp_interface = lp_interfaces[0];
+  REQUIRE(lp_interface.get_numrows() == 3);
 
-  system_lp.add_to_lp(sc, ScenarioIndex {0}, StageIndex {0}, linear_problem);
-  REQUIRE(linear_problem.get_numrows() == 1);
-
-  system_lp.add_to_lp(sc, ScenarioIndex {0}, StageIndex {1}, linear_problem);
-
-  REQUIRE(linear_problem.get_numrows() == 3);
-
-  auto flat_lp =
-      linear_problem.to_flat({.col_with_names = true, .row_with_names = true});
-
-  LinearInterface lp_interface(flat_lp);
-
-  // lp_interface.write_lp("system4");
+  REQUIRE(lp_interface.get_numrows() == 3);
 
   const SolverOptions lp_opts {};
 

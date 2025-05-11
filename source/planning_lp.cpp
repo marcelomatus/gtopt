@@ -7,23 +7,21 @@
  *
  */
 
-#include <filesystem>
-
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
-#include "gtopt/simulation.hpp"
-#include "gtopt/solver_options.hpp"
-
 namespace gtopt
 {
 
-constexpr std::vector<SimulationLP> PlanningLP::create_simulations() const
+namespace
 {
-  const auto& simulation = m_planning_.simulation;
+
+constexpr auto create_simulations(const auto& simulation, const auto& options)
+{
   const auto& scenes = simulation.scene_array;
   const auto n_size = scenes.size();
 
@@ -31,23 +29,23 @@ constexpr std::vector<SimulationLP> PlanningLP::create_simulations() const
   simulations.reserve(n_size);
 
   for (auto&& scene : scenes) {
-    simulations.emplace_back(simulation, options(), scene);
+    simulations.emplace_back(simulation, options, scene);
   }
 
   return simulations;
 }
 
-constexpr std::vector<SystemLP> PlanningLP::create_systems(
-    const FlatOptions& flat_opts)
+constexpr auto create_systems(auto& system,
+                              const auto& simulations,
+                              const auto& options,
+                              const FlatOptions& flat_opts)
 {
-  auto& system = m_planning_.system;
-  const auto& simulations = m_simulations_;
   const auto n_size = simulations.size();
 
   std::vector<SystemLP> systems;
   systems.reserve(n_size);
 
-  system.setup_reference_bus(options());
+  system.setup_reference_bus(options);
 
   for (auto&& simulation_lp : simulations) {
     systems.emplace_back(system, simulation_lp, flat_opts);
@@ -56,11 +54,14 @@ constexpr std::vector<SystemLP> PlanningLP::create_systems(
   return systems;
 }
 
+}  // namespace
+
 PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
     : m_planning_(std::move(planning))
     , m_options_(m_planning_.options)
-    , m_simulations_(create_simulations())
-    , m_systems_(create_systems(flat_opts))
+    , m_simulations_(create_simulations(m_planning_.simulation, m_options_))
+    , m_systems_(create_systems(
+          m_planning_.system, m_simulations_, m_options_, flat_opts))
 {
 }
 

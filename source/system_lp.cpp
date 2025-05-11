@@ -88,18 +88,76 @@ constexpr auto make_collection(InputContext& input_context,
   return Collection<Out> {};
 }
 
-}  // namespace
+//
+//
+//
 
-namespace gtopt
+constexpr void add_to_lp(auto& collections,
+                         const SystemContext& system_context,
+                         const ScenarioIndex& scenario_index,
+                         const StageIndex& stage_index,
+                         LinearProblem& lp)
 {
+  const bool use_single_bus = system_context.options().use_single_bus();
 
-constexpr auto SystemLP::create_collections() -> collections_t
+  auto visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+
+    if constexpr (std::is_same_v<T, BusLP>) {
+      return !use_single_bus || system_context.is_single_bus(e.id())
+          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
+          : true;
+    } else if constexpr (std::is_same_v<T, LineLP>) {
+      return !use_single_bus
+          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
+          : true;
+    } else {
+      return e.add_to_lp(system_context, scenario_index, stage_index, lp);
+    }
+  };
+
+  visit_elements(collections, visitor);
+}
+
+constexpr auto create_linear_interfaces(auto& collections,
+                                        const auto& system_context,
+                                        const auto& system,
+                                        const auto& simulation,
+                                        const auto& flat_opts)
 {
-  const auto& system_context = m_system_context_;
-  const auto& sys = system();
+  std::vector<LinearInterface> linear_interfaces;
+  const auto& phases = simulation.phases();
+  linear_interfaces.reserve(phases.size());
 
+  constexpr size_t reserve_size = 1'024;  // Pre-allocate memory for efficiency
+
+  for (const auto& phase : phases) {
+    LinearProblem lp(system.name, reserve_size);
+
+    // Process all active stages in phase
+    for (auto&& [stage_index, stage] :
+         enumerate_active<StageIndex>(phase.stages()))
+    {
+      // Process all active scenarios in simulation
+      for (auto&& [scenario_index, scenario] :
+           enumerate_active<ScenarioIndex>(simulation.scenarios()))
+      {
+        add_to_lp(collections, system_context, scenario_index, stage_index, lp);
+      }
+    }
+
+    // Convert and store the flattened LP representation
+    linear_interfaces.emplace_back(lp.to_flat(flat_opts));
+  }
+
+  return linear_interfaces;
+}
+
+constexpr auto create_collections(const auto& system_context, const auto& sys)
+{
   InputContext ic(system_context);
-  collections_t colls;
+  SystemLP::collections_t colls;
 
   std::get<Collection<BusLP>>(colls) =
       make_collection<BusLP>(ic, sys.bus_array);
@@ -148,94 +206,31 @@ constexpr auto SystemLP::create_collections() -> collections_t
   return colls;
 }
 
-/// Creates linear interfaces for each phase in the simulation by constructing
-/// and flattening LinearProblem instances.
-///
-/// @param simulation The simulation containing phases, stages, and scenarios
-/// @return Vector of LinearInterface objects, one per simulation phase
-constexpr std::vector<LinearInterface> SystemLP::create_linear_interfaces(
-    const SimulationLP& simulation, const FlatOptions& flat_opts)
+}  // namespace
+
+namespace gtopt
 {
-  std::vector<LinearInterface> linear_interfaces;
-  const auto& phases = simulation.phases();
-  linear_interfaces.reserve(phases.size());
-
-  constexpr size_t reserve_size = 1'024;  // Pre-allocate memory for efficiency
-
-  for (const auto& phase : phases) {
-    LinearProblem lp(system().name, reserve_size);
-
-    // Process all active stages in phase
-    for (auto&& [stage_index, stage] :
-         enumerate_active<StageIndex>(phase.stages()))
-    {
-      // Process all active scenarios in simulation
-      for (auto&& [scenario_index, scenario] :
-           enumerate_active<ScenarioIndex>(simulation.scenarios()))
-      {
-        add_to_lp(m_system_context_, scenario_index, stage_index, lp);
-      }
-    }
-
-    // Convert and store the flattened LP representation
-    linear_interfaces.emplace_back(lp.to_flat(flat_opts));
-  }
-
-  return linear_interfaces;
-}
 
 SystemLP::SystemLP(const System& system,
                    const SimulationLP& simulation,
                    const FlatOptions& flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)
-    , m_collections_(create_collections())
-    , m_linear_interfaces_(create_linear_interfaces(simulation, flat_opts))
+    , m_collections_(create_collections(m_system_context_, system))
+    , m_linear_interfaces_(create_linear_interfaces(
+          m_collections_, m_system_context_, system, simulation, flat_opts))
 {
-}
-
-void SystemLP::add_to_lp(const SystemContext& system_context,
-                         const ScenarioIndex& scenario_index,
-                         const StageIndex& stage_index,
-                         LinearProblem& lp)
-{
-  const bool use_single_bus = system_context.options().use_single_bus();
-
-  auto visitor = [&](auto& e) -> bool
-  {
-    using T = std::decay_t<decltype(e)>;
-
-    if constexpr (std::is_same_v<T, BusLP>) {
-      return !use_single_bus || system_context.is_single_bus(e.id())
-          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
-          : true;
-    } else if constexpr (std::is_same_v<T, LineLP>) {
-      return !use_single_bus
-          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
-          : true;
-    } else {
-      return e.add_to_lp(system_context, scenario_index, stage_index, lp);
-    }
-  };
-
-  visit_elements(m_collections_, visitor);
-}
-
-constexpr void SystemLP::write_out(const SystemContext& system_context,
-                                   const LinearInterface& li) const
-{
-  OutputContext oc(system_context, li);
-
-  visit_elements(m_collections_,
-                 [&oc](const auto& e) { return e.add_to_output(oc); });
-
-  oc.write();
 }
 
 void SystemLP::write_out() const
 {
   for (auto&& li : m_linear_interfaces_) {
-    write_out(m_system_context_, li);
+    OutputContext oc(m_system_context_, li);
+
+    visit_elements(m_collections_,
+                   [&oc](const auto& e) { return e.add_to_output(oc); });
+
+    oc.write();
   }
 }
 
@@ -247,15 +242,23 @@ void SystemLP::write_lp(const std::string& filename) const
   }
 }
 
-bool SystemLP::resolve(const SolverOptions& lp_opts)
+/**
+ * @brief Resolves all linear programming interfaces with given solver
+ * options
+ *
+ * Attempts to solve each linear programming problem in the system using the
+ * provided solver options. Returns true only if all problems were solved
+ * successfully.
+ *
+ * @param solver_options Configuration options for the LP solver
+ * @return true if all LP problems were solved successfully
+ * @return false if any LP problem failed to solve
+ */
+bool SystemLP::resolve(const SolverOptions& solver_options)
 {
-  for (auto&& lp : m_linear_interfaces_) {
-    auto result = lp.resolve(lp_opts);
-    if (!result) {
-      return result;
-    }
-  }
-  return true;
+  return ranges::all_of(m_linear_interfaces_,
+                        [&solver_options](auto& interface)
+                        { return interface.resolve(solver_options); });
 }
 
 }  // namespace gtopt
