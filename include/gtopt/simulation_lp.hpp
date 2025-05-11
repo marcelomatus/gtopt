@@ -1,17 +1,20 @@
 /**
  * @file      simulation.hpp
  * @brief     Linear programming simulation for power system planning
- * @date      Sun Apr  6 18:18:54 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
+ * @version   1.0.0
+ * @date      Sun Apr  6 18:18:54 2025
  *
- * This module provides functionality for creating, solving, and analyzing
- * linear programming models for power system planning.
+ * Provides functionality for creating, solving, and analyzing linear
+ * programming models for power system planning with strong exception safety
+ * guarantees.
  */
+
 #pragma once
 
-#include <expected>
 #include <functional>
+#include <vector>
 
 #include <gtopt/block_lp.hpp>
 #include <gtopt/options_lp.hpp>
@@ -24,123 +27,110 @@
 namespace gtopt
 {
 
+/**
+ * @class SimulationLP
+ * @brief Linear programming representation of a power system simulation
+ *
+ * Encapsulates the LP transformation of a power system simulation model,
+ * providing access to all components in their LP form. Maintains references
+ * to the original simulation and options objects.
+ */
 class SimulationLP
 {
-  /**
-   * @brief Creates LP representation of blocks from system blocks
-   * @return Vector of BlockLP objects
-   */
-  constexpr std::vector<BlockLP> create_block_array();
-
-  /**
-   * @brief Creates LP representation of stages from system stages
-   * @return Vector of StageLP objects
-   */
-  constexpr std::vector<StageLP> create_stage_array();
-
-  /**
-   * @brief Creates LP representation of scenarios from system scenarios
-   * @return Vector of ScenarioLP objects
-   */
-  constexpr std::vector<ScenarioLP> create_scenario_array(const Scene& scene);
-
-  /**
-   * @brief Creates LP representation of phases from system phases
-   * @return Vector of PhaseLP objects
-   */
-  constexpr std::vector<PhaseLP> create_phase_array();
-
-  /**
-   * @brief Creates LP representation of scenes from system scenes
-   * @return Vector of SceneLP objects
-   */
-  constexpr std::vector<SceneLP> create_scene_array();
-
-  /**
-   * @brief Validates components for consistency
-   * @throws std::runtime_error if validation fails
-   */
-  constexpr void validate_components();
-
 public:
-  /** @brief Move constructor */
   SimulationLP(SimulationLP&&) noexcept = default;
-
-  /** @brief Copy constructor */
   SimulationLP(const SimulationLP&) = default;
-
-  /** @brief Default constructor deleted - must initialize with a Simulation */
   SimulationLP() = delete;
-
-  /** @brief Move assignment operator */
   constexpr SimulationLP& operator=(SimulationLP&&) noexcept = default;
-
-  /** @brief Copy assignment operator */
   constexpr SimulationLP& operator=(const SimulationLP&) noexcept = default;
-
-  /** @brief Destructor */
-  ~SimulationLP() = default;
+  ~SimulationLP() noexcept = default;
 
   /**
-   * @brief Constructor that initializes the SimulationLP with a Simulation
-   * @param simulation
-   *
-   * Creates a SimulationLP representation from the provided simulation and
-   * prepares the simulation environment.
+   * @brief Constructs a SimulationLP from a Simulation
+   * @param simulation Reference to the base simulation model
+   * @param options Reference to LP solver options
+   * @param scene Optional scene for scenario creation (default empty)
+   * @throws std::runtime_error If component validation fails
+   * @throws std::bad_alloc If memory allocation fails
    */
-  explicit SimulationLP(const Simulation& simulation,
-                        const OptionsLP& options,
-                        const Scene& scene = {});
+  explicit SimulationLP(const Simulation& psimulation,
+                        const OptionsLP& poptions,
+                        const Scene& pscene = {});
 
+  // Accessors
+  /**
+   * @brief Gets the underlying simulation model
+   * @return Reference to the simulation object
+   */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& simulation(this Self& self)
+  [[nodiscard]] constexpr auto&& simulation(this Self& self) noexcept
   {
     return std::forward<Self>(self).m_simulation_.get();
   }
 
   /**
-   * @brief Gets system options LP representation
-   * @return Reference to the options object
+   * @brief Gets the LP solver options
+   * @return Const reference to the options object
    */
-  [[nodiscard]] constexpr const auto& options() const
+  [[nodiscard]] constexpr const OptionsLP& options() const noexcept
   {
     return m_options_.get();
   }
 
   /**
-   * @brief Gets all scene LP objects
-   * @return Reference to the vector of SceneLP objects
+   * @brief Gets all scene LP representations
+   * @return Const reference to vector of SceneLP objects
    */
-  [[nodiscard]] constexpr const auto& scenes() const { return m_scene_array_; }
+  [[nodiscard]] constexpr const std::vector<SceneLP>& scenes() const noexcept
+  {
+    return m_scene_array_;
+  }
 
   /**
-   * @brief Gets all scenario LP objects
-   * @return Reference to the vector of ScenarioLP objects
+   * @brief Gets all scenario LP representations
+   * @return Const reference to vector of ScenarioLP objects
    */
-  [[nodiscard]] constexpr const auto& scenarios() const
+  [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
+      const noexcept
   {
     return m_scenario_array_;
   }
 
   /**
-   * @brief Gets all phase LP objects
-   * @return Reference to the vector of PhaseLP objects
+   * @brief Gets all phase LP representations
+   * @return Const reference to vector of PhaseLP objects
    */
-  [[nodiscard]] constexpr const auto& phases() const { return m_phase_array_; }
+  [[nodiscard]] constexpr const std::vector<PhaseLP>& phases() const noexcept
+  {
+    return m_phase_array_;
+  }
 
   /**
-   * @brief Gets all stage LP objects
-   * @return Reference to the vector of StageLP objects
+   * @brief Gets all stage LP representations
+   * @return Const reference to vector of StageLP objects
    */
-  [[nodiscard]] constexpr const auto& stages() const { return m_stage_array_; }
+  [[nodiscard]] constexpr const std::vector<StageLP>& stages() const noexcept
+  {
+    return m_stage_array_;
+  }
 
   /**
-   * @brief Gets all block LP objects
-   * @return Reference to the vector of BlockLP objects
+   * @brief Gets all block LP representations
+   * @return Const reference to vector of BlockLP objects
    */
-  [[nodiscard]] constexpr const auto& blocks() const { return m_block_array_; }
+  [[nodiscard]] constexpr const std::vector<BlockLP>& blocks() const noexcept
+  {
+    return m_block_array_;
+  }
 
 private:
+  /**
+   * @brief Validates all components for consistency
+   * @throws std::runtime_error If any validation check fails
+   */
+  constexpr void validate_components();
+
+  // Data members
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const OptionsLP> m_options_;
 
