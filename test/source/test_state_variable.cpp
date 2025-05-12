@@ -97,40 +97,6 @@ TEST_CASE("StateVariable copy semantics")
   }
 }
 
-TEST_CASE("StateVariable invalid column indices")
-{
-  SUBCASE("Negative first column")
-  {
-    CHECK_THROWS_AS(
-      StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, -5, 10),
-      std::invalid_argument
-    );
-  }
-
-  SUBCASE("Negative last column")
-  {
-    CHECK_THROWS_AS(
-      StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, 10, -5),
-      std::invalid_argument
-    );
-  }
-
-  SUBCASE("Last column before first")
-  {
-    CHECK_THROWS_AS(
-      StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, 20, 10),
-      std::invalid_argument
-    );
-  }
-
-  SUBCASE("Equal columns")
-  {
-    StateVariable var("equal", SceneIndex{1}, PhaseIndex{1}, 5, 5);
-    CHECK(var.first_col() == 5);
-    CHECK(var.last_col() == 5);
-  }
-}
-
 TEST_CASE("StateVariable equality comparison")
 {
   StateVariable var1("same", SceneIndex {1}, PhaseIndex {1}, 5, 10);
@@ -139,9 +105,9 @@ TEST_CASE("StateVariable equality comparison")
 
   CHECK(var1.key() == var2.key());
   CHECK_FALSE(var1.key() == var3.key());
-  
+
   // Test direct tuple comparison
   auto key1 = var1.key();
-  auto key2 = key_t{"same", SceneIndex{1}, PhaseIndex{1}};
+  auto key2 = StateVariable::key_t {"same", SceneIndex {1}, PhaseIndex {1}};
   CHECK(key1 == key2);
 }

@@ -120,11 +120,10 @@ constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
 template<typename OptA, typename OptB>
 constexpr auto& merge_opt(OptA& a, OptB&& b)
 {
-  if (!b.has_value()) {
-    return a;
+  if (b.has_value()) {
+    a = std::forward<OptB>(b);
   }
-
-  return a = std::forward<OptB>(b);
+  return a;
 }
 
 }  // namespace gtopt
