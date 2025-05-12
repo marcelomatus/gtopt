@@ -132,8 +132,10 @@ public:
   constexpr auto stage_reactance(const StageIndex& stage_index,
                                  const Reactance& reactance) const
   {
-    return options().use_kirchhoff() ? reactance.at(stage_index)
-                                     : decltype(reactance.at(stage_index)) {};
+    if (options().use_kirchhoff()) {
+      return reactance.at(stage_index);
+    }
+    return decltype(reactance.at(stage_index)){};
   }
 
   template<typename FailCost>
@@ -213,7 +215,7 @@ public:
   template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const GSTBIndexHolder& hstb,
                       Projection proj,
-                      const Factor& factor = {}) const
+                      const Factor& factor = {}) const noexcept
   {
     const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
@@ -249,7 +251,7 @@ public:
   template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const STBIndexHolder& hstb,
                       Projection proj,
-                      const Factor& factor = {}) const
+                      const Factor& factor = {}) const noexcept
   {
     const auto size = active_scenario_count() * active_block_count();
     std::vector<double> values(size);
