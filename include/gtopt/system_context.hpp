@@ -57,6 +57,8 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
   {
+    static_assert(std::is_same_v<std::remove_cvref_t<Self>, SystemContext>,
+                 "Must be called on SystemContext");
     return std::forward<Self>(self).m_system_.get();
   }
 
@@ -135,7 +137,8 @@ public:
     if (options().use_kirchhoff()) {
       return reactance.at(stage_index);
     }
-    return decltype(reactance.at(stage_index)){};
+    using ReturnType = decltype(reactance.at(stage_index));
+    return ReturnType{};
   }
 
   template<typename FailCost>
@@ -291,7 +294,7 @@ public:
            typename Factor = scenario_stage_factor_matrix_t>
   constexpr auto flat(const STIndexHolder& hst,
                       Projection proj,
-                      const Factor& factor = {}) const
+                      const Factor& factor = {}) const noexcept
   {
     const auto size = active_scenario_count() * active_stage_count();
     std::vector<double> values(size);
@@ -327,7 +330,7 @@ public:
            typename Factor = stage_factor_matrix_t>
   constexpr auto flat(const TIndexHolder& ht,
                       Projection proj = {},
-                      const Factor& factor = {}) const
+                      const Factor& factor = {}) const noexcept
   {
     const auto size = active_stage_count();
     std::vector<double> values(size);
