@@ -1,15 +1,20 @@
 /**
- * @file      system_context.hpp
- * @brief     Header file defining the SystemContext class and related
- * functionality
- * @date      Sun Mar 23 21:54:14 2025
+ * @file      system_context.hpp  
+ * @brief     System execution context for power system optimization
+ * @date      Sun Mar 23 21:54:14 2025  
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module provides the SystemContext class which represents the current
- * execution context for a power system planning problem, including the
- * active scenario, stage, and block information. It also defines ElementTraits
- * for accessing system elements.
+ * Defines SystemContext which manages:
+ * - Active scenarios/stages/blocks for optimization
+ * - Cost calculations and discount factors  
+ * - System element access and indexing
+ * - Variable labeling and naming
+ * - Constraint bounds and limits
+ *
+ * The context bridges between the simulation model and LP formulation,
+ * tracking the current optimization state and providing helper methods
+ * for variable and constraint setup.
  */
 
 #pragma once
@@ -55,14 +60,22 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
+  /**
+   * @brief Get the current simulation context
+   * @return Reference to the active SimulationLP
+   */
   [[nodiscard]] constexpr auto&& simulation() const
   {
     return m_simulation_.get();
   }
 
+  /** 
+   * @brief Get optimization options
+   * @return Reference to OptionsLP configuration
+   */
   [[nodiscard]] constexpr auto&& options() const
   {
-    return simulation().options();
+    return simulation().options(); 
   }
 
   [[nodiscard]] constexpr auto scenario_uid(
