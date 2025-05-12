@@ -52,6 +52,7 @@ class SimulationLP;
 class SystemContext
 {
 public:
+  // Core Context Management
   explicit SystemContext(const SimulationLP& psimulation, SystemLP& psystem);
 
   template<typename Self>
@@ -60,62 +61,48 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
-  /**
-   * @brief Get the current simulation context
-   * @return Reference to the active SimulationLP
-   */
+  /// @brief Get the current simulation context
+  /// @return Reference to the active SimulationLP
   [[nodiscard]] constexpr auto&& simulation() const
   {
     return m_simulation_.get();
   }
 
-  /**
-   * @brief Get optimization options
-   * @return Reference to OptionsLP configuration
-   */
+  /// @brief Get optimization options 
+  /// @return Reference to OptionsLP configuration
   [[nodiscard]] constexpr auto&& options() const
   {
     return simulation().options();
   }
 
-  [[nodiscard]] constexpr auto scenario_uid(
-      const ScenarioIndex& scenario_index) const
-  {
+  // Scenario Accessors
+  [[nodiscard]] constexpr auto scenario_uid(const ScenarioIndex& scenario_index) const {
     return scenarios()[scenario_index].uid();
   }
 
-  [[nodiscard]] constexpr auto scenario_probability_factor(
-      const ScenarioIndex& scenario_index) const
-  {
+  [[nodiscard]] constexpr auto scenario_probability_factor(const ScenarioIndex& scenario_index) const {
     return scenarios()[scenario_index].probability_factor();
   }
 
-  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const
-  {
+  // Stage Accessors
+  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const {
     return stages()[stage_index].uid();
   }
 
-  [[nodiscard]] constexpr auto stage_discount_factor(
-      const StageIndex& stage_index) const
-  {
+  [[nodiscard]] constexpr auto stage_discount_factor(const StageIndex& stage_index) const {
     return stages()[stage_index].discount_factor();
   }
 
-  [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index,
-                                              double prev_duration = 0) const
-  {
-    return stage_index ? stages().at(stage_index.value()).duration()
-                       : prev_duration;
+  [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index, 
+                                            double prev_duration = 0) const {
+    return stage_index ? stages().at(stage_index.value()).duration() : prev_duration;
   }
 
-  [[nodiscard]] constexpr auto stage_duration(
-      const StageIndex& stage_index) const
-  {
+  [[nodiscard]] constexpr auto stage_duration(const StageIndex& stage_index) const {
     return stages()[stage_index].duration();
   }
-  [[nodiscard]] constexpr auto&& stage_blocks(
-      const StageIndex& stage_index) const
-  {
+
+  [[nodiscard]] constexpr auto&& stage_blocks(const StageIndex& stage_index) const {
     return stages()[stage_index].blocks();
   }
 
@@ -155,31 +142,28 @@ public:
     return fc ? fc : options().reserve_fail_cost();
   }
 
-  [[nodiscard]] auto is_first_scenario(
-      const ScenarioIndex& scenario_index) const
-  {
+  // Active Elements Query
+  [[nodiscard]] auto is_first_scenario(const ScenarioIndex& scenario_index) const {
     return scenario_index == m_active_scenarios_.front();
   }
 
-  [[nodiscard]] auto active_scenario_count() const
-  {
+  [[nodiscard]] auto active_scenario_count() const { 
     return m_active_scenarios_.size();
   }
-  [[nodiscard]] auto active_stage_count() const
-  {
+  
+  [[nodiscard]] auto active_stage_count() const {
     return m_active_stages_.size();
   }
-  [[nodiscard]] auto active_block_count() const
-  {
+  
+  [[nodiscard]] auto active_block_count() const {
     return m_active_blocks_.size();
   }
 
-  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
-  {
+  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const {
     return stage_index == m_active_stages_.front();
   }
-  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
-  {
+  
+  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const {
     return stage_index == m_active_stages_.back();
   }
 
