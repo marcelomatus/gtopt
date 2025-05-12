@@ -14,6 +14,7 @@
 #pragma once
 
 #include <functional>
+#include <utility>
 #include <vector>
 
 #include <gtopt/block_lp.hpp>
@@ -23,6 +24,7 @@
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
@@ -41,8 +43,8 @@ public:
   SimulationLP(SimulationLP&&) noexcept = default;
   SimulationLP(const SimulationLP&) = default;
   SimulationLP() = delete;
-  constexpr SimulationLP& operator=(SimulationLP&&) noexcept = default;
-  constexpr SimulationLP& operator=(const SimulationLP&) noexcept = default;
+  SimulationLP& operator=(SimulationLP&&) noexcept = default;
+  SimulationLP& operator=(const SimulationLP&) noexcept = default;
   ~SimulationLP() noexcept = default;
 
   /**
@@ -123,12 +125,46 @@ public:
     return m_block_array_;
   }
 
+  // Add method with deducing this and perfect forwarding
+  template<typename Self, typename StateVar>
+  constexpr auto&& add_state_variable(this Self&& self,
+                                      StateVar&& state_var) noexcept
+  {
+    const auto& key = state_var.key();
+    auto&& map = std::forward<Self>(self).m_state_variable_map_;
+    const auto [it, inserted] =
+        map.try_emplace(key, std::forward<StateVar>(state_var));
+
+    if (!inserted) {
+      it->second = std::forward<StateVar>(state_var);
+    }
+
+    return std::forward_like<Self>(it->second);
+  }
+
+  // Get method with deducing this for automatic const handling
+  template<typename Self, typename Key>
+  constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
+  {
+    using value_type =
+        std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
+                           const StateVariable,
+                           StateVariable>;
+
+    using result_t = std::optional<std::reference_wrapper<value_type>>;
+
+    auto&& map = std::forward<Self>(self).m_state_variable_map_;
+    const auto it = map.find(std::forward<Key>(key));
+
+    return (it != map.end()) ? result_t {it->second} : std::nullopt;
+  }
+
 private:
   /**
    * @brief Validates all components for consistency
    * @throws std::runtime_error If any validation check fails
    */
-  constexpr void validate_components();
+  void validate_components();
 
   // Data members
   std::reference_wrapper<const Simulation> m_simulation_;
@@ -139,6 +175,8 @@ private:
   std::vector<ScenarioLP> m_scenario_array_;
   std::vector<PhaseLP> m_phase_array_;
   std::vector<SceneLP> m_scene_array_;
+
+  state_variable_map_t m_state_variable_map_;
 };
 
 }  // namespace gtopt
