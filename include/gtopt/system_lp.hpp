@@ -205,10 +205,15 @@ public:
    * @return Index of the element
    */
   template<typename Element, template<typename> class Id>
-  [[nodiscard]] constexpr auto element_index(
-      const Id<Element>& id) const noexcept
+  [[nodiscard]] constexpr auto element_index(const Id<Element>& id) const noexcept
   {
     return std::get<Collection<Element>>(m_collections_).element_index(id);
+  }
+
+  template<typename Element, template<typename> class Id>
+  [[nodiscard]] constexpr bool contains(const Id<Element>& id) const noexcept
+  {
+    return std::get<Collection<Element>>(m_collections_).contains(id);
   }
 
   /**
