@@ -122,7 +122,7 @@ public:
    * @return Reference to the system
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& system(this Self& self) noexcept
+  [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_system_.get();
   }
@@ -132,7 +132,7 @@ public:
    * @return Linear interfaces container
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& linear_interfaces(this Self& self) noexcept
+  [[nodiscard]] constexpr auto&& linear_interfaces(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_linear_interfaces_;
   }
@@ -175,7 +175,7 @@ public:
    * @return Reference to elements container
    */
   template<typename Element, typename Self>
-  constexpr auto&& elements(this Self& self) noexcept
+  [[nodiscard]] constexpr auto&& elements(this Self&& self) noexcept
   {
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
@@ -190,7 +190,7 @@ public:
    * @return Reference to the element
    */
   template<typename Element, typename Self, template<typename> class Id>
-  constexpr auto&& element(this Self& self, const Id<Element>& id) noexcept
+  [[nodiscard]] constexpr auto&& element(this Self&& self, const Id<Element>& id) noexcept
   {
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
