@@ -216,6 +216,13 @@ public:
   [[nodiscard]] auto t_uids() const -> TUids;
 
   template<typename Projection, typename Factor = block_factor_matrix_t>
+  /**
+   * @brief Flatten GSTB-indexed values into vectors
+   * @param hstb GSTB-indexed value holder
+   * @param proj Projection function to apply to values
+   * @param factor Optional factor matrix to scale values
+   * @return Pair of (values, validity) vectors
+   */
   constexpr auto flat(const GSTBIndexHolder& hstb,
                       Projection proj,
                       const Factor& factor = {}) const noexcept
@@ -252,6 +259,13 @@ public:
   }
 
   template<typename Projection, typename Factor = block_factor_matrix_t>
+  /**
+   * @brief Flatten STB-indexed values into vectors
+   * @param hstb STB-indexed value holder
+   * @param proj Projection function to apply to values
+   * @param factor Optional factor matrix to scale values
+   * @return Pair of (values, validity) vectors
+   */
   constexpr auto flat(const STBIndexHolder& hstb,
                       Projection proj,
                       const Factor& factor = {}) const noexcept
@@ -461,6 +475,8 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
+    static_assert(std::is_same_v<std::remove_cvref_t<Self>, SystemContext>,
+                 "Must be called on SystemContext");
     return std::forward<Self>(self).m_simulation_.get();
   }
 
