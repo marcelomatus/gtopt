@@ -105,4 +105,9 @@ TEST_CASE("StateVariable equality comparison")
 
   CHECK(var1.key() == var2.key());
   CHECK_FALSE(var1.key() == var3.key());
+  
+  // Test direct tuple comparison
+  auto key1 = var1.key();
+  auto key2 = key_t{"same", SceneIndex{1}, PhaseIndex{1}};
+  CHECK(key1 == key2);
 }

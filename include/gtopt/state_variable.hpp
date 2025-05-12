@@ -45,7 +45,10 @@ public:
    * @param phase_index Associated phase index
    * @param first_col First column in optimization matrix
    * @param last_col Last column in optimization matrix
-   * @throws std::invalid_argument For invalid column negative indices
+   * @throws std::invalid_argument For invalid column indices (negative or last < first)
+   * 
+   * @note The class supports both move and copy operations. Move operations leave
+   * the source object in a valid but unspecified state (name empty, indices -1).
    */
   constexpr StateVariable(Name name,
                           SceneIndex scene_index,
