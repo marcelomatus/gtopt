@@ -102,8 +102,8 @@ public:
    * @param flat_opts Additional options (default empty)
    */
   explicit SystemLP(const System& system,
-                    const SimulationLP& simulation,
-                    const FlatOptions& flat_opts = {});
+                   const SimulationLP& simulation,
+                   const FlatOptions& flat_opts = {}) noexcept(false);
 
   /// Tuple of collections for all LP component types
   using collections_t = std::tuple<Collection<BusLP>,

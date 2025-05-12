@@ -37,7 +37,7 @@ public:
   using key_t = std::tuple<NameView, SceneIndex, PhaseIndex>;
 
   /// Default constructor creates an invalid state variable
-  StateVariable() = default;
+  StateVariable() = delete;  // Must construct with valid values
 
   /**
    * @brief Constructs a valid state variable
@@ -48,11 +48,11 @@ public:
    * @param last_col Last column in optimization matrix
    * @throws std::invalid_argument For invalid column negative indices
    */
-  StateVariable(Name name,
-                SceneIndex scene_index,
-                PhaseIndex phase_index,
-                Index first_col,
-                Index last_col)
+  constexpr StateVariable(Name name,
+                         SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         Index first_col,
+                         Index last_col) noexcept(false)
       : m_name_(std::move(name))
       , m_scene_index_(scene_index)
       , m_phase_index_(phase_index)
