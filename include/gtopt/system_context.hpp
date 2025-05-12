@@ -50,7 +50,7 @@ public:
   explicit SystemContext(const SimulationLP& psimulation, SystemLP& psystem);
 
   template<typename Self>
-  [[nodiscard]] constexpr auto&& system(this Self&& self)
+  [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_system_.get();
   }
@@ -441,7 +441,7 @@ public:
   }
 
   template<typename Self>
-  [[nodiscard]] constexpr auto&& simulation(this Self&& self)
+  [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_simulation_.get();
   }

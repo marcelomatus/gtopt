@@ -56,8 +56,8 @@ public:
    * @throws std::bad_alloc If memory allocation fails
    */
   explicit SimulationLP(const Simulation& psimulation,
-                        const OptionsLP& poptions,
-                        const Scene& pscene = {});
+                       const OptionsLP& poptions,
+                       const Scene& pscene = {}) noexcept(false);
 
   // Accessors
   /**
@@ -144,7 +144,8 @@ public:
 
   // Get method with deducing this for automatic const handling
   template<typename Self, typename Key>
-  constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
+  constexpr auto get_state_variable(this Self&& self, Key&& key) 
+    noexcept(noexcept(std::declval<state_variable_map_t>().find(key)))
   {
     using value_type =
         std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
