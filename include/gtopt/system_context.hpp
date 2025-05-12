@@ -1,13 +1,13 @@
 /**
- * @file      system_context.hpp  
+ * @file      system_context.hpp
  * @brief     System execution context for power system optimization
- * @date      Sun Mar 23 21:54:14 2025  
+ * @date      Sun Mar 23 21:54:14 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * Defines SystemContext which manages:
  * - Active scenarios/stages/blocks for optimization
- * - Cost calculations and discount factors  
+ * - Cost calculations and discount factors
  * - System element access and indexing
  * - Variable labeling and naming
  * - Constraint bounds and limits
@@ -57,8 +57,6 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
   {
-    static_assert(std::is_same_v<std::remove_cvref_t<Self>, SystemContext>,
-                 "Must be called on SystemContext");
     return std::forward<Self>(self).m_system_.get();
   }
 
@@ -71,13 +69,13 @@ public:
     return m_simulation_.get();
   }
 
-  /** 
+  /**
    * @brief Get optimization options
    * @return Reference to OptionsLP configuration
    */
   [[nodiscard]] constexpr auto&& options() const
   {
-    return simulation().options(); 
+    return simulation().options();
   }
 
   [[nodiscard]] constexpr auto scenario_uid(
@@ -138,7 +136,7 @@ public:
       return reactance.at(stage_index);
     }
     using ReturnType = decltype(reactance.at(stage_index));
-    return ReturnType{};
+    return ReturnType {};
   }
 
   template<typename FailCost>
@@ -475,8 +473,6 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
-    static_assert(std::is_same_v<std::remove_cvref_t<Self>, SystemContext>,
-                 "Must be called on SystemContext");
     return std::forward<Self>(self).m_simulation_.get();
   }
 

@@ -89,7 +89,7 @@ constexpr std::vector<SceneLP> create_scene_array(const auto& simulation,
 
 }  // namespace
 
-constexpr void SimulationLP::validate_components()
+void SimulationLP::validate_components()
 {
   if (m_block_array_.empty() || m_stage_array_.empty()
       || m_scenario_array_.empty())
