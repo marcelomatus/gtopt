@@ -40,15 +40,26 @@ TEST_CASE("StateVariable key generation") {
 }
 
 TEST_CASE("StateVariable move semantics") {
-    StateVariable var1("original", SceneIndex{1}, PhaseIndex{1}, 5, 10);
-    StateVariable var2 = std::move(var1);
-    
-    CHECK(var2.name() == "original");
-    CHECK(var2.first_col() == 5);
-    CHECK(var2.last_col() == 10);
-    
-    // Original should be in valid but unspecified state
-    CHECK(var1.name().empty());
+    SUBCASE("Move constructed from valid") {
+        StateVariable var1("original", SceneIndex{1}, PhaseIndex{1}, 5, 10);
+        StateVariable var2 = std::move(var1);
+        
+        CHECK(var2.name() == "original");
+        CHECK(var2.first_col() == 5);
+        CHECK(var2.last_col() == 10);
+        
+        // Original should be in valid but unspecified state
+        CHECK(var1.name().empty());
+    }
+
+    SUBCASE("Move constructed from default") {
+        StateVariable var1;
+        StateVariable var2 = std::move(var1);
+        
+        CHECK(var2.name().empty());
+        CHECK(var2.first_col() == -1);
+        CHECK(var2.last_col() == -1);
+    }
 }
 
 TEST_CASE("StateVariable invalid column indices") {
@@ -71,6 +82,10 @@ TEST_CASE("StateVariable invalid column indices") {
             StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, 20, 10),
             std::invalid_argument
         );
+        CHECK_THROWS_AS(
+            StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, 1, 0),
+            std::invalid_argument
+        );
     }
     
     SUBCASE("Equal columns") {
@@ -78,20 +93,38 @@ TEST_CASE("StateVariable invalid column indices") {
         CHECK(var.first_col() == 5);
         CHECK(var.last_col() == 5);
     }
+
+    SUBCASE("Both columns negative") {
+        CHECK_THROWS_AS(
+            StateVariable("bad", SceneIndex{1}, PhaseIndex{1}, -1, -1),
+            std::invalid_argument
+        );
+    }
 }
 
 TEST_CASE("StateVariable copy semantics") {
-    StateVariable var1("original", SceneIndex{1}, PhaseIndex{1}, 5, 10);
-    StateVariable var2 = var1;
-    
-    CHECK(var2.name() == "original");
-    CHECK(var2.first_col() == 5);
-    CHECK(var2.last_col() == 10);
-    
-    // Original should remain unchanged
-    CHECK(var1.name() == "original");
-    CHECK(var1.first_col() == 5);
-    CHECK(var1.last_col() == 10);
+    SUBCASE("Copy constructed from valid") {
+        StateVariable var1("original", SceneIndex{1}, PhaseIndex{1}, 5, 10);
+        StateVariable var2 = var1;
+        
+        CHECK(var2.name() == "original");
+        CHECK(var2.first_col() == 5);
+        CHECK(var2.last_col() == 10);
+        
+        // Original should remain unchanged
+        CHECK(var1.name() == "original");
+        CHECK(var1.first_col() == 5);
+        CHECK(var1.last_col() == 10);
+    }
+
+    SUBCASE("Copy constructed from default") {
+        StateVariable var1;
+        StateVariable var2 = var1;
+        
+        CHECK(var2.name().empty());
+        CHECK(var2.first_col() == -1);
+        CHECK(var2.last_col() == -1);
+    }
 }
 
 TEST_CASE("StateVariable equality comparison") {
