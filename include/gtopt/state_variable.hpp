@@ -36,8 +36,7 @@ class StateVariable
 public:
   using key_t = std::tuple<NameView, SceneIndex, PhaseIndex>;
 
-  /// Default constructor creates an invalid state variable
-  StateVariable() = delete;  // Must construct with valid values
+  constexpr StateVariable() = default;
 
   /**
    * @brief Constructs a valid state variable
@@ -49,19 +48,16 @@ public:
    * @throws std::invalid_argument For invalid column negative indices
    */
   constexpr StateVariable(Name name,
-                         SceneIndex scene_index,
-                         PhaseIndex phase_index,
-                         Index first_col,
-                         Index last_col) noexcept(false)
+                          SceneIndex scene_index,
+                          PhaseIndex phase_index,
+                          Index first_col,
+                          Index last_col) noexcept(false)
       : m_name_(std::move(name))
       , m_scene_index_(scene_index)
       , m_phase_index_(phase_index)
       , m_first_col_(first_col)
       , m_last_col_(last_col)
   {
-    if (first_col < 0 || last_col < 0) {
-      throw std::invalid_argument("Column indices must be non-negative");
-    }
   }
 
   /// @return Variable name view
