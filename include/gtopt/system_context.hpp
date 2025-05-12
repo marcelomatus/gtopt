@@ -63,14 +63,14 @@ public:
 
   /// @brief Get the current simulation context
   /// @return Reference to the active SimulationLP
-  [[nodiscard]] constexpr auto&& simulation() const
+  [[nodiscard]] constexpr auto&& simulation() const noexcept
   {
     return m_simulation_.get();
   }
 
   /// @brief Get optimization options 
   /// @return Reference to OptionsLP configuration
-  [[nodiscard]] constexpr auto&& options() const
+  [[nodiscard]] constexpr auto&& options() const noexcept
   {
     return simulation().options();
   }
@@ -410,12 +410,13 @@ public:
   // set&get the variable data
   //
 
-  [[nodiscard]] constexpr auto&& single_bus_id() const
+  [[nodiscard]] constexpr auto&& single_bus_id() const noexcept
   {
     return m_single_bus_id_;
   }
 
-  constexpr bool is_single_bus(const auto& id) const
+  template<typename Id>
+  constexpr bool is_single_bus(const Id& id) const noexcept
   {
     if (m_single_bus_id_) {
       auto&& sid = m_single_bus_id_.value();
@@ -460,12 +461,13 @@ public:
     return std::forward<Self>(self).m_simulation_.get();
   }
 
-  [[nodiscard]] auto scenarios() const -> const std::vector<ScenarioLP>&;
-  [[nodiscard]] auto stages() const -> const std::vector<StageLP>&;
-  [[nodiscard]] auto blocks() const -> const std::vector<BlockLP>&;
+  [[nodiscard]] constexpr auto&& scenarios() const noexcept -> const std::vector<ScenarioLP>&;
+  [[nodiscard]] constexpr auto&& stages() const noexcept -> const std::vector<StageLP>&;
+  [[nodiscard]] constexpr auto&& blocks() const noexcept -> const std::vector<BlockLP>&;
 
   template<typename... Types>
-  constexpr auto label(const Types&... var) const -> std::string
+    requires (std::constructible_from<std::string, Types> && ...)
+  constexpr auto label(const Types&... var) const noexcept -> std::string
   {
     if (!options().use_lp_names()) [[likely]] {
       return {};
@@ -476,7 +478,7 @@ public:
   template<typename... Types>
     requires(sizeof...(Types) == 3)
   constexpr auto t_label(const StageIndex& stage_index,
-                         const Types&... var) const -> std::string
+                         const Types&... var) const noexcept -> std::string
   {
     if (!options().use_lp_names()) [[likely]] {
       return {};
@@ -488,7 +490,7 @@ public:
     requires(sizeof...(Types) == 3)
   constexpr auto st_label(const ScenarioIndex& scenario_index,
                           const StageIndex& stage_index,
-                          const Types&... var) const -> std::string
+                          const Types&... var) const noexcept -> std::string
   {
     if (!options().use_lp_names()) [[likely]] {
       return {};
