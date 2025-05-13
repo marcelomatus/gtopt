@@ -16,7 +16,7 @@ Checks: "*,\
    -fuchsia-overloaded-operator,\
    -misc-include-cleaner,\
    clang-analyzer-*,\
-#  -llvm-header-guard,\
+  -llvm-header-guard,\
 #  -llvm-include-order,\
   -llvmlibc-*,\
   -cppcoreguidelines-macro-usage,\

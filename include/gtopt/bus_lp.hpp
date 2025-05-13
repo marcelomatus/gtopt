@@ -27,7 +27,7 @@ class BusLP : public ObjectLP<Bus>
 public:
   constexpr static std::string_view ClassName = "Bus";
 
-  explicit BusLP(const InputContext& /*ic*/, Bus pbus)
+  explicit BusLP(const InputContext& /*ic*/, Bus pbus) noexcept
       : ObjectLP<Bus>(std::move(pbus))
   {
   }
@@ -38,15 +38,19 @@ public:
   {
     return bus().reference_theta;
   }
+
   [[nodiscard]] constexpr auto voltage() const -> double
   {
     return bus().voltage.value_or(1);
   }
+
   [[nodiscard]] constexpr auto use_kirchhoff() const -> bool
   {
     return bus().use_kirchhoff.value_or(true);
   }
-  [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const -> bool;
+
+  [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const noexcept
+      -> bool;
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioIndex& scenario_index,
@@ -70,9 +74,11 @@ public:
                                    const BlockSpan& blocks) const
       -> const BIndexHolder&
   {
-    const auto oiter = get_optiter(theta_cols, {scenario_index, stage_index});
-    return oiter ? oiter.value()->second
-                 : lazy_add_theta(sc, scenario_index, stage_index, lp, blocks);
+    const auto key = std::make_pair(scenario_index, stage_index);
+    if (auto it = theta_cols.find(key); it != theta_cols.end()) {
+      return it->second;
+    }
+    return lazy_add_theta(sc, scenario_index, stage_index, lp, blocks);
   }
 
 private:

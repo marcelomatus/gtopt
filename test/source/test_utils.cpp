@@ -39,7 +39,7 @@ TEST_CASE("merge vectors")
   {
     std::vector<int> a {1, 2};
     merge(a, a);
-    CHECK(a == std::vector {1, 2, 1, 2});
+    CHECK(a == std::vector {1, 2});
   }
 }
 

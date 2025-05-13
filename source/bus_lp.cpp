@@ -7,7 +7,7 @@
 namespace gtopt
 {
 
-auto BusLP::needs_kirchhoff(const SystemContext& sc) const -> bool
+auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
 {
   return !sc.options().use_single_bus() && sc.options().use_kirchhoff()
       && bus().needs_kirchhoff(sc.options().kirchhoff_threshold());
