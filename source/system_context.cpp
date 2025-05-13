@@ -1,3 +1,5 @@
+#include <ranges>
+
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -19,46 +21,44 @@ using namespace gtopt;
 template<typename Index, typename Container>
 constexpr auto active_indices(const Container& container) noexcept
 {
-  std::vector<Index> indices;
-  indices.reserve(container.size());
-  for (auto&& [i, e] : enumerate_active<Index>(container)) {
-    indices.push_back(i);
-  }
-  // Explicitly move the vector to ensure RVO planning
-  return std::move(indices);
+  return std::ranges::views::transform(enumerate_active<Index>(container),
+                                       [](const auto& pair)
+                                       { return pair.first; })
+      | std::ranges::to<std::vector<Index>>();
 }
 
 template<typename Index, typename Stage>
 constexpr auto active_block_indices(const Stage& stages) noexcept
 {
   std::vector<Index> indices;
-  indices.reserve(stages.size());
+  Index idx {};
 
-  for (Index idx {}; const auto& s : stages) {
-    for (size_t i = 0; i < s.blocks().size(); ++i) {
-      if (s.is_active()) {
-        indices.push_back(idx);
-      }
-      ++idx;
+  for (const auto& stage : stages) {
+    if (stage.is_active()) {
+      const auto block_count = stage.blocks().size();
+      const auto block_indices =
+          std::views::iota(idx, idx + static_cast<Index>(block_count));
+      indices.insert(indices.end(), block_indices.begin(), block_indices.end());
     }
+    idx += static_cast<Index>(stage.blocks().size());
   }
-  return std::move(indices);
+
+  return indices;
 }
 
 template<typename Index, typename Stages>
 auto active_stage_block_indices(const Stages& stages) noexcept
 {
-  std::vector<std::vector<Index>> indices(stages.size());
-  for (auto&& [i, e] : enumerate_active<Index>(stages)) {
-    std::vector<Index> v;
-    v.reserve(e.blocks().size());
-    for (Index idx {}; idx < e.blocks().size(); ++idx) {
-      v.push_back(idx);
-    }
-
-    indices[i] = std::move(v);
-  }
-  return std::move(indices);
+  return enumerate_active<Index>(stages)
+      | std::views::transform(
+             [](const auto& pair)
+             {
+               const auto& blocks = pair.second.blocks();
+               return std::views::iota(Index {0},
+                                       static_cast<Index>(blocks.size()))
+                   | std::ranges::to<std::vector<Index>>();
+             })
+      | std::ranges::to<std::vector<std::vector<Index>>>();
 }
 
 constexpr auto cost_factor(const auto p_scale_obj,
@@ -150,7 +150,7 @@ constexpr TUids make_t_uids(const SystemContext& sc,
 
   stage_uids.shrink_to_fit();
 
-  return std::move(stage_uids);
+  return stage_uids;
 }
 
 constexpr auto stage_factors(const auto& stages) noexcept
@@ -163,7 +163,7 @@ constexpr auto stage_factors(const auto& stages) noexcept
     discount_factor *= st.discount_factor();
   }
 
-  return std::move(factors);
+  return factors;
 }
 
 }  // namespace
@@ -335,21 +335,6 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     -> const BusLP&
 {
   return system().element(get_bus_index(id));
-}
-
-auto SystemContext::scenarios() const -> const std::vector<ScenarioLP>&
-{
-  return simulation().scenarios();
-}
-
-auto SystemContext::stages() const -> const std::vector<StageLP>&
-{
-  return simulation().stages();
-}
-
-auto SystemContext::blocks() const -> const std::vector<BlockLP>&
-{
-  return simulation().blocks();
 }
 
 }  // namespace gtopt

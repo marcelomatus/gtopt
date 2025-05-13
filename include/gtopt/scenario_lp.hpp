@@ -23,7 +23,7 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr auto is_active() const
+  [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return scenario.active.value_or(true);
   }

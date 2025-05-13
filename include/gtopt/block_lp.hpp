@@ -16,7 +16,6 @@ public:
   {
   }
 
-  // constexpr static auto is_active() { return true; }
   [[nodiscard]] constexpr auto uid() const { return BlockUid(block.uid); }
   [[nodiscard]] constexpr auto duration() const { return block.duration; }
 
