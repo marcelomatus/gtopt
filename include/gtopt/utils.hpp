@@ -15,6 +15,11 @@
 
 #include <optional>
 #include <utility>
+#include <version>
+
+#ifdef __cpp_lib_ranges
+#  include <ranges>
+#endif
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
@@ -42,38 +47,41 @@ namespace gtopt
  */
 template<typename T>
   requires std::is_move_constructible_v<T>
-constexpr void merge(std::vector<T>& dest, std::vector<T>&& src) noexcept(
+constexpr bool merge(std::vector<T>& dest, std::vector<T>&& src) noexcept(
     std::is_nothrow_move_constructible_v<T>)
 {
   static_assert(std::is_move_constructible_v<T>,
                 "Type T must be move-constructible for efficient append");
 
   if (&dest == &src) {
-    // Handle self-append safely
-    std::vector<T> tmp = dest;
-    merge(dest, std::move(tmp));
-    return;
+    return false;  // No-op for self-merge
   }
 
   if (dest.empty()) {
     dest = std::move(src);  // Complete takeover
-  } else if (!src.empty()) {  // Skip if src is empty
-    dest.reserve(dest.size() + src.size());
-    dest.insert(dest.end(),
-                std::make_move_iterator(src.begin()),
-                std::make_move_iterator(src.end()));
+    return true;
   }
-  src.clear();  // Leave source in valid empty state
+
+  if (src.empty()) {
+    return false;
+  }
+
+  dest.reserve(dest.size() + src.size());
+  dest.insert(dest.end(),
+              std::make_move_iterator(src.begin()),
+              std::make_move_iterator(src.end()));
+  src.clear();
+  return true;
 }
 
 /**
  * Overload for lvalue source vector (converts to rvalue reference)
  */
 template<typename T>
-constexpr void merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
+constexpr bool merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
     std::is_nothrow_move_constructible_v<T>)
 {
-  merge(dest, std::move(src));
+  return merge(dest, std::move(src));
 }
 
 /**
@@ -93,13 +101,13 @@ constexpr void merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
  * }
  */
 template<typename IndexType = size_t, ranges::range... Ranges>
-[[nodiscard]] constexpr auto enumerate(const Ranges&... ranges) noexcept
+[[nodiscard]] constexpr auto enumerate(Ranges&&... ranges) noexcept
 {
   return ranges::views::zip(
       ranges::views::iota(0)
-          | ranges::views::transform([](size_t i)
+          | ranges::views::transform([](auto i)
                                      { return static_cast<IndexType>(i); }),
-      ranges...);
+      std::forward<Ranges>(ranges)...);
 }
 
 template<typename IndexType = size_t, ranges::range Range, typename Op>
@@ -133,10 +141,10 @@ constexpr auto enumerate_active(const Range& range) noexcept
   return enumerate_if<IndexType>(range, active_fnc);
 }
 
-template<typename Range>
-constexpr auto active(const Range& range) noexcept
+template<ranges::range Range>
+[[nodiscard]] constexpr auto active(Range&& range) noexcept
 {
-  return range | ranges::views::filter(active_fnc);
+  return std::forward<Range>(range) | ranges::views::filter(active_fnc);
 }
 
 /**
@@ -204,17 +212,19 @@ constexpr auto& merge_opt(OptA& a, OptB&& b) noexcept
  * @param transform Transform operation (optional)
  * @return std::vector containing transformed elements
  */
-template<ranges::range Range, typename Transform = std::identity>
-[[nodiscard]] auto to_vector(Range&& range, Transform transform = {})
+template<ranges::range Range,
+         typename Transform = decltype([](const auto& x) { return x; }),
+         typename RRef = decltype(*ranges::begin(std::declval<Range>()))>
+  requires std::invocable<Transform, RRef>
+[[nodiscard]] auto to_vector(Range&& range, Transform&& transform = {})
 {
-  std::vector<std::remove_cvref_t<
-      std::invoke_result_t<Transform, ranges::range_value_t<Range>>>>
-      result;
+  std::vector<std::invoke_result_t<Transform, RRef>> result;
   if constexpr (ranges::sized_range<Range>) {
     result.reserve(ranges::size(range));
   }
-  ranges::transform(
-      std::forward<Range>(range), std::back_inserter(result), transform);
+  ranges::transform(std::forward<Range>(range),
+                    std::back_inserter(result),
+                    std::forward<Transform>(transform));
   return result;
 }
 
@@ -228,10 +238,10 @@ template<ranges::range Range, typename Transform = std::identity>
  * @return true if all elements satisfy predicate, false otherwise
  */
 template<ranges::range Range, typename Pred>
-[[nodiscard]] constexpr bool all_of(Range&& range, Pred pred) noexcept(
+[[nodiscard]] constexpr bool all_of(Range&& range, Pred&& pred) noexcept(
     noexcept(pred(*ranges::begin(range))))
 {
-  return ranges::all_of(std::forward<Range>(range), pred);
+  return ranges::all_of(std::forward<Range>(range), std::forward<Pred>(pred));
 }
 
 }  // namespace gtopt
