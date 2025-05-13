@@ -36,7 +36,7 @@ public:
   constexpr auto uid() const { return m_object_.uid; }
   constexpr auto id() const { return gtopt::id(m_object_); }
 
-  constexpr auto is_active(const StageIndex stage_index) const
+  [[nodiscard]] constexpr auto is_active(const StageIndex stage_index) const
   {
     return active.at(stage_index) != False;
   }

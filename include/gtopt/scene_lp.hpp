@@ -68,7 +68,7 @@ public:
    * @brief Check if the scene is active
    * @return true if the scene is active, false otherwise
    */
-  [[nodiscard]] constexpr auto is_active() const
+  [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return scene.active.value_or(true);
   }

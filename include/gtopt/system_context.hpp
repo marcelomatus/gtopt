@@ -68,7 +68,7 @@ public:
     return m_simulation_.get();
   }
 
-  /// @brief Get optimization options 
+  /// @brief Get optimization options
   /// @return Reference to OptionsLP configuration
   [[nodiscard]] constexpr auto&& options() const noexcept
   {
@@ -76,33 +76,46 @@ public:
   }
 
   // Scenario Accessors
-  [[nodiscard]] constexpr auto scenario_uid(const ScenarioIndex& scenario_index) const {
+  [[nodiscard]] constexpr auto scenario_uid(
+      const ScenarioIndex& scenario_index) const
+  {
     return scenarios()[scenario_index].uid();
   }
 
-  [[nodiscard]] constexpr auto scenario_probability_factor(const ScenarioIndex& scenario_index) const {
+  [[nodiscard]] constexpr auto scenario_probability_factor(
+      const ScenarioIndex& scenario_index) const
+  {
     return scenarios()[scenario_index].probability_factor();
   }
 
   // Stage Accessors
-  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const {
+  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const
+  {
     return stages()[stage_index].uid();
   }
 
-  [[nodiscard]] constexpr auto stage_discount_factor(const StageIndex& stage_index) const {
+  [[nodiscard]] constexpr auto stage_discount_factor(
+      const StageIndex& stage_index) const
+  {
     return stages()[stage_index].discount_factor();
   }
 
-  [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index, 
-                                            double prev_duration = 0) const {
-    return stage_index ? stages().at(stage_index.value()).duration() : prev_duration;
+  [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index,
+                                              double prev_duration = 0) const
+  {
+    return stage_index ? stages().at(stage_index.value()).duration()
+                       : prev_duration;
   }
 
-  [[nodiscard]] constexpr auto stage_duration(const StageIndex& stage_index) const {
+  [[nodiscard]] constexpr auto stage_duration(
+      const StageIndex& stage_index) const
+  {
     return stages()[stage_index].duration();
   }
 
-  [[nodiscard]] constexpr auto&& stage_blocks(const StageIndex& stage_index) const {
+  [[nodiscard]] constexpr auto&& stage_blocks(
+      const StageIndex& stage_index) const
+  {
     return stages()[stage_index].blocks();
   }
 
@@ -143,27 +156,34 @@ public:
   }
 
   // Active Elements Query
-  [[nodiscard]] auto is_first_scenario(const ScenarioIndex& scenario_index) const {
+  [[nodiscard]] auto is_first_scenario(
+      const ScenarioIndex& scenario_index) const
+  {
     return scenario_index == m_active_scenarios_.front();
   }
 
-  [[nodiscard]] auto active_scenario_count() const { 
+  [[nodiscard]] auto active_scenario_count() const
+  {
     return m_active_scenarios_.size();
   }
-  
-  [[nodiscard]] auto active_stage_count() const {
+
+  [[nodiscard]] auto active_stage_count() const
+  {
     return m_active_stages_.size();
   }
-  
-  [[nodiscard]] auto active_block_count() const {
+
+  [[nodiscard]] auto active_block_count() const
+  {
     return m_active_blocks_.size();
   }
 
-  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const {
+  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
+  {
     return stage_index == m_active_stages_.front();
   }
-  
-  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const {
+
+  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
+  {
     return stage_index == m_active_stages_.back();
   }
 
@@ -461,12 +481,24 @@ public:
     return std::forward<Self>(self).m_simulation_.get();
   }
 
-  [[nodiscard]] constexpr auto&& scenarios() const noexcept -> const std::vector<ScenarioLP>&;
-  [[nodiscard]] constexpr auto&& stages() const noexcept -> const std::vector<StageLP>&;
-  [[nodiscard]] constexpr auto&& blocks() const noexcept -> const std::vector<BlockLP>&;
+  [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
+      const noexcept
+  {
+    return simulation().scenarios();
+  }
+
+  [[nodiscard]] constexpr const std::vector<StageLP>& stages() const noexcept
+  {
+    return simulation().stages();
+  }
+
+  [[nodiscard]] constexpr const std::vector<BlockLP>& blocks() const noexcept
+  {
+    return simulation().blocks();
+  }
 
   template<typename... Types>
-    requires (std::constructible_from<std::string, Types> && ...)
+    requires(std::constructible_from<std::string, Types> && ...)
   constexpr auto label(const Types&... var) const noexcept -> std::string
   {
     if (!options().use_lp_names()) [[likely]] {
