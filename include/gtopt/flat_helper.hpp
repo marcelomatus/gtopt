@@ -48,6 +48,37 @@ public:
     return m_active_blocks_;
   }
 
+  [[nodiscard]] auto is_first_scenario(
+      const ScenarioIndex& scenario_index) const
+  {
+    return scenario_index == m_active_scenarios_.front();
+  }
+
+  [[nodiscard]] auto active_scenario_count() const
+  {
+    return m_active_scenarios_.size();
+  }
+
+  [[nodiscard]] auto active_stage_count() const
+  {
+    return m_active_stages_.size();
+  }
+
+  [[nodiscard]] auto active_block_count() const
+  {
+    return m_active_blocks_.size();
+  }
+
+  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
+  {
+    return stage_index == m_active_stages_.front();
+  }
+
+  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
+  {
+    return stage_index == m_active_stages_.back();
+  }
+
   FlatHelper(const std::vector<ScenarioIndex>& active_scenarios,
              const std::vector<StageIndex>& active_stages,
              const std::vector<std::vector<BlockIndex>>& active_stage_blocks,
