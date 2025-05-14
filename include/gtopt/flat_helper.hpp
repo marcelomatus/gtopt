@@ -21,163 +21,190 @@ using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
 class FlatHelper
 {
-protected:
-    const std::vector<ScenarioIndex> m_active_scenarios_;
-    const std::vector<StageIndex> m_active_stages_;
-    const std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
+  std::vector<ScenarioIndex> m_active_scenarios_;
+  std::vector<StageIndex> m_active_stages_;
+  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
+  std::vector<BlockIndex> m_active_blocks_;
 
-    FlatHelper(const std::vector<ScenarioIndex>& active_scenarios,
-              const std::vector<StageIndex>& active_stages,
-              const std::vector<std::vector<BlockIndex>>& active_stage_blocks)
-        : m_active_scenarios_(active_scenarios)
-        , m_active_stages_(active_stages)
-        , m_active_stage_blocks_(active_stage_blocks)
-    {}
+public:
+  [[nodiscard]] const std::vector<ScenarioIndex>& active_scenarios() const
+  {
+    return m_active_scenarios_;
+  }
 
-    template<typename Projection, typename Factor = block_factor_matrix_t>
-    constexpr auto flat(const GSTBIndexHolder& hstb,
-                        Projection proj,
-                        const Factor& factor = {}) const noexcept
-    {
-        const auto size = m_active_scenarios_.size() * m_active_stage_blocks_.size();
-        std::vector<double> values(size);
-        std::vector<bool> valid(size, false);
+  [[nodiscard]] const std::vector<StageIndex>& active_stages() const
+  {
+    return m_active_stages_;
+  }
 
-        bool need_values = false;
-        bool need_valids = false;
+  [[nodiscard]] const std::vector<std::vector<BlockIndex>>&
+  active_stage_blocks() const
+  {
+    return m_active_stage_blocks_;
+  }
 
-        size_t idx = 0;
-        for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-            for (auto&& tindex : m_active_stages_) {
-                for (auto&& bindex : m_active_stage_blocks_[tindex]) {
-                    auto&& stbiter = hstb.find({sindex, tindex, bindex});
-                    if (stbiter != hstb.end()) {
-                        const auto fact =
-                            factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
-                        values[idx] = proj(stbiter->second) * fact;
-                        valid[idx] = true;
-                        ++count;
+  [[nodiscard]] const std::vector<BlockIndex>& active_blocks() const
+  {
+    return m_active_blocks_;
+  }
 
-                        need_values = true;
-                    }
-                    need_valids |= count != ++idx;
-                }
-            }
+  FlatHelper(const std::vector<ScenarioIndex>& active_scenarios,
+             const std::vector<StageIndex>& active_stages,
+             const std::vector<std::vector<BlockIndex>>& active_stage_blocks,
+             const std::vector<BlockIndex>& active_blocks)
+      : m_active_scenarios_(active_scenarios)
+      , m_active_stages_(active_stages)
+      , m_active_stage_blocks_(active_stage_blocks)
+      , m_active_blocks_(active_blocks)
+  {
+  }
+
+  template<typename Projection, typename Factor = block_factor_matrix_t>
+  constexpr auto flat(const GSTBIndexHolder& hstb,
+                      Projection proj,
+                      const Factor& factor = {}) const noexcept
+  {
+    const auto size =
+        m_active_scenarios_.size() * m_active_stage_blocks_.size();
+    std::vector<double> values(size);
+    std::vector<bool> valid(size, false);
+
+    bool need_values = false;
+    bool need_valids = false;
+
+    size_t idx = 0;
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
+        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
+          auto&& stbiter = hstb.find({sindex, tindex, bindex});
+          if (stbiter != hstb.end()) {
+            const auto fact =
+                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
+            values[idx] = proj(stbiter->second) * fact;
+            valid[idx] = true;
+            ++count;
+
+            need_values = true;
+          }
+          need_valids |= count != ++idx;
         }
-
-        return std::make_pair(
-            need_values ? std::move(values) : std::vector<double> {},
-            need_valids ? std::move(valid) : std::vector<bool> {});
+      }
     }
 
-    template<typename Projection, typename Factor = block_factor_matrix_t>
-    constexpr auto flat(const STBIndexHolder& hstb,
-                        Projection proj,
-                        const Factor& factor = {}) const noexcept
-    {
-        const auto size = m_active_scenarios_.size() * m_active_stage_blocks_.size();
-        std::vector<double> values(size);
-        std::vector<bool> valid(size, false);
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
+  }
 
-        bool need_values = false;
-        bool need_valids = false;
+  template<typename Projection, typename Factor = block_factor_matrix_t>
+  constexpr auto flat(const STBIndexHolder& hstb,
+                      Projection proj,
+                      const Factor& factor = {}) const noexcept
+  {
+    const auto size =
+        m_active_scenarios_.size() * m_active_stage_blocks_.size();
+    std::vector<double> values(size);
+    std::vector<bool> valid(size, false);
 
-        size_t idx = 0;
-        for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-            for (auto&& tindex : m_active_stages_) {
-                auto&& stiter = hstb.find({sindex, tindex});
-                const auto has_stindex =
-                    stiter != hstb.end() && !stiter->second.empty();
+    bool need_values = false;
+    bool need_valids = false;
 
-                for (auto&& bindex : m_active_stage_blocks_[tindex]) {
-                    if (has_stindex) {
-                        const auto fact =
-                            factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
-                        values[idx] = proj(stiter->second.at(bindex)) * fact;
-                        valid[idx] = true;
-                        ++count;
+    size_t idx = 0;
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
+        auto&& stiter = hstb.find({sindex, tindex});
+        const auto has_stindex =
+            stiter != hstb.end() && !stiter->second.empty();
 
-                        need_values = true;
-                    }
-                    need_valids |= count != ++idx;
-                }
-            }
+        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
+          if (has_stindex) {
+            const auto fact =
+                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
+            values[idx] = proj(stiter->second.at(bindex)) * fact;
+            valid[idx] = true;
+            ++count;
+
+            need_values = true;
+          }
+          need_valids |= count != ++idx;
         }
-
-        return std::make_pair(
-            need_values ? std::move(values) : std::vector<double> {},
-            need_valids ? std::move(valid) : std::vector<bool> {});
+      }
     }
 
-    template<typename Projection,
-             typename Factor = scenario_stage_factor_matrix_t>
-    constexpr auto flat(const STIndexHolder& hst,
-                        Projection proj,
-                        const Factor& factor = {}) const noexcept
-    {
-        const auto size = m_active_scenarios_.size() * m_active_stages_.size();
-        std::vector<double> values(size);
-        std::vector<bool> valid(size, false);
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
+  }
 
-        bool need_values = false;
-        bool need_valids = false;
+  template<typename Projection,
+           typename Factor = scenario_stage_factor_matrix_t>
+  constexpr auto flat(const STIndexHolder& hst,
+                      Projection proj,
+                      const Factor& factor = {}) const noexcept
+  {
+    const auto size = m_active_scenarios_.size() * m_active_stages_.size();
+    std::vector<double> values(size);
+    std::vector<bool> valid(size, false);
 
-        size_t idx = 0;
-        for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-            for (auto&& tindex : m_active_stages_) {
-                auto&& stiter = hst.find({sindex, tindex});
-                const auto has_stindex = stiter != hst.end();
+    bool need_values = false;
+    bool need_valids = false;
 
-                if (has_stindex) {
-                    const auto fact = factor.empty() ? 1.0 : factor[sindex][tindex];
-                    values[idx] = proj(stiter->second) * fact;
-                    valid[idx] = true;
-                    ++count;
+    size_t idx = 0;
+    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+      for (auto&& tindex : m_active_stages_) {
+        auto&& stiter = hst.find({sindex, tindex});
+        const auto has_stindex = stiter != hst.end();
 
-                    need_values = true;
-                }
-                need_valids |= count != ++idx;
-            }
+        if (has_stindex) {
+          const auto fact = factor.empty() ? 1.0 : factor[sindex][tindex];
+          values[idx] = proj(stiter->second) * fact;
+          valid[idx] = true;
+          ++count;
+
+          need_values = true;
         }
-
-        return std::make_pair(
-            need_values ? std::move(values) : std::vector<double> {},
-            need_valids ? std::move(valid) : std::vector<bool> {});
+        need_valids |= count != ++idx;
+      }
     }
 
-    template<typename Projection = std::identity,
-             typename Factor = stage_factor_matrix_t>
-    constexpr auto flat(const TIndexHolder& ht,
-                        Projection proj = {},
-                        const Factor& factor = {}) const noexcept
-    {
-        const auto size = m_active_stages_.size();
-        std::vector<double> values(size);
-        std::vector<bool> valid(size, false);
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
+  }
 
-        bool need_values = false;
-        bool need_valids = false;
+  template<typename Projection = std::identity,
+           typename Factor = stage_factor_matrix_t>
+  constexpr auto flat(const TIndexHolder& ht,
+                      Projection proj = {},
+                      const Factor& factor = {}) const noexcept
+  {
+    const auto size = m_active_stages_.size();
+    std::vector<double> values(size);
+    std::vector<bool> valid(size, false);
 
-        size_t idx = 0;
-        for (size_t count = 0; auto&& tindex : m_active_stages_) {
-            auto&& titer = ht.find(tindex);
-            const auto has_tindex = titer != ht.end();
+    bool need_values = false;
+    bool need_valids = false;
 
-            if (has_tindex) {
-                double fact = factor.empty() ? 1.0 : factor[tindex];
-                values[idx] = proj(titer->second) * fact;
-                valid[idx] = true;
-                ++count;
+    size_t idx = 0;
+    for (size_t count = 0; auto&& tindex : m_active_stages_) {
+      auto&& titer = ht.find(tindex);
+      const auto has_tindex = titer != ht.end();
 
-                need_values = true;
-            }
-            need_valids |= count != ++idx;
-        }
+      if (has_tindex) {
+        double fact = factor.empty() ? 1.0 : factor[tindex];
+        values[idx] = proj(titer->second) * fact;
+        valid[idx] = true;
+        ++count;
 
-        return std::make_pair(
-            need_values ? std::move(values) : std::vector<double> {},
-            need_valids ? std::move(valid) : std::vector<bool> {});
+        need_values = true;
+      }
+      need_valids |= count != ++idx;
     }
+
+    return std::make_pair(
+        need_values ? std::move(values) : std::vector<double> {},
+        need_valids ? std::move(valid) : std::vector<bool> {});
+  }
 };
 
-} // namespace gtopt
+}  // namespace gtopt
