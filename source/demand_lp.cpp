@@ -46,9 +46,7 @@ bool DemandLP::add_to_lp(const SystemContext& sc,
   }
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
-  const auto& fcost_val = fcost.optval(stage_index);
-  const auto& lossfactor_val = lossfactor.optval(stage_index);
-  const auto stage_fcost = sc.demand_fail_cost(stage_index, fcost_val);
+  const auto stage_fcost = sc.demand_fail_cost(stage_index, fcost.optval(stage_index));
   const auto stage_lossfactor = lossfactor_val.value_or(0.0);
 
   const auto& balance_rows =
