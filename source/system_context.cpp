@@ -308,6 +308,8 @@ auto SystemContext::t_uids() const -> TUids
 
 SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
     : LabelMaker(psimulation.options(), psimulation.scenarios(), psimulation.stages())
+    static_assert(std::is_base_of_v<LabelMaker, SystemContext>, 
+                 "SystemContext must inherit from LabelMaker");
     , m_simulation_(psimulation)
     , m_system_(psystem)
     , m_active_scenarios_(
