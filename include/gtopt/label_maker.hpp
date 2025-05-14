@@ -1,10 +1,10 @@
 #pragma once
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/block_lp.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
-#include <gtopt/block_lp.hpp>
 
 namespace gtopt
 {
@@ -12,7 +12,12 @@ namespace gtopt
 class LabelMaker
 {
 public:
-    explicit LabelMaker(const OptionsLP& options) : m_options(options) {}
+    explicit LabelMaker(const OptionsLP& options,
+                       const std::vector<ScenarioLP>& scenarios,
+                       const std::vector<StageLP>& stages)
+        : m_options(options)
+        , m_scenarios(scenarios)
+        , m_stages(stages) {}
 
     template<typename... Types>
         requires(std::constructible_from<std::string, Types> && ...)
@@ -32,7 +37,7 @@ public:
         if (!m_options.use_lp_names()) [[likely]] {
             return {};
         }
-        return gtopt::as_label(var..., stage_uid(stage_index));
+        return gtopt::as_label(var..., m_stages[stage_index].uid());
     }
 
     template<typename... Types>
@@ -45,7 +50,7 @@ public:
             return {};
         }
         return gtopt::as_label(
-            var..., scenario_uid(scenario_index), stage_uid(stage_index));
+            var..., m_scenarios[scenario_index].uid(), m_stages[stage_index].uid());
     }
 
     template<typename... Types>
