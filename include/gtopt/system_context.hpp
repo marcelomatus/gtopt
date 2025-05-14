@@ -50,7 +50,7 @@ using TUids = std::vector<Uid>;
 class SystemLP;
 class SimulationLP;
 
-class SystemContext
+class SystemContext : private LabelMaker
 {
 public:
   // Core Context Management
@@ -491,10 +491,7 @@ public:
     return simulation().blocks();
   }
 
-  [[nodiscard]] constexpr const LabelMaker& label_maker() const noexcept
-  {
-    return m_label_maker;
-  }
+  // Label methods are now directly available through inheritance
 
   // Add method with deducing this and perfect forwarding
   constexpr const auto& add_state_variable_col(const Name& name,
@@ -522,7 +519,6 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
-  LabelMaker m_label_maker;
 
   std::vector<ScenarioIndex> m_active_scenarios_;
   std::vector<StageIndex> m_active_stages_;
