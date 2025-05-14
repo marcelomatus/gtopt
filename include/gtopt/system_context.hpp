@@ -427,7 +427,7 @@ public:
   }
 
   //
-  // set&get the variable data
+  //  set&get the variable data
   //
 
   [[nodiscard]] constexpr auto&& single_bus_id() const noexcept
