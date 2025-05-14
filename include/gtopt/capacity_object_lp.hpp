@@ -53,35 +53,6 @@ struct CapacityObjectLP : public ObjectLP<Object>
   using Base::object;
   using Base::uid;
 
-  template<typename CAttrs>
-  /**
-   * @brief Set capacity-related attributes from input
-   * @param ic Input context providing stage/scenario information
-   * @param ClassName Name of the class for labeling columns/rows
-   * @param attrs Attributes containing capacity configuration
-   * @return Reference to self for method chaining
-   * @throws None This function is noexcept
-   */
-  auto& set_attrs(const InputContext& ic,
-                  std::string_view ClassName,
-                  CAttrs&& attrs) noexcept
-  {
-    capacity = decltype(capacity) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).capacity};
-    expcap = decltype(expcap) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).expcap};
-    capmax = decltype(capmax) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).capmax};
-    expmod = decltype(expmod) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).expmod};
-    annual_capcost = decltype(annual_capcost) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).annual_capcost};
-    annual_derating = decltype(annual_derating) {
-        ic, ClassName, id(), std::forward<CAttrs>(attrs).annual_derating};
-
-    return *this;
-  }
-
   template<typename ObjectT>
   /**
    * @brief Construct a new CapacityObjectLP object
@@ -91,17 +62,18 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @throws None This function is noexcept
    */
   explicit CapacityObjectLP(const InputContext& ic,
-                           std::string_view ClassName,
-                           ObjectT&& pobject) noexcept
-      : ObjectLP<Object>(std::forward<ObjectT>(pobject)),
-        capacity(ic, ClassName, id(), object().capacity),
-        expcap(ic, ClassName, id(), object().expcap),
-        capmax(ic, ClassName, id(), object().capmax),
-        expmod(ic, ClassName, id(), object().expmod),
-        annual_capcost(ic, ClassName, id(), object().annual_capcost),
-        annual_derating(ic, ClassName, id(), object().annual_derating)
+                            std::string_view ClassName,
+                            ObjectT&& pobject) noexcept
+      : ObjectLP<Object>(std::forward<ObjectT>(pobject))
+      , capacity(ic, ClassName, id(), std::move(object().capacity))
+      , expcap(ic, ClassName, id(), std::move(object().expcap))
+      , capmax(ic, ClassName, id(), std::move(object().capmax))
+      , expmod(ic, ClassName, id(), std::move(object().expmod))
+      , annual_capcost(ic, ClassName, id(), std::move(object().annual_capcost))
+      , annual_derating(
+            ic, ClassName, id(), std::move(object().annual_derating))
   {
-    set_attrs(ic, ClassName, object());
+    // set_attrs(ic, ClassName, object());
   }
 
   template<typename Out = std::pair<double, std::optional<Index>>>
@@ -119,7 +91,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
   /**
    * @brief Get the capacity at a specific stage
    * @param stage_index The stage to query capacity for
-   * @param def_capacity Default value if capacity not specified (default: unlimited)
+   * @param def_capacity Default value if capacity not specified (default:
+   * unlimited)
    * @return The capacity at given stage or default if not specified
    * @throws None This function is noexcept
    */
@@ -206,12 +179,9 @@ struct CapacityObjectLP : public ObjectLP<Object>
                                           .lowb = capainst_lb,
                                           .uppb = capainst_ub});
 
+    sc.add_state_variable_col(capainst_col_name, stage_index, capainst_col);
+
     capainst_row[capainst_col] = -1;
-
-    SimulationLP& simulation = sc.simulation();
-
-    simulation.add_state_variable(StateVariable {
-        capainst_col_name, stage_index, capainst_col, capainst_col});
 
     const auto capacost_col =
         lp.add_col({// capacost variable
@@ -274,7 +244,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @param stage_index The stage to get column index for
    * @return Optional containing column index if exists
    */
-  [[nodiscard]] constexpr auto capacity_col_at(const StageIndex& stage_index) const noexcept
+  [[nodiscard]] constexpr auto capacity_col_at(
+      const StageIndex& stage_index) const noexcept
   {
     return get_optvalue(capainst_cols, stage_index);
   }

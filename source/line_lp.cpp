@@ -21,7 +21,7 @@ LineLP::LineLP(const InputContext& ic, Line pline)
 {
 }
 
-bool LineLP::add_to_lp(const SystemContext& sc,
+bool LineLP::add_to_lp(SystemContext& sc,
                        const ScenarioIndex& scenario_index,
                        const StageIndex& stage_index,
                        LinearProblem& lp)
