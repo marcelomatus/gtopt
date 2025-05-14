@@ -35,6 +35,7 @@
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/flat_helper.hpp>
 
 namespace gtopt
 {
