@@ -310,20 +310,11 @@ SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
     : LabelMaker(psimulation.options(), psimulation.scenarios(), psimulation.stages())
     , m_simulation_(psimulation)
     , m_system_(psystem)
-    , m_active_scenarios_(
-          active_indices<ScenarioIndex>(psimulation.scenarios()))
+    , m_active_scenarios_(active_indices<ScenarioIndex>(psimulation.scenarios()))
     , m_active_stages_(active_indices<StageIndex>(psimulation.stages()))
     , m_active_blocks_(active_block_indices<BlockIndex>(psimulation.stages()))
-    , m_active_stage_blocks_(
-          active_stage_block_indices<BlockIndex>(psimulation.stages()))
+    , m_active_stage_blocks_(active_stage_block_indices<BlockIndex>(psimulation.stages()))
     , stage_discount_factors(stage_factors(psimulation.stages()))
-    , m_active_scenarios_(
-          active_indices<ScenarioIndex>(simulation().scenarios()))
-    , m_active_stages_(active_indices<StageIndex>(simulation().stages()))
-    , m_active_blocks_(active_block_indices<BlockIndex>(simulation().stages()))
-    , m_active_stage_blocks_(
-          active_stage_block_indices<BlockIndex>(simulation().stages()))
-    , stage_discount_factors(stage_factors(simulation().stages()))
 {
   if (options().use_single_bus()) {
     const auto& buses = system().elements<BusLP>();

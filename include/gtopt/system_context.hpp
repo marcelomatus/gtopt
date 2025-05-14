@@ -52,8 +52,6 @@ class SimulationLP;
 
 class SystemContext : public LabelMaker
 {
-  static_assert(std::is_base_of_v<LabelMaker, SystemContext>, 
-               "SystemContext must inherit from LabelMaker");
 public:
   // Core Context Management
   explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
@@ -440,12 +438,16 @@ public:
   template<typename Id>
   constexpr bool is_single_bus(const Id& id) const noexcept
   {
-    if (m_single_bus_id_) {
-      auto&& sid = m_single_bus_id_.value();
-      return sid.index() == 0 ? std::get<0>(sid) == id.first
-                              : std::get<1>(sid) == id.second;
+    try {
+      if (m_single_bus_id_) {
+        auto&& sid = m_single_bus_id_.value();
+        return sid.index() == 0 ? std::get<0>(sid) == id.first
+                                : std::get<1>(sid) == id.second;
+      }
+      return false;
+    } catch (...) {
+      return false;
     }
-    return false;
   }
 
   [[nodiscard]] auto get_bus_index(const ObjectSingleId<BusLP>& id) const
@@ -532,5 +534,8 @@ private:
 
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
+
+static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>, 
+             "SystemContext must inherit from LabelMaker");
 
 }  // namespace gtopt
