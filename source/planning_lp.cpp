@@ -36,7 +36,7 @@ constexpr auto create_simulations(const auto& simulation, const auto& options)
 }
 
 constexpr auto create_systems(auto& system,
-                              const auto& simulations,
+                              auto& simulations,
                               const auto& options,
                               const FlatOptions& flat_opts)
 {

@@ -68,7 +68,7 @@ public:
    * @param lp Linear problem to add variables and constraints to
    * @return True if successful, false otherwise
    */
-  bool add_to_lp(const SystemContext& sc,
+  bool add_to_lp(SystemContext& sc,
                  const ScenarioIndex& scenario_index,
                  const StageIndex& stage_index,
                  LinearProblem& lp);

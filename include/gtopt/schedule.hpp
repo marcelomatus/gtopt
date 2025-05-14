@@ -83,14 +83,15 @@ public:
   {
   }
 
-  template<typename InputContext>
+  template<typename InputContext, typename OptFSched>
   explicit OptSchedule(const InputContext& ic,
                        const std::string_view& cname,
                        const Id& id,
                        OptFSched&& psched)
-      : sched(std::move(psched))
+      : sched(std::forward<OptFSched>(psched))
       , array_index(
-            ic.template get_array_index<OptFSched, Index...>(sched, cname, id))
+            ic.template get_array_index<std::decay_t<OptFSched>, Index...>(
+                sched, cname, id))
   {
   }
 

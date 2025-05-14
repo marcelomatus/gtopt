@@ -20,7 +20,7 @@
 namespace gtopt
 {
 template<typename FirstIndex>
-using IndexHolder0 = StrongIndexVector<FirstIndex, size_t>;
+using IndexHolder0 = StrongIndexVector<FirstIndex, Index>;
 
 // #define FESOP_USE_UNORDERED_MAP
 
@@ -31,10 +31,10 @@ template<typename key_type, typename value_type>
 using tuple_map_t = gtopt::flat_map<key_type, value_type>;
 
 template<typename FirstIndex>
-using IndexHolder1 = index_map_t<FirstIndex, size_t>;
+using IndexHolder1 = index_map_t<FirstIndex, Index>;
 
 template<typename FirstIndex, typename SecondIndex>
-using IndexHolder2 = tuple_map_t<std::tuple<FirstIndex, SecondIndex>, size_t>;
+using IndexHolder2 = tuple_map_t<std::tuple<FirstIndex, SecondIndex>, Index>;
 
 template<typename FirstIndex, typename SecondIndex, typename ThirdIndex>
 using IndexHolder3 =
@@ -46,10 +46,10 @@ using STIndexHolder = IndexHolder2<ScenarioIndex, StageIndex>;
 using STBIndexHolder = IndexHolder3<ScenarioIndex, StageIndex, BlockIndex>;
 
 using GSTIndexHolder =
-    tuple_map_t<std::tuple<ScenarioIndex, StageIndex>, size_t>;
+    tuple_map_t<std::tuple<ScenarioIndex, StageIndex>, Index>;
 
 using GSTBIndexHolder =
-    tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, size_t>;
+    tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, Index>;
 
 template<typename Map, typename BHolder>
 constexpr auto emplace_bholder(const ScenarioIndex& scenario_index,

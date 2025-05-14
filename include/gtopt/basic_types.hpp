@@ -68,7 +68,7 @@ using Size = std::size_t;
 using OptSize = std::optional<Size>;
 
 /** @brief Index type for large-scale sparse matrices and arrays */
-using Index = std::int64_t;
+using Index = std::int32_t;
 
 /** @brief Boolean type for logical conditions */
 using Bool = bool;

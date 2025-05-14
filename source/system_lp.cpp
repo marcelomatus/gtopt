@@ -93,7 +93,7 @@ constexpr auto make_collection(InputContext& input_context,
 //
 
 constexpr void add_to_lp(auto& collections,
-                         const SystemContext& system_context,
+                         SystemContext& system_context,
                          const ScenarioIndex& scenario_index,
                          const StageIndex& stage_index,
                          LinearProblem& lp)
@@ -121,7 +121,7 @@ constexpr void add_to_lp(auto& collections,
 }
 
 constexpr auto create_linear_interfaces(auto& collections,
-                                        const auto& system_context,
+                                        auto& system_context,
                                         const auto& system,
                                         const auto& simulation,
                                         const auto& flat_opts)
@@ -212,7 +212,7 @@ namespace gtopt
 {
 
 SystemLP::SystemLP(const System& system,
-                   const SimulationLP& simulation,
+                   SimulationLP& simulation,
                    const FlatOptions& flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)

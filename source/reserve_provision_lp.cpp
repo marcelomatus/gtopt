@@ -1,5 +1,9 @@
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
+#include <algorithm>
+#include <ranges>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
@@ -8,19 +12,20 @@
 
 namespace
 {
+
 using namespace gtopt;
 
-inline bool add_provision(const SystemContext& sc,
-                          const ScenarioIndex& scenario_index,
-                          const StageIndex& stage_index,
-                          LinearProblem& lp,
-                          const auto capacity_col,
-                          const auto& generation_cols,
-                          const auto uid,
-                          auto& rp,
-                          const auto pname,
-                          const auto& requirement_rows,
-                          auto provision_row)
+constexpr bool add_provision(const SystemContext& sc,
+                             const ScenarioIndex& scenario_index,
+                             const StageIndex& stage_index,
+                             LinearProblem& lp,
+                             const auto capacity_col,
+                             const auto& generation_cols,
+                             const auto uid,
+                             auto& rp,
+                             const auto pname,
+                             const auto& requirement_rows,
+                             auto provision_row)
 {
   constexpr std::string_view cname = "rprov";
 
@@ -93,10 +98,23 @@ inline bool add_provision(const SystemContext& sc,
   return true;
 }
 
-inline auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
+constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
 {
-  std::vector<std::string> rzones;
-  boost::split(rzones, rzstr, boost::is_any_of(":"));
+  std::vector<std::string> result;
+
+  auto view =
+      str | std::views::split(delim)
+      | std::views::transform(
+          [](auto&& range) { return std::string(range.begin(), range.end()); });
+
+  std::ranges::copy(view, std::back_inserter(result));
+  return result;
+}
+
+constexpr auto make_rzone_indexes(const InputContext& ic,
+                                  const std::string& rzstr)
+{
+  std::vector<std::string> rzones = split(rzstr, ':');
 
   auto is_uid = [](const auto& s)
   { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };

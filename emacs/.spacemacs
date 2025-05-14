@@ -48,14 +48,14 @@ This function should only modify configuration layer settings."
      git
      ;; helm
      ivy
-     lsp
+     (lsp :variables lsp-clients-clangd-args '("--j=3" "--background-index" "--log=error"))
+
      dap
      sphinx
      markdown
      (json :variables
            json-fmt-tool 'web-beautify)
 
-     fortran
      (python :variables
              python-backend 'lsp
              python-formatter 'black
@@ -89,7 +89,12 @@ This function should only modify configuration layer settings."
    ;; `dotspacemacs/user-config'. To use a local version of a package, use the
    ;; `:location' property: '(your-package :location "~/path/to/your-package/")
    ;; Also include the dependencies as they will not be resolved automatically.
-   dotspacemacs-additional-packages '(gptel)
+   dotspacemacs-additional-packages '(
+                                      (aidermacs :variables
+                                                 aidermacs-use-architect-mode t
+                                                 aidermacs-default-model "deepseek/deepseek-coder")
+                                      gptel
+                                      )
 
    ;; A list of packages that cannot be updated.
    dotspacemacs-frozen-packages '()
@@ -589,11 +594,16 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
+  ;; Set leader key for Aidermacs
+  (spacemacs/set-leader-keys "aa" 'aidermacs-transient-menu) ; Example binding SPC a a
+
   ;; gptel configuration for Claude
   (use-package gptel
+    :ensure t
     :config
     ;; Set your Anthropic API key
 
+    ;; Configure for Claude
     :init (setq gptel-backend (gptel-make-anthropic
                                   "Claude"
                                 :models '("claude-3-7-sonnet-20250219"
@@ -602,26 +612,46 @@ before packages are loaded."
                                 :stream t
                                 :key gptel-api-key))
 
-    ;; Configure for Claude
     (setq gptel-model "claude-3-7-sonnet-20250219")
-    (setq gptel-host 'anthropic)
 
-    ;; Configure gptel specifically for Anthropic
-    (gptel-make-anthropic
-        "Claude"
-      :models '("claude-3-7-sonnet-20250219"
-                "claude-3-5-sonnet-20240620"
-                "claude-3-opus-20240229")
-      :stream t
-      :key gptel-api-key)
 
-    ;; Optional: Set a default system prompt
-    (setq gptel-system-prompt "You are Claude, a helpful AI assistant.")
+    ;; DeepSeek configuration
+    :init (setq gptel-backend (gptel-make-deepseek "DeepSeek"
+                                :stream t
+                                :models '("deepseek-coder"
+                                          "deepseek-reasoner"
+                                          "deepseek-chat")
+                                :key gptel-api-key))
+
+    (setq gptel-model "deepseek-coder")
+
 
     ;; Optional: Set up keybindings in Spacemacs style
     (spacemacs/set-leader-keys "aig" 'gptel)
-    (spacemacs/set-leader-keys "ais" 'gptel-send))
+    (spacemacs/set-leader-keys "ais" 'gptel-send)
+    )
   )
+
 
 ;; Do not write anything past this comment. This is where Emacs will
 ;; auto-generate custom variable definitions.
+(defun dotspacemacs/emacs-custom-settings ()
+  "Emacs custom settings.
+This is an auto-generated function, do not modify its content directly, use
+Emacs customize menu instead.
+This function is called at the very end of Spacemacs initialization."
+  (custom-set-variables
+   ;; custom-set-variables was added by Custom.
+   ;; If you edit it by hand, you could mess it up, so be careful.
+   ;; Your init file should contain only one such instance.
+   ;; If there is more than one, they won't work right.
+   '(aidermacs-default-model "deepseek/deepseek-coder")
+   '(package-selected-packages nil)
+   '(warning-suppress-log-types '((lsp-mode) (lsp-mode))))
+  (custom-set-faces
+   ;; custom-set-faces was added by Custom.
+   ;; If you edit it by hand, you could mess it up, so be careful.
+   ;; Your init file should contain only one such instance.
+   ;; If there is more than one, they won't work right.
+   )
+  )

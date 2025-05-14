@@ -280,7 +280,7 @@ struct FlatOptions
 class LinearProblem
 {
 public:
-  using index_t = size_t;
+  using index_t = FlatLinearProblem::index_t;
 
   constexpr static auto default_reserve_size = 1024;
 
@@ -299,7 +299,7 @@ public:
    */
   index_t add_col(SparseCol&& col)
   {
-    const index_t index = cols.size();
+    const auto index = static_cast<index_t>(cols.size());
 
     if (col.is_integer) {
       ++colints;
@@ -316,7 +316,7 @@ public:
    */
   index_t add_row(SparseRow&& row)
   {
-    const index_t index = rows.size();
+    const auto index = static_cast<index_t>(rows.size());
 
     ncoeffs += row.size();
     rows.emplace_back(std::move(row));
@@ -368,12 +368,18 @@ public:
   /**
    * @return Number of rows (constraints) in the problem
    */
-  [[nodiscard]] index_t get_numrows() const { return rows.size(); }
+  [[nodiscard]] index_t get_numrows() const
+  {
+    return static_cast<index_t>(rows.size());
+  }
 
   /**
    * @return Number of columns (variables) in the problem
    */
-  [[nodiscard]] index_t get_numcols() const { return cols.size(); }
+  [[nodiscard]] index_t get_numcols() const
+  {
+    return static_cast<index_t>(cols.size());
+  }
 
   /**
    * Sets a coefficient in the constraint matrix
