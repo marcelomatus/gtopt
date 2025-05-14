@@ -490,62 +490,9 @@ public:
     return simulation().blocks();
   }
 
-  template<typename... Types>
-    requires(std::constructible_from<std::string, Types> && ...)
-  constexpr auto label(const Types&... var) const noexcept -> std::string
+  [[nodiscard]] constexpr const LabelMaker& label_maker() const noexcept
   {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var...);
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto t_label(const StageIndex& stage_index,
-                         const Types&... var) const noexcept -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var..., stage_uid(stage_index));
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto st_label(const ScenarioIndex& scenario_index,
-                          const StageIndex& stage_index,
-                          const Types&... var) const noexcept -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(
-        var..., scenario_uid(scenario_index), stage_uid(stage_index));
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const ScenarioLP& scenario,
-                           const StageLP& stage,
-                           const BlockLP& block,
-                           const Types&... var) const -> std::string
-  {
-    if (!options().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
-                           const BlockLP& block,
-                           const Types&... var) const -> std::string
-  {
-    return stb_label(
-        scenarios()[scenario_index], stages()[stage_index], block, var...);
+    return m_label_maker;
   }
 
   // Add method with deducing this and perfect forwarding
@@ -574,6 +521,7 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
+  LabelMaker m_label_maker;
 
   std::vector<ScenarioIndex> m_active_scenarios_;
   std::vector<StageIndex> m_active_stages_;
