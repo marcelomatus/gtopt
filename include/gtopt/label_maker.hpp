@@ -63,7 +63,7 @@ public:
                            const BlockLP& block,
                            const Types&... var) const noexcept -> std::string
   {
-    if (!m_options.use_lp_names()) [[likely]] {
+    if (!options_.get().use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
