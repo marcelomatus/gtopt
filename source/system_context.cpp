@@ -308,6 +308,10 @@ auto SystemContext::t_uids() const -> TUids
 
 SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
     : LabelMaker(psimulation.options(), psimulation.scenarios(), psimulation.stages())
+    , FlatHelper(
+        active_indices<ScenarioIndex>(psimulation.scenarios()),
+        active_indices<StageIndex>(psimulation.stages()),
+        active_stage_block_indices<BlockIndex>(psimulation.stages()))
     , m_simulation_(psimulation)
     , m_system_(psystem)
     , m_active_scenarios_(active_indices<ScenarioIndex>(psimulation.scenarios()))
