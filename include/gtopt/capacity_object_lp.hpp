@@ -196,8 +196,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
         .name = sc.t_label(stage_index, cname, "capacost", uid())};
 
     const auto capainst_lb = stage_capacity;
-    const auto capainst_ub = stage_capmax.has_value()
-        ? stage_capmax.value()
+    const auto capainst_ub = capmax_val.has_value()
+        ? capmax_val.value()
         : stage_maxexpcap + capainst_lb;
 
     const auto& capainst_col_name = capainst_row.name;
