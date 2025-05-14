@@ -15,9 +15,9 @@ public:
   explicit LabelMaker(const OptionsLP& options,
                       const std::vector<ScenarioLP>& scenarios,
                       const std::vector<StageLP>& stages)
-      : options_(options)
-      , scenarios_(scenarios)
-      , stages_(stages)
+      : m_options_(options)
+      , m_scenarios_(scenarios)
+      , m_stages_(stages)
   {
   }
 
@@ -25,7 +25,7 @@ public:
     requires(std::constructible_from<std::string, Types> && ...)
   constexpr auto label(const Types&... var) const noexcept -> std::string
   {
-    if (!options_.get().use_lp_names()) [[likely]] {
+    if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(var...);
@@ -39,7 +39,7 @@ public:
     if (!options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., stages_.get().at(stage_index).uid());
+    return gtopt::as_label(var..., m_stages_.get().at(stage_index).uid());
   }
 
   template<typename... Types>
@@ -52,8 +52,8 @@ public:
       return {};
     }
     return gtopt::as_label(var...,
-                           scenarios_.get().at(scenario_index).uid(),
-                           stages_.get().at(stage_index).uid());
+                           m_scenarios_.get().at(scenario_index).uid(),
+                           m_stages_.get().at(stage_index).uid());
   }
 
   template<typename... Types>
@@ -76,16 +76,16 @@ public:
                            const BlockLP& block,
                            const Types&... var) const -> std::string
   {
-    return stb_label(scenarios_.get().at(scenario_index),
-                     stages_.get().at(stage_index),
+    return stb_label(m_scenarios_.get().at(scenario_index),
+                     m_stages_.get().at(stage_index),
                      block,
                      var...);
   }
 
 private:
-  std::reference_wrapper<const OptionsLP> options_;
-  std::reference_wrapper<const std::vector<ScenarioLP>> scenarios_;
-  std::reference_wrapper<const std::vector<StageLP>> stages_;
+  std::reference_wrapper<const OptionsLP> m_options_;
+  std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
+  std::reference_wrapper<const std::vector<StageLP>> m_stages_;
 };
 
 }  // namespace gtopt
