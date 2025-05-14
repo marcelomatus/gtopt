@@ -1,10 +1,10 @@
 #include <doctest/doctest.h>
 
+#include <gtopt/block_lp.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
-#include <gtopt/block_lp.hpp>
 
 using namespace gtopt;
 
@@ -12,25 +12,28 @@ TEST_SUITE("LabelMaker") {
 
 TEST_CASE("basic label generation")
 {
-    OptionsLP options;
+    const OptionsLP options;
     std::vector<ScenarioLP> scenarios;
     std::vector<StageLP> stages;
 
     // Setup test data
-    scenarios.emplace_back(Scenario{"scenario1"}, std::vector<StageLP>{});
-    scenarios.emplace_back(Scenario{"scenario2"}, std::vector<StageLP>{});
+    scenarios.emplace_back(Scenario{Uid{1}, "scenario1"}, std::vector<StageLP>{});
+    scenarios.emplace_back(Scenario{Uid{2}, "scenario2"}, std::vector<StageLP>{});
 
-    stages.emplace_back(Stage{"stage1"}, std::vector<BlockLP>{});
-    stages.emplace_back(Stage{"stage2"}, std::vector<BlockLP>{});
+    stages.emplace_back(Stage{Uid{1}, "stage1", std::vector<BlockLP>{});
+    stages.emplace_back(Stage{Uid{2}, "stage2", std::vector<BlockLP>{});
 
-    BlockLP block1{"block1"};
-    BlockLP block2{"block2"};
+    Block block1{Uid{1}, "block1"};
+    Block block2{Uid{2}, "block2"};
+    BlockLP block1_lp{block1};
+    BlockLP block2_lp{block2};
 
     SECTION("Simple label generation")
     {
         LabelMaker maker(options, scenarios, stages);
         
-        options.use_lp_names(true);
+        auto& mutable_options = const_cast<OptionsLP&>(options);
+        mutable_options.set_use_lp_names(true);
         REQUIRE(maker.label("var") == "var");
         REQUIRE(maker.label("prefix", "var") == "prefix_var");
         REQUIRE(maker.label("a", "b", "c") == "a_b_c");
@@ -40,7 +43,8 @@ TEST_CASE("basic label generation")
     {
         LabelMaker maker(options, scenarios, stages);
         
-        options.use_lp_names(false);
+        auto& mutable_options = const_cast<OptionsLP&>(options);
+        mutable_options.set_use_lp_names(false);
         REQUIRE(maker.label("var").empty());
         REQUIRE(maker.label("prefix", "var").empty());
     }
@@ -50,8 +54,8 @@ TEST_CASE("basic label generation")
         LabelMaker maker(options, scenarios, stages);
         options.use_lp_names(true);
 
-        REQUIRE(maker.t_label(StageIndex{0}, "var") == "var_stage1");
-        REQUIRE(maker.t_label(StageIndex{1}, "a", "b") == "a_b_stage2");
+        REQUIRE(maker.t_label(StageIndex{0}, "var", "x", "y") == "var_x_y_stage1");
+        REQUIRE(maker.t_label(StageIndex{1}, "a", "b", "c") == "a_b_c_stage2");
     }
 
     SECTION("Scenario-time labels")
