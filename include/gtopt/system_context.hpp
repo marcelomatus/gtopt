@@ -52,6 +52,8 @@ class SimulationLP;
 
 class SystemContext : public LabelMaker
 {
+  static_assert(std::is_base_of_v<LabelMaker, SystemContext>, 
+               "SystemContext must inherit from LabelMaker");
 public:
   // Core Context Management
   explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
