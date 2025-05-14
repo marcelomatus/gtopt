@@ -12,75 +12,80 @@ namespace gtopt
 class LabelMaker
 {
 public:
-    explicit LabelMaker(const OptionsLP& options,
-                       const std::vector<ScenarioLP>& scenarios,
-                       const std::vector<StageLP>& stages)
-        : m_options(options)
-        , m_scenarios(scenarios)
-        , m_stages(stages) {}
+  explicit LabelMaker(const OptionsLP& options,
+                      const std::vector<ScenarioLP>& scenarios,
+                      const std::vector<StageLP>& stages)
+      : m_options(options)
+      , m_scenarios(scenarios)
+      , m_stages(stages)
+  {
+  }
 
-    template<typename... Types>
-        requires(std::constructible_from<std::string, Types> && ...)
-    constexpr auto label(const Types&... var) const noexcept -> std::string
-    {
-        if (!m_options.use_lp_names()) [[likely]] {
-            return {};
-        }
-        return gtopt::as_label(var...);
+  template<typename... Types>
+    requires(std::constructible_from<std::string, Types> && ...)
+  constexpr auto label(const Types&... var) const noexcept -> std::string
+  {
+    if (!m_options.use_lp_names()) [[likely]] {
+      return {};
     }
+    return gtopt::as_label(var...);
+  }
 
-    template<typename... Types>
-        requires(sizeof...(Types) == 3)
-    constexpr auto t_label(const StageIndex& stage_index,
-                         const Types&... var) const noexcept -> std::string
-    {
-        if (!m_options.use_lp_names()) [[likely]] {
-            return {};
-        }
-        return gtopt::as_label(var..., m_stages[stage_index].uid());
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto t_label(const StageIndex& stage_index,
+                         const Types&... var) const -> std::string
+  {
+    if (!m_options.use_lp_names()) [[likely]] {
+      return {};
     }
+    return gtopt::as_label(var..., m_stages.at(stage_index).uid());
+  }
 
-    template<typename... Types>
-        requires(sizeof...(Types) == 3)
-    constexpr auto st_label(const ScenarioIndex& scenario_index,
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto st_label(const ScenarioIndex& scenario_index,
                           const StageIndex& stage_index,
-                          const Types&... var) const noexcept -> std::string
-    {
-        if (!m_options.use_lp_names()) [[likely]] {
-            return {};
-        }
-        return gtopt::as_label(
-            var..., m_scenarios[scenario_index].uid(), m_stages[stage_index].uid());
+                          const Types&... var) const -> std::string
+  {
+    if (!m_options.use_lp_names()) [[likely]] {
+      return {};
     }
+    return gtopt::as_label(var...,
+                           m_scenarios.at(scenario_index).uid(),
+                           m_stages.at(stage_index).uid());
+  }
 
-    template<typename... Types>
-        requires(sizeof...(Types) == 3)
-    constexpr auto stb_label(const ScenarioLP& scenario,
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto stb_label(const ScenarioLP& scenario,
                            const StageLP& stage,
                            const BlockLP& block,
-                           const Types&... var) const -> std::string
-    {
-        if (!m_options.use_lp_names()) [[likely]] {
-            return {};
-        }
-        return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
+                           const Types&... var) const noexcept -> std::string
+  {
+    if (!m_options.use_lp_names()) [[likely]] {
+      return {};
     }
+    return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
+  }
 
-    template<typename... Types>
-        requires(sizeof...(Types) == 3)
-    constexpr auto stb_label(const ScenarioIndex& scenario_index,
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto stb_label(const ScenarioIndex& scenario_index,
                            const StageIndex& stage_index,
                            const BlockLP& block,
                            const Types&... var) const -> std::string
-    {
-        return stb_label(
-            m_scenarios[scenario_index], m_stages[stage_index], block, var...);
-    }
+  {
+    return stb_label(m_scenarios.at(scenario_index),
+                     m_stages.at(stage_index),
+                     block,
+                     var...);
+  }
 
 private:
-    const OptionsLP& m_options;
-    const std::vector<ScenarioLP>& m_scenarios;
-    const std::vector<StageLP>& m_stages;
+  const OptionsLP& m_options;
+  const std::vector<ScenarioLP>& m_scenarios;
+  const std::vector<StageLP>& m_stages;
 };
 
-} // namespace gtopt
+}  // namespace gtopt
