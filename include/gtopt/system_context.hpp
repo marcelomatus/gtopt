@@ -26,6 +26,7 @@
 #include <gtopt/collection.hpp>
 #include <gtopt/element_traits.hpp>
 #include <gtopt/index_holder.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/overload.hpp>
@@ -34,7 +35,6 @@
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
-#include <gtopt/label_maker.hpp>
 
 namespace gtopt
 {
