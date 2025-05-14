@@ -36,7 +36,7 @@ public:
   constexpr auto t_label(const StageIndex& stage_index,
                          const Types&... var) const -> std::string
   {
-    if (!options_.get().use_lp_names()) [[likely]] {
+    if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(var..., m_stages_.get().at(stage_index).uid());
@@ -48,7 +48,7 @@ public:
                           const StageIndex& stage_index,
                           const Types&... var) const -> std::string
   {
-    if (!options_.get().use_lp_names()) [[likely]] {
+    if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(var...,
@@ -63,7 +63,7 @@ public:
                            const BlockLP& block,
                            const Types&... var) const noexcept -> std::string
   {
-    if (!options_.get().use_lp_names()) [[likely]] {
+    if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
