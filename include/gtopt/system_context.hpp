@@ -50,7 +50,22 @@ using TUids = std::vector<Uid>;
 class SystemLP;
 class SimulationLP;
 
-class SystemContext : public LabelMaker
+class SystemContext 
+{
+public:
+  explicit SystemContext(SimulationLP& simulation, SystemLP& system);
+  
+  // Delegate to composed objects
+  double block_cost(...) const { return m_costCalculator.block_cost(...); }
+  const auto& active_scenarios() const { return m_activeTracker.active_scenarios(); }
+  // Other delegated methods...
+
+private:
+  LabelMaker m_labelMaker;
+  CostCalculator m_costCalculator;
+  ActiveElementsTracker m_activeTracker;
+  UidGenerator m_uidGenerator;
+  // Other members...
 {
 public:
   // Core Context Management
