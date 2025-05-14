@@ -1,4 +1,4 @@
-#include <catch2/catch_test_macros.hpp>
+#include <doctest/doctest.h>
 
 #include <gtopt/label_maker.hpp>
 #include <gtopt/options_lp.hpp>
@@ -8,7 +8,9 @@
 
 using namespace gtopt;
 
-TEST_CASE("LabelMaker basic label generation", "[label_maker]")
+TEST_SUITE("LabelMaker") {
+
+TEST_CASE("basic label generation")
 {
     OptionsLP options;
     std::vector<ScenarioLP> scenarios;
@@ -78,9 +80,9 @@ TEST_CASE("LabelMaker basic label generation", "[label_maker]")
         REQUIRE(maker.stb_label(ScenarioIndex{0}, StageIndex{0}, block1, "var") == "var_scenario1_stage1_block1");
         REQUIRE(maker.stb_label(ScenarioIndex{1}, StageIndex{1}, block2, "a", "b") == "a_b_scenario2_stage2_block2");
     }
-}
+} // TEST_SUITE
 
-TEST_CASE("LabelMaker edge cases", "[label_maker]")
+TEST_CASE("edge cases")
 {
     OptionsLP options;
     std::vector<ScenarioLP> scenarios;
