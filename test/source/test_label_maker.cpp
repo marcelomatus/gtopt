@@ -17,23 +17,23 @@ TEST_CASE("basic label generation")
     std::vector<StageLP> stages;
 
     // Setup test data
-    scenarios.emplace_back(Scenario{Uid{1}, "scenario1"}, std::vector<StageLP>{});
-    scenarios.emplace_back(Scenario{Uid{2}, "scenario2"}, std::vector<StageLP>{});
+    scenarios.emplace_back(Scenario{.uid = Uid{1}, .name = "scenario1"}, std::vector<StageLP>{});
+    scenarios.emplace_back(Scenario{.uid = Uid{2}, .name = "scenario2"}, std::vector<StageLP>{});
 
-    stages.emplace_back(Stage{Uid{1}, "stage1", std::vector<BlockLP>{});
-    stages.emplace_back(Stage{Uid{2}, "stage2", std::vector<BlockLP>{});
+    stages.emplace_back(Stage{.uid = Uid{1}, .name = "stage1", .blocks = std::vector<BlockLP>{}});
+    stages.emplace_back(Stage{.uid = Uid{2}, .name = "stage2", .blocks = std::vector<BlockLP>{}});
 
-    Block block1{Uid{1}, "block1"};
-    Block block2{Uid{2}, "block2"};
-    BlockLP block1_lp{block1};
-    BlockLP block2_lp{block2};
+    const Block block1{.uid = Uid{1}, .name = "block1"};
+    const Block block2{.uid = Uid{2}, .name = "block2"};
+    const BlockLP block1_lp{block1};
+    const BlockLP block2_lp{block2};
 
     SECTION("Simple label generation")
     {
         LabelMaker maker(options, scenarios, stages);
         
-        auto& mutable_options = const_cast<OptionsLP&>(options);
-        mutable_options.set_use_lp_names(true);
+        OptionsLP non_const_options = options;
+        non_const_options.use_lp_names_ = true;
         REQUIRE(maker.label("var") == "var");
         REQUIRE(maker.label("prefix", "var") == "prefix_var");
         REQUIRE(maker.label("a", "b", "c") == "a_b_c");
@@ -43,8 +43,8 @@ TEST_CASE("basic label generation")
     {
         LabelMaker maker(options, scenarios, stages);
         
-        auto& mutable_options = const_cast<OptionsLP&>(options);
-        mutable_options.set_use_lp_names(false);
+        OptionsLP non_const_options = options;
+        non_const_options.use_lp_names_ = false;
         REQUIRE(maker.label("var").empty());
         REQUIRE(maker.label("prefix", "var").empty());
     }
@@ -63,8 +63,8 @@ TEST_CASE("basic label generation")
         LabelMaker maker(options, scenarios, stages);
         options.use_lp_names(true);
 
-        REQUIRE(maker.st_label(ScenarioIndex{0}, StageIndex{0}, "var") == "var_scenario1_stage1");
-        REQUIRE(maker.st_label(ScenarioIndex{1}, StageIndex{1}, "a", "b") == "a_b_scenario2_stage2");
+        REQUIRE(maker.st_label(ScenarioIndex{0}, StageIndex{0}, "var", "x", "y") == "var_x_y_scenario1_stage1");
+        REQUIRE(maker.st_label(ScenarioIndex{1}, StageIndex{1}, "a", "b", "c") == "a_b_c_scenario2_stage2");
     }
 
     SECTION("Scenario-time-block labels with objects")
