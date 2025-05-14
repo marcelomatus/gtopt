@@ -10,9 +10,14 @@
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/system_context_fwd.hpp>
 
 namespace gtopt
 {
+
+using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
+using stage_factor_matrix_t = std::vector<double>;
+using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
 class FlatHelper
 {
@@ -38,10 +43,10 @@ protected:
         std::vector<double> values(size);
         std::vector<bool> valid(size, false);
 
-        const bool need_values = false;
-        const bool need_valids = false;
+        bool need_values = false;
+        bool need_valids = false;
 
-        const size_t idx = 0;
+        size_t idx = 0;
         for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
             for (auto&& tindex : m_active_stages_) {
                 for (auto&& bindex : m_active_stage_blocks_[tindex]) {
