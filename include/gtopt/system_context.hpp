@@ -535,7 +535,7 @@ private:
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
 
-static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>, 
-             "SystemContext must inherit from LabelMaker");
+static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
+              "SystemContext must inherit from LabelMaker");
 
 }  // namespace gtopt
