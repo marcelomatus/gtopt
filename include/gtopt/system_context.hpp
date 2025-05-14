@@ -34,6 +34,7 @@
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/label_maker.hpp>
 
 namespace gtopt
 {
