@@ -91,9 +91,15 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @throws None This function is noexcept
    */
   explicit CapacityObjectLP(const InputContext& ic,
-                            std::string_view ClassName,
-                            ObjectT&& pobject) noexcept
-      : ObjectLP<Object>(std::forward<ObjectT>(pobject))
+                           std::string_view ClassName,
+                           ObjectT&& pobject) noexcept
+      : ObjectLP<Object>(std::forward<ObjectT>(pobject)),
+        capacity(ic, ClassName, id(), object().capacity),
+        expcap(ic, ClassName, id(), object().expcap),
+        capmax(ic, ClassName, id(), object().capmax),
+        expmod(ic, ClassName, id(), object().expmod),
+        annual_capcost(ic, ClassName, id(), object().annual_capcost),
+        annual_derating(ic, ClassName, id(), object().annual_derating)
   {
     set_attrs(ic, ClassName, object());
   }
@@ -154,9 +160,11 @@ struct CapacityObjectLP : public ObjectLP<Object>
       return true;
     }
 
-    const auto stage_expcap = expcap.at(stage_index).value_or(0.0);
-    const auto stage_capmax = capmax.at(stage_index);
-    const auto stage_expmod = expmod.at(stage_index).value_or(0.0);
+    const auto& expcap_val = expcap.at(stage_index);
+    const auto& capmax_val = capmax.at(stage_index);
+    const auto& expmod_val = expmod.at(stage_index);
+    const auto stage_expcap = expcap_val.value_or(0.0);
+    const auto stage_expmod = expmod_val.value_or(0.0);
     const auto stage_maxexpcap = stage_expcap * stage_expmod;
 
     const auto prev_stage_index = !sc.is_first_stage(stage_index)
@@ -266,7 +274,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @param stage_index The stage to get column index for
    * @return Optional containing column index if exists
    */
-  constexpr auto capacity_col_at(const StageIndex& stage_index) const noexcept
+  [[nodiscard]] constexpr auto capacity_col_at(const StageIndex& stage_index) const noexcept
   {
     return get_optvalue(capainst_cols, stage_index);
   }
