@@ -27,54 +27,54 @@ class FlatHelper
   std::vector<BlockIndex> m_active_blocks_;
 
 public:
-  [[nodiscard]] const std::vector<ScenarioIndex>& active_scenarios() const
+  [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios() const noexcept
   {
     return m_active_scenarios_;
   }
 
-  [[nodiscard]] const std::vector<StageIndex>& active_stages() const
+  [[nodiscard]] constexpr const std::vector<StageIndex>& active_stages() const noexcept
   {
     return m_active_stages_;
   }
 
-  [[nodiscard]] const std::vector<std::vector<BlockIndex>>&
-  active_stage_blocks() const
+  [[nodiscard]] constexpr const std::vector<std::vector<BlockIndex>>&
+  active_stage_blocks() const noexcept
   {
     return m_active_stage_blocks_;
   }
 
-  [[nodiscard]] const std::vector<BlockIndex>& active_blocks() const
+  [[nodiscard]] constexpr const std::vector<BlockIndex>& active_blocks() const noexcept
   {
     return m_active_blocks_;
   }
 
-  [[nodiscard]] auto is_first_scenario(
-      const ScenarioIndex& scenario_index) const
+  [[nodiscard]] constexpr bool is_first_scenario(
+      const ScenarioIndex& scenario_index) const noexcept
   {
     return scenario_index == m_active_scenarios_.front();
   }
 
-  [[nodiscard]] auto active_scenario_count() const
+  [[nodiscard]] constexpr size_t active_scenario_count() const noexcept
   {
     return m_active_scenarios_.size();
   }
 
-  [[nodiscard]] auto active_stage_count() const
+  [[nodiscard]] constexpr size_t active_stage_count() const noexcept
   {
     return m_active_stages_.size();
   }
 
-  [[nodiscard]] auto active_block_count() const
+  [[nodiscard]] constexpr size_t active_block_count() const noexcept
   {
     return m_active_blocks_.size();
   }
 
-  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
+  [[nodiscard]] constexpr bool is_first_stage(const StageIndex& stage_index) const noexcept
   {
     return stage_index == m_active_stages_.front();
   }
 
-  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
+  [[nodiscard]] constexpr bool is_last_stage(const StageIndex& stage_index) const noexcept
   {
     return stage_index == m_active_stages_.back();
   }
