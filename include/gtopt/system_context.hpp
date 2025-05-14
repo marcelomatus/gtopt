@@ -25,6 +25,7 @@
 #include <gtopt/block_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/element_traits.hpp>
+#include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -35,7 +36,6 @@
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
-#include <gtopt/flat_helper.hpp>
 
 namespace gtopt
 {
@@ -52,7 +52,9 @@ using TUids = std::vector<Uid>;
 class SystemLP;
 class SimulationLP;
 
-class SystemContext : public LabelMaker, protected FlatHelper
+class SystemContext
+    : public LabelMaker
+    , public FlatHelper
 {
 public:
   // Core Context Management
@@ -218,7 +220,6 @@ public:
   [[nodiscard]] auto stb_uids() const -> STBUids;
   [[nodiscard]] auto st_uids() const -> STUids;
   [[nodiscard]] auto t_uids() const -> TUids;
-
 
   template<typename Max>
   constexpr auto block_max_at(const StageIndex& stage_index,
