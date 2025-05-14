@@ -55,7 +55,7 @@ bool DemandLP::add_to_lp(const SystemContext& sc,
 
   // adding the minimum energy constraint
   const auto emin_row = [&](auto stage_emin,
-                            auto stage_ecost) -> std::optional<size_t>
+                            auto stage_ecost) -> std::optional<Index>
   {
     if (!stage_emin) [[unlikely]] {
       return std::nullopt;

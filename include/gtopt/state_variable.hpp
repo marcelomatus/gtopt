@@ -7,7 +7,7 @@
  *
  * Defines the StateVariable class representing decision variables in
  * optimization models. Each variable is associated with specific phases and
- * scenes in the power system model and tracks its position in the optimization
+ * stages in the power system model and tracks its position in the optimization
  * matrix.
  */
 
@@ -16,7 +16,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/phase.hpp>
-#include <gtopt/scene.hpp>
+#include <gtopt/stage.hpp>
 
 namespace gtopt
 {
@@ -25,23 +25,23 @@ namespace gtopt
  * @class StateVariable
  * @brief Represents a decision variable in an optimization problem
  *
- * Tracks a variable's association with a phase and scene in the power system
+ * Tracks a variable's association with a phase and stage in the power system
  * model, along with its position in the optimization matrix. Each variable has:
  * - A unique name
- * - Associated scene and phase indices
+ * - Associated stage and phase indices
  * - Column range in the LP formulation
  */
 class StateVariable
 {
 public:
-  using key_t = std::tuple<NameView, SceneIndex, PhaseIndex>;
+  using key_t = std::tuple<NameView, StageIndex>;
 
   constexpr StateVariable() = default;
 
   /**
    * @brief Constructs a valid state variable
    * @param name Variable name
-   * @param scene_index Associated scene index
+   * @param stage_index Associated stage index
    * @param phase_index Associated phase index
    * @param first_col First column in optimization matrix
    * @param last_col Last column in optimization matrix
@@ -50,14 +50,12 @@ public:
    * leave the source object in a valid but unspecified state (name empty,
    * indices -1).
    */
-  constexpr StateVariable(Name name,
-                          SceneIndex scene_index,
-                          PhaseIndex phase_index,
-                          Index first_col,
-                          Index last_col) noexcept(false)
+  constexpr explicit StateVariable(Name name,
+                                   StageIndex stage_index,
+                                   Index first_col,
+                                   Index last_col) noexcept(false)
       : m_name_(std::move(name))
-      , m_scene_index_(scene_index)
-      , m_phase_index_(phase_index)
+      , m_stage_index_(stage_index)
       , m_first_col_(first_col)
       , m_last_col_(last_col)
   {
@@ -66,16 +64,10 @@ public:
   /// @return Variable name view
   [[nodiscard]] constexpr NameView name() const noexcept { return m_name_; }
 
-  /// @return Associated phase index
-  [[nodiscard]] constexpr PhaseIndex phase_index() const noexcept
+  /// @return Associated stage index
+  [[nodiscard]] constexpr StageIndex stage_index() const noexcept
   {
-    return m_phase_index_;
-  }
-
-  /// @return Associated scene index
-  [[nodiscard]] constexpr SceneIndex scene_index() const noexcept
-  {
-    return m_scene_index_;
+    return m_stage_index_;
   }
 
   /// @return First column index in optimization matrix
@@ -90,16 +82,15 @@ public:
     return m_last_col_;
   }
 
-  /// @return Unique key tuple for this variable (name, scene, phase)
+  /// @return Unique key tuple for this variable (name, stage, phase)
   [[nodiscard]] constexpr auto key() const noexcept
   {
-    return key_t {name(), scene_index(), phase_index()};
+    return key_t {name(), stage_index()};
   }
 
 private:
   Name m_name_;  ///< Variable name
-  SceneIndex m_scene_index_;  ///< Associated scene index
-  PhaseIndex m_phase_index_;  ///< Associated phase index
+  StageIndex m_stage_index_;  ///< Associated stage index
   Index m_first_col_ {-1};  ///< First column index (invalid when negative)
   Index m_last_col_ {-1};  ///< Last column index (invalid when negative)
 };

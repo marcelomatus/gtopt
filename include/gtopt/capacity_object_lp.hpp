@@ -1,24 +1,49 @@
 /**
  * @file      capacity_object_lp.hpp
- * @brief     Header of
+ * @brief     Capacity-constrained object representation for linear programming
  * @date      Thu Mar 27 10:50:18 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the CapacityObjectLP template class which provides:
+ * - Modeling of capacity constraints in linear programming problems
+ * - Support for capacity expansion with associated costs
+ * - Time-phased capacity tracking across stages
+ * - Integration with the GT optimization framework
+ *
+ * Key features:
+ * - Handles both fixed and expandable capacities
+ * - Tracks capacity installation and costs separately
+ * - Supports derating factors for capacity degradation
+ * - Provides output capabilities for solution analysis
+ *
+ * The class is designed to work with the GT optimization system's:
+ * - LinearProblem interface
+ * - Input/Output contexts
+ * - Stage and scenario indexing
  */
-
 #pragma once
 
 #include <gtopt/capacity.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/state_variable.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
 {
-
+/**
+ * @brief A linear programming representation of an object with capacity
+ * constraints
+ *
+ * @tparam Object The type of object being modeled, must provide
+ * capacity-related attributes
+ *
+ * This class extends ObjectLP to handle capacity constraints, expansion
+ * capabilities, and associated costs in a linear programming formulation.
+ */
 template<typename Object>
 struct CapacityObjectLP : public ObjectLP<Object>
 {
@@ -29,27 +54,45 @@ struct CapacityObjectLP : public ObjectLP<Object>
   using Base::uid;
 
   template<typename CAttrs>
+  /**
+   * @brief Set capacity-related attributes from input
+   * @param ic Input context providing stage/scenario information
+   * @param ClassName Name of the class for labeling columns/rows
+   * @param attrs Attributes containing capacity configuration
+   * @return Reference to self for method chaining
+   * @throws None This function is noexcept
+   */
   auto& set_attrs(const InputContext& ic,
-                  const std::string_view& ClassName,
-                  CAttrs& attrs)
+                  std::string_view ClassName,
+                  CAttrs&& attrs) noexcept
   {
-    capacity =
-        decltype(capacity) {ic, ClassName, id(), std::move(attrs.capacity)};
-    expcap = decltype(expcap) {ic, ClassName, id(), std::move(attrs.expcap)};
-    capmax = decltype(capmax) {ic, ClassName, id(), std::move(attrs.capmax)};
-    expmod = decltype(expmod) {ic, ClassName, id(), std::move(attrs.expmod)};
+    capacity = decltype(capacity) {
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).capacity};
+    expcap = decltype(expcap) {
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).expcap};
+    capmax = decltype(capmax) {
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).capmax};
+    expmod = decltype(expmod) {
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).expmod};
     annual_capcost = decltype(annual_capcost) {
-        ic, ClassName, id(), std::move(attrs.annual_capcost)};
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).annual_capcost};
     annual_derating = decltype(annual_derating) {
-        ic, ClassName, id(), std::move(attrs.annual_derating)};
+        ic, ClassName, id(), std::forward<CAttrs>(attrs).annual_derating};
 
     return *this;
   }
 
   template<typename ObjectT>
+  /**
+   * @brief Construct a new CapacityObjectLP object
+   * @param ic Input context providing stage/scenario information
+   * @param ClassName Name of the class for labeling columns/rows
+   * @param pobject The object to wrap, will be moved if rvalue
+   * @throws None This function is noexcept
+   */
   explicit CapacityObjectLP(const InputContext& ic,
-                            const std::string_view& ClassName,
-                            ObjectT&& pobject)
+                            std::string_view ClassName,
+                            ObjectT&& pobject) noexcept
       : ObjectLP<Object>(std::forward<ObjectT>(pobject))
   {
     set_attrs(ic, ClassName, object());
@@ -67,14 +110,37 @@ struct CapacityObjectLP : public ObjectLP<Object>
     return {capacity_at(stage_index), {}};
   }
 
-  constexpr auto capacity_at(const StageIndex stage_index,
-                             const double def_capacity = CoinDblMax) const
+  /**
+   * @brief Get the capacity at a specific stage
+   * @param stage_index The stage to get capacity for
+   * @param def_capacity Default capacity if not specified (default:
+   * CoinDblMax)
+   * @return The capacity at the given stage or default if not specified
+   */
+  /**
+   * @brief Get the capacity at a specific stage
+   * @param stage_index The stage to query capacity for
+   * @param def_capacity Default value if capacity not specified (default:
+   * unlimited)
+   * @return The capacity at given stage or default if not specified
+   * @throws None This function is noexcept
+   */
+  [[nodiscard]] constexpr auto capacity_at(
+      StageIndex stage_index, double def_capacity = CoinDblMax) const noexcept
   {
     return capacity.at(stage_index).value_or(def_capacity);
   }
 
-  constexpr auto capacity_at(const std::optional<StageIndex>& stage_index,
-                             const double def_capacity = CoinDblMax) const
+  /**
+   * @brief Get the capacity at an optional stage
+   * @param stage_index Optional stage to query (returns default if nullopt)
+   * @param def_capacity Default value if capacity not specified (default:
+   * unlimited)
+   * @return The capacity at given stage or default if not specified/available
+   */
+  [[nodiscard]] constexpr auto capacity_at(
+      const std::optional<StageIndex>& stage_index,
+      double def_capacity = CoinDblMax) const noexcept
   {
     return stage_index.has_value()
         ? capacity_at(stage_index.value(), def_capacity)
@@ -82,7 +148,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
   }
 
   template<typename SystemContext>
-  bool add_to_lp(const SystemContext& sc,
+  bool add_to_lp(SystemContext& sc,
                  const ScenarioIndex& scenario_index,
                  const StageIndex& stage_index,
                  LinearProblem& lp,
@@ -134,12 +200,18 @@ struct CapacityObjectLP : public ObjectLP<Object>
         ? stage_capmax.value()
         : stage_maxexpcap + capainst_lb;
 
+    const auto& capainst_col_name = capainst_row.name;
     const auto capainst_col = lp.add_col({// capainst variable
-                                          .name = capainst_row.name,
+                                          .name = capainst_col_name,
                                           .lowb = capainst_lb,
                                           .uppb = capainst_ub});
 
     capainst_row[capainst_col] = -1;
+
+    SimulationLP& simulation = sc.simulation();
+
+    simulation.add_state_variable(StateVariable {
+        capainst_col_name, stage_index, capainst_col, capainst_col});
 
     const auto capacost_col =
         lp.add_col({// capacost variable
@@ -197,7 +269,12 @@ struct CapacityObjectLP : public ObjectLP<Object>
     return true;
   }
 
-  constexpr auto capacity_col_at(const StageIndex& stage_index) const
+  /**
+   * @brief Get the column index for capacity at a specific stage
+   * @param stage_index The stage to get column index for
+   * @return Optional containing column index if exists
+   */
+  constexpr auto capacity_col_at(const StageIndex& stage_index) const noexcept
   {
     return get_optvalue(capainst_cols, stage_index);
   }

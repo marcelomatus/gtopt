@@ -51,7 +51,7 @@ class LinearInterface;
 
 template<typename T>
 concept AddToLP = requires(T obj,
-                           const SystemContext& system_context,
+                           SystemContext& system_context,
                            const ScenarioIndex& scenario_index,
                            const StageIndex& stage_index,
                            LinearProblem& lp,
@@ -102,8 +102,8 @@ public:
    * @param flat_opts Additional options (default empty)
    */
   explicit SystemLP(const System& system,
-                   const SimulationLP& simulation,
-                   const FlatOptions& flat_opts = {}) noexcept(false);
+                    SimulationLP& simulation,
+                    const FlatOptions& flat_opts = {}) noexcept(false);
 
   /// Tuple of collections for all LP component types
   using collections_t = std::tuple<Collection<BusLP>,
@@ -190,7 +190,8 @@ public:
    * @return Reference to the element
    */
   template<typename Element, typename Self, template<typename> class Id>
-  [[nodiscard]] constexpr auto&& element(this Self&& self, const Id<Element>& id) noexcept
+  [[nodiscard]] constexpr auto&& element(this Self&& self,
+                                         const Id<Element>& id) noexcept
   {
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
@@ -205,7 +206,8 @@ public:
    * @return Index of the element
    */
   template<typename Element, template<typename> class Id>
-  [[nodiscard]] constexpr auto element_index(const Id<Element>& id) const noexcept
+  [[nodiscard]] constexpr auto element_index(
+      const Id<Element>& id) const noexcept
   {
     return std::get<Collection<Element>>(m_collections_).element_index(id);
   }

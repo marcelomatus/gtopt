@@ -1,0 +1,4 @@
+# .aider.yml
+lint-cmd: clang-tidy  -p .
+
+

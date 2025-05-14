@@ -53,7 +53,7 @@ class SystemContext
 {
 public:
   // Core Context Management
-  explicit SystemContext(const SimulationLP& psimulation, SystemLP& psystem);
+  explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
@@ -556,7 +556,7 @@ public:
   }
 
 private:
-  std::reference_wrapper<const SimulationLP> m_simulation_;
+  std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
 
   std::vector<ScenarioIndex> m_active_scenarios_;

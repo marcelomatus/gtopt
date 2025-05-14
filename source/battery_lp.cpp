@@ -33,7 +33,7 @@ namespace gtopt
  * 2. State of charge tracking constraints between time blocks
  * 3. Capacity constraints linking battery operation to installed capacity
  */
-bool BatteryLP::add_to_lp(const SystemContext& sc,
+bool BatteryLP::add_to_lp(SystemContext& sc,
                           const ScenarioIndex& scenario_index,
                           const StageIndex& stage_index,
                           LinearProblem& lp)

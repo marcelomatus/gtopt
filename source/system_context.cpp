@@ -306,7 +306,7 @@ auto SystemContext::t_uids() const -> TUids
   return make_t_uids(*this);
 }
 
-SystemContext::SystemContext(const SimulationLP& psimulation, SystemLP& psystem)
+SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
     : m_simulation_(psimulation)
     , m_system_(psystem)
     , m_active_scenarios_(
