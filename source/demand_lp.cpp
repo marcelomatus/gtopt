@@ -27,7 +27,7 @@ DemandLP::DemandLP(const InputContext& ic, Demand pdemand)
 {
 }
 
-bool DemandLP::add_to_lp(const SystemContext& sc,
+bool DemandLP::add_to_lp(SystemContext& sc,
                          const ScenarioIndex& scenario_index,
                          const StageIndex& stage_index,
                          LinearProblem& lp)
@@ -133,8 +133,8 @@ bool DemandLP::add_to_lp(const SystemContext& sc,
 
   auto [crow_it, crow_inserted] = emplace_bholder(
       scenario_index, stage_index, capacity_rows, std::move(crows));
-  auto [lcol_it, lcol_inserted] = emplace_bholder(
-      scenario_index, stage_index, load_cols, std::move(lcols));
+  auto [lcol_it, lcol_inserted] =
+      emplace_bholder(scenario_index, stage_index, load_cols, std::move(lcols));
   return crow_inserted && lcol_inserted;
 }
 

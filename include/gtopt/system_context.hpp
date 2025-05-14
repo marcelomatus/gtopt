@@ -56,16 +56,15 @@ public:
   explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
 
   template<typename Self>
+  [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_simulation_.get();
+  }
+
+  template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_system_.get();
-  }
-
-  /// @brief Get the current simulation context
-  /// @return Reference to the active SimulationLP
-  [[nodiscard]] constexpr auto&& simulation() const noexcept
-  {
-    return m_simulation_.get();
   }
 
   /// @brief Get optimization options
@@ -475,12 +474,6 @@ public:
     return push_back(*this, std::forward<Element>(element));
   }
 
-  template<typename Self>
-  [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
-  {
-    return std::forward<Self>(self).m_simulation_.get();
-  }
-
   [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
       const noexcept
   {
@@ -553,6 +546,29 @@ public:
   {
     return stb_label(
         scenarios()[scenario_index], stages()[stage_index], block, var...);
+  }
+
+  // Add method with deducing this and perfect forwarding
+  constexpr const auto& add_state_variable_col(const Name& name,
+                                               const StageIndex& stage_index,
+                                               Index col)
+  {
+    return simulation().add_state_variable(
+        StateVariable {name, stage_index, col});
+  }
+
+  // Get method with deducing this for automatic const handling
+  [[nodiscard]] constexpr auto get_state_variable_col(
+      const Name& name, const StageIndex& stage_index) const
+  {
+    const auto state_var = simulation().get_state_variable(
+        StateVariable::key_t {name, stage_index});
+
+    const auto result = state_var
+        ? std::optional<Index>(state_var.value().get().first_col())
+        : std::nullopt;
+
+    return result;
   }
 
 private:

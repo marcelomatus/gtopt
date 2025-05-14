@@ -14,6 +14,7 @@
 #pragma once
 
 #include <functional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -25,6 +26,8 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/state_variable.hpp>
+#include <spdlog/details/log_msg.h>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -127,8 +130,7 @@ public:
 
   // Add method with deducing this and perfect forwarding
   template<typename Self, typename StateVar>
-  constexpr auto&& add_state_variable(this Self&& self,
-                                      StateVar&& state_var) noexcept
+  constexpr auto&& add_state_variable(this Self&& self, StateVar&& state_var)
   {
     const auto& key = state_var.key();
     auto&& map = std::forward<Self>(self).m_state_variable_map_;
@@ -136,25 +138,25 @@ public:
         map.try_emplace(key, std::forward<StateVar>(state_var));
 
     if (!inserted) {
-      it->second = std::forward<StateVar>(state_var);
+      auto msg = fmt::format("duplicated variable {} in simulation map",
+                             state_var.name());
+      SPDLOG_CRITICAL(msg);
+      throw std::runtime_error(msg);
     }
 
     return std::forward_like<Self>(it->second);
   }
 
   // Get method with deducing this for automatic const handling
-  template<typename Self, typename Key>
-  constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept(
-      noexcept(std::declval<state_variable_map_t>().find(key)))
+  template<typename Key>
+  [[nodiscard]] constexpr auto get_state_variable(Key&& key) const
+      noexcept(noexcept(std::declval<state_variable_map_t>().find(key)))
   {
-    using value_type =
-        std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
-                           const StateVariable,
-                           StateVariable>;
+    using value_type = const StateVariable;
 
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
-    auto&& map = std::forward<Self>(self).m_state_variable_map_;
+    auto&& map = m_state_variable_map_;
     const auto it = map.find(std::forward<Key>(key));
 
     return (it != map.end()) ? result_t {it->second} : std::nullopt;

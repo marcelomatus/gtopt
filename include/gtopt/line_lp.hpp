@@ -34,7 +34,7 @@ public:
 
   explicit LineLP(const InputContext& ic, Line pline);
 
-  bool add_to_lp(const SystemContext& sc,
+  bool add_to_lp(SystemContext& sc,
                  const ScenarioIndex& scenario_index,
                  const StageIndex& stage_index,
                  LinearProblem& lp);

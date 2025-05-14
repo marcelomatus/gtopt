@@ -36,6 +36,8 @@ class StateVariable
 public:
   using key_t = std::tuple<NameView, StageIndex>;
 
+  static constexpr Index unknown = -1;
+
   constexpr StateVariable() = default;
 
   /**
@@ -53,11 +55,11 @@ public:
   constexpr explicit StateVariable(Name name,
                                    StageIndex stage_index,
                                    Index first_col,
-                                   Index last_col) noexcept(false)
+                                   Index last_col = unknown) noexcept(false)
       : m_name_(std::move(name))
       , m_stage_index_(stage_index)
       , m_first_col_(first_col)
-      , m_last_col_(last_col)
+      , m_last_col_(last_col != unknown ? last_col : first_col)
   {
   }
 
@@ -80,6 +82,12 @@ public:
   [[nodiscard]] constexpr Index last_col() const noexcept
   {
     return m_last_col_;
+  }
+
+  /// @return Last column index in optimization matrix
+  [[nodiscard]] constexpr auto cols() const noexcept
+  {
+    return std::make_pair(m_first_col_, m_last_col_);
   }
 
   /// @return Unique key tuple for this variable (name, stage, phase)

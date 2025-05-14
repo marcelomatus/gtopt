@@ -62,7 +62,7 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator pgenerator)
  * - Generation costs in the objective function
  * - Capacity constraints when capacity expansion is modeled
  */
-bool GeneratorLP::add_to_lp(const SystemContext& sc,
+bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const ScenarioIndex& scenario_index,
                             const StageIndex& stage_index,
                             LinearProblem& lp)

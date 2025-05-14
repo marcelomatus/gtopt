@@ -24,14 +24,15 @@ public:
     return ObjectSingleId<BusLP> {demand().bus};
   }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioIndex& scenario_index,
                                const StageIndex& stage_index,
                                LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] constexpr auto&& load_cols_at(const ScenarioIndex scenary_index,
-                                             const StageIndex stage_index) const noexcept
+  [[nodiscard]] constexpr auto&& load_cols_at(
+      const ScenarioIndex scenary_index,
+      const StageIndex stage_index) const noexcept
   {
     return load_cols.at({scenary_index, stage_index});
   }
