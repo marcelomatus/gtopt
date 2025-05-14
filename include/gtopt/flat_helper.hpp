@@ -70,7 +70,114 @@ protected:
             need_valids ? std::move(valid) : std::vector<bool> {});
     }
 
-    // Other flat() methods would go here...
+    template<typename Projection, typename Factor = block_factor_matrix_t>
+    constexpr auto flat(const STBIndexHolder& hstb,
+                        Projection proj,
+                        const Factor& factor = {}) const noexcept
+    {
+        const auto size = m_active_scenarios_.size() * m_active_stage_blocks_.size();
+        std::vector<double> values(size);
+        std::vector<bool> valid(size, false);
+
+        bool need_values = false;
+        bool need_valids = false;
+
+        size_t idx = 0;
+        for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+            for (auto&& tindex : m_active_stages_) {
+                auto&& stiter = hstb.find({sindex, tindex});
+                const auto has_stindex =
+                    stiter != hstb.end() && !stiter->second.empty();
+
+                for (auto&& bindex : m_active_stage_blocks_[tindex]) {
+                    if (has_stindex) {
+                        const auto fact =
+                            factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
+                        values[idx] = proj(stiter->second.at(bindex)) * fact;
+                        valid[idx] = true;
+                        ++count;
+
+                        need_values = true;
+                    }
+                    need_valids |= count != ++idx;
+                }
+            }
+        }
+
+        return std::make_pair(
+            need_values ? std::move(values) : std::vector<double> {},
+            need_valids ? std::move(valid) : std::vector<bool> {});
+    }
+
+    template<typename Projection,
+             typename Factor = scenario_stage_factor_matrix_t>
+    constexpr auto flat(const STIndexHolder& hst,
+                        Projection proj,
+                        const Factor& factor = {}) const noexcept
+    {
+        const auto size = m_active_scenarios_.size() * m_active_stages_.size();
+        std::vector<double> values(size);
+        std::vector<bool> valid(size, false);
+
+        bool need_values = false;
+        bool need_valids = false;
+
+        size_t idx = 0;
+        for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
+            for (auto&& tindex : m_active_stages_) {
+                auto&& stiter = hst.find({sindex, tindex});
+                const auto has_stindex = stiter != hst.end();
+
+                if (has_stindex) {
+                    const auto fact = factor.empty() ? 1.0 : factor[sindex][tindex];
+                    values[idx] = proj(stiter->second) * fact;
+                    valid[idx] = true;
+                    ++count;
+
+                    need_values = true;
+                }
+                need_valids |= count != ++idx;
+            }
+        }
+
+        return std::make_pair(
+            need_values ? std::move(values) : std::vector<double> {},
+            need_valids ? std::move(valid) : std::vector<bool> {});
+    }
+
+    template<typename Projection = std::identity,
+             typename Factor = stage_factor_matrix_t>
+    constexpr auto flat(const TIndexHolder& ht,
+                        Projection proj = {},
+                        const Factor& factor = {}) const noexcept
+    {
+        const auto size = m_active_stages_.size();
+        std::vector<double> values(size);
+        std::vector<bool> valid(size, false);
+
+        bool need_values = false;
+        bool need_valids = false;
+
+        size_t idx = 0;
+        for (size_t count = 0; auto&& tindex : m_active_stages_) {
+            auto&& titer = ht.find(tindex);
+            const auto has_tindex = titer != ht.end();
+
+            if (has_tindex) {
+                double fact = factor.empty() ? 1.0 : factor[tindex];
+                values[idx] = proj(titer->second) * fact;
+                valid[idx] = true;
+                ++count;
+
+                need_values = true;
+            }
+            need_valids |= count != ++idx;
+        }
+
+        return std::make_pair(
+            need_values ? std::move(values) : std::vector<double> {},
+            need_valids ? std::move(valid) : std::vector<bool> {});
+    }
 };
 
 } // namespace gtopt

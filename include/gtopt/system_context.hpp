@@ -52,9 +52,7 @@ using TUids = std::vector<Uid>;
 class SystemLP;
 class SimulationLP;
 
-class SystemContext
-    : public LabelMaker
-    , public FlatHelper
+class SystemContext : public LabelMaker, protected FlatHelper
 {
 public:
   // Core Context Management
