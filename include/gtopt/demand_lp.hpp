@@ -19,7 +19,7 @@ public:
 
   [[nodiscard]] constexpr auto&& demand() { return object(); }
   [[nodiscard]] constexpr auto&& demand() const { return object(); }
-  [[nodiscard]] auto bus() const
+  [[nodiscard]] constexpr auto bus() const noexcept
   {
     return ObjectSingleId<BusLP> {demand().bus};
   }
@@ -30,8 +30,8 @@ public:
                                LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] auto&& load_cols_at(const ScenarioIndex scenary_index,
-                                    const StageIndex stage_index) const
+  [[nodiscard]] constexpr auto&& load_cols_at(const ScenarioIndex scenary_index,
+                                             const StageIndex stage_index) const noexcept
   {
     return load_cols.at({scenary_index, stage_index});
   }
