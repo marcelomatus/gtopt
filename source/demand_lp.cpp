@@ -46,8 +46,10 @@ bool DemandLP::add_to_lp(const SystemContext& sc,
   }
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
-  const auto stage_fcost = sc.demand_fail_cost(stage_index, fcost);
-  const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
+  const auto& fcost_val = fcost.optval(stage_index);
+  const auto& lossfactor_val = lossfactor.optval(stage_index);
+  const auto stage_fcost = sc.demand_fail_cost(stage_index, fcost_val);
+  const auto stage_lossfactor = lossfactor_val.value_or(0.0);
 
   const auto& balance_rows =
       bus_lp.balance_rows_at(scenario_index, stage_index);
@@ -131,12 +133,11 @@ bool DemandLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  return emplace_bholder(
-             scenario_index, stage_index, capacity_rows, std::move(crows))
-             .second
-      && emplace_bholder(
-             scenario_index, stage_index, load_cols, std::move(lcols))
-             .second;
+  auto [crow_it, crow_inserted] = emplace_bholder(
+      scenario_index, stage_index, capacity_rows, std::move(crows));
+  auto [lcol_it, lcol_inserted] = emplace_bholder(
+      scenario_index, stage_index, load_cols, std::move(lcols));
+  return crow_inserted && lcol_inserted;
 }
 
 bool DemandLP::add_to_output(OutputContext& out) const
