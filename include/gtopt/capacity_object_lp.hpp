@@ -112,16 +112,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
 
   /**
    * @brief Get the capacity at a specific stage
-   * @param stage_index The stage to get capacity for
-   * @param def_capacity Default capacity if not specified (default:
-   * CoinDblMax)
-   * @return The capacity at the given stage or default if not specified
-   */
-  /**
-   * @brief Get the capacity at a specific stage
    * @param stage_index The stage to query capacity for
-   * @param def_capacity Default value if capacity not specified (default:
-   * unlimited)
+   * @param def_capacity Default value if capacity not specified (default: unlimited)
    * @return The capacity at given stage or default if not specified
    * @throws None This function is noexcept
    */
