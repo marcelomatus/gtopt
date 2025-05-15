@@ -1,11 +1,25 @@
 /**
  * @file      cost_helper.hpp
- * @brief     Header of
+ * @brief     Cost calculation and discounting utilities for optimization problems
  * @date      Thu May 15 10:56:25 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the CostHelper class and supporting utilities for:
+ * - Calculating time-discounted costs across scenarios, stages and blocks
+ * - Applying probability factors to scenario costs
+ * - Generating cost scaling factors for LP formulation
+ * - Managing cumulative discount factors across the optimization horizon
+ *
+ * Key Features:
+ * - Handles multi-period discounting with stage-specific rates
+ * - Supports scenario probability weighting
+ * - Provides both individual cost calculations and batch factor generation
+ * - Constexpr and noexcept where possible for performance
+ * - Thread-safe operations (all methods are const)
+ *
+ * @see CostHelper for the main class documentation
+ * @see detail::stage_factors() for discount factor calculation
  */
 
 #pragma once
