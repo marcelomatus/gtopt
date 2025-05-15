@@ -184,13 +184,6 @@ public:
 
   // Active Elements Query
 
-  [[nodiscard]] auto stb_active_uids() const -> STBUids;
-  [[nodiscard]] auto st_active_uids() const -> STUids;
-  [[nodiscard]] auto t_active_uids() const -> TUids;
-
-  [[nodiscard]] auto stb_uids() const -> STBUids;
-  [[nodiscard]] auto st_uids() const -> STUids;
-  [[nodiscard]] auto t_uids() const -> TUids;
 
   template<typename Max>
   constexpr auto block_max_at(const StageIndex& stage_index,
