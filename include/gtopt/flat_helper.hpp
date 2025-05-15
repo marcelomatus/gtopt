@@ -19,14 +19,26 @@ using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
 using stage_factor_matrix_t = std::vector<double>;
 using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
+/**
+ * @class FlatHelper
+ * @brief Helper class for flattening multi-dimensional indexed data into vectors
+ * 
+ * Provides methods to convert between:
+ * - Multi-dimensional indexed data (scenario/stage/block)
+ * - Flat vectors suitable for LP matrices
+ * 
+ * Handles active elements filtering and factor application
+ */
 class FlatHelper
 {
-  std::vector<ScenarioIndex> m_active_scenarios_;
-  std::vector<StageIndex> m_active_stages_;
-  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
-  std::vector<BlockIndex> m_active_blocks_;
+private:
+  const std::vector<ScenarioIndex> m_active_scenarios_;
+  const std::vector<StageIndex> m_active_stages_;
+  const std::vector<std::vector<BlockIndex>> m_active_stage_blocks_; 
+  const std::vector<BlockIndex> m_active_blocks_;
 
 public:
+  FlatHelper() = delete;
   [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
       const noexcept
   {
@@ -54,10 +66,8 @@ public:
   [[nodiscard]] constexpr bool is_first_scenario(
       const ScenarioIndex& scenario_index) const noexcept
   {
-    if (m_active_scenarios_.empty()) {
-      return false;
-    }
-    return scenario_index == m_active_scenarios_.front();
+    return !m_active_scenarios_.empty() && 
+           scenario_index == m_active_scenarios_.front();
   }
 
   [[nodiscard]] constexpr size_t active_scenario_count() const noexcept
@@ -93,21 +103,26 @@ public:
     return stage_index == m_active_stages_.back();
   }
 
-  FlatHelper(const std::vector<ScenarioIndex>& active_scenarios,
-             const std::vector<StageIndex>& active_stages,
-             const std::vector<std::vector<BlockIndex>>& active_stage_blocks,
-             const std::vector<BlockIndex>& active_blocks)
-      : m_active_scenarios_(active_scenarios)
-      , m_active_stages_(active_stages)
-      , m_active_stage_blocks_(active_stage_blocks)
-      , m_active_blocks_(active_blocks)
+  FlatHelper(std::vector<ScenarioIndex> active_scenarios,
+             std::vector<StageIndex> active_stages,
+             std::vector<std::vector<BlockIndex>> active_stage_blocks,
+             std::vector<BlockIndex> active_blocks)
+      : m_active_scenarios_(std::move(active_scenarios))
+      , m_active_stages_(std::move(active_stages))
+      , m_active_stage_blocks_(std::move(active_stage_blocks))
+      , m_active_blocks_(std::move(active_blocks))
   {
+    if (m_active_stages_.size() != m_active_stage_blocks_.size()) {
+      throw std::invalid_argument("Stage count must match stage blocks size");
+    }
   }
 
-  template<typename Projection, typename Factor = block_factor_matrix_t>
+  template<typename Projection, typename Factor = block_factor_matrix_t,
+           typename = std::enable_if_t<
+               std::is_invocable_r_v<double, Projection, double>>>
   constexpr auto flat(const GSTBIndexHolder& hstb,
-                      Projection proj,
-                      const Factor& factor = Factor()) const noexcept
+                      Projection&& proj,
+                      const Factor& factor = {}) const noexcept
   {
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
