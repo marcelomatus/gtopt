@@ -1,11 +1,20 @@
 /**
  * @file      sparse_row.hpp
- * @brief     Header of
+ * @brief     Sparse row representation for linear programming constraints
  * @date      Thu May 15 19:28:37 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the SparseRow class which represents constraints in a
+ * linear program, including their bounds and sparse coefficient storage.
+ * The implementation uses efficient flat_map storage and supports compile-time
+ * construction of problems through constexpr methods.
+ *
+ * Key features:
+ * - Sparse storage of constraint coefficients
+ * - Fluent interface for constraint bounds
+ * - Conversion to flat formats for solver interfaces
+ * - Compile-time evaluation support
  */
 
 #pragma once
