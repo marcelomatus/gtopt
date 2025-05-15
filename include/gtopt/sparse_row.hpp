@@ -10,16 +10,14 @@ namespace gtopt
 {
 
 /**
- * Maximum representable double value used for unbounded constraints
- */
-constexpr double const CoinDblMax = std::numeric_limits<double>::max();
-
-/**
- * @class SparseRow 
- * @brief Represents a constraint row in a linear program with sparse coefficients
+ * @class SparseRow
+ * @brief Represents a constraint row in a linear program with sparse
+ * coefficients
  */
 struct SparseRow
 {
+  static constexpr double const CoinDblMax = std::numeric_limits<double>::max();
+
   using cmap_t = flat_map<size_t, double>;
 
   std::string name;  ///< Row/constraint name
