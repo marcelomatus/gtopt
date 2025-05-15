@@ -1,13 +1,19 @@
-#pragma once
+/**
+ * @file      sparse_col.hpp
+ * @brief     Header of
+ * @date      Thu May 15 19:15:07 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
-#include <limits>
-#include <string>
+#pragma once
 
 #include <gtopt/sparse_row.hpp>
 
 namespace gtopt
 {
-
 
 /**
  * @class SparseCol
