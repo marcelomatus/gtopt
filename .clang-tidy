@@ -10,7 +10,7 @@ Checks: "*,\
 #  -google-readability-todo,\
    -altera-*,\
 #  -fuchsia-*,\
-#  -fuchsia-multiple-inheritance,\
+   -fuchsia-multiple-inheritance,\
    -fuchsia-default-arguments-calls,\
    -fuchsia-default-arguments-declarations,\
    -fuchsia-trailing-return,\
@@ -18,7 +18,7 @@ Checks: "*,\
    -misc-include-cleaner,\
    clang-analyzer-*,\
   -llvm-header-guard,\
-#  -llvm-include-order,\
+  -llvm-include-order,\
   -llvmlibc-*,\
   -cppcoreguidelines-macro-usage,\
   -google-build-using-namespace,\
