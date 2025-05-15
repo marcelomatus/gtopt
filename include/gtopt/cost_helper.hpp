@@ -1,6 +1,7 @@
 /**
  * @file      cost_helper.hpp
- * @brief     Cost calculation and discounting utilities for optimization problems
+ * @brief     Cost calculation and discounting utilities for optimization
+ * problems
  * @date      Thu May 15 10:56:25 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -67,6 +68,12 @@ namespace gtopt
  * - Generating cost scaling factors
  * - Applying probability and discount factors
  */
+
+// TODO(marcelo): change to "cost" methods (block_cost, stage_cost and
+// scenario_stage_cost) names to "ecost" since they receive the cost in energy
+// [$/MWh] and it includes the duration of the stage or block. Apply the name
+// change to all the files where these methods are used.
+
 class CostHelper
 {
 public:
