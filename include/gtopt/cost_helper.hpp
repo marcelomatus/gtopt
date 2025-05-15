@@ -87,25 +87,70 @@ public:
   {
   }
 
-  [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
+  [[nodiscard]] double block_ecost(const ScenarioIndex& scenario_index,
                                   const StageIndex& stage_index,
                                   const BlockLP& block,
                                   double cost) const;
 
-  [[nodiscard]] block_factor_matrix_t block_cost_factors() const;
+  [[nodiscard]] block_factor_matrix_t block_ecost_factors() const;
 
-  [[nodiscard]] double stage_cost(const StageIndex& stage_index,
+  [[nodiscard]] double stage_ecost(const StageIndex& stage_index,
                                   double cost,
                                   double probability_factor = 1.0) const;
 
-  [[nodiscard]] stage_factor_matrix_t stage_cost_factors() const;
+  [[nodiscard]] stage_factor_matrix_t stage_ecost_factors() const;
 
-  [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
+  [[nodiscard]] double scenario_stage_ecost(const ScenarioIndex& scenario_index,
                                            const StageIndex& stage_index,
                                            double cost) const;
 
-  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_cost_factors()
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_ecost_factors()
       const;
+
+  // Deprecated aliases - to be removed after updating all call sites
+  [[deprecated("Use block_ecost() instead")]]
+  [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
+                                  const StageIndex& stage_index,
+                                  const BlockLP& block,
+                                  double cost) const
+  {
+    return block_ecost(scenario_index, stage_index, block, cost);
+  }
+
+  [[deprecated("Use block_ecost_factors() instead")]]
+  [[nodiscard]] block_factor_matrix_t block_cost_factors() const
+  {
+    return block_ecost_factors();
+  }
+
+  [[deprecated("Use stage_ecost() instead")]]
+  [[nodiscard]] double stage_cost(const StageIndex& stage_index,
+                                  double cost,
+                                  double probability_factor = 1.0) const
+  {
+    return stage_ecost(stage_index, cost, probability_factor);
+  }
+
+  [[deprecated("Use stage_ecost_factors() instead")]]
+  [[nodiscard]] stage_factor_matrix_t stage_cost_factors() const
+  {
+    return stage_ecost_factors();
+  }
+
+  [[deprecated("Use scenario_stage_ecost() instead")]]
+  [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
+                                           const StageIndex& stage_index,
+                                           double cost) const
+  {
+    return scenario_stage_ecost(scenario_index, stage_index, cost);
+  }
+
+  [[deprecated("Use scenario_stage_ecost_factors() instead")]]
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_cost_factors()
+      const
+  {
+    return scenario_stage_ecost_factors();
+  }
 
 private:
   std::reference_wrapper<const OptionsLP> m_options_;
