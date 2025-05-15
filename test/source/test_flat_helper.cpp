@@ -6,6 +6,14 @@
 
 using namespace gtopt;
 
+/**
+ * @test Verify active element accessor functionality
+ *
+ * Tests that FlatHelper correctly:
+ * - Reports counts of active scenarios/stages/blocks
+ * - Identifies first/last elements
+ * - Provides const access to active element collections
+ */
 TEST_CASE("Active Elements Accessors")
 {
   const std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};

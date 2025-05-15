@@ -1,20 +1,33 @@
 /**
- * @file      system_context.hpp
- * @brief     System execution context for power system optimization
+ * @file      system_context.hpp  
+ * @brief     Central execution context for power system optimization
  * @date      Sun Mar 23 21:54:14 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines SystemContext which manages:
- * - Active scenarios/stages/blocks for optimization
- * - Cost calculations and discount factors
- * - System element access and indexing
- * - Variable labeling and naming
- * - Constraint bounds and limits
+ * @class SystemContext
+ * @brief Manages optimization state and provides core functionality for LP formulation
  *
- * The context bridges between the simulation model and LP formulation,
- * tracking the current optimization state and providing helper methods
- * for variable and constraint setup.
+ * This is the central coordinator that:
+ * - Tracks active scenarios/stages/blocks
+ * - Handles cost calculations with time discounting
+ * - Provides element access and indexing
+ * - Manages variable labeling and naming
+ * - Handles constraint bounds and limits
+ *
+ * Key Responsibilities:
+ * - Bridges simulation model and LP formulation
+ * - Maintains optimization state
+ * - Provides helper methods for variable/constraint setup
+ * - Handles time-discounted cost calculations
+ * - Manages active element filtering
+ *
+ * Inherits from:
+ * - LabelMaker: For variable labeling/naming
+ * - FlatHelper: For data flattening operations
+ *
+ * @note Thread safety: Not thread-safe - assumes single-threaded optimization
+ * @see SimulationLP, SystemLP for related classes
  */
 
 #pragma once
@@ -74,9 +87,21 @@ public:
 
   /// @brief Get optimization options
   /// @return Reference to OptionsLP configuration
+  /**
+   * @brief Gets the optimization options configuration
+   * @return Const reference to OptionsLP containing all optimization settings
+   *
+   * Provides access to:
+   * - Input/output directories and formats  
+   * - Cost parameters (demand/reserve fail costs)
+   * - Physical modeling options (line losses, Kirchhoff)
+   * - Scaling factors and thresholds
+   *
+   * @note Returned reference is valid for lifetime of SimulationLP
+   */
   [[nodiscard]] constexpr auto&& options() const noexcept
   {
-    return simulation().options();
+    return simulation().options(); 
   }
 
   // Scenario Accessors
