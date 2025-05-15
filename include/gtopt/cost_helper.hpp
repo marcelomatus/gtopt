@@ -87,15 +87,67 @@ public:
   {
   }
 
+  /**
+   * @brief Calculates the energy cost coefficient for a block
+   * 
+   * Computes the total energy cost for a power variable over a block duration,
+   * applying:
+   * - Scenario probability weighting
+   * - Stage discount factor
+   * - Block duration
+   * - Objective scaling
+   * 
+   * Formula: cost * probability * discount * duration / scale_objective
+   * 
+   * @param scenario_index Scenario index for probability factor
+   * @param stage_index Stage index for discount factor
+   * @param block Block containing duration
+   * @param cost Energy cost in $/MWh
+   * @return Total energy cost coefficient for LP formulation
+   */
   [[nodiscard]] double block_ecost(const ScenarioIndex& scenario_index,
                                    const StageIndex& stage_index,
                                    const BlockLP& block,
                                    double cost) const;
 
+  /**
+   * @brief Calculates the energy cost coefficient for a stage
+   * 
+   * Computes the total energy cost for a power variable over a stage duration,
+   * applying:
+   * - Probability weighting (default 1.0)
+   * - Stage discount factor
+   * - Stage duration
+   * - Objective scaling
+   * 
+   * Formula: cost * probability * discount * duration / scale_objective
+   * 
+   * @param stage_index Stage index for discount factor and duration
+   * @param cost Energy cost in $/MWh
+   * @param probability_factor Probability weight (default 1.0)
+   * @return Total energy cost coefficient for LP formulation
+   */
   [[nodiscard]] double stage_ecost(const StageIndex& stage_index,
                                    double cost,
                                    double probability_factor = 1.0) const;
 
+  /**
+   * @brief Calculates the energy cost coefficient for a scenario-stage pair
+   * 
+   * Computes the total energy cost for a power variable over a stage duration,
+   * applying:
+   * - Scenario probability weighting
+   * - Stage discount factor
+   * - Stage duration
+   * - Objective scaling
+   * 
+   * Formula: cost * probability * discount * duration / scale_objective
+   * 
+   * @param scenario_index Scenario index for probability factor
+   * @param stage_index Stage index for discount factor and duration
+   * @param cost Energy cost in $/MWh
+   * @return Total energy cost coefficient for LP formulation
+   */
   [[nodiscard]] double scenario_stage_ecost(const ScenarioIndex& scenario_index,
                                             const StageIndex& stage_index,
                                             double cost) const;
