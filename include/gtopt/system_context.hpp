@@ -52,7 +52,9 @@ using TUids = std::vector<Uid>;
 class SystemLP;
 class SimulationLP;
 
-class SystemContext : public LabelMaker, protected FlatHelper
+class SystemContext
+    : public LabelMaker
+    , public FlatHelper
 {
 public:
   // Core Context Management
@@ -158,36 +160,6 @@ public:
   }
 
   // Active Elements Query
-  [[nodiscard]] auto is_first_scenario(
-      const ScenarioIndex& scenario_index) const
-  {
-    return scenario_index == m_active_scenarios_.front();
-  }
-
-  [[nodiscard]] auto active_scenario_count() const
-  {
-    return m_active_scenarios_.size();
-  }
-
-  [[nodiscard]] auto active_stage_count() const
-  {
-    return m_active_stages_.size();
-  }
-
-  [[nodiscard]] auto active_block_count() const
-  {
-    return m_active_blocks_.size();
-  }
-
-  [[nodiscard]] auto is_first_stage(const StageIndex& stage_index) const
-  {
-    return stage_index == m_active_stages_.front();
-  }
-
-  [[nodiscard]] auto is_last_stage(const StageIndex& stage_index) const
-  {
-    return stage_index == m_active_stages_.back();
-  }
 
   [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
                                   const StageIndex& stage_index,
@@ -368,11 +340,6 @@ private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
 
-  std::vector<ScenarioIndex> m_active_scenarios_;
-  std::vector<StageIndex> m_active_stages_;
-  std::vector<BlockIndex> m_active_blocks_;
-  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
-
   std::vector<double> stage_discount_factors;
 
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
@@ -381,4 +348,7 @@ private:
 }  // namespace gtopt
 
 static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
+              "SystemContext must inherit from LabelMaker");
+
+static_assert(std::is_base_of_v<gtopt::FlatHelper, gtopt::SystemContext>,
               "SystemContext must inherit from LabelMaker");

@@ -27,12 +27,14 @@ class FlatHelper
   std::vector<BlockIndex> m_active_blocks_;
 
 public:
-  [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios() const noexcept
+  [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
+      const noexcept
   {
     return m_active_scenarios_;
   }
 
-  [[nodiscard]] constexpr const std::vector<StageIndex>& active_stages() const noexcept
+  [[nodiscard]] constexpr const std::vector<StageIndex>& active_stages()
+      const noexcept
   {
     return m_active_stages_;
   }
@@ -43,7 +45,8 @@ public:
     return m_active_stage_blocks_;
   }
 
-  [[nodiscard]] constexpr const std::vector<BlockIndex>& active_blocks() const noexcept
+  [[nodiscard]] constexpr const std::vector<BlockIndex>& active_blocks()
+      const noexcept
   {
     return m_active_blocks_;
   }
@@ -69,12 +72,14 @@ public:
     return m_active_blocks_.size();
   }
 
-  [[nodiscard]] constexpr bool is_first_stage(const StageIndex& stage_index) const noexcept
+  [[nodiscard]] constexpr bool is_first_stage(
+      const StageIndex& stage_index) const noexcept
   {
     return stage_index == m_active_stages_.front();
   }
 
-  [[nodiscard]] constexpr bool is_last_stage(const StageIndex& stage_index) const noexcept
+  [[nodiscard]] constexpr bool is_last_stage(
+      const StageIndex& stage_index) const noexcept
   {
     return stage_index == m_active_stages_.back();
   }
@@ -93,10 +98,10 @@ public:
   template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const GSTBIndexHolder& hstb,
                       Projection proj,
-                      const Factor& factor = {}) const noexcept
+                      const Factor& factor = Factor()) const noexcept
   {
-    const auto size =
-        m_active_scenarios_.size() * m_active_stage_blocks_.size();
+    const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
+
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
 
@@ -109,9 +114,9 @@ public:
         for (auto&& bindex : m_active_stage_blocks_[tindex]) {
           auto&& stbiter = hstb.find({sindex, tindex, bindex});
           if (stbiter != hstb.end()) {
-            const auto fact =
-                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
-            values[idx] = proj(stbiter->second) * fact;
+            const auto value = proj(stbiter->second);
+            values[idx] =
+                factor.empty() ? value : value * factor[sindex][tindex][bindex];
             valid[idx] = true;
             ++count;
 
@@ -130,10 +135,10 @@ public:
   template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const STBIndexHolder& hstb,
                       Projection proj,
-                      const Factor& factor = {}) const noexcept
+                      const Factor& factor = Factor()) const noexcept
   {
-    const auto size =
-        m_active_scenarios_.size() * m_active_stage_blocks_.size();
+    const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
+
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
 
@@ -149,10 +154,11 @@ public:
 
         for (auto&& bindex : m_active_stage_blocks_[tindex]) {
           if (has_stindex) {
-            const auto fact =
-                factor.empty() ? 1.0 : factor[sindex][tindex][bindex];
-            values[idx] = proj(stiter->second.at(bindex)) * fact;
-            valid[idx] = true;
+            const auto value = proj(stiter->second.at(bindex));
+            values[idx] =
+                factor.empty() ? value : value * factor[sindex][tindex][bindex];
+
+            valid[idx] = (true);
             ++count;
 
             need_values = true;
@@ -171,7 +177,7 @@ public:
            typename Factor = scenario_stage_factor_matrix_t>
   constexpr auto flat(const STIndexHolder& hst,
                       Projection proj,
-                      const Factor& factor = {}) const noexcept
+                      const Factor& factor = Factor()) const noexcept
   {
     const auto size = m_active_scenarios_.size() * m_active_stages_.size();
     std::vector<double> values(size);
@@ -187,8 +193,8 @@ public:
         const auto has_stindex = stiter != hst.end();
 
         if (has_stindex) {
-          const auto fact = factor.empty() ? 1.0 : factor[sindex][tindex];
-          values[idx] = proj(stiter->second) * fact;
+          const auto value = proj(stiter->second);
+          values[idx] = factor.empty() ? value : value * factor[sindex][tindex];
           valid[idx] = true;
           ++count;
 
@@ -222,8 +228,9 @@ public:
       const auto has_tindex = titer != ht.end();
 
       if (has_tindex) {
-        double fact = factor.empty() ? 1.0 : factor[tindex];
-        values[idx] = proj(titer->second) * fact;
+        const auto value = proj(titer->second);
+        values[idx] = factor.empty() ? value : value * factor[tindex];
+
         valid[idx] = true;
         ++count;
 
