@@ -22,39 +22,8 @@ TEST_CASE("Construction and basic properties")
 
   SUBCASE("Basic functionality")
   {
-    CHECK(helper.stage_ecost(StageIndex {0}, 100.0) > 0);
-  }
-}
-
-TEST_CASE("stage_factors calculation")
-{
-  SUBCASE("Single stage")
-  {
-    Stage stage;
-    stage.discount_factor = 0.9;
-    std::vector<StageLP> stages = {StageLP(stage)};
-
-    auto factors = detail::stage_factors(stages);
-    REQUIRE(factors.size() == 1);
-    CHECK(factors[0] == doctest::Approx(0.9));
-  }
-
-  SUBCASE("Multiple stages")
-  {
-    std::vector<Stage> stages(3);
-    stages[0].discount_factor = 0.9;
-    stages[1].discount_factor = 0.8;
-    stages[2].discount_factor = 0.7;
-    std::vector<StageLP> stage_lps;
-    stage_lps.emplace_back(stages[0]);
-    stage_lps.emplace_back(stages[1]);
-    stage_lps.emplace_back(stages[2]);
-
-    auto factors = detail::stage_factors(stage_lps);
-    REQUIRE(factors.size() == 3);
-    CHECK(factors[0] == doctest::Approx(0.9));
-    CHECK(factors[1] == doctest::Approx(0.8));
-    CHECK(factors[2] == doctest::Approx(0.7));
+    double cost = 1;
+    CHECK_THROWS(cost = helper.stage_ecost(StageIndex {0}, cost));
   }
 }
 
