@@ -69,6 +69,7 @@ class SimulationLP;
 class SystemContext
     : public LabelMaker
     , public FlatHelper
+    , public CostHelper
 {
 public:
   // Core Context Management
@@ -104,6 +105,11 @@ public:
   {
     return simulation().options();
   }
+
+  // CostHelper methods are now inherited:
+  // block_cost(), block_cost_factors()
+  // stage_cost(), stage_cost_factors() 
+  // scenario_stage_cost(), scenario_stage_cost_factors()
 
   // Scenario Accessors
   [[nodiscard]] constexpr auto scenario_uid(
