@@ -74,7 +74,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
         stage_index, block_index, tmax, tmin, stage_capacity, -stage_capacity);
 
     const auto block_tcost =
-        sc.block_cost(scenario_index, stage_index, block, stage_tcost);
+        sc.block_ecost(scenario_index, stage_index, block, stage_tcost);
 
     auto& brow_a = lp.row_at(balance_row_a);
     auto& brow_b = lp.row_at(balance_row_b);

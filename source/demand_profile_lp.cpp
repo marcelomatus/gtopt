@@ -70,7 +70,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
         profile.at(scenario_index, stage_index, block_index);
 
     const auto block_scost =
-        sc.block_cost(scenario_index, stage_index, block, stage_scost);
+        sc.block_ecost(scenario_index, stage_index, block, stage_scost);
     auto name =
         sc.stb_label(scenario_index, stage_index, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});

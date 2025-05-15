@@ -225,25 +225,25 @@ TEST_CASE("Factor matrix generation")
 
   CostHelper helper(options, scenario_lps, stage_lps);
 
-  SUBCASE("block_icost_factor")
+  SUBCASE("block_icost_factors")
   {
-    auto factors = helper.block_icost_factor();
+    auto factors = helper.block_icost_factors();
     REQUIRE(factors.size() == 2);  // scenarios
     REQUIRE(factors[0].size() == 2);  // stages
     // Just verify the structure - exact values depend on BlockLP
   }
 
-  SUBCASE("stage_icost_factor")
+  SUBCASE("stage_icost_factors")
   {
-    auto factors = helper.stage_icost_factor();
+    auto factors = helper.stage_icost_factors();
     REQUIRE(factors.size() == 2);  // stages
     CHECK(factors[0] == doctest::Approx(1.0 / 0.9));
     CHECK(factors[1] == doctest::Approx(1.0 / 0.8));
   }
 
-  SUBCASE("scenario_stage_icost_factor")
+  SUBCASE("scenario_stage_icost_factors")
   {
-    auto factors = helper.scenario_stage_icost_factor();
+    auto factors = helper.scenario_stage_icost_factors();
     REQUIRE(factors.size() == 2);  // scenarios
     REQUIRE(factors[0].size() == 2);  // stages
     CHECK(factors[0][0] == doctest::Approx(1.0 / (0.6 * 0.9)));

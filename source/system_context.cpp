@@ -61,17 +61,16 @@ auto active_stage_block_indices(const Stages& stages) noexcept
       | std::ranges::to<std::vector<std::vector<Index>>>();
 }
 
-
 }  // namespace
 
 namespace gtopt
 {
 
-
 SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
     : LabelMaker(
           psimulation.options(), psimulation.scenarios(), psimulation.stages())
-    , FlatHelper(active_indices<ScenarioIndex>(psimulation.scenarios()),
+    , FlatHelper(psimulation,
+                 active_indices<ScenarioIndex>(psimulation.scenarios()),
                  active_indices<StageIndex>(psimulation.stages()),
                  active_stage_block_indices<BlockIndex>(psimulation.stages()),
                  active_block_indices<BlockIndex>(psimulation.stages()))

@@ -39,7 +39,7 @@ double CostHelper::block_ecost(const ScenarioIndex& scenario_index,
                     block.duration());
 }
 
-auto CostHelper::block_icost_factor() const -> block_factor_matrix_t
+auto CostHelper::block_icost_factors() const -> block_factor_matrix_t
 {
   const auto n_scenarios = static_cast<Index>(m_scenarios_.get().size());
   const auto n_stages = static_cast<Index>(m_stages_.get().size());
@@ -79,7 +79,7 @@ double CostHelper::stage_ecost(const StageIndex& stage_index,
                     m_stages_.get()[stage_index].duration());
 }
 
-auto CostHelper::stage_icost_factor() const -> stage_factor_matrix_t
+auto CostHelper::stage_icost_factors() const -> stage_factor_matrix_t
 {
   stage_factor_matrix_t factors(m_stages_.get().size());
 
@@ -109,7 +109,7 @@ double CostHelper::scenario_stage_ecost(const ScenarioIndex& scenario_index,
                      m_scenarios_.get()[scenario_index].probability_factor());
 }
 
-auto CostHelper::scenario_stage_icost_factor() const
+auto CostHelper::scenario_stage_icost_factors() const
     -> scenario_stage_factor_matrix_t
 {
   const auto n_scenarios = static_cast<Index>(m_scenarios_.get().size());

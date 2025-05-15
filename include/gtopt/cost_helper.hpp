@@ -166,7 +166,7 @@ public:
    *
    * @return Matrix of inverse cost factors by scenario/stage/block
    */
-  [[nodiscard]] block_factor_matrix_t block_icost_factor() const;
+  [[nodiscard]] block_factor_matrix_t block_icost_factors() const;
 
   /**
    * @brief Calculates inverse cost factors for stages (1/cost_factor)
@@ -181,7 +181,7 @@ public:
    *
    * @return Vector of inverse cost factors by stage
    */
-  [[nodiscard]] stage_factor_matrix_t stage_icost_factor() const;
+  [[nodiscard]] stage_factor_matrix_t stage_icost_factors() const;
 
   /**
    * @brief Calculates inverse cost factors for scenario-stage pairs
@@ -198,31 +198,8 @@ public:
    *
    * @return Matrix of inverse cost factors by scenario/stage
    */
-  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_icost_factor()
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_icost_factors()
       const;
-
-  // Deprecated aliases - remove after updating all call sites
-  [[deprecated(
-      "Use block_icost_factor() instead")]] [[nodiscard]] block_factor_matrix_t
-  block_ecost_factors() const
-  {
-    return block_icost_factor();
-  }
-
-  [[deprecated(
-      "Use stage_icost_factor() instead")]] [[nodiscard]] stage_factor_matrix_t
-  stage_ecost_factors() const
-  {
-    return stage_icost_factor();
-  }
-
-  [[deprecated(
-      "Use scenario_stage_icost_factor() "
-      "instead")]] [[nodiscard]] scenario_stage_factor_matrix_t
-  scenario_stage_ecost_factors() const
-  {
-    return scenario_stage_icost_factor();
-  }
 
 private:
   std::reference_wrapper<const OptionsLP> m_options_;

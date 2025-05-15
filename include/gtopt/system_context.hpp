@@ -57,8 +57,6 @@ namespace gtopt
 
 class Bus;
 class BusLP;
-
-
 class SystemLP;
 class SimulationLP;
 
@@ -183,7 +181,6 @@ public:
   }
 
   // Active Elements Query
-
 
   template<typename Max>
   constexpr auto block_max_at(const StageIndex& stage_index,
@@ -344,3 +341,6 @@ static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
 
 static_assert(std::is_base_of_v<gtopt::FlatHelper, gtopt::SystemContext>,
               "SystemContext must inherit from FlatHelper");
+
+static_assert(std::is_base_of_v<gtopt::CostHelper, gtopt::SystemContext>,
+              "SystemContext must inherit from CostHelper");

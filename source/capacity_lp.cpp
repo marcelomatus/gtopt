@@ -78,7 +78,7 @@ bool CapacityLP::lazy_add_to_lp(const SystemContext& sc,
   const auto capacost_col = capacost_cols[stage_index] =
       lp.add_col({// capacost variable
                   .name = capacost_row.name,
-                  .cost = sc.stage_cost(stage_index, 1.0)});
+                  .cost = sc.stage_ecost(stage_index, 1.0)});
 
   capacost_row[capacost_col] = +1;
 

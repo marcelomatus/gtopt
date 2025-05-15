@@ -16,6 +16,10 @@ using namespace gtopt;
  */
 TEST_CASE("Active Elements Accessors")
 {
+  OptionsLP options;
+  Simulation psimulation;
+  SimulationLP simulation {psimulation, options};
+
   const std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};
   const std::vector<StageIndex> active_stages = {StageIndex {0}};
   const std::vector<std::vector<BlockIndex>> active_stage_blocks = {
@@ -23,8 +27,11 @@ TEST_CASE("Active Elements Accessors")
   const std::vector<BlockIndex> active_blocks = {BlockIndex {0},
                                                  BlockIndex {1}};
 
-  const FlatHelper helper(
-      active_scenarios, active_stages, active_stage_blocks, active_blocks);
+  const FlatHelper helper(simulation,
+                          active_scenarios,
+                          active_stages,
+                          active_stage_blocks,
+                          active_blocks);
 
   SUBCASE("Scenario accessors")
   {
@@ -58,8 +65,15 @@ TEST_CASE("Flat helper - Flat Methods")
       {BlockIndex {0}, BlockIndex {1}}};
   std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
 
-  FlatHelper helper(
-      active_scenarios, active_stages, active_stage_blocks, active_blocks);
+  OptionsLP options;
+  Simulation psimulation;
+  SimulationLP simulation {psimulation, options};
+
+  FlatHelper helper(simulation,
+                    active_scenarios,
+                    active_stages,
+                    active_stage_blocks,
+                    active_blocks);
 
   SUBCASE("GSTBIndexHolder")
   {
@@ -141,7 +155,11 @@ TEST_CASE("Flat Helper - Edge Cases")
 {
   SUBCASE("Empty Active Elements")
   {
-    FlatHelper helper({}, {}, {}, {});
+    OptionsLP options;
+    Simulation psimulation;
+    SimulationLP simulation {psimulation, options};
+
+    FlatHelper helper(simulation, {}, {}, {}, {});
 
     CHECK(helper.active_scenario_count() == 0);
     CHECK(helper.active_stage_count() == 0);
@@ -177,8 +195,13 @@ TEST_CASE("Flat Helper - Edge Cases")
 
   SUBCASE("Partial Active Elements")
   {
+    OptionsLP options;
+    Simulation psimulation;
+    SimulationLP simulation {psimulation, options};
+
     // Only some scenarios/stages active
-    FlatHelper helper({ScenarioIndex {0}},
+    FlatHelper helper(simulation,
+                      {ScenarioIndex {0}},
                       {StageIndex {0}},
                       {{BlockIndex {0}}},  // Only first block active
                       {BlockIndex {0}});
@@ -203,8 +226,14 @@ TEST_CASE("Flat Helper - Edge Cases")
         {BlockIndex {0}}, {BlockIndex {1}}};
     std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
 
-    FlatHelper helper(
-        active_scenarios, active_stages, active_stage_blocks, active_blocks);
+    OptionsLP options;
+    Simulation psimulation;
+    SimulationLP simulation {psimulation, options};
+    FlatHelper helper(simulation,
+                      active_scenarios,
+                      active_stages,
+                      active_stage_blocks,
+                      active_blocks);
 
     GSTBIndexHolder holder;
     holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
@@ -230,9 +259,13 @@ TEST_CASE("FlatHelper Move Semantics")
   std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
   std::vector<BlockIndex> blocks = {BlockIndex {0}};
 
+  OptionsLP options;
+  Simulation psimulation;
+  SimulationLP simulation {psimulation, options};
+
   SUBCASE("Move Construction")
   {
-    FlatHelper original(scenarios, stages, stage_blocks, blocks);
+    FlatHelper original(simulation, scenarios, stages, stage_blocks, blocks);
     FlatHelper moved(std::move(original));
 
     CHECK(moved.active_scenario_count() == 1);
@@ -242,8 +275,9 @@ TEST_CASE("FlatHelper Move Semantics")
 
   SUBCASE("Move Assignment")
   {
-    FlatHelper original(scenarios, stages, stage_blocks, blocks);
-    FlatHelper moved({ScenarioIndex {0}},
+    FlatHelper original(simulation, scenarios, stages, stage_blocks, blocks);
+    FlatHelper moved(simulation,
+                     {ScenarioIndex {0}},
                      {StageIndex {0}},
                      {{BlockIndex {0}}},
                      {BlockIndex {0}});
@@ -261,7 +295,11 @@ TEST_CASE("FlatHelper Const Correctness")
   const std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
   const std::vector<BlockIndex> blocks = {BlockIndex {0}};
 
-  const FlatHelper helper(scenarios, stages, stage_blocks, blocks);
+  OptionsLP options;
+  Simulation psimulation;
+  SimulationLP simulation {psimulation, options};
+
+  const FlatHelper helper(simulation, scenarios, stages, stage_blocks, blocks);
 
   SUBCASE("Const Accessors")
   {
@@ -281,7 +319,12 @@ TEST_CASE("FlatHelper Const Correctness")
 }
 TEST_CASE("FlatHelper Template Constraints")
 {
-  FlatHelper helper({ScenarioIndex {0}},
+  OptionsLP options;
+  Simulation psimulation;
+  SimulationLP simulation {psimulation, options};
+
+  FlatHelper helper(simulation,
+                    {ScenarioIndex {0}},
                     {StageIndex {0}},
                     {{BlockIndex {0}}},
                     {BlockIndex {0}});

@@ -48,9 +48,9 @@ public:
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
    */
-  template<typename Blocks>
+  template<typename BlockLPs = std::vector<BlockLP> >
   explicit StageLP(Stage pstage,
-                   const Blocks& pblocks,
+                   const BlockLPs& pblocks = {},
                    double annual_discount_rate = 0.0)
       : m_stage_(std::move(pstage))
       , m_blocks_(std::span(pblocks).subspan(m_stage_.first_block,

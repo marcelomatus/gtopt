@@ -72,7 +72,7 @@ public:
         ? OptStageIndex {stage_index - 1}
         : OptStageIndex {};
 
-    const auto stage_vcost = sc.scenario_stage_cost(  //
+    const auto stage_vcost = sc.scenario_stage_ecost(  //
                                  scenario_index,
                                  stage_index,
                                  vcost.at(stage_index).value_or(0.0))

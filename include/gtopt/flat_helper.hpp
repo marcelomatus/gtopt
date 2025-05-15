@@ -37,6 +37,7 @@
 
 #pragma once
 
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
 namespace gtopt
@@ -76,11 +78,13 @@ class FlatHelper
 public:
   FlatHelper() = delete;
 
-  explicit FlatHelper(std::vector<ScenarioIndex> active_scenarios,
+  explicit FlatHelper(const SimulationLP& simulation,
+                      std::vector<ScenarioIndex> active_scenarios,
                       std::vector<StageIndex> active_stages,
                       std::vector<std::vector<BlockIndex>> active_stage_blocks,
                       std::vector<BlockIndex> active_blocks)
-      : m_active_scenarios_(std::move(active_scenarios))
+      : m_simulation_(simulation)
+      , m_active_scenarios_(std::move(active_scenarios))
       , m_active_stages_(std::move(active_stages))
       , m_active_stage_blocks_(std::move(active_stage_blocks))
       , m_active_blocks_(std::move(active_blocks))
@@ -88,6 +92,11 @@ public:
     if (m_active_stages_.size() != m_active_stage_blocks_.size()) {
       throw std::invalid_argument("Stage count must match stage blocks size");
     }
+  }
+
+  [[nodiscard]] constexpr const SimulationLP& simulation() const noexcept
+  {
+    return m_simulation_.get();
   }
 
   [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
@@ -154,79 +163,13 @@ public:
     return stage_index == m_active_stages_.back();
   }
 
-  [[nodiscard]] STBUids stb_active_uids() const
-  {
-    std::vector<ScenarioIndex> scenario_uids;
-    std::vector<StageIndex> stage_uids;
-    std::vector<BlockIndex> block_uids;
+  [[nodiscard]] STBUids stb_active_uids() const;
+  [[nodiscard]] STUids st_active_uids() const;
+  [[nodiscard]] TUids t_active_uids() const;
 
-    scenario_uids.reserve(m_active_scenarios_.size());
-    stage_uids.reserve(m_active_stages_.size());
-    block_uids.reserve(m_active_blocks_.size());
-
-    for (const auto& s : m_active_scenarios_) {
-      scenario_uids.push_back(s);
-    }
-    for (const auto& t : m_active_stages_) {
-      stage_uids.push_back(t);
-    }
-    for (const auto& b : m_active_blocks_) {
-      block_uids.push_back(b);
-    }
-
-    return {scenario_uids, stage_uids, block_uids};
-  }
-
-  [[nodiscard]] STBUids stb_uids() const
-  {
-    // For simplicity, returning active UIDs - adjust if you track all possible
-    // UIDs
-    return stb_active_uids();
-  }
-
-  [[nodiscard]] STUids st_active_uids() const
-  {
-    std::vector<short> scenario_uids;
-    std::vector<short> stage_uids;
-
-    scenario_uids.reserve(m_active_scenarios_.size());
-    stage_uids.reserve(m_active_stages_.size());
-
-    for (const auto& s : m_active_scenarios_) {
-      scenario_uids.push_back(static_cast<short>(s));
-    }
-    for (const auto& t : m_active_stages_) {
-      stage_uids.push_back(static_cast<short>(t));
-    }
-
-    return std::make_tuple(scenario_uids, stage_uids);
-  }
-
-  [[nodiscard]] STUids st_uids() const
-  {
-    // For simplicity, returning active UIDs - adjust if you track all possible
-    // UIDs
-    return st_active_uids();
-  }
-
-  [[nodiscard]] TUids t_active_uids() const
-  {
-    TUids uids;
-    uids.reserve(m_active_stages_.size());
-
-    for (const auto& t : m_active_stages_) {
-      uids.push_back(static_cast<short>(t));
-    }
-
-    return uids;
-  }
-
-  [[nodiscard]] TUids t_uids() const
-  {
-    // For simplicity, returning active UIDs - adjust if you track all possible
-    // UIDs
-    return t_active_uids();
-  }
+  [[nodiscard]] STBUids stb_uids() const;
+  [[nodiscard]] STUids st_uids() const;
+  [[nodiscard]] TUids t_uids() const;
 
   /**
    * @brief Flattens GSTB-indexed data into vectors with optional scaling
@@ -397,6 +340,7 @@ public:
   }
 
 private:
+  std::reference_wrapper<const SimulationLP> m_simulation_;
   std::vector<ScenarioIndex> m_active_scenarios_;
   std::vector<StageIndex> m_active_stages_;
   std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
