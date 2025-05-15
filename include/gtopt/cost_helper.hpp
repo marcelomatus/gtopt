@@ -1,3 +1,13 @@
+/**
+ * @file      cost_helper.hpp
+ * @brief     Header of
+ * @date      Thu May 15 10:56:25 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/block_lp.hpp>
@@ -22,9 +32,10 @@ namespace gtopt::detail
  */
 constexpr auto stage_factors(const auto& stages) noexcept
 {
-  return stages | std::views::transform([](const auto& st) {
-           return st.discount_factor();
-         }) | std::ranges::to<std::vector>();
+  return stages
+      | std::views::transform([](const auto& st)
+                              { return st.discount_factor(); })
+      | std::ranges::to<std::vector>();
 }
 
 }  // namespace gtopt::detail
