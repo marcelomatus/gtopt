@@ -152,10 +152,65 @@ public:
                                             const StageIndex& stage_index,
                                             double cost) const;
 
-  [[nodiscard]] block_factor_matrix_t block_ecost_factors() const;
-  [[nodiscard]] stage_factor_matrix_t stage_ecost_factors() const;
-  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_ecost_factors()
-      const;
+  /**
+   * @brief Calculates inverse cost factors for blocks (1/cost_factor)
+   * 
+   * Computes the inverse of the cost factors used to scale dual prices,
+   * applying:
+   * - Scenario probability weighting
+   * - Stage discount factor
+   * - Block duration
+   * - Objective scaling
+   * 
+   * Formula: 1 / (probability * discount * duration / scale_objective)
+   * 
+   * @return Matrix of inverse cost factors by scenario/stage/block
+   */
+  [[nodiscard]] block_factor_matrix_t block_icost_factor() const;
+
+  /**
+   * @brief Calculates inverse cost factors for stages (1/cost_factor)
+   * 
+   * Computes the inverse of the cost factors used to scale dual prices,
+   * applying:
+   * - Stage discount factor
+   * - Stage duration
+   * - Objective scaling
+   * 
+   * Formula: 1 / (discount * duration / scale_objective)
+   * 
+   * @return Vector of inverse cost factors by stage
+   */
+  [[nodiscard]] stage_factor_matrix_t stage_icost_factor() const;
+
+  /**
+   * @brief Calculates inverse cost factors for scenario-stage pairs (1/cost_factor)
+   * 
+   * Computes the inverse of the cost factors used to scale dual prices,
+   * applying:
+   * - Scenario probability weighting
+   * - Stage discount factor
+   * - Stage duration
+   * - Objective scaling
+   * 
+   * Formula: 1 / (probability * discount * duration / scale_objective)
+   * 
+   * @return Matrix of inverse cost factors by scenario/stage
+   */
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_icost_factor() const;
+
+  // Deprecated aliases - remove after updating all call sites
+  [[deprecated("Use block_icost_factor() instead")]]
+  [[nodiscard]] block_factor_matrix_t block_ecost_factors() const
+  { return block_icost_factor(); }
+
+  [[deprecated("Use stage_icost_factor() instead")]]
+  [[nodiscard]] stage_factor_matrix_t stage_ecost_factors() const
+  { return stage_icost_factor(); }
+
+  [[deprecated("Use scenario_stage_icost_factor() instead")]]
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_ecost_factors() const
+  { return scenario_stage_icost_factor(); }
 
 private:
   std::reference_wrapper<const OptionsLP> m_options_;
