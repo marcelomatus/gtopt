@@ -3,6 +3,8 @@
 #include <limits>
 #include <string>
 
+#include <gtopt/sparse_row.hpp>
+
 namespace gtopt
 {
 
