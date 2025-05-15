@@ -31,15 +31,17 @@ using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
 /**
  * @class FlatHelper
- * @brief Converts multi-dimensional optimization data into flat vectors for LP formulation
- * 
+ * @brief Converts multi-dimensional optimization data into flat vectors for LP
+ * formulation
+ *
  * This helper class transforms scenario/stage/block indexed data into:
  * - Flat vectors for LP matrix construction
  * - Valid/invalid markers for sparse problems
  * - Scaled values using provided factors
  *
  * Key features:
- * - Handles active element filtering (only processes active scenarios/stages/blocks)
+ * - Handles active element filtering (only processes active
+ * scenarios/stages/blocks)
  * - Applies scaling factors during flattening
  * - Supports multiple index holder types (GSTB, STB, ST, T)
  * - Provides constexpr accessors for active elements
@@ -132,19 +134,21 @@ public:
 
   /**
    * @brief Flattens GSTB-indexed data into vectors with optional scaling
-   * 
+   *
    * Processes a 3D (Scenario/Stage/Block) indexed container into:
    * - Values vector with projected/scaled values
    * - Valid vector marking which indices had data
    *
-   * @tparam Projection Callable that transforms source values (double -> double)
+   * @tparam Projection Callable that transforms source values (double ->
+   * double)
    * @tparam Factor Optional scaling factors (default: no scaling)
    * @param hstb The GSTB-indexed data holder
    * @param proj Projection function to apply to each value
    * @param factor Optional scaling factors (applied after projection)
    * @return Pair of (values, valid) vectors
    *
-   * @note Complexity: O(N) where N is active_scenarios * active_stages * active_blocks
+   * @note Complexity: O(N) where N is active_scenarios * active_stages *
+   * active_blocks
    * @note If factor is provided, must match active element dimensions
    */
   template<typename Projection, typename Factor = block_factor_matrix_t>
