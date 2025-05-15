@@ -54,6 +54,9 @@ public:
   [[nodiscard]] constexpr bool is_first_scenario(
       const ScenarioIndex& scenario_index) const noexcept
   {
+    if (m_active_scenarios_.empty()) {
+      return false;
+    }
     return scenario_index == m_active_scenarios_.front();
   }
 
@@ -75,12 +78,18 @@ public:
   [[nodiscard]] constexpr bool is_first_stage(
       const StageIndex& stage_index) const noexcept
   {
+    if (m_active_stages_.empty()) {
+      return false;
+    }
     return stage_index == m_active_stages_.front();
   }
 
   [[nodiscard]] constexpr bool is_last_stage(
       const StageIndex& stage_index) const noexcept
   {
+    if (m_active_stages_.empty()) {
+      return false;
+    }
     return stage_index == m_active_stages_.back();
   }
 
