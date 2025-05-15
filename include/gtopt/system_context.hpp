@@ -58,11 +58,6 @@ namespace gtopt
 class Bus;
 class BusLP;
 
-using STBUids =
-    std::tuple<std::vector<Uid>, std::vector<Uid>, std::vector<Uid>>;
-
-using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
-using TUids = std::vector<Uid>;
 
 class SystemLP;
 class SimulationLP;

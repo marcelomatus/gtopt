@@ -56,6 +56,10 @@ using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
 using stage_factor_matrix_t = std::vector<double>;
 using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
+using STBUids = std::tuple<std::vector<Uid>, std::vector<Uid>, std::vector<Uid>>;
+using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
+using TUids = std::vector<Uid>;
+
 /**
  * @class FlatHelper
  * @brief Converts multi-dimensional optimization data into flat vectors for LP
@@ -144,6 +148,13 @@ public:
     }
     return stage_index == m_active_stages_.back();
   }
+
+  [[nodiscard]] STBUids stb_active_uids() const;
+  [[nodiscard]] STBUids stb_uids() const;
+  [[nodiscard]] STUids st_active_uids() const;
+  [[nodiscard]] STUids st_uids() const;
+  [[nodiscard]] TUids t_active_uids() const;
+  [[nodiscard]] TUids t_uids() const;
 
   FlatHelper(std::vector<ScenarioIndex> active_scenarios,
              std::vector<StageIndex> active_stages,
