@@ -39,7 +39,7 @@
 #include <gtopt/block_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/cost_helper.hpp>
-#include <gtopt/element_traits.hpp> 
+#include <gtopt/element_traits.hpp>
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/label_maker.hpp>
@@ -106,11 +106,6 @@ public:
   {
     return simulation().options();
   }
-
-  // CostHelper methods are now inherited:
-  // block_cost(), block_cost_factors()
-  // stage_cost(), stage_cost_factors() 
-  // scenario_stage_cost(), scenario_stage_cost_factors()
 
   // Scenario Accessors
   [[nodiscard]] constexpr auto scenario_uid(
@@ -193,28 +188,6 @@ public:
   }
 
   // Active Elements Query
-
-  [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
-                                  const StageIndex& stage_index,
-                                  const BlockLP& block,
-                                  double cost) const;
-
-  using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
-  [[nodiscard]] auto block_cost_factors() const -> block_factor_matrix_t;
-
-  [[nodiscard]] double stage_cost(const StageIndex& stage_index,
-                                  double cost) const;
-
-  using stage_factor_matrix_t = std::vector<double>;
-  [[nodiscard]] auto stage_cost_factors() const -> stage_factor_matrix_t;
-
-  [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
-                                           const StageIndex& stage_index,
-                                           double cost) const;
-
-  using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
-  [[nodiscard]] auto scenario_stage_cost_factors() const
-      -> scenario_stage_factor_matrix_t;
 
   [[nodiscard]] auto stb_active_uids() const -> STBUids;
   [[nodiscard]] auto st_active_uids() const -> STUids;
@@ -372,8 +345,6 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
-
-  std::vector<double> stage_discount_factors;
 
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
