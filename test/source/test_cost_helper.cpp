@@ -9,9 +9,9 @@ using namespace gtopt;
 
 TEST_SUITE("CostHelper") {
     TEST_CASE("Construction and basic properties") {
-        OptionsLP options;
-        std::vector<ScenarioLP> scenarios;
-        std::vector<StageLP> stages;
+        const OptionsLP options;
+        const std::vector<ScenarioLP> scenarios;
+        const std::vector<StageLP> stages;
         
         const CostHelper helper(options, scenarios, stages);
         
@@ -27,7 +27,7 @@ TEST_SUITE("CostHelper") {
     TEST_CASE("stage_factors calculation") {
         SUBCASE("Single stage") {
             std::vector<StageLP> stages(1);
-            stages[0].discount_factor() = 0.9;
+            stages[0].discount_factor = 0.9;
             
             auto factors = detail::stage_factors(stages);
             REQUIRE(factors.size() == 1);
@@ -36,9 +36,9 @@ TEST_SUITE("CostHelper") {
 
         SUBCASE("Multiple stages") {
             std::vector<StageLP> stages(3);
-            stages[0].discount_factor() = 0.9;
-            stages[1].discount_factor() = 0.8;
-            stages[2].discount_factor() = 0.7;
+            stages[0].discount_factor = 0.9;
+            stages[1].discount_factor = 0.8;
+            stages[2].discount_factor = 0.7;
             
             auto factors = detail::stage_factors(stages);
             REQUIRE(factors.size() == 3);
@@ -49,11 +49,11 @@ TEST_SUITE("CostHelper") {
     }
 
     TEST_CASE("block_cost calculation") {
-        OptionsLP options;
+        const OptionsLP options;
         std::vector<ScenarioLP> scenarios(1);
         std::vector<StageLP> stages(1);
-        stages[0].discount_factor() = 0.9;
-        scenarios[0].probability_factor() = 0.5;
+        stages[0].discount_factor = 0.9;
+        scenarios[0].probability_factor = 0.5;
         
         const BlockLP block;
         const CostHelper helper(options, scenarios, stages);
@@ -72,11 +72,11 @@ TEST_SUITE("CostHelper") {
     }
 
     TEST_CASE("stage_cost calculation") {
-        OptionsLP options;
-        std::vector<ScenarioLP> scenarios;
+        const OptionsLP options;
+        const std::vector<ScenarioLP> scenarios;
         std::vector<StageLP> stages(2);
-        stages[0].discount_factor() = 0.9;
-        stages[1].discount_factor() = 0.8;
+        stages[0].discount_factor = 0.9;
+        stages[1].discount_factor = 0.8;
         
         const CostHelper helper(options, scenarios, stages);
         
@@ -94,7 +94,7 @@ TEST_SUITE("CostHelper") {
     }
 
     TEST_CASE("scenario_stage_cost calculation") {
-        OptionsLP options;
+        const OptionsLP options;
         std::vector<ScenarioLP> scenarios(2);
         scenarios[0].probability_factor = 0.6;
         scenarios[1].probability_factor = 0.4;
@@ -102,7 +102,7 @@ TEST_SUITE("CostHelper") {
         stages[0].discount_factor = 0.9;
         stages[1].discount_factor = 0.8;
         
-        CostHelper helper(options, scenarios, stages);
+        const CostHelper helper(options, scenarios, stages);
         
         SUBCASE("First scenario, first stage") {
             const double cost = 100.0;
@@ -118,7 +118,7 @@ TEST_SUITE("CostHelper") {
     }
 
     TEST_CASE("Factor matrix generation") {
-        OptionsLP options;
+        const OptionsLP options;
         std::vector<ScenarioLP> scenarios(2);
         scenarios[0].probability_factor = 0.6;
         scenarios[1].probability_factor = 0.4;
