@@ -8,13 +8,13 @@ using namespace gtopt;
 
 TEST_CASE("Active Elements Accessors")
 {
-  std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};
-  std::vector<StageIndex> active_stages = {StageIndex {0}};
-  std::vector<std::vector<BlockIndex>> active_stage_blocks = {
+  const std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};
+  const std::vector<StageIndex> active_stages = {StageIndex {0}};
+  const std::vector<std::vector<BlockIndex>> active_stage_blocks = {
       {BlockIndex {0}, BlockIndex {1}}};
-  std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
+  const std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
 
-  FlatHelper helper(
+  const FlatHelper helper(
       active_scenarios, active_stages, active_stage_blocks, active_blocks);
 
   SUBCASE("Scenario accessors")
@@ -58,7 +58,7 @@ TEST_CASE("Flat helper - Flat Methods")
     holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
     holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] = 20;
 
-    block_factor_matrix_t factor;
+    const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
 
     REQUIRE(values.size() == 2);
@@ -70,7 +70,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("STBIndexHolder")
   {
     STBIndexHolder holder;
-    IndexHolder0<BlockIndex> blocks = {10, 20};
+    const IndexHolder0<BlockIndex> blocks = {10, 20};
 
     holder[{ScenarioIndex {0}, StageIndex {0}}] = blocks;
 
@@ -88,7 +88,7 @@ TEST_CASE("Flat helper - Flat Methods")
     STIndexHolder holder;
     holder[{ScenarioIndex {0}, StageIndex {0}}] = 42;
 
-    scenario_stage_factor_matrix_t factor;
+    const scenario_stage_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
 
     REQUIRE(values.size() == 1);
@@ -101,7 +101,7 @@ TEST_CASE("Flat helper - Flat Methods")
     TIndexHolder holder;
     holder[StageIndex {0}] = 99;
 
-    stage_factor_matrix_t factor {};
+    const stage_factor_matrix_t factor {};
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
 
     REQUIRE(values.size() == 1);
@@ -235,7 +235,7 @@ TEST_CASE("FlatHelper Move Semantics")
   SUBCASE("Move Assignment")
   {
     FlatHelper original(scenarios, stages, stage_blocks, blocks);
-    FlatHelper moved;
+    FlatHelper moved({ScenarioIndex{0}}, {StageIndex{0}}, {{BlockIndex{0}}}, {BlockIndex{0}});
     moved = std::move(original);
 
     CHECK(moved.active_scenario_count() == 1);
