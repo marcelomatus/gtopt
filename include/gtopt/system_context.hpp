@@ -69,6 +69,9 @@ public:
   // Core Context Management
   explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
 
+  //
+  //  get methods
+  //
   template<typename Self>
   [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
@@ -81,49 +84,12 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
-  /// @brief Get optimization options
-  /// @return Reference to OptionsLP configuration
-  /**
-   * @brief Gets the optimization options configuration
-   * @return Const reference to OptionsLP containing all optimization settings
-   *
-   * Provides access to:
-   * - Input/output directories and formats
-   * - Cost parameters (demand/reserve fail costs)
-   * - Physical modeling options (line losses, Kirchhoff)
-   * - Scaling factors and thresholds
-   *
-   * @note Returned reference is valid for lifetime of SimulationLP
-   */
   [[nodiscard]] constexpr auto&& options() const noexcept
   {
     return simulation().options();
   }
 
-  // Scenario Accessors
-  [[nodiscard]] constexpr auto scenario_uid(
-      const ScenarioIndex& scenario_index) const
-  {
-    return scenarios()[scenario_index].uid();
-  }
-
-  [[nodiscard]] constexpr auto scenario_probability_factor(
-      const ScenarioIndex& scenario_index) const
-  {
-    return scenarios()[scenario_index].probability_factor();
-  }
-
   // Stage Accessors
-  [[nodiscard]] constexpr auto stage_uid(const StageIndex& stage_index) const
-  {
-    return stages()[stage_index].uid();
-  }
-
-  [[nodiscard]] constexpr auto stage_discount_factor(
-      const StageIndex& stage_index) const
-  {
-    return stages()[stage_index].discount_factor();
-  }
 
   [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index,
                                               double prev_duration = 0) const
@@ -135,14 +101,18 @@ public:
   [[nodiscard]] constexpr auto stage_duration(
       const StageIndex& stage_index) const
   {
-    return stages()[stage_index].duration();
+    return stages().at(stage_index).duration();
   }
 
   [[nodiscard]] constexpr auto&& stage_blocks(
       const StageIndex& stage_index) const
   {
-    return stages()[stage_index].blocks();
+    return stages().at(stage_index).blocks();
   }
+
+  //
+  // Option methods
+  //
 
   template<typename LossFactor>
   constexpr auto stage_lossfactor(const StageIndex& stage_index,
@@ -180,7 +150,9 @@ public:
     return fc ? fc : options().reserve_fail_cost();
   }
 
-  // Active Elements Query
+  //
+  //  minmax util methods
+  //
 
   template<typename Max>
   constexpr auto block_max_at(const StageIndex& stage_index,
@@ -233,29 +205,8 @@ public:
   }
 
   //
-  //  set&get the variable data
+  //  add&get elements
   //
-
-  [[nodiscard]] constexpr auto&& single_bus_id() const noexcept
-  {
-    return m_single_bus_id_;
-  }
-
-  template<typename Id>
-  constexpr bool is_single_bus(const Id& id) const noexcept
-  {
-    if (m_single_bus_id_) {
-      auto&& sid = m_single_bus_id_.value();
-      return sid.index() == 0 ? std::get<0>(sid) == id.first
-                              : std::get<1>(sid) == id.second;
-    }
-    return false;
-  }
-
-  [[nodiscard]] auto get_bus_index(const ObjectSingleId<BusLP>& id) const
-      -> ElementIndex<BusLP>;
-  [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
-      -> const BusLP&;
 
   template<typename Element>
   constexpr auto&& elements() const
@@ -280,6 +231,35 @@ public:
   {
     return push_back(*this, std::forward<Element>(element));
   }
+
+  //
+  //  get_bus, single_bus and related
+  //
+
+  [[nodiscard]] constexpr auto&& single_bus_id() const noexcept
+  {
+    return m_single_bus_id_;
+  }
+
+  template<typename Id>
+  constexpr bool is_single_bus(const Id& id) const noexcept
+  {
+    if (m_single_bus_id_) {
+      auto&& sid = m_single_bus_id_.value();
+      return sid.index() == 0 ? std::get<0>(sid) == id.first
+                              : std::get<1>(sid) == id.second;
+    }
+    return false;
+  }
+
+  [[nodiscard]] auto get_bus_index(const ObjectSingleId<BusLP>& id) const
+      -> ElementIndex<BusLP>;
+  [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
+      -> const BusLP&;
+
+  //
+  // Forward methods to access simulation
+  //
 
   [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
       const noexcept
