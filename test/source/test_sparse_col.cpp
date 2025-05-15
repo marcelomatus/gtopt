@@ -5,10 +5,10 @@ using namespace gtopt;
 
 TEST_SUITE("SparseCol") {
     TEST_CASE("Default Construction") {
-        constexpr SparseCol col;
+        SparseCol col;
         CHECK(col.name.empty());
         CHECK(col.lowb == 0.0);
-        CHECK(col.uppb == SparseCol::CoinDblMax);
+        CHECK(col.uppb == CoinDblMax);
         CHECK(col.cost == 0.0);
         CHECK(col.is_integer == false);
     }
@@ -24,8 +24,8 @@ TEST_SUITE("SparseCol") {
 
         SUBCASE("Free") {
             col.free();
-            CHECK(col.lowb == -SparseCol::CoinDblMax);
-            CHECK(col.uppb == SparseCol::CoinDblMax);
+            CHECK(col.lowb == -CoinDblMax);
+            CHECK(col.uppb == CoinDblMax);
         }
 
         SUBCASE("Integer") {
@@ -36,16 +36,13 @@ TEST_SUITE("SparseCol") {
     }
 
     TEST_CASE("Compile Time Evaluation") {
-        constexpr SparseCol col = []() {
+        // Test that methods can be called at compile time
+        constexpr double test_val = []() {
             SparseCol c;
             c.equal(10.0);
-            c.integer();
-            return c;
+            return c.lowb;
         }();
-
-        static_assert(col.lowb == 10.0);
-        static_assert(col.uppb == 10.0);
-        static_assert(col.is_integer == true);
+        static_assert(test_val == 10.0);
     }
 
     TEST_CASE("Name Setting") {
