@@ -1,10 +1,20 @@
+/**
+ * @file      sparse_row.hpp
+ * @brief     Header of
+ * @date      Thu May 15 19:28:37 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
+#include <cmath>  // for std::abs
 #include <limits>
 #include <string>
-#include <vector>
 #include <utility>  // for std::pair
-#include <cmath>    // for std::abs
+#include <vector>
 
 #include <gtopt/fmap.hpp>
 
@@ -13,13 +23,16 @@ namespace gtopt
 
 /**
  * @class SparseRow
- * @brief Represents a constraint row in a linear program with sparse coefficients
- * 
- * This class provides a sparse representation of a linear constraint row, storing
- * only non-zero coefficients. It supports various constraint types through
- * fluent interface methods and can convert to dense or flat representations.
- * 
- * @note All methods are constexpr where possible to enable compile-time evaluation
+ * @brief Represents a constraint row in a linear program with sparse
+ * coefficients
+ *
+ * This class provides a sparse representation of a linear constraint row,
+ * storing only non-zero coefficients. It supports various constraint types
+ * through fluent interface methods and can convert to dense or flat
+ * representations.
+ *
+ * @note All methods are constexpr where possible to enable compile-time
+ * evaluation
  */
 struct SparseRow
 {
@@ -29,9 +42,10 @@ struct SparseRow
   using size_type = typename cmap_t::size_type;
 
   std::string name;  ///< Row/constraint name (empty for anonymous constraints)
-  double lowb {0};   ///< Lower bound (default: 0)
-  double uppb {0};   ///< Upper bound (default: 0)
-  cmap_t cmap {};    ///< Sparse coefficient map (column index → coefficient value)
+  double lowb {0};  ///< Lower bound (default: 0)
+  double uppb {0};  ///< Upper bound (default: 0)
+  cmap_t
+      cmap {};  ///< Sparse coefficient map (column index → coefficient value)
 
   /**
    * Sets both lower and upper bounds for the constraint
@@ -104,10 +118,7 @@ struct SparseRow
    * @param key Column index
    * @return Reference to coefficient value
    */
-  constexpr double& operator[](size_t key) noexcept
-  {
-    return cmap[key];
-  }
+  constexpr double& operator[](size_t key) noexcept { return cmap[key]; }
 
   /**
    * Gets a coefficient (const version)
@@ -132,10 +143,7 @@ struct SparseRow
    * Reserves space for coefficients
    * @param n Number of coefficients to reserve space for
    */
-  constexpr void reserve(size_type n) noexcept
-  {
-    cmap.reserve(n);
-  }
+  constexpr void reserve(size_type n) noexcept { cmap.reserve(n); }
 
   /**
    * Converts to flat representation for solver interfaces
