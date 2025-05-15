@@ -38,7 +38,8 @@
 #include <boost/multi_array.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/collection.hpp>
-#include <gtopt/element_traits.hpp>
+#include <gtopt/cost_helper.hpp>
+#include <gtopt/element_traits.hpp> 
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/label_maker.hpp>
