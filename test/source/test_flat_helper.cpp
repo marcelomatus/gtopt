@@ -128,31 +128,35 @@ TEST_CASE("Flat helper - Flat Methods")
   }
 }
 
-TEST_CASE("Flat Helper - Edge Cases") 
+TEST_CASE("Flat Helper - Edge Cases")
 {
-  SUBCASE("Empty Active Elements") {
+  SUBCASE("Empty Active Elements")
+  {
     FlatHelper helper({}, {}, {}, {});
 
     CHECK(helper.active_scenario_count() == 0);
-    CHECK(helper.active_stage_count() == 0); 
+    CHECK(helper.active_stage_count() == 0);
     CHECK(helper.active_block_count() == 0);
-    CHECK_FALSE(helper.is_first_scenario(ScenarioIndex{0}));
-    CHECK_FALSE(helper.is_first_stage(StageIndex{0}));
-    CHECK_FALSE(helper.is_last_stage(StageIndex{0}));
+    CHECK_FALSE(helper.is_first_scenario(ScenarioIndex {0}));
+    CHECK_FALSE(helper.is_first_stage(StageIndex {0}));
+    CHECK_FALSE(helper.is_last_stage(StageIndex {0}));
 
     // Test all flat() variants with empty inputs
     GSTBIndexHolder gstb_holder;
-    auto [gstb_values, gstb_valid] = helper.flat(gstb_holder, [](auto v) { return v; });
+    auto [gstb_values, gstb_valid] =
+        helper.flat(gstb_holder, [](auto v) { return v; });
     CHECK(gstb_values.empty());
     CHECK(gstb_valid.empty());
 
     STBIndexHolder stb_holder;
-    auto [stb_values, stb_valid] = helper.flat(stb_holder, [](auto v) { return v; });
+    auto [stb_values, stb_valid] =
+        helper.flat(stb_holder, [](auto v) { return v; });
     CHECK(stb_values.empty());
     CHECK(stb_valid.empty());
 
     STIndexHolder st_holder;
-    auto [st_values, st_valid] = helper.flat(st_holder, [](auto v) { return v; });
+    auto [st_values, st_valid] =
+        helper.flat(st_holder, [](auto v) { return v; });
     CHECK(st_values.empty());
     CHECK(st_valid.empty());
 
@@ -162,18 +166,18 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(t_valid.empty());
   }
 
-  SUBCASE("Partial Active Elements") {
+  SUBCASE("Partial Active Elements")
+  {
     // Only some scenarios/stages active
-    FlatHelper helper(
-      {ScenarioIndex{0}}, 
-      {StageIndex{0}},
-      {{BlockIndex{0}}},  // Only first block active
-      {BlockIndex{0}}
-    );
+    FlatHelper helper({ScenarioIndex {0}},
+                      {StageIndex {0}},
+                      {{BlockIndex {0}}},  // Only first block active
+                      {BlockIndex {0}});
 
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10.0;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{1}}] = 20.0; // Inactive block
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] =
+        20;  // Inactive block
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
     REQUIRE(values.size() == 1);
@@ -211,63 +215,75 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(valid[3] == false);
   }
 }
-TEST_CASE("FlatHelper Move Semantics") {
-  std::vector<ScenarioIndex> scenarios = {ScenarioIndex{0}};
-  std::vector<StageIndex> stages = {StageIndex{0}};
-  std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex{0}}};
-  std::vector<BlockIndex> blocks = {BlockIndex{0}};
+TEST_CASE("FlatHelper Move Semantics")
+{
+  std::vector<ScenarioIndex> scenarios = {ScenarioIndex {0}};
+  std::vector<StageIndex> stages = {StageIndex {0}};
+  std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
+  std::vector<BlockIndex> blocks = {BlockIndex {0}};
 
-  SUBCASE("Move Construction") {
+  SUBCASE("Move Construction")
+  {
     FlatHelper original(scenarios, stages, stage_blocks, blocks);
     FlatHelper moved(std::move(original));
-    
+
     CHECK(moved.active_scenario_count() == 1);
     CHECK(moved.active_stage_count() == 1);
     CHECK(moved.active_block_count() == 1);
   }
 
-  SUBCASE("Move Assignment") {
+  SUBCASE("Move Assignment")
+  {
     FlatHelper original(scenarios, stages, stage_blocks, blocks);
     FlatHelper moved;
     moved = std::move(original);
-    
+
     CHECK(moved.active_scenario_count() == 1);
-    CHECK(moved.active_stage_count() == 1); 
+    CHECK(moved.active_stage_count() == 1);
     CHECK(moved.active_block_count() == 1);
   }
 }
-TEST_CASE("FlatHelper Const Correctness") {
-  const std::vector<ScenarioIndex> scenarios = {ScenarioIndex{0}};
-  const std::vector<StageIndex> stages = {StageIndex{0}};
-  const std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex{0}}};
-  const std::vector<BlockIndex> blocks = {BlockIndex{0}};
+TEST_CASE("FlatHelper Const Correctness")
+{
+  const std::vector<ScenarioIndex> scenarios = {ScenarioIndex {0}};
+  const std::vector<StageIndex> stages = {StageIndex {0}};
+  const std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
+  const std::vector<BlockIndex> blocks = {BlockIndex {0}};
 
   const FlatHelper helper(scenarios, stages, stage_blocks, blocks);
 
-  SUBCASE("Const Accessors") {
+  SUBCASE("Const Accessors")
+  {
     CHECK_NOTHROW(helper.active_scenarios());
     CHECK_NOTHROW(helper.active_stages());
     CHECK_NOTHROW(helper.active_stage_blocks());
     CHECK_NOTHROW(helper.active_blocks());
   }
 
-  SUBCASE("Const Flat Methods") {
+  SUBCASE("Const Flat Methods")
+  {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10.0;
-    
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10.0;
+
     CHECK_NOTHROW(helper.flat(holder, [](auto v) { return v; }));
   }
 }
-TEST_CASE("FlatHelper Template Constraints") {
-  FlatHelper helper({ScenarioIndex{0}}, {StageIndex{0}}, {{BlockIndex{0}}}, {BlockIndex{0}});
+TEST_CASE("FlatHelper Template Constraints")
+{
+  FlatHelper helper({ScenarioIndex {0}},
+                    {StageIndex {0}},
+                    {{BlockIndex {0}}},
+                    {BlockIndex {0}});
   GSTBIndexHolder holder;
-  holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10.0;
+  holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10.0;
 
-  SUBCASE("Valid Projection") {
+  SUBCASE("Valid Projection")
+  {
     CHECK_NOTHROW(helper.flat(holder, [](double v) { return v * 2; }));
   }
 
-  SUBCASE("Invalid Projection") {
+  SUBCASE("Invalid Projection")
+  {
     // Should fail to compile - uncomment to verify
     // CHECK_THROWS(helper.flat(holder, [](std::string s) { return s; }));
   }
