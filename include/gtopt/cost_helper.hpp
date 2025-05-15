@@ -27,8 +27,13 @@ public:
   using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
   explicit CostHelper(const OptionsLP& options,
-                      const std::vector<ScenarioLP>& scenarios,
-                      const std::vector<StageLP>& stages);
+                     const std::vector<ScenarioLP>& scenarios,
+                     const std::vector<StageLP>& stages)
+    : m_options_(options)
+    , m_scenarios_(scenarios)
+    , m_stages_(stages)
+    , m_stage_discount_factors_(stage_factors(stages))
+  {}
 
   [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
                                   const StageIndex& stage_index,
@@ -50,10 +55,10 @@ public:
       const;
 
 protected:
-  const OptionsLP& options_;
-  const std::vector<ScenarioLP>& scenarios_;
-  const std::vector<StageLP>& stages_;
-  std::vector<double> stage_discount_factors_;
+  std::reference_wrapper<const OptionsLP> m_options_;
+  std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
+  std::reference_wrapper<const std::vector<StageLP>> m_stages_;
+  std::vector<double> m_stage_discount_factors_;
 };
 
 }  // namespace gtopt
