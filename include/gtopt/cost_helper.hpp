@@ -22,14 +22,9 @@ namespace gtopt::detail
  */
 constexpr auto stage_factors(const auto& stages) noexcept
 {
-  std::vector<double> factors;
-  factors.reserve(stages.size());
-
-  for (auto&& st : stages) {
-    factors.push_back(st.discount_factor());
-  }
-
-  return factors;
+  return stages | std::views::transform([](const auto& st) {
+           return st.discount_factor();
+         }) | std::ranges::to<std::vector>();
 }
 
 }  // namespace gtopt::detail
