@@ -55,8 +55,8 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("GSTBIndexHolder")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] = 20;
+    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
+    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{1}}] = 20;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -112,7 +112,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("With Factor")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
 
     block_factor_matrix_t factor(boost::extents[1][1]);
     factor[0][0] = {2.0};  // Factor for block 0
@@ -175,7 +175,7 @@ TEST_CASE("Flat Helper - Edge Cases")
                       {BlockIndex {0}});
 
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
     holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] =
         20;  // Inactive block
 
