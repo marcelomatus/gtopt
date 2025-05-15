@@ -1,3 +1,13 @@
+/**
+ * @file      flat_helper.hpp
+ * @brief     Header of
+ * @date      Wed May 14 22:18:46 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <utility>
@@ -21,22 +31,17 @@ using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
 /**
  * @class FlatHelper
- * @brief Helper class for flattening multi-dimensional indexed data into vectors
- * 
+ * @brief Helper class for flattening multi-dimensional indexed data into
+ * vectors
+ *
  * Provides methods to convert between:
  * - Multi-dimensional indexed data (scenario/stage/block)
  * - Flat vectors suitable for LP matrices
- * 
+ *
  * Handles active elements filtering and factor application
  */
 class FlatHelper
 {
-private:
-  const std::vector<ScenarioIndex> m_active_scenarios_;
-  const std::vector<StageIndex> m_active_stages_;
-  const std::vector<std::vector<BlockIndex>> m_active_stage_blocks_; 
-  const std::vector<BlockIndex> m_active_blocks_;
-
 public:
   FlatHelper() = delete;
   [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
@@ -66,8 +71,8 @@ public:
   [[nodiscard]] constexpr bool is_first_scenario(
       const ScenarioIndex& scenario_index) const noexcept
   {
-    return !m_active_scenarios_.empty() && 
-           scenario_index == m_active_scenarios_.front();
+    return !m_active_scenarios_.empty()
+        && scenario_index == m_active_scenarios_.front();
   }
 
   [[nodiscard]] constexpr size_t active_scenario_count() const noexcept
@@ -117,12 +122,10 @@ public:
     }
   }
 
-  template<typename Projection, typename Factor = block_factor_matrix_t,
-           typename = std::enable_if_t<
-               std::is_invocable_r_v<double, Projection, double>>>
+  template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const GSTBIndexHolder& hstb,
-                      Projection&& proj,
-                      const Factor& factor = {}) const noexcept
+                      Projection proj,
+                      const Factor& factor = Factor()) const noexcept
   {
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
@@ -267,6 +270,12 @@ public:
         need_values ? std::move(values) : std::vector<double> {},
         need_valids ? std::move(valid) : std::vector<bool> {});
   }
+
+private:
+  std::vector<ScenarioIndex> m_active_scenarios_;
+  std::vector<StageIndex> m_active_stages_;
+  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
+  std::vector<BlockIndex> m_active_blocks_;
 };
 
 }  // namespace gtopt
