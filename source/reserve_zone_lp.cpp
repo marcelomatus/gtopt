@@ -43,7 +43,7 @@ inline bool add_requirement(const SystemContext& sc,
               {.name = name,
                .lowb = 0.0,
                .uppb = block_rreq.value(),
-               .cost = -sc.block_cost(
+               .cost = -sc.block_ecost(
                    scenario_index, stage_index, block, stage_rcost.value())})
         : lp.add_col({.name = name,
                       .lowb = block_rreq.value(),

@@ -67,7 +67,7 @@ constexpr bool add_provision(const SystemContext& sc,
       }
 
       const auto block_rcost =
-          sc.block_cost(scenario_index, stage_index, block, stage_cost);
+          sc.block_ecost(scenario_index, stage_index, block, stage_cost);
       const auto name =
           sc.stb_label(scenario_index, stage_index, block, cname, pname, uid);
       const auto rcol = lp.add_col(

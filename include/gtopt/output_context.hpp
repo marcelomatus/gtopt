@@ -309,11 +309,6 @@ public:
 
   void write() const;
 
-  using block_factor_matrix_t = SystemContext::block_factor_matrix_t;
-  using stage_factor_matrix_t = SystemContext::stage_factor_matrix_t;
-  using scenario_stage_factor_matrix_t =
-      SystemContext::scenario_stage_factor_matrix_t;
-
 private:
   std::reference_wrapper<const SystemContext> sc;
 

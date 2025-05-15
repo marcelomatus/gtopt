@@ -16,8 +16,8 @@ public:
 
   ScenarioLP() = default;
 
-  template<class Stages>
-  explicit ScenarioLP(Scenario pscenario, const Stages& pstages)
+  template<class StageLPs = std::vector<StageLP>>
+  explicit ScenarioLP(Scenario pscenario, const StageLPs& pstages = {})
       : scenario(std::move(pscenario))
       , stage_span(pstages)
   {

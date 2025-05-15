@@ -66,7 +66,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         ? lp.add_col(  //
               {.name = name,
                .uppb = stage_emin.value(),
-               .cost = -sc.stage_cost(
+               .cost = -sc.stage_ecost(
                    stage_index,
                    stage_ecost.value() / sc.stage_duration(stage_index))})
         : lp.add_col(  //
@@ -99,7 +99,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               {.name = sc.stb_label(
                    scenario_index, stage_index, block, cname, "load", uid()),
                .uppb = block_lmax,
-               .cost = -sc.block_cost(
+               .cost = -sc.block_ecost(
                    scenario_index, stage_index, block, stage_fcost.value())})
         : lp.add_col(
               {.name = sc.stb_label(

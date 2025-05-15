@@ -109,7 +109,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost =
-             sc.block_cost(scenario_index, stage_index, block, stage_gcost)});
+             sc.block_ecost(scenario_index, stage_index, block, stage_gcost)});
     gcols.push_back(gc);
 
     // Add generator output to the bus power balance equation
