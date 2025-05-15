@@ -31,14 +31,22 @@ using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
 /**
  * @class FlatHelper
- * @brief Helper class for flattening multi-dimensional indexed data into
- * vectors
+ * @brief Converts multi-dimensional optimization data into flat vectors for LP formulation
+ * 
+ * This helper class transforms scenario/stage/block indexed data into:
+ * - Flat vectors for LP matrix construction
+ * - Valid/invalid markers for sparse problems
+ * - Scaled values using provided factors
  *
- * Provides methods to convert between:
- * - Multi-dimensional indexed data (scenario/stage/block)
- * - Flat vectors suitable for LP matrices
+ * Key features:
+ * - Handles active element filtering (only processes active scenarios/stages/blocks)
+ * - Applies scaling factors during flattening
+ * - Supports multiple index holder types (GSTB, STB, ST, T)
+ * - Provides constexpr accessors for active elements
+ * - Thread-safe operations (all methods are const)
  *
- * Handles active elements filtering and factor application
+ * @note All methods are noexcept and many are constexpr for maximum performance
+ * @see SystemContext which inherits and uses this functionality
  */
 class FlatHelper
 {
@@ -122,6 +130,23 @@ public:
     }
   }
 
+  /**
+   * @brief Flattens GSTB-indexed data into vectors with optional scaling
+   * 
+   * Processes a 3D (Scenario/Stage/Block) indexed container into:
+   * - Values vector with projected/scaled values
+   * - Valid vector marking which indices had data
+   *
+   * @tparam Projection Callable that transforms source values (double -> double)
+   * @tparam Factor Optional scaling factors (default: no scaling)
+   * @param hstb The GSTB-indexed data holder
+   * @param proj Projection function to apply to each value
+   * @param factor Optional scaling factors (applied after projection)
+   * @return Pair of (values, valid) vectors
+   *
+   * @note Complexity: O(N) where N is active_scenarios * active_stages * active_blocks
+   * @note If factor is provided, must match active element dimensions
+   */
   template<typename Projection, typename Factor = block_factor_matrix_t>
   constexpr auto flat(const GSTBIndexHolder& hstb,
                       Projection proj,
