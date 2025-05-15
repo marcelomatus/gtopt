@@ -1,11 +1,35 @@
 /**
  * @file      flat_helper.hpp
- * @brief     Header of
- * @date      Wed May 14 22:18:46 2025
+ * @brief     Helper for flattening multi-dimensional optimization data into LP format
+ * @date      Wed May 14 22:18:46 2025  
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * @class FlatHelper
+ * @brief Converts scenario/stage/block indexed data into flat vectors for LP formulation
+ *
+ * This helper class transforms hierarchical optimization data (organized by scenarios,
+ * stages and blocks) into flat vectors suitable for linear programming solvers. It handles:
+ * - Active element filtering (only processes active scenarios/stages/blocks)
+ * - Value projection and scaling during flattening
+ * - Generation of validity markers for sparse problems
+ * - Multiple index holder types (GSTB, STB, ST, T)
+ *
+ * Key Features:
+ * - Efficient constexpr accessors for active elements
+ * - Thread-safe operations (all methods are const)
+ * - Support for custom projection and scaling
+ * - Detailed error checking during construction
+ * - Move semantics for efficient data transfer
+ *
+ * Typical Usage:
+ * 1. Construct with active element indices
+ * 2. Call flat() with indexed data holders
+ * 3. Use returned vectors in LP matrix construction
+ *
+ * @note All methods are noexcept and many are constexpr for maximum performance
+ * @see SystemContext which inherits and uses this functionality
+ * @see GSTBIndexHolder, STBIndexHolder, STIndexHolder, TIndexHolder
  */
 
 #pragma once
