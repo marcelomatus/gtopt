@@ -6,10 +6,6 @@
 namespace gtopt
 {
 
-/**
- * Maximum representable double value used for unbounded constraints
- */
-constexpr double const CoinDblMax = std::numeric_limits<double>::max();
 
 /**
  * @class SparseCol

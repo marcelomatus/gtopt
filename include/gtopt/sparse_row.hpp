@@ -20,7 +20,7 @@ constexpr double const CoinDblMax = std::numeric_limits<double>::max();
  */
 struct SparseRow
 {
-  using cmap_t = gtopt::flat_map<size_t, double>;
+  using cmap_t = flat_map<size_t, double>;
 
   std::string name;  ///< Row/constraint name
   double lowb {0};  ///< Lower bound of the constraint
