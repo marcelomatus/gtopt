@@ -154,12 +154,65 @@ public:
     return stage_index == m_active_stages_.back();
   }
 
-  [[nodiscard]] STBUids stb_active_uids() const;
-  [[nodiscard]] STBUids stb_uids() const;
-  [[nodiscard]] STUids st_active_uids() const;
-  [[nodiscard]] STUids st_uids() const;
-  [[nodiscard]] TUids t_active_uids() const;
-  [[nodiscard]] TUids t_uids() const;
+  [[nodiscard]] STBUids stb_active_uids() const {
+    STBUids uids;
+    uids.scenario.reserve(m_active_scenarios_.size());
+    uids.stage.reserve(m_active_stages_.size());
+    uids.block.reserve(m_active_blocks_.size());
+
+    for (const auto& s : m_active_scenarios_) {
+      uids.scenario.push_back(s);
+    }
+    for (const auto& t : m_active_stages_) {
+      uids.stage.push_back(t);
+    }
+    for (const auto& b : m_active_blocks_) {
+      uids.block.push_back(b);
+    }
+
+    return uids;
+  }
+
+  [[nodiscard]] STBUids stb_uids() const {
+    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+    return stb_active_uids();
+  }
+
+  [[nodiscard]] STUids st_active_uids() const {
+    STUids uids;
+    uids.scenario.reserve(m_active_scenarios_.size());
+    uids.stage.reserve(m_active_stages_.size());
+
+    for (const auto& s : m_active_scenarios_) {
+      uids.scenario.push_back(s);
+    }
+    for (const auto& t : m_active_stages_) {
+      uids.stage.push_back(t);
+    }
+
+    return uids;
+  }
+
+  [[nodiscard]] STUids st_uids() const {
+    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+    return st_active_uids();
+  }
+
+  [[nodiscard]] TUids t_active_uids() const {
+    TUids uids;
+    uids.reserve(m_active_stages_.size());
+
+    for (const auto& t : m_active_stages_) {
+      uids.push_back(t);
+    }
+
+    return uids;
+  }
+
+  [[nodiscard]] TUids t_uids() const {
+    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+    return t_active_uids();
+  }
 
   /**
    * @brief Flattens GSTB-indexed data into vectors with optional scaling
