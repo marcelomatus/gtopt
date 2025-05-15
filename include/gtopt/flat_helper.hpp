@@ -1,15 +1,18 @@
 /**
  * @file      flat_helper.hpp
- * @brief     Helper for flattening multi-dimensional optimization data into LP format
- * @date      Wed May 14 22:18:46 2025  
+ * @brief     Helper for flattening multi-dimensional optimization data into LP
+ * format
+ * @date      Wed May 14 22:18:46 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * @class FlatHelper
- * @brief Converts scenario/stage/block indexed data into flat vectors for LP formulation
+ * @brief Converts scenario/stage/block indexed data into flat vectors for
+ * saving
  *
- * This helper class transforms hierarchical optimization data (organized by scenarios,
- * stages and blocks) into flat vectors suitable for linear programming solvers. It handles:
+ * This helper class transforms hierarchical optimization data (organized by
+ * scenarios, stages and blocks) into flat vectors suitable for data saving as
+ * in parquet files. It handles:
  * - Active element filtering (only processes active scenarios/stages/blocks)
  * - Value projection and scaling during flattening
  * - Generation of validity markers for sparse problems
