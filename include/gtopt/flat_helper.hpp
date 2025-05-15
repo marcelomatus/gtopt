@@ -154,11 +154,12 @@ public:
     return stage_index == m_active_stages_.back();
   }
 
-  [[nodiscard]] STBUids stb_active_uids() const {
+  [[nodiscard]] STBUids stb_active_uids() const
+  {
     std::vector<ScenarioIndex> scenario_uids;
     std::vector<StageIndex> stage_uids;
     std::vector<BlockIndex> block_uids;
-    
+
     scenario_uids.reserve(m_active_scenarios_.size());
     stage_uids.reserve(m_active_stages_.size());
     block_uids.reserve(m_active_blocks_.size());
@@ -176,15 +177,18 @@ public:
     return std::make_tuple(scenario_uids, stage_uids, block_uids);
   }
 
-  [[nodiscard]] STBUids stb_uids() const {
-    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+  [[nodiscard]] STBUids stb_uids() const
+  {
+    // For simplicity, returning active UIDs - adjust if you track all possible
+    // UIDs
     return stb_active_uids();
   }
 
-  [[nodiscard]] STUids st_active_uids() const {
+  [[nodiscard]] STUids st_active_uids() const
+  {
     std::vector<ScenarioIndex> scenario_uids;
     std::vector<StageIndex> stage_uids;
-    
+
     scenario_uids.reserve(m_active_scenarios_.size());
     stage_uids.reserve(m_active_stages_.size());
 
@@ -198,12 +202,15 @@ public:
     return std::make_tuple(scenario_uids, stage_uids);
   }
 
-  [[nodiscard]] STUids st_uids() const {
-    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+  [[nodiscard]] STUids st_uids() const
+  {
+    // For simplicity, returning active UIDs - adjust if you track all possible
+    // UIDs
     return st_active_uids();
   }
 
-  [[nodiscard]] TUids t_active_uids() const {
+  [[nodiscard]] TUids t_active_uids() const
+  {
     TUids uids;
     uids.reserve(m_active_stages_.size());
 
@@ -214,8 +221,10 @@ public:
     return uids;
   }
 
-  [[nodiscard]] TUids t_uids() const {
-    // For simplicity, returning active UIDs - adjust if you track all possible UIDs
+  [[nodiscard]] TUids t_uids() const
+  {
+    // For simplicity, returning active UIDs - adjust if you track all possible
+    // UIDs
     return t_active_uids();
   }
 
