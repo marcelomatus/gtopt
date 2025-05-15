@@ -40,25 +40,15 @@
 #include <utility>
 #include <vector>
 
-#include <boost/multi_array.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
-#include <gtopt/system_context_fwd.hpp>
 
 namespace gtopt
 {
-
-using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
-using stage_factor_matrix_t = std::vector<double>;
-using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
-
-using STBUids = std::tuple<std::vector<Uid>, std::vector<Uid>, std::vector<Uid>>;
-using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
-using TUids = std::vector<Uid>;
 
 /**
  * @class FlatHelper
@@ -85,6 +75,21 @@ class FlatHelper
 {
 public:
   FlatHelper() = delete;
+
+  explicit FlatHelper(std::vector<ScenarioIndex> active_scenarios,
+                      std::vector<StageIndex> active_stages,
+                      std::vector<std::vector<BlockIndex>> active_stage_blocks,
+                      std::vector<BlockIndex> active_blocks)
+      : m_active_scenarios_(std::move(active_scenarios))
+      , m_active_stages_(std::move(active_stages))
+      , m_active_stage_blocks_(std::move(active_stage_blocks))
+      , m_active_blocks_(std::move(active_blocks))
+  {
+    if (m_active_stages_.size() != m_active_stage_blocks_.size()) {
+      throw std::invalid_argument("Stage count must match stage blocks size");
+    }
+  }
+
   [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
       const noexcept
   {
@@ -155,20 +160,6 @@ public:
   [[nodiscard]] STUids st_uids() const;
   [[nodiscard]] TUids t_active_uids() const;
   [[nodiscard]] TUids t_uids() const;
-
-  FlatHelper(std::vector<ScenarioIndex> active_scenarios,
-             std::vector<StageIndex> active_stages,
-             std::vector<std::vector<BlockIndex>> active_stage_blocks,
-             std::vector<BlockIndex> active_blocks)
-      : m_active_scenarios_(std::move(active_scenarios))
-      , m_active_stages_(std::move(active_stages))
-      , m_active_stage_blocks_(std::move(active_stage_blocks))
-      , m_active_blocks_(std::move(active_blocks))
-  {
-    if (m_active_stages_.size() != m_active_stage_blocks_.size()) {
-      throw std::invalid_argument("Stage count must match stage blocks size");
-    }
-  }
 
   /**
    * @brief Flattens GSTB-indexed data into vectors with optional scaling
