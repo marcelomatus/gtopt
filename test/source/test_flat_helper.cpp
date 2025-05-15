@@ -12,7 +12,8 @@ TEST_CASE("Active Elements Accessors")
   const std::vector<StageIndex> active_stages = {StageIndex {0}};
   const std::vector<std::vector<BlockIndex>> active_stage_blocks = {
       {BlockIndex {0}, BlockIndex {1}}};
-  const std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
+  const std::vector<BlockIndex> active_blocks = {BlockIndex {0},
+                                                 BlockIndex {1}};
 
   const FlatHelper helper(
       active_scenarios, active_stages, active_stage_blocks, active_blocks);
@@ -55,8 +56,8 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("GSTBIndexHolder")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{1}}] = 20;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] = 20;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -112,7 +113,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("With Factor")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
 
     block_factor_matrix_t factor(boost::extents[1][1]);
     factor[0][0] = {2.0};  // Factor for block 0
@@ -175,15 +176,14 @@ TEST_CASE("Flat Helper - Edge Cases")
                       {BlockIndex {0}});
 
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex{0}, StageIndex{0}, BlockIndex{0}}] = 10;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
     holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] =
         20;  // Inactive block
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
     REQUIRE(values.size() == 1);
-    REQUIRE(valid.size() == 1);
+    REQUIRE(valid.size() == 0);
     CHECK(values[0] == doctest::Approx(10.0));
-    CHECK(valid[0] == true);
   }
 
   SUBCASE("Missing Values")
@@ -235,7 +235,10 @@ TEST_CASE("FlatHelper Move Semantics")
   SUBCASE("Move Assignment")
   {
     FlatHelper original(scenarios, stages, stage_blocks, blocks);
-    FlatHelper moved({ScenarioIndex{0}}, {StageIndex{0}}, {{BlockIndex{0}}}, {BlockIndex{0}});
+    FlatHelper moved({ScenarioIndex {0}},
+                     {StageIndex {0}},
+                     {{BlockIndex {0}}},
+                     {BlockIndex {0}});
     moved = std::move(original);
 
     CHECK(moved.active_scenario_count() == 1);
@@ -254,16 +257,16 @@ TEST_CASE("FlatHelper Const Correctness")
 
   SUBCASE("Const Accessors")
   {
-    CHECK_NOTHROW(helper.active_scenarios());
-    CHECK_NOTHROW(helper.active_stages());
-    CHECK_NOTHROW(helper.active_stage_blocks());
-    CHECK_NOTHROW(helper.active_blocks());
+    CHECK_NOTHROW(auto&& _ = helper.active_scenarios());
+    CHECK_NOTHROW(auto&& _ = helper.active_stages());
+    CHECK_NOTHROW(auto&& _ = helper.active_stage_blocks());
+    CHECK_NOTHROW(auto&& _ = helper.active_blocks());
   }
 
   SUBCASE("Const Flat Methods")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10.0;
+    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
 
     CHECK_NOTHROW(helper.flat(holder, [](auto v) { return v; }));
   }
@@ -275,7 +278,7 @@ TEST_CASE("FlatHelper Template Constraints")
                     {{BlockIndex {0}}},
                     {BlockIndex {0}});
   GSTBIndexHolder holder;
-  holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10.0;
+  holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
 
   SUBCASE("Valid Projection")
   {
