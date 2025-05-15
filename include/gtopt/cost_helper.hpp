@@ -9,13 +9,10 @@
 namespace gtopt
 {
 
-using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
-using stage_factor_matrix_t = std::vector<double>;
-using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
-
 /**
  * @class CostHelper
- * @brief Handles cost calculations with time discounting for optimization problems
+ * @brief Handles cost calculations with time discounting for optimization
+ * problems
  *
  * Provides methods for:
  * - Calculating discounted costs for blocks, stages and scenarios
@@ -25,33 +22,38 @@ using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 class CostHelper
 {
 public:
-    explicit CostHelper(const OptionsLP& options,
-                       const std::vector<ScenarioLP>& scenarios,
-                       const std::vector<StageLP>& stages);
+  using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
+  using stage_factor_matrix_t = std::vector<double>;
+  using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
-    [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
-                                    const StageIndex& stage_index,
-                                    const BlockLP& block,
-                                    double cost) const;
+  explicit CostHelper(const OptionsLP& options,
+                      const std::vector<ScenarioLP>& scenarios,
+                      const std::vector<StageLP>& stages);
 
-    [[nodiscard]] block_factor_matrix_t block_cost_factors() const;
+  [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
+                                  const StageIndex& stage_index,
+                                  const BlockLP& block,
+                                  double cost) const;
 
-    [[nodiscard]] double stage_cost(const StageIndex& stage_index,
-                                    double cost) const;
+  [[nodiscard]] block_factor_matrix_t block_cost_factors() const;
 
-    [[nodiscard]] stage_factor_matrix_t stage_cost_factors() const;
+  [[nodiscard]] double stage_cost(const StageIndex& stage_index,
+                                  double cost) const;
 
-    [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
-                                            const StageIndex& stage_index,
-                                            double cost) const;
+  [[nodiscard]] stage_factor_matrix_t stage_cost_factors() const;
 
-    [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_cost_factors() const;
+  [[nodiscard]] double scenario_stage_cost(const ScenarioIndex& scenario_index,
+                                           const StageIndex& stage_index,
+                                           double cost) const;
+
+  [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_cost_factors()
+      const;
 
 protected:
-    const OptionsLP& options_;
-    const std::vector<ScenarioLP>& scenarios_;
-    const std::vector<StageLP>& stages_;
-    std::vector<double> stage_discount_factors_;
+  const OptionsLP& options_;
+  const std::vector<ScenarioLP>& scenarios_;
+  const std::vector<StageLP>& stages_;
+  std::vector<double> stage_discount_factors_;
 };
 
-} // namespace gtopt
+}  // namespace gtopt
