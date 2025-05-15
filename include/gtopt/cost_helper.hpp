@@ -5,6 +5,26 @@
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/utils.hpp>
+
+namespace gtopt {
+namespace detail {
+
+constexpr auto stage_factors(const auto& stages) noexcept
+{
+  std::vector<double> factors(stages.size(), 1.0);
+
+  double discount_factor = 1.0;
+  for (auto&& [ti, st] : enumerate_active(stages)) {
+    factors[ti] = discount_factor;
+    discount_factor *= st.discount_factor();
+  }
+
+  return factors;
+}
+
+} // namespace detail
+} // namespace gtopt
 
 namespace gtopt
 {
@@ -32,7 +52,7 @@ public:
     : m_options_(options)
     , m_scenarios_(scenarios)
     , m_stages_(stages)
-    , m_stage_discount_factors_(stage_factors(stages))
+    , m_stage_discount_factors_(detail::stage_factors(stages))
   {}
 
   [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
@@ -54,7 +74,7 @@ public:
   [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_cost_factors()
       const;
 
-protected:
+private:
   std::reference_wrapper<const OptionsLP> m_options_;
   std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
   std::reference_wrapper<const std::vector<StageLP>> m_stages_;
