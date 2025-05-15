@@ -174,7 +174,7 @@ public:
       block_uids.push_back(b);
     }
 
-    return std::make_tuple(scenario_uids, stage_uids, block_uids);
+    return {scenario_uids, stage_uids, block_uids};
   }
 
   [[nodiscard]] STBUids stb_uids() const
