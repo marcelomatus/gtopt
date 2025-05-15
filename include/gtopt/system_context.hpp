@@ -244,16 +244,12 @@ public:
   template<typename Id>
   constexpr bool is_single_bus(const Id& id) const noexcept
   {
-    try {
-      if (m_single_bus_id_) {
-        auto&& sid = m_single_bus_id_.value();
-        return sid.index() == 0 ? std::get<0>(sid) == id.first
-                                : std::get<1>(sid) == id.second;
-      }
-      return false;
-    } catch (...) {
-      return false;
+    if (m_single_bus_id_) {
+      auto&& sid = m_single_bus_id_.value();
+      return sid.index() == 0 ? std::get<0>(sid) == id.first
+                              : std::get<1>(sid) == id.second;
     }
+    return false;
   }
 
   [[nodiscard]] auto get_bus_index(const ObjectSingleId<BusLP>& id) const
@@ -301,10 +297,7 @@ public:
     return simulation().blocks();
   }
 
-  // Label methods from LabelMaker are now directly available:
-  // label(), t_label(), st_label(), stb_label()
-
-  // Add method with deducing this and perfect forwarding
+  // Methods to handle the state_variables
   constexpr const auto& add_state_variable_col(const Name& name,
                                                const StageIndex& stage_index,
                                                Index col)
@@ -313,7 +306,6 @@ public:
         StateVariable {name, stage_index, col});
   }
 
-  // Get method with deducing this for automatic const handling
   [[nodiscard]] constexpr auto get_state_variable_col(
       const Name& name, const StageIndex& stage_index) const
   {

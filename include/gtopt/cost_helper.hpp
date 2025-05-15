@@ -36,22 +36,16 @@ namespace gtopt::detail
 {
 
 /**
- * @brief Helper function to calculate stage discount factors
+ * @brief Helper function to compute final cost factor
  *
- * Computes cumulative discount factors for each stage based on:
- * - Previous stage's discount factor
- * - Current stage's discount rate
+ * Calculates: (probability * discount * duration) / objective_scale
  *
- * @param stages Vector of StageLP objects
- * @return Vector of cumulative discount factors
+ * @param scale_obj Objective scaling factor
+ * @param probability Scenario probability factor
+ * @param discount Stage discount factor
+ * @param duration Time duration
+ * @return Combined cost factor
  */
-constexpr auto stage_factors(const auto& stages) noexcept
-{
-  return stages
-      | std::views::transform([](const auto& st)
-                              { return st.discount_factor(); })
-      | std::ranges::to<std::vector>();
-}
 
 }  // namespace gtopt::detail
 
@@ -83,8 +77,40 @@ public:
       : m_options_(options)
       , m_scenarios_(scenarios)
       , m_stages_(stages)
-      , m_stage_discount_factors_(detail::stage_factors(stages))
   {
+  }
+
+  [[nodiscard]] constexpr double cost_factor(
+      const double probability,
+      const double discount,
+      const double duration = 1.0) const noexcept
+  {
+    const auto scale_obj = m_options_.get().scale_objective();
+    return probability * discount * duration / scale_obj;
+  }
+
+  [[nodiscard]] constexpr double cost_factor(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    return cost_factor(scenario.probability_factor(),
+                       stage.discount_factor(),
+                       stage.duration());
+  }
+
+  [[nodiscard]] constexpr double cost_factor(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BlockLP& block) const noexcept
+  {
+    return cost_factor(scenario.probability_factor(),
+                       stage.discount_factor(),
+                       block.duration());
+  }
+
+  [[nodiscard]] constexpr double cost_factor(
+      const StageLP& stage, double probability = 1.0) const noexcept
+  {
+    return cost_factor(probability, stage.discount_factor(), stage.duration());
   }
 
   /**
@@ -105,31 +131,25 @@ public:
    * @param cost Energy cost in $/MWh
    * @return Total energy cost coefficient for LP formulation
    */
-  [[nodiscard]] double block_ecost(const ScenarioIndex& scenario_index,
-                                   const StageIndex& stage_index,
-                                   const BlockLP& block,
-                                   double cost) const;
+  [[nodiscard]] constexpr double block_ecost(const ScenarioLP& scenario,
+                                             const StageLP& stage,
+                                             const BlockLP& block,
+                                             double cost) const noexcept
+  {
+    return cost * cost_factor(scenario, stage, block);
+  }
 
-  /**
-   * @brief Calculates the energy cost coefficient for a stage
-   *
-   * Computes the total energy cost for a power variable over a stage duration,
-   * applying:
-   * - Probability weighting (default 1.0)
-   * - Stage discount factor
-   * - Stage duration
-   * - Objective scaling
-   *
-   * Formula: cost * probability * discount * duration / scale_objective
-   *
-   * @param stage_index Stage index for discount factor and duration
-   * @param cost Energy cost in $/MWh
-   * @param probability_factor Probability weight (default 1.0)
-   * @return Total energy cost coefficient for LP formulation
-   */
-  [[nodiscard]] double stage_ecost(const StageIndex& stage_index,
-                                   double cost,
-                                   double probability_factor = 1.0) const;
+  [[nodiscard]] constexpr double block_ecost(
+      const ScenarioIndex& scenario_index,
+      const StageIndex& stage_index,
+      const BlockLP& block,
+      double cost) const
+  {
+    return block_ecost(m_scenarios_.get().at(scenario_index),
+                       m_stages_.get().at(stage_index),
+                       block,
+                       cost);
+  }
 
   /**
    * @brief Calculates the energy cost coefficient for a scenario-stage pair
@@ -148,9 +168,56 @@ public:
    * @param cost Energy cost in $/MWh
    * @return Total energy cost coefficient for LP formulation
    */
-  [[nodiscard]] double scenario_stage_ecost(const ScenarioIndex& scenario_index,
-                                            const StageIndex& stage_index,
-                                            double cost) const;
+  [[nodiscard]] constexpr double scenario_stage_ecost(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      double cost) const noexcept
+  {
+    return cost * cost_factor(scenario, stage);
+  }
+
+  [[nodiscard]] constexpr double scenario_stage_ecost(
+      const ScenarioIndex& scenario_index,
+      const StageIndex& stage_index,
+      double cost) const
+  {
+    return scenario_stage_ecost(m_scenarios_.get().at(scenario_index),
+                                m_stages_.get().at(stage_index),
+                                cost);
+  }
+
+  /**
+   * @brief Calculates the energy cost coefficient for a stage
+   *
+   * Computes the total energy cost for a power variable over a stage
+   * duration, applying:
+   * - Probability weighting (default 1.0)
+   * - Stage discount factor
+   * - Stage duration
+   * - Objective scaling
+   *
+   * Formula: cost * probability * discount * duration / scale_objective
+   *
+   * @param stage_index Stage index for discount factor and duration
+   * @param cost Energy cost in $/MWh
+   * @param probability_factor Probability weight (default 1.0)
+   * @return Total energy cost coefficient for LP formulation
+   */
+
+  [[nodiscard]] constexpr double stage_ecost(
+      const StageLP& stage,
+      double cost,
+      double probability = 1.0) const noexcept
+  {
+    return cost * cost_factor(stage, probability);
+  }
+
+  [[nodiscard]] constexpr double stage_ecost(const StageIndex& stage_index,
+                                             double cost,
+                                             double probability = 1.0) const
+  {
+    return stage_ecost(m_stages_.get().at(stage_index), cost, probability);
+  }
 
   /**
    * @brief Calculates inverse cost factors for blocks (1/cost_factor)
@@ -181,7 +248,8 @@ public:
    *
    * @return Vector of inverse cost factors by stage
    */
-  [[nodiscard]] stage_factor_matrix_t stage_icost_factors() const;
+  [[nodiscard]] stage_factor_matrix_t stage_icost_factors(
+      double probability = 1.0) const;
 
   /**
    * @brief Calculates inverse cost factors for scenario-stage pairs
@@ -205,7 +273,6 @@ private:
   std::reference_wrapper<const OptionsLP> m_options_;
   std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
   std::reference_wrapper<const std::vector<StageLP>> m_stages_;
-  std::vector<double> m_stage_discount_factors_;
 };
 
 }  // namespace gtopt
