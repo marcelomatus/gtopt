@@ -49,15 +49,6 @@ constexpr auto cost_factor(const auto scale_obj,
 
 } // namespace
 
-CostHelper::CostHelper(const OptionsLP& options,
-                      const std::vector<ScenarioLP>& scenarios,
-                      const std::vector<StageLP>& stages)
-    : options_(options)
-    , scenarios_(scenarios)
-    , stages_(stages)
-    , stage_discount_factors_(stage_factors(stages))
-{
-}
 
 double CostHelper::block_cost(const ScenarioIndex& scenario_index,
                              const StageIndex& stage_index,
