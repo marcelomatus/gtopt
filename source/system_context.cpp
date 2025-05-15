@@ -61,14 +61,6 @@ auto active_stage_block_indices(const Stages& stages) noexcept
       | std::ranges::to<std::vector<std::vector<Index>>>();
 }
 
-constexpr auto cost_factor(const auto p_scale_obj,
-                           const auto p_probability_factor,
-                           const auto p_discount_factor,
-                           const auto p_duration)
-{
-  return p_probability_factor * p_discount_factor * p_duration / p_scale_obj;
-}
-
 /**
  * Creates a structure of scenario, stage, and block UIDs.
  * Leverages move semantics for all vectors to avoid unnecessary copies
@@ -153,24 +145,10 @@ constexpr TUids make_t_uids(const SystemContext& sc,
   return stage_uids;
 }
 
-constexpr auto stage_factors(const auto& stages) noexcept
-{
-  std::vector<double> factors(stages.size(), 1.0);
-
-  double discount_factor = 1.0;
-  for (auto&& [ti, st] : enumerate_active(stages)) {
-    factors[ti] = discount_factor;
-    discount_factor *= st.discount_factor();
-  }
-
-  return factors;
-}
-
 }  // namespace
 
 namespace gtopt
 {
-
 
 auto SystemContext::stb_active_uids() const -> STBUids
 {
@@ -209,12 +187,10 @@ SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
                  active_indices<StageIndex>(psimulation.stages()),
                  active_stage_block_indices<BlockIndex>(psimulation.stages()),
                  active_block_indices<BlockIndex>(psimulation.stages()))
-    , CostHelper(psimulation.options(),
-                 psimulation.scenarios(),
-                 psimulation.stages())
+    , CostHelper(
+          psimulation.options(), psimulation.scenarios(), psimulation.stages())
     , m_simulation_(psimulation)
     , m_system_(psystem)
-    , stage_discount_factors(stage_factors(psimulation.stages()))
 {
   if (options().use_single_bus()) {
     const auto& buses = system().elements<BusLP>();
