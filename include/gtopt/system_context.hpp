@@ -1,12 +1,13 @@
 /**
- * @file      system_context.hpp  
+ * @file      system_context.hpp
  * @brief     Central execution context for power system optimization
  * @date      Sun Mar 23 21:54:14 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * @class SystemContext
- * @brief Manages optimization state and provides core functionality for LP formulation
+ * @brief Manages optimization state and provides core functionality for LP
+ * formulation
  *
  * This is the central coordinator that:
  * - Tracks active scenarios/stages/blocks
@@ -92,7 +93,7 @@ public:
    * @return Const reference to OptionsLP containing all optimization settings
    *
    * Provides access to:
-   * - Input/output directories and formats  
+   * - Input/output directories and formats
    * - Cost parameters (demand/reserve fail costs)
    * - Physical modeling options (line losses, Kirchhoff)
    * - Scaling factors and thresholds
@@ -101,7 +102,7 @@ public:
    */
   [[nodiscard]] constexpr auto&& options() const noexcept
   {
-    return simulation().options(); 
+    return simulation().options();
   }
 
   // Scenario Accessors
@@ -376,4 +377,4 @@ static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
               "SystemContext must inherit from LabelMaker");
 
 static_assert(std::is_base_of_v<gtopt::FlatHelper, gtopt::SystemContext>,
-              "SystemContext must inherit from LabelMaker");
+              "SystemContext must inherit from FlatHelper");
