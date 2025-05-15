@@ -28,9 +28,9 @@ constexpr auto cost_factor(const auto scale_obj,
 }  // namespace
 
 double CostHelper::block_ecost(const ScenarioIndex& scenario_index,
-                              const StageIndex& stage_index,
-                              const BlockLP& block,
-                              double cost) const
+                               const StageIndex& stage_index,
+                               const BlockLP& block,
+                               double cost) const
 {
   return cost
       * cost_factor(m_options_.get().scale_objective(),
@@ -65,8 +65,8 @@ auto CostHelper::block_ecost_factors() const -> block_factor_matrix_t
 }
 
 double CostHelper::stage_ecost(const StageIndex& stage_index,
-                              const double cost,
-                              const double probability_factor) const
+                               const double cost,
+                               const double probability_factor) const
 {
   if (m_stage_discount_factors_.empty()) {
     return cost;
@@ -97,16 +97,16 @@ auto CostHelper::stage_ecost_factors() const -> stage_factor_matrix_t
 }
 
 double CostHelper::scenario_stage_ecost(const ScenarioIndex& scenario_index,
-                                       const StageIndex& stage_index,
-                                       double cost) const
+                                        const StageIndex& stage_index,
+                                        double cost) const
 {
   if (m_scenarios_.get().empty()) {
     return cost;
   }
 
-  return stage_cost(stage_index,
-                    cost,
-                    m_scenarios_.get()[scenario_index].probability_factor());
+  return stage_ecost(stage_index,
+                     cost,
+                     m_scenarios_.get()[scenario_index].probability_factor());
 }
 
 auto CostHelper::scenario_stage_ecost_factors() const

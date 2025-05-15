@@ -69,10 +69,10 @@ namespace gtopt
  * - Applying probability and discount factors
  */
 
-// TODO(marcelo): change to "cost" methods (block_cost, stage_cost and
-// scenario_stage_cost) names to "ecost" since they receive the cost in energy
-// [$/MWh] and it includes the duration of the stage or block. Apply the name
-// change to all the files where these methods are used.
+// TODO(marcelo): change to "ecost_factors" methods names to "icost_factor"
+// since they calculate the inverse cost factor required for example to compute
+// dual prices. Also document the methods changed and apply the changes to
+// cost_helper.cpp/hpp files.
 
 class CostHelper
 {
