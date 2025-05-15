@@ -155,22 +155,25 @@ public:
   }
 
   [[nodiscard]] STBUids stb_active_uids() const {
-    STBUids uids;
-    uids.scenario.reserve(m_active_scenarios_.size());
-    uids.stage.reserve(m_active_stages_.size());
-    uids.block.reserve(m_active_blocks_.size());
+    std::vector<ScenarioIndex> scenario_uids;
+    std::vector<StageIndex> stage_uids;
+    std::vector<BlockIndex> block_uids;
+    
+    scenario_uids.reserve(m_active_scenarios_.size());
+    stage_uids.reserve(m_active_stages_.size());
+    block_uids.reserve(m_active_blocks_.size());
 
     for (const auto& s : m_active_scenarios_) {
-      uids.scenario.push_back(s);
+      scenario_uids.push_back(s);
     }
     for (const auto& t : m_active_stages_) {
-      uids.stage.push_back(t);
+      stage_uids.push_back(t);
     }
     for (const auto& b : m_active_blocks_) {
-      uids.block.push_back(b);
+      block_uids.push_back(b);
     }
 
-    return uids;
+    return std::make_tuple(scenario_uids, stage_uids, block_uids);
   }
 
   [[nodiscard]] STBUids stb_uids() const {
@@ -179,18 +182,20 @@ public:
   }
 
   [[nodiscard]] STUids st_active_uids() const {
-    STUids uids;
-    uids.scenario.reserve(m_active_scenarios_.size());
-    uids.stage.reserve(m_active_stages_.size());
+    std::vector<ScenarioIndex> scenario_uids;
+    std::vector<StageIndex> stage_uids;
+    
+    scenario_uids.reserve(m_active_scenarios_.size());
+    stage_uids.reserve(m_active_stages_.size());
 
     for (const auto& s : m_active_scenarios_) {
-      uids.scenario.push_back(s);
+      scenario_uids.push_back(s);
     }
     for (const auto& t : m_active_stages_) {
-      uids.stage.push_back(t);
+      stage_uids.push_back(t);
     }
 
-    return uids;
+    return std::make_tuple(scenario_uids, stage_uids);
   }
 
   [[nodiscard]] STUids st_uids() const {
