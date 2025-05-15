@@ -209,6 +209,9 @@ SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
                  active_indices<StageIndex>(psimulation.stages()),
                  active_stage_block_indices<BlockIndex>(psimulation.stages()),
                  active_block_indices<BlockIndex>(psimulation.stages()))
+    , CostHelper(psimulation.options(),
+                 psimulation.scenarios(),
+                 psimulation.stages())
     , m_simulation_(psimulation)
     , m_system_(psystem)
     , stage_discount_factors(stage_factors(psimulation.stages()))
