@@ -89,16 +89,16 @@ public:
 
   /**
    * @brief Calculates the energy cost coefficient for a block
-   * 
+   *
    * Computes the total energy cost for a power variable over a block duration,
    * applying:
    * - Scenario probability weighting
    * - Stage discount factor
    * - Block duration
    * - Objective scaling
-   * 
+   *
    * Formula: cost * probability * discount * duration / scale_objective
-   * 
+   *
    * @param scenario_index Scenario index for probability factor
    * @param stage_index Stage index for discount factor
    * @param block Block containing duration
@@ -112,16 +112,16 @@ public:
 
   /**
    * @brief Calculates the energy cost coefficient for a stage
-   * 
+   *
    * Computes the total energy cost for a power variable over a stage duration,
    * applying:
    * - Probability weighting (default 1.0)
    * - Stage discount factor
    * - Stage duration
    * - Objective scaling
-   * 
+   *
    * Formula: cost * probability * discount * duration / scale_objective
-   * 
+   *
    * @param stage_index Stage index for discount factor and duration
    * @param cost Energy cost in $/MWh
    * @param probability_factor Probability weight (default 1.0)
@@ -133,16 +133,16 @@ public:
 
   /**
    * @brief Calculates the energy cost coefficient for a scenario-stage pair
-   * 
+   *
    * Computes the total energy cost for a power variable over a stage duration,
    * applying:
    * - Scenario probability weighting
    * - Stage discount factor
    * - Stage duration
    * - Objective scaling
-   * 
+   *
    * Formula: cost * probability * discount * duration / scale_objective
-   * 
+   *
    * @param scenario_index Scenario index for probability factor
    * @param stage_index Stage index for discount factor and duration
    * @param cost Energy cost in $/MWh
@@ -153,9 +153,7 @@ public:
                                             double cost) const;
 
   [[nodiscard]] block_factor_matrix_t block_ecost_factors() const;
-
   [[nodiscard]] stage_factor_matrix_t stage_ecost_factors() const;
-
   [[nodiscard]] scenario_stage_factor_matrix_t scenario_stage_ecost_factors()
       const;
 
