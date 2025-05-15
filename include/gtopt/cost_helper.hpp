@@ -1,30 +1,38 @@
 #pragma once
 
-#include <boost/multi_array.hpp>
 #include <gtopt/block_lp.hpp>
+#include <gtopt/index_holder.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
 
-namespace gtopt {
-namespace detail {
+namespace gtopt::detail
+{
 
+/**
+ * @brief Helper function to calculate stage discount factors
+ *
+ * Computes cumulative discount factors for each stage based on:
+ * - Previous stage's discount factor
+ * - Current stage's discount rate
+ *
+ * @param stages Vector of StageLP objects
+ * @return Vector of cumulative discount factors
+ */
 constexpr auto stage_factors(const auto& stages) noexcept
 {
-  std::vector<double> factors(stages.size(), 1.0);
+  std::vector<double> factors;
+  factors.reserve(stages.size());
 
-  double discount_factor = 1.0;
-  for (auto&& [ti, st] : enumerate_active(stages)) {
-    factors[ti] = discount_factor;
-    discount_factor *= st.discount_factor();
+  for (auto&& st : stages) {
+    factors.push_back(st.discount_factor());
   }
 
   return factors;
 }
 
-} // namespace detail
-} // namespace gtopt
+}  // namespace gtopt::detail
 
 namespace gtopt
 {
@@ -42,18 +50,15 @@ namespace gtopt
 class CostHelper
 {
 public:
-  using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
-  using stage_factor_matrix_t = std::vector<double>;
-  using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
-
   explicit CostHelper(const OptionsLP& options,
-                     const std::vector<ScenarioLP>& scenarios,
-                     const std::vector<StageLP>& stages)
-    : m_options_(options)
-    , m_scenarios_(scenarios)
-    , m_stages_(stages)
-    , m_stage_discount_factors_(detail::stage_factors(stages))
-  {}
+                      const std::vector<ScenarioLP>& scenarios,
+                      const std::vector<StageLP>& stages)
+      : m_options_(options)
+      , m_scenarios_(scenarios)
+      , m_stages_(stages)
+      , m_stage_discount_factors_(detail::stage_factors(stages))
+  {
+  }
 
   [[nodiscard]] double block_cost(const ScenarioIndex& scenario_index,
                                   const StageIndex& stage_index,
@@ -63,7 +68,8 @@ public:
   [[nodiscard]] block_factor_matrix_t block_cost_factors() const;
 
   [[nodiscard]] double stage_cost(const StageIndex& stage_index,
-                                  double cost) const;
+                                  double cost,
+                                  double probability_factor = 1.0) const;
 
   [[nodiscard]] stage_factor_matrix_t stage_cost_factors() const;
 
