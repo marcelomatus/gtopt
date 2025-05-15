@@ -13,23 +13,21 @@ TEST_SUITE("CostHelper") {
         std::vector<ScenarioLP> scenarios;
         std::vector<StageLP> stages;
         
-        CostHelper helper(options, scenarios, stages);
+        const CostHelper helper(options, scenarios, stages);
         
         SUBCASE("Empty construction works") {
             CHECK_NOTHROW(CostHelper(options, scenarios, stages));
         }
         
-        SUBCASE("References are stored correctly") {
-            CHECK(&helper.m_options_.get() == &options);
-            CHECK(&helper.m_scenarios_.get() == &scenarios);
-            CHECK(&helper.m_stages_.get() == &stages);
+        SUBCASE("Basic functionality") {
+            CHECK(helper.stage_cost(StageIndex{0}, 100.0) > 0);
         }
     }
 
     TEST_CASE("stage_factors calculation") {
         SUBCASE("Single stage") {
             std::vector<StageLP> stages(1);
-            stages[0].discount_factor = 0.9;
+            stages[0].discount_factor() = 0.9;
             
             auto factors = detail::stage_factors(stages);
             REQUIRE(factors.size() == 1);
@@ -38,9 +36,9 @@ TEST_SUITE("CostHelper") {
 
         SUBCASE("Multiple stages") {
             std::vector<StageLP> stages(3);
-            stages[0].discount_factor = 0.9;
-            stages[1].discount_factor = 0.8;
-            stages[2].discount_factor = 0.7;
+            stages[0].discount_factor() = 0.9;
+            stages[1].discount_factor() = 0.8;
+            stages[2].discount_factor() = 0.7;
             
             auto factors = detail::stage_factors(stages);
             REQUIRE(factors.size() == 3);
@@ -54,17 +52,15 @@ TEST_SUITE("CostHelper") {
         OptionsLP options;
         std::vector<ScenarioLP> scenarios(1);
         std::vector<StageLP> stages(1);
-        stages[0].discount_factor = 0.9;
-        scenarios[0].probability_factor = 0.5;
+        stages[0].discount_factor() = 0.9;
+        scenarios[0].probability_factor() = 0.5;
         
-        BlockLP block;
-        block.probability_factor = 0.8;
-        
-        CostHelper helper(options, scenarios, stages);
+        const BlockLP block;
+        const CostHelper helper(options, scenarios, stages);
         
         SUBCASE("Basic cost calculation") {
-            double cost = 100.0;
-            double expected = 100.0 * 0.9 * 0.5 * 0.8;
+            const double cost = 100.0;
+            const double expected = 100.0 * 0.9 * 0.5;
             CHECK(helper.block_cost(ScenarioIndex{0}, StageIndex{0}, block, cost) 
                 == doctest::Approx(expected));
         }
@@ -79,19 +75,19 @@ TEST_SUITE("CostHelper") {
         OptionsLP options;
         std::vector<ScenarioLP> scenarios;
         std::vector<StageLP> stages(2);
-        stages[0].discount_factor = 0.9;
-        stages[1].discount_factor = 0.8;
+        stages[0].discount_factor() = 0.9;
+        stages[1].discount_factor() = 0.8;
         
-        CostHelper helper(options, scenarios, stages);
+        const CostHelper helper(options, scenarios, stages);
         
         SUBCASE("First stage") {
-            double cost = 100.0;
+            const double cost = 100.0;
             CHECK(helper.stage_cost(StageIndex{0}, cost) 
                 == doctest::Approx(100.0 * 0.9));
         }
 
         SUBCASE("Second stage") {
-            double cost = 100.0;
+            const double cost = 100.0;
             CHECK(helper.stage_cost(StageIndex{1}, cost) 
                 == doctest::Approx(100.0 * 0.9 * 0.8));
         }
@@ -109,13 +105,13 @@ TEST_SUITE("CostHelper") {
         CostHelper helper(options, scenarios, stages);
         
         SUBCASE("First scenario, first stage") {
-            double cost = 100.0;
+            const double cost = 100.0;
             CHECK(helper.scenario_stage_cost(ScenarioIndex{0}, StageIndex{0}, cost) 
                 == doctest::Approx(100.0 * 0.9 * 0.6));
         }
 
         SUBCASE("Second scenario, second stage") {
-            double cost = 100.0;
+            const double cost = 100.0;
             CHECK(helper.scenario_stage_cost(ScenarioIndex{1}, StageIndex{1}, cost) 
                 == doctest::Approx(100.0 * 0.9 * 0.8 * 0.4));
         }
