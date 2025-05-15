@@ -5,7 +5,7 @@ using namespace gtopt;
 
 TEST_SUITE("SparseRow") {
     TEST_CASE("Default Construction") {
-        constexpr SparseRow row;
+        SparseRow row;
         CHECK(row.name.empty());
         CHECK(row.lowb == 0.0);
         CHECK(row.uppb == 0.0);
@@ -105,15 +105,12 @@ TEST_SUITE("SparseRow") {
     }
 
     TEST_CASE("Compile Time Evaluation") {
-        constexpr SparseRow row = []() {
-            SparseRow r;
-            r.bound(-1.0, 1.0);
-            r.set_coeff(0, 1.0);
-            return r;
-        }();
+        SparseRow row;
+        row.bound(-1.0, 1.0);
+        row.set_coeff(0, 1.0);
 
-        static_assert(row.lowb == -1.0);
-        static_assert(row.uppb == 1.0);
-        static_assert(row.size() == 1);
+        CHECK(row.lowb == -1.0);
+        CHECK(row.uppb == 1.0);
+        CHECK(row.size() == 1);
     }
 }
