@@ -151,7 +151,7 @@ struct SparseRow
    * Reserves space for coefficients
    * @param n Number of coefficients to reserve space for
    */
-  constexpr void reserve(size_type n) noexcept { cmap.reserve(n); }
+  constexpr void reserve(size_type n) noexcept(noexcept(cmap.reserve(n))) { cmap.reserve(n); }
 
   /**
    * Converts to flat representation for solver interfaces
@@ -167,7 +167,7 @@ struct SparseRow
            typename KVec = std::vector<Int>,
            typename VVec = std::vector<Dbl>>
   [[nodiscard]] auto to_flat(double eps = 0.0) const -> std::pair<KVec, VVec>
-    noexcept(noexcept(KVec().reserve(0)) && noexcept(VVec().reserve(0)))
+    noexcept(noexcept(KVec().reserve(0)) && noexcept(VVec().reserve(0)));
   {
     using key_t = typename KVec::value_type;
     using value_t = typename VVec::value_type;
