@@ -39,7 +39,7 @@ namespace gtopt
  * storing only non-zero coefficients. It supports various constraint types
  * through fluent interface methods and can convert to dense or flat
  * representations.
- *
+ *x
  * @note All methods are constexpr where possible to enable compile-time
  * evaluation
  */
@@ -53,8 +53,7 @@ struct SparseRow
   std::string name;  ///< Row/constraint name (empty for anonymous constraints)
   double lowb {0};  ///< Lower bound (default: 0)
   double uppb {0};  ///< Upper bound (default: 0)
-  cmap_t
-      cmap {};  ///< Sparse coefficient map (column index → coefficient value)
+  cmap_t cmap {};  ///< Sparse coefficient map
 
   /**
    * Sets both lower and upper bounds for the constraint
@@ -179,7 +178,7 @@ struct SparseRow
     vals.reserve(msize);
 
     for (const auto& [key, value] : cmap) {
-      if (std::abs(value) > eps) {
+      if (std::abs(value) >= eps) {
         keys.push_back(static_cast<key_t>(key));
         vals.push_back(static_cast<value_t>(value));
       }
