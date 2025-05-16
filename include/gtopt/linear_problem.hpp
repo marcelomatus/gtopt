@@ -105,7 +105,7 @@ public:
    * @param col Column (variable) definition
    * @return Index of the added column
    */
-  index_t add_col(SparseCol&& col)
+  index_t add_col(SparseCol&& col) noexcept
   {
     const auto index = static_cast<index_t>(cols.size());
 
@@ -122,7 +122,7 @@ public:
    * @param row Row (constraint) definition
    * @return Index of the added row
    */
-  index_t add_row(SparseRow&& row)
+  index_t add_row(SparseRow&& row) noexcept
   {
     const auto index = static_cast<index_t>(rows.size());
 
