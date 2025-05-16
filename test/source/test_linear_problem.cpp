@@ -66,6 +66,7 @@ TEST_CASE("Linear problem test 2")
     REQUIRE(col.uppb == doctest::Approx(25));
     REQUIRE(col.cost == doctest::Approx(10));
   }
+}
 
 TEST_CASE("Linear problem matrix operations")
 {
