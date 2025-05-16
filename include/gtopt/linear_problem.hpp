@@ -105,7 +105,7 @@ public:
    * @param col Column (variable) definition
    * @return Index of the added column
    */
-  index_t add_col(SparseCol&& col) noexcept
+  constexpr index_t add_col(SparseCol&& col) noexcept
   {
     const auto index = static_cast<index_t>(cols.size());
 
@@ -122,7 +122,7 @@ public:
    * @param row Row (constraint) definition
    * @return Index of the added row
    */
-  index_t add_row(SparseRow&& row) noexcept
+  constexpr index_t add_row(SparseRow&& row) noexcept
   {
     const auto index = static_cast<index_t>(rows.size());
 
@@ -147,7 +147,7 @@ public:
    * @param index Column index
    * @return Lower bound value
    */
-  [[nodiscard]] auto get_col_lowb(index_t index) const
+  [[nodiscard]] constexpr auto get_col_lowb(index_t index) const
   {
     return cols.at(index).lowb;
   }
@@ -157,7 +157,7 @@ public:
    * @param index Column index
    * @return Upper bound value
    */
-  [[nodiscard]] auto get_col_uppb(index_t index) const
+  [[nodiscard]] constexpr auto get_col_uppb(index_t index) const
   {
     return cols.at(index).uppb;
   }
@@ -176,7 +176,7 @@ public:
   /**
    * @return Number of rows (constraints) in the problem
    */
-  [[nodiscard]] index_t get_numrows() const
+  [[nodiscard]] constexpr index_t get_numrows() const
   {
     return static_cast<index_t>(rows.size());
   }
@@ -184,7 +184,7 @@ public:
   /**
    * @return Number of columns (variables) in the problem
    */
-  [[nodiscard]] index_t get_numcols() const
+  [[nodiscard]] constexpr index_t get_numcols() const
   {
     return static_cast<index_t>(cols.size());
   }
@@ -196,7 +196,11 @@ public:
    * @param coeff Coefficient value
    * @param eps Epsilon value for zero comparison
    */
-  void set_coeff(index_t row, index_t col, double coeff, double eps = 0.0);
+  constexpr void set_coeff(index_t row, index_t col, double coeff)
+  {
+    rows[row][col] = coeff;
+    ++ncoeffs;
+  }
 
   /**
    * Gets a coefficient from the constraint matrix
@@ -204,7 +208,10 @@ public:
    * @param col Column index
    * @return Coefficient value
    */
-  [[nodiscard]] double get_coeff(index_t row, index_t col) const;
+  [[nodiscard]] constexpr double get_coeff(index_t row, index_t col) const
+  {
+    return rows[row][col];
+  }
 
   /**
    * Converts the problem to a flat representation
