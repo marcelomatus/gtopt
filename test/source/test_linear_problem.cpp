@@ -66,9 +66,105 @@ TEST_CASE("Linear problem test 2")
     REQUIRE(col.uppb == doctest::Approx(25));
     REQUIRE(col.cost == doctest::Approx(10));
   }
+
+  TEST_CASE("Linear problem matrix operations")
+  {
+    gtopt::LinearProblem lp("matrix_test");
+    
+    // Add multiple rows/columns
+    std::vector<gtopt::index_t> col_indices;
+    for(int i = 0; i < 5; ++i) {
+      col_indices.push_back(lp.add_col({.name = fmt::format("col{}", i)}));
+    }
+    
+    std::vector<gtopt::index_t> row_indices; 
+    for(int i = 0; i < 3; ++i) {
+      row_indices.push_back(lp.add_row({.name = fmt::format("row{}", i)}));
+    }
+
+    // Set up a small matrix
+    lp.set_coeff(row_indices[0], col_indices[0], 1.0);
+    lp.set_coeff(row_indices[0], col_indices[2], 2.0);
+    lp.set_coeff(row_indices[1], col_indices[1], 3.0);
+    lp.set_coeff(row_indices[2], col_indices[3], 4.0);
+    lp.set_coeff(row_indices[2], col_indices[4], 5.0);
+
+    // Test flat conversion with different options
+    SUBCASE("Flat conversion options")
+    {
+      auto flat_full = lp.to_flat({
+        .col_with_names = true,
+        .row_with_names = true,
+        .col_with_name_map = true  
+      });
+      
+      CHECK(flat_full.ncols == 5);
+      CHECK(flat_full.nrows == 3);
+      CHECK(flat_full.matval.size() == 5);
+      
+      auto flat_minimal = lp.to_flat({
+        .col_with_names = false,
+        .row_with_names = false
+      });
+      
+      CHECK(flat_minimal.colnm.empty());
+      CHECK(flat_minimal.rownm.empty());
+    }
+
+    // Test bounds setting
+    SUBCASE("Bounds checking")
+    {
+      lp.col_at(col_indices[0]).equal(5.0);
+      CHECK(lp.get_col_lowb(col_indices[0]) == doctest::Approx(5.0));
+      CHECK(lp.get_col_uppb(col_indices[0]) == doctest::Approx(5.0));
+
+      lp.col_at(col_indices[1]).free();
+      CHECK(lp.get_col_lowb(col_indices[1]) == doctest::Approx(-gtopt::CoinDblMax));
+    }
+  }
 }
 
-TEST_CASE("Linear problem test 3")
+TEST_CASE("Linear problem edge cases")
+{
+  gtopt::LinearProblem lp;
+
+  // Test empty problem conversions
+  SUBCASE("Empty problem to flat")
+  {
+    auto flat = lp.to_flat();
+    CHECK(flat.ncols == 0);
+    CHECK(flat.nrows == 0);
+    CHECK(flat.matbeg.empty());
+    CHECK(flat.matind.empty());
+    CHECK(flat.matval.empty());
+  }
+
+  // Test reserve functionality
+  SUBCASE("Reserve capacity")
+  {
+    const size_t reserve_size = 100;
+    gtopt::LinearProblem lp2("reserve_test", reserve_size);
+    CHECK(lp2.get_numrows() == 0);
+    CHECK(lp2.get_numcols() == 0);
+  }
+
+  // Test coefficient edge cases
+  SUBCASE("Zero and near-zero coefficients")
+  {
+    auto row_idx = lp.add_row({"zero_test"});
+    auto col_idx = lp.add_col({"zero_col"});
+    
+    // Exactly zero
+    lp.set_coeff(row_idx, col_idx, 0.0);
+    CHECK(lp.get_coeff(row_idx, col_idx) == doctest::Approx(0.0));
+
+    // Near zero (within epsilon)
+    lp.set_coeff(row_idx, col_idx, 1e-10);
+    CHECK(lp.get_coeff(row_idx, col_idx) == doctest::Approx(1e-10));
+  }
+}
+
+TEST_CASE("Linear problem advanced operations")
 {
   using flat_lp_t = gtopt::FlatLinearProblem;
 
