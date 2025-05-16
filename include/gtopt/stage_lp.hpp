@@ -19,6 +19,7 @@
 #include <gtopt/block.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/stage.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -67,8 +68,8 @@ public:
                                           std::plus(),
                                           [](const auto& b)
                                           { return b.duration(); }))
-      , m_discount_factor_(std::pow(1.0 / (1.0 + annual_discount_rate),
-                                    m_timeinit_ / hours_per_year))
+      , m_discount_factor_(
+            annual_discount_factor(annual_discount_rate, m_timeinit_))
   {
   }
 

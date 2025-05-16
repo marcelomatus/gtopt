@@ -244,4 +244,11 @@ template<ranges::range Range, typename Pred>
   return ranges::all_of(std::forward<Range>(range), std::forward<Pred>(pred));
 }
 
+constexpr double annual_discount_factor(double annual_discount_rate,
+                                        double time_hours) noexcept
+{
+  return std::pow(1.0 / (1.0 + annual_discount_rate),
+                  time_hours / hours_per_year);
+}
+
 }  // namespace gtopt
