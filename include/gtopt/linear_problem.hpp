@@ -13,27 +13,15 @@
 
 #pragma once
 
-#include <limits>
 #include <string>
 #include <vector>
 
 #include <gtopt/fmap.hpp>
+#include <gtopt/sparse_col.hpp>
+#include <gtopt/sparse_row.hpp>
 
 namespace gtopt
 {
-
-#include <gtopt/sparse_row.hpp>
-#include <gtopt/sparse_col.hpp>
-
-/**
- * Sparse vector representation using flat_map to store index-value pairs
- */
-using SparseVector = flat_map<size_t, double>;
-
-/**
- * Sparse matrix representation as a vector of sparse vectors
- */
-using SparseMatrix = std::vector<SparseVector>;
 
 /**
  * @struct FlatLinearProblem
@@ -99,6 +87,8 @@ class LinearProblem
 {
 public:
   using index_t = FlatLinearProblem::index_t;
+  using SparseVector = flat_map<index_t, double>;
+  using SparseMatrix = std::vector<SparseVector>;
 
   constexpr static auto default_reserve_size = 1024;
 
@@ -115,7 +105,7 @@ public:
    * @param col Column (variable) definition
    * @return Index of the added column
    */
-  index_t add_col(gtopt::SparseCol&& col)
+  index_t add_col(SparseCol&& col)
   {
     const auto index = static_cast<index_t>(cols.size());
 
@@ -132,7 +122,7 @@ public:
    * @param row Row (constraint) definition
    * @return Index of the added row
    */
-  index_t add_row(gtopt::SparseRow&& row)
+  index_t add_row(SparseRow&& row)
   {
     const auto index = static_cast<index_t>(rows.size());
 
@@ -224,8 +214,8 @@ public:
   [[nodiscard]] FlatLinearProblem to_flat(const FlatOptions& opts = {});
 
 private:
-  using cols_t = std::vector<gtopt::SparseCol>;
-  using rows_t = std::vector<gtopt::SparseRow>;
+  using cols_t = std::vector<SparseCol>;
+  using rows_t = std::vector<SparseRow>;
 
   std::string pname;  ///< Problem name
   cols_t cols;  ///< Variables (columns)
