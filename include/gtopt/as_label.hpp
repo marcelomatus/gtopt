@@ -30,7 +30,7 @@ public:
         requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
     constexpr explicit string_holder(T&& value) noexcept(
         std::is_nothrow_convertible_v<T, std::string_view>) 
-        : storage(std::string_view(value)) 
+        : storage(std::string_view(std::forward<T>(value))) 
     {}
 
     // For strings (avoid extra conversion)
@@ -45,7 +45,7 @@ public:
 
     // For formatting non-string types
     template<typename T>
-        requires(!string_like<T> && std::formattable<T>)
+        requires(!string_like<T> && std::formattable<T, char>)
     constexpr explicit string_holder(const T& value) 
         : storage(std::format("{}", value)) 
     {}
