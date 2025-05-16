@@ -167,6 +167,7 @@ struct SparseRow
            typename KVec = std::vector<Int>,
            typename VVec = std::vector<Dbl>>
   [[nodiscard]] auto to_flat(double eps = 0.0) const -> std::pair<KVec, VVec>
+    noexcept(noexcept(KVec().reserve(0)) && noexcept(VVec().reserve(0)))
   {
     using key_t = typename KVec::value_type;
     using value_t = typename VVec::value_type;
