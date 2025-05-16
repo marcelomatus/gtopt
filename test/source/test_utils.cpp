@@ -195,7 +195,7 @@ TEST_CASE("all_of")
 
 TEST_CASE("annual_discount_factor")
 {
-  constexpr double hours_per_year = 8760.0; // Standard hours in a year
+  constexpr double hours_per_year = 8760.0;  // Standard hours in a year
 
   SUBCASE("zero discount rate")
   {
@@ -209,33 +209,39 @@ TEST_CASE("annual_discount_factor")
   {
     // For 1 year (8760 hours) with 5% discount rate
     // Formula: 1/(1 + r)^1 = 1/1.05 ≈ 0.95238095238
-    CHECK(annual_discount_factor(0.05, hours_per_year) == doctest::Approx(0.95238095238));
-    
+    CHECK(annual_discount_factor(0.05, hours_per_year)
+          == doctest::Approx(0.95238095238));
+
     // For 1 year with 10% discount rate
     // 1/1.10 ≈ 0.90909090909
-    CHECK(annual_discount_factor(0.10, hours_per_year) == doctest::Approx(0.90909090909));
+    CHECK(annual_discount_factor(0.10, hours_per_year)
+          == doctest::Approx(0.90909090909));
   }
 
   SUBCASE("fractional year")
   {
     // Half year (4380 hours) with 10% discount rate
     // Formula: 1/(1 + r)^0.5 = 1/sqrt(1.10) ≈ 0.95346258925
-    CHECK(annual_discount_factor(0.10, hours_per_year/2) == doctest::Approx(0.95346258925));
-    
+    CHECK(annual_discount_factor(0.10, hours_per_year / 2)
+          == doctest::Approx(0.95346258925));
+
     // Quarter year (2190 hours) with 5% discount rate
     // 1/(1.05)^0.25 ≈ 0.98788030338
-    CHECK(annual_discount_factor(0.05, hours_per_year/4) == doctest::Approx(0.98788030338));
+    CHECK(annual_discount_factor(0.05, hours_per_year / 4)
+          == doctest::Approx(0.98788030338));
   }
 
   SUBCASE("multiple years")
   {
     // 2 years (17520 hours) with 5% discount rate
     // Formula: 1/(1 + r)^2 = 1/1.1025 ≈ 0.90702947846
-    CHECK(annual_discount_factor(0.05, 2*hours_per_year) == doctest::Approx(0.90702947846));
-    
+    CHECK(annual_discount_factor(0.05, 2 * hours_per_year)
+          == doctest::Approx(0.90702947846));
+
     // 3 years (26280 hours) with 10% discount rate
     // 1/(1.10)^3 ≈ 0.7513148009
-    CHECK(annual_discount_factor(0.10, 3*hours_per_year) == doctest::Approx(0.7513148009));
+    CHECK(annual_discount_factor(0.10, 3 * hours_per_year)
+          == doctest::Approx(0.7513148009));
   }
 
   SUBCASE("edge cases")
@@ -243,8 +249,9 @@ TEST_CASE("annual_discount_factor")
     // Zero time should give 1.0 regardless of discount rate
     CHECK(annual_discount_factor(0.10, 0.0) == doctest::Approx(1.0));
     CHECK(annual_discount_factor(0.50, 0.0) == doctest::Approx(1.0));
-    
+
     // Very high discount rate
-    CHECK(annual_discount_factor(1.0, hours_per_year) == doctest::Approx(0.5)); // 1/(1+1) = 0.5
+    CHECK(annual_discount_factor(1.0, hours_per_year)
+          == doctest::Approx(0.5));  // 1/(1+1) = 0.5
   }
 }
