@@ -25,22 +25,6 @@ LinearProblem::LinearProblem(std::string name, const size_t rsize)
   cols.reserve(rsize);
 }
 
-void LinearProblem::set_coeff(const index_t row,
-                              const index_t col,
-                              const double coeff,
-                              const double eps)
-{
-  if (std::abs(coeff) > eps) {
-    rows[row][col] = coeff;
-    ++ncoeffs;
-  }
-}
-
-double LinearProblem::get_coeff(const index_t row, const index_t col) const
-{
-  return rows[row][col];
-}
-
 auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 {
   const size_t ncols = get_numcols();

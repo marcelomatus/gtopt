@@ -33,18 +33,12 @@ constexpr double const CoinDblMax = std::numeric_limits<double>::max();
  */
 struct SparseCol
 {
-  std::string name;    ///< Variable name (empty for anonymous variables)
-  double lowb {0.0};   ///< Lower bound (default: 0.0)
+  std::string name;  ///< Variable name (empty for anonymous variables)
+  double lowb {0.0};  ///< Lower bound (default: 0.0)
   double uppb {CoinDblMax};  ///< Upper bound (default: +infinity)
-  double cost {0.0};   ///< Objective coefficient (default: 0.0)
-  bool is_integer {false};  ///< Whether variable is integer-constrained (default: false)
-
-  /// Default constructor
-  constexpr SparseCol() noexcept = default;
-  
-  /// Constructor with name
-  explicit SparseCol(std::string pname) noexcept
-    : name(std::move(pname)) {}
+  double cost {0.0};  ///< Objective coefficient (default: 0.0)
+  bool is_integer {
+      false};  ///< Whether variable is integer-constrained (default: false)
 
   /**
    * Sets variable to a fixed value (equality constraint)
