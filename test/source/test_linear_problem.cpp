@@ -67,20 +67,20 @@ TEST_CASE("Linear problem test 2")
     REQUIRE(col.cost == doctest::Approx(10));
   }
 
-  TEST_CASE("Linear problem matrix operations")
-  {
-    gtopt::LinearProblem lp("matrix_test");
-    
-    // Add multiple rows/columns
-    std::vector<gtopt::index_t> col_indices;
-    for(int i = 0; i < 5; ++i) {
-      col_indices.push_back(lp.add_col({.name = fmt::format("col{}", i)}));
-    }
-    
-    std::vector<gtopt::index_t> row_indices; 
-    for(int i = 0; i < 3; ++i) {
-      row_indices.push_back(lp.add_row({.name = fmt::format("row{}", i)}));
-    }
+TEST_CASE("Linear problem matrix operations")
+{
+  gtopt::LinearProblem lp("matrix_test");
+  
+  // Add multiple rows/columns
+  std::vector<gtopt::index_t> col_indices;
+  for(int i = 0; i < 5; ++i) {
+    col_indices.push_back(lp.add_col(gtopt::SparseCol{.name = fmt::format("col{}", i)}));
+  }
+  
+  std::vector<gtopt::index_t> row_indices;
+  for(int i = 0; i < 3; ++i) {
+    row_indices.push_back(lp.add_row(gtopt::SparseRow{.name = fmt::format("row{}", i)}));
+  }
 
     // Set up a small matrix
     lp.set_coeff(row_indices[0], col_indices[0], 1.0);
@@ -143,7 +143,7 @@ TEST_CASE("Linear problem edge cases")
   SUBCASE("Reserve capacity")
   {
     const size_t reserve_size = 100;
-    gtopt::LinearProblem lp2("reserve_test", reserve_size);
+    const gtopt::LinearProblem lp2("reserve_test", reserve_size);
     CHECK(lp2.get_numrows() == 0);
     CHECK(lp2.get_numcols() == 0);
   }
@@ -151,8 +151,8 @@ TEST_CASE("Linear problem edge cases")
   // Test coefficient edge cases
   SUBCASE("Zero and near-zero coefficients")
   {
-    auto row_idx = lp.add_row({"zero_test"});
-    auto col_idx = lp.add_col({"zero_col"});
+    auto row_idx = lp.add_row(gtopt::SparseRow{.name = "zero_test"});
+    auto col_idx = lp.add_col(gtopt::SparseCol{.name = "zero_col"});
     
     // Exactly zero
     lp.set_coeff(row_idx, col_idx, 0.0);
