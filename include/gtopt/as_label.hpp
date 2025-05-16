@@ -1,12 +1,3 @@
-/**
- * @file      as_label.hpp
- * @brief     Header of
- * @date      Sat Apr  5 23:56:05 2025
- * @author    marcelo
- * @copyright BSD-3-Clause
- *
- * This module
- */
 #pragma once
 
 #include <array>
@@ -16,131 +7,122 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <ranges>
+#include <variant>
 
-namespace gtopt
-{
+namespace gtopt {
 
-template<char sep = '_'>
-constexpr std::string as_label()
-{
-  return {};
-}
+namespace detail {
 
-namespace detail
-{
-
+// Improved concept for string-like types
 template<typename T>
-concept direct_string_viewable =
-    std::is_convertible_v<const T&, std::string_view>
-    && !std::is_convertible_v<const T&, std::string>;
+concept string_like = 
+    std::is_convertible_v<const T&, std::string_view> ||
+    requires(const T& t) { std::format("{}", t); };
 
-class string_view_or_owner
-{
-  std::string_view view;
-  std::unique_ptr<std::string> owner;
-
+// Simplified string holder using C++23 features
+class string_holder {
+    std::variant<std::string_view, std::string> storage;
+    
 public:
-  // For lvalue strings - view first, then owner (empty)
-  constexpr explicit string_view_or_owner(const std::string& s) noexcept
-      : view(s)
-      , owner(nullptr)
-  {
-  }
+    // For string-like types (views)
+    template<string_like T>
+        requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
+    constexpr explicit string_holder(T&& value) noexcept(
+        std::is_nothrow_convertible_v<T, std::string_view>) 
+        : storage(std::string_view(value)) 
+    {}
 
-  // For rvalue strings - create owner first, then view from it
-  constexpr explicit string_view_or_owner(std::string&& s)
-      : view()
-      , owner(std::make_unique<std::string>(std::move(s)))
-  {
-    view = *owner;
-  }
+    // For strings (avoid extra conversion)
+    constexpr explicit string_holder(const std::string& s) noexcept 
+        : storage(std::string_view(s)) 
+    {}
+    
+    // For rvalue strings (take ownership)
+    constexpr explicit string_holder(std::string&& s) noexcept 
+        : storage(std::move(s)) 
+    {}
 
-  // For string_views - view first, owner empty
-  constexpr explicit string_view_or_owner(const std::string_view& s) noexcept
-      : view(s)
-      , owner(nullptr)
-  {
-  }
+    // For formatting non-string types
+    template<typename T>
+        requires(!string_like<T> && std::formattable<T>)
+    constexpr explicit string_holder(const T& value) 
+        : storage(std::format("{}", value)) 
+    {}
 
-  // For C strings - view first, owner empty
-  constexpr explicit string_view_or_owner(const char* s) noexcept
-      : view(s)
-      , owner(nullptr)
-  {
-  }
-
-  // For directly convertible types - view first, owner empty
-  template<direct_string_viewable T>
-  constexpr explicit string_view_or_owner(const T& value) noexcept
-      : view(static_cast<std::string_view>(value))
-      , owner(nullptr)
-  {
-  }
-
-  // For other types - create owner first, then view from it
-  template<typename T>
-    requires(!direct_string_viewable<T>)
-  constexpr explicit string_view_or_owner(const T& value)
-      : view()
-      , owner(std::make_unique<std::string>(std::format("{}", value)))
-  {
-    view = *owner;
-  }
-
-  constexpr explicit operator std::string_view() const noexcept { return view; }
-
-  [[nodiscard]] std::string_view get() const noexcept { return view; }
-};
-
-struct size_calculation
-{
-  size_t total = 0;
-  bool needs_sep = false;
-
-  [[nodiscard]] constexpr size_calculation add(std::string_view view) const
-  {
-    if (view.empty()) [[unlikely]] {
-      return *this;
+    [[nodiscard]] constexpr std::string_view view() const noexcept {
+        return std::visit([](const auto& s) -> std::string_view {
+            if constexpr (std::same_as<std::decay_t<decltype(s)>, std::string_view>) {
+                return s;
+            } else {
+                return std::string_view(s);
+            }
+        }, storage);
     }
-    return {.total = total + (needs_sep ? 1 : 0) + view.size(),
-            .needs_sep = true};
-  }
 };
 
-}  // namespace detail
+// Compile-time size calculation
+struct label_size {
+    size_t total = 0;
+    bool needs_sep = false;
 
-template<char sep = '_', typename... Args>
-constexpr std::string as_label(Args&&... args)
-{
-  std::array<detail::string_view_or_owner, sizeof...(Args)> owners {
-      detail::string_view_or_owner(std::forward<Args>(args))...};
+    [[nodiscard]] constexpr label_size add(std::string_view view) const noexcept {
+        if (view.empty()) [[unlikely]] {
+            return *this;
+        }
+        return {
+            .total = total + (needs_sep ? 1 : 0) + view.size(),
+            .needs_sep = true
+        };
+    }
+};
 
-  detail::size_calculation sc {};
-  for (const auto& owner : owners) {
-    sc = sc.add(owner.get());
-  }
+} // namespace detail
 
-  if (sc.total == 0) [[unlikely]] {
+// Base case - constexpr empty label
+template<char sep = '_'>
+[[nodiscard]] constexpr std::string as_label() noexcept {
     return {};
-  }
-
-  std::string result;
-  result.reserve(sc.total);
-
-  bool needs_separator = false;
-  for (const auto& owner : owners) {
-    const auto view = owner.get();
-    if (view.empty()) [[unlikely]] {
-      continue;
-    }
-    if (needs_separator) {
-      result.push_back(sep);
-    }
-    result.append(view);
-    needs_separator = true;
-  }
-
-  return result;
 }
 
-}  // namespace gtopt
+// Main implementation
+template<char sep = '_', typename... Args>
+[[nodiscard]] constexpr std::string as_label(Args&&... args) 
+    noexcept((std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
+{
+    // Create holders for all arguments
+    std::array<detail::string_holder, sizeof...(Args)> holders{
+        detail::string_holder(std::forward<Args>(args))...
+    };
+
+    // Calculate total size needed
+    detail::label_size size;
+    for (const auto& holder : holders) {
+        size = size.add(holder.view());
+    }
+
+    if (size.total == 0) [[unlikely]] {
+        return {};
+    }
+
+    // Build the result string
+    std::string result;
+    result.reserve(size.total);
+
+    bool needs_sep = false;
+    for (const auto& holder : holders) {
+        const auto view = holder.view();
+        if (view.empty()) [[unlikely]] {
+            continue;
+        }
+        if (needs_sep) {
+            result.push_back(sep);
+        }
+        result.append(view);
+        needs_sep = true;
+    }
+
+    return result;
+}
+
+} // namespace gtopt
