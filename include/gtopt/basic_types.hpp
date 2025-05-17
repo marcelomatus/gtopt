@@ -18,9 +18,15 @@
 #include <string_view>
 #include <vector>
 
-#define STRONG_HAS_FMT_FORMAT 1
-#include <strong_type/formattable.hpp>
-#include <strong_type/strong_type.hpp>
+// Simple strong type implementation if we can't use the library
+template<typename T, typename Tag, typename... Skills>
+class strong_type {
+    T value;
+public:
+    constexpr explicit strong_type(T v) noexcept : value(v) {}
+    constexpr operator T() const noexcept { return value; }
+    constexpr T get() const noexcept { return value; }
+};
 
 namespace gtopt
 {
