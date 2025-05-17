@@ -1,11 +1,33 @@
 /**
  * @file      as_label.hpp
- * @brief     Header of
+ * @brief     String label generation utilities
  * @date      Fri May 16 20:16:01 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides compile-time string label generation functionality with:
+ * - Efficient concatenation of multiple values
+ * - Type-safe string conversion
+ * - Custom separator support
+ * - Move semantics optimization
+ *
+ * The main interface is the `as_label()` function which:
+ * - Accepts any number of arguments of different types
+ * - Converts each argument to string representation
+ * - Joins them with a configurable separator
+ * - Returns a concatenated std::string
+ *
+ * Supported argument types:
+ * - std::string and string views
+ * - Built-in numeric types (converted via std::to_string)
+ * - Any type convertible to string_view
+ * - Any type formattable via std::to_string
+ *
+ * Example usage:
+ * @code
+ * auto label1 = as_label("prefix", 42, "suffix"); // "prefix_42_suffix"
+ * auto label2 = as_label<'-'>("a", "b", "c");    // "a-b-c"
+ * @endcode
  */
 
 #pragma once
@@ -106,14 +128,39 @@ struct label_size
 
 }  // namespace detail
 
-// Base case - constexpr empty label
+/**
+ * @brief Creates an empty label string
+ * 
+ * @tparam sep Separator character (default '_')
+ * @return constexpr std::string Empty string
+ * 
+ * @note This is the base case for empty argument lists
+ */
 template<char sep = '_'>
 [[nodiscard]] constexpr std::string as_label() noexcept
 {
   return {};
 }
 
-// Main implementation
+/**
+ * @brief Creates a concatenated label from multiple arguments
+ * 
+ * @tparam sep Separator character between components (default '_')
+ * @tparam Args Argument types (automatically deduced)
+ * @param args Values to concatenate into label
+ * @return constexpr std::string Concatenated label string
+ * 
+ * @throws Nothing if all arguments can be converted to string without throwing
+ * 
+ * @note Arguments are converted to strings in order
+ * @note Empty arguments are skipped (no trailing separators)
+ * @note The function is constexpr and noexcept when possible
+ * 
+ * Example:
+ * @code
+ * auto label = as_label("config", "value", 42); // "config_value_42"
+ * @endcode
+ */
 template<char sep = '_', typename... Args>
 [[nodiscard]] constexpr std::string as_label(Args&&... args) noexcept(
     (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
