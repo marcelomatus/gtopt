@@ -99,7 +99,7 @@ public:
   [[nodiscard]] constexpr std::string_view view() const noexcept
   {
     return std::visit(
-        [](const auto& s) -> std::string_view
+        [](const auto& s) noexcept -> std::string_view
         {
           if constexpr (std::same_as<std::decay_t<decltype(s)>,
                                      std::string_view>) {

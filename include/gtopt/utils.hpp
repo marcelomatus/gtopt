@@ -16,6 +16,9 @@
 #include <optional>
 #include <utility>
 #include <version>
+#include <vector>
+#include <functional> // for std::invoke_result_t
+#include <iterator>   // for std::back_inserter
 
 #ifdef __cpp_lib_ranges
 #  include <ranges>
