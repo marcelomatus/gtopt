@@ -16,8 +16,7 @@ namespace detail
 
 // Improved concept for string-like types
 template<typename T>
-concept string_like = std::is_convertible_v<const T&, std::string_view>
-    || requires(const T& t) { fmt::format("{}", t); };
+concept string_like = std::is_convertible_v<const T&, std::string_view>;
 
 // Simplified string holder using C++23 features
 class string_holder
