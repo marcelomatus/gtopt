@@ -75,9 +75,9 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * - Annual derating factors
    */
   template<typename ObjectT>
-  explicit CapacityObjectLP(const InputContext& ic,
-                            std::string_view ClassName,
-                            ObjectT&& pobject) noexcept
+  constexpr explicit CapacityObjectLP(const InputContext& ic,
+                                      std::string_view ClassName,
+                                      ObjectT&& pobject) noexcept
       : ObjectLP<Object>(std::forward<ObjectT>(pobject))
       , capacity(ic, ClassName, id(), std::move(object().capacity))
       , expcap(ic, ClassName, id(), std::move(object().expcap))
@@ -87,7 +87,6 @@ struct CapacityObjectLP : public ObjectLP<Object>
       , annual_derating(
             ic, ClassName, id(), std::move(object().annual_derating))
   {
-    // set_attrs(ic, ClassName, object());
   }
 
   /**
@@ -122,7 +121,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
    */
   [[nodiscard]] constexpr auto capacity_at(
       StageIndex stage_index,
-      double def_capacity = std::numeric_limits<double>::max()) const noexcept
+      double def_capacity = std::numeric_limits<double>::max()) const
   {
     return capacity.at(stage_index).value_or(def_capacity);
   }
@@ -136,7 +135,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
    */
   [[nodiscard]] constexpr auto capacity_at(
       const std::optional<StageIndex>& stage_index,
-      double def_capacity = std::numeric_limits<double>::max()) const noexcept
+      double def_capacity = std::numeric_limits<double>::max()) const
   {
     return stage_index.has_value()
         ? capacity_at(stage_index.value(), def_capacity)
@@ -161,11 +160,11 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * - Cost tracking equations
    */
   template<typename SystemContext>
-  bool add_to_lp(SystemContext& sc,
-                 const ScenarioIndex& scenario_index,
-                 const StageIndex& stage_index,
-                 LinearProblem& lp,
-                 const std::string_view& cname)
+  constexpr bool add_to_lp(SystemContext& sc,
+                           const ScenarioIndex& scenario_index,
+                           const StageIndex& stage_index,
+                           LinearProblem& lp,
+                           const std::string_view& cname)
   {
     if (!sc.is_first_scenario(scenario_index)) {
       return true;

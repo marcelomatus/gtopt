@@ -18,13 +18,6 @@
 namespace gtopt
 {
 
-LinearProblem::LinearProblem(std::string name, const size_t rsize)
-    : pname(std::move(name))
-{
-  rows.reserve(rsize);
-  cols.reserve(rsize);
-}
-
 auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 {
   const size_t ncols = get_numcols();

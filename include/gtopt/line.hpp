@@ -28,20 +28,22 @@ struct Line
 
   SingleId bus_a {};  ///< From-bus ID
   SingleId bus_b {};  ///< To-bus ID
-  OptTRealFieldSched voltage {};  ///< Line voltage level
-  OptTRealFieldSched resistance {};  ///< Line resistance
-  OptTRealFieldSched reactance {};  ///< Line reactance
-  OptTRealFieldSched lossfactor {};  ///< Line loss factor
-  OptTBRealFieldSched tmin {};  ///< Minimum power flow limit
-  OptTBRealFieldSched tmax {};  ///< Maximum power flow limit
-  OptTRealFieldSched tcost {};  ///< Transmission cost
+  [[no_unique_address]] OptTRealFieldSched voltage {};  ///< Line voltage level
+  [[no_unique_address]] OptTRealFieldSched resistance {};  ///< Line resistance
+  [[no_unique_address]] OptTRealFieldSched reactance {};  ///< Line reactance
+  [[no_unique_address]] OptTRealFieldSched lossfactor {};  ///< Line loss factor
+  [[no_unique_address]] OptTBRealFieldSched tmin {};  ///< Minimum power flow
+  [[no_unique_address]] OptTBRealFieldSched tmax {};  ///< Maximum power flow
+  [[no_unique_address]] OptTRealFieldSched tcost {};  ///< Transmission cost
 
-  OptTRealFieldSched capacity {};  ///< Installed capacity
-  OptTRealFieldSched expcap {};  ///< Expansion capacity
-  OptTRealFieldSched expmod {};  ///< Expansion module size
-  OptTRealFieldSched capmax {};  ///< Maximum capacity limit
-  OptTRealFieldSched annual_capcost {};  ///< Annual capacity cost
-  OptTRealFieldSched annual_derating {};  ///< Annual derating factor
+  [[no_unique_address]] OptTRealFieldSched capacity {};  ///< Installed capacity
+  [[no_unique_address]] OptTRealFieldSched expcap {};  ///< Expansion capacity
+  [[no_unique_address]] OptTRealFieldSched expmod {};  ///< Expansion module
+  [[no_unique_address]] OptTRealFieldSched capmax {};  ///< Maximum capacity
+  [[no_unique_address]] OptTRealFieldSched
+      annual_capcost {};  ///< Capacity cost
+  [[no_unique_address]] OptTRealFieldSched
+      annual_derating {};  /// Derating factor
 };
 
 }  // namespace gtopt

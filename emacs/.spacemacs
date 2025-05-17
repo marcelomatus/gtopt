@@ -32,9 +32,7 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(csv
-     yaml
-     ;; ----------------------------------------------------------------
+   '(;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
      ;; `M-m f e R' (Emacs style) to install them.
@@ -42,13 +40,24 @@ This function should only modify configuration layer settings."
      (auto-completion :variables
                       auto-completion-enable-sort-by-usage t
                       auto-completion-enable-snippets-in-popup t)
+     csv
+     yaml
      syntax-checking
      better-defaults
      emacs-lisp
      git
      ;; helm
      ivy
-     (lsp :variables lsp-clients-clangd-args '("--j=3" "--background-index" "--log=error"))
+     (lsp :variables lsp-clients-clangd-args '("--j=4" "--log=error"
+                                               "--header-insertion=never"
+                                               "--background-index"
+                                               "--clang-tidy"
+                                               "--completion-style=detailed"
+                                               "--cross-file-rename"
+                                               "--enable-config"
+                                               "--pch-storage=memory"
+                                               "--header-insertion-decorators=0"
+                                               ))
 
      dap
      sphinx
@@ -71,10 +80,10 @@ This function should only modify configuration layer settings."
             c-c++-enable-clang-format-on-save t)
 
      multiple-cursors
-     ;; org
-     ;; (shell :variables
-     ;;        shell-default-height 30
-     ;;        shell-default-position 'bottom)
+     org
+     (shell :variables
+            shell-default-height 30
+            shell-default-position 'bottom)
      spell-checking
      syntax-checking
      version-control
@@ -134,7 +143,7 @@ It should only modify the values of Spacemacs settings."
    ;; Setting this >= 1 MB should increase performance for lsp servers
    ;; in emacs 27.
    ;; (default (* 1024 1024))
-   dotspacemacs-read-process-output-max (* 2024 2024)
+   dotspacemacs-read-process-output-max (* 1024 1024)
 
    ;; If non-nil then Spacelpa repository is the primary source to install
    ;; a locked version of packages. If nil then Spacemacs will install the

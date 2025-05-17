@@ -90,15 +90,15 @@ public:
   using SparseVector = flat_map<index_t, double>;
   using SparseMatrix = std::vector<SparseVector>;
 
-  constexpr static auto default_reserve_size = 1024;
-
   /**
    * Constructs a new linear problem
    * @param name Problem name
    * @param rsize Initial reserve size for rows/columns
    */
-  [[nodiscard]] explicit LinearProblem(std::string name = {},
-                                       size_t rsize = default_reserve_size);
+  [[nodiscard]] constexpr explicit LinearProblem(std::string name = {}) noexcept
+      : pname(std::move(name))
+  {
+  }
 
   /**
    * Adds a new variable to the problem

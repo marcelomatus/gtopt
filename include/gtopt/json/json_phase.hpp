@@ -17,6 +17,7 @@
 namespace daw::json
 {
 using gtopt::Phase;
+using gtopt::Size;
 
 template<>
 struct json_data_contract<Phase>

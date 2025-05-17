@@ -87,7 +87,7 @@ public:
 
   [[nodiscard]] auto first_scenario() const
   {
-    return ScenarioIndex {scene.first_scenario};
+    return ScenarioIndex {static_cast<Index>(scene.first_scenario)};
   }
 
   [[nodiscard]] auto count_scenario() const
