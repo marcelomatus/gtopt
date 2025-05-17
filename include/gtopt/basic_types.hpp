@@ -103,27 +103,14 @@ using Array = std::vector<Type>;
  * @tparam Type The tag type for compile-time type checking
  */
 template<typename Type>
-using StrongUidType = strong::type<uid_t,
-                                   Type,
-                                   strong::formattable,
-                                   strong::regular,
-                                   strong::hashable,
-                                   strong::arithmetic,
-                                   strong::implicitly_convertible_to<uid_t>>;
+using StrongUidType = strong_type<uid_t, Type>;
 
 /**
  * @brief Strong type for indices with additional type safety and operations
  * @tparam Type The tag type for compile-time type checking
  */
 template<typename Type>
-using StrongIndexType = strong::type<Index,
-                                     Type,
-                                     strong::formattable,
-                                     strong::regular,
-                                     strong::hashable,
-                                     strong::arithmetic,
-                                     strong::bicrementable,
-                                     strong::implicitly_convertible_to<Index>>;
+using StrongIndexType = strong_type<Index, Type>;
 
 /** @brief Seconds in a standard hour */
 constexpr double seconds_per_hour = 3600.0;
