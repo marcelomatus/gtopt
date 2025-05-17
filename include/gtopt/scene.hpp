@@ -30,13 +30,13 @@ namespace gtopt
 struct Scene
 {
   /// Unique identifier for the scene
-  Uid uid {};
+  [[no_unique_address]] Uid uid {};
 
   /// Optional name for the scene (human-readable)
-  OptName name {};
+  [[no_unique_address]] OptName name {};
 
   /// Flag indicating if this scene is active in the optimization
-  OptBool active {};
+  [[no_unique_address]] OptBool active {};
 
   /// Index of the first scenario belonging to this scene
   Size first_scenario {0};
