@@ -98,8 +98,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
    *   - Second: Optional column index if exists
    */
   template<typename Out = std::pair<double, std::optional<Index>>>
-  constexpr auto capacity_and_col(const StageIndex& stage_index,
-                                 LinearProblem& lp) const -> Out
+  [[nodiscard]] constexpr auto capacity_and_col(const StageIndex& stage_index,
+                                               LinearProblem& lp) const -> Out
   {
     auto&& capacity_col = capacity_col_at(stage_index);
     if (capacity_col.has_value()) {
@@ -118,7 +118,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @throws None This function is noexcept
    */
   [[nodiscard]] constexpr auto capacity_at(
-      StageIndex stage_index, double def_capacity = CoinDblMax) const noexcept
+      StageIndex stage_index, 
+      double def_capacity = std::numeric_limits<double>::max()) const noexcept
   {
     return capacity.at(stage_index).value_or(def_capacity);
   }
@@ -132,7 +133,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
    */
   [[nodiscard]] constexpr auto capacity_at(
       const std::optional<StageIndex>& stage_index,
-      double def_capacity = CoinDblMax) const noexcept
+      double def_capacity = std::numeric_limits<double>::max()) const noexcept
   {
     return stage_index.has_value()
         ? capacity_at(stage_index.value(), def_capacity)
@@ -211,10 +212,12 @@ struct CapacityObjectLP : public ObjectLP<Object>
         ? capmax_val.value()
         : stage_maxexpcap + capainst_lb;
 
-    const auto capainst_col = lp.add_col({// capainst variable
-                                          .name = capainst_row.name,
-                                          .lowb = capainst_lb,
-                                          .uppb = capainst_ub});
+    const auto capainst_col = lp.add_col({
+        .name = capainst_row.name,
+        .lowb = capainst_lb,
+        .uppb = capainst_ub,
+        .cost = 0.0  // Explicit initialization
+    });
 
     const auto capainst_col_name = as_label(cname, "capainst", uid());
     sc.add_state_variable_col(capainst_col_name, stage_index, capainst_col);

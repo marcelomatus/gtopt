@@ -31,13 +31,13 @@ namespace gtopt
 struct Phase
 {
   /// Unique identifier for the phase
-  Uid uid {};
+  [[no_unique_address]] Uid uid {};
 
   /// Optional name for the phase (human-readable)
-  OptName name {};
+  [[no_unique_address]] OptName name {};
 
   /// Flag indicating if this phase is active in the optimization
-  OptBool active {};
+  [[no_unique_address]] OptBool active {};
 
   /// Index of the first stage belonging to this phase
   Size first_stage {0};
