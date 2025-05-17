@@ -314,18 +314,18 @@ struct CapacityObjectLP : public ObjectLP<Object>
   }
 
 private:
-  OptTRealSched capacity;
-  OptTRealSched expcap;
-  OptTRealSched capmax;
-  OptTRealSched annual_capcost;
-  OptTRealSched expmod;
-  OptTRealSched annual_derating;
+  [[no_unique_address]] OptTRealSched capacity;
+  [[no_unique_address]] OptTRealSched expcap;
+  [[no_unique_address]] OptTRealSched capmax;
+  [[no_unique_address]] OptTRealSched annual_capcost;
+  [[no_unique_address]] OptTRealSched expmod;
+  [[no_unique_address]] OptTRealSched annual_derating;
 
-  TIndexHolder capainst_cols;
-  TIndexHolder capacost_cols;
-  TIndexHolder expmod_cols;
-  TIndexHolder capainst_rows;
-  TIndexHolder capacost_rows;
+  [[no_unique_address]] TIndexHolder capainst_cols;
+  [[no_unique_address]] TIndexHolder capacost_cols;
+  [[no_unique_address]] TIndexHolder expmod_cols;
+  [[no_unique_address]] TIndexHolder capainst_rows;
+  [[no_unique_address]] TIndexHolder capacost_rows;
 };
 
 }  // namespace gtopt
