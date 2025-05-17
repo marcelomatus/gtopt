@@ -1,16 +1,12 @@
 #pragma once
 
 #include <array>
-#include <format>
-#include <memory>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
-
-#include <fmt/format.h>
+#include <ranges>
 
 namespace gtopt
 {
@@ -29,18 +25,22 @@ class string_holder
   std::variant<std::string_view, std::string> storage;
 
   template<string_like T>
-  static constexpr auto as_string(const T& t)
+  static constexpr auto as_string(T&& t)
   {
-    return fmt::format("{}", t);
+    if constexpr (std::is_convertible_v<T, std::string_view>) {
+      return std::string_view(std::forward<T>(t));
+    } else {
+      return std::to_string(std::forward<T>(t));
+    }
   }
 
 public:
   // For string-like types (views)
   template<string_like T>
     requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
-  constexpr explicit string_holder(const T& value) noexcept(
-      std::is_nothrow_convertible_v<T, std::string_view>)
-      : storage(as_string(value))
+  constexpr explicit string_holder(T&& value) noexcept(
+      noexcept(as_string(std::forward<T>(value))))
+      : storage(as_string(std::forward<T>(value)))
   {
   }
 
@@ -56,11 +56,11 @@ public:
   {
   }
 
-  // For formatting non-string types
+  // For non-string types
   template<typename T>
-    requires(!string_like<T> && std::formattable<T, char>)
+    requires(!string_like<T>)
   constexpr explicit string_holder(const T& value)
-      : storage(std::format("{}", value))
+      : storage(std::to_string(value))
   {
   }
 
