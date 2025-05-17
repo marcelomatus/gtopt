@@ -1,3 +1,13 @@
+/**
+ * @file      as_label.hpp
+ * @brief     Header of
+ * @date      Fri May 16 20:16:01 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <array>
@@ -6,7 +16,6 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include <ranges>
 
 namespace gtopt
 {
