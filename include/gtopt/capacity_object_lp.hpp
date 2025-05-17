@@ -5,7 +5,8 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * @details This module defines the CapacityObjectLP template class which provides:
+ * @details This module defines the CapacityObjectLP template class which
+ * provides:
  * - Modeling of capacity constraints in linear programming problems
  * - Support for capacity expansion with associated costs
  * - Time-phased capacity tracking across stages
@@ -63,8 +64,9 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @param ClassName Name of the class for labeling columns/rows
    * @param pobject The object to wrap, will be moved if rvalue
    * @throws None This constructor is noexcept
-   * 
-   * @details Initializes all capacity-related schedules from the wrapped object:
+   *
+   * @details Initializes all capacity-related schedules from the wrapped
+   * object:
    * - Base capacity
    * - Expansion capacity
    * - Maximum capacity
@@ -74,8 +76,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
    */
   template<typename ObjectT>
   explicit CapacityObjectLP(const InputContext& ic,
-                           std::string_view ClassName,
-                           ObjectT&& pobject) noexcept
+                            std::string_view ClassName,
+                            ObjectT&& pobject) noexcept
       : ObjectLP<Object>(std::forward<ObjectT>(pobject))
       , capacity(ic, ClassName, id(), std::move(object().capacity))
       , expcap(ic, ClassName, id(), std::move(object().expcap))
@@ -94,12 +96,13 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @param stage_index The stage to query
    * @param lp Linear problem reference to check column bounds
    * @return Pair containing:
-   *   - First: Capacity value (upper bound if column exists, else schedule value)
+   *   - First: Capacity value (upper bound if column exists, else schedule
+   * value)
    *   - Second: Optional column index if exists
    */
   template<typename Out = std::pair<double, std::optional<Index>>>
   [[nodiscard]] constexpr auto capacity_and_col(const StageIndex& stage_index,
-                                               LinearProblem& lp) const -> Out
+                                                LinearProblem& lp) const -> Out
   {
     auto&& capacity_col = capacity_col_at(stage_index);
     if (capacity_col.has_value()) {
@@ -118,7 +121,7 @@ struct CapacityObjectLP : public ObjectLP<Object>
    * @throws None This function is noexcept
    */
   [[nodiscard]] constexpr auto capacity_at(
-      StageIndex stage_index, 
+      StageIndex stage_index,
       double def_capacity = std::numeric_limits<double>::max()) const noexcept
   {
     return capacity.at(stage_index).value_or(def_capacity);
@@ -251,17 +254,23 @@ struct CapacityObjectLP : public ObjectLP<Object>
 
     const auto dcap = prev_stage_capacity - stage_capacity;
 
-    const bool capainst_success = capainst_cols.emplace(stage_index, capainst_col).second;
-    const bool capacost_success = capacost_cols.emplace(stage_index, capacost_col).second;
-    const bool capainst_row_success = capainst_rows.emplace(
-        stage_index,
-        lp.add_row(std::move(capainst_row.equal(dcap)))).second;
-    const bool capacost_row_success = capacost_rows.emplace(
-        stage_index,
-        lp.add_row(std::move(capacost_row.equal(0.0)))).second;
+    const bool capainst_success =
+        capainst_cols.emplace(stage_index, capainst_col).second;
+    const bool capacost_success =
+        capacost_cols.emplace(stage_index, capacost_col).second;
+    const bool capainst_row_success =
+        capainst_rows
+            .emplace(stage_index,
+                     lp.add_row(std::move(capainst_row.equal(dcap))))
+            .second;
+    const bool capacost_row_success =
+        capacost_rows
+            .emplace(stage_index,
+                     lp.add_row(std::move(capacost_row.equal(0.0))))
+            .second;
 
-    return capainst_success && capacost_success && 
-           capainst_row_success && capacost_row_success;
+    return capainst_success && capacost_success && capainst_row_success
+        && capacost_row_success;
   }
 
   /**
