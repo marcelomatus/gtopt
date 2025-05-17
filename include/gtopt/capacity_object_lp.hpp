@@ -1,11 +1,11 @@
 /**
  * @file      capacity_object_lp.hpp
- * @brief     Capacity-constrained object representation for linear programming
+ * @brief     Linear programming representation of capacity-constrained objects
  * @date      Thu Mar 27 10:50:18 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the CapacityObjectLP template class which provides:
+ * @details This module defines the CapacityObjectLP template class which provides:
  * - Modeling of capacity constraints in linear programming problems
  * - Support for capacity expansion with associated costs
  * - Time-phased capacity tracking across stages
@@ -21,6 +21,9 @@
  * - LinearProblem interface
  * - Input/Output contexts
  * - Stage and scenario indexing
+ *
+ * @note All capacity values are in the same units as defined by the Object type
+ * @see ObjectLP for the base class functionality
  */
 #pragma once
 
@@ -53,17 +56,26 @@ struct CapacityObjectLP : public ObjectLP<Object>
   using Base::object;
   using Base::uid;
 
-  template<typename ObjectT>
   /**
    * @brief Construct a new CapacityObjectLP object
+   * @tparam ObjectT Type of object being wrapped (deduced)
    * @param ic Input context providing stage/scenario information
    * @param ClassName Name of the class for labeling columns/rows
    * @param pobject The object to wrap, will be moved if rvalue
-   * @throws None This function is noexcept
+   * @throws None This constructor is noexcept
+   * 
+   * @details Initializes all capacity-related schedules from the wrapped object:
+   * - Base capacity
+   * - Expansion capacity
+   * - Maximum capacity
+   * - Expansion model
+   * - Annual capacity costs
+   * - Annual derating factors
    */
+  template<typename ObjectT>
   explicit CapacityObjectLP(const InputContext& ic,
-                            std::string_view ClassName,
-                            ObjectT&& pobject) noexcept
+                           std::string_view ClassName,
+                           ObjectT&& pobject) noexcept
       : ObjectLP<Object>(std::forward<ObjectT>(pobject))
       , capacity(ic, ClassName, id(), std::move(object().capacity))
       , expcap(ic, ClassName, id(), std::move(object().expcap))
@@ -76,9 +88,18 @@ struct CapacityObjectLP : public ObjectLP<Object>
     // set_attrs(ic, ClassName, object());
   }
 
+  /**
+   * @brief Get capacity value and optional column index for a stage
+   * @tparam Out Return type (defaults to pair<double, optional<Index>>)
+   * @param stage_index The stage to query
+   * @param lp Linear problem reference to check column bounds
+   * @return Pair containing:
+   *   - First: Capacity value (upper bound if column exists, else schedule value)
+   *   - Second: Optional column index if exists
+   */
   template<typename Out = std::pair<double, std::optional<Index>>>
   constexpr auto capacity_and_col(const StageIndex& stage_index,
-                                  LinearProblem& lp) const -> Out
+                                 LinearProblem& lp) const -> Out
   {
     auto&& capacity_col = capacity_col_at(stage_index);
     if (capacity_col.has_value()) {
@@ -118,6 +139,23 @@ struct CapacityObjectLP : public ObjectLP<Object>
         : def_capacity;
   }
 
+  /**
+   * @brief Add capacity constraints to the linear problem
+   * @tparam SystemContext Type of system context (deduced)
+   * @param sc System context providing stage/scenario info
+   * @param scenario_index Current scenario index
+   * @param stage_index Current stage index
+   * @param lp Linear problem to modify
+   * @param cname Class name prefix for labeling
+   * @return true if successful, false otherwise
+   *
+   * @details Adds capacity-related variables and constraints:
+   * - Capacity installation variables
+   * - Capacity cost variables
+   * - Expansion model variables (if applicable)
+   * - Balance equations between stages
+   * - Cost tracking equations
+   */
   template<typename SystemContext>
   bool add_to_lp(SystemContext& sc,
                  const ScenarioIndex& scenario_index,
@@ -222,6 +260,18 @@ struct CapacityObjectLP : public ObjectLP<Object>
                .second;
   }
 
+  /**
+   * @brief Add capacity solution data to output context
+   * @tparam OutputContext Type of output context (deduced)
+   * @param out Output context to populate
+   * @param cname Class name prefix for labeling
+   * @return true if successful, false otherwise
+   *
+   * @details Adds:
+   * - Solution values for capacity variables
+   * - Cost values for capacity variables
+   * - Dual values for capacity constraints
+   */
   template<typename OutputContext>
   bool add_to_output(OutputContext& out, std::string_view cname) const
   {
