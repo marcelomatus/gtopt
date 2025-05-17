@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <span>
+
 #include <gtopt/basic_types.hpp>
 
 namespace gtopt
@@ -22,7 +24,7 @@ struct Phase
   OptBool active {};
 
   Size first_stage {0};
-  Size count_stage {std::numeric_limits<Size>::max()};
+  Size count_stage {std::dynamic_extent};
 
   static constexpr std::string_view class_name = "phase";
 };
