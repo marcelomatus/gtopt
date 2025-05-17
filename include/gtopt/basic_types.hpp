@@ -18,15 +18,9 @@
 #include <string_view>
 #include <vector>
 
-// Simple strong type implementation if we can't use the library
-template<typename T, typename Tag, typename... Skills>
-class strong_type {
-    T value;
-public:
-    constexpr explicit strong_type(T v) noexcept : value(v) {}
-    constexpr operator T() const noexcept { return value; }
-    constexpr T get() const noexcept { return value; }
-};
+#define STRONG_HAS_FMT_FORMAT 1
+#include <strong_type/formattable.hpp>
+#include <strong_type/strong_type.hpp>
 
 namespace gtopt
 {
@@ -103,14 +97,27 @@ using Array = std::vector<Type>;
  * @tparam Type The tag type for compile-time type checking
  */
 template<typename Type>
-using StrongUidType = strong_type<uid_t, Type>;
+using StrongUidType = strong::type<uid_t,
+                                   Type,
+                                   strong::formattable,
+                                   strong::regular,
+                                   strong::hashable,
+                                   strong::arithmetic,
+                                   strong::implicitly_convertible_to<uid_t>>;
 
 /**
  * @brief Strong type for indices with additional type safety and operations
  * @tparam Type The tag type for compile-time type checking
  */
 template<typename Type>
-using StrongIndexType = strong_type<Index, Type>;
+using StrongIndexType = strong::type<Index,
+                                     Type,
+                                     strong::formattable,
+                                     strong::regular,
+                                     strong::hashable,
+                                     strong::arithmetic,
+                                     strong::bicrementable,
+                                     strong::implicitly_convertible_to<Index>>;
 
 /** @brief Seconds in a standard hour */
 constexpr double seconds_per_hour = 3600.0;

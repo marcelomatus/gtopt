@@ -134,8 +134,7 @@ TEST_CASE("Linear problem edge cases")
   // Test reserve functionality
   SUBCASE("Reserve capacity")
   {
-    const size_t reserve_size = 100;
-    const gtopt::LinearProblem lp2("reserve_test", reserve_size);
+    const gtopt::LinearProblem lp2("reserve_test");
     CHECK(lp2.get_numrows() == 0);
     CHECK(lp2.get_numcols() == 0);
   }

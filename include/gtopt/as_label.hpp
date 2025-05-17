@@ -55,9 +55,7 @@ class string_holder
   std::variant<std::string_view, std::string> storage;
 
   template<string_like T>
-  static constexpr auto as_string(T&& t) noexcept(
-      std::is_nothrow_convertible_v<T, std::string_view> ||
-      noexcept(std::to_string(std::forward<T>(t))))
+  static constexpr auto as_string(T&& t)
   {
     if constexpr (std::is_convertible_v<T, std::string_view>) {
       return std::string_view(std::forward<T>(t));

@@ -101,9 +101,15 @@ public:
    */
   [[nodiscard]] constexpr auto& stages() const noexcept { return stage_span; }
 
-  [[nodiscard]] constexpr auto first_stage() const { return phase.first_stage; }
+  [[nodiscard]] constexpr auto first_stage() const
+  {
+    return StageIndex {static_cast<Index>(phase.first_stage)};
+  }
 
-  [[nodiscard]] constexpr auto count_stage() const { return phase.count_stage; }
+  [[nodiscard]] constexpr auto count_stage() const
+  {
+    return static_cast<Index>(phase.count_stage);
+  }
 
 private:
   Phase phase;  ///< The underlying Phase object

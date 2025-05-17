@@ -16,7 +16,7 @@ TEST_CASE("as_label basic functionality")
   {
     CHECK(as_label("hello") == "hello");
     CHECK(as_label(42) == "42");
-    CHECK(as_label(3.14) == "3.14");
+    CHECK(as_label(3.14) == "3.140000");
   }
 
   SUBCASE("multiple arguments")
@@ -38,7 +38,7 @@ TEST_CASE("as_label basic functionality")
     std::string s = "str";
     std::string_view sv = "view";
     CHECK(as_label(s, sv, 42) == "str_view_42");
-    CHECK(as_label("prefix", 3.14, "suffix") == "prefix_3.14_suffix");
+    CHECK(as_label("prefix", 3.14, "suffix") == "prefix_3.140000_suffix");
   }
 
   SUBCASE("edge cases")

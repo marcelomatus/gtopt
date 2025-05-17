@@ -130,10 +130,8 @@ constexpr auto create_linear_interfaces(auto& collections,
   const auto& phases = simulation.phases();
   linear_interfaces.reserve(phases.size());
 
-  constexpr size_t reserve_size = 1'024;  // Pre-allocate memory for efficiency
-
   for (const auto& phase : phases) {
-    LinearProblem lp(system.name, reserve_size);
+    LinearProblem lp(system.name);
 
     // Process all active stages in phase
     for (auto&& [stage_index, stage] :
