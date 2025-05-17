@@ -227,7 +227,7 @@ private:
   std::string pname;  ///< Problem name
   cols_t cols;  ///< Variables (columns)
   rows_t rows;  ///< Constraints (rows)
-  size_t ncoeffs {};  ///< Total number of non-zero coefficients
+  size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
 };
 

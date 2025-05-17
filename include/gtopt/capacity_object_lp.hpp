@@ -173,12 +173,12 @@ struct CapacityObjectLP : public ObjectLP<Object>
         ? capmax_val.value()
         : stage_maxexpcap + capainst_lb;
 
-    const auto& capainst_col_name = capainst_row.name;
     const auto capainst_col = lp.add_col({// capainst variable
-                                          .name = capainst_col_name,
+                                          .name = capainst_row.name,
                                           .lowb = capainst_lb,
                                           .uppb = capainst_ub});
 
+    const auto capainst_col_name = as_label(cname, "capainst", uid());
     sc.add_state_variable_col(capainst_col_name, stage_index, capainst_col);
 
     capainst_row[capainst_col] = -1;
