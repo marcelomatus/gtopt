@@ -251,16 +251,17 @@ struct CapacityObjectLP : public ObjectLP<Object>
 
     const auto dcap = prev_stage_capacity - stage_capacity;
 
-    return capainst_cols.emplace(stage_index, capainst_col).second
-        && capacost_cols.emplace(stage_index, capacost_col).second
-        && capainst_rows
-               .emplace(stage_index,
-                        lp.add_row(std::move(capainst_row.equal(dcap))))
-               .second
-        && capacost_rows
-               .emplace(stage_index,
-                        lp.add_row(std::move(capacost_row.equal(0.0))))
-               .second;
+    const bool capainst_success = capainst_cols.emplace(stage_index, capainst_col).second;
+    const bool capacost_success = capacost_cols.emplace(stage_index, capacost_col).second;
+    const bool capainst_row_success = capainst_rows.emplace(
+        stage_index,
+        lp.add_row(std::move(capainst_row.equal(dcap)))).second;
+    const bool capacost_row_success = capacost_rows.emplace(
+        stage_index,
+        lp.add_row(std::move(capacost_row.equal(0.0)))).second;
+
+    return capainst_success && capacost_success && 
+           capainst_row_success && capacost_row_success;
   }
 
   /**
