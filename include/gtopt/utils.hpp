@@ -13,16 +13,11 @@
  */
 #pragma once
 
+#include <iterator>  // for std::back_inserter
 #include <optional>
 #include <utility>
-#include <version>
 #include <vector>
-#include <functional> // for std::invoke_result_t
-#include <iterator>   // for std::back_inserter
-
-#ifdef __cpp_lib_ranges
-#  include <ranges>
-#endif
+#include <version>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>

@@ -57,14 +57,14 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     const auto eps = opts.eps;
     if (eps < 0) [[unlikely]] {
       for (size_t i = 0; i < nrows; ++i) {
-        for (auto [j, v] : rows[i].cmap) {
+        for (const auto [j, v] : rows[i].cmap) {
           A[j].emplace(i, v);
           ++nnzero;
         }
       }
     } else [[likely]] {
       for (size_t i = 0; i < nrows; ++i) {
-        for (auto [j, v] : rows[i].cmap) {
+        for (const auto [j, v] : rows[i].cmap) {
           if (v > eps || -v > eps) [[likely]] {  // std::abs(v) > eps
             A[j].emplace(i, v);
             ++nnzero;
@@ -78,7 +78,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     for (size_t ic = 0, ii = 0; const auto& ai : A) {
       matbeg[ic] = static_cast<fp_index_t>(ii);
       ++ic;
-      for (auto [j, aij] : ai) {
+      for (const auto [j, aij] : ai) {
         matind[ii] = static_cast<fp_index_t>(j);
         matval[ii] = aij;
         ++ii;

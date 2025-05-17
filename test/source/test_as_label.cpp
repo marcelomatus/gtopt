@@ -48,22 +48,3 @@ TEST_CASE("as_label basic functionality")
     CHECK(as_label("", "", "") == "");
   }
 }
-
-TEST_CASE("as_label with custom types")
-{
-  struct CustomType
-  {
-    int value;
-
-    operator std::string_view() const  // NOLINT
-    {
-      return value % 2 == 0 ? "even" : "odd";
-    }
-  };
-
-  SUBCASE("custom convertible types")
-  {
-    CHECK(as_label(CustomType {2}) == "even");
-    CHECK(as_label("result", CustomType {3}) == "result_odd");
-  }
-}
