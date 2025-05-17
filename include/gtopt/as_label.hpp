@@ -130,10 +130,10 @@ struct label_size
 
 /**
  * @brief Creates an empty label string
- * 
+ *
  * @tparam sep Separator character (default '_')
  * @return constexpr std::string Empty string
- * 
+ *
  * @note This is the base case for empty argument lists
  */
 template<char sep = '_'>
@@ -144,18 +144,18 @@ template<char sep = '_'>
 
 /**
  * @brief Creates a concatenated label from multiple arguments
- * 
+ *
  * @tparam sep Separator character between components (default '_')
  * @tparam Args Argument types (automatically deduced)
  * @param args Values to concatenate into label
  * @return constexpr std::string Concatenated label string
- * 
+ *
  * @throws Nothing if all arguments can be converted to string without throwing
- * 
+ *
  * @note Arguments are converted to strings in order
  * @note Empty arguments are skipped (no trailing separators)
  * @note The function is constexpr and noexcept when possible
- * 
+ *
  * Example:
  * @code
  * auto label = as_label("config", "value", 42); // "config_value_42"
