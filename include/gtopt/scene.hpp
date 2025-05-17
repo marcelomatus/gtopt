@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <span>
+
 #include <gtopt/basic_types.hpp>
 
 namespace gtopt
@@ -22,7 +24,7 @@ struct Scene
   OptBool active {};
 
   Size first_scenario {0};
-  Size count_scenario {std::numeric_limits<Size>::max()};
+  Size count_scenario {std::dynamic_extent};
 
   static constexpr std::string_view class_name = "scene";
 };
