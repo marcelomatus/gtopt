@@ -103,6 +103,9 @@ public:
     return StageUid {stage().uid};
   }
 
+  /// @return Index of this stage in the parent container
+  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
