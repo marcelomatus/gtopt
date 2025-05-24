@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <numeric>
 #include <span>
 
 #include <gtopt/basic_types.hpp>
@@ -35,8 +34,6 @@ class StageLP
 {
 public:
   using BlockSpan = std::span<const BlockLP>;
-  using BlockIndexes = std::vector<BlockIndex>;
-  using BlockIndexSpan = std::span<const BlockIndex>;
 
   StageLP() = default;
 
@@ -50,25 +47,22 @@ public:
    * calculations
    */
   template<typename BlockLPs = std::vector<BlockLP> >
-  explicit StageLP(Stage pstage,
-                   const BlockLPs& pblocks = {},
+  explicit StageLP(Stage stage,
+                   const BlockLPs& all_blocks = {},
                    double annual_discount_rate = 0.0,
-                   StageIndex index = {})
-      : m_stage_(std::move(pstage))
-      , m_blocks_(std::span(pblocks).subspan(m_stage_.first_block,
-                                             m_stage_.count_block))
-      , m_timeinit_(
-            std::transform_reduce(pblocks.begin(),
-                                  pblocks.begin() + m_stage_.first_block,
-                                  0.0,
-                                  std::plus(),
-                                  [](const auto& b) { return b.duration(); }))
-      , m_duration_(std::transform_reduce(m_blocks_.begin(),
-                                          m_blocks_.end(),
-                                          0.0,
-                                          std::plus(),
-                                          [](const auto& b)
-                                          { return b.duration(); }))
+                   StageIndex index = StageIndex {unknown_index})
+      : m_stage_(std::move(stage))
+      , m_blocks_(std::span(all_blocks)
+                      .subspan(m_stage_.first_block, m_stage_.count_block))
+      , m_timeinit_(ranges::fold_left(
+            all_blocks | ranges::views::take(stage.first_block)
+                | ranges::views::transform(&BlockLP::duration),
+            0.0,
+            std::plus()))
+      , m_duration_(ranges::fold_left(
+            m_blocks_ | ranges::views::transform(&BlockLP::duration),
+            0.0,
+            std::plus<>()))
       , m_discount_factor_(
             annual_discount_factor(annual_discount_rate, m_timeinit_))
       , m_index_(index)
@@ -119,7 +113,7 @@ private:
   double m_duration_ {0.0};  ///< Total duration of the m_stage_
   double m_discount_factor_ {1.0};
 
-  StageIndex m_index_;
+  StageIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt

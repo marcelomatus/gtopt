@@ -89,7 +89,7 @@ auto PlanningLP::run_lp(const SolverOptions& lp_opts)
 
     bool status = true;
     for (auto&& system_lp : m_systems_) {
-      status = system_lp.resolve(lp_opts);
+      status = system_lp.run_lp(lp_opts);
       if (!status) {
         break;
       }

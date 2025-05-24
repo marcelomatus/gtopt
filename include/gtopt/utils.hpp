@@ -110,11 +110,14 @@ template<typename IndexType = size_t, ranges::range... Ranges>
 
 template<typename IndexType = size_t, ranges::range Range, typename Op>
   requires std::invocable<Op, ranges::range_value_t<Range>>
-[[nodiscard]] constexpr auto enumerate_if(const Range& range, Op op) noexcept(
+[[nodiscard]] constexpr auto enumerate_if(Range&& range, Op op) noexcept(
     noexcept(op(std::declval<ranges::range_value_t<Range>>())))
 {
-  const auto op_second = [&](auto&& p) { return op(std::get<1>(p)); };
-  return enumerate<IndexType>(range) | ranges::views::filter(op_second);
+  //  const auto op_second = [&](auto&& p) { return op(std::get<1>(p)); };
+  //    return enumerate<IndexType>(range) | ranges::views::filter(op_second);
+
+  return enumerate<IndexType>(std::forward<Range>(range)
+                              | ranges::views::filter(op));
 }
 
 /// Predicate that checks if element has is_active() member returning true

@@ -26,6 +26,11 @@ struct Stage
   OptReal discount_factor {1};
 
   static constexpr std::string_view class_name = "stage";
+
+  [[nodiscard]] constexpr auto is_active() const noexcept
+  {
+    return active ? *active : true;
+  }
 };
 
 using StageUid = StrongUidType<struct tuid_>;

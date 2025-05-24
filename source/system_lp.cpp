@@ -222,6 +222,15 @@ SystemLP::SystemLP(const System& system,
 {
 }
 
+void SystemLP::create_lp(const FlatOptions& flat_opts)
+{
+  m_linear_interfaces_ = create_linear_interfaces(m_collections_,
+                                                  m_system_context_,
+                                                  system(),
+                                                  system_context().simulation(),
+                                                  flat_opts);
+}
+
 void SystemLP::write_out() const
 {
   for (auto&& li : m_linear_interfaces_) {
@@ -254,7 +263,7 @@ void SystemLP::write_lp(const std::string& filename) const
  * @return true if all LP problems were solved successfully
  * @return false if any LP problem failed to solve
  */
-bool SystemLP::resolve(const SolverOptions& solver_options)
+bool SystemLP::run_lp(const SolverOptions& solver_options)
 {
   return ranges::all_of(m_linear_interfaces_,
                         [&solver_options](auto& interface)
