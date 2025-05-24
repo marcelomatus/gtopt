@@ -71,7 +71,7 @@ public:
    * @brief Gets the system LP representations
    * @return Const reference to vector of SystemLP
    */
-  [[nodiscard]] constexpr const std::vector<SystemLP>& systems() const noexcept
+  [[nodiscard]] constexpr const auto& systems() const noexcept
   {
     return m_systems_;
   }
@@ -80,8 +80,7 @@ public:
    * @brief Gets the simulation scenarios
    * @return Const reference to vector of SimulationLP
    */
-  [[nodiscard]] constexpr const std::vector<SimulationLP>& simulations()
-      const noexcept
+  [[nodiscard]] constexpr const auto& simulations() const noexcept
   {
     return m_simulations_;
   }
@@ -108,8 +107,8 @@ public:
 private:
   Planning m_planning_;
   OptionsLP m_options_;
-  std::vector<SimulationLP> m_simulations_;
-  std::vector<SystemLP> m_systems_;
+  StrongIndexVector<PhaseIndex, SimulationLP> m_simulations_;
+  StrongIndexVector<PhaseIndex, SystemLP> m_systems_;
 };
 
 }  // namespace gtopt

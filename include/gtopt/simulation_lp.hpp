@@ -32,6 +32,7 @@
 namespace gtopt
 {
 
+class PlanningLP;
 /**
  * @class SimulationLP
  * @brief Linear programming representation of a power system simulation

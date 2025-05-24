@@ -103,6 +103,7 @@ public:
    */
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
+                    PhaseIndex phase_index = {},
                     const FlatOptions& flat_opts = {}) noexcept(false);
 
   /// Tuple of collections for all LP component types
@@ -250,6 +251,7 @@ private:
   SystemContext m_system_context_;
   collections_t m_collections_;
   std::vector<LinearInterface> m_linear_interfaces_;
+  PhaseIndex m_phase_index_;
 };
 
 }  // namespace gtopt

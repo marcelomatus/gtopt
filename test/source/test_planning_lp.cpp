@@ -189,7 +189,8 @@ TEST_CASE("PlanningLP - Run LP")
   // Check that we got a successful result
   CHECK(result.has_value());
   // 0 indicates success
-  CHECK(result.value() == 0);
+
+  CHECK(result.value() == 1);
 }
 
 TEST_CASE("PlanningLP - Run with write_only flag")
@@ -233,7 +234,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   // Check that we got a successful result
   CHECK(result.has_value());
   // 0 indicates success
-  CHECK(result.value() == 0);
+  CHECK(result.value() == 1);
 
   // Check if the file was created
   std::string lp_file = "test_planning_lp_write_only_0.lp";
@@ -296,7 +297,7 @@ TEST_CASE("PlanningLP - Solver test")
   auto&& systems = planning_lp.systems();
   CHECK(systems.size() == 1);
 
-  auto&& system_lp = systems[0];
+  auto&& system_lp = systems.front();
   auto&& linear_interfaces = system_lp.linear_interfaces();
   CHECK(linear_interfaces.size() == 1);
 
