@@ -121,9 +121,11 @@ void SimulationLP::validate_components()
 
 SimulationLP::SimulationLP(const Simulation& psimulation,
                            const OptionsLP& poptions,
+                           PlanningLP& planning,
                            const Scene& pscene)
     : m_simulation_(psimulation)
     , m_options_(poptions)
+    , m_planning_(planning)
     , m_block_array_(create_block_array(simulation()))
     , m_stage_array_(
           create_stage_array(simulation(), options(), m_block_array_))
