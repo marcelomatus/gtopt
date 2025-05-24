@@ -98,8 +98,7 @@ void SimulationLP::validate_components()
         "System must contain at least one block, stage, and scenario");
   }
 
-  const auto nblocks = std::accumulate(m_stage_array_.begin(),  // NOLINT
-                                       m_stage_array_.end(),
+  const auto nblocks = ranges::fold_left(m_stage_array_,
                                        0U,
                                        [](size_t a, const auto& s)
                                        { return a + s.blocks().size(); });
