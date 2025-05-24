@@ -59,12 +59,10 @@ public:
       : phase(std::move(pphase))
       , stage_span(
             std::span(pstages).subspan(phase.first_stage, phase.count_stage))
-      , span_duration(std::transform_reduce(stage_span.begin(),
-                                            stage_span.end(),
-                                            0.0,
-                                            std::plus<>(),
-                                            [](const auto& b) noexcept
-                                            { return b.duration(); }))
+      , span_duration(ranges::fold_left(
+            stage_span | ranges::views::transform(&StageLP::duration),
+            0.0,
+            std::plus<>()))
   {
   }
 

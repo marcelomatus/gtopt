@@ -211,12 +211,14 @@ namespace gtopt
 
 SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
+                   PhaseIndex phase_index,
                    const FlatOptions& flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)
     , m_collections_(create_collections(m_system_context_, system))
     , m_linear_interfaces_(create_linear_interfaces(
           m_collections_, m_system_context_, system, simulation, flat_opts))
+    , m_phase_index_(phase_index)
 {
 }
 

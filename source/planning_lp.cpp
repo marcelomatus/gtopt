@@ -8,6 +8,7 @@
  */
 
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/simulation.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -25,7 +26,7 @@ constexpr auto create_simulations(const auto& simulation, const auto& options)
   const auto& scenes = simulation.scene_array;
   const auto n_size = scenes.size();
 
-  std::vector<SimulationLP> simulations;
+  StrongIndexVector<PhaseIndex, SimulationLP> simulations;
   simulations.reserve(n_size);
 
   for (auto&& scene : scenes) {
@@ -42,13 +43,14 @@ constexpr auto create_systems(auto& system,
 {
   const auto n_size = simulations.size();
 
-  std::vector<SystemLP> systems;
+  StrongIndexVector<PhaseIndex, SystemLP> systems;
   systems.reserve(n_size);
 
   system.setup_reference_bus(options);
 
-  for (auto&& simulation_lp : simulations) {
-    systems.emplace_back(system, simulation_lp, flat_opts);
+  for (auto&& [phase_index, simulation_lp] : enumerate<PhaseIndex>(simulations))
+  {
+    systems.emplace_back(system, simulation_lp, phase_index, flat_opts);
   }
 
   return systems;
@@ -84,34 +86,32 @@ auto PlanningLP::run_lp(const SolverOptions& lp_opts)
 {
   try {
     // Solve the planning problem
-    {
-      bool status = true;
-      for (auto&& system_lp : m_systems_) {
-        status = system_lp.resolve(lp_opts);
-        if (!status) {
-          break;
-        }
-      }
 
-      // Handle infeasible or unbounded problems
+    bool status = true;
+    for (auto&& system_lp : m_systems_) {
+      status = system_lp.resolve(lp_opts);
       if (!status) {
-        // On error, write the problematic model to a file for debugging
-        try {
-          write_lp("error");
-        } catch (const std::exception& e) {
-          SPDLOG_WARN(
-              std::format("Failed to write error LP file: {}", e.what()));
-        }
-
-        // Return detailed error message
-        constexpr auto unexpected =
-            std::unexpected("Problem is not feasible, check the error.lp file");
-        SPDLOG_INFO(unexpected.error());
-        return unexpected;
+        break;
       }
     }
 
-    return {0};  // Success
+    // Handle infeasible or unbounded problems
+    if (!status) {
+      // On error, write the problematic model to a file for debugging
+      try {
+        write_lp("error");
+      } catch (const std::exception& e) {
+        SPDLOG_WARN(std::format("Failed to write error LP file: {}", e.what()));
+      }
+
+      // Return detailed error message
+      constexpr auto unexpected =
+          std::unexpected("Problem is not feasible, check the error.lp file");
+      SPDLOG_INFO(unexpected.error());
+      return unexpected;
+    }
+
+    return {status};  // Success
   } catch (const std::exception& e) {
     // Handle unexpected errors gracefully
     return std::unexpected(std::string("Unexpected error: ") + e.what());
