@@ -19,8 +19,6 @@
 
 #include <span>
 
-#include "gtopt/simulation.hpp"
-
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <range/v3/all.hpp>
@@ -33,29 +31,28 @@ namespace
 {
 constexpr std::vector<BlockLP> create_block_array(const auto& simulation)
 {
-  return simulation.block_array | ranges::views::move
-      | ranges::views::transform(
-             [](auto&& s) { return BlockLP {std::forward<decltype(s)>(s)}; })
+  return simulation.block_array
+      | ranges::views::transform([](auto&& b) { return BlockLP {b}; })
       | ranges::to<std::vector>();
 }
 
 constexpr std::vector<StageLP> create_stage_array(const auto& simulation,
                                                   const auto& options,
-                                                  const auto& block_array)
+                                                  const auto& all_blocks)
 {
-  return simulation.stage_array | ranges::views::move
+  return enumerate_active<StageIndex>(simulation.stage_array)
       | ranges::views::transform(
-             [&](auto&& s)
+             [&](auto&& is)
              {
-               return StageLP {std::forward<decltype(s)>(s),
-                               block_array,
-                               options.annual_discount_rate()};
+               const auto& [index, stage] = is;
+               return StageLP {
+                   stage, all_blocks, options.annual_discount_rate(), index};
              })
       | ranges::to<std::vector>();
 }
 
 constexpr std::vector<ScenarioLP> create_scenario_array(const auto& simulation,
-                                                        const auto& stage_array,
+                                                        const auto& all_stages,
                                                         const Scene& scene)
 {
   return std::span(simulation.scenario_array)
@@ -63,27 +60,29 @@ constexpr std::vector<ScenarioLP> create_scenario_array(const auto& simulation,
       | ranges::views::take(scene.count_scenario) | ranges::views::move
       | ranges::views::transform(
              [&](auto&& s)
-             { return ScenarioLP {std::forward<decltype(s)>(s), stage_array}; })
+             { return ScenarioLP {std::forward<decltype(s)>(s), all_stages}; })
       | ranges::to<std::vector>();
 }
 
 constexpr std::vector<PhaseLP> create_phase_array(const auto& simulation,
-                                                  const auto& stage_array)
+                                                  const auto& all_stages)
 {
-  return simulation.phase_array | ranges::views::move
+  return enumerate_active<PhaseIndex>(simulation.phase_array)
       | ranges::views::transform(
-             [&](auto&& s)
-             { return PhaseLP {std::forward<decltype(s)>(s), stage_array}; })
+             [&](auto&& is)
+             {
+               const auto& [index, phase] = is;
+               return PhaseLP {phase, all_stages, index};
+             })
       | ranges::to<std::vector>();
 }
 
 constexpr std::vector<SceneLP> create_scene_array(const auto& simulation,
                                                   const auto& scenario_array)
 {
-  return simulation.scene_array | ranges::views::move
-      | ranges::views::transform(
-             [&](auto&& s)
-             { return SceneLP {std::forward<decltype(s)>(s), scenario_array}; })
+  return simulation.scene_array
+      | ranges::views::transform([&](auto&& s)
+                                 { return SceneLP {s, scenario_array}; })
       | ranges::to<std::vector>();
 }
 

@@ -128,6 +128,12 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system_context(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_system_context_;
+  }
+
   /**
    * @brief Access linear interfaces
    * @return Linear interfaces container
@@ -228,6 +234,8 @@ public:
     return system().name;
   }
 
+  void create_lp(const FlatOptions& flat_opts);
+
   /**
    * @brief Write LP formulation to file
    * @param filename Output file path
@@ -239,7 +247,7 @@ public:
    * @param solver_options Solver configuration
    * @return true if resolution succeeded
    */
-  bool resolve(const SolverOptions& solver_options);
+  bool run_lp(const SolverOptions& solver_options);
 
   /**
    * @brief Write output for all linear interfaces

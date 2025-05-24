@@ -51,6 +51,11 @@ struct Phase
 
   /// Class name constant used for serialization/deserialization
   static constexpr std::string_view class_name = "phase";
+
+  [[nodiscard]] constexpr auto is_active() const noexcept
+  {
+    return active ? *active : true;
+  }
 };
 
 /// Strongly-typed unique identifier for Phase objects

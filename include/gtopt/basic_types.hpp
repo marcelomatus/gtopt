@@ -70,6 +70,8 @@ using OptSize = std::optional<Size>;
 /** @brief Index type for large-scale sparse matrices and arrays */
 using Index = std::int32_t;
 
+constexpr Index unknown_index = std::numeric_limits<Index>::min();
+
 /** @brief Boolean type for logical conditions */
 using Bool = bool;
 /** @brief Optional boolean type */
@@ -118,12 +120,6 @@ using StrongIndexType = strong::type<Index,
                                      strong::arithmetic,
                                      strong::bicrementable,
                                      strong::implicitly_convertible_to<Index>>;
-
-/** @brief Seconds in a standard hour */
-constexpr double seconds_per_hour = 3600.0;
-
-/** @brief Minutes in a standard hour */
-constexpr double minutes_per_hour = 60.0;
 
 /** @brief Days in a standard year (non-leap) */
 constexpr double days_per_year = 365.0;

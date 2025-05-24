@@ -14,7 +14,6 @@
 #pragma once
 
 #include <functional>
-#include <numeric>
 #include <span>
 
 #include <gtopt/basic_types.hpp>
@@ -36,11 +35,6 @@ class PhaseLP
 {
 public:
   using StageSpan = std::span<const StageLP>;  ///< Span of StageLP objects
-  using StageIndexes =
-      std::vector<StageIndex>;  ///< Collection of stage indices
-  using StageIndexSpan =
-      std::span<const StageIndex>;  ///< Span of stage indices
-
   /**
    * @brief Default constructor
    */
@@ -54,15 +48,18 @@ public:
    * @param pphase The Phase object containing phase metadata
    * @param pstages Collection of StageLP objects
    */
-  template<class Stages>
-  explicit PhaseLP(Phase pphase, const Stages& pstages)
-      : phase(std::move(pphase))
-      , stage_span(
-            std::span(pstages).subspan(phase.first_stage, phase.count_stage))
-      , span_duration(ranges::fold_left(
-            stage_span | ranges::views::transform(&StageLP::duration),
+  template<class StageLPs = std::vector<StageLP>>
+  explicit PhaseLP(Phase phase,
+                   const StageLPs& all_stages = {},
+                   PhaseIndex index = PhaseIndex {unknown_index})
+      : m_phase_(std::move(phase))
+      , m_stage_span_(std::span(all_stages)
+                          .subspan(m_phase_.first_stage, m_phase_.count_stage))
+      , m_duration_(ranges::fold_left(
+            m_stage_span_ | ranges::views::transform(&StageLP::duration),
             0.0,
             std::plus<>()))
+      , m_index_(index)
   {
   }
 
@@ -70,10 +67,7 @@ public:
    * @brief Get the total duration of the phase
    * @return Total duration as a double
    */
-  [[nodiscard]] constexpr auto duration() const noexcept
-  {
-    return span_duration;
-  }
+  [[nodiscard]] constexpr auto duration() const noexcept { return m_duration_; }
 
   /**
    * @brief Check if the phase is active
@@ -81,7 +75,7 @@ public:
    */
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return phase.active.value_or(true);
+    return m_phase_.active.value_or(true);
   }
 
   /**
@@ -90,29 +84,36 @@ public:
    */
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return PhaseUid {phase.uid};
+    return PhaseUid {m_phase_.uid};
   }
 
   /**
    * @brief Get a span of all stages in this phase
    * @return Span of StageLP objects
    */
-  [[nodiscard]] constexpr auto& stages() const noexcept { return stage_span; }
+  [[nodiscard]] constexpr auto& stages() const noexcept
+  {
+    return m_stage_span_;
+  }
 
   [[nodiscard]] constexpr auto first_stage() const
   {
-    return StageIndex {static_cast<Index>(phase.first_stage)};
+    return StageIndex {static_cast<Index>(m_phase_.first_stage)};
   }
 
   [[nodiscard]] constexpr auto count_stage() const
   {
-    return static_cast<Index>(phase.count_stage);
+    return static_cast<Index>(m_phase_.count_stage);
   }
 
+  /// @return Index of this phase in the parent container
+  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+
 private:
-  Phase phase;  ///< The underlying Phase object
-  StageSpan stage_span;  ///< Span of StageLP objects in this phase
-  double span_duration {0.0};  ///< Total duration of all stages in this phase
+  Phase m_phase_;  ///< The underlying Phase object
+  StageSpan m_stage_span_;  ///< Span of StageLP objects in this phase
+  double m_duration_ {0.0};  ///< Total duration of all stages in this phase
+  PhaseIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt

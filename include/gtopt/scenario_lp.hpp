@@ -16,32 +16,35 @@ public:
 
   ScenarioLP() = default;
 
-  template<class StageLPs = std::vector<StageLP>>
-  explicit ScenarioLP(Scenario pscenario, const StageLPs& pstages = {})
-      : scenario(std::move(pscenario))
-      , stage_span(pstages)
+  template<class StageLPs = std::vector<StageLP> >
+  explicit ScenarioLP(Scenario scenario, const StageLPs& all_stages = {})
+      : m_scenario_(std::move(scenario))
+      , m_stages_(all_stages)
   {
   }
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return scenario.active.value_or(true);
+    return m_scenario_.active.value_or(true);
   }
-  [[nodiscard]] constexpr auto uid() const { return ScenarioUid(scenario.uid); }
+  [[nodiscard]] constexpr auto uid() const
+  {
+    return ScenarioUid(m_scenario_.uid);
+  }
   [[nodiscard]] constexpr auto probability_factor() const
   {
-    return scenario.probability_factor.value_or(1.0);
+    return m_scenario_.probability_factor.value_or(1.0);
   }
 
   [[nodiscard]] constexpr auto&& stage(const StageIndex index) const
   {
-    return stage_span[index];
+    return m_stages_[index];
   }
-  [[nodiscard]] constexpr auto&& stages() const { return stage_span; }
+  [[nodiscard]] constexpr auto&& stages() const { return m_stages_; }
 
 private:
-  Scenario scenario;
-  StageSpan stage_span;
+  Scenario m_scenario_;
+  StageSpan m_stages_;
 };
 
 }  // namespace gtopt

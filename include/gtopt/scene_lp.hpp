@@ -56,11 +56,12 @@ public:
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
    * Also initializes scenario indexes with sequential values.
    */
-  template<class Scenarios>
-  explicit SceneLP(Scene pscene, const Scenarios& pscenarios)
-      : scene(std::move(pscene))
-      , scenario_span(std::span(pscenarios)
-                          .subspan(scene.first_scenario, scene.count_scenario))
+  template<class ScenarioLPs = std::vector<ScenarioLP> >
+  explicit SceneLP(Scene scene, const ScenarioLPs& all_scenarios = {})
+      : m_scene_(std::move(scene))
+      , m_scenarios_(
+            std::span(all_scenarios)
+                .subspan(m_scene_.first_scenario, m_scene_.count_scenario))
   {
   }
 
@@ -70,34 +71,34 @@ public:
    */
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return scene.active.value_or(true);
+    return m_scene_.active.value_or(true);
   }
 
   /**
    * @brief Get the unique identifier of the scene
    * @return The scene's unique identifier
    */
-  [[nodiscard]] constexpr auto uid() const { return SceneUid {scene.uid}; }
+  [[nodiscard]] constexpr auto uid() const { return SceneUid {m_scene_.uid}; }
 
   /**
    * @brief Get all scenario elements associated with this scene
    * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr auto&& scenarios() const { return scenario_span; }
+  [[nodiscard]] constexpr auto&& scenarios() const { return m_scenarios_; }
 
   [[nodiscard]] auto first_scenario() const
   {
-    return ScenarioIndex {static_cast<Index>(scene.first_scenario)};
+    return ScenarioIndex {static_cast<Index>(m_scene_.first_scenario)};
   }
 
   [[nodiscard]] auto count_scenario() const
   {
-    return static_cast<Index>(scene.count_scenario);
+    return static_cast<Index>(m_scene_.count_scenario);
   }
 
 private:
-  Scene scene;  ///< The underlying scene
-  ScenarioSpan scenario_span;  ///< Span of ScenarioLP elements for this scene
+  Scene m_scene_;  ///< The underlying scene
+  ScenarioSpan m_scenarios_;  ///< Span of ScenarioLP elements for this scene
 };
 
 }  // namespace gtopt
