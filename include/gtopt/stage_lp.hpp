@@ -52,7 +52,8 @@ public:
   template<typename BlockLPs = std::vector<BlockLP> >
   explicit StageLP(Stage pstage,
                    const BlockLPs& pblocks = {},
-                   double annual_discount_rate = 0.0)
+                   double annual_discount_rate = 0.0,
+                   StageIndex index = {})
       : m_stage_(std::move(pstage))
       , m_blocks_(std::span(pblocks).subspan(m_stage_.first_block,
                                              m_stage_.count_block))
@@ -70,6 +71,7 @@ public:
                                           { return b.duration(); }))
       , m_discount_factor_(
             annual_discount_factor(annual_discount_rate, m_timeinit_))
+      , m_index_(index)
   {
   }
 
@@ -113,6 +115,8 @@ private:
   double m_timeinit_ {0.0};
   double m_duration_ {0.0};  ///< Total duration of the m_stage_
   double m_discount_factor_ {1.0};
+
+  StageIndex m_index_;
 };
 
 }  // namespace gtopt
