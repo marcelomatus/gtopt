@@ -1,14 +1,13 @@
 /**
  * @file      phase_lp.hpp
- * @brief     Header file for the PhaseLP class, which represents a linear
- * program phase
+ * @brief     Linear programming phase representation
  * @date      Wed Apr  9 22:04:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module provides functionality for managing a phase in a linear
- * programming context, encapsulating a collection of StageLP objects and their
- * properties.
+ * Defines the PhaseLP class which represents a time phase in linear programming
+ * planning problems. A phase contains multiple stages and provides aggregate
+ * calculations across them.
  */
 
 #pragma once
@@ -23,13 +22,17 @@
 
 namespace gtopt
 {
+
 /**
  * @class PhaseLP
- * @brief Represents a phase in a linear programming planning problem
+ * @brief Linear programming phase containing multiple stages
  *
- * PhaseLP encapsulates a sequence of StageLP objects that form a cohesive
- * phase in the planning process. It provides access to the contained
- * stages and calculates aggregate properties such as total duration.
+ * Represents a contiguous time period (phase) in the planning problem,
+ * composed of multiple StageLP objects. Provides:
+ * - Access to contained stages
+ * - Phase duration calculation
+ * - Phase indexing and identification
+ * - Active/inactive status checks
  */
 class PhaseLP
 {
@@ -41,12 +44,14 @@ public:
   PhaseLP() noexcept = default;
 
   /**
-   * @brief Constructs a PhaseLP from a Phase object and a collection of
-   * stages
+   * @brief Construct a PhaseLP from phase definition and stages
    *
-   * @tparam Stages Type of the stages collection
-   * @param pphase The Phase object containing phase metadata
-   * @param pstages Collection of StageLP objects
+   * @tparam StageLPs  Type of stages container (defaults to vector<StageLP>)
+   * @param phase      Phase definition containing first_stage/count_stage
+   * @param all_stages Complete collection of all available stages
+   * @param index      Index of this phase in parent container
+   *
+   * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */
   template<class StageLPs = std::vector<StageLP>>
   explicit PhaseLP(Phase phase,
@@ -63,51 +68,54 @@ public:
   {
   }
 
-  /**
-   * @brief Get the total duration of the phase
-   * @return Total duration as a double
-   */
+  /// @return Total duration of all stages in this phase (hours)
   [[nodiscard]] constexpr auto duration() const noexcept { return m_duration_; }
 
-  /**
-   * @brief Check if the phase is active
-   * @return true if the phase is active, false otherwise
-   */
+  /// @return Whether this phase is active in the planning
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return m_phase_.active.value_or(true);
   }
 
-  /**
-   * @brief Get the unique identifier of the phase
-   * @return Phase UID
-   */
+  /// @return Unique identifier for this phase
   [[nodiscard]] constexpr auto uid() const noexcept
   {
     return PhaseUid {m_phase_.uid};
   }
 
-  /**
-   * @brief Get a span of all stages in this phase
-   * @return Span of StageLP objects
-   */
+  /// @return Index of this phase in parent container
+  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+
+  /// @return Span of all StageLP objects in this phase
   [[nodiscard]] constexpr auto& stages() const noexcept
   {
     return m_stage_span_;
   }
 
-  [[nodiscard]] constexpr auto first_stage() const
+  /// @return Index of first stage in this phase
+  [[nodiscard]] constexpr auto first_stage() const noexcept
   {
     return StageIndex {static_cast<Index>(m_phase_.first_stage)};
   }
 
-  [[nodiscard]] constexpr auto count_stage() const
+  /// @return Number of stages in this phase
+  [[nodiscard]] constexpr auto count_stage() const noexcept
   {
     return static_cast<Index>(m_phase_.count_stage);
   }
 
-  /// @return Index of this phase in the parent container
-  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+  /// @return Index of last stage in this phase (first_stage + count_stage - 1)
+  [[nodiscard]] constexpr auto last_stage() const noexcept
+  {
+    return StageIndex {static_cast<Index>(m_phase_.first_stage 
+                                        + m_phase_.count_stage - 1)};
+  }
+
+  /// @return Whether this phase contains the given stage index
+  [[nodiscard]] constexpr auto contains(StageIndex stage_index) const noexcept
+  {
+    return stage_index >= first_stage() && stage_index <= last_stage();
+  }
 
 private:
   Phase m_phase_;  ///< The underlying Phase object
