@@ -66,21 +66,21 @@ auto active_stage_block_indices(const Stages& stages) noexcept
 namespace gtopt
 {
 
-SystemContext::SystemContext(SimulationLP& psimulation, SystemLP& psystem)
+SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
-          psimulation.options(), psimulation.scenarios(), psimulation.stages())
-    , FlatHelper(psimulation,
-                 active_indices<ScenarioIndex>(psimulation.scenarios()),
-                 active_indices<StageIndex>(psimulation.stages()),
-                 active_stage_block_indices<BlockIndex>(psimulation.stages()),
-                 active_block_indices<BlockIndex>(psimulation.stages()))
+          simulation.options(), simulation.scenarios(), simulation.stages())
+    , FlatHelper(simulation,
+                 active_indices<ScenarioIndex>(simulation.scenarios()),
+                 active_indices<StageIndex>(simulation.stages()),
+                 active_stage_block_indices<BlockIndex>(simulation.stages()),
+                 active_block_indices<BlockIndex>(simulation.stages()))
     , CostHelper(
-          psimulation.options(), psimulation.scenarios(), psimulation.stages())
-    , m_simulation_(psimulation)
-    , m_system_(psystem)
+          simulation.options(), simulation.scenarios(), simulation.stages())
+    , m_simulation_(simulation)
+    , m_system_(system)
 {
   if (options().use_single_bus()) {
-    const auto& buses = system().elements<BusLP>();
+    const auto& buses = system.elements<BusLP>();
     if (!buses.empty()) {
       m_single_bus_id_ = buses.front().uid();
     }
@@ -97,6 +97,20 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     -> const BusLP&
 {
   return system().element(get_bus_index(id));
+}
+
+double SystemContext::stage_duration(const OptStageIndex& stage_index,
+                                     double prev_duration) const noexcept
+{
+  const auto phase_index = system().phase().index();
+
+  return stage_index ? simulation()
+                           .phases()
+                           .at(phase_index)
+                           .stages()
+                           .at(*stage_index)
+                           .duration()
+                     : prev_duration;
 }
 
 }  // namespace gtopt

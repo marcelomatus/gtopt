@@ -53,8 +53,8 @@ public:
       -> bool;
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
-                               const ScenarioIndex& scenario_index,
-                               const StageIndex& stage_index,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
                                LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
@@ -65,28 +65,27 @@ public:
     return balance_rows.at({scenario_index, stage_index});
   }
 
-  using BlockSpan = StageLP::BlockSpan;
-
   [[nodiscard]] auto theta_cols_at(const SystemContext& sc,
-                                   const ScenarioIndex& scenario_index,
-                                   const StageIndex& stage_index,
+                                   const ScenarioLP& scenario,
+                                   const StageLP& stage,
                                    LinearProblem& lp,
-                                   const BlockSpan& blocks) const
+                                   const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&
   {
-    const auto key = std::make_pair(scenario_index, stage_index);
+    const auto key = std::make_pair(scenario.index(), stage.index());
     if (auto it = theta_cols.find(key); it != theta_cols.end()) {
       return it->second;
     }
-    return lazy_add_theta(sc, scenario_index, stage_index, lp, blocks);
+    return lazy_add_theta(sc, scenario, stage, lp, blocks);
   }
 
 private:
   auto lazy_add_theta(const SystemContext& sc,
-                      const ScenarioIndex& scenario_index,
-                      const StageIndex& stage_index,
+                      const ScenarioLP& scenario,
+                      const StageLP& stage,
                       LinearProblem& lp,
-                      const BlockSpan& blocks) const -> const BIndexHolder&;
+                      const std::vector<BlockLP>& blocks) const
+      -> const BIndexHolder&;
 
   STBIndexHolder balance_rows;
 

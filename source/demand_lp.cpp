@@ -28,18 +28,18 @@ DemandLP::DemandLP(const InputContext& ic, Demand pdemand)
 }
 
 bool DemandLP::add_to_lp(SystemContext& sc,
-                         const ScenarioIndex& scenario_index,
-                         const StageIndex& stage_index,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
                          LinearProblem& lp)
 {
   constexpr std::string_view cname = "dem";
-  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname)) {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) {
     return false;
   }
 
-  if (!is_active(stage_index)) [[unlikely]] {
-    return true;
-  }
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
+
   const auto& bus_lp = sc.element<BusLP>(bus());
   if (!bus_lp.is_active(stage_index)) [[unlikely]] {
     return true;
@@ -51,7 +51,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto& balance_rows =
       bus_lp.balance_rows_at(scenario_index, stage_index);
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& blocks = stage.blocks();
 
   // adding the minimum energy constraint
   const auto emin_row = [&](auto stage_emin,

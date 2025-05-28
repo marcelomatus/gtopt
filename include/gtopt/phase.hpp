@@ -54,7 +54,7 @@ struct Phase
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return active ? *active : true;
+    return active.value_or(true);
   }
 };
 

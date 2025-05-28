@@ -10,8 +10,11 @@
 
 #pragma once
 
+#include <gtopt/index_holder.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/reserve_zone.hpp>
+#include <gtopt/scenario_lp.hpp>
+#include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
@@ -32,9 +35,10 @@ public:
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
-                               const ScenarioIndex& scenario_index,
-                               const StageIndex& stage_index,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
                                LinearProblem& lp);
+
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& urequirement_rows() const { return ur.requirement_rows; }
@@ -46,7 +50,7 @@ private:
   struct Requirement
   {
     Requirement(const InputContext& ic,
-                const std::string_view& cname,
+                std::string_view cname,
                 const Id& id,
                 auto&& rreq,
                 auto&& rcost);

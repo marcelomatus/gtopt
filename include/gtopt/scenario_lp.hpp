@@ -1,9 +1,8 @@
 #pragma once
 
-#include <span>
-
 #include <gtopt/basic_types.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/stage_lp.hpp>
 
 namespace gtopt
@@ -12,39 +11,48 @@ namespace gtopt
 class ScenarioLP
 {
 public:
-  using StageSpan = std::span<const StageLP>;
-
   ScenarioLP() = default;
 
   template<class StageLPs = std::vector<StageLP> >
-  explicit ScenarioLP(Scenario scenario, const StageLPs& all_stages = {})
+  explicit ScenarioLP(Scenario scenario,
+                      ScenarioIndex index = ScenarioIndex {unknown_index},
+                      SceneIndex scene_index = SceneIndex {unknown_index})
       : m_scenario_(std::move(scenario))
-      , m_stages_(all_stages)
+      , m_index_(index)
+      , m_scene_index_(scene_index)
   {
   }
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return m_scenario_.active.value_or(true);
+    return m_scenario_.is_active();
   }
+
+  [[nodiscard]] constexpr auto is_first() const noexcept
+  {
+    return m_index_ == ScenarioIndex {0};
+  }
+
   [[nodiscard]] constexpr auto uid() const
   {
     return ScenarioUid(m_scenario_.uid);
   }
+
   [[nodiscard]] constexpr auto probability_factor() const
   {
     return m_scenario_.probability_factor.value_or(1.0);
   }
 
-  [[nodiscard]] constexpr auto&& stage(const StageIndex index) const
+  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+  [[nodiscard]] constexpr auto scene_index() const noexcept
   {
-    return m_stages_[index];
+    return m_scene_index_;
   }
-  [[nodiscard]] constexpr auto&& stages() const { return m_stages_; }
 
 private:
   Scenario m_scenario_;
-  StageSpan m_stages_;
+  ScenarioIndex m_index_ {unknown_index};
+  SceneIndex m_scene_index_ {unknown_index};
 };
 
 }  // namespace gtopt

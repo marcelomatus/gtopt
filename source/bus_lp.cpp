@@ -14,23 +14,24 @@ auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
 }
 
 auto BusLP::lazy_add_theta(const SystemContext& sc,
-                           const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
+                           const ScenarioLP& scenario,
+                           const StageLP& stage,
                            LinearProblem& lp,
-                           const BlockSpan& blocks) const -> const BIndexHolder&
+                           const std::vector<BlockLP>& blocks) const
+    -> const BIndexHolder&
 {
   constexpr std::string_view cname = "bus";
 
   BIndexHolder tblocks;
   tblocks.reserve(blocks.size());
 
-  if (is_active(stage_index) && needs_kirchhoff(sc)) {
+  if (stage.is_active() && needs_kirchhoff(sc)) {
     const auto& theta = reference_theta();
 
     for (auto&& block : blocks) {
       SparseCol theta_col {
           .name = sc.stb_label(
-              scenario_index, stage_index, block, cname, "theta", uid())};
+              scenario.index(), stage.index(), block, cname, "theta", uid())};
       const auto tc =
           lp.add_col(theta ? std::move(theta_col.equal(theta.value()))
                            : std::move(theta_col.free()));
@@ -40,7 +41,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 
   constexpr bool EmptyOk = true;
   const auto [iter, inserted] = emplace_bholder(
-      scenario_index, stage_index, theta_cols, std::move(tblocks), EmptyOk);
+      scenario.index(), stage.index(), theta_cols, std::move(tblocks), EmptyOk);
 
   if (inserted) [[likely]] {
     return iter->second;
@@ -52,16 +53,13 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 }
 
 bool BusLP::add_to_lp(const SystemContext& sc,
-                      const ScenarioIndex& scenario_index,
-                      const StageIndex& stage_index,
+                      const ScenarioLP& scenario,
+                      const StageLP& stage,
                       LinearProblem& lp)
 {
   constexpr std::string_view cname = "bus";
-  if (!is_active(stage_index)) {
-    return true;
-  }
 
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& blocks = stage.blocks();
 
   BIndexHolder brows;
   brows.reserve(blocks.size());
@@ -70,11 +68,11 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   for (auto&& block : blocks) {
     brows.push_back(lp.add_row(
         {.name = sc.stb_label(
-             scenario_index, stage_index, block, cname, "bal", puid)}));
+             scenario.index(), stage.index(), block, cname, "bal", puid)}));
   }
 
   return emplace_bholder(
-             scenario_index, stage_index, balance_rows, std::move(brows))
+             scenario.index(), stage.index(), balance_rows, std::move(brows))
       .second;
 }
 

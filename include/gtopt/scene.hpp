@@ -10,8 +10,6 @@
 
 #pragma once
 
-#include <span>
-
 #include <gtopt/basic_types.hpp>
 
 namespace gtopt
@@ -27,9 +25,14 @@ struct Scene
   Size count_scenario {std::dynamic_extent};
 
   static constexpr std::string_view class_name = "scene";
+
+  [[nodiscard]] constexpr auto is_active() const noexcept
+  {
+    return active.value_or(true);
+  }
 };
 
-using SceneUid = StrongUidType<struct Scene>;
+using SceneUid = StrongUidType<Scene>;
 using SceneIndex = StrongIndexType<Scene>;
 using OptSceneIndex = std::optional<SceneIndex>;
 

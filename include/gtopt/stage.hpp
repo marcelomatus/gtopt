@@ -29,11 +29,11 @@ struct Stage
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return active ? *active : true;
+    return active.value_or(true);
   }
 };
 
-using StageUid = StrongUidType<struct tuid_>;
+using StageUid = StrongUidType<Stage>;
 using StageIndex = StrongIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
 

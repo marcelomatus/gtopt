@@ -67,7 +67,7 @@ class SystemContext
 {
 public:
   // Core Context Management
-  explicit SystemContext(SimulationLP& psimulation, SystemLP& psystem);
+  explicit SystemContext(SimulationLP& simulation, SystemLP& system);
 
   //
   //  get methods
@@ -87,27 +87,6 @@ public:
   [[nodiscard]] constexpr auto&& options() const noexcept
   {
     return simulation().options();
-  }
-
-  // Stage Accessors
-
-  [[nodiscard]] constexpr auto stage_duration(const OptStageIndex& stage_index,
-                                              double prev_duration = 0) const
-  {
-    return stage_index ? stages().at(stage_index.value()).duration()
-                       : prev_duration;
-  }
-
-  [[nodiscard]] constexpr auto stage_duration(
-      const StageIndex& stage_index) const
-  {
-    return stages().at(stage_index).duration();
-  }
-
-  [[nodiscard]] constexpr auto&& stage_blocks(
-      const StageIndex& stage_index) const
-  {
-    return stages().at(stage_index).blocks();
   }
 
   //
@@ -233,6 +212,12 @@ public:
   }
 
   //
+  //
+  //
+  [[nodiscard]] double stage_duration(const OptStageIndex& stage_index,
+                                      double prev_duration = 0) const noexcept;
+
+  //
   //  get_bus, single_bus and related
   //
 
@@ -267,19 +252,10 @@ public:
     return simulation().scenarios();
   }
 
-  [[nodiscard]] constexpr const std::vector<StageLP>& stages() const noexcept
-  {
-    return simulation().stages();
-  }
-
-  [[nodiscard]] constexpr const std::vector<BlockLP>& blocks() const noexcept
-  {
-    return simulation().blocks();
-  }
-
+#ifdef NONE
   // Methods to handle the state_variables
   constexpr const auto& add_state_variable_col(const Name& name,
-                                               const StageIndex& stage_index,
+                                               const PhaseIndex& stage_index,
                                                Index col)
   {
     return simulation().add_state_variable(
@@ -287,7 +263,7 @@ public:
   }
 
   [[nodiscard]] constexpr auto get_state_variable_col(
-      const Name& name, const StageIndex& stage_index) const
+      const Name& name, const PhaseIndex& stage_index) const
   {
     const auto state_var = simulation().get_state_variable(
         StateVariable::key_t {name, stage_index});
@@ -298,6 +274,8 @@ public:
 
     return result;
   }
+
+#endif
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;

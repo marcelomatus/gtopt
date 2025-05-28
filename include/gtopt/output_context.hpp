@@ -64,9 +64,9 @@ public:
            typename Prelude,
            typename Operation,
            typename Factor = std::span<double>>
-  void add_field(const std::string_view& cname,
-                 const std::string_view& fname,
-                 const std::string_view& sname,
+  void add_field(std::string_view cname,
+                 std::string_view fname,
+                 std::string_view sname,
                  const Id& id,
                  const IndexHolder& holder,
                  const Span& value_span,
@@ -91,8 +91,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_sol(const std::string_view& cname,
-                             const std::string_view& col_name,
+  constexpr void add_col_sol(std::string_view cname,
+                             std::string_view col_name,
                              const Id& id,
                              const GSTBIndexHolder& holder,
                              Operation op = {})
@@ -109,8 +109,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_sol(const std::string_view& cname,
-                             const std::string_view& col_name,
+  constexpr void add_col_sol(std::string_view cname,
+                             std::string_view col_name,
                              const Id& id,
                              const STBIndexHolder& holder,
                              Operation op = {})
@@ -127,8 +127,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_cost(const std::string_view& cname,
-                              const std::string_view& col_name,
+  constexpr void add_col_cost(std::string_view cname,
+                              std::string_view col_name,
                               const Id& id,
                               const GSTBIndexHolder& holder,
                               Operation op = {})
@@ -145,8 +145,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_cost(const std::string_view& cname,
-                              const std::string_view& col_name,
+  constexpr void add_col_cost(std::string_view cname,
+                              std::string_view col_name,
                               const Id& id,
                               const STBIndexHolder& holder,
                               Operation op = {})
@@ -163,8 +163,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_row_dual(const std::string_view& cname,
-                              const std::string_view& row_name,
+  constexpr void add_row_dual(std::string_view cname,
+                              std::string_view row_name,
                               const Id& id,
                               const GSTBIndexHolder& holder,
                               Operation op = {})
@@ -181,8 +181,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_row_dual(const std::string_view& cname,
-                              const std::string_view& row_name,
+  constexpr void add_row_dual(std::string_view cname,
+                              std::string_view row_name,
                               const Id& id,
                               const STBIndexHolder& holder,
                               Operation op = {})
@@ -200,8 +200,8 @@ public:
 
   ///
   template<typename Operation = std::identity>
-  constexpr void add_col_sol(const std::string_view& cname,
-                             const std::string_view& col_name,
+  constexpr void add_col_sol(std::string_view cname,
+                             std::string_view col_name,
                              const Id& id,
                              const STIndexHolder& holder,
                              Operation op = {})
@@ -218,8 +218,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_cost(const std::string_view& cname,
-                              const std::string_view& col_name,
+  constexpr void add_col_cost(std::string_view cname,
+                              std::string_view col_name,
                               const Id& id,
                               const STIndexHolder& holder,
                               Operation op = {})
@@ -236,8 +236,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_row_dual(const std::string_view& cname,
-                              const std::string_view& row_name,
+  constexpr void add_row_dual(std::string_view cname,
+                              std::string_view row_name,
                               const Id& id,
                               const STIndexHolder& holder,
                               Operation op = {})
@@ -254,8 +254,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_sol(const std::string_view& cname,
-                             const std::string_view& col_name,
+  constexpr void add_col_sol(std::string_view cname,
+                             std::string_view col_name,
                              const Id& id,
                              const TIndexHolder& holder,
                              Operation op = {})
@@ -272,8 +272,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_col_cost(const std::string_view& cname,
-                              const std::string_view& col_name,
+  constexpr void add_col_cost(std::string_view cname,
+                              std::string_view col_name,
                               const Id& id,
                               const TIndexHolder& holder,
                               Operation op = {})
@@ -290,8 +290,8 @@ public:
   }
 
   template<typename Operation = std::identity>
-  constexpr void add_row_dual(const std::string_view& cname,
-                              const std::string_view& row_name,
+  constexpr void add_row_dual(std::string_view cname,
+                              std::string_view row_name,
                               const Id& id,
                               const TIndexHolder& holder,
                               Operation op = {})

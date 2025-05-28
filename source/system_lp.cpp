@@ -24,10 +24,8 @@
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
-#include "gtopt/scenario.hpp"
 #include "gtopt/simulation_lp.hpp"
 #include "gtopt/system_context.hpp"
-#include "gtopt/utils.hpp"
 
 namespace
 {
@@ -50,18 +48,11 @@ template<typename Out, typename Inp, typename InputContext>
 constexpr auto make_collection(InputContext& input_context,
                                const std::vector<Inp>& input) -> Collection<Out>
 {
-  // Reserve space for the output vector
-  std::vector<Out> output;
-  output.reserve(input.size());
-
-  // Use transform algorithm instead of manual loop
-  std::transform(input.begin(),
-                 input.end(),
-                 std::back_inserter(output),
-                 [&](Inp element)
-                 { return Out {input_context, std::move(element)}; });
-
-  return Collection<Out> {std::move(output)};
+  return Collection<Out> {
+      input
+      | ranges::views::transform(
+          [&](auto element) { return Out {input_context, std::move(element)}; })
+      | ranges::to<std::vector<Out>>()};
 }
 
 /**
@@ -94,8 +85,8 @@ constexpr auto make_collection(InputContext& input_context,
 
 constexpr void add_to_lp(auto& collections,
                          SystemContext& system_context,
-                         const ScenarioIndex& scenario_index,
-                         const StageIndex& stage_index,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
                          LinearProblem& lp)
 {
   const bool use_single_bus = system_context.options().use_single_bus();
@@ -106,50 +97,37 @@ constexpr void add_to_lp(auto& collections,
 
     if constexpr (std::is_same_v<T, BusLP>) {
       return !use_single_bus || system_context.is_single_bus(e.id())
-          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
+          ? e.add_to_lp(system_context, scenario, stage, lp)
           : true;
     } else if constexpr (std::is_same_v<T, LineLP>) {
-      return !use_single_bus
-          ? e.add_to_lp(system_context, scenario_index, stage_index, lp)
-          : true;
+      return !use_single_bus ? e.add_to_lp(system_context, scenario, stage, lp)
+                             : true;
     } else {
-      return e.add_to_lp(system_context, scenario_index, stage_index, lp);
+      return e.add_to_lp(system_context, scenario, stage, lp);
     }
   };
 
   visit_elements(collections, visitor);
 }
 
-constexpr auto create_linear_interfaces(auto& collections,
-                                        auto& system_context,
-                                        const auto& system,
-                                        const auto& simulation,
-                                        const auto& flat_opts)
+constexpr auto create_linear_interface(auto& collections,
+                                       SystemContext& system_context,
+                                       const PhaseLP& phase,
+                                       const SceneLP& scene,
+                                       const auto& flat_opts)
 {
-  std::vector<LinearInterface> linear_interfaces;
-  const auto& phases = simulation.phases();
-  linear_interfaces.reserve(phases.size());
-
-  for (const auto& phase : phases) {
-    LinearProblem lp(system.name);
-
-    // Process all active stages in phase
-    for (auto&& [stage_index, stage] :
-         enumerate_active<StageIndex>(phase.stages()))
-    {
-      // Process all active scenarios in simulation
-      for (auto&& [scenario_index, scenario] :
-           enumerate_active<ScenarioIndex>(simulation.scenarios()))
-      {
-        add_to_lp(collections, system_context, scenario_index, stage_index, lp);
-      }
+  LinearProblem lp;
+  // Process all active stages in phase
+  for (auto&& stage : phase.stages()) {
+    // Process all active scenarios in simulation
+    for (auto&& scenario : scene.scenarios()) {
+      add_to_lp(collections, system_context, scenario, stage, lp);
     }
-
-    // Convert and store the flattened LP representation
-    linear_interfaces.emplace_back(lp.to_flat(flat_opts));
   }
 
-  return linear_interfaces;
+  // Convert and store the flattened LP representation
+
+  return LinearInterface {lp.to_flat(flat_opts)};
 }
 
 constexpr auto create_collections(const auto& system_context, const auto& sys)
@@ -208,47 +186,41 @@ constexpr auto create_collections(const auto& system_context, const auto& sys)
 
 namespace gtopt
 {
+void SystemLP::create_lp(const FlatOptions& flat_opts)
+{
+  m_linear_interface_ = create_linear_interface(
+      collections(), system_context(), phase(), scene(), flat_opts);
+}
 
 SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
-                   PhaseIndex phase_index,
+                   PhaseLP phase,
+                   SceneLP scene,
                    const FlatOptions& flat_opts)
     : m_system_(system)
+    , m_collections_(create_collections(system_context(), system))
     , m_system_context_(simulation, *this)
-    , m_collections_(create_collections(m_system_context_, system))
-    , m_linear_interfaces_(create_linear_interfaces(
-          m_collections_, m_system_context_, system, simulation, flat_opts))
-    , m_phase_index_(phase_index)
+    , m_phase_(std::move(phase))
+    , m_scene_(std::move(scene))
 {
-}
-
-void SystemLP::create_lp(const FlatOptions& flat_opts)
-{
-  m_linear_interfaces_ = create_linear_interfaces(m_collections_,
-                                                  m_system_context_,
-                                                  system(),
-                                                  system_context().simulation(),
-                                                  flat_opts);
+  create_lp(flat_opts);
 }
 
 void SystemLP::write_out() const
 {
-  for (auto&& li : m_linear_interfaces_) {
-    OutputContext oc(m_system_context_, li);
+  OutputContext oc(system_context(), linear_interface());
 
-    visit_elements(m_collections_,
-                   [&oc](const auto& e) { return e.add_to_output(oc); });
+  visit_elements(collections(),
+                 [&oc](const auto& e) { return e.add_to_output(oc); });
 
-    oc.write();
-  }
+  oc.write();
 }
 
 void SystemLP::write_lp(const std::string& filename) const
 {
-  for (auto&& [index, li] : enumerate(m_linear_interfaces_)) {
-    const auto fname = fmt::format("{}_{}", filename, index);
-    li.write_lp(fname);
-  }
+  const auto fname = as_label(filename, phase().index(), scene().index());
+
+  linear_interface().write_lp(fname);
 }
 
 /**
@@ -265,9 +237,7 @@ void SystemLP::write_lp(const std::string& filename) const
  */
 bool SystemLP::run_lp(const SolverOptions& solver_options)
 {
-  return ranges::all_of(m_linear_interfaces_,
-                        [&solver_options](auto& interface)
-                        { return interface.resolve(solver_options); });
+  return linear_interface().resolve(solver_options);
 }
 
 }  // namespace gtopt

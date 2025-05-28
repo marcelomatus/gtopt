@@ -32,17 +32,18 @@ ConverterLP::ConverterLP(InputContext& ic, Converter pconverter)
 }
 
 bool ConverterLP::add_to_lp(SystemContext& sc,
-                            const ScenarioIndex& scenario_index,
-                            const StageIndex& stage_index,
+                            const ScenarioLP& scenario,
+                            const StageLP& stage,
                             LinearProblem& lp)
 {
   constexpr std::string_view cname = "conv";
 
-  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
-      [[unlikely]]
-  {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
     return false;
   }
+
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
 
   if (!is_active(stage_index)) [[unlikely]] {
     return true;
@@ -53,7 +54,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   const auto stage_conversion_rate =
       conversion_rate.at(stage_index).value_or(1.0);
 
-  auto&& blocks = sc.stage_blocks(stage_index);
+  auto&& blocks = stage.blocks();
 
   auto&& generator = sc.element(generator_index);
   auto&& gen_cols = generator.generation_cols_at(scenario_index, stage_index);

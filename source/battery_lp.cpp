@@ -33,29 +33,24 @@ namespace gtopt
  * 2. State of charge tracking constraints between time blocks
  * 3. Capacity constraints linking battery operation to installed capacity
  */
+
 bool BatteryLP::add_to_lp(SystemContext& sc,
-                          const ScenarioIndex& scenario_index,
-                          const StageIndex& stage_index,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
                           LinearProblem& lp)
 {
   constexpr std::string_view cname = "batt";
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
-      [[unlikely]]
-  {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
     return false;
   }
 
-  if (!is_active(stage_index)) [[unlikely]] {
-    return true;
-  }
-
   // Get capacity information
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
+  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage.index(), lp);
 
   // Get blocks for this stage
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& blocks = stage.blocks();
 
   // Create flow variables for each time block
   BIndexHolder fcols;
@@ -68,7 +63,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                [&](const auto& b)
                {
                  return sc.stb_label(
-                     scenario_index, stage_index, b, cname, "flow", uid());
+                     scenario.index(), stage.index(), b, cname, "flow", uid());
                }))
   {
     SparseCol fcol {.name = name};
@@ -76,14 +71,9 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
-  if (!StorageBase::add_to_lp(sc,
-                              scenario_index,
-                              stage_index,
-                              lp,
-                              cname,
-                              fcols,
-                              stage_capacity,
-                              capacity_col)) [[unlikely]]
+  if (!StorageBase::add_to_lp(
+          sc, scenario, stage, lp, cname, fcols, stage_capacity, capacity_col))
+      [[unlikely]]
   {
     SPDLOG_CRITICAL(
         fmt::format("Failed to add storage constraints for battery {}", uid()));
@@ -93,7 +83,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
 
   // Store flow variable indices for later use
   return emplace_bholder(
-             scenario_index, stage_index, flow_cols, std::move(fcols))
+             scenario.index(), stage.index(), flow_cols, std::move(fcols))
       .second;
 }
 

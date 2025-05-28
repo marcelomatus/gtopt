@@ -34,16 +34,14 @@ namespace gtopt
 class StateVariable
 {
 public:
-  using key_t = std::tuple<NameView, StageIndex>;
-
-  static constexpr Index unknown = -1;
+  using key_t = std::tuple<NameView, PhaseIndex>;
 
   constexpr StateVariable() = default;
 
   /**
    * @brief Constructs a valid state variable
    * @param name Variable name
-   * @param stage_index Associated stage index
+   * @param phase_index Associated phase index
    * @param phase_index Associated phase index
    * @param first_col First column in optimization matrix
    * @param last_col Last column in optimization matrix
@@ -52,24 +50,25 @@ public:
    * leave the source object in a valid but unspecified state (name empty,
    * indices -1).
    */
-  constexpr explicit StateVariable(Name name,
-                                   StageIndex stage_index,
-                                   Index first_col,
-                                   Index last_col = unknown) noexcept(false)
+  constexpr explicit StateVariable(
+      Name name,
+      PhaseIndex phase_index,
+      Index first_col,
+      Index last_col = unknown_index) noexcept(false)
       : m_name_(std::move(name))
-      , m_stage_index_(stage_index)
+      , m_phase_index_(phase_index)
       , m_first_col_(first_col)
-      , m_last_col_(last_col != unknown ? last_col : first_col)
+      , m_last_col_(last_col != unknown_index ? last_col : first_col)
   {
   }
 
   /// @return Variable name view
   [[nodiscard]] constexpr NameView name() const noexcept { return m_name_; }
 
-  /// @return Associated stage index
-  [[nodiscard]] constexpr StageIndex stage_index() const noexcept
+  /// @return Associated phase index
+  [[nodiscard]] constexpr PhaseIndex phase_index() const noexcept
   {
-    return m_stage_index_;
+    return m_phase_index_;
   }
 
   /// @return First column index in optimization matrix
@@ -93,14 +92,14 @@ public:
   /// @return Unique key tuple for this variable (name, stage, phase)
   [[nodiscard]] constexpr auto key() const noexcept
   {
-    return key_t {name(), stage_index()};
+    return key_t {name(), phase_index()};
   }
 
 private:
   Name m_name_;  ///< Variable name
-  StageIndex m_stage_index_;  ///< Associated stage index
-  Index m_first_col_ {-1};  ///< First column index (invalid when negative)
-  Index m_last_col_ {-1};  ///< Last column index (invalid when negative)
+  PhaseIndex m_phase_index_ {unknown_index};  ///< Associated phase index
+  Index m_first_col_ {unknown_index};  ///< First column index
+  Index m_last_col_ {unknown_index};  ///< Last column index
 };
 
 // Type aliases for cleaner usage

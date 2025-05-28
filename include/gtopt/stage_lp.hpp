@@ -17,11 +17,24 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/block_lp.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
 {
+
+namespace details
+{
+constexpr auto create_block_array(const auto& block_array, const Stage& stage)
+{
+  auto&& blocks =
+      std::span(block_array).subspan(stage.first_block, stage.count_block);
+
+  return blocks | ranges::views::transform([](auto&& b) { return BlockLP {b}; })
+      | ranges::to<std::vector>();
+}
+}  // namespace details
 
 /**
  * @brief A class representing a stage in a linear programming planning
@@ -33,8 +46,6 @@ namespace gtopt
 class StageLP
 {
 public:
-  using BlockSpan = std::span<const BlockLP>;
-
   StageLP() = default;
 
   /**
@@ -46,17 +57,18 @@ public:
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
    */
-  template<typename BlockLPs = std::vector<BlockLP> >
+  template<typename Blocks = std::vector<Block> >
   explicit StageLP(Stage stage,
-                   const BlockLPs& all_blocks = {},
+                   const Blocks& all_blocks = {},
                    double annual_discount_rate = 0.0,
-                   StageIndex index = StageIndex {unknown_index})
+                   StageIndex stage_index = StageIndex {unknown_index},
+                   PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_stage_(std::move(stage))
-      , m_blocks_(std::span(all_blocks)
-                      .subspan(m_stage_.first_block, m_stage_.count_block))
+      , m_blocks_(details::create_block_array(all_blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
             all_blocks | ranges::views::take(stage.first_block)
-                | ranges::views::transform(&BlockLP::duration),
+                | ranges::views::transform([](const Block& b)
+                                           { return b.duration; }),
             0.0,
             std::plus()))
       , m_duration_(ranges::fold_left(
@@ -65,7 +77,8 @@ public:
             std::plus<>()))
       , m_discount_factor_(
             annual_discount_factor(annual_discount_rate, m_timeinit_))
-      , m_index_(index)
+      , m_index_(stage_index)
+      , m_phase_index_(phase_index)
   {
   }
 
@@ -100,6 +113,11 @@ public:
   /// @return Index of this stage in the parent container
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
+  [[nodiscard]] constexpr auto phase_index() const noexcept
+  {
+    return m_phase_index_;
+  }
+
   /// @return Span of blocks in this stage
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
@@ -108,12 +126,13 @@ public:
 
 private:
   Stage m_stage_;  ///< Stage definition
-  BlockSpan m_blocks_;  ///< View of blocks in this m_stage_
+  std::vector<BlockLP> m_blocks_;  ///< View of blocks in this m_stage_
   double m_timeinit_ {0.0};
   double m_duration_ {0.0};  ///< Total duration of the m_stage_
   double m_discount_factor_ {1.0};
 
   StageIndex m_index_ {unknown_index};
+  PhaseIndex m_phase_index_ {unknown_index};
 };
 
 }  // namespace gtopt

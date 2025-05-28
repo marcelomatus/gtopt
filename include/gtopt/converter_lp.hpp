@@ -93,8 +93,8 @@ public:
   }
 
   bool add_to_lp(SystemContext& sc,
-                 const ScenarioIndex& scenario_index,
-                 const StageIndex& stage_index,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
                  LinearProblem& lp);
 
   bool add_to_output(OutputContext& out) const;

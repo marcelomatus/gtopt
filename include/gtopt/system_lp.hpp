@@ -52,13 +52,11 @@ class LinearInterface;
 template<typename T>
 concept AddToLP = requires(T obj,
                            SystemContext& system_context,
-                           const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
+                           const ScenarioLP& scenario,
+                           const StageLP& stage,
                            LinearProblem& lp,
                            OutputContext& output_context) {
-  {
-    obj.add_to_lp(system_context, scenario_index, stage_index, lp)
-  } -> std::same_as<bool>;
+  { obj.add_to_lp(system_context, scenario, stage, lp) } -> std::same_as<bool>;
   { obj.add_to_output(output_context) } -> std::same_as<bool>;
 };
 
@@ -88,11 +86,12 @@ static_assert(AddToLP<ReserveProvisionLP>);
 class SystemLP
 {
 public:
-  SystemLP(SystemLP&&) noexcept = default;
-  SystemLP(const SystemLP&) = default;
   SystemLP() = delete;
-  constexpr SystemLP& operator=(SystemLP&&) noexcept = default;
-  constexpr SystemLP& operator=(const SystemLP&) noexcept = default;
+  SystemLP(const SystemLP&) = delete;
+  SystemLP& operator=(const SystemLP&) noexcept = delete;
+
+  SystemLP(SystemLP&&) noexcept = default;
+  SystemLP& operator=(SystemLP&&) noexcept = default;
   ~SystemLP() noexcept = default;
 
   /**
@@ -103,8 +102,23 @@ public:
    */
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
-                    PhaseIndex phase_index = {},
-                    const FlatOptions& flat_opts = {}) noexcept(false);
+                    PhaseLP phase,
+                    SceneLP scene,
+                    const FlatOptions& flat_opts = {});
+
+  explicit SystemLP(const System& system,
+                    SimulationLP& simulation,
+                    const FlatOptions& flat_opts = {})
+      : SystemLP(system,
+                 simulation,
+                 PhaseLP {Phase {},
+                          simulation.options(),
+                          simulation.simulation(),
+                          PhaseIndex {0}},
+                 SceneLP {Scene {}, simulation.simulation(), SceneIndex {0}},
+                 flat_opts)
+  {
+  }
 
   /// Tuple of collections for all LP component types
   using collections_t = std::tuple<Collection<BusLP>,
@@ -118,6 +132,12 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>>;
 
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_collections_;
+  }
+
   /**
    * @brief Access the underlying system
    * @return Reference to the system
@@ -128,6 +148,10 @@ public:
     return std::forward<Self>(self).m_system_.get();
   }
 
+  /**
+   * @brief Get system context
+   * @return Const reference to system context
+   */
   template<typename Self>
   [[nodiscard]] constexpr auto&& system_context(this Self&& self) noexcept
   {
@@ -139,18 +163,9 @@ public:
    * @return Linear interfaces container
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& linear_interfaces(this Self&& self) noexcept
+  [[nodiscard]] constexpr auto&& linear_interface(this Self&& self) noexcept
   {
-    return std::forward<Self>(self).m_linear_interfaces_;
-  }
-
-  /**
-   * @brief Get system context
-   * @return Const reference to system context
-   */
-  [[nodiscard]] constexpr const auto& system_context() const noexcept
-  {
-    return m_system_context_;
+    return std::forward<Self>(self).m_linear_interface_;
   }
 
   /**
@@ -234,7 +249,7 @@ public:
     return system().name;
   }
 
-  void create_lp(const FlatOptions& flat_opts);
+  void create_lp(const FlatOptions& flat_opts = {});
 
   /**
    * @brief Write LP formulation to file
@@ -247,19 +262,30 @@ public:
    * @param solver_options Solver configuration
    * @return true if resolution succeeded
    */
-  bool run_lp(const SolverOptions& solver_options);
+  bool run_lp(const SolverOptions& solver_options = {});
 
   /**
    * @brief Write output for all linear interfaces
    */
   void write_out() const;
 
+  [[nodiscard]] constexpr const auto& phase() const noexcept
+  {
+    return m_phase_;
+  }
+
+  [[nodiscard]] constexpr const auto& scene() const noexcept
+  {
+    return m_scene_;
+  }
+
 private:
   std::reference_wrapper<const System> m_system_;
-  SystemContext m_system_context_;
   collections_t m_collections_;
-  std::vector<LinearInterface> m_linear_interfaces_;
-  PhaseIndex m_phase_index_;
+  SystemContext m_system_context_;
+  PhaseLP m_phase_;
+  SceneLP m_scene_;
+  LinearInterface m_linear_interface_;
 };
 
 }  // namespace gtopt

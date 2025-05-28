@@ -33,8 +33,8 @@ public:
   [[nodiscard]] auto bus() const { return BusLPSId {generator().bus}; }
 
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
-                               const ScenarioIndex& scenario_index,
-                               const StageIndex& stage_index,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
                                LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
@@ -52,8 +52,6 @@ private:
 
   STBIndexHolder generation_cols;
   STBIndexHolder capacity_rows;
-
-  ElementIndex<BusLP> bus_index;
 };
 
 }  // namespace gtopt
