@@ -23,12 +23,7 @@ namespace
 [[nodiscard]] constexpr auto create_simulation(const Simulation& simulation,
                                                const OptionsLP& options)
 {
-  try {
-    return SimulationLP {simulation, options};
-  } catch (const std::exception& e) {
-    SPDLOG_CRITICAL("Failed to create simulation: {}", e.what());
-    throw;
-  }
+  return SimulationLP {simulation, options};
 }
 
 [[nodiscard]] scene_phase_systems_t create_systems(System& system,
@@ -69,17 +64,10 @@ PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
 
 void PlanningLP::write_lp(const std::string& filename) const
 {
-  try {
-    spdlog::stopwatch sw;
-    for (auto&& phase_systems : m_systems_) {
-      for (auto&& system : phase_systems) {
-        system.write_lp(filename);
-      }
+  for (auto&& phase_systems : m_systems_) {
+    for (auto&& system : phase_systems) {
+      system.write_lp(filename);
     }
-    SPDLOG_DEBUG("Wrote LP files in {:.3} seconds", sw);
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to write LP files: {}", e.what());
-    throw;
   }
 }
 
@@ -96,17 +84,11 @@ auto PlanningLP::run_lp(const SolverOptions& lp_opts)
     -> std::expected<int, std::string>
 {
   try {
-    // Solve the planning problem
-
-    spdlog::stopwatch sw;
     bool status = true;
     for (auto&& phase_systems : systems()) {
       for (auto&& system : phase_systems) {
         if (auto result = system.run_lp(lp_opts); !result) {
           status = false;
-          SPDLOG_ERROR("LP solver failed for system {}: {}",
-                       system.name(),
-                       result.error());
           break;
         }
       }

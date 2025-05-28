@@ -19,9 +19,9 @@
  *
  * Supported argument types:
  * - std::string and string views
- * - Built-in numeric types (converted via std::to_string)
+ * - Built-in numeric types (converted via std::format)
  * - Any type convertible to string_view
- * - Any type formattable via std::to_string
+ * - Any type formattable via std::format
  *
  * Example usage:
  * @code
@@ -33,6 +33,7 @@
 #pragma once
 
 #include <array>
+#include <format>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -60,7 +61,7 @@ class string_holder
     if constexpr (std::is_convertible_v<T, std::string_view>) {
       return std::string_view(std::forward<T>(t));
     } else {
-      return std::to_string(std::forward<T>(t));
+      return std::format("{}", std::forward<T>(t));
     }
   }
 
@@ -90,7 +91,7 @@ public:
   template<typename T>
     requires(!string_like<T>)
   constexpr explicit string_holder(const T& value)
-      : storage(std::to_string(value))
+      : storage(std::format("{}", value))
   {
   }
 
