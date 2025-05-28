@@ -20,11 +20,11 @@ namespace gtopt
 namespace
 {
 
-[[nodiscard]] constexpr auto create_simulation(const Simulation& simulation, 
-                                              const OptionsLP& options) noexcept
+[[nodiscard]] constexpr auto create_simulation(const Simulation& simulation,
+                                               const OptionsLP& options)
 {
   try {
-    return SimulationLP{simulation, options};
+    return SimulationLP {simulation, options};
   } catch (const std::exception& e) {
     SPDLOG_CRITICAL("Failed to create simulation: {}", e.what());
     throw;
@@ -32,9 +32,9 @@ namespace
 }
 
 [[nodiscard]] scene_phase_systems_t create_systems(System& system,
-                                                 SimulationLP& simulation,
-                                                 const OptionsLP& options,
-                                                 const FlatOptions& flat_opts)
+                                                   SimulationLP& simulation,
+                                                   const OptionsLP& options,
+                                                   const FlatOptions& flat_opts)
 {
   system.setup_reference_bus(options);
 
@@ -104,8 +104,9 @@ auto PlanningLP::run_lp(const SolverOptions& lp_opts)
       for (auto&& system : phase_systems) {
         if (auto result = system.run_lp(lp_opts); !result) {
           status = false;
-          SPDLOG_ERROR("LP solver failed for system {}: {}", 
-                      system.name(), result.error());
+          SPDLOG_ERROR("LP solver failed for system {}: {}",
+                       system.name(),
+                       result.error());
           break;
         }
       }
