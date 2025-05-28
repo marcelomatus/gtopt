@@ -83,6 +83,13 @@ CPMAddPackage(
   VERSION 15
 )
 
+# Add doctest for unit testing
+CPMAddPackage(
+  NAME doctest
+  GITHUB_REPOSITORY doctest/doctest
+  VERSION 2.4.11
+)
+
 # ---- Add source files ----
 
 # Note: globbing sources is considered bad practice as CMake's generators may not
@@ -176,3 +183,7 @@ packageProject(
   COMPATIBILITY SameMajorVersion
   DEPENDENCIES "range-v3 0.12.0; spdlog 1.12.0; fmt 9.1.0; strong_type 15; daw 3.30.2"
 )
+
+# Enable testing
+enable_testing()
+add_subdirectory(test)
