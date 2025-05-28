@@ -23,7 +23,8 @@ TEST_CASE("BusLP construction and basic properties")
 
   SimulationLP simulation(simu, options);
 
-  SystemLP system({}, simulation);
+  System sys;
+  SystemLP system(sys, simulation);
 
   SystemContext sc(simulation, system);
 #if 0
@@ -182,7 +183,7 @@ TEST_CASE("BusLP add_to_lp method")
   BusLP bus_lp(ic, std::move(bus));
 
   // Add to LP should succeed
-  StageIndex stage_index {};
-  ScenarioIndex scenario_index {};
-  CHECK(bus_lp.add_to_lp(sc, scenario_index, stage_index, lp) == true);
+  StageLP stage {};
+  ScenarioLP scenario {};
+  CHECK(bus_lp.add_to_lp(sc, scenario, stage, lp) == true);
 }

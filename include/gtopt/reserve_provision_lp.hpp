@@ -37,8 +37,8 @@ public:
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
-                               const ScenarioIndex& scenario_index,
-                               const StageIndex& stage_index,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
                                LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
@@ -46,7 +46,7 @@ private:
   struct Provision
   {
     Provision(const InputContext& ic,
-              const std::string_view& cname,
+              std::string_view cname,
               const Id& id,
               auto&& rmax,
               auto&& rcost,

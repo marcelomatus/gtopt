@@ -14,7 +14,6 @@
 #pragma once
 
 #include <functional>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -59,9 +58,7 @@ public:
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */
-  explicit SimulationLP(const Simulation& psimulation,
-                        const OptionsLP& poptions,
-                        const Scene& pscene = {}) noexcept(false);
+  explicit SimulationLP(const Simulation& simulation, const OptionsLP& options);
 
   // Accessors
   /**
@@ -87,7 +84,7 @@ public:
    * @brief Gets all scene LP representations
    * @return Const reference to vector of SceneLP objects
    */
-  [[nodiscard]] constexpr const std::vector<SceneLP>& scenes() const noexcept
+  [[nodiscard]] constexpr const auto& scenes() const noexcept
   {
     return m_scene_array_;
   }
@@ -96,8 +93,7 @@ public:
    * @brief Gets all scenario LP representations
    * @return Const reference to vector of ScenarioLP objects
    */
-  [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
-      const noexcept
+  [[nodiscard]] constexpr const auto& scenarios() const noexcept
   {
     return m_scenario_array_;
   }
@@ -106,61 +102,19 @@ public:
    * @brief Gets all phase LP representations
    * @return Const reference to vector of PhaseLP objects
    */
-  [[nodiscard]] constexpr const std::vector<PhaseLP>& phases() const noexcept
+  [[nodiscard]] constexpr const auto& phases() const noexcept
   {
     return m_phase_array_;
   }
 
-  /**
-   * @brief Gets all stage LP representations
-   * @return Const reference to vector of StageLP objects
-   */
-  [[nodiscard]] constexpr const std::vector<StageLP>& stages() const noexcept
-  {
-    return m_stage_array_;
-  }
-
-  /**
-   * @brief Gets all block LP representations
-   * @return Const reference to vector of BlockLP objects
-   */
-  [[nodiscard]] constexpr const std::vector<BlockLP>& blocks() const noexcept
+  [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
     return m_block_array_;
   }
 
-  // Add method with deducing this and perfect forwarding
-  template<typename Self, typename StateVar>
-  constexpr auto&& add_state_variable(this Self&& self, StateVar&& state_var)
+  [[nodiscard]] constexpr const auto& stages() const noexcept
   {
-    const auto& key = state_var.key();
-    auto&& map = std::forward<Self>(self).m_state_variable_map_;
-    const auto [it, inserted] =
-        map.try_emplace(key, std::forward<StateVar>(state_var));
-
-    if (!inserted) {
-      auto msg = fmt::format("duplicated variable {} in simulation map",
-                             state_var.name());
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
-    }
-
-    return std::forward_like<Self>(it->second);
-  }
-
-  // Get method with deducing this for automatic const handling
-  template<typename Key>
-  [[nodiscard]] constexpr auto get_state_variable(Key&& key) const
-      noexcept(noexcept(std::declval<state_variable_map_t>().find(key)))
-  {
-    using value_type = const StateVariable;
-
-    using result_t = std::optional<std::reference_wrapper<value_type>>;
-
-    auto&& map = m_state_variable_map_;
-    const auto it = map.find(std::forward<Key>(key));
-
-    return (it != map.end()) ? result_t {it->second} : std::nullopt;
+    return m_stage_array_;
   }
 
 private:
@@ -173,14 +127,11 @@ private:
   // Data members
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const OptionsLP> m_options_;
-
   std::vector<BlockLP> m_block_array_;
   std::vector<StageLP> m_stage_array_;
-  std::vector<ScenarioLP> m_scenario_array_;
   std::vector<PhaseLP> m_phase_array_;
+  std::vector<ScenarioLP> m_scenario_array_;
   std::vector<SceneLP> m_scene_array_;
-
-  state_variable_map_t m_state_variable_map_;
 };
 
 }  // namespace gtopt

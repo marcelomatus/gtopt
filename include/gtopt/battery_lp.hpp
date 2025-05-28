@@ -69,8 +69,8 @@ public:
    * @return True if successful, false otherwise
    */
   bool add_to_lp(SystemContext& sc,
-                 const ScenarioIndex& scenario_index,
-                 const StageIndex& stage_index,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
                  LinearProblem& lp);
 
   /**

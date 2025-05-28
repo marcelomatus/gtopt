@@ -14,6 +14,7 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
+#include <gtopt/scenario_lp.hpp>
 
 namespace gtopt
 {
@@ -56,14 +57,17 @@ public:
 
   template<typename SystemContextT>
   bool add_to_lp(const SystemContextT& sc,
-                 const ScenarioIndex& scenario_index,
-                 const StageIndex& stage_index,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
                  LinearProblem& lp,
                  const std::string_view& cname,
                  const BIndexHolder& rcols,
                  double stage_capacity,
                  std::optional<Index> capacity_col = {})
   {
+    const auto stage_index = stage.index();
+    const auto scenario_index = scenario.index();
+
     if (!is_active(stage_index)) {
       return true;
     }
@@ -91,7 +95,7 @@ public:
                       .lowb = storage().vini.value_or(stage_vmin),
                       .uppb = storage().vini.value_or(stage_vmax)});
 
-    const auto& blocks = sc.stage_blocks(stage_index);
+    const auto& blocks = stage.blocks();
 
     BIndexHolder vcols;
     vcols.reserve(blocks.size());
@@ -154,7 +158,7 @@ public:
   }
 
   template<typename OutputContext>
-  bool add_to_output(OutputContext& out, const std::string_view& cname) const
+  bool add_to_output(OutputContext& out, std::string_view cname) const
   {
     const auto pid = id();
 

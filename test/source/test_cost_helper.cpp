@@ -88,8 +88,8 @@ TEST_CASE("stage_cost calculation")
   stages[1].count_block = 1;
 
   std::vector<StageLP> stage_lps;
-  stage_lps.emplace_back(stages[0], block_lps);
-  stage_lps.emplace_back(stages[1], block_lps);
+  stage_lps.emplace_back(stages[0], pblocks);
+  stage_lps.emplace_back(stages[1], pblocks);
 
   const CostHelper helper(options, scenarios, stage_lps);
 
@@ -139,8 +139,8 @@ TEST_CASE("scenario_stage_cost calculation")
   stages[1].count_block = 1;
 
   std::vector<StageLP> stage_lps;
-  stage_lps.emplace_back(stages[0], block_lps);
-  stage_lps.emplace_back(stages[1], block_lps);
+  stage_lps.emplace_back(stages[0], pblocks);
+  stage_lps.emplace_back(stages[1], pblocks);
 
   const CostHelper helper(options, scenario_lps, stage_lps);
 
@@ -189,8 +189,8 @@ TEST_CASE("Factor matrix generation")
   stages[1].count_block = 1;
 
   std::vector<StageLP> stage_lps;
-  stage_lps.emplace_back(stages[0], block_lps);
-  stage_lps.emplace_back(stages[1], block_lps);
+  stage_lps.emplace_back(stages[0], pblocks);
+  stage_lps.emplace_back(stages[1], pblocks);
 
   CostHelper helper(options, scenario_lps, stage_lps);
 

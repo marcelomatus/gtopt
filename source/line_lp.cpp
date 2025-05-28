@@ -22,13 +22,13 @@ LineLP::LineLP(const InputContext& ic, Line pline)
 }
 
 bool LineLP::add_to_lp(SystemContext& sc,
-                       const ScenarioIndex& scenario_index,
-                       const StageIndex& stage_index,
+                       const ScenarioLP& scenario,
+                       const StageLP& stage,
                        LinearProblem& lp)
 {
   constexpr std::string_view cname = "line";
 
-  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname)) {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) {
     return false;
   }
 
@@ -36,9 +36,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  if (!is_active(stage_index)) {
-    return true;
-  }
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
 
   const auto& bus_a_lp = sc.element<BusLP>(bus_a());
   const auto& bus_b_lp = sc.element<BusLP>(bus_b());
@@ -51,7 +50,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto& balance_rows_b =
       bus_b_lp.balance_rows_at(scenario_index, stage_index);
 
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& blocks = stage.blocks();
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
   const auto stage_tcost = tcost.at(stage_index).value_or(0.0);
@@ -141,9 +140,9 @@ bool LineLP::add_to_lp(SystemContext& sc,
   if (const auto& stage_reactance = sc.stage_reactance(stage_index, reactance))
   {
     const auto& theta_a_cols =
-        bus_a_lp.theta_cols_at(sc, scenario_index, stage_index, lp, blocks);
+        bus_a_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
     const auto& theta_b_cols =
-        bus_b_lp.theta_cols_at(sc, scenario_index, stage_index, lp, blocks);
+        bus_b_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
 
     if (!theta_a_cols.empty() && !theta_b_cols.empty()) {
       const double scale_theta = sc.options().scale_theta();

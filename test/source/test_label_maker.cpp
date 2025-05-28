@@ -14,15 +14,11 @@ TEST_CASE("basic label generation")
   std::vector<StageLP> stages;
 
   // Setup test data
-  scenarios.emplace_back(Scenario {.uid = Uid {1}, .name = "scenario1"},
-                         std::vector<StageLP> {});
-  scenarios.emplace_back(Scenario {.uid = Uid {2}, .name = "scenario2"},
-                         std::vector<StageLP> {});
+  scenarios.emplace_back(Scenario {.uid = Uid {1}, .name = "scenario1"});
+  scenarios.emplace_back(Scenario {.uid = Uid {2}, .name = "scenario2"});
 
-  stages.emplace_back(Stage {.uid = Uid {1}, .name = "stage1"},
-                      std::vector<BlockLP> {});
-  stages.emplace_back(Stage {.uid = Uid {2}, .name = "stage2"},
-                      std::vector<BlockLP> {});
+  stages.emplace_back(Stage {.uid = Uid {1}, .name = "stage1"});
+  stages.emplace_back(Stage {.uid = Uid {2}, .name = "stage2"});
 
   const Block block1 {.uid = Uid {1}, .name = "block1"};
   const Block block2 {.uid = Uid {2}, .name = "block2"};
@@ -107,15 +103,11 @@ TEST_CASE("edge cases")
   std::vector<StageLP> stages;
 
   // Setup test data
-  scenarios.emplace_back(Scenario {.uid = Uid {1}, .name = "scenario1"},
-                         std::vector<StageLP> {});
-  scenarios.emplace_back(Scenario {.uid = Uid {2}, .name = "scenario2"},
-                         std::vector<StageLP> {});
+  scenarios.emplace_back(Scenario {.uid = Uid {1}, .name = "scenario1"});
+  scenarios.emplace_back(Scenario {.uid = Uid {2}, .name = "scenario2"});
 
-  stages.emplace_back(Stage {.uid = Uid {1}, .name = "stage1"},
-                      std::vector<BlockLP> {});
-  stages.emplace_back(Stage {.uid = Uid {2}, .name = "stage2"},
-                      std::vector<BlockLP> {});
+  stages.emplace_back(Stage {.uid = Uid {1}, .name = "stage1"});
+  stages.emplace_back(Stage {.uid = Uid {2}, .name = "stage2"});
 
   LabelMaker maker(options, scenarios, stages);
 

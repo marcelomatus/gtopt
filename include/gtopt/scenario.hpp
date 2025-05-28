@@ -24,6 +24,11 @@ struct Scenario
   OptReal probability_factor {1};
 
   static constexpr std::string_view class_name = "scenario";
+
+  [[nodiscard]] constexpr auto is_active() const noexcept
+  {
+    return active.value_or(true);
+  }
 };
 
 using ScenarioUid = StrongUidType<struct Scenario>;

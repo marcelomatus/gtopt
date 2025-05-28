@@ -163,10 +163,6 @@ public:
     return stage_index == m_active_stages_.back();
   }
 
-  [[nodiscard]] STBUids stb_active_uids() const;
-  [[nodiscard]] STUids st_active_uids() const;
-  [[nodiscard]] TUids t_active_uids() const;
-
   [[nodiscard]] STBUids stb_uids() const;
   [[nodiscard]] STUids st_uids() const;
   [[nodiscard]] TUids t_uids() const;
@@ -341,10 +337,10 @@ public:
 
 private:
   std::reference_wrapper<const SimulationLP> m_simulation_;
-  std::vector<ScenarioIndex> m_active_scenarios_;
-  std::vector<StageIndex> m_active_stages_;
-  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_;
-  std::vector<BlockIndex> m_active_blocks_;
+  std::vector<ScenarioIndex> m_active_scenarios_ {};
+  std::vector<StageIndex> m_active_stages_ {};
+  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_ {};
+  std::vector<BlockIndex> m_active_blocks_ {};
 };
 
 }  // namespace gtopt

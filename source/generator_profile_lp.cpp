@@ -31,11 +31,14 @@ GeneratorProfileLP::GeneratorProfileLP(InputContext& ic,
 }
 
 bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
-                                   const ScenarioIndex& scenario_index,
-                                   const StageIndex& stage_index,
+                                   const ScenarioLP& scenario,
+                                   const StageLP& stage,
                                    LinearProblem& lp)
 {
   constexpr std::string_view cname = "gprof";
+
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
 
   if (!is_active(stage_index)) {
     return true;
@@ -62,7 +65,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
   const auto stage_scost = scost.optval(stage_index).value_or(0.0);
 
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& blocks = stage.blocks();
 
   BIndexHolder scols;
   scols.reserve(blocks.size());

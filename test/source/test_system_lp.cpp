@@ -51,12 +51,10 @@ TEST_CASE("SystemLP 1")
 
   OptionsLP options;
   SimulationLP simulation_lp(simulation, options);
+
   SystemLP system_lp(system, simulation_lp);
 
-  auto&& lp_interfaces = system_lp.linear_interfaces();
-  REQUIRE(lp_interfaces.size() == 1);
-
-  auto&& lp_interface = lp_interfaces[0];
+  auto&& lp_interface = system_lp.linear_interface();
   REQUIRE(lp_interface.get_numrows() == 3);
 
   REQUIRE(lp_interface.get_numrows() == 3);

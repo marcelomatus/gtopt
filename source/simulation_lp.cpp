@@ -17,8 +17,6 @@
  * - Multiple stages (time steps within phases)
  */
 
-#include <span>
-
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <range/v3/all.hpp>
@@ -29,87 +27,76 @@ namespace gtopt
 
 namespace
 {
-constexpr std::vector<BlockLP> create_block_array(const auto& simulation)
+constexpr auto create_block_array(const auto& simulation)
 {
-  return simulation.block_array
-      | ranges::views::transform([](auto&& b) { return BlockLP {b}; })
+  return enumerate<BlockIndex>(simulation.block_array)
+      | ranges::views::transform(
+             [](auto&& ib)
+             {
+               auto&& [index, block] = ib;
+               return BlockLP {block, index};
+             })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<StageLP> create_stage_array(const auto& simulation,
-                                                  const auto& options,
-                                                  const auto& all_blocks)
+constexpr auto create_stage_array(const Simulation& simulation,
+                                  const OptionsLP& options)
 {
   return enumerate_active<StageIndex>(simulation.stage_array)
       | ranges::views::transform(
              [&](auto&& is)
              {
                const auto& [index, stage] = is;
-               return StageLP {
-                   stage, all_blocks, options.annual_discount_rate(), index};
+               return StageLP {stage,
+                               simulation.block_array,
+                               options.annual_discount_rate(),
+                               index};
              })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<ScenarioLP> create_scenario_array(const auto& simulation,
-                                                        const auto& all_stages,
-                                                        const Scene& scene)
+constexpr auto create_scenario_array(const auto& simulation)
 {
-  return std::span(simulation.scenario_array)
-      | ranges::views::drop(scene.first_scenario)
-      | ranges::views::take(scene.count_scenario) | ranges::views::move
-      | ranges::views::transform(
-             [&](auto&& s)
-             { return ScenarioLP {std::forward<decltype(s)>(s), all_stages}; })
+  auto&& scenarios = simulation.scenario_array;
+
+  return active(scenarios)
+      | ranges::views::transform([](const auto& s) { return ScenarioLP {s}; })
       | ranges::to<std::vector>();
 }
 
 constexpr std::vector<PhaseLP> create_phase_array(const auto& simulation,
-                                                  const auto& all_stages)
+                                                  const auto& options)
 {
   return enumerate_active<PhaseIndex>(simulation.phase_array)
       | ranges::views::transform(
              [&](auto&& is)
              {
                const auto& [index, phase] = is;
-               return PhaseLP {phase, all_stages, index};
+               return PhaseLP {
+                   phase,
+                   options,
+                   simulation,
+                   index,
+               };
              })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<SceneLP> create_scene_array(const auto& simulation,
-                                                  const auto& scenario_array)
+constexpr auto create_scene_array(const Simulation& simulation)
 {
-  return simulation.scene_array
-      | ranges::views::transform([&](auto&& s)
-                                 { return SceneLP {s, scenario_array}; })
+  return enumerate_active<SceneIndex>(simulation.scene_array)
+      | ranges::views::transform(
+             [&](const auto& si)
+             {
+               auto&& [scene_index, scene] = si;
+               return SceneLP {scene, simulation, scene_index};
+             })
       | ranges::to<std::vector>();
 }
 
 }  // namespace
 
-void SimulationLP::validate_components()
-{
-  if (m_block_array_.empty() || m_stage_array_.empty()
-      || m_scenario_array_.empty())
-  {
-    throw std::runtime_error(
-        "System must contain at least one block, stage, and scenario");
-  }
-
-  const auto nblocks = ranges::fold_left(
-      m_stage_array_
-          | ranges::views::transform([](const auto& s)
-                                     { return s.blocks().size(); }),
-      0U,
-      std::plus());
-
-  if (nblocks != m_block_array_.size()) {
-    throw std::runtime_error(
-        "Number of blocks in stages doesn't match the total number of "
-        "blocks");
-  }
-}
+void SimulationLP::validate_components() {}
 
 /**
  * @brief Constructs a simulation object with the given system
@@ -119,20 +106,16 @@ void SimulationLP::validate_components()
  * all components (buses, generators, lines, etc.) and their attributes.
  */
 
-SimulationLP::SimulationLP(const Simulation& psimulation,
-                           const OptionsLP& poptions,
-                           const Scene& pscene)
-    : m_simulation_(psimulation)
-    , m_options_(poptions)
-    , m_block_array_(create_block_array(simulation()))
-    , m_stage_array_(
-          create_stage_array(simulation(), options(), m_block_array_))
-    , m_scenario_array_(
-          create_scenario_array(simulation(), m_stage_array_, pscene))
-    , m_phase_array_(create_phase_array(simulation(), m_stage_array_))
-    , m_scene_array_(create_scene_array(simulation(), m_scenario_array_))
+SimulationLP::SimulationLP(const Simulation& simulation,
+                           const OptionsLP& options)
+    : m_simulation_(simulation)
+    , m_options_(options)
+    , m_block_array_(create_block_array(simulation))
+    , m_stage_array_(create_stage_array(simulation, options))
+    , m_phase_array_(create_phase_array(simulation, options))
+    , m_scenario_array_(create_scenario_array(simulation))
+    , m_scene_array_(create_scene_array(simulation))
 {
-  // validate_components();
 }
 
 }  // namespace gtopt

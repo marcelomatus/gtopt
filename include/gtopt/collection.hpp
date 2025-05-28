@@ -69,11 +69,11 @@ class Collection
   using value_uid_t = typename uid_map_t::value_type;
 
   // Primary storage for elements
-  vector_t element_vector;
+  vector_t element_vector {};
 
   // Index maps for O(1) lookup by name or UID
-  name_map_t name_map;
-  uid_map_t uid_map;
+  name_map_t name_map {};
+  uid_map_t uid_map {};
 
   /**
    * @brief Helper function to retrieve an element index from a map using a key
@@ -85,9 +85,9 @@ class Collection
    */
   template<typename FirstMap, typename Key>
   constexpr static auto get_element_index(const FirstMap& first_map,
-                                          const Key& key) noexcept(false)
+                                          Key&& key) noexcept(false)
   {
-    return IndexType {first_map.at(key)};
+    return IndexType {first_map.at(std::forward<Key>(key))};
   }
 
   /**
@@ -215,8 +215,7 @@ public:
    * @param pelements Vector containing the elements to store
    */
   explicit Collection(vector_t pelements)
-      : element_vector(
-            std::move(pelements))  // Efficiently move instead of copy
+      : element_vector(std::move(pelements))
   {
     build_maps();
   }
@@ -279,23 +278,10 @@ public:
    * @return A const reference to the requested element
    * @throws std::out_of_range if the element is not found
    */
-  template<typename ID>
-  constexpr auto&& element(const ID& id) const noexcept(false)
+  template<typename Self, typename ID>
+  constexpr auto&& element(this Self&& self, const ID& id)
   {
-    return element_vector.at(element_index(id));
-  }
-
-  /**
-   * @brief Get a reference to an element by its ID (mutable version)
-   * @tparam ID The type of identifier to lookup
-   * @param id The identifier to lookup
-   * @return A mutable reference to the requested element
-   * @throws std::out_of_range if the element is not found
-   */
-  template<typename ID>
-  constexpr auto&& element(const ID& id) noexcept(false)
-  {
-    return element_vector.at(element_index(id));
+    return std::forward<Self>(self).element_vector.at(self.element_index(id));
   }
 
   /**

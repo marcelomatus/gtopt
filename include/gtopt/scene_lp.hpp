@@ -19,9 +19,32 @@
 #include <gtopt/scenario.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene.hpp>
+#include <gtopt/simulation.hpp>
 
 namespace gtopt
 {
+
+namespace details
+{
+
+constexpr auto create_scenario_array(const auto& scenario_array,
+                                     const Scene& scene,
+                                     auto scene_index)
+{
+  auto&& scenarios = std::span(scenario_array)
+                         .subspan(scene.first_scenario, scene.count_scenario);
+
+  return enumerate_active<ScenarioIndex>(scenarios)
+      | ranges::views::transform(
+             [scene_index](const auto& is)
+             {
+               auto&& [scenario_index, scenario] = is;
+               return ScenarioLP {scenario, scenario_index, scene_index};
+             })
+      | ranges::to<std::vector>();
+}
+
+}  // namespace details
 
 /**
  * @class SceneLP
@@ -34,15 +57,10 @@ namespace gtopt
 class SceneLP
 {
 public:
-  using ScenarioSpan =
-      std::span<const ScenarioLP>;  ///< Span of ScenarioLP elements
-  using ScenarioIndexes =
-      std::vector<ScenarioIndex>;  ///< Vector of scenario indices
-  using ScenarioIndexSpan =
-      std::span<const ScenarioIndex>;  ///< Span of scenario indices
-
   /** @brief Default constructor */
   SceneLP() = default;
+  SceneLP(SceneLP&&) = default;
+  SceneLP(const SceneLP&) = default;
 
   /**
    * @brief Construct a SceneLP from a Scene and a collection of ScenarioLP
@@ -56,12 +74,22 @@ public:
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
    * Also initializes scenario indexes with sequential values.
    */
-  template<class ScenarioLPs = std::vector<ScenarioLP> >
-  explicit SceneLP(Scene scene, const ScenarioLPs& all_scenarios = {})
-      : m_scene_(std::move(scene))
+  template<typename Scene, typename Scenarios = std::vector<Scenario> >
+  explicit SceneLP(Scene&& scene,
+                   const Scenarios& all_scenarios,
+                   const SceneIndex index = SceneIndex {unknown_index})
+      : m_scene_(std::forward<Scene>(scene))
       , m_scenarios_(
-            std::span(all_scenarios)
-                .subspan(m_scene_.first_scenario, m_scene_.count_scenario))
+            details::create_scenario_array(all_scenarios, m_scene_, index))
+      , m_index_(index)
+  {
+  }
+
+  template<typename Scene>
+  explicit SceneLP(Scene&& scene,
+                   const Simulation& simulation,
+                   SceneIndex index = SceneIndex {unknown_index})
+      : SceneLP(std::forward<Scene>(scene), simulation.scenario_array, index)
   {
   }
 
@@ -96,9 +124,13 @@ public:
     return static_cast<Index>(m_scene_.count_scenario);
   }
 
+  /// @return Index of this scene in parent container
+  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+
 private:
   Scene m_scene_;  ///< The underlying scene
-  ScenarioSpan m_scenarios_;  ///< Span of ScenarioLP elements for this scene
+  std::vector<ScenarioLP> m_scenarios_;  ///< Span of ScenarioLP elements
+  SceneIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt

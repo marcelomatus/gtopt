@@ -41,7 +41,6 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator pgenerator)
     , pmax(ic, ClassName, id(), std::move(generator().pmax))
     , lossfactor(ic, ClassName, id(), std::move(generator().lossfactor))
     , gcost(ic, ClassName, id(), std::move(generator().gcost))
-    , bus_index(ic.element_index(bus()))
 {
 }
 
@@ -63,22 +62,23 @@ GeneratorLP::GeneratorLP(const InputContext& ic, Generator pgenerator)
  * - Capacity constraints when capacity expansion is modeled
  */
 bool GeneratorLP::add_to_lp(SystemContext& sc,
-                            const ScenarioIndex& scenario_index,
-                            const StageIndex& stage_index,
+                            const ScenarioLP& scenario,
+                            const StageLP& stage,
                             LinearProblem& lp)
 {
   constexpr std::string_view cname = "gen";
-  if (!CapacityBase::add_to_lp(sc, scenario_index, stage_index, lp, cname))
-      [[unlikely]]
-  {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
     return false;
   }
 
-  if (!is_active(stage_index)) [[unlikely]] {
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
+
+  if (!is_active(stage_index)) {
     return true;
   }
 
-  auto&& bus = sc.element(bus_index);
+  const auto& bus = sc.element<BusLP>(this->bus());
   if (!bus.is_active(stage_index)) [[unlikely]] {
     return true;
   }
@@ -88,8 +88,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto stage_gcost = gcost.optval(stage_index).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
 
-  const auto& balance_rows = bus.balance_rows_at(scenario_index, stage_index);
-  const auto& blocks = sc.stage_blocks(stage_index);
+  const auto& balance_rows = bus.balance_rows_at(scenario.index(), stage_index);
+  const auto& blocks = stage.blocks();
 
   BIndexHolder gcols;
   gcols.reserve(blocks.size());

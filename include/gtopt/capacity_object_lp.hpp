@@ -161,18 +161,16 @@ struct CapacityObjectLP : public ObjectLP<Object>
    */
   template<typename SystemContext>
   constexpr bool add_to_lp(SystemContext& sc,
-                           const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
+                           const ScenarioLP& scenario,
+                           const StageLP& stage,
                            LinearProblem& lp,
                            const std::string_view& cname)
   {
-    if (!sc.is_first_scenario(scenario_index)) {
+    if (!scenario.is_first()) {
       return true;
     }
 
-    if (!is_active(stage_index)) {
-      return true;
-    }
+    const auto stage_index = stage.index();
 
     const auto& expcap_val = expcap.at(stage_index);
     const auto& capmax_val = capmax.at(stage_index);
@@ -221,8 +219,8 @@ struct CapacityObjectLP : public ObjectLP<Object>
         .cost = 0.0  // Explicit initialization
     });
 
-    const auto capainst_col_name = as_label(cname, "capainst", uid());
-    sc.add_state_variable_col(capainst_col_name, stage_index, capainst_col);
+    // const auto capainst_col_name = as_label(cname, "capainst", uid());
+    // sc.add_state_variable_col(capainst_col_name, stage_index, capainst_col);
 
     capainst_row[capainst_col] = -1;
 
@@ -316,8 +314,8 @@ private:
   [[no_unique_address]] OptTRealSched capacity;
   [[no_unique_address]] OptTRealSched expcap;
   [[no_unique_address]] OptTRealSched capmax;
-  [[no_unique_address]] OptTRealSched annual_capcost;
   [[no_unique_address]] OptTRealSched expmod;
+  [[no_unique_address]] OptTRealSched annual_capcost;
   [[no_unique_address]] OptTRealSched annual_derating;
 
   [[no_unique_address]] TIndexHolder capainst_cols;

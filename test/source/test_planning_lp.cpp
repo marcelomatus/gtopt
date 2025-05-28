@@ -138,7 +138,7 @@ TEST_CASE("PlanningLP - Write LP file")
   planning_lp.write_lp("test_planning");
 
   // Check if the file was created
-  std::string lp_file = "test_planning_0.lp";
+  std::string lp_file = "test_planning_0_0.lp";
   bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists
@@ -237,7 +237,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   CHECK(result.value() == 1);
 
   // Check if the file was created
-  std::string lp_file = "test_planning_lp_write_only_0.lp";
+  std::string lp_file = "test_planning_lp_write_only_0_0.lp";
   bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists
@@ -297,11 +297,9 @@ TEST_CASE("PlanningLP - Solver test")
   auto&& systems = planning_lp.systems();
   CHECK(systems.size() == 1);
 
-  auto&& system_lp = systems.front();
-  auto&& linear_interfaces = system_lp.linear_interfaces();
-  CHECK(linear_interfaces.size() == 1);
+  auto&& system_lp = systems.front().front();
+  auto&& lp_interface = system_lp.linear_interface();
 
-  auto&& lp_interface = linear_interfaces[0];
   const auto sol = lp_interface.get_col_sol();
   REQUIRE(sol[0] == doctest::Approx(100));  // demand
   REQUIRE(sol[1] == doctest::Approx(100));  // generation

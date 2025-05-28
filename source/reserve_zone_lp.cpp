@@ -14,13 +14,12 @@ inline bool add_requirement(const SystemContext& sc,
                             const ScenarioIndex& scenario_index,
                             const StageIndex& stage_index,
                             LinearProblem& lp,
+                            const auto& blocks,
                             const auto uid,
                             auto& rr,
                             const auto rname)
 {
   constexpr std::string_view cname = "rzone";
-
-  const auto& blocks = sc.stage_blocks(stage_index);
 
   using STBKey = GSTBIndexHolder::key_type;
   if (!(rr.req.has_value())) {
@@ -64,7 +63,7 @@ namespace gtopt
 {
 
 ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
-                                        const std::string_view& cname,
+                                        std::string_view cname,
                                         const Id& id,
                                         auto&& rreq,
                                         auto&& rcost)
@@ -89,17 +88,23 @@ ReserveZoneLP::ReserveZoneLP(const InputContext& ic, ReserveZone preserve_zone)
 }
 
 bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
-                              const ScenarioIndex& scenario_index,
-                              const StageIndex& stage_index,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
                               LinearProblem& lp)
 {
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
+
   if (!is_active(stage_index)) {
     return true;
   }
 
-  return add_requirement(sc, scenario_index, stage_index, lp, uid(), ur, "ureq")
+  const auto& blocks = stage.blocks();
+
+  return add_requirement(
+             sc, scenario_index, stage_index, lp, blocks, uid(), ur, "ureq")
       && add_requirement(
-             sc, scenario_index, stage_index, lp, uid(), dr, "dreq");
+             sc, scenario_index, stage_index, lp, blocks, uid(), dr, "dreq");
 }
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const

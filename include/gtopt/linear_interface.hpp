@@ -38,17 +38,17 @@ public:
   LinearInterface& operator=(LinearInterface&&) = default;
 
   /**
+   * @brief Constructs interface with a default solver
+   * @param plog_file Path to log file for solver output
+   */
+  explicit LinearInterface(const std::string& plog_file = {});
+
+  /**
    * @brief Constructs interface with an existing solver
    * @param psolver Pre-configured solver pointer
    * @param plog_file Path to log file for solver output
    */
   LinearInterface(solver_ptr_t psolver, std::string plog_file);
-
-  /**
-   * @brief Constructs interface with a default solver
-   * @param plog_file Path to log file for solver output
-   */
-  explicit LinearInterface(const std::string& plog_file = {});
 
   /**
    * @brief Constructs interface and loads a problem

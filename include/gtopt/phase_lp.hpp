@@ -13,10 +13,11 @@
 #pragma once
 
 #include <functional>
-#include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/options_lp.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/simulation.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/stage_lp.hpp>
 
@@ -34,10 +35,36 @@ namespace gtopt
  * - Phase indexing and identification
  * - Active/inactive status checks
  */
+
+namespace details
+{
+constexpr std::vector<StageLP> create_stage_array(const auto& phase,
+                                                  const auto& phase_index,
+                                                  const auto& options,
+                                                  const auto& stage_array,
+                                                  const auto& all_blocks)
+{
+  auto&& stages =
+      std::span(stage_array).subspan(phase.first_stage, phase.count_stage);
+
+  return enumerate_active<StageIndex>(stages)
+      | ranges::views::transform(
+             [&](auto&& is)
+             {
+               const auto& [stage_index, stage] = is;
+               return StageLP {stage,
+                               all_blocks,
+                               options.annual_discount_rate(),
+                               stage_index,
+                               phase_index};
+             })
+      | ranges::to<std::vector>();
+}
+}  // namespace details
+
 class PhaseLP
 {
 public:
-  using StageSpan = std::span<const StageLP>;  ///< Span of StageLP objects
   /**
    * @brief Default constructor
    */
@@ -53,18 +80,34 @@ public:
    *
    * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */
-  template<class StageLPs = std::vector<StageLP>>
-  explicit PhaseLP(Phase phase,
-                   const StageLPs& all_stages = {},
-                   PhaseIndex index = PhaseIndex {unknown_index})
-      : m_phase_(std::move(phase))
-      , m_stage_span_(std::span(all_stages)
-                          .subspan(m_phase_.first_stage, m_phase_.count_stage))
+  template<typename Phase,
+           typename Stages = std::vector<Stage>,
+           typename Blocks = std::vector<Block>>
+  explicit PhaseLP(Phase&& phase,
+                   const OptionsLP& options,
+                   const Stages& stages = {},
+                   const Blocks& blocks = {},
+                   const PhaseIndex phase_index = PhaseIndex {unknown_index})
+      : m_phase_(std::forward<Phase>(phase))
+      , m_stages_(details::create_stage_array(
+            m_phase_, phase_index, options, stages, blocks))
       , m_duration_(ranges::fold_left(
-            m_stage_span_ | ranges::views::transform(&StageLP::duration),
+            m_stages_ | ranges::views::transform(&StageLP::duration),
             0.0,
             std::plus<>()))
-      , m_index_(index)
+      , m_index_(phase_index)
+  {
+  }
+
+  explicit PhaseLP(Phase phase,
+                   const OptionsLP& options,
+                   const Simulation& simulation,
+                   const PhaseIndex phase_index = PhaseIndex {unknown_index})
+      : PhaseLP(std::move(phase),
+                options,
+                simulation.stage_array,
+                simulation.block_array,
+                phase_index)
   {
   }
 
@@ -74,7 +117,7 @@ public:
   /// @return Whether this phase is active in the planning
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return m_phase_.active.value_or(true);
+    return m_phase_.is_active();
   }
 
   /// @return Unique identifier for this phase
@@ -87,10 +130,7 @@ public:
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
   /// @return Span of all StageLP objects in this phase
-  [[nodiscard]] constexpr auto& stages() const noexcept
-  {
-    return m_stage_span_;
-  }
+  [[nodiscard]] constexpr auto& stages() const noexcept { return m_stages_; }
 
   /// @return Index of first stage in this phase
   [[nodiscard]] constexpr auto first_stage() const noexcept
@@ -104,22 +144,9 @@ public:
     return static_cast<Index>(m_phase_.count_stage);
   }
 
-  /// @return Index of last stage in this phase (first_stage + count_stage - 1)
-  [[nodiscard]] constexpr auto last_stage() const noexcept
-  {
-    return StageIndex {static_cast<Index>(m_phase_.first_stage 
-                                        + m_phase_.count_stage - 1)};
-  }
-
-  /// @return Whether this phase contains the given stage index
-  [[nodiscard]] constexpr auto contains(StageIndex stage_index) const noexcept
-  {
-    return stage_index >= first_stage() && stage_index <= last_stage();
-  }
-
 private:
-  Phase m_phase_;  ///< The underlying Phase object
-  StageSpan m_stage_span_;  ///< Span of StageLP objects in this phase
+  Phase m_phase_ {};  ///< The underlying Phase object
+  std::vector<StageLP> m_stages_ {};  ///< Span of StageLP objects in this phase
   double m_duration_ {0.0};  ///< Total duration of all stages in this phase
   PhaseIndex m_index_ {unknown_index};
 };

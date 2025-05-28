@@ -19,6 +19,7 @@ constexpr bool add_provision(const SystemContext& sc,
                              const ScenarioIndex& scenario_index,
                              const StageIndex& stage_index,
                              LinearProblem& lp,
+                             const auto& blocks,
                              const auto capacity_col,
                              const auto& generation_cols,
                              const auto uid,
@@ -28,8 +29,6 @@ constexpr bool add_provision(const SystemContext& sc,
                              auto provision_row)
 {
   constexpr std::string_view cname = "rprov";
-
-  const auto& blocks = sc.stage_blocks(stage_index);
 
   const auto stage_provision_factor = rp.provision_factor.optval(stage_index);
   if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
@@ -137,7 +136,7 @@ namespace gtopt
 {
 
 ReserveProvisionLP::Provision::Provision(const InputContext& ic,
-                                         const std::string_view& cname,
+                                         std::string_view cname,
                                          const Id& id,
                                          auto&& rmax,
                                          auto&& rcost,
@@ -174,10 +173,13 @@ ReserveProvisionLP::ReserveProvisionLP(const InputContext& ic,
 }
 
 bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
-                                   const ScenarioIndex& scenario_index,
-                                   const StageIndex& stage_index,
+                                   const ScenarioLP& scenario,
+                                   const StageLP& stage,
                                    LinearProblem& lp)
 {
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
+
   if (!is_active(stage_index)) {
     return true;
   }
@@ -213,6 +215,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     return rrow.greater_equal(lp.get_col_lowb(gcol));
   };
 
+  const auto& blocks = stage.blocks();
+
   for (auto&& reserve_zone_index : reserve_zone_indexes) {
     auto&& reserve_zone = sc.element(reserve_zone_index);
     if (!reserve_zone.is_active(stage_index)) {
@@ -223,6 +227,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                       scenario_index,
                                       stage_index,
                                       lp,
+                                      blocks,
                                       capacity_col,
                                       generation_cols,
                                       uid(),
@@ -234,6 +239,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                          scenario_index,
                          stage_index,
                          lp,
+                         blocks,
                          capacity_col,
                          generation_cols,
                          uid(),

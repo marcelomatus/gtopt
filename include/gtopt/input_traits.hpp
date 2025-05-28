@@ -16,8 +16,11 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/stage.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -86,8 +89,10 @@ struct IndexToIdx<ScenarioIndex, StageIndex, BlockIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sc.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
+    auto&& sim = sc.simulation();
+
+    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sim.scenarios())) {
+      for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
         for (auto&& [bi, block] : enumerate<BlockIndex>(stage.blocks())) {
           decltype(index_uids)::key_type uid_key {
               scenario.uid(), stage.uid(), block.uid()};
@@ -128,7 +133,9 @@ struct IndexToIdx<StageIndex, BlockIndex> : IndexTraits<StageIndex, BlockIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
+    auto&& sim = sc.simulation();
+
+    for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
       for (auto&& [bi, block] : enumerate<BlockIndex>(stage.blocks())) {
         decltype(index_uids)::key_type uid_key {stage.uid(), block.uid()};
         decltype(index_idx)::key_type idx_key {ti, bi};
@@ -169,8 +176,10 @@ struct IndexToIdx<ScenarioIndex, StageIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sc.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
+    auto&& sim = sc.simulation();
+
+    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sim.scenarios())) {
+      for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
         decltype(index_uids)::key_type uid_key {scenario.uid(), stage.uid()};
         decltype(index_idx)::key_type idx_key {si, ti};
 
@@ -208,7 +217,8 @@ struct IndexToIdx<StageIndex> : IndexTraits<StageIndex>
     index_idx_t index_idx;
     index_idx.reserve(index_uids.size());
 
-    for (auto&& [ti, stage] : enumerate<StageIndex>(sc.stages())) {
+    auto&& sim = sc.simulation();
+    for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
       decltype(index_uids)::key_type uid_key {stage.uid()};
       decltype(index_idx)::key_type idx_key {ti};
 
