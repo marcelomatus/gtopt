@@ -12,12 +12,19 @@
 #pragma once
 
 #include <expected>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/strong_index_vector.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -84,9 +91,22 @@ public:
    * @brief Gets the simulation scenarios
    * @return Const reference to vector of SimulationLP
    */
-  [[nodiscard]] constexpr const auto& simulation() const noexcept
+  /**
+   * @brief Gets the simulation LP model
+   * @return Const reference to SimulationLP
+   */
+  [[nodiscard]] constexpr const SimulationLP& simulation() const noexcept
   {
     return m_simulation_;
+  }
+
+  /**
+   * @brief Gets the state variable map
+   * @return Const reference to state variable map
+   */
+  [[nodiscard]] constexpr const state_variable_map_t& state_variables() const noexcept
+  {
+    return m_state_variable_map_;
   }
 
   /**
