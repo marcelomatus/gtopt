@@ -36,6 +36,15 @@ Checks: "*,\
 #  -clang-analyzer-core.uninitialized.UndefReturn,\
 #  -constexpr_local_var_non_literal_type,\
   -misc-non-private-member-variables-in-classes"
+
+# Ignore CMake files from analysis
+CheckOptions:
+  - key:             misc-non-private-member-variables-in-classes.IgnoredFilesRegex
+    value:           'CMakeLists.txt'
+  - key:             misc-use-internal-linkage.IgnoredFilesRegex
+    value:           'CMakeLists.txt'
+  - key:             cppcoreguidelines-avoid-non-const-global-variables.IgnoredFilesRegex
+    value:           'CMakeLists.txt'
 WarningsAsErrors: ''
 CheckOptions:
   - key: 'bugprone-argument-comment.StrictMode'
