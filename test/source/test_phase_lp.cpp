@@ -26,16 +26,16 @@ TEST_CASE("PhaseLP construction")
     {
         const OptionsLP options;
         std::vector<Stage> stages = {
-            Stage{.uid = 1, .first_block = 0, .count_block = 2, .active = true},
-            Stage{.uid = 2, .first_block = 2, .count_block = 3, .active = true}
+            Stage{.uid = 1, .first_block = 0, .count_block = 2, .active = true, .discount_factor = std::nullopt},
+            Stage{.uid = 2, .first_block = 2, .count_block = 3, .active = true, .discount_factor = std::nullopt}
         };
         
         std::vector<Block> blocks = {
-            Block{.duration = 1.0},
-            Block{.duration = 2.0},  // stage 1 blocks
-            Block{.duration = 3.0},
-            Block{.duration = 4.0},
-            Block{.duration = 5.0}   // stage 2 blocks
+            Block{.duration = 1.0, .uid = 0},
+            Block{.duration = 2.0, .uid = 0},  // stage 1 blocks
+            Block{.duration = 3.0, .uid = 0},
+            Block{.duration = 4.0, .uid = 0},
+            Block{.duration = 5.0, .uid = 0}   // stage 2 blocks
         };
 
         Phase phase{.uid = 1, .first_stage = 0, .count_stage = 2};
@@ -51,16 +51,16 @@ TEST_CASE("PhaseLP duration calculation")
 {
     const OptionsLP options;
     std::vector<Stage> stages = {
-        Stage{.uid = 1, .first_block = 0, .count_block = 2, .active = true},
-        Stage{.uid = 2, .first_block = 2, .count_block = 3, .active = true}
+        Stage{.uid = 1, .first_block = 0, .count_block = 2, .active = true, .discount_factor = std::nullopt},
+        Stage{.uid = 2, .first_block = 2, .count_block = 3, .active = true, .discount_factor = std::nullopt}
     };
     
     std::vector<Block> blocks = {
-        Block{.duration = 1.0},
-        Block{.duration = 2.0},  // stage 1 total: 3.0
-        Block{.duration = 3.0},
-        Block{.duration = 4.0},
-        Block{.duration = 5.0}   // stage 2 total: 12.0
+        Block{.duration = 1.0, .uid = 0},
+        Block{.duration = 2.0, .uid = 0},  // stage 1 total: 3.0
+        Block{.duration = 3.0, .uid = 0},
+        Block{.duration = 4.0, .uid = 0},
+        Block{.duration = 5.0, .uid = 0}   // stage 2 total: 12.0
     };
 
     Phase phase{.uid = 1, .first_stage = 0, .count_stage = 2};
@@ -74,15 +74,15 @@ TEST_CASE("PhaseLP stage access")
 {
     const OptionsLP options;
     std::vector<Stage> stages = {
-        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true},
-        Stage{.uid = 2, .first_block = 1, .count_block = 1, .active = true},
-        Stage{.uid = 3, .first_block = 2, .count_block = 1, .active = false}
+        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true, .discount_factor = std::nullopt},
+        Stage{.uid = 2, .first_block = 1, .count_block = 1, .active = true, .discount_factor = std::nullopt},
+        Stage{.uid = 3, .first_block = 2, .count_block = 1, .active = false, .discount_factor = std::nullopt}
     };
     
     std::vector<Block> blocks = {
-        Block{.duration = 1.0},
-        Block{.duration = 2.0},
-        Block{.duration = 3.0}
+        Block{.duration = 1.0, .uid = 0},
+        Block{.duration = 2.0, .uid = 0},
+        Block{.duration = 3.0, .uid = 0}
     };
 
     SUBCASE("Full phase")
@@ -110,7 +110,7 @@ TEST_CASE("PhaseLP active status")
 {
     const OptionsLP options;
     std::vector<Stage> stages = {
-        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true}
+        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true, .discount_factor = std::nullopt}
     };
     std::vector<Block> blocks = {Block{.duration = 1.0}};
 
@@ -141,7 +141,7 @@ TEST_CASE("PhaseLP construction from simulation")
     const OptionsLP options;
     Simulation simulation;
     simulation.stage_array = {
-        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true}
+        Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true, .discount_factor = std::nullopt}
     };
     simulation.block_array = {Block{.duration = 1.0}};
 
