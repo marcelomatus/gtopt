@@ -40,25 +40,29 @@ public:
   // Structured binding support
   template<std::size_t I>
   [[nodiscard]] constexpr auto get() const noexcept {
-    if constexpr (I == 0) return id();
-    else if constexpr (I == 1) return bus();
-    else if constexpr (I == 2) return voltage();
+    if constexpr (I == 0) {
+      return id();
+    } else if constexpr (I == 1) {
+      return static_cast<const BusLP*>(this)->ObjectLP<Bus>::object();
+    } else if constexpr (I == 2) {
+      return static_cast<const BusLP*>(this)->ObjectLP<Bus>::object().voltage.value_or(1.0);
+    }
   }
 
-  [[nodiscard]] constexpr auto bus(this auto&& self) noexcept -> decltype(auto) {
-    return FWD(self).object();
+  [[nodiscard]] constexpr auto bus() const noexcept -> const Bus& {
+    return ObjectLP<Bus>::object();
   }
 
-  [[nodiscard]] constexpr auto reference_theta(this auto&& self) noexcept {
-    return FWD(self).bus().reference_theta;
+  [[nodiscard]] constexpr auto reference_theta() const noexcept {
+    return bus().reference_theta;
   }
 
-  [[nodiscard]] constexpr auto voltage(this auto&& self) noexcept -> double {
-    return FWD(self).bus().voltage.value_or(1.0);
+  [[nodiscard]] constexpr auto voltage() const noexcept -> double {
+    return bus().voltage.value_or(1.0);
   }
 
-  [[nodiscard]] constexpr auto use_kirchhoff(this auto&& self) noexcept -> bool {
-    return FWD(self).bus().use_kirchhoff.value_or(true);
+  [[nodiscard]] constexpr auto use_kirchhoff() const noexcept -> bool {
+    return bus().use_kirchhoff.value_or(true);
   }
 
   [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const noexcept -> bool;
@@ -70,8 +74,8 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] auto&& balance_rows_at(const ScenarioIndex scenario_index,
-                                      const StageIndex stage_index) const noexcept {
+  [[nodiscard]] const auto& balance_rows_at(const ScenarioIndex scenario_index,
+                                          const StageIndex stage_index) const noexcept {
     return balance_rows.at({scenario_index, stage_index});
   }
 
