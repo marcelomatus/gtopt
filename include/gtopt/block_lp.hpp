@@ -20,25 +20,27 @@ class BlockLP
 {
 public:
   BlockLP() = default;
-  ~BlockLP() = default;
-  
-  BlockLP(const BlockLP&) = default;
-  BlockLP(BlockLP&&) noexcept = default;
-  BlockLP& operator=(const BlockLP&) = default;
-  BlockLP& operator=(BlockLP&&) noexcept = default;
 
-  explicit constexpr BlockLP(Block pblock, BlockIndex index = BlockIndex{unknown_index}) noexcept
-      : m_block_{std::move(pblock)}
-      , m_index_{index}
-  {}
+  explicit constexpr BlockLP(
+      Block pblock, BlockIndex index = BlockIndex {unknown_index}) noexcept
+      : m_block_ {std::move(pblock)}
+      , m_index_ {index}
+  {
+  }
 
-  [[nodiscard]] constexpr auto uid() const noexcept { return BlockUid{m_block_.uid}; }
-  [[nodiscard]] constexpr auto duration() const noexcept { return m_block_.duration; }
+  [[nodiscard]] constexpr auto uid() const noexcept
+  {
+    return BlockUid {m_block_.uid};
+  }
+  [[nodiscard]] constexpr auto duration() const noexcept
+  {
+    return m_block_.duration;
+  }
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
 private:
   Block m_block_;
-  BlockIndex m_index_{unknown_index};
+  BlockIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt
