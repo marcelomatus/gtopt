@@ -62,9 +62,13 @@ public:
     return m_index_;
   }
 
-  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept {
-    if (auto cmp = m_block_.uid <=> rhs.m_block_.uid; cmp != 0) return cmp;
-    if (auto cmp = m_block_.duration <=> rhs.m_block_.duration; cmp != 0) return cmp;
+  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept -> std::strong_ordering {
+    if (auto cmp = m_block_.uid <=> rhs.m_block_.uid; cmp != 0) {
+      return cmp;
+    }
+    if (auto cmp = m_block_.duration <=> rhs.m_block_.duration; cmp != 0) {
+      return cmp;
+    }
     return m_index_ <=> rhs.m_index_;
   }
 
