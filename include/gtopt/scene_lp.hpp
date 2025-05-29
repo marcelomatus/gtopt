@@ -71,21 +71,19 @@ public:
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
    * Also initializes scenario indexes with sequential values.
    */
-  template<typename Scene>
-  explicit SceneLP(Scene&& scene,
+  explicit SceneLP(Scene scene,
                    std::span<const Scenario> scenarios,
                    SceneIndex index = SceneIndex {unknown_index})
-      : m_scene_(std::forward<Scene>(scene))
+      : m_scene_(std::move(scene))
       , m_scenarios_(details::create_scenario_array(scenarios, m_scene_, index))
       , m_index_(index)
   {
   }
 
-  template<typename Scene>
-  explicit SceneLP(Scene&& scene,
+  explicit SceneLP(Scene scene,
                    const Simulation& simulation,
                    SceneIndex index = SceneIndex {unknown_index})
-      : SceneLP(std::forward<Scene>(scene), simulation.scenario_array, index)
+      : SceneLP(std::move(scene), simulation.scenario_array, index)
   {
   }
 

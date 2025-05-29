@@ -81,13 +81,12 @@ public:
    *
    * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */
-  template<typename Phase>
-  explicit PhaseLP(Phase&& phase,
+  explicit PhaseLP(Phase phase,
                    const OptionsLP& options,
                    std::span<const Stage> stages = {},
                    std::span<const Block> blocks = {},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
-      : m_phase_(std::forward<Phase>(phase))
+      : m_phase_(std::move(phase))
       , m_stages_(details::create_stage_array(
             m_phase_, phase_index, options, stages, blocks))
       , m_duration_(ranges::fold_left(
@@ -98,12 +97,11 @@ public:
   {
   }
 
-  template<typename Phase>
-  explicit PhaseLP(Phase&& phase,
+  explicit PhaseLP(Phase phase,
                    const OptionsLP& options,
                    const Simulation& simulation,
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
-      : PhaseLP(std::forward<Phase>(phase),
+      : PhaseLP(std::move(phase),
                 options,
                 simulation.stage_array,
                 simulation.block_array,

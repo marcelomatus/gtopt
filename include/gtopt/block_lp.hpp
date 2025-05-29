@@ -13,14 +13,15 @@
  * and index while providing constexpr and noexcept guarantees for efficient use
  * in optimization contexts.
  *
- * @note Uses C++23 features including spaceship operator and explicit object parameters
+ * @note Uses C++23 features including spaceship operator and explicit object
+ * parameters
  */
 
 #pragma once
 
-#include <gtopt/block.hpp>
-#include <compare>
 #include <string_view>
+
+#include <gtopt/block.hpp>
 
 namespace gtopt
 {
@@ -33,65 +34,30 @@ public:
   BlockLP() = default;
 
   explicit constexpr BlockLP(
-      Block pblock, BlockIndex index = BlockIndex{unknown_index}) noexcept
-      : m_block_{std::move(pblock)}
-      , m_index_{index}
-  {}
-
-  // Structured binding support
-  template<std::size_t I>
-  [[nodiscard]] constexpr auto get() const noexcept {
-    if constexpr (I == 0) {
-      return uid();
-    } else if constexpr (I == 1) {
-      return duration();
-    } else if constexpr (I == 2) {
-      return index();
-    }
+      Block pblock, BlockIndex index = BlockIndex {unknown_index}) noexcept
+      : m_block_ {std::move(pblock)}
+      , m_index_ {index}
+  {
   }
 
-  [[nodiscard]] constexpr auto uid() const noexcept -> BlockUid {
-    return BlockUid{m_block_.uid};
+  [[nodiscard]] constexpr auto uid() const noexcept -> BlockUid
+  {
+    return BlockUid {m_block_.uid};
   }
 
-  [[nodiscard]] constexpr auto duration() const noexcept -> double {
+  [[nodiscard]] constexpr auto duration() const noexcept -> double
+  {
     return m_block_.duration;
   }
 
-  [[nodiscard]] constexpr auto index() const noexcept -> BlockIndex {
+  [[nodiscard]] constexpr auto index() const noexcept -> BlockIndex
+  {
     return m_index_;
-  }
-
-  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept -> std::partial_ordering {
-    if (auto cmp = m_block_.uid <=> rhs.m_block_.uid; cmp != 0) {
-      return cmp == 0 ? std::partial_ordering::equivalent :
-             cmp < 0 ? std::partial_ordering::less :
-             std::partial_ordering::greater;
-    }
-    if (auto cmp = m_block_.duration <=> rhs.m_block_.duration; cmp != 0) {
-      return cmp;
-    }
-    auto cmp = m_index_ <=> rhs.m_index_;
-    return cmp == 0 ? std::partial_ordering::equivalent :
-           cmp < 0 ? std::partial_ordering::less :
-           std::partial_ordering::greater;
   }
 
 private:
   Block m_block_;
-  BlockIndex m_index_{unknown_index};
+  BlockIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt
-
-// Structured binding support
-namespace std
-{
-template<>
-struct tuple_size<gtopt::BlockLP> : integral_constant<size_t, 3> {};
-
-template<size_t I>
-struct tuple_element<I, gtopt::BlockLP> {
-  using type = decltype(declval<gtopt::BlockLP>().get<I>());
-};
-} // namespace std
