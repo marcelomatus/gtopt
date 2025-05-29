@@ -16,11 +16,12 @@
 
 #pragma once
 
+#include <string_view>
+
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/system_context.hpp>
-#include <string_view>
 
 namespace gtopt
 {
@@ -31,71 +32,56 @@ using GeneratorLPSId = ObjectSingleId<class GeneratorLP>;
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
-    constexpr static std::string_view ClassName = "Generator";
+  constexpr static std::string_view ClassName = "Generator";
 
-    using CapacityBase = CapacityObjectLP<Generator>;
+  using CapacityBase = CapacityObjectLP<Generator>;
 
-    explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
+  explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
 
-    // Structured binding support
-    template<std::size_t I>
-    [[nodiscard]] constexpr auto get() const noexcept {
-        if constexpr (I == 0) {
-            return id();
-        } else if constexpr (I == 1) {
-            return this->object();
-        } else if constexpr (I == 2) {
-            return BusLPSId{this->object().bus};
-        }
+  // Structured binding support
+  template<std::size_t I>
+  [[nodiscard]] constexpr auto get() const noexcept
+  {
+    if constexpr (I == 0) {
+      return id();
+    } else if constexpr (I == 1) {
+      return this->object();
+    } else if constexpr (I == 2) {
+      return BusLPSId {this->object().bus};
     }
+  }
 
-    // Generator access with deducing this
-    [[nodiscard]] constexpr auto&& generator() noexcept {
-        return object();
-    }
+  [[nodiscard]] constexpr const auto& generator() const noexcept
+  {
+    return object();
+  }
 
-    [[nodiscard]] constexpr const auto& generator() const noexcept {
-        return object();
-    }
+  [[nodiscard]] constexpr auto bus() const noexcept
+  {
+    return BusLPSId {generator().bus};
+  }
 
-    [[nodiscard]] constexpr auto bus() const noexcept {
-        return BusLPSId{generator().bus};
-    }
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
 
-    [[nodiscard]] bool add_to_lp(SystemContext& sc,
-                                const ScenarioLP& scenario,
-                                const StageLP& stage,
-                                LinearProblem& lp);
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-    [[nodiscard]] bool add_to_output(OutputContext& out) const;
-
-    [[nodiscard]] const auto& generation_cols_at(
-        const ScenarioIndex scenario_index,
-        const StageIndex stage_index) const
-    {
-        return generation_cols.at({scenario_index, stage_index});
-    }
+  [[nodiscard]] const auto& generation_cols_at(
+      const ScenarioIndex scenario_index, const StageIndex stage_index) const
+  {
+    return generation_cols.at({scenario_index, stage_index});
+  }
 
 private:
-    OptTBRealSched pmin;
-    OptTBRealSched pmax;
-    OptTRealSched lossfactor;
-    OptTRealSched gcost;
+  OptTBRealSched pmin;
+  OptTBRealSched pmax;
+  OptTRealSched lossfactor;
+  OptTRealSched gcost;
 
-    STBIndexHolder generation_cols;
-    STBIndexHolder capacity_rows;
+  STBIndexHolder generation_cols;
+  STBIndexHolder capacity_rows;
 };
 
-} // namespace gtopt
-
-// Structured binding support
-namespace std
-{
-template<>
-struct tuple_size<gtopt::GeneratorLP> : integral_constant<size_t, 3> {};
-
-template<size_t I>
-struct tuple_element<I, gtopt::GeneratorLP> {
-    using type = decltype(declval<gtopt::GeneratorLP>().get<I>());
-};
-} // namespace std
+}  // namespace gtopt
