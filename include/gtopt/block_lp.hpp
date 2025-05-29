@@ -1,11 +1,22 @@
 /**
  * @file      block_lp.hpp
- * @brief     Header of
+ * @brief     Linear Programming representation of a Block for optimization problems
  * @date      Wed May 28 22:19:22 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * @details
+ * The BlockLP class provides a linear programming (LP) compatible representation
+ * of a Block, which is a fundamental building block for optimization problems.
+ * It maintains the block's unique identifier, duration, and index while providing
+ * constexpr and noexcept guarantees for efficient use in optimization contexts.
+ *
+ * Key Features:
+ * - Lightweight wrapper around Block with LP-specific functionality
+ * - Strong exception safety guarantees
+ * - Constexpr support for compile-time usage
+ * - Efficient move semantics
+ * - Thread-safe read-only operations
  */
 
 #pragma once
