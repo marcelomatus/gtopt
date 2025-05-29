@@ -38,10 +38,10 @@ namespace gtopt
 
 namespace details
 {
-[[nodiscard]] constexpr auto create_stage_array(std::span<const Stage> stage_array,
-                                               const Phase& phase,
+[[nodiscard]] constexpr auto create_stage_array(const Phase& phase,
                                                PhaseIndex phase_index,
                                                const OptionsLP& options,
+                                               std::span<const Stage> stage_array,
                                                std::span<const Block> all_blocks)
 {
   auto stages = stage_array.subspan(phase.first_stage, phase.count_stage);
