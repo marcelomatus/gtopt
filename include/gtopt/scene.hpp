@@ -18,8 +18,8 @@ namespace gtopt
 struct Scene
 {
   Uid uid {};
-  OptName name {};
-  OptBool active {};
+  OptName name;
+  OptBool active;
 
   Size first_scenario {0};
   Size count_scenario {std::dynamic_extent};
