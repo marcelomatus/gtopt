@@ -41,24 +41,32 @@ public:
   // Structured binding support
   template<std::size_t I>
   [[nodiscard]] constexpr auto get() const noexcept {
-    if constexpr (I == 0) return uid();
-    else if constexpr (I == 1) return duration();
-    else if constexpr (I == 2) return index();
+    if constexpr (I == 0) {
+      return uid();
+    } else if constexpr (I == 1) {
+      return duration();
+    } else if constexpr (I == 2) {
+      return index();
+    }
   }
 
   [[nodiscard]] constexpr auto uid() const noexcept -> BlockUid {
     return BlockUid{m_block_.uid};
   }
 
-  [[nodiscard]] constexpr auto duration() const noexcept -> decltype(auto) {
-    return (m_block_.duration);
+  [[nodiscard]] constexpr auto duration() const noexcept -> double {
+    return m_block_.duration;
   }
 
   [[nodiscard]] constexpr auto index() const noexcept -> BlockIndex {
     return m_index_;
   }
 
-  [[nodiscard]] constexpr auto operator<=>(const BlockLP&) const noexcept = default;
+  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept {
+    if (auto cmp = m_block_.uid <=> rhs.m_block_.uid; cmp != 0) return cmp;
+    if (auto cmp = m_block_.duration <=> rhs.m_block_.duration; cmp != 0) return cmp;
+    return m_index_ <=> rhs.m_index_;
+  }
 
 private:
   Block m_block_;
@@ -77,4 +85,4 @@ template<size_t I>
 struct tuple_element<I, gtopt::BlockLP> {
   using type = decltype(declval<gtopt::BlockLP>().get<I>());
 };
-}
+} // namespace std
