@@ -5,7 +5,6 @@
 Checks: "*,\
 #  -system-headers,\
    -clang-analyzer-cplusplus.NewDeleteLeaks,\
-   -clang-analyzer-cplusplus.NewDeleteLeaks,\
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\
    -altera-*,\
@@ -16,16 +15,15 @@ Checks: "*,\
    -fuchsia-trailing-return,\
    -fuchsia-overloaded-operator,\
    -misc-include-cleaner,\
-   clang-analyzer-*,\
   -llvm-header-guard,\
   -llvm-include-order,\
   -llvmlibc-*,\
-  -cppcoreguidelines-macro-usage,\
+#  -cppcoreguidelines-macro-usage,\
   -google-build-using-namespace,\
   -readability-identifier-length,\
   -readability-identifier-naming,\
-  -readability-redundant-member-init, \
-  -modernize-use-trailing-return-type,\
+#  -readability-redundant-member-init, \
+#  -modernize-use-trailing-return-type,\
   -bugprone-easily-swappable-parameters,\
   -identifier-naming,\
 #  -deduced_class_template_ctor_no_viable,\
@@ -37,14 +35,6 @@ Checks: "*,\
 #  -constexpr_local_var_non_literal_type,\
   -misc-non-private-member-variables-in-classes"
 
-# Ignore CMake files from analysis
-CheckOptions:
-  - key:             misc-non-private-member-variables-in-classes.IgnoredFilesRegex
-    value:           'CMakeLists.txt'
-  - key:             misc-use-internal-linkage.IgnoredFilesRegex
-    value:           'CMakeLists.txt'
-  - key:             cppcoreguidelines-avoid-non-const-global-variables.IgnoredFilesRegex
-    value:           'CMakeLists.txt'
 WarningsAsErrors: ''
 CheckOptions:
   - key: 'bugprone-argument-comment.StrictMode'

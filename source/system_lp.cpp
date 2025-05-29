@@ -235,7 +235,7 @@ void SystemLP::write_lp(const std::string& filename) const
  * @return true if all LP problems were solved successfully
  * @return false if any LP problem failed to solve
  */
-bool SystemLP::run_lp(const SolverOptions& solver_options)
+bool SystemLP::resolve(const SolverOptions& solver_options)
 {
   return linear_interface().resolve(solver_options);
 }

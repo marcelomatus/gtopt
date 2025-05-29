@@ -27,11 +27,11 @@ namespace gtopt
 namespace details
 {
 [[nodiscard]] constexpr auto create_block_array(
-    std::span<const Block> block_array,
-    const Stage& stage)
+    std::span<const Block> block_array, const Stage& stage)
 {
   auto blocks = block_array.subspan(stage.first_block, stage.count_block);
-  return blocks | ranges::views::transform([](const Block& b) { return BlockLP{b}; })
+  return blocks
+      | ranges::views::transform([](const Block& b) { return BlockLP {b}; })
       | ranges::to<std::vector>();
 }
 }  // namespace details
@@ -60,8 +60,8 @@ public:
   explicit StageLP(Stage stage,
                    std::span<const Block> blocks = {},
                    double annual_discount_rate = 0.0,
-                   StageIndex stage_index = StageIndex{unknown_index},
-                   PhaseIndex phase_index = PhaseIndex{unknown_index})
+                   StageIndex stage_index = StageIndex {unknown_index},
+                   PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_stage_(std::move(stage))
       , m_blocks_(details::create_block_array(blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
@@ -137,17 +137,9 @@ public:
   }
 
   /// @return Span of blocks in this stage
-  [[nodiscard]] constexpr std::span<const BlockLP> blocks() const noexcept
+  [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
     return m_blocks_;
-  }
-
-  friend constexpr auto operator<=>(const StageLP&, const StageLP&) = default;
-
-  [[nodiscard]] constexpr auto as_tuple() const noexcept
-  {
-    return std::tie(m_stage_, m_blocks_, m_timeinit_, m_duration_,
-                   m_discount_factor_, m_index_, m_phase_index_);
   }
 
 private:
