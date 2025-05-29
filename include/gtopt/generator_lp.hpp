@@ -40,18 +40,26 @@ public:
     // Structured binding support
     template<std::size_t I>
     [[nodiscard]] constexpr auto get() const noexcept {
-        if constexpr (I == 0) return id();
-        else if constexpr (I == 1) return generator();
-        else if constexpr (I == 2) return bus();
+        if constexpr (I == 0) {
+            return id();
+        } else if constexpr (I == 1) {
+            return this->object();
+        } else if constexpr (I == 2) {
+            return BusLPSId{this->object().bus};
+        }
     }
 
     // Generator access with deducing this
-    [[nodiscard]] constexpr auto generator(this auto&& self) noexcept -> decltype(auto) {
-        return FWD(self).object();
+    [[nodiscard]] constexpr auto&& generator() noexcept {
+        return object();
     }
 
-    [[nodiscard]] constexpr auto bus(this auto&& self) noexcept {
-        return BusLPSId{FWD(self).generator().bus};
+    [[nodiscard]] constexpr const auto& generator() const noexcept {
+        return object();
+    }
+
+    [[nodiscard]] constexpr auto bus() const noexcept {
+        return BusLPSId{generator().bus};
     }
 
     [[nodiscard]] bool add_to_lp(SystemContext& sc,
@@ -63,7 +71,7 @@ public:
 
     [[nodiscard]] const auto& generation_cols_at(
         const ScenarioIndex scenario_index,
-        const StageIndex stage_index) const noexcept
+        const StageIndex stage_index) const
     {
         return generation_cols.at({scenario_index, stage_index});
     }
