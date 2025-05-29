@@ -33,8 +33,8 @@ TEST_CASE("Planning daw json test 1 - basic parsing")
 
   gtopt::Planning plan = daw::json::from_json<gtopt::Planning>(json_data);
 
-  REQUIRE(plan.options.input_directory() == "data");
-  REQUIRE(plan.options.use_kirchhoff() == true);
+  REQUIRE(plan.options.input_directory.value() == "data");
+  REQUIRE(plan.options.use_kirchhoff.value() == true);
 
   REQUIRE(plan.simulation.block_array.size() == 1);
   REQUIRE(plan.simulation.block_array[0].uid == 1);
@@ -72,7 +72,7 @@ TEST_CASE("Planning daw json test 2 - large scale")
   }
 
   const gtopt::Planning planning {
-    .options = gtopt::Options{}.set_input_directory("large_test"),
+    .options = gtopt::Options{.input_directory = "large_test"},
     .simulation = gtopt::Simulation{
       .block_array = {},
       .stage_array = {},
@@ -81,8 +81,8 @@ TEST_CASE("Planning daw json test 2 - large scale")
     .system = gtopt::System{
       .name = "large_system",
       .bus_array = bus_array,
-      .generator_array = generator_array,
       .demand_array = {},
+      .generator_array = generator_array,
       .line_array = {}
     }
   };
@@ -90,7 +90,7 @@ TEST_CASE("Planning daw json test 2 - large scale")
   auto json_data = daw::json::to_json(planning);
   gtopt::Planning parsed_plan = daw::json::from_json<gtopt::Planning>(json_data);
 
-  REQUIRE(parsed_plan.options.input_directory() == "large_test");
+  REQUIRE(parsed_plan.options.input_directory.value() == "large_test");
   REQUIRE(parsed_plan.system.name == "large_system");
   REQUIRE(parsed_plan.system.bus_array.size() == size);
   REQUIRE(parsed_plan.system.generator_array.size() == size);
