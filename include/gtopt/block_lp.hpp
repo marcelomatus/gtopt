@@ -62,14 +62,19 @@ public:
     return m_index_;
   }
 
-  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept -> std::strong_ordering {
+  [[nodiscard]] constexpr auto operator<=>(const BlockLP& rhs) const noexcept -> std::partial_ordering {
     if (auto cmp = m_block_.uid <=> rhs.m_block_.uid; cmp != 0) {
-      return cmp;
+      return cmp == 0 ? std::partial_ordering::equivalent :
+             cmp < 0 ? std::partial_ordering::less :
+             std::partial_ordering::greater;
     }
     if (auto cmp = m_block_.duration <=> rhs.m_block_.duration; cmp != 0) {
       return cmp;
     }
-    return m_index_ <=> rhs.m_index_;
+    auto cmp = m_index_ <=> rhs.m_index_;
+    return cmp == 0 ? std::partial_ordering::equivalent :
+           cmp < 0 ? std::partial_ordering::less :
+           std::partial_ordering::greater;
   }
 
 private:
