@@ -143,7 +143,7 @@ TEST_CASE("PhaseLP construction from simulation")
     simulation.stage_array = {
         Stage{.uid = 1, .first_block = 0, .count_block = 1, .active = true, .discount_factor = std::nullopt}
     };
-    simulation.block_array = {Block{.duration = 1.0}};
+    simulation.block_array = {Block{.duration = 1.0, .uid = 0}};
 
     Phase phase{.uid = 1, .first_stage = 0, .count_stage = 1};
     const PhaseLP phase_lp(phase, options, simulation);
