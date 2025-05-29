@@ -39,21 +39,21 @@ TEST_SUITE("SceneLP") {
     }
 
     TEST_CASE("Construction with simulation") {
-        Scene scene{
+        const Scene scene{
             .uid = 2,
+            .name = "simulation_scene",
             .active = true,
             .first_scenario = 1,
             .count_scenario = 1
         };
 
-        Simulation simulation;
-        simulation.scenarios = {
+        const std::vector<Scenario> scenarios{
             Scenario{.uid = 1, .active = false},
             Scenario{.uid = 2, .active = true},
             Scenario{.uid = 3, .active = true}
         };
 
-        const SceneLP scene_lp(scene, simulation);
+        const SceneLP scene_lp(scene, scenarios);
         
         CHECK(scene_lp.index() == ElementIndex<SceneLP>{2});
         CHECK(scene_lp.is_active());
