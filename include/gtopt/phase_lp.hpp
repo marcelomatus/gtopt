@@ -38,11 +38,13 @@ namespace gtopt
 
 namespace details
 {
-[[nodiscard]] constexpr auto create_stage_array(const Phase& phase,
-                                               PhaseIndex phase_index,
-                                               const OptionsLP& options,
-                                               std::span<const Stage> stage_array,
-                                               std::span<const Block> all_blocks)
+
+[[nodiscard]] constexpr auto create_stage_array(
+    const Phase& phase,
+    PhaseIndex phase_index,
+    const OptionsLP& options,
+    std::span<const Stage> stage_array,
+    std::span<const Block> all_blocks)
 {
   auto stages = stage_array.subspan(phase.first_stage, phase.count_stage);
 
@@ -79,14 +81,12 @@ public:
    *
    * @note The phase will contain stages[first_stage..first_stage+count_stage-1]
    */
-  template<typename Phase,
-           ranges::range Stages = std::vector<Stage>,
-           ranges::range Blocks = std::vector<Block>>
+  template<typename Phase>
   explicit PhaseLP(Phase&& phase,
                    const OptionsLP& options,
                    std::span<const Stage> stages = {},
                    std::span<const Block> blocks = {},
-                   PhaseIndex phase_index = PhaseIndex{unknown_index})
+                   PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_phase_(std::forward<Phase>(phase))
       , m_stages_(details::create_stage_array(
             m_phase_, phase_index, options, stages, blocks))
@@ -98,11 +98,12 @@ public:
   {
   }
 
-  explicit PhaseLP(Phase phase,
+  template<typename Phase>
+  explicit PhaseLP(Phase&& phase,
                    const OptionsLP& options,
                    const Simulation& simulation,
-                   PhaseIndex phase_index = PhaseIndex{unknown_index})
-      : PhaseLP(std::move(phase),
+                   PhaseIndex phase_index = PhaseIndex {unknown_index})
+      : PhaseLP(std::forward<Phase>(phase),
                 options,
                 simulation.stage_array,
                 simulation.block_array,
@@ -129,7 +130,10 @@ public:
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
   /// @return Span of all StageLP objects in this phase
-  [[nodiscard]] constexpr std::span<const StageLP> stages() const noexcept { return m_stages_; }
+  [[nodiscard]] constexpr const auto& stages() const noexcept
+  {
+    return m_stages_;
+  }
 
   /// @return Index of first stage in this phase
   [[nodiscard]] constexpr auto first_stage() const noexcept

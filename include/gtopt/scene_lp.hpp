@@ -31,7 +31,8 @@ namespace details
     const Scene& scene,
     SceneIndex scene_index)
 {
-  auto scenarios = scenario_array.subspan(scene.first_scenario, scene.count_scenario);
+  auto scenarios =
+      scenario_array.subspan(scene.first_scenario, scene.count_scenario);
 
   return enumerate_active<ScenarioIndex>(scenarios)
       | ranges::views::transform(
@@ -56,10 +57,7 @@ namespace details
 class SceneLP
 {
 public:
-  /** @brief Default constructor */
   SceneLP() = default;
-  SceneLP(SceneLP&&) = default;
-  SceneLP(const SceneLP&) = default;
 
   /**
    * @brief Construct a SceneLP from a Scene and a collection of ScenarioLP
@@ -75,11 +73,10 @@ public:
    */
   template<typename Scene>
   explicit SceneLP(Scene&& scene,
-                   std::span<const Scenario> all_scenarios = {},
-                   SceneIndex index = SceneIndex{unknown_index})
+                   std::span<const Scenario> scenarios,
+                   SceneIndex index = SceneIndex {unknown_index})
       : m_scene_(std::forward<Scene>(scene))
-      , m_scenarios_(
-            details::create_scenario_array(all_scenarios, m_scene_, index))
+      , m_scenarios_(details::create_scenario_array(scenarios, m_scene_, index))
       , m_index_(index)
   {
   }
@@ -111,10 +108,7 @@ public:
    * @brief Get all scenario elements associated with this scene
    * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr std::span<const ScenarioLP> scenarios() const noexcept
-  {
-    return m_scenarios_;
-  }
+  [[nodiscard]] constexpr auto&& scenarios() const { return m_scenarios_; }
 
   [[nodiscard]] constexpr auto first_scenario() const noexcept
   {
@@ -128,13 +122,6 @@ public:
 
   /// @return Index of this scene in parent container
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
-
-  friend constexpr auto operator<=>(const SceneLP&, const SceneLP&) = default;
-
-  [[nodiscard]] constexpr auto as_tuple() const noexcept
-  {
-    return std::tie(m_scene_, m_scenarios_, m_index_);
-  }
 
 private:
   Scene m_scene_;  ///< The underlying scene

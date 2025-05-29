@@ -80,14 +80,14 @@ void PlanningLP::write_out() const
   }
 }
 
-auto PlanningLP::run_lp(const SolverOptions& lp_opts)
+auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, std::string>
 {
   try {
     bool status = true;
     for (auto&& phase_systems : systems()) {
       for (auto&& system : phase_systems) {
-        if (auto result = system.run_lp(lp_opts); !result) {
+        if (auto result = system.resolve(lp_opts); !result) {
           status = false;
           break;
         }

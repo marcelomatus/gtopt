@@ -131,11 +131,11 @@ TEST_CASE("Simulation - Full LP run with solving")
       .line_array = {}};
 
   // Test creating and solving the LP
-  auto result = Simulation::run_lp(system,
-                                   std::nullopt,  // no LP file
-                                   1,  // use names
-                                   0.0,  // no matrix filtering
-                                   false);  // solve the problem
+  auto result = Simulation::resolve(system,
+                                    std::nullopt,  // no LP file
+                                    1,  // use names
+                                    0.0,  // no matrix filtering
+                                    false);  // solve the problem
 
   // Check result is successful
   REQUIRE(result.has_value());
@@ -173,11 +173,11 @@ TEST_CASE("Simulation - Run with LP file output")
   std::string temp_file = "test_lp_output";
 
   // Test creating LP model and writing to file
-  auto result = Simulation::run_lp(system,
-                                   temp_file,  // write LP to this file
-                                   2,  // use names with maps
-                                   0.0,  // no matrix filtering
-                                   true);  // just create, don't solve
+  auto result = Simulation::resolve(system,
+                                    temp_file,  // write LP to this file
+                                    2,  // use names with maps
+                                    0.0,  // no matrix filtering
+                                    true);  // just create, don't solve
 
   // Check result is successful
   REQUIRE(result.has_value());

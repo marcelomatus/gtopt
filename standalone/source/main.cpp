@@ -172,7 +172,7 @@ int Main(const std::vector<std::string>& planning_files,
   {
     spdlog::stopwatch sw;
 
-    auto result = planning_lp.run_lp();
+    auto result = planning_lp.resolve();
     spdlog::info(fmt::format("planning  {}", sw));
 
     optimal = result.has_value();

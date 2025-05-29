@@ -184,7 +184,7 @@ TEST_CASE("PlanningLP - Run LP")
   PlanningLP planning_lp(planning, flat_options);
 
   // Run the LP
-  auto result = planning_lp.run_lp();
+  auto result = planning_lp.resolve();
 
   // Check that we got a successful result
   CHECK(result.has_value());
@@ -229,7 +229,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   planning_lp.write_lp("test_planning_lp_write_only");
   // Run the LP (should only create LP model, not solve)
 
-  auto result = planning_lp.run_lp();
+  auto result = planning_lp.resolve();
 
   // Check that we got a successful result
   CHECK(result.has_value());
@@ -290,7 +290,7 @@ TEST_CASE("PlanningLP - Solver test")
   PlanningLP planning_lp(planning);
 
   // Run the LP - should result in an error
-  auto result = planning_lp.run_lp();
+  auto result = planning_lp.resolve();
 
   CHECK(result.has_value());
 

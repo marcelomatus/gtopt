@@ -262,7 +262,7 @@ public:
    * @param solver_options Solver configuration
    * @return true if resolution succeeded
    */
-  bool run_lp(const SolverOptions& solver_options = {});
+  bool resolve(const SolverOptions& solver_options = {});
 
   /**
    * @brief Write output for all linear interfaces
