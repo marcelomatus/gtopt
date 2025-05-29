@@ -26,13 +26,12 @@ namespace gtopt
 
 namespace details
 {
-
-constexpr auto create_scenario_array(const auto& scenario_array,
-                                     const Scene& scene,
-                                     auto scene_index)
+[[nodiscard]] constexpr auto create_scenario_array(
+    std::span<const Scenario> scenario_array,
+    const Scene& scene,
+    SceneIndex scene_index)
 {
-  auto&& scenarios = std::span(scenario_array)
-                         .subspan(scene.first_scenario, scene.count_scenario);
+  auto scenarios = scenario_array.subspan(scene.first_scenario, scene.count_scenario);
 
   return enumerate_active<ScenarioIndex>(scenarios)
       | ranges::views::transform(
@@ -74,10 +73,10 @@ public:
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
    * Also initializes scenario indexes with sequential values.
    */
-  template<typename Scene, typename Scenarios = std::vector<Scenario> >
+  template<typename Scene>
   explicit SceneLP(Scene&& scene,
-                   const Scenarios& all_scenarios,
-                   const SceneIndex index = SceneIndex {unknown_index})
+                   std::span<const Scenario> all_scenarios = {},
+                   SceneIndex index = SceneIndex{unknown_index})
       : m_scene_(std::forward<Scene>(scene))
       , m_scenarios_(
             details::create_scenario_array(all_scenarios, m_scene_, index))
@@ -112,20 +111,30 @@ public:
    * @brief Get all scenario elements associated with this scene
    * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr auto&& scenarios() const { return m_scenarios_; }
+  [[nodiscard]] constexpr std::span<const ScenarioLP> scenarios() const noexcept
+  {
+    return m_scenarios_;
+  }
 
-  [[nodiscard]] auto first_scenario() const
+  [[nodiscard]] constexpr auto first_scenario() const noexcept
   {
     return ScenarioIndex {static_cast<Index>(m_scene_.first_scenario)};
   }
 
-  [[nodiscard]] auto count_scenario() const
+  [[nodiscard]] constexpr auto count_scenario() const noexcept
   {
     return static_cast<Index>(m_scene_.count_scenario);
   }
 
   /// @return Index of this scene in parent container
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+
+  friend constexpr auto operator<=>(const SceneLP&, const SceneLP&) = default;
+
+  [[nodiscard]] constexpr auto as_tuple() const noexcept
+  {
+    return std::tie(m_scene_, m_scenarios_, m_index_);
+  }
 
 private:
   Scene m_scene_;  ///< The underlying scene
