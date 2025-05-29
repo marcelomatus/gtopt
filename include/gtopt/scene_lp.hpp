@@ -108,7 +108,11 @@ public:
    * @brief Get all scenario elements associated with this scene
    * @return Span of ScenarioLP elements
    */
-  [[nodiscard]] constexpr auto&& scenarios() const { return m_scenarios_; }
+  [[nodiscard]] constexpr auto scenarios() const
+      -> const std::vector<ScenarioLP>&
+  {
+    return m_scenarios_;
+  }
 
   [[nodiscard]] constexpr auto first_scenario() const noexcept
   {

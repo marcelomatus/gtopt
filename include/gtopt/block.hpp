@@ -22,7 +22,7 @@ struct Block
   Uid uid {};
   OptName name {};
 
-  Real duration {};
+  Real duration {0.0};
 
   static constexpr std::string_view class_name = "block";
 };
