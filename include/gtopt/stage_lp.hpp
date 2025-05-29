@@ -92,10 +92,29 @@ public:
   /// @return Total duration of the stage in hours
   [[nodiscard]] constexpr auto duration() const noexcept { return m_duration_; }
 
+  [[nodiscard]] constexpr auto total_duration() const noexcept
+  {
+    return ranges::fold_left(
+        m_blocks_ | ranges::views::transform(&BlockLP::duration),
+        0.0,
+        std::plus<>());
+  }
+
   /// @return Combined discount factor (annual and stage-specific)
+  [[nodiscard]] static constexpr auto calculate_discount_factor(
+      double annual_rate, double timeinit) noexcept
+  {
+    return annual_discount_factor(annual_rate, timeinit);
+  }
+
   [[nodiscard]] constexpr auto discount_factor() const noexcept
   {
     return m_discount_factor_ * stage().discount_factor.value_or(1.0);
+  }
+
+  [[nodiscard]] constexpr auto annual_discount_rate() const noexcept
+  {
+    return m_discount_factor_;
   }
 
   /// @return Whether this stage is active in the planning
@@ -122,6 +141,14 @@ public:
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
     return m_blocks_;
+  }
+
+  friend constexpr auto operator<=>(const StageLP&, const StageLP&) = default;
+
+  [[nodiscard]] constexpr auto as_tuple() const noexcept
+  {
+    return std::tie(m_stage_, m_blocks_, m_timeinit_, m_duration_,
+                   m_discount_factor_, m_index_, m_phase_index_);
   }
 
 private:
