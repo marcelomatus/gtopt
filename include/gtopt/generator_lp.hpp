@@ -16,8 +16,6 @@
 
 #pragma once
 
-#include <string_view>
-
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
@@ -37,19 +35,6 @@ public:
   using CapacityBase = CapacityObjectLP<Generator>;
 
   explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
-
-  // Structured binding support
-  template<std::size_t I>
-  [[nodiscard]] constexpr auto get() const noexcept
-  {
-    if constexpr (I == 0) {
-      return id();
-    } else if constexpr (I == 1) {
-      return this->object();
-    } else if constexpr (I == 2) {
-      return BusLPSId {this->object().bus};
-    }
-  }
 
   [[nodiscard]] constexpr const auto& generator() const noexcept
   {
