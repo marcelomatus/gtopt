@@ -25,7 +25,7 @@ TEST_CASE("PhaseLP construction")
     SUBCASE("Construction with stages")
     {
         const OptionsLP options;
-        std::vector<Stage> stages = {
+        const std::vector<Stage> stages = {
             Stage{.uid = 1, .first_block = 0, .count_block = 2, .active = true, .discount_factor = std::nullopt},
             Stage{.uid = 2, .first_block = 2, .count_block = 3, .active = true, .discount_factor = std::nullopt}
         };
@@ -38,7 +38,13 @@ TEST_CASE("PhaseLP construction")
             Block{.duration = 5.0, .uid = 0}   // stage 2 blocks
         };
 
-        Phase phase{.uid = 1, .first_stage = 0, .count_stage = 2};
+        const Phase phase{
+            .uid = 1,
+            .first_stage = 0,
+            .count_stage = 2,
+            .active = true,
+            .discount_factor = std::nullopt
+        };
         const PhaseLP phase_lp(phase, options, stages, blocks, PhaseIndex{1});
 
         CHECK(phase_lp.uid() == PhaseUid{1});
@@ -130,7 +136,7 @@ TEST_CASE("PhaseLP active status")
 
     SUBCASE("Default active status")
     {
-        Phase phase{.uid = 1, .first_stage = 0, .count_stage = 1};
+        const Phase phase{.uid = 1, .first_stage = 0, .count_stage = 1, .active = true};
         const PhaseLP phase_lp(phase, options, stages, blocks);
         CHECK(phase_lp.is_active()); // Default should be active
     }
