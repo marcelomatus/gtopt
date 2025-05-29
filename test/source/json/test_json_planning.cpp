@@ -1,12 +1,13 @@
 /**
  * @file      test_json_planning.cpp
- * @brief     Unit tests for JSON serialization/deserialization of Planning class
+ * @brief     Unit tests for JSON serialization/deserialization of Planning
+ * class
  * @date      Wed May 28 12:00:00 2025
  * @author    System Tests
  * @copyright BSD-3-Clause
  *
- * This module tests JSON serialization and deserialization of the Planning class
- * including its components (Options, Simulation, System).
+ * This module tests JSON serialization and deserialization of the Planning
+ * class including its components (Options, Simulation, System).
  */
 
 #include <doctest/doctest.h>
@@ -72,23 +73,19 @@ TEST_CASE("Planning daw json test 2 - large scale")
   }
 
   const gtopt::Planning planning {
-    .options = gtopt::Options{.input_directory = "large_test"},
-    .simulation = gtopt::Simulation{
-      .block_array = {},
-      .stage_array = {},
-      .scenario_array = {}
-    },
-    .system = gtopt::System{
-      .name = "large_system",
-      .bus_array = bus_array,
-      .demand_array = {},
-      .generator_array = generator_array,
-      .line_array = {}
-    }
-  };
+      .options = gtopt::Options {.input_directory = "large_test"},
+      .simulation =
+          gtopt::Simulation {
+              .block_array = {}, .stage_array = {}, .scenario_array = {}},
+      .system = gtopt::System {.name = "large_system",
+                               .bus_array = bus_array,
+                               .demand_array = {},
+                               .generator_array = generator_array,
+                               .line_array = {}}};
 
   auto json_data = daw::json::to_json(planning);
-  gtopt::Planning parsed_plan = daw::json::from_json<gtopt::Planning>(json_data);
+  gtopt::Planning parsed_plan =
+      daw::json::from_json<gtopt::Planning>(json_data);
 
   REQUIRE(parsed_plan.options.input_directory.value() == "large_test");
   REQUIRE(parsed_plan.system.name == "large_system");

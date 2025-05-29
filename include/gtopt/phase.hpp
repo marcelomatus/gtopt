@@ -64,7 +64,4 @@ using PhaseUid = StrongUidType<Phase>;
 /// Strongly-typed index for Phase objects in collections
 using PhaseIndex = StrongIndexType<Phase>;
 
-/// Optional PhaseIndex for cases where phase reference may be absent
-using OptPhaseIndex = std::optional<PhaseIndex>;
-
 }  // namespace gtopt
