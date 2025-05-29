@@ -1,3 +1,13 @@
+/**
+ * @file      block_lp.hpp
+ * @brief     Header of
+ * @date      Wed May 28 22:19:22 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/basic_types.hpp>
@@ -19,7 +29,6 @@ public:
 
   [[nodiscard]] constexpr auto uid() const { return BlockUid(m_block_.uid); }
   [[nodiscard]] constexpr auto duration() const { return m_block_.duration; }
-
   [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
 
 private:
