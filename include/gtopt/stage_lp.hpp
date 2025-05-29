@@ -26,12 +26,12 @@ namespace gtopt
 
 namespace details
 {
-constexpr auto create_block_array(const auto& block_array, const Stage& stage)
+[[nodiscard]] constexpr auto create_block_array(
+    std::span<const Block> block_array,
+    const Stage& stage)
 {
-  auto&& blocks =
-      std::span(block_array).subspan(stage.first_block, stage.count_block);
-
-  return blocks | ranges::views::transform([](auto&& b) { return BlockLP {b}; })
+  auto blocks = block_array.subspan(stage.first_block, stage.count_block);
+  return blocks | ranges::views::transform([](const Block& b) { return BlockLP{b}; })
       | ranges::to<std::vector>();
 }
 }  // namespace details
@@ -57,12 +57,11 @@ public:
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
    */
-  template<typename Blocks = std::vector<Block> >
   explicit StageLP(Stage stage,
-                   const Blocks& blocks = {},
+                   std::span<const Block> blocks = {},
                    double annual_discount_rate = 0.0,
-                   StageIndex stage_index = StageIndex {unknown_index},
-                   PhaseIndex phase_index = PhaseIndex {unknown_index})
+                   StageIndex stage_index = StageIndex{unknown_index},
+                   PhaseIndex phase_index = PhaseIndex{unknown_index})
       : m_stage_(std::move(stage))
       , m_blocks_(details::create_block_array(blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
@@ -138,7 +137,7 @@ public:
   }
 
   /// @return Span of blocks in this stage
-  [[nodiscard]] constexpr const auto& blocks() const noexcept
+  [[nodiscard]] constexpr std::span<const BlockLP> blocks() const noexcept
   {
     return m_blocks_;
   }
