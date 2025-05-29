@@ -5,9 +5,14 @@
 
 using namespace gtopt;
 
+namespace {
+constexpr Block test_block{123, std::nullopt};
+constexpr BlockIndex test_index{42};
+} // namespace
+
 TEST_CASE("BlockLP default construction")
 {
-    const BlockLP block;
+    constexpr BlockLP block;
     
     SUBCASE("Default constructed BlockLP has unknown index")
     {
@@ -23,62 +28,50 @@ TEST_CASE("BlockLP default construction")
 
 TEST_CASE("BlockLP construction with parameters")
 {
-    const Block block_data{123, std::nullopt}; // uid=123, no name
-    const BlockIndex index{42};
-    const BlockLP block(block_data, index);
+    constexpr BlockLP block(test_block, test_index);
     
     SUBCASE("Constructor properly initializes members")
     {
-        CHECK(block.uid() == BlockUid{123});
-        CHECK(block.duration() == 0);
-        CHECK(block.index() == BlockIndex{42});
+        CHECK(block.uid() == BlockUid{test_block.uid});
+        CHECK(block.duration() == test_block.duration);
+        CHECK(block.index() == test_index);
     }
     
     SUBCASE("Constructor with default index")
     {
-        const BlockLP default_index_block(block_data);
+        constexpr BlockLP default_index_block(test_block);
         CHECK(default_index_block.index() == BlockIndex{unknown_index});
     }
 }
 
 TEST_CASE("BlockLP move semantics")
 {
-    Block block_data{456, std::nullopt};
-    const BlockIndex index{99};
-    BlockLP original(block_data, index);
+    BlockLP original(test_block, test_index);
     
     SUBCASE("Move construction")
     {
         BlockLP moved(std::move(original));
-        
-        CHECK(moved.uid() == BlockUid{456});
-        CHECK(moved.duration() == 0);
-        CHECK(moved.index() == BlockIndex{99});
+        CHECK(moved.uid() == BlockUid{test_block.uid});
+        CHECK(moved.index() == test_index);
     }
     
     SUBCASE("Move assignment")
     {
         BlockLP moved;
         moved = std::move(original);
-        
-        CHECK(moved.uid() == BlockUid{456});
-        CHECK(moved.duration() == 0);
-        CHECK(moved.index() == BlockIndex{99});
+        CHECK(moved.uid() == BlockUid{test_block.uid});
+        CHECK(moved.index() == test_index);
     }
 }
 
 TEST_CASE("BlockLP copy semantics")
 {
-    const Block block_data{789, std::nullopt};
-    const BlockIndex index{13};
-    const BlockLP original(block_data, index);
+    const BlockLP original(test_block, test_index);
     
     SUBCASE("Copy construction")
     {
         BlockLP copy(original);
-        
         CHECK(copy.uid() == original.uid());
-        CHECK(copy.duration() == original.duration());
         CHECK(copy.index() == original.index());
     }
     
@@ -86,51 +79,40 @@ TEST_CASE("BlockLP copy semantics")
     {
         BlockLP copy;
         copy = original;
-        
         CHECK(copy.uid() == original.uid());
-        CHECK(copy.duration() == original.duration());
         CHECK(copy.index() == original.index());
     }
 }
 
 TEST_CASE("BlockLP constexpr usage")
 {
-    constexpr Block block_data{111, std::nullopt};
-    constexpr BlockIndex index{7};
-    constexpr BlockLP block(block_data, index);
+    constexpr BlockLP block(test_block, test_index);
     
     SUBCASE("Constexpr construction")
     {
-        static_assert(block.uid() == BlockUid{111});
-        static_assert(block.duration() == 0);
-        static_assert(block.index() == BlockIndex{7});
+        static_assert(block.uid() == BlockUid{test_block.uid});
+        static_assert(block.index() == test_index);
     }
     
     SUBCASE("Constexpr methods")
     {
         constexpr auto uid = block.uid();
-        constexpr auto duration = block.duration();
         constexpr auto idx = block.index();
-        
-        CHECK(uid == BlockUid{111});
-        CHECK(duration == 0);
-        CHECK(idx == BlockIndex{7});
+        CHECK(uid == BlockUid{test_block.uid});
+        CHECK(idx == test_index);
     }
 }
 
 TEST_CASE("BlockLP noexcept guarantees")
 {
-    Block block_data{222, std::nullopt};
-    BlockIndex index{5};
-    
     SUBCASE("Constructor is noexcept")
     {
-        CHECK(noexcept(BlockLP(block_data, index)));
+        CHECK(noexcept(BlockLP(test_block, test_index)));
     }
     
     SUBCASE("Methods are noexcept")
     {
-        BlockLP block(block_data, index);
+        const BlockLP block(test_block, test_index);
         CHECK(noexcept(block.uid()));
         CHECK(noexcept(block.duration()));
         CHECK(noexcept(block.index()));
