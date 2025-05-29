@@ -59,14 +59,14 @@ public:
    */
   template<typename Blocks = std::vector<Block> >
   explicit StageLP(Stage stage,
-                   const Blocks& all_blocks = {},
+                   const Blocks& blocks = {},
                    double annual_discount_rate = 0.0,
                    StageIndex stage_index = StageIndex {unknown_index},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_stage_(std::move(stage))
-      , m_blocks_(details::create_block_array(all_blocks, m_stage_))
+      , m_blocks_(details::create_block_array(blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
-            all_blocks | ranges::views::take(stage.first_block)
+            blocks | ranges::views::take(stage.first_block)
                 | ranges::views::transform([](const Block& b)
                                            { return b.duration; }),
             0.0,
