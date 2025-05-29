@@ -146,7 +146,7 @@ public:
 
 private:
   Phase m_phase_ {};  ///< The underlying Phase object
-  std::vector<StageLP> m_stages_ {};  ///< Span of StageLP objects in this phase
+  std::vector<StageLP> m_stages_;  ///< Span of StageLP objects in this phase
   double m_duration_ {0.0};  ///< Total duration of all stages in this phase
   PhaseIndex m_index_ {unknown_index};
 };
