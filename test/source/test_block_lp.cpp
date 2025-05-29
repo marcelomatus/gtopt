@@ -23,7 +23,7 @@ TEST_CASE("BlockLP default construction")
 
 TEST_CASE("BlockLP construction with parameters")
 {
-    const Block block_data{123, 5.0}; // uid=123, duration=5.0
+    const Block block_data{123, 5}; // uid=123, duration=5
     const BlockIndex index{42};
     const BlockLP block(block_data, index);
     
@@ -43,7 +43,7 @@ TEST_CASE("BlockLP construction with parameters")
 
 TEST_CASE("BlockLP move semantics")
 {
-    Block block_data{456, 7.5};
+    Block block_data{456, 7};
     const BlockIndex index{99};
     BlockLP original(block_data, index);
     
@@ -52,7 +52,7 @@ TEST_CASE("BlockLP move semantics")
         BlockLP moved(std::move(original));
         
         CHECK(moved.uid() == BlockUid{456});
-        CHECK(moved.duration() == 7.5);
+        CHECK(moved.duration() == 7);
         CHECK(moved.index() == BlockIndex{99});
     }
     
@@ -62,14 +62,14 @@ TEST_CASE("BlockLP move semantics")
         moved = std::move(original);
         
         CHECK(moved.uid() == BlockUid{456});
-        CHECK(moved.duration() == 7.5);
+        CHECK(moved.duration() == 7);
         CHECK(moved.index() == BlockIndex{99});
     }
 }
 
 TEST_CASE("BlockLP copy semantics")
 {
-    const Block block_data{789, 3.0};
+    const Block block_data{789, 3};
     const BlockIndex index{13};
     const BlockLP original(block_data, index);
     
@@ -95,14 +95,14 @@ TEST_CASE("BlockLP copy semantics")
 
 TEST_CASE("BlockLP constexpr usage")
 {
-    constexpr Block block_data{111, 2.0};
+    constexpr Block block_data{111, 2};
     constexpr BlockIndex index{7};
     constexpr BlockLP block(block_data, index);
     
     SUBCASE("Constexpr construction")
     {
         static_assert(block.uid() == BlockUid{111});
-        static_assert(block.duration() == 2.0);
+        static_assert(block.duration() == 2);
         static_assert(block.index() == BlockIndex{7});
     }
     
@@ -113,14 +113,14 @@ TEST_CASE("BlockLP constexpr usage")
         constexpr auto idx = block.index();
         
         CHECK(uid == BlockUid{111});
-        CHECK(duration == 2.0);
+        CHECK(duration == 2);
         CHECK(idx == BlockIndex{7});
     }
 }
 
 TEST_CASE("BlockLP noexcept guarantees")
 {
-    Block block_data{222, 4.0};
+    Block block_data{222, 4};
     BlockIndex index{5};
     
     SUBCASE("Constructor is noexcept")
