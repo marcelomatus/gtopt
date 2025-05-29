@@ -1,11 +1,17 @@
 /**
  * @file      bus_lp.hpp
- * @brief     Header of
+ * @brief     Linear Programming representation of a Bus for optimization problems
  * @date      Mon Mar 24 09:40:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * @details
+ * The BusLP class provides a linear programming (LP) compatible representation
+ * of a Bus, which is a fundamental component for power system optimization.
+ * It maintains the bus's electrical properties and provides methods for LP
+ * formulation while using modern C++23 features for better ergonomics.
+ *
+ * @note Uses C++23 features including deducing this and structured bindings
  */
 
 #pragma once
@@ -29,47 +35,51 @@ public:
 
   explicit BusLP(const InputContext& /*ic*/, Bus pbus) noexcept
       : ObjectLP<Bus>(std::move(pbus))
-  {
+  {}
+
+  // Structured binding support
+  template<std::size_t I>
+  [[nodiscard]] constexpr auto get() const noexcept {
+    if constexpr (I == 0) return id();
+    else if constexpr (I == 1) return bus();
+    else if constexpr (I == 2) return voltage();
   }
 
-  [[nodiscard]] constexpr auto bus() const { return object(); }
-
-  [[nodiscard]] constexpr auto reference_theta() const
-  {
-    return bus().reference_theta;
+  [[nodiscard]] constexpr auto bus(this auto&& self) noexcept -> decltype(auto) {
+    return FWD(self).object();
   }
 
-  [[nodiscard]] constexpr auto voltage() const -> double
-  {
-    return bus().voltage.value_or(1);
+  [[nodiscard]] constexpr auto reference_theta(this auto&& self) noexcept {
+    return FWD(self).bus().reference_theta;
   }
 
-  [[nodiscard]] constexpr auto use_kirchhoff() const -> bool
-  {
-    return bus().use_kirchhoff.value_or(true);
+  [[nodiscard]] constexpr auto voltage(this auto&& self) noexcept -> double {
+    return FWD(self).bus().voltage.value_or(1.0);
   }
 
-  [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const noexcept
-      -> bool;
+  [[nodiscard]] constexpr auto use_kirchhoff(this auto&& self) noexcept -> bool {
+    return FWD(self).bus().use_kirchhoff.value_or(true);
+  }
+
+  [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const noexcept -> bool;
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               LinearProblem& lp);
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]] auto&& balance_rows_at(const ScenarioIndex scenario_index,
-                                       const StageIndex stage_index) const
-  {
+                                      const StageIndex stage_index) const noexcept {
     return balance_rows.at({scenario_index, stage_index});
   }
 
   [[nodiscard]] auto theta_cols_at(const SystemContext& sc,
-                                   const ScenarioLP& scenario,
-                                   const StageLP& stage,
-                                   LinearProblem& lp,
-                                   const std::vector<BlockLP>& blocks) const
+                                  const ScenarioLP& scenario,
+                                  const StageLP& stage,
+                                  LinearProblem& lp,
+                                  const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&
   {
     const auto key = std::make_pair(scenario.index(), stage.index());
@@ -81,15 +91,26 @@ public:
 
 private:
   auto lazy_add_theta(const SystemContext& sc,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      LinearProblem& lp,
-                      const std::vector<BlockLP>& blocks) const
+                     const ScenarioLP& scenario,
+                     const StageLP& stage,
+                     LinearProblem& lp,
+                     const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&;
 
   STBIndexHolder balance_rows;
-
   mutable STBIndexHolder theta_cols;
 };
 
 }  // namespace gtopt
+
+// Structured binding support
+namespace std
+{
+template<>
+struct tuple_size<gtopt::BusLP> : integral_constant<size_t, 3> {};
+
+template<size_t I>
+struct tuple_element<I, gtopt::BusLP> {
+  using type = decltype(declval<gtopt::BusLP>().get<I>());
+};
+} // namespace std
