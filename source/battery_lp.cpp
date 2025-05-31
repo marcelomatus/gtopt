@@ -47,7 +47,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Get capacity information
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage.index(), lp);
+  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
 
   // Get blocks for this stage
   const auto& blocks = stage.blocks();

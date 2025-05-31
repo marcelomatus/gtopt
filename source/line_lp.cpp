@@ -52,7 +52,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  const auto [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
+  const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
   const auto stage_tcost = tcost.at(stage_index).value_or(0.0);
   const auto stage_lossfactor = sc.stage_lossfactor(stage_index, lossfactor);
   const auto has_loss = stage_lossfactor > 0.0;

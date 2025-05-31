@@ -33,13 +33,33 @@ public:
 
   template<typename... Types>
     requires(sizeof...(Types) == 3)
-  constexpr auto t_label(const StageIndex& stage_index,
-                         const Types&... var) const -> std::string
+  constexpr auto t_label(const StageLP& stage, const Types&... var) const
+      -> std::string
   {
     if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., m_stages_.get().at(stage_index).uid());
+    return gtopt::as_label(var..., stage.uid());
+  }
+
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto t_label(const StageIndex& stage_index,
+                         const Types&... var) const -> std::string
+  {
+    return t_label(m_stages_.get().at(stage_index), var...);
+  }
+
+  template<typename... Types>
+    requires(sizeof...(Types) == 3)
+  constexpr auto st_label(const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          const Types&... var) const -> std::string
+  {
+    if (!m_options_.get().use_lp_names()) [[likely]] {
+      return {};
+    }
+    return gtopt::as_label(var..., scenario.uid(), stage.uid());
   }
 
   template<typename... Types>
@@ -48,12 +68,9 @@ public:
                           const StageIndex& stage_index,
                           const Types&... var) const -> std::string
   {
-    if (!m_options_.get().use_lp_names()) [[likely]] {
-      return {};
-    }
-    return gtopt::as_label(var...,
-                           m_scenarios_.get().at(scenario_index).uid(),
-                           m_stages_.get().at(stage_index).uid());
+    return st_label(m_scenarios_.get().at(scenario_index),
+                    m_stages_.get().at(stage_index),
+                    var...);
   }
 
   template<typename... Types>

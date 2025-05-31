@@ -53,7 +53,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
       generator_lp.generation_cols_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] =
-      generator_lp.capacity_and_col(stage_index, lp);
+      generator_lp.capacity_and_col(stage, lp);
 
   if (!capacity_col && !generator_lp.generator().capacity) {
     SPDLOG_WARN(
