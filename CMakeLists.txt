@@ -89,10 +89,10 @@ CPMAddPackage(
 # detect new files automatically. Keep that in mind when changing files, or
 # explicitly mention them here.
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/[a-zA-Z]*.hpp"
 )
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
 # ---- Create library ----

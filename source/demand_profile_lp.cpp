@@ -51,7 +51,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   auto&& load_cols = demand_lp.load_cols_at(scenario_index, stage_index);
 
   const auto [stage_capacity, capacity_col] =
-      demand_lp.capacity_and_col(stage_index, lp);
+      demand_lp.capacity_and_col(stage, lp);
 
   if (!capacity_col && !demand_lp.demand().capacity) {
     SPDLOG_WARN("requires that Demand defines capacity or expansion");

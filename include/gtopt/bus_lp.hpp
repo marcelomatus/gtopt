@@ -26,6 +26,9 @@
 namespace gtopt
 {
 
+// TODO(marcelo): swap the parameter order in BusLP constructor: first
+// should be the object, like Bus, then the InoutContext if needed.
+
 using BusLPId = ObjectId<class BusLP>;
 using BusLPSId = ObjectSingleId<class BusLP>;
 

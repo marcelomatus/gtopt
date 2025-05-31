@@ -83,7 +83,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage_index, lp);
+  auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
 
   const auto stage_gcost = gcost.optval(stage_index).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);

@@ -20,12 +20,6 @@ namespace gtopt
 namespace
 {
 
-[[nodiscard]] constexpr auto create_simulation(const Simulation& simulation,
-                                               const OptionsLP& options)
-{
-  return SimulationLP {simulation, options};
-}
-
 [[nodiscard]] scene_phase_systems_t create_systems(System& system,
                                                    SimulationLP& simulation,
                                                    const OptionsLP& options,
