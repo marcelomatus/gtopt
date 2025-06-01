@@ -1,11 +1,13 @@
 /**
  * @file      object.hpp
- * @brief     Header of
- * @date      Sat Mar 29 11:56:29 2025
+ * @brief     Core object types and utilities for the optimization framework
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * @details
+ * Defines fundamental object types and identification utilities used throughout
+ * the optimization framework. Provides base functionality for uniquely identifying
+ * and tracking objects in the system.
  */
 
 #pragma once
@@ -17,23 +19,47 @@
 namespace gtopt
 {
 
+/**
+ * @brief Basic attributes common to all objects in the system
+ * 
+ * Contains the minimal set of attributes needed to uniquely identify
+ * and track an object's state in the optimization framework.
+ */
 struct ObjectAttrs
 {
-  Uid uid {};
-  Name name {};
-  OptActive active {};
+  Uid uid {};         ///< Unique identifier for the object
+  Name name {};       ///< Human-readable name of the object
+  OptActive active {}; ///< Optional activity status of the object
 };
 
+/**
+ * @brief Creates an Id from an object's attributes
+ * @tparam Obj The object type (must have uid and name members)
+ * @param obj The object to get identification from
+ * @return Id containing the object's uid and name
+ */
 template<typename Obj>
-constexpr auto id(const Obj& obj) -> Id
+[[nodiscard]] constexpr auto id(const Obj& obj) noexcept -> Id
 {
   return {obj.uid, obj.name};
 }
 
+/**
+ * @brief Base object type providing common identification functionality
+ * 
+ * Serves as the foundation for all objects in the optimization framework.
+ * Provides consistent identification behavior through the id() method.
+ */
 struct Object
 {
+  /**
+   * @brief Gets the object's identifier (explicit object syntax)
+   * @tparam Self CRTP self type
+   * @param self Reference to this object
+   * @return Id containing the object's uid and name
+   */
   template<class Self>
-  constexpr auto id(this const Self& self)
+  [[nodiscard]] constexpr auto id(this const Self& self) noexcept
   {
     return gtopt::id(self);
   }
