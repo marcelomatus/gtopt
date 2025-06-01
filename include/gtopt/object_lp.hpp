@@ -1,3 +1,13 @@
+/**
+ * @file      object_lp.hpp
+ * @brief     Header of
+ * @date      Sat May 31 23:57:10 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/basic_types.hpp>
@@ -26,15 +36,16 @@ public:
   {
   }
 
-  auto& set_id(Uid uid, const Name& name)
+  constexpr auto& set_id(Uid uid, Name name) noexcept
   {
     m_object_.uid = uid;
-    m_object_.name = name;
+    m_object_.name = std::move(name);
+
     return *this;
   }
 
-  constexpr auto uid() const { return m_object_.uid; }
-  constexpr auto id() const { return gtopt::id(m_object_); }
+  constexpr auto uid() const noexcept { return m_object_.uid; }
+  constexpr auto id() const noexcept { return gtopt::id(m_object_); }
 
   [[nodiscard]] constexpr auto is_active(const StageIndex stage_index) const
   {
@@ -42,7 +53,7 @@ public:
   }
 
   template<typename Self>
-  constexpr auto&& object(this Self&& self)
+  constexpr auto&& object(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_object_;
   }
