@@ -3,7 +3,7 @@
  * @brief     Linear programming wrapper for objects in the optimization model
  * @author    marcelo
  * @copyright BSD-3-Clause
- * 
+ *
  * @details
  * Provides a wrapper class that adds linear programming capabilities to objects
  * while maintaining their original functionality. The class tracks object
@@ -27,7 +27,7 @@ class LinearProblem;
 /**
  * @brief Wrapper class that adds LP capabilities to objects
  * @tparam ObjectType The type of object being wrapped
- * 
+ *
  * This class maintains the original object while adding functionality needed
  * for linear programming, such as activity tracking across stages.
  */
@@ -35,7 +35,7 @@ template<typename ObjectType>
 class ObjectLP
 {
   ObjectType m_object_;  ///< The wrapped object instance
-  ActiveSched active;    ///< Schedule tracking object's active status
+  ActiveSched active;  ///< Schedule tracking object's active status
 
 public:
   using object_type = ObjectType;  ///< Type of the wrapped object
@@ -45,9 +45,10 @@ public:
    * @param pobject The object to wrap and manage
    */
   explicit constexpr ObjectLP(ObjectType&& pobject) noexcept
-    : m_object_(std::move(pobject))
-    , active(m_object_.active.value_or(True))
-  {}
+      : m_object_(std::move(pobject))
+      , active(m_object_.active.value_or(True))
+  {
+  }
 
   /**
    * @brief Sets the object's identifier
@@ -66,14 +67,17 @@ public:
   [[nodiscard]] constexpr auto uid() const noexcept { return m_object_.uid; }
 
   /// @return The object's complete identifier (uid + name)
-  [[nodiscard]] constexpr auto id() const noexcept { return gtopt::id(m_object_); }
+  [[nodiscard]] constexpr auto id() const noexcept
+  {
+    return gtopt::id(m_object_);
+  }
 
   /**
    * @brief Checks if object is active in given stage
    * @param stage_index The stage to check
    * @return true if active in stage, false otherwise
    */
-  [[nodiscard]] constexpr bool is_active(const StageIndex stage_index) const noexcept
+  [[nodiscard]] constexpr bool is_active(const StageIndex stage_index) const
   {
     return active.at(stage_index) != False;
   }
