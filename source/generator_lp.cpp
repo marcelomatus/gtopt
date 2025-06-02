@@ -77,7 +77,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& bus = sc.element<BusLP>(bus());
+  const auto bus_id = bus();
+  const auto& bus = sc.element<BusLP>(bus_id);
   if (!bus.is_active(stage)) [[unlikely]] {
     return true;
   }
@@ -99,7 +100,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
        std::views::zip(blocks, balance_rows) | 
        std::views::transform([](auto&& pair) {
          return std::tuple_cat(std::tuple{BlockIndex{}}, std::move(pair));
-       })
+       }))
   {
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
