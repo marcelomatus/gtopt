@@ -82,22 +82,22 @@ struct Generator
    * @endcode
    */
 
-  auto& set_attrs(auto&& attrs)
+  auto& set_attrs(this auto&& self, auto&& attrs)
   {
-    bus = std::exchange(attrs.bus, {});
-    pmin = std::exchange(attrs.pmin, {});
-    pmax = std::exchange(attrs.pmax, {});
-    lossfactor = std::exchange(attrs.lossfactor, {});
-    gcost = std::exchange(attrs.gcost, {});
+    self.bus = std::exchange(attrs.bus, {});
+    self.pmin = std::exchange(attrs.pmin, {});
+    self.pmax = std::exchange(attrs.pmax, {});
+    self.lossfactor = std::exchange(attrs.lossfactor, {});
+    self.gcost = std::exchange(attrs.gcost, {});
 
-    capacity = std::exchange(attrs.capacity, {});
-    expcap = std::exchange(attrs.expcap, {});
-    expmod = std::exchange(attrs.expmod, {});
-    capmax = std::exchange(attrs.capmax, {});
-    annual_capcost = std::exchange(attrs.annual_capcost, {});
-    annual_derating = std::exchange(attrs.annual_derating, {});
+    self.capacity = std::exchange(attrs.capacity, {});
+    self.expcap = std::exchange(attrs.expcap, {});
+    self.expmod = std::exchange(attrs.expmod, {});
+    self.capmax = std::exchange(attrs.capmax, {});
+    self.annual_capcost = std::exchange(attrs.annual_capcost, {});
+    self.annual_derating = std::exchange(attrs.annual_derating, {});
 
-    return *this;
+    return self;
   }
 };
 
