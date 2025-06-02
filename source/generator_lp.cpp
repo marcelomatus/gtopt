@@ -73,7 +73,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
   const auto stage_index = stage.index();
 
-  if (!is_active(stage)) {
+  if (!is_active(stage)) [[unlikely]] {
     return true;
   }
 
