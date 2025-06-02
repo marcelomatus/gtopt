@@ -42,9 +42,9 @@ public:
     return std::forward<Self>(self).object();
   }
 
-  [[nodiscard]] constexpr auto bus() const noexcept
+  [[nodiscard]] constexpr auto bus(this auto const& self) noexcept
   {
-    return BusLPSId {generator().bus};
+    return BusLPSId {self.generator().bus};
   }
 
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
