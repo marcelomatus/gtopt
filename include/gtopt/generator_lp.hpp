@@ -36,9 +36,10 @@ public:
 
   explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
 
-  [[nodiscard]] constexpr const auto& generator() const noexcept
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& generator(this Self&& self) noexcept
   {
-    return object();
+    return std::forward<Self>(self).object();
   }
 
   [[nodiscard]] constexpr auto bus() const noexcept
@@ -53,10 +54,10 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] const auto& generation_cols_at(
-      const ScenarioIndex scenario_index, const StageIndex stage_index) const
+  [[nodiscard]] const auto& generation_cols_at(const ScenarioLP& scenario,
+                                               const StageLP& stage) const
   {
-    return generation_cols.at({scenario_index, stage_index});
+    return generation_cols.at({scenario.index(), stage.index()});
   }
 
 private:
