@@ -45,7 +45,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   const auto stage_index = stage.index();
   const auto scenario_index = scenario.index();
 
-  if (!is_active(stage_index)) [[unlikely]] {
+  if (!is_active(stage)) [[unlikely]] {
     return true;
   }
 
@@ -57,7 +57,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& blocks = stage.blocks();
 
   auto&& generator = sc.element(generator_index);
-  auto&& gen_cols = generator.generation_cols_at(scenario_index, stage_index);
+  auto&& gen_cols = generator.generation_cols_at(scenario, stage);
 
   auto&& demand = sc.element(demand_index);
   auto&& load_cols = demand.load_cols_at(scenario_index, stage_index);
@@ -70,12 +70,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (auto&& [block, gcol, lcol, fcol] :
-       ranges::views::zip(blocks, gen_cols, load_cols, flow_cols))
+  for (const auto& [block, gcol, lcol, fcol] :
+       std::views::zip(blocks, gen_cols, load_cols, flow_cols))
   {
     SparseRow rrow {
-        .name = sc.stb_label(
-            scenario_index, stage_index, block, cname, "conv", uid())};
+        .name = sc.stb_label(scenario, stage, block, cname, "conv", uid())};
 
     rrow[fcol] = -stage_conversion_rate;
     rrow[gcol] = +1;
@@ -86,8 +85,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     // adding the capacity constraint
     if (capacity_col.has_value()) {
       SparseRow crow {
-          .name = sc.stb_label(
-              scenario_index, stage_index, block, cname, "cap", uid())};
+          .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
 
       crow[capacity_col.value()] = 1;
       crow[gcol] = -1;
@@ -97,11 +95,9 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  return emplace_bholder(
-             scenario_index, stage_index, capacity_rows, std::move(crows))
+  return emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
              .second
-      && emplace_bholder(
-             scenario_index, stage_index, conversion_rows, std::move(rrows))
+      && emplace_bholder(scenario, stage, conversion_rows, std::move(rrows))
              .second;
 }
 

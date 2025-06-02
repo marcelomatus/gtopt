@@ -15,6 +15,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
@@ -35,7 +36,7 @@ template<typename ObjectType>
 class ObjectLP
 {
   ObjectType m_object_;  ///< The wrapped object instance
-  ActiveSched active;  ///< Schedule tracking object's active status
+  ActiveSched m_active_;  ///< Schedule tracking object's active status
 
 public:
   using object_type = ObjectType;  ///< Type of the wrapped object
@@ -44,9 +45,11 @@ public:
    * @brief Constructs an ObjectLP by moving in an object
    * @param pobject The object to wrap and manage
    */
-  explicit constexpr ObjectLP(ObjectType&& pobject) noexcept
-      : m_object_(std::move(pobject))
-      , active(m_object_.active.value_or(True))
+  template<typename OT>
+    requires(!std::same_as<std::remove_cvref_t<OT>, ObjectLP>)
+  explicit constexpr ObjectLP(OT&& object) noexcept
+      : m_object_(std::forward<OT>(object))
+      , m_active_(m_object_.active.value_or(True))
   {
   }
 
@@ -77,9 +80,10 @@ public:
    * @param stage_index The stage to check
    * @return true if active in stage, false otherwise
    */
-  [[nodiscard]] constexpr bool is_active(const StageIndex stage_index) const
+  template<typename StageLP>
+  [[nodiscard]] constexpr bool is_active(const StageLP& stage) const
   {
-    return active.at(stage_index) != False;
+    return m_active_.at(stage.index()) != False;
   }
 
   /**

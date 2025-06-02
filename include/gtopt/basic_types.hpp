@@ -29,7 +29,7 @@ namespace gtopt
  * @brief Base type for unique identifiers
  * @details Used for entity identification in the power system model
  */
-using uid_t = int16_t;
+using uid_t = std::int32_t;
 
 /** @brief Unique identifier type */
 using Uid = uid_t;

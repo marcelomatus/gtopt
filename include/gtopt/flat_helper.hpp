@@ -154,6 +154,12 @@ public:
     return stage_index == m_active_stages_.front();
   }
 
+  [[nodiscard]] constexpr bool is_first_stage(
+      const StageLP& stage) const noexcept
+  {
+    return is_first_stage(stage.index());
+  }
+
   [[nodiscard]] constexpr bool is_last_stage(
       const StageIndex& stage_index) const noexcept
   {

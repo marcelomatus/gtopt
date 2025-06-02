@@ -10,40 +10,41 @@ namespace
 {
 using namespace gtopt;
 
-inline bool add_requirement(const SystemContext& sc,
-                            const ScenarioIndex& scenario_index,
-                            const StageIndex& stage_index,
-                            LinearProblem& lp,
-                            const auto& blocks,
-                            const auto uid,
-                            auto& rr,
-                            const auto rname)
+constexpr bool add_requirement(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp,
+                               const auto& blocks,
+                               const auto uid,
+                               auto& rr,
+                               const auto rname)
 {
   constexpr std::string_view cname = "rzone";
+
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
 
   using STBKey = GSTBIndexHolder::key_type;
   if (!(rr.req.has_value())) {
     return true;
   }
 
-  const auto stage_rcost = sc.reserve_fail_cost(stage_index, rr.cost);
+  const auto stage_rcost = sc.reserve_fail_cost(stage, rr.cost);
 
-  for (auto&& [block_index, block] : enumerate<BlockIndex>(blocks)) {
-    const auto block_rreq = rr.req.optval(stage_index, block_index);
+  for (const auto& block : blocks) {
+    const auto block_rreq = rr.req.optval(stage_index, block.index());
     if (!block_rreq) {
       continue;
     }
-    const STBKey stb_k {scenario_index, stage_index, block_index};
+    const STBKey stb_k {scenario_index, stage_index, block.index()};
 
-    const auto name =
-        sc.stb_label(scenario_index, stage_index, block, cname, rname, uid);
+    const auto name = sc.stb_label(scenario, stage, block, cname, rname, uid);
     const auto rcol = stage_rcost
-        ? lp.add_col(
-              {.name = name,
-               .lowb = 0.0,
-               .uppb = block_rreq.value(),
-               .cost = -sc.block_ecost(
-                   scenario_index, stage_index, block, stage_rcost.value())})
+        ? lp.add_col({.name = name,
+                      .lowb = 0.0,
+                      .uppb = block_rreq.value(),
+                      .cost = -sc.block_ecost(
+                          scenario, stage, block, stage_rcost.value())})
         : lp.add_col({.name = name,
                       .lowb = block_rreq.value(),
                       .uppb = block_rreq.value(),
@@ -92,19 +93,14 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
-
-  if (!is_active(stage_index)) {
+  if (!is_active(stage)) {
     return true;
   }
 
   const auto& blocks = stage.blocks();
 
-  return add_requirement(
-             sc, scenario_index, stage_index, lp, blocks, uid(), ur, "ureq")
-      && add_requirement(
-             sc, scenario_index, stage_index, lp, blocks, uid(), dr, "dreq");
+  return add_requirement(sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
+      && add_requirement(sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
 }
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const

@@ -39,12 +39,12 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   const auto stage_index = stage.index();
   const auto scenario_index = scenario.index();
 
-  if (!is_active(stage_index)) {
+  if (!is_active(stage)) {
     return true;
   }
 
   auto&& demand_lp = sc.element(demand_index);
-  if (!demand_lp.is_active(stage_index)) {
+  if (!demand_lp.is_active(stage)) {
     return true;
   }
 
@@ -67,16 +67,13 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   BIndexHolder srows;
   srows.reserve(blocks.size());
 
-  for (const auto& [block_index, block, lcol] :
-       enumerate<BlockIndex>(blocks, load_cols))
-  {
+  for (const auto& [block, lcol] : std::views::zip(blocks, load_cols)) {
     const auto block_profile =
-        profile.at(scenario_index, stage_index, block_index);
+        profile.at(scenario_index, stage_index, block.index());
 
     const auto block_scost =
-        sc.block_ecost(scenario_index, stage_index, block, stage_scost);
-    auto name =
-        sc.stb_label(scenario_index, stage_index, block, cname, "prof", uid());
+        sc.block_ecost(scenario, stage, block, stage_scost);
+    auto name = sc.stb_label(scenario, stage, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
     scols.push_back(scol);
 
@@ -93,11 +90,9 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  return emplace_bholder(
-             scenario_index, stage_index, spillover_cols, std::move(scols))
+  return emplace_bholder(scenario, stage, spillover_cols, std::move(scols))
              .second
-      && emplace_bholder(
-             scenario_index, stage_index, spillover_rows, std::move(srows))
+      && emplace_bholder(scenario, stage, spillover_rows, std::move(srows))
              .second;
 }
 

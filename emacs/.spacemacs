@@ -40,6 +40,9 @@ This function should only modify configuration layer settings."
      (auto-completion :variables
                       auto-completion-enable-sort-by-usage t
                       auto-completion-enable-snippets-in-popup t)
+
+     github-copilot
+
      csv
      yaml
      syntax-checking
@@ -679,23 +682,22 @@ This function is called at the very end of Spacemacs initialization."
                 google-translate gptel helm-make hide-comnt highlight-indentation
                 highlight-numbers highlight-parentheses hl-todo holy-mode htmlize
                 hungry-delete hybrid-mode indent-guide info+ inspector ivy-avy
-                ivy-hydra ivy-purpose ivy-xref ivy-yasnippet json-mode
-                json-navigator json-reformat link-hint live-py-mode lorem-ipsum
-                lsp-ivy lsp-origami lsp-ui macrostep markdown-toc multi-line
-                multi-term multi-vterm mwim nameless open-junk-file org-cliplink
-                org-contrib org-download org-mime org-pomodoro org-present
-                org-projectile org-rich-yank org-superstar orgit-forge overseer
-                page-break-lines paradox password-generator pcre2el pet
-                pip-requirements pipenv pippel poetry popwin prettier-js py-isort
-                pydoc pyenv-mode pylookup pytest quickrun rainbow-delimiters
-                restart-emacs shell-pop smeargle smex space-doc spaceline
-                spacemacs-purpose-popwin spacemacs-whitespace-cleanup sphinx-doc
-                string-edit-at-point string-inflection symbol-overlay symon
-                system-packages term-cursor terminal-here toc-org
-                treemacs-icons-dired treemacs-magit treemacs-persp
-                treemacs-projectile undo-fu undo-fu-session unfill vi-tilde-fringe
-                volatile-highlights vundo web-beautify wgrep winum writeroom-mode
-                ws-butler xah-fly-keys yaml-mode yasnippet-snippets))
+                ivy-hydra ivy-purpose ivy-xref ivy-yasnippet  link-hint
+                live-py-mode lorem-ipsum lsp-ivy lsp-origami lsp-ui macrostep
+                markdown-toc multi-line multi-term multi-vterm mwim nameless
+                open-junk-file org-cliplink org-contrib org-download org-mime
+                org-pomodoro org-present org-projectile org-rich-yank
+                org-superstar orgit-forge overseer page-break-lines paradox
+                password-generator pcre2el pet pip-requirements pipenv pippel
+                poetry popwin prettier-js py-isort pydoc pyenv-mode pylookup
+                pytest quickrun rainbow-delimiters restart-emacs shell-pop
+                smeargle smex space-doc spaceline spacemacs-purpose-popwin
+                spacemacs-whitespace-cleanup sphinx-doc string-edit-at-point
+                string-inflection symbol-overlay symon system-packages term-cursor
+                terminal-here toc-org treemacs-icons-dired treemacs-magit
+                treemacs-persp treemacs-projectile undo-fu undo-fu-session unfill
+                vi-tilde-fringe volatile-highlights vundo web-beautify wgrep winum
+                writeroom-mode ws-butler xah-fly-keys yaml-mode yasnippet-snippets))
    '(warning-suppress-log-types '((lsp-mode) (lsp-mode))))
   (custom-set-faces
    ;; custom-set-faces was added by Custom.

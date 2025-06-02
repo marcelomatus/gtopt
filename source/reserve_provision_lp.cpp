@@ -16,8 +16,8 @@ namespace
 using namespace gtopt;
 
 constexpr bool add_provision(const SystemContext& sc,
-                             const ScenarioIndex& scenario_index,
-                             const StageIndex& stage_index,
+                             const ScenarioLP& scenario,
+                             const StageLP& stage,
                              LinearProblem& lp,
                              const auto& blocks,
                              const auto capacity_col,
@@ -30,6 +30,9 @@ constexpr bool add_provision(const SystemContext& sc,
 {
   constexpr std::string_view cname = "rprov";
 
+  const auto stage_index = stage.index();
+  const auto scenario_index = scenario.index();
+
   const auto stage_provision_factor = rp.provision_factor.optval(stage_index);
   if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
     return true;
@@ -39,11 +42,9 @@ constexpr bool add_provision(const SystemContext& sc,
   const auto stage_capacity_factor = rp.capacity_factor.optval(stage_index);
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
-  for (const auto& [block_index, block, gcol] :
-       enumerate<BlockIndex>(blocks, generation_cols))
-  {
+  for (const auto& [block, gcol] : std::views::zip(blocks, generation_cols)) {
     using STBKey = GSTBIndexHolder::key_type;
-    const STBKey stb_k {scenario_index, stage_index, block_index};
+    const STBKey stb_k {scenario_index, stage_index, block.index()};
 
     const auto requirement_row = get_optvalue(requirement_rows, stb_k);
     if (!requirement_row) {
@@ -56,7 +57,7 @@ constexpr bool add_provision(const SystemContext& sc,
       // create the provision col and row when needed and if possible, i.e.,
       // if there is a rmax provision defined for the stage and block
       //
-      auto block_rmax = rp.max.optval(stage_index, block_index);
+      auto block_rmax = rp.max.optval(stage_index, block.index());
       if (!block_rmax) {
         if (use_capacity) {
           block_rmax = lp.get_col_uppb(gcol);
@@ -66,9 +67,8 @@ constexpr bool add_provision(const SystemContext& sc,
       }
 
       const auto block_rcost =
-          sc.block_ecost(scenario_index, stage_index, block, stage_cost);
-      const auto name =
-          sc.stb_label(scenario_index, stage_index, block, cname, pname, uid);
+          sc.block_ecost(scenario, stage, block, stage_cost);
+      const auto name = sc.stb_label(scenario, stage, block, cname, pname, uid);
       const auto rcol = lp.add_col(
           {.name = name, .uppb = block_rmax.value(), .cost = block_rcost});
 
@@ -177,20 +177,16 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
-
-  if (!is_active(stage_index)) {
+  if (!is_active(stage)) {
     return true;
   }
 
   auto&& generator_lp = sc.element(generator_index);
-  if (!generator_lp.is_active(stage_index)) {
+  if (!generator_lp.is_active(stage)) {
     return true;
   }
 
-  auto&& generation_cols =
-      generator_lp.generation_cols_at(scenario_index, stage_index);
+  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(stage, lp);
@@ -219,13 +215,13 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
   for (auto&& reserve_zone_index : reserve_zone_indexes) {
     auto&& reserve_zone = sc.element(reserve_zone_index);
-    if (!reserve_zone.is_active(stage_index)) {
+    if (!reserve_zone.is_active(stage)) {
       continue;
     }
 
     const bool result = add_provision(sc,
-                                      scenario_index,
-                                      stage_index,
+                                      scenario,
+                                      stage,
                                       lp,
                                       blocks,
                                       capacity_col,
@@ -236,8 +232,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                       reserve_zone.urequirement_rows(),
                                       uprov_row)
         && add_provision(sc,
-                         scenario_index,
-                         stage_index,
+                         scenario,
+                         stage,
                          lp,
                          blocks,
                          capacity_col,

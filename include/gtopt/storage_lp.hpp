@@ -68,7 +68,7 @@ public:
     const auto stage_index = stage.index();
     const auto scenario_index = scenario.index();
 
-    if (!is_active(stage_index)) {
+    if (!is_active(stage)) {
       return true;
     }
 
@@ -77,8 +77,8 @@ public:
         : OptStageIndex {};
 
     const auto stage_vcost = sc.scenario_stage_ecost(  //
-                                 scenario_index,
-                                 stage_index,
+                                 scenario,
+                                 stage,
                                  vcost.at(stage_index).value_or(0.0))
         / sc.stage_duration(stage_index);
 
@@ -86,14 +86,14 @@ public:
         annual_loss.at(stage_index).value_or(0.0) / hours_per_year;
 
     const auto [stage_vmax, stage_vmin] =
-        sc.stage_maxmin_at(stage_index, vmax, vmin, stage_capacity);
+        sc.stage_maxmin_at(stage, vmax, vmin, stage_capacity);
 
     const auto vicol = prev_stage_index.has_value()
         ? vfin_col_at(scenario_index, prev_stage_index.value())
-        : lp.add_col({.name = sc.st_label(
-                          scenario_index, stage_index, cname, "vini", uid()),
-                      .lowb = storage().vini.value_or(stage_vmin),
-                      .uppb = storage().vini.value_or(stage_vmax)});
+        : lp.add_col(
+              {.name = sc.st_label(scenario, stage, cname, "vini", uid()),
+               .lowb = storage().vini.value_or(stage_vmin),
+               .uppb = storage().vini.value_or(stage_vmax)});
 
     const auto& blocks = stage.blocks();
 
@@ -108,8 +108,7 @@ public:
          const auto& [block_index, block] : enumerate<BlockIndex>(blocks))
     {
       SparseRow vrow {
-          .name = sc.stb_label(
-              scenario_index, stage_index, block, cname, "vol", uid())};
+          .name = sc.stb_label(scenario, stage, block, cname, "vol", uid())};
 
       const auto is_last =
           block_index == blocks.size() - 1 && sc.is_last_stage(stage_index);
@@ -133,8 +132,7 @@ public:
       // adding the capacity constraint
       if (capacity_col.has_value()) {
         SparseRow crow {
-            .name = sc.stb_label(
-                scenario_index, stage_index, block, cname, "cap", uid())};
+            .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
         crow[capacity_col.value()] = 1;
         crow[vc] = -1;
 
@@ -143,17 +141,13 @@ public:
     }
 
     return (crows.empty()
-            || emplace_bholder(
-                   scenario_index, stage_index, capacity_rows, std::move(crows))
+            || emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
                    .second)
-        && emplace_value(scenario_index, stage_index, vini_cols, vicol).second
-        && emplace_value(scenario_index, stage_index, vfin_cols, vcols.back())
+        && emplace_value(scenario, stage, vini_cols, vicol).second
+        && emplace_value(scenario, stage, vfin_cols, vcols.back()).second
+        && emplace_bholder(scenario, stage, volumen_rows, std::move(vrows))
                .second
-        && emplace_bholder(
-               scenario_index, stage_index, volumen_rows, std::move(vrows))
-               .second
-        && emplace_bholder(
-               scenario_index, stage_index, volumen_cols, std::move(vcols))
+        && emplace_bholder(scenario, stage, volumen_cols, std::move(vcols))
                .second;
   }
 

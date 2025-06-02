@@ -14,7 +14,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/fmap.hpp>
-#include <gtopt/scenario.hpp>
+#include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
@@ -53,8 +53,8 @@ using GSTBIndexHolder =
     tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, Index>;
 
 template<typename Map, typename BHolder>
-constexpr auto emplace_bholder(const ScenarioIndex& scenario_index,
-                               const StageIndex& stage_index,
+constexpr auto emplace_bholder(const ScenarioLP& scenario,
+                               const StageLP& stage,
                                Map& map,
                                BHolder&& holder,
                                bool empty_insert = false)
@@ -66,19 +66,19 @@ constexpr auto emplace_bholder(const ScenarioIndex& scenario_index,
 
   using Key = typename Map::key_type;
   return (empty_insert || !holder.empty())
-      ? map.emplace(Key {scenario_index, stage_index},
+      ? map.emplace(Key {scenario.index(), stage.index()},
                     std::forward<BHolder>(holder))
       : std::make_pair(map.end(), true);
 }
 
 template<typename Map, typename Value = typename Map::value_type>
-constexpr auto emplace_value(const ScenarioIndex& scenario_index,
-                             const StageIndex& stage_index,
+constexpr auto emplace_value(const ScenarioLP& scenario,
+                             const StageLP& stage,
                              Map& map,
                              Value&& value)
 {
   using Key = typename Map::key_type;
-  return map.emplace(Key {scenario_index, stage_index},
+  return map.emplace(Key {scenario.index(), stage.index()},
                      std::forward<Value>(value));
 }
 

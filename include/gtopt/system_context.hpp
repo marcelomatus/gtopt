@@ -94,38 +94,38 @@ public:
   //
 
   template<typename LossFactor>
-  constexpr auto stage_lossfactor(const StageIndex& stage_index,
+  constexpr auto stage_lossfactor(const StageLP& stage,
                                   const LossFactor& lfact) const
   {
     return options().use_line_losses()
-        ? std::max(lfact.at(stage_index).value_or(0.0), 0.0)
+        ? std::max(lfact.at(stage.index()).value_or(0.0), 0.0)
         : 0.0;
   }
 
   template<typename Reactance>
-  constexpr auto stage_reactance(const StageIndex& stage_index,
+  constexpr auto stage_reactance(const StageLP& stage,
                                  const Reactance& reactance) const
   {
     if (options().use_kirchhoff()) {
-      return reactance.at(stage_index);
+      return reactance.at(stage.index());
     }
-    using ReturnType = decltype(reactance.at(stage_index));
+    using ReturnType = decltype(reactance.at(stage.index()));
     return ReturnType {};
   }
 
   template<typename FailCost>
-  constexpr auto demand_fail_cost(const StageIndex& stage_index,
+  constexpr auto demand_fail_cost(const StageLP& stage,
                                   const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage_index);
+    const auto fc = fcost.optval(stage.index());
     return fc ? fc : options().demand_fail_cost();
   }
 
   template<typename FailCost>
-  constexpr auto reserve_fail_cost(const StageIndex& stage_index,
+  constexpr auto reserve_fail_cost(const StageLP& stage,
                                    const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage_index);
+    const auto fc = fcost.optval(stage.index());
     return fc ? fc : options().reserve_fail_cost();
   }
 
@@ -134,21 +134,21 @@ public:
   //
 
   template<typename Max>
-  constexpr auto block_max_at(const StageIndex& stage_index,
-                              const BlockIndex& block_index,
+  constexpr auto block_max_at(const StageLP& stage,
+                              const BlockLP& block,
                               const Max& lmax,
                               const double capacity_max = CoinDblMax) const
   {
     const auto lmax_at =
-        lmax.at(stage_index, block_index).value_or(capacity_max);
+        lmax.at(stage.index(), block.index()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return lmax_block;
   }
 
   template<typename Min, typename Max>
-  constexpr auto block_maxmin_at(const StageIndex& stage_index,
-                                 const BlockIndex& block_index,
+  constexpr auto block_maxmin_at(const StageLP& stage,
+                                 const BlockLP& block,
                                  const Max& lmax,
                                  const Min& lmin,
                                  const double capacity_max,
@@ -156,28 +156,28 @@ public:
       -> std::pair<double, double>
   {
     const auto lmin_at =
-        lmin.at(stage_index, block_index).value_or(capacity_min);
+        lmin.at(stage.index(), block.index()).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
     const auto lmax_at =
-        lmax.at(stage_index, block_index).value_or(capacity_max);
+        lmax.at(stage.index(), block.index()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
   }
 
   template<typename Min, typename Max>
-  constexpr auto stage_maxmin_at(const StageIndex& stage_index,
+  constexpr auto stage_maxmin_at(const StageLP& stage,
                                  const Min& lmax,
                                  const Max& lmin,
                                  const double capacity_max,
                                  const double capacity_min = 0.0) const
       -> std::pair<double, double>
   {
-    const auto lmin_at = lmin.at(stage_index).value_or(capacity_min);
+    const auto lmin_at = lmin.at(stage.index()).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
-    const auto lmax_at = lmax.at(stage_index).value_or(capacity_max);
+    const auto lmax_at = lmax.at(stage.index()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
@@ -255,18 +255,18 @@ public:
 #ifdef NONE
   // Methods to handle the state_variables
   constexpr const auto& add_state_variable_col(const Name& name,
-                                               const PhaseIndex& stage_index,
+                                               const PhaseLP& phase,
                                                Index col)
   {
     return simulation().add_state_variable(
-        StateVariable {name, stage_index, col});
+        StateVariable {name, phase.index(), col});
   }
 
   [[nodiscard]] constexpr auto get_state_variable_col(
-      const Name& name, const PhaseIndex& stage_index) const
+      const Name& name, const PhaseIndex& stage.index()) const
   {
     const auto state_var = simulation().get_state_variable(
-        StateVariable::key_t {name, stage_index});
+        StateVariable::key_t {name, stage.index()});
 
     const auto result = state_var
         ? std::optional<Index>(state_var.value().get().first_col())

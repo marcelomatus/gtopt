@@ -72,11 +72,10 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] const auto& balance_rows_at(
-      const ScenarioIndex scenario_index,
-      const StageIndex stage_index) const noexcept
+  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
+                                            const StageLP& stage) const noexcept
   {
-    return balance_rows.at({scenario_index, stage_index});
+    return balance_rows.at({scenario.index(), stage.index()});
   }
 
   [[nodiscard]] auto theta_cols_at(const SystemContext& sc,

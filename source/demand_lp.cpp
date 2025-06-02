@@ -41,16 +41,15 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto scenario_index = scenario.index();
 
   const auto& bus_lp = sc.element<BusLP>(bus());
-  if (!bus_lp.is_active(stage_index)) [[unlikely]] {
+  if (!bus_lp.is_active(stage)) [[unlikely]] {
     return true;
   }
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
-  const auto stage_fcost = sc.demand_fail_cost(stage_index, fcost);
+  const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
 
-  const auto& balance_rows =
-      bus_lp.balance_rows_at(scenario_index, stage_index);
+  const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
   // adding the minimum energy constraint
@@ -61,13 +60,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       return std::nullopt;
     }
 
-    auto name = sc.st_label(scenario_index, stage_index, cname, "emin", uid());
+    auto name = sc.st_label(scenario, stage, cname, "emin", uid());
     const auto emin_col = stage_ecost
         ? lp.add_col(  //
               {.name = name,
                .uppb = stage_emin.value(),
                .cost = -sc.stage_ecost(
-                   stage_index,
+                   stage,
                    stage_ecost.value() / sc.stage_duration(stage_index))})
         : lp.add_col(  //
               {.name = name,
@@ -88,24 +87,20 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (const auto& [block_index, block, balance_row] :
-       enumerate<BlockIndex>(blocks, balance_rows))
+  for (const auto& [block, balance_row] : std::views::zip(blocks, balance_rows))
   {
-    const auto block_lmax =
-        sc.block_max_at(stage_index, block_index, lmax, stage_capacity);
+    const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
 
     const auto lcol = stage_fcost
-        ? lp.add_col(
-              {.name = sc.stb_label(
-                   scenario_index, stage_index, block, cname, "load", uid()),
-               .uppb = block_lmax,
-               .cost = -sc.block_ecost(
-                   scenario_index, stage_index, block, stage_fcost.value())})
-        : lp.add_col(
-              {.name = sc.stb_label(
-                   scenario_index, stage_index, block, cname, "load", uid()),
-               .lowb = block_lmax,
-               .uppb = block_lmax});
+        ? lp.add_col({.name = sc.stb_label(
+                          scenario, stage, block, cname, "load", uid()),
+                      .uppb = block_lmax,
+                      .cost = -sc.block_ecost(
+                          scenario, stage, block, stage_fcost.value())})
+        : lp.add_col({.name = sc.stb_label(
+                          scenario, stage, block, cname, "load", uid()),
+                      .lowb = block_lmax,
+                      .uppb = block_lmax});
 
     lcols.push_back(lcol);
 
@@ -116,8 +111,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     // adding the capacity constraint
     if (capacity_col) {
       SparseRow crow {
-          .name = sc.stb_label(
-              scenario_index, stage_index, block, cname, "cap", uid())};
+          .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
       crow[capacity_col.value()] = 1;
       crow[lcol] = -1;
 
@@ -126,15 +120,15 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the minimum energy constraint
     if (emin_row) {
-      const auto dbloque = blocks[block_index].duration();
+      const auto dbloque = block.duration();
       lp.set_coeff(emin_row.value(), lcol, dbloque);
     }
   }
 
-  auto [crow_it, crow_inserted] = emplace_bholder(
-      scenario_index, stage_index, capacity_rows, std::move(crows));
+  auto [crow_it, crow_inserted] =
+      emplace_bholder(scenario, stage, capacity_rows, std::move(crows));
   auto [lcol_it, lcol_inserted] =
-      emplace_bholder(scenario_index, stage_index, load_cols, std::move(lcols));
+      emplace_bholder(scenario, stage, load_cols, std::move(lcols));
   return crow_inserted && lcol_inserted;
 }
 

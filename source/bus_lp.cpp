@@ -30,8 +30,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 
     for (auto&& block : blocks) {
       SparseCol theta_col {
-          .name = sc.stb_label(
-              scenario.index(), stage.index(), block, cname, "theta", uid())};
+          .name = sc.stb_label(scenario, stage, block, cname, "theta", uid())};
       const auto tc =
           lp.add_col(theta ? std::move(theta_col.equal(theta.value()))
                            : std::move(theta_col.free()));
@@ -40,8 +39,8 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   }
 
   constexpr bool EmptyOk = true;
-  const auto [iter, inserted] = emplace_bholder(
-      scenario.index(), stage.index(), theta_cols, std::move(tblocks), EmptyOk);
+  const auto [iter, inserted] =
+      emplace_bholder(scenario, stage, theta_cols, std::move(tblocks), EmptyOk);
 
   if (inserted) [[likely]] {
     return iter->second;
@@ -59,6 +58,10 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 {
   constexpr std::string_view cname = "bus";
 
+  if (!is_active(stage)) {
+    return true;
+  }
+
   const auto& blocks = stage.blocks();
 
   BIndexHolder brows;
@@ -67,12 +70,10 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   const auto puid = uid();
   for (auto&& block : blocks) {
     brows.push_back(lp.add_row(
-        {.name = sc.stb_label(
-             scenario.index(), stage.index(), block, cname, "bal", puid)}));
+        {.name = sc.stb_label(scenario, stage, block, cname, "bal", puid)}));
   }
 
-  return emplace_bholder(
-             scenario.index(), stage.index(), balance_rows, std::move(brows))
+  return emplace_bholder(scenario, stage, balance_rows, std::move(brows))
       .second;
 }
 

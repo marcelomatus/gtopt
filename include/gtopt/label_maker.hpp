@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <gtopt/as_label.hpp>
@@ -44,14 +45,6 @@ public:
 
   template<typename... Types>
     requires(sizeof...(Types) == 3)
-  constexpr auto t_label(const StageIndex& stage_index,
-                         const Types&... var) const -> std::string
-  {
-    return t_label(m_stages_.get().at(stage_index), var...);
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
   constexpr auto st_label(const ScenarioLP& scenario,
                           const StageLP& stage,
                           const Types&... var) const -> std::string
@@ -60,17 +53,6 @@ public:
       return {};
     }
     return gtopt::as_label(var..., scenario.uid(), stage.uid());
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto st_label(const ScenarioIndex& scenario_index,
-                          const StageIndex& stage_index,
-                          const Types&... var) const -> std::string
-  {
-    return st_label(m_scenarios_.get().at(scenario_index),
-                    m_stages_.get().at(stage_index),
-                    var...);
   }
 
   template<typename... Types>
@@ -84,19 +66,6 @@ public:
       return {};
     }
     return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
-  }
-
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const ScenarioIndex& scenario_index,
-                           const StageIndex& stage_index,
-                           const BlockLP& block,
-                           const Types&... var) const -> std::string
-  {
-    return stb_label(m_scenarios_.get().at(scenario_index),
-                     m_stages_.get().at(stage_index),
-                     block,
-                     var...);
   }
 
 private:

@@ -1,3 +1,13 @@
+/**
+ * @file      schedule.hpp
+ * @brief     Header of
+ * @date      Sun Jun  1 15:35:26 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <gtopt/field_sched.hpp>
@@ -22,13 +32,10 @@ private:
 public:
   Schedule() = default;
 
-  explicit Schedule(const FSched& psched)
-      : sched(psched)
-  {
-  }
-
-  explicit Schedule(FSched&& psched) noexcept
-      : sched(std::move(psched))
+  template<typename FSched>
+    requires(!std::same_as<std::remove_cvref_t<FSched>, Schedule>)
+  explicit Schedule(FSched&& psched)
+      : sched(std::forward<FSched>(psched))
   {
   }
 

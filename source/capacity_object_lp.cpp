@@ -88,10 +88,9 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row[capainst_col] = -1;
 
   SparseRow capacost_row {.name = sc.t_label(stage, cname, "capacost", uid())};
-  const auto capacost_col =
-      lp.add_col({// capacost variable
-                  .name = capacost_row.name,
-                  .cost = sc.stage_ecost(stage_index, 1.0)});
+  const auto capacost_col = lp.add_col({// capacost variable
+                                        .name = capacost_row.name,
+                                        .cost = sc.stage_ecost(stage, 1.0)});
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
