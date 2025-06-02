@@ -57,14 +57,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   fcols.reserve(blocks.size());
 
   // Use C++23 ranges to process blocks
-  for (auto&& name :
-       blocks
+  for (auto&& name : blocks
            | std::views::transform(
-               [&](const auto& b)
-               {
-                 return sc.stb_label(
-                     scenario.index(), stage.index(), b, cname, "flow", uid());
-               }))
+                         [&](const auto& b)
+                         {
+                           return sc.stb_label(
+                               scenario, stage, b, cname, "flow", uid());
+                         }))
   {
     SparseCol fcol {.name = name};
     fcols.push_back(lp.add_col(std::move(fcol.free())));
@@ -82,9 +81,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Store flow variable indices for later use
-  return emplace_bholder(
-             scenario.index(), stage.index(), flow_cols, std::move(fcols))
-      .second;
+  return emplace_bholder(scenario, stage, flow_cols, std::move(fcols)).second;
 }
 
 /**

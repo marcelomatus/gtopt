@@ -139,18 +139,6 @@ public:
     return cost * cost_factor(scenario, stage, block);
   }
 
-  [[nodiscard]] constexpr double block_ecost(
-      const ScenarioIndex& scenario_index,
-      const StageIndex& stage_index,
-      const BlockLP& block,
-      double cost) const
-  {
-    return block_ecost(m_scenarios_.get().at(scenario_index),
-                       m_stages_.get().at(stage_index),
-                       block,
-                       cost);
-  }
-
   /**
    * @brief Calculates the energy cost coefficient for a scenario-stage pair
    *
@@ -174,16 +162,6 @@ public:
       double cost) const noexcept
   {
     return cost * cost_factor(scenario, stage);
-  }
-
-  [[nodiscard]] constexpr double scenario_stage_ecost(
-      const ScenarioIndex& scenario_index,
-      const StageIndex& stage_index,
-      double cost) const
-  {
-    return scenario_stage_ecost(m_scenarios_.get().at(scenario_index),
-                                m_stages_.get().at(stage_index),
-                                cost);
   }
 
   /**
@@ -210,13 +188,6 @@ public:
       double probability = 1.0) const noexcept
   {
     return cost * cost_factor(stage, probability);
-  }
-
-  [[nodiscard]] constexpr double stage_ecost(const StageIndex& stage_index,
-                                             double cost,
-                                             double probability = 1.0) const
-  {
-    return stage_ecost(m_stages_.get().at(stage_index), cost, probability);
   }
 
   /**

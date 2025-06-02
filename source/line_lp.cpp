@@ -41,20 +41,18 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   const auto& bus_a_lp = sc.element<BusLP>(bus_a());
   const auto& bus_b_lp = sc.element<BusLP>(bus_b());
-  if (!bus_a_lp.is_active(stage_index) || !bus_b_lp.is_active(stage_index)) {
+  if (!bus_a_lp.is_active(stage) || !bus_b_lp.is_active(stage)) {
     return true;
   }
 
-  const auto& balance_rows_a =
-      bus_a_lp.balance_rows_at(scenario_index, stage_index);
-  const auto& balance_rows_b =
-      bus_b_lp.balance_rows_at(scenario_index, stage_index);
+  const auto& balance_rows_a = bus_a_lp.balance_rows_at(scenario, stage);
+  const auto& balance_rows_b = bus_b_lp.balance_rows_at(scenario, stage);
 
   const auto& blocks = stage.blocks();
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
   const auto stage_tcost = tcost.at(stage_index).value_or(0.0);
-  const auto stage_lossfactor = sc.stage_lossfactor(stage_index, lossfactor);
+  const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
   const auto has_loss = stage_lossfactor > 0.0;
 
   BIndexHolder fpcols;
@@ -66,14 +64,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder cnrows;
   cnrows.reserve(blocks.size());
 
-  for (const auto& [block_index, block, balance_row_a, balance_row_b] :
-       enumerate<BlockIndex>(blocks, balance_rows_a, balance_rows_b))
+  for (const auto& [block, balance_row_a, balance_row_b] :
+       std::views::zip(blocks, balance_rows_a, balance_rows_b))
   {
     const auto [block_tmax, block_tmin] = sc.block_maxmin_at(
-        stage_index, block_index, tmax, tmin, stage_capacity, -stage_capacity);
+        stage, block, tmax, tmin, stage_capacity, -stage_capacity);
 
     const auto block_tcost =
-        sc.block_ecost(scenario_index, stage_index, block, stage_tcost);
+        sc.block_ecost(scenario, stage, block, stage_tcost);
 
     auto& brow_a = lp.row_at(balance_row_a);
     auto& brow_b = lp.row_at(balance_row_b);
@@ -83,8 +81,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       const auto fpc = lp.add_col(
           {// flow variable
-           .name = sc.stb_label(
-               scenario_index, stage_index, block, cname, "fp", uid()),
+           .name = sc.stb_label(scenario, stage, block, cname, "fp", uid()),
            .lowb = has_loss ? 0 : block_tmin,
            .uppb = block_tmax,
            .cost = block_tcost});
@@ -97,8 +94,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         SparseRow cprow {
-            .name = sc.stb_label(
-                scenario_index, stage_index, block, cname, "capp", uid())};
+            .name = sc.stb_label(scenario, stage, block, cname, "capp", uid())};
         cprow[capacity_col.value()] = 1;
         cprow[fpc] = -1;
 
@@ -111,8 +107,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       const auto fnc = lp.add_col(
           {// flow variable
-           .name = sc.stb_label(
-               scenario_index, stage_index, block, cname, "fn", uid()),
+           .name = sc.stb_label(scenario, stage, block, cname, "fn", uid()),
            .lowb = 0,
            .uppb = -block_tmin,
            .cost = block_tcost});
@@ -126,8 +121,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         SparseRow cnrow {
-            .name = sc.stb_label(
-                scenario_index, stage_index, block, cname, "capn", uid())};
+            .name = sc.stb_label(scenario, stage, block, cname, "capn", uid())};
         cnrow[capacity_col.value()] = 1;
         cnrow[fnc] = -1;
 
@@ -137,8 +131,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
   }
 
   // adding the Kirchhoff relations if there is a line reactance
-  if (const auto& stage_reactance = sc.stage_reactance(stage_index, reactance))
-  {
+  if (const auto& stage_reactance = sc.stage_reactance(stage, reactance)) {
     const auto& theta_a_cols =
         bus_a_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
     const auto& theta_b_cols =
@@ -153,26 +146,24 @@ bool LineLP::add_to_lp(SystemContext& sc,
       BIndexHolder trows;
       trows.reserve(blocks.size());
 
-      for (auto&& [block_index, block] : enumerate<BlockIndex>(blocks)) {
-        SparseRow trow(
-            {.name = sc.stb_label(
-                 scenario_index, stage_index, block, cname, "theta", uid())});
+      for (const auto& block : blocks) {
+        SparseRow trow({.name = sc.stb_label(
+                            scenario, stage, block, cname, "theta", uid())});
         trow.reserve(4);
 
-        trow[theta_a_cols.at(block_index)] = 1;
-        trow[theta_b_cols.at(block_index)] = -1;
+        trow[theta_a_cols.at(block.index())] = 1;
+        trow[theta_b_cols.at(block.index())] = -1;
         if (!fpcols.empty()) {
-          trow[fpcols.at(block_index)] = x;
+          trow[fpcols.at(block.index())] = x;
         }
         if (!fncols.empty()) {
-          trow[fncols.at(block_index)] = -x;
+          trow[fncols.at(block.index())] = -x;
         }
 
         trows.push_back(lp.add_row(std::move(trow.equal(0))));
       }
 
-      if (!emplace_bholder(
-               scenario_index, stage_index, theta_rows, std::move(trows))
+      if (!emplace_bholder(scenario, stage, theta_rows, std::move(trows))
                .second)
       {
         return false;
@@ -181,18 +172,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   }
 
   // save all rows and cols
-  return emplace_bholder(
-             scenario_index, stage_index, capacityp_rows, std::move(cprows))
+  return emplace_bholder(scenario, stage, capacityp_rows, std::move(cprows))
              .second
-      && emplace_bholder(
-             scenario_index, stage_index, capacityn_rows, std::move(cnrows))
+      && emplace_bholder(scenario, stage, capacityn_rows, std::move(cnrows))
              .second
-      && emplace_bholder(
-             scenario_index, stage_index, flowp_cols, std::move(fpcols))
-             .second
-      && emplace_bholder(
-             scenario_index, stage_index, flown_cols, std::move(fncols))
-             .second;
+      && emplace_bholder(scenario, stage, flowp_cols, std::move(fpcols)).second
+      && emplace_bholder(scenario, stage, flown_cols, std::move(fncols)).second;
 }
 
 bool LineLP::add_to_output(OutputContext& out) const

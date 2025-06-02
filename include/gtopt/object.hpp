@@ -6,8 +6,8 @@
  *
  * @details
  * Defines fundamental object types and identification utilities used throughout
- * the optimization framework. Provides base functionality for uniquely identifying
- * and tracking objects in the system.
+ * the optimization framework. Provides base functionality for uniquely
+ * identifying and tracking objects in the system.
  */
 
 #pragma once
@@ -21,15 +21,15 @@ namespace gtopt
 
 /**
  * @brief Basic attributes common to all objects in the system
- * 
+ *
  * Contains the minimal set of attributes needed to uniquely identify
  * and track an object's state in the optimization framework.
  */
 struct ObjectAttrs
 {
-  Uid uid {};         ///< Unique identifier for the object
-  Name name {};       ///< Human-readable name of the object
-  OptActive active {}; ///< Optional activity status of the object
+  Uid uid {};  ///< Unique identifier for the object
+  Name name {};  ///< Human-readable name of the object
+  OptActive active {};  ///< Optional activity status of the object
 };
 
 /**
@@ -46,7 +46,7 @@ template<typename Obj>
 
 /**
  * @brief Base object type providing common identification functionality
- * 
+ *
  * Serves as the foundation for all objects in the optimization framework.
  * Provides consistent identification behavior through the id() method.
  */
@@ -58,7 +58,7 @@ struct Object
    * @param self Reference to this object
    * @return Id containing the object's uid and name
    */
-  template<class Self>
+  template<typename Self>
   [[nodiscard]] constexpr auto id(this const Self& self) noexcept
   {
     return gtopt::id(self);

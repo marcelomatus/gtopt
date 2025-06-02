@@ -19,12 +19,6 @@ TEST_CASE("Construction and basic properties")
   {
     CHECK_NOTHROW(CostHelper(options, scenarios, stages));
   }
-
-  SUBCASE("Basic functionality")
-  {
-    double cost = 1;
-    CHECK_THROWS(cost = helper.stage_ecost(StageIndex {0}, cost));
-  }
 }
 
 TEST_CASE("block_cost calculation")
@@ -49,13 +43,13 @@ TEST_CASE("block_cost calculation")
   {
     const double cost = 100.0;
     const double expected = 100.0 * 0.9 * 0.5;
-    CHECK(helper.block_ecost(ScenarioIndex {0}, StageIndex {0}, block, cost)
+    CHECK(helper.block_ecost(scenarios[0], stages[0], block, cost)
           == doctest::Approx(expected));
   }
 
   SUBCASE("Zero cost")
   {
-    CHECK(helper.block_ecost(ScenarioIndex {0}, StageIndex {0}, block, 0.0)
+    CHECK(helper.block_ecost(scenarios[0], stages[0], block, 0.0)
           == doctest::Approx(0.0));
   }
 }
@@ -96,7 +90,7 @@ TEST_CASE("stage_cost calculation")
   SUBCASE("First stage")
   {
     const double cost = 100.0;
-    CHECK(helper.stage_ecost(StageIndex {0}, cost)
+    CHECK(helper.stage_ecost(stage_lps[0], cost)
           == doctest::Approx(100.0 * 0.9));
   }
 
@@ -104,7 +98,7 @@ TEST_CASE("stage_cost calculation")
   {
     const double cost = 100.0;
     const double prob_factor = 0.5;
-    CHECK(helper.stage_ecost(StageIndex {1}, cost, prob_factor)
+    CHECK(helper.stage_ecost(stage_lps[1], cost, prob_factor)
           == doctest::Approx(100.0 * 0.8 * 0.5 * 3.0));
   }
 }
@@ -147,14 +141,14 @@ TEST_CASE("scenario_stage_cost calculation")
   SUBCASE("First scenario, first stage")
   {
     const double cost = 100.0;
-    CHECK(helper.scenario_stage_ecost(ScenarioIndex {0}, StageIndex {0}, cost)
+    CHECK(helper.scenario_stage_ecost(scenario_lps[0], stage_lps[0], cost)
           == doctest::Approx(100.0 * 0.9 * 0.6));
   }
 
   SUBCASE("Second scenario, second stage")
   {
     const double cost = 100.0;
-    CHECK(helper.scenario_stage_ecost(ScenarioIndex {1}, StageIndex {1}, cost)
+    CHECK(helper.scenario_stage_ecost(scenario_lps[1], stage_lps[1], cost)
           == doctest::Approx(100.0 * 0.8 * 0.4));
   }
 }
