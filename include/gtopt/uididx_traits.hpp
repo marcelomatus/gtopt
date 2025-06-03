@@ -255,9 +255,8 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
         const auto res = index_uids.emplace(
             UidKey {scenario.uid(), stage.uid()}, IndexKey {si, ti});
         if (!res.second) {
-          SPDLOG_WARN(fmt::format("using duplicate uid values {}:{}:{}",
-                                  scenario.uid(),
-                                  stage.uid()));
+          static constexpr std::string_view msg = "Duplicate uid values";
+          SPDLOG_WARN("{}: {}:{}", msg, scenario.uid(), stage.uid());
         }
       }
     }
@@ -281,7 +280,8 @@ struct UidToVectorIdx<StageUid>
       const auto res = index_uids.emplace(UidKey {stage.uid()}, IndexKey {ti});
       if (!res.second) {
         SPDLOG_WARN(
-            fmt::format("using duplicate uid values {}:{}:{}", stage.uid()));
+            static constexpr std::string_view msg = "Duplicate uid value";
+            SPDLOG_WARN("{}: {}", msg, stage.uid());
       }
     }
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
