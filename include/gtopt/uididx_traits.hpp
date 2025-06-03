@@ -112,9 +112,9 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
         [&](ArrowIndex i) constexpr noexcept
         {
           const auto res =
-              uid_idx.emplace(key_type {ScenarioUid {(*scenarios)[i]},
-                                        StageUid {(*stages)[i]},
-                                        BlockUid {(*blocks)[i]}},
+              uid_idx.emplace(key_type {ScenarioUid {scenarios->Value(i)},
+                                        StageUid {stages->Value(i)},
+                                        BlockUid {blocks->Value(i)}},
                               i);
           if (!res.second) {
             SPDLOG_WARN(
@@ -142,8 +142,8 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
         [&](ArrowIndex i) constexpr noexcept
         {
           const auto res =
-              uid_idx.emplace(key_type {StageUid {(*stages)[i]},
-                                        BlockUid {(*blocks)[i]}},
+              uid_idx.emplace(key_type {StageUid {stages->Value(i)},
+                                        BlockUid {blocks->Value(i)}},
                               i);
           if (!res.second) {
             SPDLOG_WARN(
@@ -172,8 +172,8 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
         [&](ArrowIndex i) constexpr noexcept
         {
           const auto res =
-              uid_idx.emplace(key_type {ScenarioUid {(*scenarios)[i]},
-                                        StageUid {(*stages)[i]}},
+              uid_idx.emplace(key_type {ScenarioUid {scenarios->Value(i)},
+                                        StageUid {stages->Value(i)}},
                               i);
           if (!res.second) {
             SPDLOG_WARN(
@@ -200,7 +200,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
         [&](ArrowIndex i) constexpr noexcept
         {
           const auto res =
-              uid_idx.emplace(key_type {StageUid {(*stages)[i]}}, i);
+              uid_idx.emplace(key_type {StageUid {stages->Value(i)}}, i);
           if (!res.second) {
             SPDLOG_WARN(
                 fmt::format("using duplicate uid values at element{}", i));
