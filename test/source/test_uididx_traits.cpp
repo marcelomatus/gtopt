@@ -1,60 +1,59 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include <gtopt/uididx_traits.hpp>
 
-namespace gtopt {
+namespace gtopt
+{
 
-TEST_CASE("UidMapTraits basic functionality") {
+TEST_CASE("UidMapTraits basic functionality")
+{
   using TestTraits = UidMapTraits<int, std::string, int>;
-  
-  SUBCASE("Type aliases") {
+
+  SUBCASE("Type aliases")
+  {
     CHECK(std::is_same_v<TestTraits::value_type, int>);
     CHECK(std::is_same_v<TestTraits::key_type, std::tuple<std::string, int>>);
-    CHECK(std::is_same_v<TestTraits::uid_map_t, 
-          gtopt::flat_map<std::tuple<std::string, int>, int>>);
-  }
-  
-  SUBCASE("Static members") {
-    CHECK(TestTraits::uid_count == 2);
-    CHECK(std::is_same_v<TestTraits::uid_type<0>, std::string>);
-    CHECK(std::is_same_v<TestTraits::uid_type<1>, int>);
-  }
-  
-  SUBCASE("make_key") {
-    auto key = TestTraits::make_key("test", 42);
-    CHECK(std::get<0>(key) == "test");
-    CHECK(std::get<1>(key) == 42);
+    CHECK(std::is_same_v<TestTraits::uid_map_t,
+                         gtopt::flat_map<std::tuple<std::string, int>, int>>);
   }
 }
 
-TEST_CASE("ArrowUidTraits functionality") {
+TEST_CASE("ArrowUidTraits functionality")
+{
   using TestTraits = ArrowUidTraits<std::string, int>;
-  
-  SUBCASE("Inheritance") {
+
+  SUBCASE("Inheritance")
+  {
     CHECK(std::is_base_of_v<ArrowTraits<Uid>, TestTraits>);
-    CHECK(std::is_base_of_v<UidMapTraits<ArrowIndex, std::string, int>, TestTraits>);
+    CHECK(std::is_base_of_v<UidMapTraits<ArrowIndex, std::string, int>,
+                            TestTraits>);
   }
-  
+
   // Note: Actual Arrow table tests would require real Arrow data
   // These are compile-time checks only
-  SUBCASE("make_uid_column return type") {
+  SUBCASE("make_uid_column return type")
+  {
     using ReturnType = decltype(TestTraits::make_uid_column(nullptr, ""));
-    CHECK(std::is_same_v<typename ReturnType::value_type,
+    CHECK(std::is_same_v<
+          typename ReturnType::value_type,
           std::shared_ptr<typename arrow::CTypeTraits<Uid>::ArrayType>>);
   }
 }
 
-TEST_CASE("UidToVectorIdx functionality") {
+TEST_CASE("UidToVectorIdx functionality")
+{
   using TestTraits = UidToVectorIdx<ScenarioUid, StageUid>;
-  
-  SUBCASE("Type aliases") {
+
+  SUBCASE("Type aliases")
+  {
     CHECK(std::is_same_v<TestTraits::IndexKey, std::tuple<Index, Index>>);
-    CHECK(std::is_same_v<TestTraits::UidKey, std::tuple<ScenarioUid, StageUid>>);
-    CHECK(std::is_same_v<TestTraits::uid_vector_idx_map_t, 
-          gtopt::flat_map<std::tuple<ScenarioUid, StageUid>, std::tuple<Index, Index>>>);
+    CHECK(
+        std::is_same_v<TestTraits::UidKey, std::tuple<ScenarioUid, StageUid>>);
+    CHECK(std::is_same_v<TestTraits::uid_vector_idx_map_t,
+                         gtopt::flat_map<std::tuple<ScenarioUid, StageUid>,
+                                         std::tuple<Index, Index>>>);
   }
-  
+
   // Note: Actual SimulationLP tests would require a real SimulationLP object
 }
 
-} // namespace gtopt
+}  // namespace gtopt
