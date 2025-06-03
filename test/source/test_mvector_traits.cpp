@@ -62,9 +62,38 @@ TEST_CASE("Mixed Index Types")
   CHECK(traits_mixed::at_value(vec, indices) == doctest::Approx(7.7));
 }
 
-// Removed mvector_traits_indexed tests since they're not properly implemented
+TEST_CASE("Indexed Alternative Implementation") {
+  using traits_idx = mvector_traits_indexed_alt<int, std::tuple<std::size_t, std::size_t>, 2>;
+  const traits_idx::vector_type vec = {{1, 2, 3}, {4, 5, 6}};
+  
+  SUBCASE("Basic access") {
+    auto indices = std::make_tuple(std::size_t{0}, std::size_t{2});
+    CHECK(traits_idx::at_value(vec, indices) == 3);
+  }
 
-// Removed mvector_traits_indexed tests since they're not properly implemented
+  SUBCASE("Different indices") {
+    auto indices = std::make_tuple(std::size_t{1}, std::size_t{1});
+    CHECK(traits_idx::at_value(vec, indices) == 5);
+  }
+}
+
+TEST_CASE("Deep Nesting with Indexed Alternative") {
+  using traits_deep = mvector_traits_indexed_alt<float, std::tuple<int, int, int, int>, 4>;
+  const traits_deep::vector_type vec = {
+    {{{{1.1f, 2.2f}, {3.3f, 4.4f}}, 
+      {{5.5f, 6.6f}, {7.7f, 8.8f}}}}
+  };
+  
+  SUBCASE("First element") {
+    auto indices = std::make_tuple(0, 0, 0, 0);
+    CHECK(traits_deep::at_value(vec, indices) == doctest::Approx(1.1f));
+  }
+
+  SUBCASE("Last element") {
+    auto indices = std::make_tuple(0, 1, 1, 1);
+    CHECK(traits_deep::at_value(vec, indices) == doctest::Approx(8.8f));
+  }
+}
 
 TEST_CASE("Const Correctness")
 {
