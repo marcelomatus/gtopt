@@ -16,6 +16,7 @@
 #include <tuple>
 #include <utility>
 
+#include <fmt/format.h>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
@@ -29,8 +30,6 @@
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
-#include <fmt/format.h>
-
 namespace gtopt
 {
 template<typename Value, typename... Uids>
@@ -38,20 +37,9 @@ struct UidMapTraits
 {
   using value_type = Value;
   using key_type = std::tuple<Uids...>;
-  
+
   using uid_map_t = gtopt::flat_map<key_type, value_type>;
   using uid_map_ptr = std::shared_ptr<uid_map_t>;
-  
-  // Modern C++23 additions
-  static constexpr std::size_t uid_count = sizeof...(Uids);
-  
-  template<std::size_t I>
-  using uid_type = std::tuple_element_t<I, key_type>;
-  
-  [[nodiscard]] static constexpr auto make_key(Uids... uids) noexcept 
-  {
-    return key_type{std::forward<Uids>(uids)...};
-  }
 };
 
 template<typename... Uids>
@@ -65,21 +53,23 @@ struct ArrowUidTraits
   using uid_arrow_idx_map_t = typename BaseMapTraits::uid_map_t;
   using uid_arrow_idx_map_ptr = typename BaseMapTraits::uid_map_ptr;
 
-  [[nodiscard]] static constexpr auto make_uid_column(const ArrowTable& table,
-                                                     std::string_view name) 
-    noexcept -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>, std::string>
+  [[nodiscard]] static constexpr auto make_uid_column(
+      const ArrowTable& table, std::string_view name) noexcept
+      -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
+                       std::string>
   {
     if (!table) {
       return std::unexpected("Null table provided");
     }
-    
-    const auto& column = table->GetColumnByName(std::string{name});
+
+    const auto& column = table->GetColumnByName(std::string {name});
     if (!column) {
       return std::unexpected(fmt::format("Column '{}' not found", name));
     }
-    
+
     try {
-      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(column->chunk(0));
+      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
+          column->chunk(0));
     } catch (const std::exception& e) {
       return std::unexpected(fmt::format("Column cast failed: {}", e.what()));
     }
