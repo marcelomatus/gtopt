@@ -69,9 +69,9 @@ TEST_SUITE("UidToVectorIdx") {
         }
 
         SUBCASE("Empty simulation") {
-            Simulation sim;
-            OptionsLP options;
-            SimulationLP sim_lp(sim, options);
+            const Simulation sim;
+            const OptionsLP options;
+            const SimulationLP sim_lp(sim, options);
             
             auto result = TestTraits::make_uids_vector_idx(sim_lp);
             CHECK(result->empty());
@@ -86,9 +86,10 @@ TEST_SUITE("UidToVectorIdx") {
             sim.scenario_array.emplace_back(Scenario{.uid = ScenarioUid{1}});
             sim.stage_array.emplace_back(Stage{.uid = StageUid{1}});
             
-            OptionsLP options;
-            SimulationLP sim_lp(sim, options);
+            const OptionsLP options;
+            const SimulationLP sim_lp(sim, options);
             
+            // Remove constexpr requirement since flat_map isn't constexpr
             auto result = TestTraits::make_uids_vector_idx(sim_lp);
             CHECK(result->size() == 1);
             CHECK(result->at(std::make_tuple(ScenarioUid{1}, StageUid{1})) == 
@@ -104,9 +105,10 @@ TEST_SUITE("UidToVectorIdx") {
             sim.stage_array.emplace_back(Stage{.uid = StageUid{1}});
             sim.stage_array.emplace_back(Stage{.uid = StageUid{1}}); // Duplicate
             
-            OptionsLP options;
-            SimulationLP sim_lp(sim, options);
+            const OptionsLP options;
+            const SimulationLP sim_lp(sim, options);
             
+            // Remove constexpr requirement since flat_map isn't constexpr
             auto result = TestTraits::make_uids_vector_idx(sim_lp);
             CHECK(result->size() == 1); // Only one unique UID should be stored
         }
@@ -126,9 +128,10 @@ TEST_SUITE("Edge Cases") {
         Simulation sim;
         sim.stage_array.emplace_back(Stage{.uid = StageUid{42}});
         
-        OptionsLP options;
-        SimulationLP sim_lp(sim, options);
+        const OptionsLP options;
+        const SimulationLP sim_lp(sim, options);
         
+        // Remove constexpr requirement since flat_map isn't constexpr
         auto result = TestTraits::make_uids_vector_idx(sim_lp);
         CHECK(result->at(std::make_tuple(StageUid{42})) == std::make_tuple(0));
     }
