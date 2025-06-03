@@ -215,7 +215,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
 
   template<typename SystemContextType = class SystemContext>
-  constexpr static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
     for (auto&& [si, scenario] : enumerate<Index>(sim.scenarios())) {
@@ -246,7 +246,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
 
   template<typename SystemContextType = class SystemContext>
-  constexpr static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
 
@@ -274,7 +274,7 @@ struct UidToVectorIdx<StageUid>
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
 
   template<typename SystemContextType = class SystemContext>
-  constexpr static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
     for (auto&& [ti, stage] : enumerate<Index>(sim.stages())) {
