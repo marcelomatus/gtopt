@@ -65,48 +65,6 @@ private:
   }
 };
 
-// Alternative implementation using index-based unfolding for the entire tuple
-template<typename Type,
-         typename UidTuple,
-         std::size_t Depth = std::tuple_size_v<UidTuple>>
-struct mvector_traits_indexed
-{
-};
-
-// Specialization for depth = 1 (base case)
-template<typename Type, typename UidTuple>
-struct mvector_traits_indexed<Type, UidTuple, 1>
-{
-  using value_type = Type;
-  using vector_type = std::vector<Type>;
-  using uid_tuple_type = UidTuple;
-
-  template<typename Container>
-  constexpr static auto at_value(const Container& vec,
-                                 const uid_tuple_type& uids) noexcept
-  {
-    return vec[std::get<0>(uids)];
-  }
-};
-
-// Specialization for depth > 1 (recursive case)
-template<typename Type, typename UidTuple, std::size_t Depth>
-struct mvector_traits_indexed
-{
-  using value_type = Type;
-  using vector_type = std::vector<
-      typename mvector_traits_indexed<Type, UidTuple, Depth - 1>::vector_type>;
-  using uid_tuple_type = UidTuple;
-
-  template<typename Container>
-  constexpr static auto at_value(const Container& vec,
-                                 const uid_tuple_type& uids) noexcept
-  {
-    constexpr std::size_t current_index = std::tuple_size_v<UidTuple> - Depth;
-    return mvector_traits_indexed<Type, UidTuple, Depth - 1>::at_value(
-        vec[std::get<current_index>(uids)], uids);
-  }
-};
 
 }  // namespace gtopt
 
