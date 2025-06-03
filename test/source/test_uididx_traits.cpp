@@ -38,9 +38,9 @@ TEST_CASE("ArrowUidTraits functionality") {
   // Note: Actual Arrow table tests would require real Arrow data
   // These are compile-time checks only
   SUBCASE("make_uid_column return type") {
-    CHECK(std::is_same_v<
-      decltype(TestTraits::make_uid_column(nullptr, "")::value_type,
-      std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>>);
+    using ReturnType = decltype(TestTraits::make_uid_column(nullptr, ""));
+    CHECK(std::is_same_v<typename ReturnType::value_type,
+          std::shared_ptr<typename arrow::CTypeTraits<Uid>::ArrayType>>);
   }
 }
 
