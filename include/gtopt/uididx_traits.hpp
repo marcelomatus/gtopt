@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <concepts>
 #include <expected>
 #include <ranges>
 #include <tuple>
@@ -37,7 +36,6 @@ struct UidMapTraits
 {
   using value_type = Value;
   using key_type = std::tuple<Uids...>;
-
   using uid_map_t = gtopt::flat_map<key_type, value_type>;
   using uid_map_ptr = std::shared_ptr<uid_map_t>;
 };
@@ -54,7 +52,7 @@ struct ArrowUidTraits
   using uid_arrow_idx_map_ptr = typename BaseMapTraits::uid_map_ptr;
 
   [[nodiscard]] static constexpr auto make_uid_column(
-      const ArrowTable& table, std::string_view name) noexcept
+      const ArrowTable& table, const std::string_view name) noexcept
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {
@@ -88,7 +86,9 @@ template<>
 struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     : ArrowUidTraits<ScenarioUid, StageUid, BlockUid>
 {
-  static auto make_uids_arrow_idx(const ArrowTable& table)
+  using UidIdx = uid_arrow_idx_map_ptr;
+
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     const auto stages = make_uid_column(table, Stage::class_name);
@@ -107,8 +107,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
                                         BlockUid {(*blocks)->Value(i)}},
                               i);
           if (!res.second) {
-            SPDLOG_WARN(
-                fmt::format("using duplicate uid values at element{}", i));
+            SPDLOG_WARN("using duplicate uid values at element");
           }
         });
 
@@ -119,7 +118,9 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
 template<>
 struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
 {
-  static auto make_uids_idx(const ArrowTable& table)
+  using UidIdx = uid_arrow_idx_map_ptr;
+
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
     const auto blocks = make_uid_column(table, Block::class_name);
@@ -136,8 +137,7 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
                                         BlockUid {(*blocks)->Value(i)}},
                               i);
           if (!res.second) {
-            SPDLOG_WARN(
-                fmt::format("using duplicate uid values at element{}", i));
+            SPDLOG_WARN("using duplicate uid values at element");
           }
         });
 
@@ -149,7 +149,9 @@ template<>
 struct UidToArrowIdx<ScenarioUid, StageUid>
     : ArrowUidTraits<ScenarioUid, StageUid>
 {
-  static auto make_uids_idx(const ArrowTable& table)
+  using UidIdx = uid_arrow_idx_map_ptr;
+
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     const auto stages = make_uid_column(table, Stage::class_name);
@@ -157,19 +159,17 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(
-        std::views::iota(ArrowIndex {0}, table->num_rows()),
-        [&](ArrowIndex i) constexpr noexcept
-        {
-          const auto res =
-              uid_idx.emplace(key_type {ScenarioUid {(*scenarios)->Value(i)},
-                                        StageUid {(*stages)->Value(i)}},
-                              i);
-          if (!res.second) {
-            SPDLOG_WARN(
-                fmt::format("using duplicate uid values at element{}", i));
-          }
-        });
+    std::ranges::for_each(std::views::iota(ArrowIndex {0}, table->num_rows()),
+                          [&](ArrowIndex i) constexpr noexcept
+                          {
+                            const auto res = uid_idx.emplace(
+                                key_type {ScenarioUid {(*scenarios)->Value(i)},
+                                          StageUid {(*stages)->Value(i)}},
+                                i);
+                            if (!res.second) {
+                              SPDLOG_WARN("using duplicate uid values");
+                            }
+                          });
 
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
@@ -178,25 +178,24 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
 template<>
 struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
 {
-  static auto make_uids_idx(const ArrowTable& table)
+  using UidIdx = uid_arrow_idx_map_ptr;
+
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
 
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(
-        std::views::iota(ArrowIndex {0}, table->num_rows()),
-        [&](ArrowIndex i) constexpr noexcept
-        {
-          const auto res =
-              uid_idx.emplace(key_type {StageUid {(*stages)->Value(i)}}, i);
-          if (!res.second) {
-            SPDLOG_WARN(
-                fmt::format("using duplicate uid values at element{}", i));
-          }
-        });
-
+    std::ranges::for_each(std::views::iota(ArrowIndex {0}, table->num_rows()),
+                          [&](ArrowIndex i) constexpr noexcept
+                          {
+                            const auto res = uid_idx.emplace(
+                                key_type {StageUid {(*stages)->Value(i)}}, i);
+                            if (!res.second) {
+                              SPDLOG_WARN("using duplicate uid values");
+                            }
+                          });
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
 };
@@ -211,25 +210,49 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
 {
   using IndexKey = std::tuple<Index, Index, Index>;
   using UidKey = std::tuple<ScenarioUid, StageUid, BlockUid>;
-
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
 
-  template<typename SystemContextType = class SystemContext>
-  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
+  using UidIdx = uid_vector_idx_map_ptr;
+
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
-    for (auto&& [si, scenario] : enumerate<Index>(sim.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<Index>(sim.stages())) {
-        for (auto&& [bi, block] : enumerate<Index>(stage.blocks())) {
+    for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
+      for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
+        for (const auto& [bi, block] : enumerate<Index>(stage.blocks())) {
           const auto res = index_uids.emplace(
               UidKey {scenario.uid(), stage.uid(), block.uid()},
               IndexKey {si, ti, bi});
           if (!res.second) {
-            SPDLOG_WARN(fmt::format("using duplicate uid values {}:{}:{}",
-                                    scenario.uid(),
-                                    stage.uid(),
-                                    block.uid()));
+            SPDLOG_WARN("using duplicate uid values");
           }
+        }
+      }
+    }
+    return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
+  }
+};
+
+template<>
+struct UidToVectorIdx<StageUid, BlockUid>
+{
+  using IndexKey = std::tuple<Index, Index>;
+  using UidKey = std::tuple<StageUid, BlockUid>;
+  using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
+
+  using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
+  using UidIdx = uid_vector_idx_map_ptr;
+
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
+  {
+    uid_vector_idx_map_t index_uids;
+    for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
+      for (const auto& [bi, block] : enumerate<Index>(stage.blocks())) {
+        const auto res = index_uids.emplace(UidKey {stage.uid(), block.uid()},
+                                            IndexKey {ti, bi});
+        if (!res.second) {
+          SPDLOG_WARN("using duplicate uid values");
         }
       }
     }
@@ -242,21 +265,20 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
 {
   using IndexKey = std::tuple<Index, Index>;
   using UidKey = std::tuple<ScenarioUid, StageUid>;
-
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
 
-  template<typename SystemContextType = class SystemContext>
-  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
+  using UidIdx = uid_vector_idx_map_ptr;
+
+  static auto make_vector_uids_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
-
-    for (auto&& [si, scenario] : enumerate<Index>(sim.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<Index>(sim.stages())) {
+    for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
+      for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
         const auto res = index_uids.emplace(
             UidKey {scenario.uid(), stage.uid()}, IndexKey {si, ti});
         if (!res.second) {
-          static constexpr std::string_view msg = "Duplicate uid values";
-          SPDLOG_WARN("{}: {}:{}", msg, scenario.uid(), stage.uid());
+          SPDLOG_WARN("Duplicate uid values");
         }
       }
     }
@@ -269,19 +291,18 @@ struct UidToVectorIdx<StageUid>
 {
   using IndexKey = std::tuple<Index>;
   using UidKey = std::tuple<StageUid>;
-
   using uid_vector_idx_map_t = gtopt::flat_map<UidKey, IndexKey>;
+  using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
+  using UidIdx = uid_vector_idx_map_ptr;
 
   template<typename SystemContextType = class SystemContext>
-  static auto make_uids_vector_idx(const SimulationLP& sim) noexcept
+  static auto make_vector_uids_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
-    for (auto&& [ti, stage] : enumerate<Index>(sim.stages())) {
+    for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
       const auto res = index_uids.emplace(UidKey {stage.uid()}, IndexKey {ti});
       if (!res.second) {
-        SPDLOG_WARN(
-            static constexpr std::string_view msg = "Duplicate uid value";
-            SPDLOG_WARN("{}: {}", msg, stage.uid());
+        SPDLOG_WARN("Duplicate uid values");
       }
     }
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));

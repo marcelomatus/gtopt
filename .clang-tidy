@@ -3,7 +3,9 @@
 # misc-non-private-member-variables-in-classes: the options don't do anything
 # modernize-use-nodiscard: too aggressive, attribute is situationally useful
 Checks: "*,\
-#  -system-headers,\
+   -system-headers,\
+   -template_param_default_arg_redefinition,\
+   -portability-avoid-pragma-once,\
    -clang-analyzer-cplusplus.NewDeleteLeaks,\
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\

@@ -22,8 +22,6 @@
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
 
-#include "gtopt/block.hpp"
-
 namespace gtopt
 {
 
@@ -84,8 +82,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
   auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
 
-  const auto stage_gcost = gcost.optval(stage_index).value_or(0.0);
-  const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
+  const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
+  const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();

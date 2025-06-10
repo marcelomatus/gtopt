@@ -98,7 +98,7 @@ public:
                                   const LossFactor& lfact) const
   {
     return options().use_line_losses()
-        ? std::max(lfact.at(stage.index()).value_or(0.0), 0.0)
+        ? std::max(lfact.at(stage.uid()).value_or(0.0), 0.0)
         : 0.0;
   }
 
@@ -107,9 +107,9 @@ public:
                                  const Reactance& reactance) const
   {
     if (options().use_kirchhoff()) {
-      return reactance.at(stage.index());
+      return reactance.at(stage.uid());
     }
-    using ReturnType = decltype(reactance.at(stage.index()));
+    using ReturnType = decltype(reactance.at(stage.uid()));
     return ReturnType {};
   }
 
@@ -117,7 +117,7 @@ public:
   constexpr auto demand_fail_cost(const StageLP& stage,
                                   const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage.index());
+    const auto fc = fcost.optval(stage.uid());
     return fc ? fc : options().demand_fail_cost();
   }
 
@@ -125,7 +125,7 @@ public:
   constexpr auto reserve_fail_cost(const StageLP& stage,
                                    const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage.index());
+    const auto fc = fcost.optval(stage.uid());
     return fc ? fc : options().reserve_fail_cost();
   }
 
@@ -140,7 +140,7 @@ public:
                               const double capacity_max = CoinDblMax) const
   {
     const auto lmax_at =
-        lmax.at(stage.index(), block.index()).value_or(capacity_max);
+        lmax.at(stage.uid(), block.uid()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return lmax_block;
@@ -156,11 +156,11 @@ public:
       -> std::pair<double, double>
   {
     const auto lmin_at =
-        lmin.at(stage.index(), block.index()).value_or(capacity_min);
+        lmin.at(stage.uid(), block.uid()).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
     const auto lmax_at =
-        lmax.at(stage.index(), block.index()).value_or(capacity_max);
+        lmax.at(stage.uid(), block.uid()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
@@ -174,10 +174,10 @@ public:
                                  const double capacity_min = 0.0) const
       -> std::pair<double, double>
   {
-    const auto lmin_at = lmin.at(stage.index()).value_or(capacity_min);
+    const auto lmin_at = lmin.at(stage.uid()).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
 
-    const auto lmax_at = lmax.at(stage.index()).value_or(capacity_max);
+    const auto lmax_at = lmax.at(stage.uid()).value_or(capacity_max);
     const auto lmax_block = std::min(capacity_max, lmax_at);
 
     return {lmax_block, lmin_block};
@@ -241,16 +241,6 @@ public:
       -> ElementIndex<BusLP>;
   [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
       -> const BusLP&;
-
-  //
-  // Forward methods to access simulation
-  //
-
-  [[nodiscard]] constexpr const std::vector<ScenarioLP>& scenarios()
-      const noexcept
-  {
-    return simulation().scenarios();
-  }
 
 #ifdef NONE
   // Methods to handle the state_variables

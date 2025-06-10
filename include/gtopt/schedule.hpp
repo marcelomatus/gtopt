@@ -11,129 +11,125 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/input_context.hpp>
 #include <gtopt/input_traits.hpp>
 
 namespace gtopt
 {
 
-template<typename Type, typename... Index>
-class Schedule : InputTraits
+template<typename Type, typename... Uid>
+class Schedule : public InputTraits
 {
 public:
-  using traits = mvector_traits<Type, Index...>;
   using value_type = Type;
-  using vector_type = typename traits::vector_type;
+  using vector_type = typename InputTraits::idx_vector_t<Type, Uid...>;
   using FSched = FieldSched<Type, vector_type>;
 
+  using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
+
 private:
-  FSched sched;
-  array_index_t<Index...> array_index;
+  FSched m_sched_;
+  array_vector_uid_idx_v m_arrow_array_uid_;
 
 public:
   Schedule() = default;
 
-  template<typename FSched>
-    requires(!std::same_as<std::remove_cvref_t<FSched>, Schedule>)
-  explicit Schedule(FSched&& psched)
-      : sched(std::forward<FSched>(psched))
+  explicit Schedule(FSched psched)
+      : m_sched_(std::move(psched))
   {
   }
 
   template<typename InputContext>
   explicit Schedule(const InputContext& ic,
-                    const std::string_view& cname,
+                    const std::string_view cname,
                     const Id& id,
-                    FSched&& psched)
-      : sched(std::move(psched))
-      , array_index(
-            ic.template get_array_index<FSched, Index...>(sched, cname, id))
+                    FSched psched)
+      : m_sched_(std::move(psched))
+      , m_arrow_array_uid_(ic.template get_array_index<Type, FSched, Uid...>(
+            m_sched_, cname, id))
   {
   }
 
-  template<typename InputContext>
-  explicit Schedule(const InputContext& ic, FSched&& psched)
-      : sched(std::move(psched))
+  template<typename InputContext, typename FS>
+  explicit Schedule(const InputContext& ic, FS&& sched)
+      : m_sched_(std::forward<FS>(sched))
   {
     (void)ic;
   }
 
-  constexpr auto at(Index... index) const
+  constexpr Type at(Uid... uids) const
   {
-    return at_sched<Type>(sched, array_index, index...);
+    return at_sched<Type>(m_sched_, m_arrow_array_uid_, uids...);
   }
 };
 
-template<typename Type, typename... Index>
-class OptSchedule : InputTraits
+template<typename Type, typename... Uid>
+class OptSchedule : public InputTraits
 {
 public:
-  using traits = mvector_traits<Type, Index...>;
   using value_type = Type;
-  using vector_type = typename traits::vector_type;
+  using vector_type = typename InputTraits::idx_vector_t<Type, Uid...>;
   using FSched = FieldSched<Type, vector_type>;
   using OptFSched = std::optional<FSched>;
 
+  using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
+
 private:
-  OptFSched sched;
-  array_index_t<Index...> array_index;
+  OptFSched m_sched_;
+  array_vector_uid_idx_v m_arrow_array_uids_;
 
 public:
   OptSchedule() = default;
 
-  explicit OptSchedule(const OptFSched& psched)
-      : sched(psched)
+  explicit OptSchedule(OptFSched sched)
+      : m_sched_(std::move(sched))
   {
   }
 
-  explicit OptSchedule(OptFSched&& psched) noexcept
-      : sched(std::move(psched))
-  {
-  }
-
-  template<typename InputContext, typename OptFSched>
   explicit OptSchedule(const InputContext& ic,
-                       const std::string_view& cname,
+                       const std::string_view cname,
                        const Id& id,
-                       OptFSched&& psched)
-      : sched(std::forward<OptFSched>(psched))
-      , array_index(
-            ic.template get_array_index<std::decay_t<OptFSched>, Index...>(
-                sched, cname, id))
+                       OptFSched psched)
+      : m_sched_(std::move(psched))
+      , m_arrow_array_uids_(ic.template get_array_index<Type, FSched, Uid...>(
+            m_sched_.value_or(FSched {}), cname, id))
   {
   }
 
-  [[nodiscard]] constexpr bool has_value() const { return sched.has_value(); }
+  [[nodiscard]] constexpr bool has_value() const
+  {
+    return m_sched_.has_value();
+  }
 
   constexpr explicit operator bool() const { return has_value(); }
 
-  constexpr std::optional<Type> at(Index... index) const
+  constexpr std::optional<Type> at(Uid... uids) const
   {
-    if (sched) {
-      return at_sched<Type>(sched.value(), array_index, index...);
+    if (m_sched_.has_value()) {
+      return at_sched<Type>(m_sched_.value(), m_arrow_array_uids_, uids...);
     }
     return {};
   }
 
-  constexpr std::optional<Type> optval(Index... index) const
+  constexpr std::optional<Type> optval(Uid... uids) const
   {
-    if (sched) {
-      return optval_sched<Type>(sched.value(), array_index, index...);
+    if (m_sched_) {
+      return optval_sched<Type>(m_sched_.value(), m_arrow_array_uids_, uids...);
     }
     return {};
   }
 };
 
-using ActiveSched = Schedule<IntBool, StageIndex>;
+using ActiveSched = Schedule<IntBool, StageUid>;
 
-using TRealSched = Schedule<Real, StageIndex>;
-using STRealSched = Schedule<Real, ScenarioIndex, StageIndex>;
-using TBRealSched = Schedule<Real, StageIndex, BlockIndex>;
-using STBRealSched = Schedule<Real, ScenarioIndex, StageIndex, BlockIndex>;
+using TRealSched = Schedule<Real, StageUid>;
+using STRealSched = Schedule<Real, ScenarioUid, StageUid>;
+using TBRealSched = Schedule<Real, StageUid, BlockUid>;
+using STBRealSched = Schedule<Real, ScenarioUid, StageUid, BlockUid>;
 
-using OptTRealSched = OptSchedule<Real, StageIndex>;
-using OptSTRealSched = OptSchedule<Real, ScenarioIndex, StageIndex>;
-using OptTBRealSched = OptSchedule<Real, StageIndex, BlockIndex>;
-using OptSTBRealSched =
-    OptSchedule<Real, ScenarioIndex, StageIndex, BlockIndex>;
+using OptTRealSched = OptSchedule<Real, StageUid>;
+using OptSTRealSched = OptSchedule<Real, ScenarioUid, StageUid>;
+using OptTBRealSched = OptSchedule<Real, StageUid, BlockUid>;
+using OptSTBRealSched = OptSchedule<Real, ScenarioUid, StageUid, BlockUid>;
 
 }  // namespace gtopt

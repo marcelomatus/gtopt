@@ -47,7 +47,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
-  const auto stage_lossfactor = lossfactor.optval(stage_index).value_or(0.0);
+  const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
@@ -80,7 +80,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     row[emin_col] = -1;
 
     return emin_rows[st_k] = lp.add_row(std::move(row.greater_equal(0)));
-  }(emin.optval(stage_index), ecost.optval(stage_index));
+  }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
 
   BIndexHolder lcols;
   lcols.reserve(blocks.size());
