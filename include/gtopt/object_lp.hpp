@@ -83,7 +83,7 @@ public:
   template<typename StageLP>
   [[nodiscard]] constexpr bool is_active(const StageLP& stage) const
   {
-    return m_active_.at(stage.index()) != False;
+    return m_active_.at(stage.uid()) != False;
   }
 
   /**

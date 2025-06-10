@@ -97,18 +97,12 @@ struct CapacityObjectBase
    * @return The capacity at given stage or default if not specified
    * @throws None This function is noexcept
    */
-  [[nodiscard]] constexpr auto capacity_at(
-      const StageIndex stage_index,
-      const double def_capacity = std::numeric_limits<double>::max()) const
-  {
-    return m_capacity_.at(stage_index).value_or(def_capacity);
-  }
 
-  [[nodiscard]] constexpr auto capacity_at(
+  [[nodiscard]] constexpr double capacity_at(
       const StageLP& stage,
       const double def_capacity = std::numeric_limits<double>::max()) const
   {
-    return capacity_at(stage.index(), def_capacity);
+    return m_capacity_.at(stage.uid()).value_or(def_capacity);
   }
 
   /**

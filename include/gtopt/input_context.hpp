@@ -38,23 +38,26 @@ public:
     return m_system_context_.get();
   }
 
-  template<typename FSched, typename... Index>
+  template<typename Type, typename FSched, typename... Uids>
   auto get_array_index(const FSched& sched,
-                       const std::string_view& cname,
+                       const std::string_view cname,
                        const Id& id) const
-      -> std::pair<ArrowChunkedArray, IndexIdx<Index...>>
   {
-    return make_array_index<decltype(m_array_table_maps_), FSched, Index...>(
+    return make_array_index<Type,
+                            decltype(m_array_table_maps_),
+                            FSched,
+                            Uids...>(
         m_system_context_.get(), cname, m_array_table_maps_, sched, id);
   }
 
 private:
   std::reference_wrapper<const SystemContext> m_system_context_;
 
-  mutable std::tuple<array_table_map_t<ScenarioIndex, StageIndex, BlockIndex>,
-                     array_table_map_t<ScenarioIndex, StageIndex>,
-                     array_table_map_t<StageIndex, BlockIndex>,
-                     array_table_map_t<StageIndex>>
+  mutable std::tuple<
+      array_table_vector_uid_idx_t<ScenarioUid, StageUid, BlockUid>,
+      array_table_vector_uid_idx_t<ScenarioUid, StageUid>,
+      array_table_vector_uid_idx_t<StageUid, BlockUid>,
+      array_table_vector_uid_idx_t<StageUid>>
       m_array_table_maps_;
 };
 

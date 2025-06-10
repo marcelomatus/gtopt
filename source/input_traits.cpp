@@ -117,8 +117,8 @@ using ArrowTable = std::shared_ptr<arrow::Table>;
 
 template<>
 ArrowTable InputTraits::read_table(const SystemContext& sc,
-                                   const std::string_view& cname,
-                                   const std::string_view& fname)
+                                   const std::string_view cname,
+                                   const std::string_view fname)
 {
   auto fpath = std::filesystem::path(sc.options().input_directory());
 

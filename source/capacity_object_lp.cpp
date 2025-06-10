@@ -24,18 +24,18 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto stage_index = stage.index();
+  const auto stage_uid = stage.uid();
 
-  const auto stage_expcap = m_expcap_.at(stage_index).value_or(0.0);
-  const auto stage_expmod = m_expmod_.at(stage_index).value_or(0.0);
+  const auto stage_expcap = m_expcap_.at(stage_uid).value_or(0.0);
+  const auto stage_expmod = m_expmod_.at(stage_uid).value_or(0.0);
   const auto stage_maxexpcap = stage_expcap * stage_expmod;
   const auto stage_capacity = capacity_at(stage);
   const auto stage_capmax =
-      m_capmax_.at(stage_index).value_or(stage_maxexpcap + stage_capacity);
+      m_capmax_.at(stage_uid).value_or(stage_maxexpcap + stage_capacity);
 
   const auto stage_hour_capcost =
-      m_annual_capcost_.at(stage_index).value_or(0.0) / hours_per_year;
-  const auto stage_derating = m_annual_derating_.at(stage_index).value_or(0.0)
+      m_annual_capcost_.at(stage_uid).value_or(0.0) / hours_per_year;
+  const auto stage_derating = m_annual_derating_.at(stage_uid).value_or(0.0)
       * stage.timeinit() / hours_per_year;
 
   double prev_stage_capacity = stage_capacity;
@@ -44,7 +44,10 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
 
   if (const auto stage_index = stage.index(); stage_index) {
     const auto prev_stage_index = StageIndex {stage_index - 1};
-    prev_stage_capacity = capacity_at(prev_stage_index, stage_capacity);
+    const StageLP& prev_stage = sc.simulation()
+                                    .phases()[stage.phase_index()]
+                                    .stages()[prev_stage_index];
+    prev_stage_capacity = capacity_at(prev_stage, stage_capacity);
     prev_capainst_col = get_optvalue(capainst_cols, prev_stage_index);
     prev_capacost_col = get_optvalue(capacost_cols, prev_stage_index);
   } else {
@@ -94,7 +97,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
-    const auto expmod_col = expmod_cols[stage_index] =
+    const auto expmod_col = expmod_cols[stage.index()] =
         lp.add_col({// expmod variable
                     .name = sc.t_label(stage, cname, "expmod", uid()),
                     .uppb = stage_expmod});
@@ -114,16 +117,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto dcap = prev_stage_capacity - stage_capacity;
 
   const bool capainst_success =
-      capainst_cols.emplace(stage_index, capainst_col).second;
+      capainst_cols.emplace(stage_uid, capainst_col).second;
   const bool capacost_success =
-      capacost_cols.emplace(stage_index, capacost_col).second;
+      capacost_cols.emplace(stage_uid, capacost_col).second;
   const bool capainst_row_success =
       capainst_rows
-          .emplace(stage_index, lp.add_row(std::move(capainst_row.equal(dcap))))
+          .emplace(stage_uid, lp.add_row(std::move(capainst_row.equal(dcap))))
           .second;
   const bool capacost_row_success =
       capacost_rows
-          .emplace(stage_index, lp.add_row(std::move(capacost_row.equal(0.0))))
+          .emplace(stage_uid, lp.add_row(std::move(capacost_row.equal(0.0))))
           .second;
 
   return capainst_success && capacost_success && capainst_row_success

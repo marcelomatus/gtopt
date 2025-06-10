@@ -33,18 +33,18 @@ constexpr bool add_provision(const SystemContext& sc,
   const auto stage_index = stage.index();
   const auto scenario_index = scenario.index();
 
-  const auto stage_provision_factor = rp.provision_factor.optval(stage_index);
+  const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
   if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
     return true;
   }
 
-  const auto stage_cost = rp.cost.optval(stage_index).value_or(0.0);
-  const auto stage_capacity_factor = rp.capacity_factor.optval(stage_index);
+  const auto stage_cost = rp.cost.optval(stage.uid()).value_or(0.0);
+  const auto stage_capacity_factor = rp.capacity_factor.optval(stage.uid());
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
   for (const auto& [block, gcol] : std::views::zip(blocks, generation_cols)) {
     using STBKey = GSTBIndexHolder::key_type;
-    const STBKey stb_k {scenario_index, stage_index, block.index()};
+    const STBKey stb_k {scenario.uid(), stage.uid(), block.index()};
 
     const auto requirement_row = get_optvalue(requirement_rows, stb_k);
     if (!requirement_row) {
@@ -57,7 +57,7 @@ constexpr bool add_provision(const SystemContext& sc,
       // create the provision col and row when needed and if possible, i.e.,
       // if there is a rmax provision defined for the stage and block
       //
-      auto block_rmax = rp.max.optval(stage_index, block.index());
+      auto block_rmax = rp.max.optval(stage.uid(), block.uid());
       if (!block_rmax) {
         if (use_capacity) {
           block_rmax = lp.get_col_uppb(gcol);

@@ -1,5 +1,5 @@
 /**
- * @file      input_traits.hpp
+ * @file      uinput_traits.hpp
  * @brief     Header of
  * @date      Mon Mar 24 01:48:02 2025
  * @author    marcelo
@@ -10,368 +10,154 @@
 
 #pragma once
 
-#include <tuple>
-
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/mvector_traits.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
+#include <gtopt/uididx_traits.hpp>  // NOLINT
 #include <gtopt/utils.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
 
-template<typename Value, typename... Index>
-struct MapTraits
-{
-  using value_type = Value;
-  using key_type = std::tuple<Index...>;
-
-  using index_idx_t = gtopt::flat_map<key_type, value_type>;
-  using IndexIdx = std::shared_ptr<index_idx_t>;
-};
-
-template<typename... Index>
-struct IndexTraits
-    : ArrowTraits<Uid>
-    , MapTraits<ArrowIndex, Index...>
-{
-  template<typename Key, typename Value>
-  using base_map_t = gtopt::flat_map<Key, Value>;
-
-  static auto make_uid_column(const ArrowTable& table,
-                              const std::string_view& name)
-  {
-    auto&& column = table->GetColumnByName(std::string {name});
-    return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
-        column ? column->chunk(0) : decltype(column->chunk(0)) {});
-  }
-};
-
-template<typename... Index>
-struct IndexToIdx : IndexTraits<Index...>
-{
-  using BaseIndexTraits = IndexTraits<Index...>;
-  using typename BaseIndexTraits::index_idx_t;
-  using typename BaseIndexTraits::IndexIdx;
-};
-
-class SystemContext;
-
-template<>
-struct IndexToIdx<ScenarioIndex, StageIndex, BlockIndex>
-    : IndexTraits<ScenarioIndex, StageIndex, BlockIndex>
-{
-  template<typename SystemContextType = class SystemContext>
-  static auto make_index_idx(const SystemContextType& sc,
-                             const ArrowTable& table)
-  {
-    const auto scenarios = make_uid_column(table, Scenario::class_name);
-    const auto stages = make_uid_column(table, Stage::class_name);
-    const auto blocks = make_uid_column(table, Block::class_name);
-
-    base_map_t<std::tuple<Uid, Uid, Uid>, ArrowIndex> index_uids;
-    index_uids.reserve(static_cast<size_t>(table->num_rows()));
-
-    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      decltype(index_uids)::key_type key {
-          scenarios->Value(i), stages->Value(i), blocks->Value(i)};
-
-      if (!index_uids.emplace(key, i).second) {
-        throw std::runtime_error("can't insert non-unique key");
-      }
-    }
-
-    index_idx_t index_idx;
-    index_idx.reserve(index_uids.size());
-
-    auto&& sim = sc.simulation();
-
-    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sim.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
-        for (auto&& [bi, block] : enumerate<BlockIndex>(stage.blocks())) {
-          decltype(index_uids)::key_type uid_key {
-              scenario.uid(), stage.uid(), block.uid()};
-          decltype(index_idx)::key_type idx_key {si, ti, bi};
-
-          if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {
-            throw std::runtime_error("can't insert non-unique key");
-          }
-        }
-      }
-    }
-
-    return std::make_shared<index_idx_t>(std::move(index_idx));
-  }
-};
-
-template<>
-struct IndexToIdx<StageIndex, BlockIndex> : IndexTraits<StageIndex, BlockIndex>
-{
-  template<typename SystemContextType = class SystemContext>
-  static auto make_index_idx(const SystemContextType& sc,
-                             const ArrowTable& table)
-  {
-    const auto stages = make_uid_column(table, Stage::class_name);
-    const auto blocks = make_uid_column(table, Block::class_name);
-
-    base_map_t<std::tuple<Uid, Uid>, ArrowIndex> index_uids;
-    index_uids.reserve(static_cast<size_t>(table->num_rows()));
-
-    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      decltype(index_uids)::key_type key {stages->Value(i), blocks->Value(i)};
-
-      if (!index_uids.emplace(key, i).second) {
-        throw std::runtime_error("can't insert non-unique key");
-      }
-    }
-
-    index_idx_t index_idx;
-    index_idx.reserve(index_uids.size());
-
-    auto&& sim = sc.simulation();
-
-    for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
-      for (auto&& [bi, block] : enumerate<BlockIndex>(stage.blocks())) {
-        decltype(index_uids)::key_type uid_key {stage.uid(), block.uid()};
-        decltype(index_idx)::key_type idx_key {ti, bi};
-
-        if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {
-          throw std::runtime_error("can't insert non-unique key");
-        }
-      }
-    }
-
-    return std::make_shared<index_idx_t>(std::move(index_idx));
-  }
-};
-
-template<>
-struct IndexToIdx<ScenarioIndex, StageIndex>
-    : IndexTraits<ScenarioIndex, StageIndex>
-{
-  template<typename SystemContextType>
-  static auto make_index_idx(const SystemContextType& sc,
-                             const ArrowTable& table)
-  {
-    const auto scenarios = make_uid_column(table, Scenario::class_name);
-    const auto stages = make_uid_column(table, Stage::class_name);
-
-    base_map_t<std::tuple<Uid, Uid>, ArrowIndex> index_uids;
-    index_uids.reserve(static_cast<size_t>(table->num_rows()));
-
-    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      decltype(index_uids)::key_type key {scenarios->Value(i),
-                                          stages->Value(i)};
-
-      if (!index_uids.emplace(key, i).second) {
-        throw std::runtime_error("can't insert non-unique key");
-      }
-    }
-
-    index_idx_t index_idx;
-    index_idx.reserve(index_uids.size());
-
-    auto&& sim = sc.simulation();
-
-    for (auto&& [si, scenario] : enumerate<ScenarioIndex>(sim.scenarios())) {
-      for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
-        decltype(index_uids)::key_type uid_key {scenario.uid(), stage.uid()};
-        decltype(index_idx)::key_type idx_key {si, ti};
-
-        if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {
-          throw std::runtime_error("can't insert non-unique key");
-        }
-      }
-    }
-
-    return std::make_shared<index_idx_t>(std::move(index_idx));
-  }
-};
-
-template<>
-struct IndexToIdx<StageIndex> : IndexTraits<StageIndex>
-{
-  template<typename SystemContextType = class SystemContext>
-  static auto make_index_idx(const SystemContextType& sc,
-                             const ArrowTable& table)
-  {
-    const auto stages = make_uid_column(table, Stage::class_name);
-
-    base_map_t<std::tuple<Uid>, ArrowIndex> index_uids;
-    index_uids.reserve(static_cast<size_t>(table->num_rows()));
-
-    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      decltype(index_uids)::key_type key {stages->Value(i)};
-
-      if (!index_uids.emplace(key, i).second) {
-        throw std::runtime_error("can't insert non-unique key");
-      }
-      index_uids[{stages->Value(i)}] = i;
-    }
-
-    index_idx_t index_idx;
-    index_idx.reserve(index_uids.size());
-
-    auto&& sim = sc.simulation();
-    for (auto&& [ti, stage] : enumerate<StageIndex>(sim.stages())) {
-      decltype(index_uids)::key_type uid_key {stage.uid()};
-      decltype(index_idx)::key_type idx_key {ti};
-
-      if (!index_idx.emplace(idx_key, index_uids.at(uid_key)).second) {
-        throw std::runtime_error("can't insert non-unique key");
-      }
-    }
-
-    return std::make_shared<index_idx_t>(std::move(index_idx));
-  }
-};
-
-template<typename Type, typename... Index>
-struct mvector_traits
-{
-};
-
-template<typename Type, typename Index>
-struct mvector_traits<Type, Index>
-{
-  using value_type = Type;
-  using vector_type = std::vector<Type>;
-
-  template<typename Container>
-  constexpr static auto at_value(const Container& vec, Index idx)
-  {
-    return vec.at(idx);
-  }
-};
-
-template<typename Type, typename I1, typename... Index>
-struct mvector_traits<Type, I1, Index...>
-{
-  using value_type = Type;
-  using vector_type =
-      std::vector<typename mvector_traits<Type, Index...>::vector_type>;
-
-  template<typename Container>
-  constexpr static auto at_value(const Container& vec, I1 idx1, Index... idx)
-  {
-    return mvector_traits<Type, Index...>::at_value(vec.at(idx1), idx...);
-  }
-};
-
 struct InputTraits
 {
-  using ClassNameType = std::string_view;
-  using FieldNameType = std::string_view;
-
-  using CFName = std::tuple<ClassNameType, FieldNameType>;
-  using CFNameUid = std::tuple<ClassNameType, FieldNameType, Uid>;
-
-  using ArrowChunkedArray = gtopt::ArrowChunkedArray;
-  template<typename... Index>
-  using IndexIdx = typename IndexToIdx<Index...>::IndexIdx;
-
   template<typename Key, typename Value>
   using base_map_t = gtopt::flat_map<Key, Value>;
 
-  template<typename... Index>
-  using table_map_t =
-      base_map_t<CFName, std::pair<ArrowTable, IndexIdx<Index...>>>;
+  using ClassNameType = std::string_view;
+  using FieldNameType = std::string_view;
+  using CFNameUid = std::tuple<ClassNameType, FieldNameType, Uid>;
+  using CFName = std::tuple<ClassNameType, FieldNameType>;
 
-  template<typename... Index>
-  using array_map_t =
-      base_map_t<CFNameUid, std::pair<ArrowChunkedArray, IndexIdx<Index...>>>;
+  using ArrowChunkedArray = gtopt::ArrowChunkedArray;
+  using ArrowTable = gtopt::ArrowTable;
 
-  template<typename... Index>
-  using array_table_map_t =
-      std::tuple<array_map_t<Index...>, table_map_t<Index...>>;
+  template<typename... Uid>
+  using ArrowUidIdx = typename UidToArrowIdx<Uid...>::UidIdx;
+
+  template<typename... Uid>
+  using arrow_array_uid_idx_t =
+      std::tuple<ArrowChunkedArray, ArrowUidIdx<Uid...>>;
+
+  template<typename... Uid>
+  using array_uid_idx_map_t =
+      base_map_t<CFNameUid, arrow_array_uid_idx_t<Uid...>>;
+
+  template<typename... Uid>
+  using arrow_table_uid_idx_t = std::tuple<ArrowTable, ArrowUidIdx<Uid...>>;
+
+  template<typename... Uid>
+  using arrow_table_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;
+
+  template<typename... Uid>
+  using table_uid_idx_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;
+
+  template<typename... Uid>
+  using VectorUidIdx = typename UidToVectorIdx<Uid...>::UidIdx;
+
+  template<typename... Uid>
+  using vector_uid_idx_t = VectorUidIdx<Uid...>;
+
+  template<typename... Uid>
+  using idx_key_t = typename UidToVectorIdx<Uid...>::IndexKey;
+
+  template<typename value_type, typename... Uid>
+  using idx_vector_t =
+      typename mvector_traits<value_type, idx_key_t<Uid...>>::vector_type;
+
+  template<typename... Uid>
+  using array_table_vector_uid_idx_t = std::tuple<array_uid_idx_map_t<Uid...>,
+                                                  table_uid_idx_map_t<Uid...>,
+                                                  vector_uid_idx_t<Uid...>>;
+
+  template<typename... Uid>
+  using array_vector_uid_idx_v =
+      std::variant<arrow_array_uid_idx_t<Uid...>, vector_uid_idx_t<Uid...>>;
 
   template<typename SystemContextType = class SystemContext>
   static auto read_table(const SystemContextType& sc,
-                         const std::string_view& cname,
-                         const std::string_view& fname) -> ArrowTable;
-
-  template<typename... Index>
-  using array_index_t = std::pair<ArrowChunkedArray, IndexIdx<Index...>>;
+                         std::string_view cname,
+                         std::string_view fname) -> ArrowTable;
 
   template<typename Type,
            typename RType = Type,
            typename FSched,
-           typename ArrayIndexIdx,
+           typename UidIdx,
            typename AccessOper,
-           typename... Index>
-  constexpr static auto access_sched(const FSched& sched,
-                                     const ArrayIndexIdx& array_index,
+           typename... Uid>
+  static constexpr auto access_sched(const FSched& sched,
+                                     const UidIdx& uid_idx,
                                      AccessOper access_oper,
-                                     Index... index)
+                                     Uid... uid)
   {
-    using traits = mvector_traits<Type, Index...>;
     using value_type = Type;
-    using vector_type = typename traits::vector_type;
+    using vector_uid_idx_t = vector_uid_idx_t<Uid...>;
+    using idx_key_t = typename UidToVectorIdx<Uid...>::IndexKey;
+    using vector_traits = mvector_traits<value_type, idx_key_t>;
+    using vector_type = typename vector_traits::vector_type;
 
     if (std::holds_alternative<value_type>(sched)) [[likely]] {
       return RType {std::get<value_type>(sched)};
-    } else if (std::holds_alternative<vector_type>(sched)) {
-      return RType {traits::at_value(std::get<vector_type>(sched), index...)};
+    } else if (std::holds_alternative<vector_type>(sched)) [[unlikely]] {
+      const auto& v_uid_idx = std::get<vector_uid_idx_t>(uid_idx);
+      idx_key_t idx_key = v_uid_idx->at(std::make_tuple(uid...));
+      return RType {
+          vector_traits::at_value(std::get<vector_type>(sched), idx_key)};
     } else {
-      const auto& [array, index_idx] = array_index;
-      if (array && index_idx) {
+      using a_uid_idx_type = arrow_array_uid_idx_t<Uid...>;
+      const auto& [array, a_uid_idx] = std::get<a_uid_idx_type>(uid_idx);
+      if (array && a_uid_idx) {
         using array_value = typename arrow::CTypeTraits<Type>::ArrayType;
         return access_oper(
             std::static_pointer_cast<array_value>(array->chunk(0)),
-            index_idx,
-            std::make_tuple(index...));
+            a_uid_idx,
+            std::make_tuple(uid...));
       }
     }
 
     throw std::runtime_error("bad created or form schedule");
   }
 
-  template<typename Type,
-           typename FSched,
-           typename ArrayIndexIdx,
-           typename... Index>
+  template<typename Type, typename FSched, typename UidIdx, typename... Uid>
   constexpr static auto at_sched(const FSched& sched,
-                                 const ArrayIndexIdx& array_index,
-                                 Index... index) -> Type
+                                 const UidIdx& uid_idx,
+                                 Uid... uid) -> Type
   {
-    return access_sched<Type>(
-        sched,
-        array_index,
-        [](const auto& values, const auto& index_idx, auto&& key) -> Type
-        {
-          return values->Value(index_idx->at(std::forward<decltype(key)>(key)));
-        },
-        index...);
+    constexpr auto access_oper = [](const auto& values,
+                                    const auto& uid_idx,
+                                    const auto& key) constexpr -> Type
+    { return values->Value(uid_idx->at(key)); };
+
+    return access_sched<Type>(sched, uid_idx, access_oper, uid...);
   }
 
-  template<typename Type,
-           typename FSched,
-           typename ArrayIndexIdx,
-           typename... Index>
+  template<typename Type, typename FSched, typename UidIdx, typename... Uid>
   constexpr static auto optval_sched(const FSched& sched,
-                                     const ArrayIndexIdx& array_index,
-                                     Index... index) -> std::optional<Type>
+                                     const UidIdx& uid_idx,
+                                     Uid... uid) -> std::optional<Type>
   {
-    return access_sched<Type, std::optional<Type>>(
-        sched,
-        array_index,
+    constexpr auto access_oper =
         [](const auto& values,
-           const auto& index_idx,
-           auto&& key) -> std::optional<Type>
-        {
-          const auto oidx =
-              get_optvalue(*index_idx, std::forward<decltype(key)>(key));
-          if (oidx) {
-            return values->Value(oidx.value());
-          }
-          return {};
-        },
-        index...);
+           const auto& uid_idx,
+           const auto& key) constexpr -> std::optional<Type>
+    {
+      const auto oidx = get_optvalue(*uid_idx, key);
+      if (oidx) {
+        return values->Value(*oidx);
+      }
+      return {};
+    };
+
+    return access_sched<Type, std::optional<Type>>(
+        sched, uid_idx, access_oper, uid...);
   }
 };
 
