@@ -45,7 +45,7 @@ class SimulationLP
 public:
   SimulationLP(SimulationLP&&) noexcept = default;
   SimulationLP(const SimulationLP&) = default;
-  SimulationLP() = delete;
+  SimulationLP() = default;
   SimulationLP& operator=(SimulationLP&&) noexcept = default;
   SimulationLP& operator=(const SimulationLP&) noexcept = default;
   ~SimulationLP() noexcept = default;

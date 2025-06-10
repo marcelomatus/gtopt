@@ -58,7 +58,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  const auto stage_scost = scost.optval(stage_index).value_or(0.0);
+  const auto stage_scost = scost.optval(stage.uid()).value_or(0.0);
 
   const auto& blocks = stage.blocks();
 
@@ -69,7 +69,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
   for (const auto& [block, lcol] : std::views::zip(blocks, load_cols)) {
     const auto block_profile =
-        profile.at(scenario_index, stage_index, block.index());
+        profile.at(scenario.uid(), stage.uid(), block.uid());
 
     const auto block_scost =
         sc.block_ecost(scenario, stage, block, stage_scost);

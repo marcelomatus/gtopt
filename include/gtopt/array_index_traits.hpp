@@ -18,33 +18,49 @@
 namespace gtopt
 {
 
-template<typename Map, typename FieldSched, typename... Index>
+template<typename Type, typename Map, typename FieldSched, typename... Uid>
 struct ArrayIndexTraits : InputTraits
 {
+  using value_type = Type;
+  using uid_tuple = std::tuple<Uid...>;
+  using vector_traits = mvector_traits<value_type, uid_tuple>;
+  using vector_type = typename vector_traits::vector_type;
+
+  using arrow_array_uid_idx_t = InputTraits::arrow_array_uid_idx_t<Uid...>;
+  using vector_uid_idx_t = InputTraits::vector_uid_idx_t<Uid...>;
+  using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
+
   template<typename SystemContextType = class SystemContext>
   static auto make_array_index(const SystemContextType& system_context,
-                               const std::string_view& class_name,
+                               const std::string_view class_name,
                                Map& array_table_map,
                                const FieldSched& sched,
-                               const Id& id)
-      -> std::pair<ArrowChunkedArray, IndexIdx<Index...>>
+                               const Id& id) -> array_vector_uid_idx_v
   {
-    ArrowChunkedArray array;
-    IndexIdx<Index...> index_idx;
+    if (std::holds_alternative<value_type>(sched)) [[likely]] {
+      return {};
+    }
 
-    if (!std::holds_alternative<gtopt::FileSched>(sched)) {
-      return std::make_pair(array, index_idx);
+    using map_type = array_table_vector_uid_idx_t<Uid...>;
+    auto&& [array_map, table_map, vector_idx] =
+        std::get<map_type>(array_table_map);
+
+    if (std::holds_alternative<vector_type>(sched)) {
+      if (!vector_idx) {
+        vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
+            system_context.simulation());
+      }
+      return {vector_idx};
     }
 
     auto&& fsched = std::get<gtopt::FileSched>(sched);
     auto cname = class_name;
     auto&& fname = fsched;
 
-    using map_type = array_table_map_t<Index...>;
+    ArrowChunkedArray array;
+    ArrowUidIdx<Uid...> index_idx;
 
-    auto&& [array_map, table_map] = std::get<map_type>(array_table_map);
-
-    const auto [uid, name] = id;
+    const auto& [uid, name] = id;
     typename decltype(array_map)::key_type array_key {cname, fname, uid};
 
     const auto aiter = array_map.find(array_key);
@@ -66,7 +82,7 @@ struct ArrayIndexTraits : InputTraits
         table = read_table(system_context, cname, fname);
       }
       if (!index_idx) {
-        index_idx = IndexToIdx<Index...>::make_index_idx(system_context, table);
+        index_idx = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
       }
 
       if (table && index_idx) [[likely]] {
@@ -111,40 +127,18 @@ struct ArrayIndexTraits : InputTraits
       }
     }
 
-    return {array, index_idx};
+    return std::make_tuple(array, index_idx);
   }
 };
 
-template<typename Map, typename FieldSched, typename... Index>
-struct ArrayIndexTraits<Map, std::optional<FieldSched>, Index...> : InputTraits
-{
-  template<typename SystemContextType = class SystemContext>
-  constexpr static auto make_array_index(
-      const SystemContextType& system_context,
-      const std::string_view& ClassName,
-      Map& map,
-      const std::optional<FieldSched>& sched,
-      const Id& id) -> std::pair<ArrowChunkedArray, IndexIdx<Index...>>
-  {
-    if (sched.has_value()) {
-      return ArrayIndexTraits<Map, FieldSched, Index...>::make_array_index(
-          system_context, ClassName, map, sched.value(), id);
-    }
-
-    return {};
-  }
-};
-
-template<typename Map, typename FieldSched, typename... Index>
+template<typename Type, typename Map, typename FieldSched, typename... Uid>
 constexpr auto make_array_index(const SystemContext& system_context,
-                                const std::string_view& ClassName,
+                                const std::string_view ClassName,
                                 Map& array_table_map,
                                 const FieldSched& sched,
                                 const Id& id)
-    -> std::pair<InputTraits::ArrowChunkedArray,
-                 InputTraits::IndexIdx<Index...>>
 {
-  return ArrayIndexTraits<Map, FieldSched, Index...>::make_array_index(
+  return ArrayIndexTraits<Type, Map, FieldSched, Uid...>::make_array_index(
       system_context, ClassName, array_table_map, sched, id);
 }
 

@@ -5,8 +5,6 @@
 #include <gtopt/system_lp.hpp>
 #include <range/v3/all.hpp>
 
-#include "gtopt/block.hpp"
-
 namespace gtopt
 {
 
@@ -37,7 +35,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
   }
 
   const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
 
   const auto& bus_a_lp = sc.element<BusLP>(bus_a());
   const auto& bus_b_lp = sc.element<BusLP>(bus_b());
@@ -51,7 +48,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
-  const auto stage_tcost = tcost.at(stage_index).value_or(0.0);
+  const auto stage_tcost = tcost.at(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
   const auto has_loss = stage_lossfactor > 0.0;
 
@@ -140,7 +137,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
     if (!theta_a_cols.empty() && !theta_b_cols.empty()) {
       const double scale_theta = sc.options().scale_theta();
       const double X = stage_reactance.value();
-      const double V = voltage.at(stage_index).value_or(1);
+      const double V = voltage.at(stage.uid()).value_or(1);
       const double x = scale_theta * (X / (V * V));
 
       BIndexHolder trows;
