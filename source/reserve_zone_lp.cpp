@@ -32,7 +32,7 @@ constexpr bool add_requirement(const SystemContext& sc,
   const auto stage_rcost = sc.reserve_fail_cost(stage, rr.cost);
 
   for (const auto& block : blocks) {
-    const auto block_rreq = rr.req.optval(stage_index, block.index());
+    const auto block_rreq = rr.req.optval(stage.uid(), block.uid());
     if (!block_rreq) {
       continue;
     }

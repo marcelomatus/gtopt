@@ -24,7 +24,7 @@ using namespace gtopt;
 template<typename Type = arrow::DoubleType,
          typename Values,
          typename Valids = std::vector<bool>>
-inline auto make_array(Values&& values, Valids&& valids = {})
+constexpr auto make_array(Values&& values, Valids&& valids = {})
 {
   typename arrow::CTypeTraits<Type>::BuilderType builder;
 
@@ -48,7 +48,7 @@ inline auto make_array(Values&& values, Valids&& valids = {})
 using str = std::string;
 
 template<typename Type = Uid>
-inline auto make_stb_prelude(auto&& stb_active_uids)
+constexpr auto make_stb_prelude(auto&& stb_active_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -64,7 +64,7 @@ inline auto make_stb_prelude(auto&& stb_active_uids)
 }
 
 template<typename Type = Uid>
-inline auto make_st_prelude(auto&& st_active_uids)
+constexpr auto make_st_prelude(auto&& st_active_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -78,7 +78,7 @@ inline auto make_st_prelude(auto&& st_active_uids)
 }
 
 template<typename Type = Uid>
-inline auto make_t_prelude(auto&& t_active_uids)
+constexpr auto make_t_prelude(auto&& t_active_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
@@ -89,7 +89,7 @@ inline auto make_t_prelude(auto&& t_active_uids)
 }
 
 template<typename Type = double>
-inline auto make_field_arrays(auto&& field_vector)
+constexpr auto make_field_arrays(auto&& field_vector)
 {
   std::vector<ArrowField> fields;
   fields.reserve(field_vector.size() + 3);
@@ -116,16 +116,16 @@ inline auto make_field_arrays(auto&& field_vector)
 }
 
 template<typename Type = double>
-inline auto make_table(auto&& field_vector)
+constexpr auto make_table(auto&& field_vector)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
   const auto& [fields, arrays] = make_field_arrays<Type>(field_vector);
   return arrow::Table::Make(arrow::schema(fields), arrays);
 }
 
-inline auto parquet_write_table(const auto& fpath,
-                                const auto& table,
-                                const auto& zfmt)
+constexpr auto parquet_write_table(const auto& fpath,
+                                   const auto& table,
+                                   const auto& zfmt)
 {
   arrow::Status status;
   const auto filename = fpath.string() + ".parquet";
@@ -159,9 +159,9 @@ inline auto parquet_write_table(const auto& fpath,
   return status;
 }
 
-inline auto csv_write_table(const auto& fpath,
-                            const auto& table,
-                            const auto& /* zfmt */)
+constexpr auto csv_write_table(const auto& fpath,
+                               const auto& table,
+                               const auto& /* zfmt */)
 {
   arrow::Status status;
   const auto filename = fpath.string() + ".csv";
@@ -179,10 +179,10 @@ inline auto csv_write_table(const auto& fpath,
   return status;
 }
 
-inline auto write_table(std::string_view fmt,
-                        const auto& fpath,
-                        const auto& table,
-                        const std::string& zfmt)
+constexpr auto write_table(std::string_view fmt,
+                           const auto& fpath,
+                           const auto& table,
+                           const std::string& zfmt)
 {
   arrow::Status status;
   if (fmt == "parquet") {
@@ -195,7 +195,7 @@ inline auto write_table(std::string_view fmt,
 }
 
 template<typename Type = double>
-inline auto create_tables(auto&& output_directory, auto&& field_vector_map)
+constexpr auto create_tables(auto&& output_directory, auto&& field_vector_map)
 {
   using PathTable =
       std::pair<std::filesystem::path, std::shared_ptr<arrow::Table>>;

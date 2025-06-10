@@ -16,8 +16,6 @@
 #include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
-#include "gtopt/block.hpp"
-
 namespace gtopt
 {
 GeneratorProfileLP::GeneratorProfileLP(InputContext& ic,
@@ -62,7 +60,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  const auto stage_scost = scost.optval(stage_index).value_or(0.0);
+  const auto stage_scost = scost.optval(stage.uid()).value_or(0.0);
 
   const auto& blocks = stage.blocks();
 
@@ -73,7 +71,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
   for (const auto& [block, gcol] : std::views::zip(blocks, generation_cols)) {
     const auto block_profile =
-        profile.at(scenario_index, stage_index, block.index());
+        profile.at(scenario.uid(), stage.uid(), block.uid());
 
     const auto block_scost =
         sc.block_ecost(scenario, stage, block, stage_scost);

@@ -79,11 +79,11 @@ public:
     const auto stage_vcost = sc.scenario_stage_ecost(  //
                                  scenario,
                                  stage,
-                                 vcost.at(stage_index).value_or(0.0))
+                                 vcost.at(stage.uid()).value_or(0.0))
         / sc.stage_duration(stage_index);
 
     const auto hour_loss =
-        annual_loss.at(stage_index).value_or(0.0) / hours_per_year;
+        annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
 
     const auto [stage_vmax, stage_vmin] =
         sc.stage_maxmin_at(stage, vmax, vmin, stage_capacity);
