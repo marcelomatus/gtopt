@@ -20,14 +20,14 @@
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
-#include <gtopt/uididx_traits.hpp>  // NOLINT
+#include <gtopt/uididx_traits.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
 {
 
-struct InputTraits
+struct UidTraits
 {
   template<typename Key, typename Value>
   using base_map_t = gtopt::flat_map<Key, Value>;
@@ -77,11 +77,13 @@ struct InputTraits
   using array_table_vector_uid_idx_t = std::tuple<array_uid_idx_map_t<Uid...>,
                                                   table_uid_idx_map_t<Uid...>,
                                                   vector_uid_idx_t<Uid...>>;
-
   template<typename... Uid>
   using array_vector_uid_idx_v =
       std::variant<arrow_array_uid_idx_t<Uid...>, vector_uid_idx_t<Uid...>>;
+};
 
+struct InputTraits : UidTraits
+{
   template<typename SystemContextType = class SystemContext>
   static auto read_table(const SystemContextType& sc,
                          std::string_view cname,
