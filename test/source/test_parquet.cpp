@@ -190,27 +190,22 @@ TEST_CASE("Parquet file write and read test")
   {
     using namespace gtopt;
 
-    Id id {1, "uid_1"};
-
-    System sys;
-
     Simulation sim = {
         .block_array = {{.uid = Uid {1}, .duration = 1},
                         {.uid = Uid {2}, .duration = 2},
                         {.uid = Uid {3}, .duration = 3}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
                         {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
-        .scenario_array = {{.uid = Uid {1}, .probability_factor = 0.5},
-                           {.uid = Uid {2}, .probability_factor = 0.5}}};
+        .scenario_array = {{.uid = Uid {1}}, {.uid = Uid {2}}}};
 
     Options opt;
-
     opt.input_directory = iname;
     opt.input_format = "parquet";
-    OptionsLP options;
+    OptionsLP options {opt};
 
     SimulationLP simulation {sim, options};
 
+    System sys;
     SystemLP system {sys, simulation};
     SystemContext sc {simulation, system};
     InputContext ic {sc};
@@ -220,6 +215,8 @@ TEST_CASE("Parquet file write and read test")
       std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
                                                            {{4}, {5, 6}}};
       STBRealFieldSched stbfield {cname + "@" + fname};
+
+      Id id {1, "uid_1"};
 
       STBRealSched stbsched {ic, cname, id, stbfield};
 
