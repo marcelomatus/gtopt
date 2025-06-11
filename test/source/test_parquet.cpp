@@ -14,8 +14,13 @@
 
 TEST_CASE("Parquet file write and read test")
 {
-  const std::string dirname = "input/test_data";
-  const std::string filename = dirname + "/test_data.parquet";
+  const std::string iname = "input";
+  const std::string cname = "test_data";
+  const std::string dirname = iname + "/" + cname + "/";
+  const std::string fname = "field";
+  const std::string filename = dirname + fname + ".parquet";
+
+  CHECK(filename == "input/test_data/field.parquet");
 
   // Create directory if it doesn't exist
   std::filesystem::create_directories(dirname);
@@ -181,12 +186,6 @@ TEST_CASE("Parquet file write and read test")
     REQUIRE(close_status.ok());
   }
 
-  // Clean up test files and directory
-  SUBCASE("Cleanup test files") {
-    std::filesystem::remove(filename);
-    std::filesystem::remove(dirname);
-  }
-
   SUBCASE("schedule parquet test")
   {
     using namespace gtopt;
@@ -204,7 +203,12 @@ TEST_CASE("Parquet file write and read test")
         .scenario_array = {{.uid = Uid {1}, .probability_factor = 0.5},
                            {.uid = Uid {2}, .probability_factor = 0.5}}};
 
+    Options opt;
+
+    opt.input_directory = iname;
+    opt.input_format = "parquet";
     OptionsLP options;
+
     SimulationLP simulation {sim, options};
 
     SystemLP system {sys, simulation};
@@ -215,9 +219,9 @@ TEST_CASE("Parquet file write and read test")
     {
       std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
                                                            {{4}, {5, 6}}};
-      STBRealFieldSched stbfield {"test_data@field"};
+      STBRealFieldSched stbfield {cname + "@" + fname};
 
-      STBRealSched stbsched {ic, "class", id, stbfield};
+      STBRealSched stbsched {ic, cname, id, stbfield};
 
       REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
       REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);
@@ -225,6 +229,13 @@ TEST_CASE("Parquet file write and read test")
       REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {1}, BlockUid {1}) == 4);
       REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {2}) == 5);
       REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {3}) == 6);
+    }
+
+    // Clean up test files and directory
+    SUBCASE("Cleanup test files")
+    {
+      REQUIRE(std::filesystem::remove(filename));
+      REQUIRE(std::filesystem::remove(dirname));
     }
   }
 }
