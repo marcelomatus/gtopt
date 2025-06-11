@@ -87,7 +87,7 @@ private:
       throw std::runtime_error("Can't insert non-unique array key");
     }
 
-    return {array, index_idx};
+    return std::pair{array, index_idx};
   }
 
 public:
