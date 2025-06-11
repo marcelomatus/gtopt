@@ -74,7 +74,6 @@ struct InputTraits : UidTraits {
   template<typename... Uid>
   using array_vector_uid_idx_v =
       std::variant<arrow_array_uid_idx_t<Uid...>, vector_uid_idx_t<Uid...>>;
-{
   template<typename SystemContextType = class SystemContext>
   static auto read_table(const SystemContextType& sc,
                          std::string_view cname,
