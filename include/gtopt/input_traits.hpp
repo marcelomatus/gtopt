@@ -11,6 +11,7 @@
 #pragma once
 
 #include <gtopt/mvector_traits.hpp>
+#include <gtopt/overload.hpp>  // Add Overload include
 #include <gtopt/uid_traits.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -35,9 +36,9 @@ struct InputTraits : UidTraits
 
   template<typename Type, typename RType = Type, typename FSched, typename UidIdx, typename AccessOper, typename... Uid>
   static constexpr auto access_sched(const FSched& sched,
-                                    const UidIdx& uid_idx,
-                                    AccessOper access_oper,
-                                    Uid... uid) -> RType
+                                    [[maybe_unused]] const UidIdx& uid_idx,
+                                    [[maybe_unused]] AccessOper access_oper,
+                                    [[maybe_unused]] Uid... uid) -> RType
   {
     using value_type = Type;
     using vector_uid_idx_t = vector_uid_idx_t<Uid...>;
