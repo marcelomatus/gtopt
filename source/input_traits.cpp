@@ -106,7 +106,7 @@ namespace gtopt
 {
 
 template<>
-[[nodiscard]] ArrowTable InputTraits::arrow_read_table(const SystemContext& sc,
+[[nodiscard]] ArrowTable InputTraits::read_arrow_table(const SystemContext& sc,
                                                        std::string_view cname,
                                                        std::string_view fname)
 {
