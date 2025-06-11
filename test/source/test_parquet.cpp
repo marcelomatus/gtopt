@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -13,7 +14,11 @@
 
 TEST_CASE("Parquet file write and read test")
 {
-  const std::string filename = "test_data.parquet";
+  const std::string dirname = "input/test_data";
+  const std::string filename = dirname + "/test_data.parquet";
+  
+  // Create directory if it doesn't exist
+  std::filesystem::create_directories(dirname);
 
   SUBCASE("Write Parquet file")
   {
@@ -174,6 +179,9 @@ TEST_CASE("Parquet file write and read test")
     // Cerrar stream
     auto close_status = input_stream->Close();
     REQUIRE(close_status.ok());
+    
+    // Clean up test file
+    std::filesystem::remove(filename);
   }
 }
 
