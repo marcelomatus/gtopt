@@ -104,6 +104,33 @@ private:
     return std::make_tuple(array, index_idx);
   }
 
+private:
+  static auto handle_value_schedule() -> array_vector_uid_idx_v
+  {
+    return {};
+  }
+
+  static auto handle_vector_schedule(const auto& system_context,
+                                    auto& vector_idx) -> array_vector_uid_idx_v
+  {
+    if (!vector_idx) {
+      vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
+          system_context.simulation());
+    }
+    return {vector_idx};
+  }
+
+  static auto handle_file_schedule(const auto& system_context,
+                                  const std::string_view class_name,
+                                  const std::string_view fname,
+                                  const Id& id,
+                                  auto& array_map,
+                                  auto& table_map) -> array_vector_uid_idx_v
+  {
+    return get_arrow_index(
+        system_context, class_name, fname, id, array_map, table_map);
+  }
+
 public:
   using value_type = Type;
   using uid_tuple = std::tuple<Uid...>;
@@ -116,31 +143,28 @@ public:
 
   template<typename SystemContextType = class SystemContext>
   static auto make_array_index(const SystemContextType& system_context,
-                               const std::string_view class_name,
-                               Map& array_table_map,
-                               const FieldSched& sched,
-                               const Id& id) -> array_vector_uid_idx_v
+                              const std::string_view class_name,
+                              Map& array_table_map,
+                              const FieldSched& sched,
+                              const Id& id) -> array_vector_uid_idx_v
   {
     using map_type = array_table_vector_uid_idx_t<Uid...>;
     auto&& [array_map, table_map, vector_idx] =
         std::get<map_type>(array_table_map);
 
-    if (std::holds_alternative<value_type>(sched)) [[likely]] {
-      return {};
-    }
-
-    if (std::holds_alternative<vector_type>(sched)) {
-      if (!vector_idx) {
-        vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
-            system_context.simulation());
-      }
-      return {vector_idx};
-    }
-
-    auto&& fsched = std::get<gtopt::FileSched>(sched);
-
-    return get_arrow_index(
-        system_context, class_name, fsched, id, array_map, table_map);
+    return std::visit(
+        Overload{
+            [&](const value_type&) -> array_vector_uid_idx_v {
+              return handle_value_schedule();
+            },
+            [&](const vector_type&) -> array_vector_uid_idx_v {
+              return handle_vector_schedule(system_context, vector_idx);
+            },
+            [&](const gtopt::FileSched& fsched) -> array_vector_uid_idx_v {
+              return handle_file_schedule(
+                  system_context, class_name, fsched, id, array_map, table_map);
+            }},
+        sched);
   }
 };
 
