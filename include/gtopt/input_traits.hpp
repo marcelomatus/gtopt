@@ -1,34 +1,28 @@
 /**
- * @file      uinput_traits.hpp
- * @brief     Header of
+ * @file      input_traits.hpp
+ * @brief     Input data access traits
  * @date      Mon Mar 24 01:48:02 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines traits for input data access
  */
 
 #pragma once
 
-#include <gtopt/arrow_types.hpp>
-#include <gtopt/basic_types.hpp>
-#include <gtopt/block.hpp>
-#include <gtopt/fmap.hpp>
+#include <gtopt/uid_traits.hpp>
 #include <gtopt/mvector_traits.hpp>
-#include <gtopt/phase.hpp>
-#include <gtopt/scenario.hpp>
-#include <gtopt/scene.hpp>
-#include <gtopt/simulation_lp.hpp>
-#include <gtopt/stage.hpp>
-#include <gtopt/uididx_traits.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
-namespace gtopt
-{
+namespace gtopt {
 
-struct UidTraits
-{
+/**
+ * @brief Input data access traits
+ * 
+ * Inherits from UidTraits and adds input-specific functionality
+ */
+struct InputTraits : UidTraits {
   template<typename Key, typename Value>
   using base_map_t = gtopt::flat_map<Key, Value>;
 
@@ -80,9 +74,6 @@ struct UidTraits
   template<typename... Uid>
   using array_vector_uid_idx_v =
       std::variant<arrow_array_uid_idx_t<Uid...>, vector_uid_idx_t<Uid...>>;
-};
-
-struct InputTraits : UidTraits
 {
   template<typename SystemContextType = class SystemContext>
   static auto read_table(const SystemContextType& sc,
