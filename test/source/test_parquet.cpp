@@ -181,6 +181,12 @@ TEST_CASE("Parquet file write and read test")
     REQUIRE(close_status.ok());
   }
 
+  // Clean up test files and directory
+  SUBCASE("Cleanup test files") {
+    std::filesystem::remove(filename);
+    std::filesystem::remove(dirname);
+  }
+
   SUBCASE("schedule parquet test")
   {
     using namespace gtopt;
