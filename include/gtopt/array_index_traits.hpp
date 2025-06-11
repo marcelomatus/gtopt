@@ -79,7 +79,7 @@ struct ArrayIndexTraits : InputTraits
       }
 
       if (!table) {
-        table = read_table(system_context, cname, fname);
+        table = arrow_read_table(system_context, cname, fname);
       }
       if (!index_idx) {
         index_idx = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
