@@ -21,7 +21,6 @@ namespace gtopt
 template<typename Type, typename Map, typename FieldSched, typename... Uid>
 struct ArrayIndexTraits : InputTraits
 {
-private:
   static auto get_arrow_index(const auto& system_context,
                               const std::string_view cname,
                               const std::string_view fname,
@@ -103,15 +102,13 @@ private:
 
     return std::make_tuple(array, index_idx);
   }
-
-private:
-  static auto handle_value_schedule() -> array_vector_uid_idx_v
+  static auto handle_value_schedule() -> array_vector_uid_idx_v<Uid...>
   {
     return {};
   }
 
   static auto handle_vector_schedule(const auto& system_context,
-                                    auto& vector_idx) -> array_vector_uid_idx_v
+                                    auto& vector_idx) -> array_vector_uid_idx_v<Uid...>
   {
     if (!vector_idx) {
       vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
@@ -125,7 +122,7 @@ private:
                                   const std::string_view fname,
                                   const Id& id,
                                   auto& array_map,
-                                  auto& table_map) -> array_vector_uid_idx_v
+                                  auto& table_map) -> array_vector_uid_idx_v<Uid...>
   {
     return get_arrow_index(
         system_context, class_name, fname, id, array_map, table_map);
