@@ -27,7 +27,7 @@ namespace gtopt
 struct InputTraits : UidTraits
 {
   template<typename SystemContextType = class SystemContext>
-  static auto arrow_read_table(const SystemContextType& sc,
+  static auto read_arrow_table(const SystemContextType& sc,
                                std::string_view cname,
                                std::string_view fname) -> ArrowTable;
 
