@@ -21,47 +21,20 @@ namespace gtopt
 template<typename Type, typename Map, typename FieldSched, typename... Uid>
 struct ArrayIndexTraits : InputTraits
 {
-  using value_type = Type;
-  using uid_tuple = std::tuple<Uid...>;
-  using vector_traits = mvector_traits<value_type, uid_tuple>;
-  using vector_type = typename vector_traits::vector_type;
-
-  using arrow_array_uid_idx_t = InputTraits::arrow_array_uid_idx_t<Uid...>;
-  using vector_uid_idx_t = InputTraits::vector_uid_idx_t<Uid...>;
-  using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
-
-  template<typename SystemContextType = class SystemContext>
-  static auto make_array_index(const SystemContextType& system_context,
-                               const std::string_view class_name,
-                               Map& array_table_map,
-                               const FieldSched& sched,
-                               const Id& id) -> array_vector_uid_idx_v
+private:
+  static auto get_arrow_index(const auto& system_context,
+                              const std::string_view cname,
+                              const std::string_view fname,
+                              const Id& id,
+                              auto& array_map,
+                              auto& table_map)
   {
-    if (std::holds_alternative<value_type>(sched)) [[likely]] {
-      return {};
-    }
-
-    using map_type = array_table_vector_uid_idx_t<Uid...>;
-    auto&& [array_map, table_map, vector_idx] =
-        std::get<map_type>(array_table_map);
-
-    if (std::holds_alternative<vector_type>(sched)) {
-      if (!vector_idx) {
-        vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
-            system_context.simulation());
-      }
-      return {vector_idx};
-    }
-
-    auto&& fsched = std::get<gtopt::FileSched>(sched);
-    auto cname = class_name;
-    auto&& fname = fsched;
-
     ArrowChunkedArray array;
     ArrowUidIdx<Uid...> index_idx;
 
     const auto& [uid, name] = id;
-    typename decltype(array_map)::key_type array_key {cname, fname, uid};
+    typename std::decay_t<decltype(array_map)>::key_type array_key {
+        cname, fname, uid};
 
     const auto aiter = array_map.find(array_key);
     if (aiter != array_map.end()) {
@@ -71,7 +44,8 @@ struct ArrayIndexTraits : InputTraits
     if (!array || !index_idx) {
       ArrowTable table {};
 
-      typename decltype(table_map)::key_type table_key {cname, fname};
+      typename std::decay_t<decltype(table_map)>::key_type table_key {cname,
+                                                                      fname};
 
       const auto titer = table_map.find(table_key);
       if (titer != table_map.end()) {
@@ -128,6 +102,45 @@ struct ArrayIndexTraits : InputTraits
     }
 
     return std::make_tuple(array, index_idx);
+  }
+
+public:
+  using value_type = Type;
+  using uid_tuple = std::tuple<Uid...>;
+  using vector_traits = mvector_traits<value_type, uid_tuple>;
+  using vector_type = typename vector_traits::vector_type;
+
+  using arrow_array_uid_idx_t = InputTraits::arrow_array_uid_idx_t<Uid...>;
+  using vector_uid_idx_t = InputTraits::vector_uid_idx_t<Uid...>;
+  using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
+
+  template<typename SystemContextType = class SystemContext>
+  static auto make_array_index(const SystemContextType& system_context,
+                               const std::string_view class_name,
+                               Map& array_table_map,
+                               const FieldSched& sched,
+                               const Id& id) -> array_vector_uid_idx_v
+  {
+    using map_type = array_table_vector_uid_idx_t<Uid...>;
+    auto&& [array_map, table_map, vector_idx] =
+        std::get<map_type>(array_table_map);
+
+    if (std::holds_alternative<value_type>(sched)) [[likely]] {
+      return {};
+    }
+
+    if (std::holds_alternative<vector_type>(sched)) {
+      if (!vector_idx) {
+        vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
+            system_context.simulation());
+      }
+      return {vector_idx};
+    }
+
+    auto&& fsched = std::get<gtopt::FileSched>(sched);
+
+    return get_arrow_index(
+        system_context, class_name, fsched, id, array_map, table_map);
   }
 };
 
