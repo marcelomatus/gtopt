@@ -23,85 +23,71 @@ struct ArrayIndexTraits : InputTraits
 {
 private:
   constexpr static auto get_arrow_index(const auto& system_context,
-                                        const std::string_view cname,
-                                        const std::string_view fname,
-                                        const Id& id,
-                                        auto& array_map,
-                                        auto& table_map)
+                                       std::string_view cname,
+                                       std::string_view fname,
+                                       const Id& id,
+                                       auto& array_map,
+                                       auto& table_map)
   {
-    ArrowChunkedArray array;
-    ArrowUidIdx<Uid...> index_idx;
-
     const auto& [uid, name] = id;
-    typename std::decay_t<decltype(array_map)>::key_type array_key {
-        cname, fname, uid};
+    using array_map_key = typename std::decay_t<decltype(array_map)>::key_type;
+    using table_map_key = typename std::decay_t<decltype(table_map)>::key_type;
 
-    const auto aiter = array_map.find(array_key);
-    if (aiter != array_map.end()) {
-      std::tie(array, index_idx) = aiter->second;
+    // Try to find existing array first (cache hit)
+    if (auto aiter = array_map.find(array_map_key{cname, fname, uid}); 
+        aiter != array_map.end()) {
+      return aiter->second;
     }
 
-    if (!array || !index_idx) {
-      ArrowTable table {};
-
-      typename std::decay_t<decltype(table_map)>::key_type table_key {cname,
-                                                                      fname};
-
-      const auto titer = table_map.find(table_key);
-      if (titer != table_map.end()) {
-        std::tie(table, index_idx) = titer->second;
+    // Cache miss - need to load table and create index
+    auto [table, index_idx] = [&]() -> std::pair<ArrowTable, ArrowUidIdx<Uid...>> {
+      auto table_key = table_map_key{cname, fname};
+      
+      if (auto titer = table_map.find(table_key); titer != table_map.end()) {
+        return titer->second;
       }
 
-      if (!table) {
-        table = read_arrow_table(system_context, cname, fname);
-      }
-      if (!index_idx) {
-        index_idx = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
-      }
-
-      if (table && index_idx) [[likely]] {
-        if (titer == table_map.end()) {
-          if (!table_map.emplace(table_key, std::make_pair(table, index_idx))
-                   .second)
-          {
-            throw std::runtime_error("can't insert non-unique key");
-          }
-        }
-      } else {
-        const auto str = std::format(
-            "can't create table or index for {} and {}", fname, name);
-
-        SPDLOG_CRITICAL(str);
-        throw std::runtime_error(str);
+      // Load table and create index if not found
+      auto table = read_arrow_table(system_context, cname, fname);
+      auto index = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
+      
+      if (!table || !index) [[unlikely]] {
+        const auto msg = std::format("Can't create table/index for {}:{}", fname, name);
+        SPDLOG_CRITICAL(msg);
+        throw std::runtime_error(msg);
       }
 
-      array = table->GetColumnByName(std::string {name});
-
-      if (!array) {
-        const auto col_name = as_label<':'>(name, uid);
-        array = table->GetColumnByName(col_name);
+      if (!table_map.emplace(table_key, std::pair{table, index}).second) [[unlikely]] {
+        throw std::runtime_error("Can't insert non-unique table key");
       }
 
-      if (!array) {
-        const auto col_name = as_label<':'>("uid", uid);
-        array = table->GetColumnByName(col_name);
-      }
+      return {table, index};
+    }();
 
-      if (array) [[likely]] {
-        if (!array_map.emplace(array_key, std::make_pair(array, index_idx))
-                 .second)
-        {
-          throw std::runtime_error("can't insert non-unique key");
-        }
-      } else {
-        const auto str =
-            std::format("can't find element {} in table {}", fname, name);
-        SPDLOG_CRITICAL(str);
-        throw std::runtime_error(str);
+    // Try multiple column name patterns
+    auto array = [&]() -> ArrowChunkedArray {
+      if (auto col = table->GetColumnByName(std::string{name})) {
+        return col;
       }
+      if (auto col = table->GetColumnByName(as_label<':'>(name, uid))) {
+        return col;
+      }
+      return table->GetColumnByName(as_label<':'>("uid", uid));
+    }();
+
+    if (!array) [[unlikely]] {
+      const auto msg = std::format("Can't find column {} in table {}", name, fname);
+      SPDLOG_CRITICAL(msg);
+      throw std::runtime_error(msg);
     }
 
-    return std::make_tuple(array, index_idx);
+    // Cache the array
+    if (!array_map.emplace(array_map_key{cname, fname, uid}, 
+                          std::pair{array, index_idx}).second) [[unlikely]] {
+      throw std::runtime_error("Can't insert non-unique array key");
+    }
+
+    return {array, index_idx};
   }
 
 public:
