@@ -33,12 +33,12 @@ namespace gtopt
  * Creates an LP representation of a generator including time-dependent
  * parameters like minimum/maximum generation limits, loss factors, and costs.
  */
-GeneratorLP::GeneratorLP(const InputContext& ic, Generator pgenerator)
-    : CapacityBase(ic, ClassName, std::move(pgenerator))
-    , pmin(ic, ClassName, id(), std::move(generator().pmin))
-    , pmax(ic, ClassName, id(), std::move(generator().pmax))
-    , lossfactor(ic, ClassName, id(), std::move(generator().lossfactor))
-    , gcost(ic, ClassName, id(), std::move(generator().gcost))
+GeneratorLP::GeneratorLP(const InputContext& ic, Generator generator)
+    : CapacityBase(ic, ClassName, std::move(generator))
+    , pmin(ic, ClassName, id(), std::move(object().pmin))
+    , pmax(ic, ClassName, id(), std::move(object().pmax))
+    , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
+    , gcost(ic, ClassName, id(), std::move(object().gcost))
 {
 }
 
@@ -68,8 +68,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
     return false;
   }
-
-  const auto stage_index = stage.index();
 
   if (!is_active(stage)) [[unlikely]] {
     return true;

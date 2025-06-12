@@ -15,32 +15,33 @@ public:
 
   using CapacityBase = CapacityObjectLP<Demand>;
 
+  [[nodiscard]]
   explicit DemandLP(const InputContext& ic, Demand pdemand);
 
-  [[nodiscard("returns reference to demand object")]] 
-  constexpr auto&& demand() noexcept { return object(); }
-  
-  [[nodiscard("returns const reference to demand object")]] 
-  constexpr auto&& demand() const noexcept { return object(); }
-  
-  [[nodiscard("returns bus ID")]] 
+  [[nodiscard]]
+  constexpr auto&& demand() const noexcept
+  {
+    return object();
+  }
+
+  [[nodiscard]]
   constexpr auto bus() const noexcept
   {
     return ObjectSingleId<BusLP> {demand().bus};
   }
 
-  [[nodiscard("returns true if LP addition succeeded")]] 
+  [[nodiscard]]
   bool add_to_lp(SystemContext& sc,
-                const ScenarioLP& scenario,
-                const StageLP& stage,
-                LinearProblem& lp);
-                
-  [[nodiscard("returns true if output addition succeeded")]] 
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
+                 LinearProblem& lp);
+
+  [[nodiscard]]
   bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] constexpr auto&& load_cols_at(
-      const ScenarioIndex scenary_index,
-      const StageIndex stage_index) const noexcept
+  [[nodiscard]]
+  constexpr auto&& load_cols_at(const ScenarioIndex scenary_index,
+                                const StageIndex stage_index) const noexcept
   {
     return load_cols.at({scenary_index, stage_index});
   }

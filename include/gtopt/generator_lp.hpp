@@ -24,9 +24,6 @@
 namespace gtopt
 {
 
-using GeneratorLPId = ObjectId<class GeneratorLP>;
-using GeneratorLPSId = ObjectSingleId<class GeneratorLP>;
-
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
@@ -34,28 +31,33 @@ public:
 
   using CapacityBase = CapacityObjectLP<Generator>;
 
-  explicit GeneratorLP(const InputContext& ic, Generator pgenerator);
+  [[nodiscard]]
+  explicit GeneratorLP(const InputContext& ic, Generator generator);
 
-  template<typename Self>
-  [[nodiscard]] constexpr auto&& generator(this Self&& self) noexcept
+  [[nodiscard]]
+  constexpr const auto& generator() const noexcept
   {
-    return std::forward<Self>(self).object();
+    return object();
   }
 
-  [[nodiscard]] constexpr auto bus(this auto const& self) noexcept
+  [[nodiscard]]
+  constexpr auto bus(this auto const& self) noexcept
   {
     return BusLPSId {self.generator().bus};
   }
 
-  [[nodiscard]] bool add_to_lp(SystemContext& sc,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               LinearProblem& lp);
+  [[nodiscard]]
+  bool add_to_lp(SystemContext& sc,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
+                 LinearProblem& lp);
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+  [[nodiscard]]
+  bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] const auto& generation_cols_at(const ScenarioLP& scenario,
-                                               const StageLP& stage) const
+  [[nodiscard]]
+  const auto& generation_cols_at(const ScenarioLP& scenario,
+                                 const StageLP& stage) const
   {
     return generation_cols.at({scenario.index(), stage.index()});
   }
@@ -69,5 +71,8 @@ private:
   STBIndexHolder generation_cols;
   STBIndexHolder capacity_rows;
 };
+
+using GeneratorLPId = ObjectId<GeneratorLP>;
+using GeneratorLPSId = ObjectSingleId<GeneratorLP>;
 
 }  // namespace gtopt

@@ -99,18 +99,4 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
   return system().element(get_bus_index(id));
 }
 
-double SystemContext::stage_duration(const OptStageIndex& stage_index,
-                                     double prev_duration) const noexcept
-{
-  const auto phase_index = system().phase().index();
-
-  return stage_index ? simulation()
-                           .phases()
-                           .at(phase_index)
-                           .stages()
-                           .at(*stage_index)
-                           .duration()
-                     : prev_duration;
-}
-
 }  // namespace gtopt
