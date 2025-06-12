@@ -92,7 +92,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   for (const auto& [block, balance_row] : std::views::zip(blocks, balance_rows) 
        | std::views::filter([&](const auto&) { return bus_lp.is_active(stage); }))
   {
-    if (const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity)) {
+    if (const auto block_lmax_opt = sc.block_max_at(stage, block, lmax, stage_capacity)) {
+      const auto block_lmax = *block_lmax_opt;
       const auto lcol = stage_fcost
         ? lp.add_col({.name = sc.stb_label(
                           scenario, stage, block, cname, "load", uid()),
@@ -126,12 +127,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       lp.set_coeff(emin_row.value(), lcol, dbloque);
     }
   }
+}
 
-  auto [crow_it, crow_inserted] =
-      emplace_bholder(scenario, stage, capacity_rows, std::move(crows));
-  auto [lcol_it, lcol_inserted] =
-      emplace_bholder(scenario, stage, load_cols, std::move(lcols));
-  return crow_inserted && lcol_inserted;
+auto [crow_it, crow_inserted] =
+    emplace_bholder(scenario, stage, capacity_rows, std::move(crows));
+auto [lcol_it, lcol_inserted] =
+    emplace_bholder(scenario, stage, load_cols, std::move(lcols));
+return crow_inserted && lcol_inserted;
 }
 
 bool DemandLP::add_to_output(OutputContext& out) const
