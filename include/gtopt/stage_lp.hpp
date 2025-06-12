@@ -24,7 +24,7 @@
 namespace gtopt
 {
 
-namespace details
+namespace detail
 {
 [[nodiscard]] constexpr auto create_block_array(
     std::span<const Block> block_array, const Stage& stage)
@@ -34,7 +34,7 @@ namespace details
       | ranges::views::transform([](const Block& b) { return BlockLP {b}; })
       | ranges::to<std::vector>();
 }
-}  // namespace details
+}  // namespace detail
 
 /**
  * @brief A class representing a stage in a linear programming planning
@@ -63,7 +63,7 @@ public:
                    StageIndex stage_index = StageIndex {unknown_index},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_stage_(std::move(stage))
-      , m_blocks_(details::create_block_array(blocks, m_stage_))
+      , m_blocks_(detail::create_block_array(blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
             blocks | ranges::views::take(stage.first_block)
                 | ranges::views::transform([](const Block& b)

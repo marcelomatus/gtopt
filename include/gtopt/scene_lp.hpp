@@ -24,7 +24,7 @@
 namespace gtopt
 {
 
-namespace details
+namespace detail
 {
 [[nodiscard]] constexpr auto create_scenario_array(
     std::span<const Scenario> scenario_array,
@@ -44,7 +44,7 @@ namespace details
       | ranges::to<std::vector>();
 }
 
-}  // namespace details
+}  // namespace detail
 
 /**
  * @class SceneLP
@@ -75,7 +75,7 @@ public:
                    std::span<const Scenario> scenarios,
                    SceneIndex index = SceneIndex {unknown_index})
       : m_scene_(std::move(scene))
-      , m_scenarios_(details::create_scenario_array(scenarios, m_scene_, index))
+      , m_scenarios_(detail::create_scenario_array(scenarios, m_scene_, index))
       , m_index_(index)
   {
   }

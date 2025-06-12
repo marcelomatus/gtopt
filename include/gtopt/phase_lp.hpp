@@ -36,7 +36,7 @@ namespace gtopt
  * - Active/inactive status checks
  */
 
-namespace details
+namespace detail
 {
 
 [[nodiscard]] constexpr auto create_stage_array(
@@ -61,7 +61,7 @@ namespace details
              })
       | ranges::to<std::vector>();
 }
-}  // namespace details
+}  // namespace detail
 
 class PhaseLP
 {
@@ -87,7 +87,7 @@ public:
                    std::span<const Block> blocks = {},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_phase_(std::move(phase))
-      , m_stages_(details::create_stage_array(
+      , m_stages_(detail::create_stage_array(
             m_phase_, phase_index, options, stages, blocks))
       , m_duration_(ranges::fold_left(
             m_stages_ | ranges::views::transform(&StageLP::duration),
