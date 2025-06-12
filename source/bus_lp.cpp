@@ -7,7 +7,7 @@
 namespace gtopt
 {
 
-[[nodiscard]] auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
+auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
 {
   return !sc.options().use_single_bus() && sc.options().use_kirchhoff()
       && bus().needs_kirchhoff(sc.options().kirchhoff_threshold());
@@ -20,13 +20,12 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const std::vector<BlockLP>& blocks) const
     -> const BIndexHolder&
 {
-  using namespace std::string_view_literals;
-  constexpr auto cname = "bus"sv;
+  constexpr std::string_view cname = "bus";
 
   BIndexHolder tblocks;
   tblocks.reserve(blocks.size());
 
-  if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
+  if (stage.is_active() && needs_kirchhoff(sc)) {
     const auto& theta = reference_theta();
 
     for (auto&& block : blocks) {
@@ -47,18 +46,17 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     return iter->second;
   }
 
-  constexpr auto msg = "can't insert a new theta index holder";
+  const auto* const msg = "can't insert a new theta index holder";
   SPDLOG_CRITICAL(msg);
   throw std::runtime_error(msg);
 }
 
-[[nodiscard]] bool BusLP::add_to_lp(const SystemContext& sc,
-                                   const ScenarioLP& scenario,
-                                   const StageLP& stage,
-                                   LinearProblem& lp)
+bool BusLP::add_to_lp(const SystemContext& sc,
+                      const ScenarioLP& scenario,
+                      const StageLP& stage,
+                      LinearProblem& lp)
 {
-  using namespace std::string_view_literals;
-  constexpr auto cname = "bus"sv;
+  constexpr std::string_view cname = "bus";
 
   if (!is_active(stage)) {
     return true;
@@ -79,7 +77,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
       .second;
 }
 
-[[nodiscard]] bool BusLP::add_to_output(OutputContext& out) const
+bool BusLP::add_to_output(OutputContext& out) const
 {
   constexpr std::string_view cname = ClassName;
   const auto pid = id();
