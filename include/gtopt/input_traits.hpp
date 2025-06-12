@@ -24,13 +24,9 @@ namespace gtopt
  *
  * Inherits from UidTraits and adds input-specific functionality
  */
+
 struct InputTraits : UidTraits
 {
-  template<typename SystemContextType = class SystemContext>
-  static auto read_arrow_table(const SystemContextType& sc,
-                               std::string_view cname,
-                               std::string_view fname) -> ArrowTable;
-
   template<typename Type,
            typename RType = Type,
            typename FSched,
