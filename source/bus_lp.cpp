@@ -47,9 +47,9 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     return iter->second;
   }
 
-  constexpr auto msg = "can't insert a new theta index holder"sv;
-  SPDLOG_CRITICAL("{}", msg);
-  throw std::runtime_error(msg.data());
+  constexpr auto msg = "can't insert a new theta index holder";
+  SPDLOG_CRITICAL(msg);
+  throw std::runtime_error(msg);
 }
 
 [[nodiscard]] bool BusLP::add_to_lp(const SystemContext& sc,
