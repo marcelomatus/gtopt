@@ -7,7 +7,7 @@
 namespace gtopt
 {
 
-auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
+[[nodiscard]] auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
 {
   return !sc.options().use_single_bus() && sc.options().use_kirchhoff()
       && bus().needs_kirchhoff(sc.options().kirchhoff_threshold());
@@ -20,12 +20,13 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const std::vector<BlockLP>& blocks) const
     -> const BIndexHolder&
 {
-  constexpr std::string_view cname = "bus";
+  using namespace std::string_view_literals;
+  constexpr auto cname = "bus"sv;
 
   BIndexHolder tblocks;
   tblocks.reserve(blocks.size());
 
-  if (stage.is_active() && needs_kirchhoff(sc)) {
+  if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
     const auto& theta = reference_theta();
 
     for (auto&& block : blocks) {
@@ -46,17 +47,18 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     return iter->second;
   }
 
-  const auto* const msg = "can't insert a new theta index holder";
-  SPDLOG_CRITICAL(msg);
-  throw std::runtime_error(msg);
+  constexpr auto msg = "can't insert a new theta index holder"sv;
+  SPDLOG_CRITICAL("{}", msg);
+  throw std::runtime_error(msg.data());
 }
 
-bool BusLP::add_to_lp(const SystemContext& sc,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      LinearProblem& lp)
+[[nodiscard]] bool BusLP::add_to_lp(const SystemContext& sc,
+                                   const ScenarioLP& scenario,
+                                   const StageLP& stage,
+                                   LinearProblem& lp)
 {
-  constexpr std::string_view cname = "bus";
+  using namespace std::string_view_literals;
+  constexpr auto cname = "bus"sv;
 
   if (!is_active(stage)) {
     return true;
@@ -77,7 +79,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
       .second;
 }
 
-bool BusLP::add_to_output(OutputContext& out) const
+[[nodiscard]] bool BusLP::add_to_output(OutputContext& out) const
 {
   constexpr std::string_view cname = ClassName;
   const auto pid = id();
