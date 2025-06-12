@@ -45,6 +45,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  using namespace std::string_view_literals;
+  
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
@@ -87,11 +89,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (const auto& [block, balance_row] : std::views::zip(blocks, balance_rows))
+  for (const auto& [block, balance_row] : std::views::zip(blocks, balance_rows) 
+       | std::views::filter([&](const auto&) { return bus_lp.is_active(stage); }))
   {
-    const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
-
-    const auto lcol = stage_fcost
+    if (const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity)) {
+      const auto lcol = stage_fcost
         ? lp.add_col({.name = sc.stb_label(
                           scenario, stage, block, cname, "load", uid()),
                       .uppb = block_lmax,
@@ -102,14 +104,14 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                       .lowb = block_lmax,
                       .uppb = block_lmax});
 
-    lcols.push_back(lcol);
+      lcols.push_back(lcol);
 
-    // adding load variable to the balance and load rows
-    auto& brow = lp.row_at(balance_row);
-    brow[lcol] = -(1 + stage_lossfactor);
+      // adding load variable to the balance and load rows
+      auto& brow = lp.row_at(balance_row);
+      brow[lcol] = -(1 + stage_lossfactor);
 
-    // adding the capacity constraint
-    if (capacity_col) {
+      // adding the capacity constraint
+      if (capacity_col) {
       SparseRow crow {
           .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
       crow[capacity_col.value()] = 1;
