@@ -34,7 +34,7 @@ class BusLP : public ObjectLP<Bus>
 public:
   constexpr static std::string_view ClassName = "Bus";
 
-  [[nodiscard("constructs BusLP from Bus object")]]
+  [[nodiscard]]
   explicit BusLP([[maybe_unused]] const InputContext& ic, Bus pbus) noexcept
       : ObjectLP<Bus>(std::move(pbus))
   {
@@ -46,7 +46,7 @@ public:
     return ObjectLP<Bus>::object();
   }
 
-  [[nodiscard("returns reference theta value if set")]]
+  [[nodiscard]]
   constexpr auto reference_theta() const noexcept
   {
     return bus().reference_theta;

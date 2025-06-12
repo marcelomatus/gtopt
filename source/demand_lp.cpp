@@ -126,10 +126,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  auto [crow_it, crow_inserted] =
-      emplace_bholder(scenario, stage, capacity_rows, std::move(crows));
-  auto [lcol_it, lcol_inserted] =
-      emplace_bholder(scenario, stage, load_cols, std::move(lcols));
+  const auto crow_inserted =
+      emplace_bholder(scenario, stage, capacity_rows, std::move(crows)).second;
+  const auto lcol_inserted =
+      emplace_bholder(scenario, stage, load_cols, std::move(lcols)).second;
+
   return crow_inserted && lcol_inserted;
 }
 

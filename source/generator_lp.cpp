@@ -119,10 +119,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
       crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
     }
   }
-  return emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
-             .second
-      && emplace_bholder(scenario, stage, generation_cols, std::move(gcols))
-             .second;
+
+  const auto crow_inserted =
+      emplace_bholder(scenario, stage, capacity_rows, std::move(crows)).second;
+  const auto lcol_inserted =
+      emplace_bholder(scenario, stage, generation_cols, std::move(gcols))
+          .second;
+
+  return crow_inserted && lcol_inserted;
 }
 
 /**
