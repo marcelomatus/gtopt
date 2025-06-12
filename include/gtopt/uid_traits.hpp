@@ -15,14 +15,16 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/uididx_traits.hpp>
 
-namespace gtopt {
+namespace gtopt
+{
 
 /**
  * @brief Traits for UID-based data access patterns
- * 
+ *
  * Provides type aliases and mappings for accessing data using UID keys
  */
-struct UidTraits {
+struct UidTraits
+{
   template<typename Key, typename Value>
   using base_map_t = gtopt::flat_map<Key, Value>;
 
@@ -31,15 +33,12 @@ struct UidTraits {
   using CFNameUid = std::tuple<ClassNameType, FieldNameType, Uid>;
   using CFName = std::tuple<ClassNameType, FieldNameType>;
 
-  using ArrowChunkedArray = gtopt::ArrowChunkedArray;
-  using ArrowTable = gtopt::ArrowTable;
-
   template<typename... Uid>
   using ArrowUidIdx = typename UidToArrowIdx<Uid...>::UidIdx;
 
   template<typename... Uid>
   using arrow_array_uid_idx_t =
-      std::tuple<ArrowChunkedArray, ArrowUidIdx<Uid...>>;
+      std::pair<ArrowChunkedArray, ArrowUidIdx<Uid...>>;
 
   template<typename... Uid>
   using array_uid_idx_map_t =
@@ -47,9 +46,6 @@ struct UidTraits {
 
   template<typename... Uid>
   using arrow_table_uid_idx_t = std::tuple<ArrowTable, ArrowUidIdx<Uid...>>;
-
-  template<typename... Uid>
-  using arrow_table_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;
 
   template<typename... Uid>
   using table_uid_idx_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;
@@ -76,4 +72,4 @@ struct UidTraits {
       std::variant<arrow_array_uid_idx_t<Uid...>, vector_uid_idx_t<Uid...>>;
 };
 
-} // namespace gtopt
+}  // namespace gtopt
