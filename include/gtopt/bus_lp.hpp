@@ -29,60 +29,66 @@ namespace gtopt
 // TODO(marcelo): swap the parameter order in BusLP constructor: first
 // should be the object, like Bus, then the InoutContext if needed.
 
-using BusLPId = ObjectId<class BusLP>;
-using BusLPSId = ObjectSingleId<class BusLP>;
-
 class BusLP : public ObjectLP<Bus>
 {
 public:
   constexpr static std::string_view ClassName = "Bus";
 
-  explicit BusLP(const InputContext& /*ic*/, Bus pbus) noexcept
+  [[nodiscard]]
+  explicit BusLP([[maybe_unused]] const InputContext& ic, Bus pbus) noexcept
       : ObjectLP<Bus>(std::move(pbus))
   {
   }
 
-  [[nodiscard]] constexpr auto bus() const noexcept -> const Bus&
+  [[nodiscard]]
+  constexpr auto bus() const noexcept
   {
     return ObjectLP<Bus>::object();
   }
 
-  [[nodiscard]] constexpr auto reference_theta() const noexcept
+  [[nodiscard]]
+  constexpr auto reference_theta() const noexcept
   {
     return bus().reference_theta;
   }
 
-  [[nodiscard]] constexpr auto voltage() const noexcept -> double
+  [[nodiscard]]
+  constexpr auto voltage() const noexcept
   {
     return bus().voltage.value_or(1.0);
   }
 
-  [[nodiscard]] constexpr auto use_kirchhoff() const noexcept -> bool
+  [[nodiscard]]
+  constexpr auto use_kirchhoff() const noexcept
   {
     return bus().use_kirchhoff.value_or(true);
   }
 
-  [[nodiscard]] auto needs_kirchhoff(const SystemContext& sc) const noexcept
-      -> bool;
+  [[nodiscard]]
+  auto needs_kirchhoff(const SystemContext& sc) const noexcept -> bool;
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               LinearProblem& lp);
+  [[nodiscard]]
+  bool add_to_lp(const SystemContext& sc,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
+                 LinearProblem& lp);
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+  [[nodiscard]]
+  bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
-                                            const StageLP& stage) const noexcept
+  [[nodiscard]]
+  constexpr const auto& balance_rows_at(const ScenarioLP& scenario,
+                                        const StageLP& stage) const noexcept
   {
     return balance_rows.at({scenario.index(), stage.index()});
   }
 
-  [[nodiscard]] auto theta_cols_at(const SystemContext& sc,
-                                   const ScenarioLP& scenario,
-                                   const StageLP& stage,
-                                   LinearProblem& lp,
-                                   const std::vector<BlockLP>& blocks) const
+  [[nodiscard]]
+  constexpr auto theta_cols_at(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp,
+                               const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&
   {
     const auto key = std::make_pair(scenario.index(), stage.index());
@@ -103,5 +109,8 @@ private:
   STBIndexHolder balance_rows;
   mutable STBIndexHolder theta_cols;
 };
+
+using BusLPId = ObjectId<class BusLP>;
+using BusLPSId = ObjectSingleId<class BusLP>;
 
 }  // namespace gtopt
