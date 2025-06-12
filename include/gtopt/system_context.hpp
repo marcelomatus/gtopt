@@ -212,12 +212,6 @@ public:
   }
 
   //
-  //
-  //
-  [[nodiscard]] double stage_duration(const OptStageIndex& stage_index,
-                                      double prev_duration = 0) const noexcept;
-
-  //
   //  get_bus, single_bus and related
   //
 

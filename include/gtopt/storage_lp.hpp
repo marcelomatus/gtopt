@@ -80,7 +80,7 @@ public:
                                  scenario,
                                  stage,
                                  vcost.at(stage.uid()).value_or(0.0))
-        / sc.stage_duration(stage_index);
+        / stage.duration();
 
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
