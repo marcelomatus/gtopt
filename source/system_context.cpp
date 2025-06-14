@@ -72,11 +72,11 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     , FlatHelper(simulation,
                  simulation.scenarios() 
                      | std::views::filter(&ScenarioLP::is_active)
-                     | std::views::transform(&ScenarioLP::scenario_index)
+                     | std::views::transform([](const auto& s) { return s.index(); })
                      | std::ranges::to<std::vector>(),
                  simulation.stages()
                      | std::views::filter(&StageLP::is_active) 
-                     | std::views::transform(&StageLP::stage_index)
+                     | std::views::transform([](const auto& s) { return s.index(); })
                      | std::ranges::to<std::vector>(),
                  active_stage_block_indices<BlockIndex>(simulation.stages()),
                  active_block_indices<BlockIndex>(simulation.stages()))
@@ -96,13 +96,13 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
 auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
     -> ElementIndex<BusLP>
 {
-  return self.system().element_index(self.m_single_bus_id_.value_or(id));
+  return system().element_index(m_single_bus_id_.value_or(id));
 }
 
 auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     -> const BusLP&
 {
-  return self.system().element(self.get_bus_index(id));
+  return system().element(get_bus_index(id));
 }
 
 }  // namespace gtopt
