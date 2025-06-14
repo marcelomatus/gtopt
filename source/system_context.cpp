@@ -31,15 +31,15 @@ template<typename Index, typename Stage>
 constexpr auto active_block_indices(const Stage& stages) noexcept
 {
   std::vector<Index> indices;
-  Index idx {};
 
-  for (const auto& stage : stages) {
+  for (Index idx {0}; const auto& stage : stages) {
     if (stage.is_active()) {
       const auto block_count = stage.blocks().size();
       const auto block_indices =
           std::views::iota(idx, idx + static_cast<Index>(block_count));
       indices.insert(indices.end(), block_indices.begin(), block_indices.end());
     }
+
     idx += static_cast<Index>(stage.blocks().size());
   }
 
@@ -47,7 +47,7 @@ constexpr auto active_block_indices(const Stage& stages) noexcept
 }
 
 template<typename Index, typename Stages>
-auto active_stage_block_indices(const Stages& stages) noexcept
+constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 {
   return enumerate_active<Index>(stages)
       | std::views::transform(
