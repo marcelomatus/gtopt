@@ -23,20 +23,19 @@ using namespace gtopt;
 template<typename Index, typename Stage>
 constexpr auto active_block_indices(const Stage& stages) noexcept
 {
-    return std::generator<Index> {
-        [&]() -> std::generator<Index> {
-            Index idx{0};
-            for (const auto& stage : stages) {
-                if (stage.is_active()) {
-                    const auto block_count = stage.blocks().size();
-                    for (Index i = idx; i < idx + static_cast<Index>(block_count); ++i) {
-                        co_yield i;
-                    }
-                }
-                idx += static_cast<Index>(stage.blocks().size());
-            }
+    std::vector<Index> indices;
+
+    for (Index idx{0}; const auto& stage : stages) {
+        if (stage.is_active()) {
+            const auto block_count = stage.blocks().size();
+            const auto block_indices =
+                std::views::iota(idx, idx + static_cast<Index>(block_count));
+            indices.insert(indices.end(), block_indices.begin(), block_indices.end());
         }
-    } | std::ranges::to<std::vector>();
+        idx += static_cast<Index>(stage.blocks().size());
+    }
+
+    return indices;
 }
 
 template<typename Index, typename Stages>
@@ -57,11 +56,9 @@ namespace gtopt
 {
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
-          simulation.options(), 
-          simulation.scenarios() 
-              | std::views::filter(&ScenarioLP::is_active)
-              | std::views::transform(&ScenarioLP::index)
-              | std::ranges::to<std::vector>()),
+          simulation.options(),
+          simulation.scenarios(),
+          simulation.stages()),
       FlatHelper(
           simulation,
           simulation.scenarios() 
@@ -82,10 +79,10 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
       m_system_(system)
 {
     if (options().use_single_bus()) {
-        m_single_bus_id_ = system.elements<BusLP>()
-            | std::views::take(1)
-            | std::views::transform(&BusLP::uid)
-            | std::ranges::to<std::optional<ObjectSingleId<BusLP>>>();
+        const auto& buses = system.elements<BusLP>();
+        if (!buses.empty()) {
+            m_single_bus_id_.emplace(buses.front().uid());
+        }
     }
 }
 
