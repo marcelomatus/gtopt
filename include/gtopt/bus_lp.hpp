@@ -91,7 +91,7 @@ public:
                                const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&
   {
-    const auto key = std::make_pair(scenario.index(), stage.index());
+    const auto key = std::pair {scenario.index(), stage.index()};
     if (auto it = theta_cols.find(key); it != theta_cols.end()) {
       return it->second;
     }

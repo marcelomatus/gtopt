@@ -68,7 +68,7 @@ constexpr auto emplace_bholder(const ScenarioLP& scenario,
   return (empty_insert || !holder.empty())
       ? map.emplace(Key {scenario.index(), stage.index()},
                     std::forward<BHolder>(holder))
-      : std::make_pair(map.end(), true);
+      : std::pair {map.end(), true};
 }
 
 template<typename Map, typename Value = typename Map::value_type>
