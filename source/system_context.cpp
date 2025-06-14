@@ -49,16 +49,16 @@ constexpr auto active_block_indices(const Stage& stages) noexcept
 template<typename Index, typename Stages>
 constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 {
-  return enumerate_active<Index>(stages)
+  return stages 
+      | std::views::filter(&StageLP::is_active)
       | std::views::transform(
-             [](const auto& pair)
+             [](const auto& stage) -> std::vector<Index>
              {
-               const auto& blocks = pair.second.blocks();
-               return std::views::iota(Index {0},
-                                       static_cast<Index>(blocks.size()))
-                   | std::ranges::to<std::vector<Index>>();
+               return std::views::iota(Index{0}, 
+                                     static_cast<Index>(stage.blocks().size()))
+                   | std::ranges::to<std::vector>();
              })
-      | std::ranges::to<std::vector<std::vector<Index>>>();
+      | std::ranges::to<std::vector>();
 }
 
 }  // namespace
@@ -70,8 +70,14 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , FlatHelper(simulation,
-                 active_indices<ScenarioIndex>(simulation.scenarios()),
-                 active_indices<StageIndex>(simulation.stages()),
+                 simulation.scenarios() 
+                     | std::views::filter(&ScenarioLP::is_active)
+                     | std::views::transform(&ScenarioLP::scene_index)
+                     | std::ranges::to<std::vector>(),
+                 simulation.stages()
+                     | std::views::filter(&StageLP::is_active) 
+                     | std::views::transform(&StageLP::phase_index)
+                     | std::ranges::to<std::vector>(),
                  active_stage_block_indices<BlockIndex>(simulation.stages()),
                  active_block_indices<BlockIndex>(simulation.stages()))
     , CostHelper(
@@ -82,21 +88,21 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
   if (options().use_single_bus()) {
     const auto& buses = system.elements<BusLP>();
     if (!buses.empty()) {
-      m_single_bus_id_ = buses.front().uid();
+      m_single_bus_id_.emplace(buses.front().uid());
     }
   }
 }
 
-auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
+auto SystemContext::get_bus_index(this auto&& self, const ObjectSingleId<BusLP>& id) 
     -> ElementIndex<BusLP>
 {
-  return system().element_index(m_single_bus_id_.value_or(id));
+  return self.system().element_index(self.m_single_bus_id_.value_or(id));
 }
 
-auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
-    -> const BusLP&
+auto SystemContext::get_bus(this auto&& self, const ObjectSingleId<BusLP>& id) 
+    -> decltype(auto)
 {
-  return system().element(get_bus_index(id));
+  return self.system().element(self.get_bus_index(id));
 }
 
 }  // namespace gtopt
