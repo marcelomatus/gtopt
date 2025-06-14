@@ -18,14 +18,6 @@ using namespace gtopt;
  * @param container The container to extract indices from
  * @return Vector of active indices, moved rather than copied
  */
-template<typename Index, typename Container>
-constexpr auto active_indices(const Container& container) noexcept
-{
-  return std::ranges::views::transform(enumerate_active<Index>(container),
-                                       [](const auto& pair)
-                                       { return pair.first; })
-      | std::ranges::to<std::vector<Index>>();
-}
 
 template<typename Index, typename Stage>
 constexpr auto active_block_indices(const Stage& stages) noexcept
@@ -49,13 +41,12 @@ constexpr auto active_block_indices(const Stage& stages) noexcept
 template<typename Index, typename Stages>
 constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 {
-  return stages 
-      | std::views::filter(&StageLP::is_active)
+  return stages | std::views::filter(&StageLP::is_active)
       | std::views::transform(
              [](const auto& stage) -> std::vector<Index>
              {
-               return std::views::iota(Index{0}, 
-                                     static_cast<Index>(stage.blocks().size()))
+               return std::views::iota(
+                          Index {0}, static_cast<Index>(stage.blocks().size()))
                    | std::ranges::to<std::vector>();
              })
       | std::ranges::to<std::vector>();
@@ -65,21 +56,19 @@ constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 
 namespace gtopt
 {
-
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
           simulation.options(), simulation.scenarios(), simulation.stages())
-    , FlatHelper(simulation,
-                 simulation.scenarios() 
-                     | std::views::filter(&ScenarioLP::is_active)
-                     | std::views::transform([](const auto& s) { return s.index(); })
-                     | std::ranges::to<std::vector>(),
-                 simulation.stages()
-                     | std::views::filter(&StageLP::is_active) 
-                     | std::views::transform([](const auto& s) { return s.index(); })
-                     | std::ranges::to<std::vector>(),
-                 active_stage_block_indices<BlockIndex>(simulation.stages()),
-                 active_block_indices<BlockIndex>(simulation.stages()))
+    , FlatHelper(
+          simulation,
+          simulation.scenarios() | std::views::filter(&ScenarioLP::is_active)
+              | std::views::transform([](const auto& s) { return s.index(); })
+              | std::ranges::to<std::vector>(),
+          simulation.stages() | std::views::filter(&StageLP::is_active)
+              | std::views::transform([](const auto& s) { return s.index(); })
+              | std::ranges::to<std::vector>(),
+          active_stage_block_indices<BlockIndex>(simulation.stages()),
+          active_block_indices<BlockIndex>(simulation.stages()))
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)
