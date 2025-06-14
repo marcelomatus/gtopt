@@ -86,7 +86,7 @@ public:
   /// @return Last column index in optimization matrix
   [[nodiscard]] constexpr auto cols() const noexcept
   {
-    return std::make_pair(m_first_col_, m_last_col_);
+    return std::pair {m_first_col_, m_last_col_};
   }
 
   /// @return Unique key tuple for this variable (name, stage, phase)

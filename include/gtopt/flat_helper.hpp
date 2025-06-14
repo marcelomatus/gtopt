@@ -224,9 +224,8 @@ public:
       }
     }
 
-    return std::make_pair(
-        need_values ? std::move(values) : std::vector<double> {},
-        need_valids ? std::move(valid) : std::vector<bool> {});
+    return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                      need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
   template<typename Projection, typename Factor = block_factor_matrix_t>
@@ -265,9 +264,8 @@ public:
       }
     }
 
-    return std::make_pair(
-        need_values ? std::move(values) : std::vector<double> {},
-        need_valids ? std::move(valid) : std::vector<bool> {});
+    return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                      need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
   template<typename Projection,
@@ -301,9 +299,8 @@ public:
       }
     }
 
-    return std::make_pair(
-        need_values ? std::move(values) : std::vector<double> {},
-        need_valids ? std::move(valid) : std::vector<bool> {});
+    return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                      need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
   template<typename Projection = std::identity,
@@ -336,9 +333,8 @@ public:
       need_valids |= count != ++idx;
     }
 
-    return std::make_pair(
-        need_values ? std::move(values) : std::vector<double> {},
-        need_valids ? std::move(valid) : std::vector<bool> {});
+    return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                      need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
 private:
