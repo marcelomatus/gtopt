@@ -1,4 +1,3 @@
-#include <generator>
 #include <ranges>
 
 #include <gtopt/simulation_lp.hpp>
