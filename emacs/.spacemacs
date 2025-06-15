@@ -72,7 +72,6 @@ This function should only modify configuration layer settings."
              python-formatter 'black
              python-format-on-save t)
 
-     docker
      cmake
 
      (llm-client :variables llm-client-enable-gptel t)
@@ -81,8 +80,19 @@ This function should only modify configuration layer settings."
             c-c++-enable-clang-support t
             c-c++-enable-clang-format-on-save t)
 
-     multiple-cursors
-     org
+     ;;multiple-cursors
+     (org :variables
+          org-version "9.7.1"
+          org-enable-github-support t
+          org-enable-reveal-js-support t
+          org-enable-roam-support t
+          org-enable-roam-server-support t
+          org-enable-roam-ui-support t
+          org-enable-roam-graph-support t
+          org-enable-roam-templates-support t
+          org-enable-roam-attachments-support t
+          org-enable-roam-refile-support t)
+
      (shell :variables
             shell-default-height 30
             shell-default-position 'bottom)
@@ -605,6 +615,13 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
+  ;; Enable parallel compilation
+  (setq compilation-flags '(parallel))
+  (setq compile-command "make -j8")
+  (setq spacemacs-byte-compile-in-parallel t)
+  (setq spacemacs-byte-compile-n-workers 8) ; Number of parallel workers
+  (setq spacemacs-byte-compile-keep-dirty-buffers t) ; Keep dirty buffers during compilation
+
   ;; Set leader key for Aidermacs
   (spacemacs/set-leader-keys "aa" 'aidermacs-transient-menu) ; Example binding SPC a a
 
@@ -658,6 +675,8 @@ This function is called at the very end of Spacemacs initialization."
    ;; If there is more than one, they won't work right.
    '(aidermacs-architect-model "deepseek/deepseek-coder")
    '(aidermacs-default-model "deepseek/deepseek-coder")
+   '(copilot-chat-backend 'request)
+   '(copilot-chat-frontend 'markdown)
    '(lsp-idle-delay 0.2)
    '(package-selected-packages
      '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
