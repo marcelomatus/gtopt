@@ -19,9 +19,21 @@ namespace
 {
 using namespace gtopt;
 
+using STBUids =
+    std::tuple<std::vector<int>, std::vector<int>, std::vector<int>>;
 constexpr STBUids make_stb_uids(const SimulationLP& sc)
 {
-  const auto size = sc.scenarios().size() * sc.blocks().size();
+  std::size_t size = 0;
+  for (auto&& scene : sc.scenes()) {
+    for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
+      for (auto&& phase : sc.phases()) {
+        for (auto&& stage : phase.stages()) {
+          size += stage.blocks().size();
+        }
+      }
+    }
+  }
+
   std::vector<Uid> scenario_uids;
   scenario_uids.reserve(size);
   std::vector<Uid> stage_uids;
@@ -29,19 +41,19 @@ constexpr STBUids make_stb_uids(const SimulationLP& sc)
   std::vector<Uid> block_uids;
   block_uids.reserve(size);
 
-  for (auto&& scenery : sc.scenarios()) {
-    for (auto&& stage : sc.stages()) {
-      for (auto&& block : stage.blocks()) {
-        scenario_uids.push_back(scenery.uid());
-        stage_uids.push_back(stage.uid());
-        block_uids.push_back(block.uid());
+  for (auto&& scene : sc.scenes()) {
+    for (auto&& scenario : scene.scenarios()) {
+      for (auto&& phase : sc.phases()) {
+        for (auto&& stage : phase.stages()) {
+          for (auto&& block : stage.blocks()) {
+            scenario_uids.emplace_back(scenario.uid());
+            stage_uids.emplace_back(stage.uid());
+            block_uids.emplace_back(block.uid());
+          }
+        }
       }
     }
   }
-
-  scenario_uids.shrink_to_fit();
-  stage_uids.shrink_to_fit();
-  block_uids.shrink_to_fit();
 
   return {
       std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
@@ -49,7 +61,15 @@ constexpr STBUids make_stb_uids(const SimulationLP& sc)
 
 constexpr STUids make_st_uids(const SimulationLP& sc) noexcept
 {
-  const auto size = sc.scenarios().size() * sc.stages().size();
+  std::size_t size = 0;
+  for (auto&& scene : sc.scenes()) {
+    for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
+      for (auto&& phase : sc.phases()) {
+        size += phase.stages().size();
+      }
+    }
+  }
+
   std::vector<Uid> scenario_uids;
   scenario_uids.reserve(size);
   std::vector<Uid> stage_uids;
@@ -59,32 +79,31 @@ constexpr STUids make_st_uids(const SimulationLP& sc) noexcept
     for (auto&& scenario : scene.scenarios()) {
       for (auto&& phase : sc.phases()) {
         for (auto&& stage : phase.stages()) {
-          scenario_uids.push_back(scenario.uid());
-          stage_uids.push_back(stage.uid());
+          scenario_uids.emplace_back(scenario.uid());
+          stage_uids.emplace_back(stage.uid());
         }
       }
     }
   }
-
-  scenario_uids.shrink_to_fit();
-  stage_uids.shrink_to_fit();
 
   return {std::move(scenario_uids), std::move(stage_uids)};
 }
 
 constexpr TUids make_t_uids(const SimulationLP& sc) noexcept
 {
-  const auto size = sc.stages().size();
+  std::size_t size = 0;
+  for (auto&& phase : sc.phases()) {
+    size += phase.stages().size();
+  }
+
   std::vector<Uid> stage_uids;
   stage_uids.reserve(size);
 
   for (auto&& phase : sc.phases()) {
     for (auto&& stage : phase.stages()) {
-      stage_uids.push_back(stage.uid());
+      stage_uids.emplace_back(stage.uid());
     }
   }
-
-  stage_uids.shrink_to_fit();
 
   return stage_uids;
 }
