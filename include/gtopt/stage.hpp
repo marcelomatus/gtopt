@@ -21,8 +21,8 @@ struct Stage
   OptName name {};
   OptBool active {};
 
-  Size first_block {};
-  Size count_block {};
+  Size first_block {0};
+  Size count_block {std::dynamic_extent};
   OptReal discount_factor {1};
 
   static constexpr std::string_view class_name = "stage";

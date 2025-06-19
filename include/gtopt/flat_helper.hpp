@@ -51,44 +51,6 @@
 
 namespace gtopt
 {
-namespace detail
-{
-/**
- * Creates a vector of active indices from a container.
- * Uses move semantics for efficient return value planning and
- * is marked noexcept to enable compiler plannings.
- *
- * @param container The container to extract indices from
- * @return Vector of active indices, moved rather than copied
- */
-
-template<std::ranges::input_range Stages, typename Index = BlockUid>
-  requires std::same_as<std::ranges::range_value_t<Stages>, StageLP>
-[[nodiscard]] constexpr auto active_stage_block_indices(const Stages& stages) noexcept
-{
-  return stages
-    | std::views::filter(&StageLP::is_active)
-    | std::views::transform(
-        [](const StageLP& stage) -> std::vector<Index> {
-          return stage.blocks()
-            | std::views::transform(&BlockLP::uid)
-            | std::ranges::to<std::vector>();
-        })
-    | std::ranges::to<std::vector>();
-}
-
-template<std::ranges::input_range Stages, typename Index = BlockUid>
-constexpr auto active_block_indices(const Stages& stages) noexcept
-{
-  return stages
-      | std::views::filter(&StageLP::is_active)  // Filter active stages
-      | std::views::transform(&StageLP::blocks)  // Get blocks ranges
-      | std::views::join  // Flatten nested ranges
-      | std::views::transform(&BlockLP::uid)  // Extract UIDs
-      | std::ranges::to<std::vector<Index>>();  // Collect directly to vector
-}
-
-}  // namespace detail
 
 /**
  * @class FlatHelper
@@ -124,13 +86,20 @@ public:
                          | std::views::filter(&StageLP::is_active)
                          | std::views::transform(&StageLP::uid)
                          | std::ranges::to<std::vector>())
-      , m_active_stage_blocks_(
-            detail::active_stage_block_indices(simulation.stages()))
-      , m_active_blocks_(detail::active_block_indices(simulation.stages()))
+      , m_active_stage_blocks_(simulation.stages()
+                               | std::views::filter(&StageLP::is_active)
+                               | std::views::transform(
+                                   [](const StageLP& stage)
+                                   {
+                                     return stage.blocks()
+                                         | std::views::transform(&BlockLP::uid)
+                                         | std::ranges::to<std::vector>();
+                                   })
+                               | std::ranges::to<std::vector>())
+      , m_active_blocks_(m_active_stage_blocks_
+                         | std::views::join  // Flatten nested ranges
+                         | std::ranges::to<std::vector>())
   {
-    if (m_active_stages_.size() != m_active_stage_blocks_.size()) {
-      throw std::invalid_argument("Stage count must match stage blocks size");
-    }
   }
 
   [[nodiscard]] constexpr const SimulationLP& simulation() const noexcept

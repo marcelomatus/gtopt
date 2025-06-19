@@ -29,8 +29,7 @@ namespace detail
 [[nodiscard]] constexpr auto create_block_array(
     std::span<const Block> block_array, const Stage& stage)
 {
-  auto blocks = block_array.subspan(stage.first_block, stage.count_block);
-  return blocks
+  return block_array.subspan(stage.first_block, stage.count_block)
       | ranges::views::transform([](const Block& b) { return BlockLP {b}; })
       | ranges::to<std::vector>();
 }
