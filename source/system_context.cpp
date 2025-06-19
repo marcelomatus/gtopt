@@ -17,7 +17,16 @@ namespace gtopt
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
           simulation.options(), simulation.scenarios(), simulation.stages())
-    , FlatHelper(simulation)
+    , FlatHelper(simulation,
+                 simulation.scenarios()
+                     | std::views::filter(&ScenarioLP::is_active)
+                     | std::views::transform(&ScenarioLP::uid)
+                     | std::ranges::to<std::vector>(),
+                 simulation.stages() | std::views::filter(&StageLP::is_active)
+                     | std::views::transform(&StageLP::uid)
+                     | std::ranges::to<std::vector>(),
+                 active_stage_block_indices(simulation.stages()),
+                 active_block_indices(simulation.stages()))
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)
