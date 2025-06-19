@@ -48,7 +48,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& load_cols = demand_lp.load_cols_at(scenario_index, stage_index);
+  auto&& load_cols = demand_lp.load_cols_at(scenario.uid(), stage.uid());
 
   const auto [stage_capacity, capacity_col] =
       demand_lp.capacity_and_col(stage, lp);
@@ -67,7 +67,10 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   BIndexHolder srows;
   srows.reserve(blocks.size());
 
-  for (const auto& [block, lcol] : std::views::zip(blocks, load_cols)) {
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto lcol = load_cols.at(buid);
+
     const auto block_profile =
         profile.at(scenario.uid(), stage.uid(), block.uid());
 
@@ -75,18 +78,18 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
         sc.block_ecost(scenario, stage, block, stage_scost);
     auto name = sc.stb_label(scenario, stage, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
-    scols.push_back(scol);
+    scols[buid] = scol;
 
-    SparseRow srow {.name = std::move(name)};
+    auto srow = SparseRow {.name = std::move(name)};
     srow[scol] = 1;
     srow[lcol] = 1;
 
     if (capacity_col) {
-      srow[capacity_col.value()] = -block_profile;
-      srows.push_back(lp.add_row(std::move(srow.greater_equal(0))));
+      srow[*capacity_col] = -block_profile;
+      srows[buid] = lp.add_row(std::move(srow.greater_equal(0)));
     } else {
       const auto cprofile = stage_capacity * block_profile;
-      srows.push_back(lp.add_row(std::move(srow.greater_equal(cprofile))));
+      srows[buid] = lp.add_row(std::move(srow.greater_equal(cprofile)));
     }
   }
 

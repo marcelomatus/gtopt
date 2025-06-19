@@ -42,8 +42,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& balance_rows_a = bus_a_lp.balance_rows_at(scenario, stage);
-  const auto& balance_rows_b = bus_b_lp.balance_rows_at(scenario, stage);
+  const auto& balance_rows_a =
+      bus_a_lp.balance_rows_at(scenario.uid(), stage.uid());
+  const auto& balance_rows_b =
+      bus_b_lp.balance_rows_at(scenario.uid(), stage.uid());
 
   const auto& blocks = stage.blocks();
 
@@ -61,9 +63,11 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder cnrows;
   cnrows.reserve(blocks.size());
 
-  for (const auto& [block, balance_row_a, balance_row_b] :
-       std::views::zip(blocks, balance_rows_a, balance_rows_b))
-  {
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto balance_row_a = balance_rows_a.at(buid);
+    const auto balance_row_b = balance_rows_b.at(buid);
+
     const auto [block_tmax, block_tmin] = sc.block_maxmin_at(
         stage, block, tmax, tmin, stage_capacity, -stage_capacity);
 
@@ -82,7 +86,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
            .lowb = has_loss ? 0 : block_tmin,
            .uppb = block_tmax,
            .cost = block_tcost});
-      fpcols.push_back(fpc);
+      fpcols[buid] = fpc;
 
       // adding flowp to the bus balances
       brow_a[fpc] = -(1 + stage_lossfactor);
@@ -90,12 +94,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       // adding the capacity constraint
       if (capacity_col) {
-        SparseRow cprow {
-            .name = sc.stb_label(scenario, stage, block, cname, "capp", uid())};
-        cprow[capacity_col.value()] = 1;
+        auto cprow =
+            SparseRow {.name = sc.stb_label(
+                           scenario, stage, block, cname, "capp", uid())}
+                .greater_equal(0);
+        cprow[*capacity_col] = 1;
         cprow[fpc] = -1;
 
-        cprows.push_back(lp.add_row(std::move(cprow.greater_equal(0))));
+        cprows[buid] = lp.add_row(std::move(cprow));
       }
     }
 
@@ -109,7 +115,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
            .uppb = -block_tmin,
            .cost = block_tcost});
 
-      fncols.push_back(fnc);
+      fncols[buid] = fnc;
 
       // adding flown to the bus balances
       brow_b[fnc] = -(1 + stage_lossfactor);
@@ -122,7 +128,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
         cnrow[capacity_col.value()] = 1;
         cnrow[fnc] = -1;
 
-        cnrows.push_back(lp.add_row(std::move(cnrow.greater_equal(0))));
+        cnrows[buid] = lp.add_row(std::move(cnrow.greater_equal(0)));
       }
     }
   }
@@ -144,20 +150,24 @@ bool LineLP::add_to_lp(SystemContext& sc,
       trows.reserve(blocks.size());
 
       for (const auto& block : blocks) {
-        SparseRow trow({.name = sc.stb_label(
-                            scenario, stage, block, cname, "theta", uid())});
+        const auto buid = block.uid();
+        auto trow =
+            SparseRow {.name = sc.stb_label(
+                           scenario, stage, block, cname, "theta", uid())}
+                .equal(0);
+
         trow.reserve(4);
 
-        trow[theta_a_cols.at(block.index())] = 1;
-        trow[theta_b_cols.at(block.index())] = -1;
+        trow[theta_a_cols.at(buid)] = 1;
+        trow[theta_b_cols.at(buid)] = -1;
         if (!fpcols.empty()) {
-          trow[fpcols.at(block.index())] = x;
+          trow[fpcols.at(buid)] = x;
         }
         if (!fncols.empty()) {
-          trow[fncols.at(block.index())] = -x;
+          trow[fncols.at(buid)] = -x;
         }
 
-        trows.push_back(lp.add_row(std::move(trow.equal(0))));
+        trows[buid] = lp.add_row(std::move(trow));
       }
 
       if (!emplace_bholder(scenario, stage, theta_rows, std::move(trows))

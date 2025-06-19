@@ -86,7 +86,7 @@ struct CapacityObjectBase
   [[nodiscard]] constexpr auto capacity_col_at(
       const StageLP& stage) const noexcept
   {
-    return get_optvalue(capainst_cols, stage.index());
+    return get_optvalue(capainst_cols, stage.uid());
   }
 
   /**
@@ -173,11 +173,11 @@ private:
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
 
-  TIndexHolder capainst_cols;
-  TIndexHolder capacost_cols;
-  TIndexHolder expmod_cols;
-  TIndexHolder capainst_rows;
-  TIndexHolder capacost_rows;
+  TIndexUHolder capainst_cols;
+  TIndexUHolder capacost_cols;
+  TIndexUHolder expmod_cols;
+  TIndexUHolder capainst_rows;
+  TIndexUHolder capacost_rows;
 };
 
 template<typename Object>

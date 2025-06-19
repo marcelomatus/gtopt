@@ -236,30 +236,15 @@ public:
   [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
       -> const BusLP&;
 
-#ifdef NONE
   // Methods to handle the state_variables
-  constexpr const auto& add_state_variable_col(const Name& name,
-                                               const PhaseLP& phase,
-                                               Index col)
-  {
-    return simulation().add_state_variable(
-        StateVariable {name, phase.index(), col});
-  }
+  [[nodiscard]] auto add_state_variable(const StageLP& stage, const Name& name)
+      -> std::shared_ptr<StateVariable>;
 
-  [[nodiscard]] constexpr auto get_state_variable_col(
-      const Name& name, const PhaseIndex& stage.index()) const
-  {
-    const auto state_var = simulation().get_state_variable(
-        StateVariable::key_t {name, stage.index()});
+  [[nodiscard]] auto get_state_variable(const StageLP& stage,
+                                        const Name& name) const
+      -> std::shared_ptr<StateVariable>;
 
-    const auto result = state_var
-        ? std::optional<Index>(state_var.value().get().first_col())
-        : std::nullopt;
-
-    return result;
-  }
-
-#endif
+  void reg_state_variable(const StateVariable& svar, const Index& col) const;
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;

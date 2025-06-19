@@ -34,7 +34,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
       const auto tc =
           lp.add_col(theta ? std::move(theta_col.equal(theta.value()))
                            : std::move(theta_col.free()));
-      tblocks.push_back(tc);
+      tblocks[block.uid()] = tc;
     }
   }
 
@@ -69,8 +69,8 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 
   const auto puid = uid();
   for (auto&& block : blocks) {
-    brows.push_back(lp.add_row(
-        {.name = sc.stb_label(scenario, stage, block, cname, "bal", puid)}));
+    brows[block.uid()] = lp.add_row(
+        {.name = sc.stb_label(scenario, stage, block, cname, "bal", puid)});
   }
 
   return emplace_bholder(scenario, stage, balance_rows, std::move(brows))

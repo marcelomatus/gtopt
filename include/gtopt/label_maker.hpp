@@ -33,7 +33,7 @@ public:
   }
 
   template<typename... Types>
-    requires(sizeof...(Types) == 3)
+    requires(sizeof...(Types) >= 3)
   constexpr auto t_label(const StageLP& stage, const Types&... var) const
       -> std::string
   {

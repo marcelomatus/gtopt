@@ -21,7 +21,7 @@
 namespace gtopt
 {
 template<typename FirstIndex>
-using IndexHolder0 = StrongIndexVector<FirstIndex, Index>;
+using IndexHolder0 = gtopt::flat_map<FirstIndex, Index>;
 
 // #define FESOP_USE_UNORDERED_MAP
 
@@ -41,16 +41,20 @@ template<typename FirstIndex, typename SecondIndex, typename ThirdIndex>
 using IndexHolder3 =
     tuple_map_t<std::tuple<FirstIndex, SecondIndex>, IndexHolder0<ThirdIndex>>;
 
-using BIndexHolder = IndexHolder0<BlockIndex>;
-using TIndexHolder = IndexHolder1<StageIndex>;
-using STIndexHolder = IndexHolder2<ScenarioIndex, StageIndex>;
-using STBIndexHolder = IndexHolder3<ScenarioIndex, StageIndex, BlockIndex>;
+using BIndexHolder = IndexHolder0<BlockUid>;
+using TIndexHolder = IndexHolder1<StageUid>;
+using STIndexHolder = IndexHolder2<ScenarioUid, StageUid>;
+using STBIndexHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid>;
 
-using GSTIndexHolder =
-    tuple_map_t<std::tuple<ScenarioIndex, StageIndex>, Index>;
+using BIndexUHolder = IndexHolder0<BlockUid>;
+using TIndexUHolder = IndexHolder1<StageUid>;
+using STIndexUHolder = IndexHolder2<ScenarioUid, StageUid>;
+using STBIndexUHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid>;
+
+using GSTIndexHolder = tuple_map_t<std::tuple<ScenarioUid, StageUid>, Index>;
 
 using GSTBIndexHolder =
-    tuple_map_t<std::tuple<ScenarioIndex, StageIndex, BlockIndex>, Index>;
+    tuple_map_t<std::tuple<ScenarioUid, StageUid, BlockUid>, Index>;
 
 template<typename Map, typename BHolder>
 constexpr auto emplace_bholder(const ScenarioLP& scenario,
@@ -66,7 +70,7 @@ constexpr auto emplace_bholder(const ScenarioLP& scenario,
 
   using Key = typename Map::key_type;
   return (empty_insert || !holder.empty())
-      ? map.emplace(Key {scenario.index(), stage.index()},
+      ? map.emplace(Key {scenario.uid(), stage.uid()},
                     std::forward<BHolder>(holder))
       : std::pair {map.end(), true};
 }
@@ -78,16 +82,16 @@ constexpr auto emplace_value(const ScenarioLP& scenario,
                              Value&& value)
 {
   using Key = typename Map::key_type;
-  return map.emplace(Key {scenario.index(), stage.index()},
+  return map.emplace(Key {scenario.uid(), stage.uid()},
                      std::forward<Value>(value));
 }
 
 template<typename Map, typename Value = typename Map::value_type>
-constexpr auto emplace_stage_value(const StageIndex& stage_index,
+constexpr auto emplace_stage_value(const StageUid& stage_uid,
                                    Map& map,
                                    Value&& value)
 {
-  return map.emplace(stage_index, std::forward<Value>(value));
+  return map.emplace(stage_uid, std::forward<Value>(value));
 }
 
 using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;

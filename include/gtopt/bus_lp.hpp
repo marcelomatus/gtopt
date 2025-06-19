@@ -77,10 +77,10 @@ public:
   bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]]
-  constexpr const auto& balance_rows_at(const ScenarioLP& scenario,
-                                        const StageLP& stage) const noexcept
+  constexpr const auto& balance_rows_at(const ScenarioUid scenario_uid,
+                                        const StageUid stage_uid) const noexcept
   {
-    return balance_rows.at({scenario.index(), stage.index()});
+    return balance_rows.at({scenario_uid, stage_uid});
   }
 
   [[nodiscard]]
@@ -91,8 +91,8 @@ public:
                                const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder&
   {
-    const auto key = std::pair {scenario.index(), stage.index()};
-    if (auto it = theta_cols.find(key); it != theta_cols.end()) {
+    const auto key = std::pair {scenario.uid(), stage.uid()};
+    if (const auto it = theta_cols.find(key); it != theta_cols.end()) {
       return it->second;
     }
     return lazy_add_theta(sc, scenario, stage, lp, blocks);

@@ -47,7 +47,8 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+  auto&& generation_cols =
+      generator_lp.generation_cols_at(scenario.uid(), stage.uid());
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(stage, lp);
@@ -69,7 +70,9 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
   BIndexHolder srows;
   srows.reserve(blocks.size());
 
-  for (const auto& [block, gcol] : std::views::zip(blocks, generation_cols)) {
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto gcol = generation_cols.at(buid);
     const auto block_profile =
         profile.at(scenario.uid(), stage.uid(), block.uid());
 
@@ -77,7 +80,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
         sc.block_ecost(scenario, stage, block, stage_scost);
     auto name = sc.stb_label(scenario, stage, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
-    scols.push_back(scol);
+    scols[buid] = scol;
 
     SparseRow srow {.name = std::move(name)};
     srow[scol] = 1;
@@ -85,10 +88,10 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
     if (capacity_col) {
       srow[capacity_col.value()] = -block_profile;
-      srows.push_back(lp.add_row(std::move(srow.greater_equal(0))));
+      srows[buid] = lp.add_row(std::move(srow.greater_equal(0)));
     } else {
       const auto cprofile = stage_capacity * block_profile;
-      srows.push_back(lp.add_row(std::move(srow.greater_equal(cprofile))));
+      srows[buid] = lp.add_row(std::move(srow.greater_equal(cprofile)));
     }
   }
 

@@ -57,41 +57,46 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& blocks = stage.blocks();
 
   auto&& generator = sc.element(generator_index);
-  auto&& gen_cols = generator.generation_cols_at(scenario, stage);
+  auto&& gen_cols = generator.generation_cols_at(scenario.uid(), stage.uid());
 
   auto&& demand = sc.element(demand_index);
-  auto&& load_cols = demand.load_cols_at(scenario_index, stage_index);
+  auto&& load_cols = demand.load_cols_at(scenario.uid(), stage.uid());
 
   auto&& battery = sc.element(battery_index);
-  auto&& flow_cols = battery.flow_cols_at(scenario_index, stage_index);
+  auto&& flow_cols = battery.flow_cols_at(scenario.uid(), stage.uid());
 
   BIndexHolder rrows;
   rrows.reserve(blocks.size());
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (const auto& [block, gcol, lcol, fcol] :
-       std::views::zip(blocks, gen_cols, load_cols, flow_cols))
-  {
-    SparseRow rrow {
-        .name = sc.stb_label(scenario, stage, block, cname, "conv", uid())};
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto fcol = flow_cols.at(buid);
+    const auto gcol = gen_cols.at(buid);
+    const auto lcol = load_cols.at(buid);
+
+    auto rrow = SparseRow {.name = sc.stb_label(
+                               scenario, stage, block, cname, "conv", uid())}
+                    .equal(0);
 
     rrow[fcol] = -stage_conversion_rate;
     rrow[gcol] = +1;
     rrow[lcol] = -1;
 
-    rrows.push_back(lp.add_row(std::move(rrow.equal(0))));
+    rrows[buid] = lp.add_row(std::move(rrow));
 
     // adding the capacity constraint
-    if (capacity_col.has_value()) {
-      SparseRow crow {
-          .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
+    if (capacity_col) {
+      auto crow = SparseRow {.name = sc.stb_label(
+                                 scenario, stage, block, cname, "cap", uid())}
+                      .greater_equal(0);
 
-      crow[capacity_col.value()] = 1;
+      crow[*capacity_col] = 1;
       crow[gcol] = -1;
       crow[lcol] = -1;
 
-      crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
+      crows[buid] = lp.add_row(std::move(crow));
     }
   }
 

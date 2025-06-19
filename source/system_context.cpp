@@ -24,14 +24,12 @@ constexpr auto active_block_indices(const Stage& stages) noexcept
 {
   std::vector<Index> indices;
 
-  for (Index idx {0}; const auto& stage : stages) {
+  for (const auto& stage : stages) {
     if (stage.is_active()) {
-      const auto block_count = stage.blocks().size();
-      const auto block_indices =
-          std::views::iota(idx, idx + static_cast<Index>(block_count));
-      indices.insert(indices.end(), block_indices.begin(), block_indices.end());
+      for (const auto& blck : stage.blocks()) {
+        indices.push_back(blck.uid());
+      }
     }
-    idx += static_cast<Index>(stage.blocks().size());
   }
 
   return indices;
@@ -44,9 +42,9 @@ constexpr auto active_stage_block_indices(const Stages& stages) noexcept
       | std::views::transform(
              [](const auto& stage)
              {
-               return std::views::iota(
-                          Index {0}, static_cast<Index>(stage.blocks().size()))
-                   | std::ranges::to<std::vector>();
+               return stage.blocks()
+                   | std::views::transform(&BlockLP::uid)  // Extract block UIDs
+                   | std::ranges::to<std::vector<Index>>();
              })
       | std::ranges::to<std::vector>();
 }
@@ -61,13 +59,13 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     , FlatHelper(simulation,
                  simulation.scenarios()
                      | std::views::filter(&ScenarioLP::is_active)
-                     | std::views::transform(&ScenarioLP::index)
+                     | std::views::transform(&ScenarioLP::uid)
                      | std::ranges::to<std::vector>(),
                  simulation.stages() | std::views::filter(&StageLP::is_active)
-                     | std::views::transform(&StageLP::index)
+                     | std::views::transform(&StageLP::uid)
                      | std::ranges::to<std::vector>(),
-                 active_stage_block_indices<BlockIndex>(simulation.stages()),
-                 active_block_indices<BlockIndex>(simulation.stages()))
+                 active_stage_block_indices<BlockUid>(simulation.stages()),
+                 active_block_indices<BlockUid>(simulation.stages()))
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)

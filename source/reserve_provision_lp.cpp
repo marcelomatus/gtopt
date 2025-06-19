@@ -22,16 +22,13 @@ constexpr bool add_provision(const SystemContext& sc,
                              const auto& blocks,
                              const auto capacity_col,
                              const auto& generation_cols,
-                             const auto uid,
+                             const Uid uid,
                              auto& rp,
-                             const auto pname,
+                             const std::string_view pname,
                              const auto& requirement_rows,
                              auto provision_row)
 {
   constexpr std::string_view cname = "rprov";
-
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
 
   const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
   if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
@@ -42,9 +39,10 @@ constexpr bool add_provision(const SystemContext& sc,
   const auto stage_capacity_factor = rp.capacity_factor.optval(stage.uid());
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
-  for (const auto& [block, gcol] : std::views::zip(blocks, generation_cols)) {
-    using STBKey = GSTBIndexHolder::key_type;
-    const STBKey stb_k {scenario.uid(), stage.uid(), block.index()};
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto gcol = generation_cols.at(buid);
+    const auto stb_k = std::tuple {scenario.uid(), stage.uid(), buid};
 
     const auto requirement_row = get_optvalue(requirement_rows, stb_k);
     if (!requirement_row) {
@@ -57,7 +55,7 @@ constexpr bool add_provision(const SystemContext& sc,
       // create the provision col and row when needed and if possible, i.e.,
       // if there is a rmax provision defined for the stage and block
       //
-      auto block_rmax = rp.max.optval(stage.uid(), block.uid());
+      auto block_rmax = rp.max.optval(stage.uid(), buid);
       if (!block_rmax) {
         if (use_capacity) {
           block_rmax = lp.get_col_uppb(gcol);
@@ -76,10 +74,10 @@ constexpr bool add_provision(const SystemContext& sc,
       rp.provision_rows[stb_k] = lp.add_row(provision_row(name, gcol, rcol));
 
       if (use_capacity) {
-        SparseRow crow {.name = sc.label("cap", name)};
+        auto crow = SparseRow {.name = sc.label("cap", name)}.greater_equal(0);
         crow[capacity_col.value()] = stage_capacity_factor.value();
         crow[rcol] = -1;
-        rp.capacity_rows[stb_k] = lp.add_row(std::move(crow.greater_equal(0)));
+        rp.capacity_rows[stb_k] = lp.add_row(std::move(crow));
       }
 
       provision_col = rcol;
@@ -113,7 +111,7 @@ constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
 constexpr auto make_rzone_indexes(const InputContext& ic,
                                   const std::string& rzstr)
 {
-  std::vector<std::string> rzones = split(rzstr, ':');
+  auto rzones = split(rzstr, ':');
 
   auto is_uid = [](const auto& s)
   { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };
@@ -186,29 +184,31 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+  auto&& generation_cols =
+      generator_lp.generation_cols_at(scenario.uid(), stage.uid());
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(stage, lp);
 
   auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
   {
-    SparseRow rrow {.name = row_name};
+    auto rrow = SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
     rrow[rcol] = rrow[gcol] = 1;
 
     if (capacity_col) {
-      rrow[capacity_col.value()] = -1;
+      rrow[*capacity_col] = -1;
       return rrow.less_equal(0.0);
     }
-    return rrow.less_equal(lp.get_col_uppb(gcol));
+    return rrow;
   };
 
   auto dprov_row = [&](const auto& row_name, auto gcol, auto rcol)
   {
-    SparseRow rrow {.name = row_name};
+    auto rrow =
+        SparseRow {.name = row_name}.greater_equal(lp.get_col_lowb(gcol));
     rrow[gcol] = 1;
     rrow[rcol] = -1;
-    return rrow.greater_equal(lp.get_col_lowb(gcol));
+    return rrow;
   };
 
   const auto& blocks = stage.blocks();

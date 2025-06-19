@@ -40,10 +40,10 @@ public:
   bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]]
-  constexpr auto&& load_cols_at(const ScenarioIndex scenary_index,
-                                const StageIndex stage_index) const noexcept
+  constexpr auto&& load_cols_at(const ScenarioUid scenary_uid,
+                                const StageUid stage_uid) const noexcept
   {
-    return load_cols.at({scenary_index, stage_index});
+    return load_cols.at({scenary_uid, stage_uid});
   }
 
 private:

@@ -43,14 +43,14 @@ public:
   {
   }
 
-  constexpr auto vfin_col_at(const ScenarioIndex scenario,
-                             const StageIndex stage) const
+  constexpr auto vfin_col_at(const ScenarioUid scenario,
+                             const StageUid stage) const
   {
     return vfin_cols.at({scenario, stage});
   }
 
-  constexpr auto vini_col_at(const ScenarioIndex scenario,
-                             const StageIndex stage) const
+  constexpr auto vini_col_at(const ScenarioUid scenario,
+                             const StageUid stage) const
   {
     return vini_cols.at({scenario, stage});
   }
@@ -60,21 +60,16 @@ public:
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp,
-                 const std::string_view& cname,
+                 const std::string_view cname,
                  const BIndexHolder& rcols,
                  double stage_capacity,
                  std::optional<Index> capacity_col = {})
   {
-    const auto stage_index = stage.index();
-    const auto scenario_index = scenario.index();
-
     if (!is_active(stage)) {
       return true;
     }
 
-    const auto prev_stage_index = !sc.is_first_stage(stage_index)
-        ? OptStageIndex {stage_index - 1}
-        : OptStageIndex {};
+    const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
 
     const auto stage_vcost = sc.scenario_stage_ecost(  //
                                  scenario,
@@ -88,8 +83,8 @@ public:
     const auto [stage_vmax, stage_vmin] =
         sc.stage_maxmin_at(stage, vmax, vmin, stage_capacity);
 
-    const auto vicol = prev_stage_index.has_value()
-        ? vfin_col_at(scenario_index, prev_stage_index.value())
+    const auto vicol = prev_stage
+        ? vfin_col_at(scenario.uid(), prev_stage->uid())
         : lp.add_col(
               {.name = sc.st_label(scenario, stage, cname, "vini", uid()),
                .lowb = storage().vini.value_or(stage_vmin),
@@ -104,14 +99,14 @@ public:
     BIndexHolder crows;
     crows.reserve(blocks.size());
 
-    for (size_t prev_vc = vicol;
-         const auto& [block_index, block] : enumerate<BlockIndex>(blocks))
-    {
-      SparseRow vrow {
-          .name = sc.stb_label(scenario, stage, block, cname, "vol", uid())};
+    auto prev_vc = vicol;
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto is_last = buid == blocks.back().uid();
 
-      const auto is_last =
-          block_index == blocks.size() - 1 && sc.is_last_stage(stage_index);
+      auto vrow = SparseRow {.name = sc.stb_label(
+                                 scenario, stage, block, cname, "vol", uid())}
+                      .equal(0);
 
       const auto vc = lp.add_col(
           {.name = vrow.name,
@@ -119,32 +114,34 @@ public:
            .uppb = stage_vmax,
            .cost = stage_vcost});
 
-      vcols.push_back(vc);
+      vcols[buid] = vc;
 
       vrow[prev_vc] = -(1 - (hour_loss * block.duration()));
       vrow[vc] = 1;
-      vrow[rcols[block_index]] = block.duration();
 
-      vrows.push_back(lp.add_row(std::move(vrow.equal(0))));
+      vrow[rcols.at(buid)] = block.duration();
 
-      prev_vc = vc;
+      vrows[buid] = lp.add_row(std::move(vrow));
 
       // adding the capacity constraint
-      if (capacity_col.has_value()) {
-        SparseRow crow {
-            .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
-        crow[capacity_col.value()] = 1;
+      if (capacity_col) {
+        auto crow = SparseRow {.name = sc.stb_label(
+                                   scenario, stage, block, cname, "cap", uid())}
+                        .greater_equal(0);
+        crow[*capacity_col] = 1;
         crow[vc] = -1;
 
-        crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
+        crows[buid] = lp.add_row(std::move(crow));
       }
+
+      prev_vc = vc;
     }
 
     return (crows.empty()
             || emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
                    .second)
         && emplace_value(scenario, stage, vini_cols, vicol).second
-        && emplace_value(scenario, stage, vfin_cols, vcols.back()).second
+        && emplace_value(scenario, stage, vfin_cols, prev_vc).second
         && emplace_bholder(scenario, stage, volumen_rows, std::move(vrows))
                .second
         && emplace_bholder(scenario, stage, volumen_cols, std::move(vcols))
