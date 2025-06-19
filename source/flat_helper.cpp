@@ -19,7 +19,6 @@ namespace
 {
 using namespace gtopt;
 
-template<typename Operation = decltype(true_fnc)>
 constexpr STBUids make_stb_uids(const SimulationLP& sc)
 {
   const auto size = sc.scenarios().size() * sc.blocks().size();
@@ -48,7 +47,6 @@ constexpr STBUids make_stb_uids(const SimulationLP& sc)
       std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
 }
 
-template<typename Operation = decltype(true_fnc)>
 constexpr STUids make_st_uids(const SimulationLP& sc) noexcept
 {
   const auto size = sc.scenarios().size() * sc.stages().size();
@@ -74,7 +72,6 @@ constexpr STUids make_st_uids(const SimulationLP& sc) noexcept
   return {std::move(scenario_uids), std::move(stage_uids)};
 }
 
-template<typename Operation = decltype(true_fnc)>
 constexpr TUids make_t_uids(const SimulationLP& sc) noexcept
 {
   const auto size = sc.stages().size();
