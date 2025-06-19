@@ -51,7 +51,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
-  const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
+  const auto& balance_rows =
+      bus_lp.balance_rows_at(scenario.uid(), stage.uid());
   const auto& blocks = stage.blocks();
 
   // adding the minimum energy constraint
@@ -74,13 +75,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                .lowb = stage_emin.value(),
                .uppb = stage_emin.value()});
 
-    const GSTIndexHolder::key_type st_k {scenario.index(), stage.index()};
+    const auto st_k = std::pair {scenario.uid(), stage.uid()};
     emin_cols[st_k] = emin_col;
 
-    SparseRow row {.name = std::move(name)};
+    auto row = SparseRow {.name = std::move(name)}.greater_equal(0);
     row[emin_col] = -1;
 
-    return emin_rows[st_k] = lp.add_row(std::move(row.greater_equal(0)));
+    return emin_rows[st_k] = lp.add_row(std::move(row));
   }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
 
   BIndexHolder lcols;
@@ -88,8 +89,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (const auto& [block, balance_row] : std::views::zip(blocks, balance_rows))
-  {
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto balance_row = balance_rows.at(buid);
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
 
     const auto lcol = stage_fcost
@@ -103,7 +105,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                       .lowb = block_lmax,
                       .uppb = block_lmax});
 
-    lcols.push_back(lcol);
+    lcols[buid] = lcol;
 
     // adding load variable to the balance and load rows
     auto& brow = lp.row_at(balance_row);
@@ -111,12 +113,14 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      SparseRow crow {
-          .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
-      crow[capacity_col.value()] = 1;
+      auto crow = SparseRow {.name = sc.stb_label(
+                                 scenario, stage, block, cname, "cap", uid())}
+                      .greater_equal(0);
+
+      crow[*capacity_col] = 1;
       crow[lcol] = -1;
 
-      crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
+      crows[buid] = lp.add_row(std::move(crow));
     }
 
     // adding the minimum energy constraint

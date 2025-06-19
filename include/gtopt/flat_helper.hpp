@@ -76,13 +76,11 @@ namespace gtopt
 class FlatHelper
 {
 public:
-  FlatHelper() = delete;
-
   explicit FlatHelper(const SimulationLP& simulation,
-                      std::vector<ScenarioIndex> active_scenarios,
-                      std::vector<StageIndex> active_stages,
-                      std::vector<std::vector<BlockIndex>> active_stage_blocks,
-                      std::vector<BlockIndex> active_blocks)
+                      std::vector<ScenarioUid> active_scenarios,
+                      std::vector<StageUid> active_stages,
+                      std::vector<std::vector<BlockUid>> active_stage_blocks,
+                      std::vector<BlockUid> active_blocks)
       : m_simulation_(simulation)
       , m_active_scenarios_(std::move(active_scenarios))
       , m_active_stages_(std::move(active_stages))
@@ -99,35 +97,31 @@ public:
     return m_simulation_.get();
   }
 
-  [[nodiscard]] constexpr const std::vector<ScenarioIndex>& active_scenarios()
-      const noexcept
+  [[nodiscard]] constexpr const auto& active_scenarios() const noexcept
   {
     return m_active_scenarios_;
   }
 
-  [[nodiscard]] constexpr const std::vector<StageIndex>& active_stages()
-      const noexcept
+  [[nodiscard]] constexpr const auto& active_stages() const noexcept
   {
     return m_active_stages_;
   }
 
-  [[nodiscard]] constexpr const std::vector<std::vector<BlockIndex>>&
-  active_stage_blocks() const noexcept
+  [[nodiscard]] constexpr const auto& active_stage_blocks() const noexcept
   {
     return m_active_stage_blocks_;
   }
 
-  [[nodiscard]] constexpr const std::vector<BlockIndex>& active_blocks()
-      const noexcept
+  [[nodiscard]] constexpr const auto& active_blocks() const noexcept
   {
     return m_active_blocks_;
   }
 
   [[nodiscard]] constexpr bool is_first_scenario(
-      const ScenarioIndex& scenario_index) const noexcept
+      const ScenarioUid& scenario_uid) const noexcept
   {
     return !m_active_scenarios_.empty()
-        && scenario_index == m_active_scenarios_.front();
+        && scenario_uid == m_active_scenarios_.front();
   }
 
   [[nodiscard]] constexpr size_t active_scenario_count() const noexcept
@@ -146,27 +140,32 @@ public:
   }
 
   [[nodiscard]] constexpr bool is_first_stage(
-      const StageIndex& stage_index) const noexcept
+      const StageUid& stage_uid) const noexcept
   {
     if (m_active_stages_.empty()) {
       return false;
     }
-    return stage_index == m_active_stages_.front();
+    return stage_uid == m_active_stages_.front();
   }
 
   [[nodiscard]] constexpr bool is_first_stage(
       const StageLP& stage) const noexcept
   {
-    return is_first_stage(stage.index());
+    return is_first_stage(stage.uid());
   }
 
   [[nodiscard]] constexpr bool is_last_stage(
-      const StageIndex& stage_index) const noexcept
+      const StageUid& stage_uid) const noexcept
   {
     if (m_active_stages_.empty()) {
       return false;
     }
-    return stage_index == m_active_stages_.back();
+    return stage_uid == m_active_stages_.back();
+  }
+
+  [[nodiscard]] constexpr auto prev_stage(const StageLP& stage) const noexcept
+  {
+    return simulation().prev_stage(stage);
   }
 
   [[nodiscard]] STBUids stb_uids() const;
@@ -206,14 +205,14 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-      for (auto&& tindex : m_active_stages_) {
-        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
-          auto&& stbiter = hstb.find({sindex, tindex, bindex});
+    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
+      for (auto&& tuid : m_active_stages_) {
+        for (auto&& buid : m_active_stage_blocks_[tuid]) {
+          auto&& stbiter = hstb.find({suid, tuid, buid});
           if (stbiter != hstb.end()) {
             const auto value = proj(stbiter->second);
             values[idx] =
-                factor.empty() ? value : value * factor[sindex][tindex][bindex];
+                factor.empty() ? value : value * factor[suid][tuid][buid];
             valid[idx] = true;
             ++count;
 
@@ -242,17 +241,16 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-      for (auto&& tindex : m_active_stages_) {
-        auto&& stiter = hstb.find({sindex, tindex});
-        const auto has_stindex =
-            stiter != hstb.end() && !stiter->second.empty();
+    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
+      for (auto&& tuid : m_active_stages_) {
+        auto&& stiter = hstb.find({suid, tuid});
+        const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
 
-        for (auto&& bindex : m_active_stage_blocks_[tindex]) {
-          if (has_stindex) {
-            const auto value = proj(stiter->second.at(bindex));
+        for (auto&& buid : m_active_stage_blocks_[tuid]) {
+          if (has_stuid) {
+            const auto value = proj(stiter->second.at(buid));
             values[idx] =
-                factor.empty() ? value : value * factor[sindex][tindex][bindex];
+                factor.empty() ? value : value * factor[suid][tuid][buid];
 
             valid[idx] = (true);
             ++count;
@@ -282,14 +280,14 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& sindex : m_active_scenarios_) {
-      for (auto&& tindex : m_active_stages_) {
-        auto&& stiter = hst.find({sindex, tindex});
-        const auto has_stindex = stiter != hst.end();
+    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
+      for (auto&& tuid : m_active_stages_) {
+        auto&& stiter = hst.find({suid, tuid});
+        const auto has_stuid = stiter != hst.end();
 
-        if (has_stindex) {
+        if (has_stuid) {
           const auto value = proj(stiter->second);
-          values[idx] = factor.empty() ? value : value * factor[sindex][tindex];
+          values[idx] = factor.empty() ? value : value * factor[suid][tuid];
           valid[idx] = true;
           ++count;
 
@@ -317,13 +315,13 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& tindex : m_active_stages_) {
-      auto&& titer = ht.find(tindex);
-      const auto has_tindex = titer != ht.end();
+    for (size_t count = 0; auto&& tuid : m_active_stages_) {
+      auto&& titer = ht.find(tuid);
+      const auto has_tuid = titer != ht.end();
 
-      if (has_tindex) {
+      if (has_tuid) {
         const auto value = proj(titer->second);
-        values[idx] = factor.empty() ? value : value * factor[tindex];
+        values[idx] = factor.empty() ? value : value * factor[tuid];
 
         valid[idx] = true;
         ++count;
@@ -339,10 +337,11 @@ public:
 
 private:
   std::reference_wrapper<const SimulationLP> m_simulation_;
-  std::vector<ScenarioIndex> m_active_scenarios_ {};
-  std::vector<StageIndex> m_active_stages_ {};
-  std::vector<std::vector<BlockIndex>> m_active_stage_blocks_ {};
-  std::vector<BlockIndex> m_active_blocks_ {};
+
+  std::vector<ScenarioUid> m_active_scenarios_ {};
+  std::vector<StageUid> m_active_stages_ {};
+  std::vector<std::vector<BlockUid>> m_active_stage_blocks_ {};
+  std::vector<BlockUid> m_active_blocks_ {};
 };
 
 }  // namespace gtopt

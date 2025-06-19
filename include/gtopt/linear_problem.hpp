@@ -31,7 +31,7 @@ namespace gtopt
  */
 struct FlatLinearProblem
 {
-  using index_t = int;
+  using index_t = int32_t;  ///< Type for indices (row/column indices)
   using name_vec_t = std::vector<std::string>;
   using index_map_t = flat_map<std::string_view, index_t>;
 
@@ -105,6 +105,8 @@ public:
    * @param col Column (variable) definition
    * @return Index of the added column
    */
+  template<typename SparseCol = gtopt::SparseCol>
+  [[nodiscard]]
   constexpr index_t add_col(SparseCol&& col) noexcept
   {
     const auto index = static_cast<index_t>(cols.size());
@@ -113,7 +115,7 @@ public:
       ++colints;
     }
 
-    cols.emplace_back(std::move(col));
+    cols.emplace_back(std::forward<SparseCol>(col));
     return index;
   }
 
@@ -122,12 +124,14 @@ public:
    * @param row Row (constraint) definition
    * @return Index of the added row
    */
+  template<typename SparseRow = gtopt::SparseRow>
+  [[nodiscard]]
   constexpr index_t add_row(SparseRow&& row) noexcept
   {
     const auto index = static_cast<index_t>(rows.size());
 
     ncoeffs += row.size();
-    rows.emplace_back(std::move(row));
+    rows.emplace_back(std::forward<SparseRow>(row));
     return index;
   }
 

@@ -56,17 +56,11 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   BIndexHolder fcols;
   fcols.reserve(blocks.size());
 
-  // Use C++23 ranges to process blocks
-  for (auto&& name : blocks
-           | std::views::transform(
-                         [&](const auto& b)
-                         {
-                           return sc.stb_label(
-                               scenario, stage, b, cname, "flow", uid());
-                         }))
-  {
-    SparseCol fcol {.name = name};
-    fcols.push_back(lp.add_col(std::move(fcol.free())));
+  for (auto&& block : blocks) {
+    const auto col = lp.add_col(SparseCol {
+        .name = sc.stb_label(scenario, stage, block, cname, "flow", uid())}
+                                    .free());
+    fcols[block.uid()] = col;
   }
 
   // Add storage-specific constraints (energy balance, SOC limits, etc.)

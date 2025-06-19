@@ -83,7 +83,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
-  const auto& balance_rows = bus.balance_rows_at(scenario, stage);
+  const auto& balance_rows = bus.balance_rows_at(scenario.uid(), stage.uid());
   const auto& blocks = stage.blocks();
 
   BIndexHolder gcols;
@@ -91,7 +91,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   BIndexHolder crows;
   crows.reserve(blocks.size());
 
-  for (auto&& [block, balance_row] : std::views::zip(blocks, balance_rows)) {
+  for (auto&& block : blocks) {
+    const auto buid = block.uid();
+    const auto balance_row = balance_rows.at(buid);
+
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
@@ -101,7 +104,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
-    gcols.push_back(gc);
+    gcols[buid] = gc;
 
     // Add generator output to the bus power balance equation
     // Factor (1-lossfactor) accounts for generator losses
@@ -110,13 +113,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
-    if (capacity_col.has_value()) {
-      SparseRow crow {
-          .name = sc.stb_label(scenario, stage, block, cname, "cap", uid())};
-      crow[capacity_col.value()] = 1;
+    if (capacity_col) {
+      auto crow = SparseRow {.name = sc.stb_label(
+                                 scenario, stage, block, cname, "cap", uid())}
+                      .greater_equal(0);
+      crow[*capacity_col] = 1;
       crow[gc] = -1;
 
-      crows.push_back(lp.add_row(std::move(crow.greater_equal(0))));
+      crows[buid] = lp.add_row(std::move(crow));
     }
   }
 

@@ -20,12 +20,11 @@ TEST_CASE("Active Elements Accessors")
   Simulation psimulation;
   SimulationLP simulation {psimulation, options};
 
-  const std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};
-  const std::vector<StageIndex> active_stages = {StageIndex {0}};
-  const std::vector<std::vector<BlockIndex>> active_stage_blocks = {
-      {BlockIndex {0}, BlockIndex {1}}};
-  const std::vector<BlockIndex> active_blocks = {BlockIndex {0},
-                                                 BlockIndex {1}};
+  const std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0}};
+  const std::vector<StageUid> active_stages = {StageUid {0}};
+  const std::vector<std::vector<BlockUid>> active_stage_blocks = {
+      {BlockUid {0}, BlockUid {1}}};
+  const std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
 
   const FlatHelper helper(simulation,
                           active_scenarios,
@@ -37,15 +36,15 @@ TEST_CASE("Active Elements Accessors")
   {
     CHECK(helper.active_scenarios().size() == 1);
     CHECK(helper.active_scenario_count() == 1);
-    CHECK(helper.is_first_scenario(ScenarioIndex {0}));
+    CHECK(helper.is_first_scenario(ScenarioUid {0}));
   }
 
   SUBCASE("Stage accessors")
   {
     CHECK(helper.active_stages().size() == 1);
     CHECK(helper.active_stage_count() == 1);
-    CHECK(helper.is_first_stage(StageIndex {0}));
-    CHECK(helper.is_last_stage(StageIndex {0}));
+    CHECK(helper.is_first_stage(StageUid {0}));
+    CHECK(helper.is_last_stage(StageUid {0}));
   }
 
   SUBCASE("Block accessors")
@@ -59,11 +58,11 @@ TEST_CASE("Active Elements Accessors")
 
 TEST_CASE("Flat helper - Flat Methods")
 {
-  std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0}};
-  std::vector<StageIndex> active_stages = {StageIndex {0}};
-  std::vector<std::vector<BlockIndex>> active_stage_blocks = {
-      {BlockIndex {0}, BlockIndex {1}}};
-  std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
+  std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0}};
+  std::vector<StageUid> active_stages = {StageUid {0}};
+  std::vector<std::vector<BlockUid>> active_stage_blocks = {
+      {BlockUid {0}, BlockUid {1}}};
+  std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
 
   OptionsLP options;
   Simulation psimulation;
@@ -78,8 +77,8 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("GSTBIndexHolder")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] = 20;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {1}}] = 20;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -93,9 +92,10 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("STBIndexHolder")
   {
     STBIndexHolder holder;
-    const IndexHolder0<BlockIndex> blocks = {10, 20};
+    const IndexHolder0<BlockUid> blocks = {{BlockUid {0}, 10},
+                                           {BlockUid {1}, 20}};
 
-    holder[{ScenarioIndex {0}, StageIndex {0}}] = blocks;
+    holder[{ScenarioUid {0}, StageUid {0}}] = blocks;
 
     block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -109,7 +109,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("STIndexHolder")
   {
     STIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}}] = 42;
+    holder[{ScenarioUid {0}, StageUid {0}}] = 42;
 
     const scenario_stage_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -122,7 +122,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("TIndexHolder")
   {
     TIndexHolder holder;
-    holder[StageIndex {0}] = 99;
+    holder[StageUid {0}] = 99;
 
     const stage_factor_matrix_t factor {};
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -135,7 +135,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("With Factor")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
     block_factor_matrix_t factor(boost::extents[1][1]);
     factor[0][0] = {2.0};  // Factor for block 0
@@ -164,9 +164,9 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(helper.active_scenario_count() == 0);
     CHECK(helper.active_stage_count() == 0);
     CHECK(helper.active_block_count() == 0);
-    CHECK_FALSE(helper.is_first_scenario(ScenarioIndex {0}));
-    CHECK_FALSE(helper.is_first_stage(StageIndex {0}));
-    CHECK_FALSE(helper.is_last_stage(StageIndex {0}));
+    CHECK_FALSE(helper.is_first_scenario(ScenarioUid {0}));
+    CHECK_FALSE(helper.is_first_stage(StageUid {0}));
+    CHECK_FALSE(helper.is_last_stage(StageUid {0}));
 
     // Test all flat() variants with empty inputs
     GSTBIndexHolder gstb_holder;
@@ -201,14 +201,14 @@ TEST_CASE("Flat Helper - Edge Cases")
 
     // Only some scenarios/stages active
     FlatHelper helper(simulation,
-                      {ScenarioIndex {0}},
-                      {StageIndex {0}},
-                      {{BlockIndex {0}}},  // Only first block active
-                      {BlockIndex {0}});
+                      {ScenarioUid {0}},
+                      {StageUid {0}},
+                      {{BlockUid {0}}},  // Only first block active
+                      {BlockUid {0}});
 
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {1}}] =
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {1}}] =
         20;  // Inactive block
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -219,12 +219,12 @@ TEST_CASE("Flat Helper - Edge Cases")
 
   SUBCASE("Missing Values")
   {
-    std::vector<ScenarioIndex> active_scenarios = {ScenarioIndex {0},
-                                                   ScenarioIndex {1}};
-    std::vector<StageIndex> active_stages = {StageIndex {0}, StageIndex {1}};
-    std::vector<std::vector<BlockIndex>> active_stage_blocks = {
-        {BlockIndex {0}}, {BlockIndex {1}}};
-    std::vector<BlockIndex> active_blocks = {BlockIndex {0}, BlockIndex {1}};
+    std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0},
+                                                 ScenarioUid {1}};
+    std::vector<StageUid> active_stages = {StageUid {0}, StageUid {1}};
+    std::vector<std::vector<BlockUid>> active_stage_blocks = {{BlockUid {0}},
+                                                              {BlockUid {1}}};
+    std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
 
     OptionsLP options;
     Simulation psimulation;
@@ -236,7 +236,7 @@ TEST_CASE("Flat Helper - Edge Cases")
                       active_blocks);
 
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
     block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -254,10 +254,10 @@ TEST_CASE("Flat Helper - Edge Cases")
 }
 TEST_CASE("FlatHelper Move Semantics")
 {
-  std::vector<ScenarioIndex> scenarios = {ScenarioIndex {0}};
-  std::vector<StageIndex> stages = {StageIndex {0}};
-  std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
-  std::vector<BlockIndex> blocks = {BlockIndex {0}};
+  std::vector<ScenarioUid> scenarios = {ScenarioUid {0}};
+  std::vector<StageUid> stages = {StageUid {0}};
+  std::vector<std::vector<BlockUid>> stage_blocks = {{BlockUid {0}}};
+  std::vector<BlockUid> blocks = {BlockUid {0}};
 
   OptionsLP options;
   Simulation psimulation;
@@ -277,10 +277,10 @@ TEST_CASE("FlatHelper Move Semantics")
   {
     FlatHelper original(simulation, scenarios, stages, stage_blocks, blocks);
     FlatHelper moved(simulation,
-                     {ScenarioIndex {0}},
-                     {StageIndex {0}},
-                     {{BlockIndex {0}}},
-                     {BlockIndex {0}});
+                     {ScenarioUid {0}},
+                     {StageUid {0}},
+                     {{BlockUid {0}}},
+                     {BlockUid {0}});
     moved = std::move(original);
 
     CHECK(moved.active_scenario_count() == 1);
@@ -290,10 +290,10 @@ TEST_CASE("FlatHelper Move Semantics")
 }
 TEST_CASE("FlatHelper Const Correctness")
 {
-  const std::vector<ScenarioIndex> scenarios = {ScenarioIndex {0}};
-  const std::vector<StageIndex> stages = {StageIndex {0}};
-  const std::vector<std::vector<BlockIndex>> stage_blocks = {{BlockIndex {0}}};
-  const std::vector<BlockIndex> blocks = {BlockIndex {0}};
+  const std::vector<ScenarioUid> scenarios = {ScenarioUid {0}};
+  const std::vector<StageUid> stages = {StageUid {0}};
+  const std::vector<std::vector<BlockUid>> stage_blocks = {{BlockUid {0}}};
+  const std::vector<BlockUid> blocks = {BlockUid {0}};
 
   OptionsLP options;
   Simulation psimulation;
@@ -312,7 +312,7 @@ TEST_CASE("FlatHelper Const Correctness")
   SUBCASE("Const Flat Methods")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
     CHECK_NOTHROW(helper.flat(holder, [](auto v) { return v; }));
   }
@@ -324,12 +324,12 @@ TEST_CASE("FlatHelper Template Constraints")
   SimulationLP simulation {psimulation, options};
 
   FlatHelper helper(simulation,
-                    {ScenarioIndex {0}},
-                    {StageIndex {0}},
-                    {{BlockIndex {0}}},
-                    {BlockIndex {0}});
+                    {ScenarioUid {0}},
+                    {StageUid {0}},
+                    {{BlockUid {0}}},
+                    {BlockUid {0}});
   GSTBIndexHolder holder;
-  holder[{ScenarioIndex {0}, StageIndex {0}, BlockIndex {0}}] = 10;
+  holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
   SUBCASE("Valid Projection")
   {

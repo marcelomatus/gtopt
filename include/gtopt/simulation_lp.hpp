@@ -45,7 +45,7 @@ class SimulationLP
 public:
   SimulationLP(SimulationLP&&) noexcept = default;
   SimulationLP(const SimulationLP&) = default;
-  SimulationLP() = default;
+
   SimulationLP& operator=(SimulationLP&&) noexcept = default;
   SimulationLP& operator=(const SimulationLP&) noexcept = default;
   ~SimulationLP() noexcept = default;
@@ -115,6 +115,32 @@ public:
   [[nodiscard]] constexpr const auto& stages() const noexcept
   {
     return m_stage_array_;
+  }
+
+  [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
+  {
+    if (stage.index() == StageIndex {0}) {
+      throw std::out_of_range("No previous stage for the first stage");
+    }
+    return m_stage_array_[stage.index() - 1];
+  }
+
+  [[nodiscard]] constexpr auto prev_stage(const StageLP& stage) const noexcept
+      -> std::pair<const StageLP*, const PhaseLP*>
+  {
+    if (stage.index() == StageIndex {0}) {
+      if (const auto phase_index = stage.phase_index();
+          phase_index == PhaseIndex {0})
+      {
+        return {nullptr, nullptr};
+      }
+      auto&& prev_phase = phases()[stage.phase_index() - 1];
+      auto&& prev_stage = prev_phase.stages().back();
+      return {&prev_stage, &prev_phase};
+    }
+
+    const auto prev_stage_index = StageIndex {stage.index() - 1};
+    return {&m_stage_array_[prev_stage_index], nullptr};
   }
 
 private:
