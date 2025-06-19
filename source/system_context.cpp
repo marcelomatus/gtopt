@@ -1,4 +1,12 @@
-#include <ranges>
+/**
+ * @file      system_context.cpp
+ * @brief     Header of
+ * @date      Thu Jun 19 11:13:31 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
@@ -17,16 +25,7 @@ namespace gtopt
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
           simulation.options(), simulation.scenarios(), simulation.stages())
-    , FlatHelper(simulation,
-                 simulation.scenarios()
-                     | std::views::filter(&ScenarioLP::is_active)
-                     | std::views::transform(&ScenarioLP::uid)
-                     | std::ranges::to<std::vector>(),
-                 simulation.stages() | std::views::filter(&StageLP::is_active)
-                     | std::views::transform(&StageLP::uid)
-                     | std::ranges::to<std::vector>(),
-                 active_stage_block_indices(simulation.stages()),
-                 active_block_indices(simulation.stages()))
+    , FlatHelper(simulation)
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)

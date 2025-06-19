@@ -17,20 +17,15 @@ using namespace gtopt;
 TEST_CASE("Active Elements Accessors")
 {
   OptionsLP options;
-  Simulation psimulation;
+  Simulation psimulation = {
+      .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+
+  };
   SimulationLP simulation {psimulation, options};
 
-  const std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0}};
-  const std::vector<StageUid> active_stages = {StageUid {0}};
-  const std::vector<std::vector<BlockUid>> active_stage_blocks = {
-      {BlockUid {0}, BlockUid {1}}};
-  const std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
-
-  const FlatHelper helper(simulation,
-                          active_scenarios,
-                          active_stages,
-                          active_stage_blocks,
-                          active_blocks);
+  const FlatHelper helper(simulation);
 
   SUBCASE("Scenario accessors")
   {
@@ -58,21 +53,17 @@ TEST_CASE("Active Elements Accessors")
 
 TEST_CASE("Flat helper - Flat Methods")
 {
-  std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0}};
-  std::vector<StageUid> active_stages = {StageUid {0}};
-  std::vector<std::vector<BlockUid>> active_stage_blocks = {
-      {BlockUid {0}, BlockUid {1}}};
-  std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
-
   OptionsLP options;
-  Simulation psimulation;
+  Simulation psimulation = {
+      .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+
+  };
+
   SimulationLP simulation {psimulation, options};
 
-  FlatHelper helper(simulation,
-                    active_scenarios,
-                    active_stages,
-                    active_stage_blocks,
-                    active_blocks);
+  FlatHelper helper(simulation);
 
   SUBCASE("GSTBIndexHolder")
   {
@@ -159,7 +150,7 @@ TEST_CASE("Flat Helper - Edge Cases")
     Simulation psimulation;
     SimulationLP simulation {psimulation, options};
 
-    FlatHelper helper(simulation, {}, {}, {}, {});
+    FlatHelper helper(simulation);
 
     CHECK(helper.active_scenario_count() == 0);
     CHECK(helper.active_stage_count() == 0);
@@ -196,19 +187,23 @@ TEST_CASE("Flat Helper - Edge Cases")
   SUBCASE("Partial Active Elements")
   {
     OptionsLP options;
-    Simulation psimulation;
+    Simulation psimulation = {
+        .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
+        .stage_array =
+            {{.uid = Uid {0}, .active = 1, .first_block = 0, .count_block = 1},
+             {.uid = Uid {1}, .active = 0, .first_block = 1, .count_block = 1}},
+        .scenario_array = {{.uid = Uid {0}}},
+
+    };
+
     SimulationLP simulation {psimulation, options};
 
     // Only some scenarios/stages active
-    FlatHelper helper(simulation,
-                      {ScenarioUid {0}},
-                      {StageUid {0}},
-                      {{BlockUid {0}}},  // Only first block active
-                      {BlockUid {0}});
+    FlatHelper helper(simulation);
 
     GSTBIndexHolder holder;
     holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {1}}] =
+    holder[{ScenarioUid {0}, StageUid {1}, BlockUid {1}}] =
         20;  // Inactive block
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -219,21 +214,15 @@ TEST_CASE("Flat Helper - Edge Cases")
 
   SUBCASE("Missing Values")
   {
-    std::vector<ScenarioUid> active_scenarios = {ScenarioUid {0},
-                                                 ScenarioUid {1}};
-    std::vector<StageUid> active_stages = {StageUid {0}, StageUid {1}};
-    std::vector<std::vector<BlockUid>> active_stage_blocks = {{BlockUid {0}},
-                                                              {BlockUid {1}}};
-    std::vector<BlockUid> active_blocks = {BlockUid {0}, BlockUid {1}};
-
     OptionsLP options;
-    Simulation psimulation;
+    Simulation psimulation = {
+        .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
+        .stage_array = {{.uid = Uid {0}}},
+        .scenario_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
+    };
+
     SimulationLP simulation {psimulation, options};
-    FlatHelper helper(simulation,
-                      active_scenarios,
-                      active_stages,
-                      active_stage_blocks,
-                      active_blocks);
+    FlatHelper helper(simulation);
 
     GSTBIndexHolder holder;
     holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
@@ -252,20 +241,18 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(valid[3] == false);
   }
 }
+
 TEST_CASE("FlatHelper Move Semantics")
 {
-  std::vector<ScenarioUid> scenarios = {ScenarioUid {0}};
-  std::vector<StageUid> stages = {StageUid {0}};
-  std::vector<std::vector<BlockUid>> stage_blocks = {{BlockUid {0}}};
-  std::vector<BlockUid> blocks = {BlockUid {0}};
-
   OptionsLP options;
-  Simulation psimulation;
+  Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
+                            .stage_array = {{.uid = Uid {0}}},
+                            .scenario_array = {{.uid = Uid {0}}}};
   SimulationLP simulation {psimulation, options};
 
   SUBCASE("Move Construction")
   {
-    FlatHelper original(simulation, scenarios, stages, stage_blocks, blocks);
+    FlatHelper original(simulation);
     FlatHelper moved(std::move(original));
 
     CHECK(moved.active_scenario_count() == 1);
@@ -275,12 +262,10 @@ TEST_CASE("FlatHelper Move Semantics")
 
   SUBCASE("Move Assignment")
   {
-    FlatHelper original(simulation, scenarios, stages, stage_blocks, blocks);
-    FlatHelper moved(simulation,
-                     {ScenarioUid {0}},
-                     {StageUid {0}},
-                     {{BlockUid {0}}},
-                     {BlockUid {0}});
+    FlatHelper original(simulation);
+    SimulationLP simulation2 {{}, options};
+
+    FlatHelper moved(simulation2);
     moved = std::move(original);
 
     CHECK(moved.active_scenario_count() == 1);
@@ -290,16 +275,14 @@ TEST_CASE("FlatHelper Move Semantics")
 }
 TEST_CASE("FlatHelper Const Correctness")
 {
-  const std::vector<ScenarioUid> scenarios = {ScenarioUid {0}};
-  const std::vector<StageUid> stages = {StageUid {0}};
-  const std::vector<std::vector<BlockUid>> stage_blocks = {{BlockUid {0}}};
-  const std::vector<BlockUid> blocks = {BlockUid {0}};
-
   OptionsLP options;
-  Simulation psimulation;
+  Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
+                            .stage_array = {{.uid = Uid {0}}},
+                            .scenario_array = {{.uid = Uid {0}}}};
+
   SimulationLP simulation {psimulation, options};
 
-  const FlatHelper helper(simulation, scenarios, stages, stage_blocks, blocks);
+  const FlatHelper helper(simulation);
 
   SUBCASE("Const Accessors")
   {
@@ -320,14 +303,12 @@ TEST_CASE("FlatHelper Const Correctness")
 TEST_CASE("FlatHelper Template Constraints")
 {
   OptionsLP options;
-  Simulation psimulation;
+  Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
+                            .stage_array = {{.uid = Uid {0}}},
+                            .scenario_array = {{.uid = Uid {0}}}};
   SimulationLP simulation {psimulation, options};
 
-  FlatHelper helper(simulation,
-                    {ScenarioUid {0}},
-                    {StageUid {0}},
-                    {{BlockUid {0}}},
-                    {BlockUid {0}});
+  FlatHelper helper(simulation);
   GSTBIndexHolder holder;
   holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 

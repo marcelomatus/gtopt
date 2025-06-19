@@ -87,13 +87,13 @@ public:
                    std::span<const Block> blocks = {},
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_phase_(std::move(phase))
+      , m_index_(phase_index)
       , m_stages_(detail::create_stage_array(
-            m_phase_, phase_index, options, stages, blocks))
+            m_phase_, m_index_, options, stages, blocks))
       , m_duration_(ranges::fold_left(
             m_stages_ | ranges::views::transform(&StageLP::duration),
             0.0,
             std::plus<>()))
-      , m_index_(phase_index)
   {
   }
 
@@ -147,9 +147,9 @@ public:
 
 private:
   Phase m_phase_ {};  ///< The underlying Phase object
+  PhaseIndex m_index_ {unknown_index};
   std::vector<StageLP> m_stages_;  ///< Span of StageLP objects in this phase
   double m_duration_ {0.0};  ///< Total duration of all stages in this phase
-  PhaseIndex m_index_ {unknown_index};
 };
 
 }  // namespace gtopt
