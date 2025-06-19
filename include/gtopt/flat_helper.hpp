@@ -63,16 +63,18 @@ namespace detail
  */
 
 template<std::ranges::input_range Stages, typename Index = BlockUid>
-constexpr auto active_stage_block_indices(const Stages& stages) noexcept
+  requires std::same_as<std::ranges::range_value_t<Stages>, StageLP>
+[[nodiscard]] constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 {
-  return stages | std::views::filter(&StageLP::is_active)
-      | std::views::transform(
-             [](const auto& stage)
-             {
-               return stage.blocks() | std::views::transform(&BlockLP::uid)
-                   | std::ranges::to<std::vector<Index>>();
-             })
-      | std::ranges::to<std::vector>();
+  return stages
+    | std::views::filter(&StageLP::is_active)
+    | std::views::transform(
+        [](const StageLP& stage) -> std::vector<Index> {
+          return stage.blocks()
+            | std::views::transform(&BlockLP::uid)
+            | std::ranges::to<std::vector>();
+        })
+    | std::ranges::to<std::vector>();
 }
 
 template<std::ranges::input_range Stages, typename Index = BlockUid>
