@@ -19,34 +19,29 @@ using namespace gtopt;
  * @return Vector of active indices, moved rather than copied
  */
 
-template<typename Index, typename Stage>
-constexpr auto active_block_indices(const Stage& stages) noexcept
+template<std::ranges::input_range Stages, typename Index = BlockUid>
+constexpr auto active_block_indices(const Stages& stages) noexcept
 {
-  std::vector<Index> indices;
-
-  for (const auto& stage : stages) {
-    if (stage.is_active()) {
-      for (const auto& blck : stage.blocks()) {
-        indices.push_back(blck.uid());
-      }
-    }
-  }
-
-  return indices;
+    return stages
+        | std::views::filter(&StageLP::is_active)    // Filter active stages
+        | std::views::transform(std::mem_fn(&StageLP::blocks)) // Get blocks ranges
+        | std::views::join                          // Flatten nested ranges
+        | std::views::transform(&BlockLP::uid)      // Extract UIDs
+        | std::ranges::to<std::vector<Index>>();    // Collect directly to vector
 }
 
-template<typename Index, typename Stages>
+template<std::ranges::input_range Stages, typename Index = BlockUid>
 constexpr auto active_stage_block_indices(const Stages& stages) noexcept
 {
-  return stages | std::views::filter(&StageLP::is_active)
-      | std::views::transform(
-             [](const auto& stage)
-             {
-               return stage.blocks()
-                   | std::views::transform(&BlockLP::uid)  // Extract block UIDs
-                   | std::ranges::to<std::vector<Index>>();
-             })
-      | std::ranges::to<std::vector>();
+    return stages
+        | std::views::filter(&StageLP::is_active)
+        | std::views::transform(
+            [](const auto& stage) {
+                return stage.blocks()
+                    | std::views::transform(&BlockLP::uid)
+                    | std::ranges::to<std::vector<Index>>();
+            })
+        | std::ranges::to<std::vector>();
 }
 
 }  // namespace
