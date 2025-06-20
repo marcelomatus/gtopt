@@ -86,10 +86,10 @@ public:
    * @param stage_index Stage index
    * @return Reference to the flow variables
    */
-  [[nodiscard]] auto&& flow_cols_at(const ScenarioUid scenary_uid,
-                                    const StageUid stage_uid) const
+  [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
+                                    const StageLP& stage) const
   {
-    return flow_cols.at({scenary_uid, stage_uid});
+    return flow_cols.at({scenario.uid(), stage.uid()});
   }
 
 private:

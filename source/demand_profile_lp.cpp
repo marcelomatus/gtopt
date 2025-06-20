@@ -48,7 +48,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& load_cols = demand_lp.load_cols_at(scenario.uid(), stage.uid());
+  auto&& load_cols = demand_lp.load_cols_at(scenario, stage);
 
   const auto [stage_capacity, capacity_col] =
       demand_lp.capacity_and_col(stage, lp);

@@ -77,10 +77,10 @@ public:
   bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]]
-  constexpr const auto& balance_rows_at(const ScenarioUid scenario_uid,
-                                        const StageUid stage_uid) const noexcept
+  constexpr const auto& balance_rows_at(const ScenarioLP& scenario,
+                                        const StageLP& stage) const noexcept
   {
-    return balance_rows.at({scenario_uid, stage_uid});
+    return balance_rows.at({scenario.uid(), stage.uid()});
   }
 
   [[nodiscard]]

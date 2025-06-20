@@ -73,6 +73,40 @@ namespace gtopt
  * @note All methods are noexcept and many are constexpr for maximum performance
  * @see SystemContext which inherits and uses this functionality
  */
+
+struct STBUids
+{
+  std::vector<Uid> scenario_uids;
+  std::vector<Uid> stage_uids;
+  std::vector<Uid> block_uids;
+
+  void reserve(size_t size)
+  {
+    scenario_uids.reserve(size);
+    stage_uids.reserve(size);
+    block_uids.reserve(size);
+  }
+};
+
+struct STUids
+{
+  std::vector<Uid> scenario_uids;
+  std::vector<Uid> stage_uids;
+
+  void reserve(size_t size)
+  {
+    scenario_uids.reserve(size);
+    stage_uids.reserve(size);
+  }
+};
+
+struct TUids
+{
+  std::vector<Uid> stage_uids;
+
+  void reserve(size_t size) { stage_uids.reserve(size); }
+};
+
 class FlatHelper
 {
 public:

@@ -15,18 +15,15 @@
 #include <gtopt/stage_lp.hpp>
 #include <range/v3/view/filter.hpp>
 
-namespace
+namespace gtopt
 {
-using namespace gtopt;
 
-using STBUids =
-    std::tuple<std::vector<int>, std::vector<int>, std::vector<int>>;
-constexpr STBUids make_stb_uids(const SimulationLP& sc)
+STBUids FlatHelper::stb_uids() const
 {
   std::size_t size = 0;
-  for (auto&& scene : sc.scenes()) {
+  for (auto&& scene : simulation().scenes()) {
     for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : sc.phases()) {
+      for (auto&& phase : simulation().phases()) {
         for (auto&& stage : phase.stages()) {
           size += stage.blocks().size();
         }
@@ -34,98 +31,71 @@ constexpr STBUids make_stb_uids(const SimulationLP& sc)
     }
   }
 
-  std::vector<Uid> scenario_uids;
-  scenario_uids.reserve(size);
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
-  std::vector<Uid> block_uids;
-  block_uids.reserve(size);
+  STBUids res;
+  res.reserve(size);
 
-  for (auto&& scene : sc.scenes()) {
+  for (auto&& scene : simulation().scenes()) {
     for (auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : sc.phases()) {
+      for (auto&& phase : simulation().phases()) {
         for (auto&& stage : phase.stages()) {
           for (auto&& block : stage.blocks()) {
-            scenario_uids.emplace_back(scenario.uid());
-            stage_uids.emplace_back(stage.uid());
-            block_uids.emplace_back(block.uid());
+            res.scenario_uids.emplace_back(scenario.uid());
+            res.stage_uids.emplace_back(stage.uid());
+            res.block_uids.emplace_back(block.uid());
           }
         }
       }
     }
   }
 
-  return {
-      std::move(scenario_uids), std::move(stage_uids), std::move(block_uids)};
+  return res;
 }
 
-constexpr STUids make_st_uids(const SimulationLP& sc) noexcept
+STUids FlatHelper::st_uids() const
 {
   std::size_t size = 0;
-  for (auto&& scene : sc.scenes()) {
+  for (auto&& scene : simulation().scenes()) {
     for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : sc.phases()) {
+      for (auto&& phase : simulation().phases()) {
         size += phase.stages().size();
       }
     }
   }
 
-  std::vector<Uid> scenario_uids;
-  scenario_uids.reserve(size);
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
+  STUids res;
+  res.reserve(size);
 
-  for (auto&& scene : sc.scenes()) {
+  for (auto&& scene : simulation().scenes()) {
     for (auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : sc.phases()) {
+      for (auto&& phase : simulation().phases()) {
         for (auto&& stage : phase.stages()) {
-          scenario_uids.emplace_back(scenario.uid());
-          stage_uids.emplace_back(stage.uid());
+          res.scenario_uids.emplace_back(scenario.uid());
+          res.stage_uids.emplace_back(stage.uid());
         }
       }
     }
   }
 
-  return {std::move(scenario_uids), std::move(stage_uids)};
-}
-
-constexpr TUids make_t_uids(const SimulationLP& sc) noexcept
-{
-  std::size_t size = 0;
-  for (auto&& phase : sc.phases()) {
-    size += phase.stages().size();
-  }
-
-  std::vector<Uid> stage_uids;
-  stage_uids.reserve(size);
-
-  for (auto&& phase : sc.phases()) {
-    for (auto&& stage : phase.stages()) {
-      stage_uids.emplace_back(stage.uid());
-    }
-  }
-
-  return stage_uids;
-}
-
-}  // namespace
-
-namespace gtopt
-{
-
-STBUids FlatHelper::stb_uids() const
-{
-  return make_stb_uids(simulation());
-}
-
-STUids FlatHelper::st_uids() const
-{
-  return make_st_uids(simulation());
+  return res;
 }
 
 TUids FlatHelper::t_uids() const
 {
-  return make_t_uids(simulation());
+  std::size_t size = 0;
+  for (auto&& phase : simulation().phases()) {
+    size += phase.stages().size();
+  }
+
+  TUids res;
+  res.reserve(size);
+
+  for (auto&& phase : simulation().phases()) {
+    for (auto&& stage : phase.stages()) {
+      res.stage_uids.emplace_back(stage.uid());
+    }
+  }
+
+  return res;
 }
 
 }  // namespace gtopt

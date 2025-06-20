@@ -51,8 +51,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
-  const auto& balance_rows =
-      bus_lp.balance_rows_at(scenario.uid(), stage.uid());
+  const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
   // adding the minimum energy constraint

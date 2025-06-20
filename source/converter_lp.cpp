@@ -42,9 +42,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
-
   if (!is_active(stage)) [[unlikely]] {
     return true;
   }
@@ -57,13 +54,13 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& blocks = stage.blocks();
 
   auto&& generator = sc.element(generator_index);
-  auto&& gen_cols = generator.generation_cols_at(scenario.uid(), stage.uid());
+  auto&& gen_cols = generator.generation_cols_at(scenario, stage);
 
   auto&& demand = sc.element(demand_index);
-  auto&& load_cols = demand.load_cols_at(scenario.uid(), stage.uid());
+  auto&& load_cols = demand.load_cols_at(scenario, stage);
 
   auto&& battery = sc.element(battery_index);
-  auto&& flow_cols = battery.flow_cols_at(scenario.uid(), stage.uid());
+  auto&& flow_cols = battery.flow_cols_at(scenario, stage);
 
   BIndexHolder rrows;
   rrows.reserve(blocks.size());

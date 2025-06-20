@@ -184,8 +184,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generation_cols =
-      generator_lp.generation_cols_at(scenario.uid(), stage.uid());
+  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
 
   const auto [stage_capacity, capacity_col] =
       generator_lp.capacity_and_col(stage, lp);
