@@ -78,11 +78,11 @@ public:
   }
 
   [[nodiscard]] constexpr bool reg_client(Name name,
-                                          LinearInterface& lp,
-                                          Index col) const noexcept
+                                       std::shared_ptr<LinearInterface> lp,
+                                       Index col) noexcept
   {
     auto res = m_clients_.emplace(std::move(name),
-                                  std::pair {std::reference_wrapper {lp}, col});
+                                 std::pair{std::move(lp), col});
     return res.second;
   }
 
@@ -91,8 +91,7 @@ private:
   PhaseIndex m_phase_index_ {unknown_index};  ///< Associated phase index
   Index m_col_ {unknown_index};  ///< Column index
 
-  flat_map<Name, std::pair<std::reference_wrapper<LinearInterface>, Index>>
-      m_clients_;
+  flat_map<Name, std::pair<std::shared_ptr<LinearInterface>, Index>> m_clients_;
 };
 
 // Type aliases for cleaner usage
