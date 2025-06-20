@@ -15,8 +15,6 @@
 #include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
-#include "gtopt/block.hpp"
-
 namespace gtopt
 {
 
@@ -35,9 +33,6 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
                                 LinearProblem& lp)
 {
   constexpr std::string_view cname = "dprof";
-
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
 
   if (!is_active(stage)) {
     return true;

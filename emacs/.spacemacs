@@ -684,9 +684,9 @@ This function is called at the very end of Spacemacs initialization."
    ;; If there is more than one, they won't work right.
    '(aidermacs-architect-model "deepseek/deepseek-coder")
    '(aidermacs-default-model "deepseek/deepseek-coder")
-   '(copilot-chat-backend 'curl)
-   '(copilot-chat-commit-model nil)
-   '(copilot-chat-debug t)
+   '(copilot-chat-backend 'curl t)
+   '(copilot-chat-commit-model nil t)
+   '(copilot-chat-debug t t)
    '(copilot-chat-frontend 'org t)
    '(lsp-idle-delay 0.2)
    '(package-selected-packages
@@ -703,32 +703,29 @@ This function is called at the very end of Spacemacs initialization."
                 evil-cleverparens evil-escape evil-evilified-state evil-exchange
                 evil-goggles evil-iedit-state evil-indent-plus evil-lion
                 evil-lisp-state evil-matchit evil-nerd-commenter evil-numbers
-                evil-org evil-surround evil-textobj-line evil-tutor
-                evil-unimpaired evil-visual-mark-mode evil-visualstar
-                expand-region eyebrowse fancy-battery flx flycheck-elsa
-                flycheck-package flycheck-pos-tip flyspell-correct-ivy gh-md
-                git-link git-messenger git-modes git-timemachine
-                gitignore-templates gnuplot golden-ratio google-c-style
-                google-translate gptel helm-make hide-comnt highlight-indentation
-                highlight-numbers highlight-parentheses hl-todo holy-mode
-                hungry-delete hybrid-mode indent-guide info+ inspector ivy-avy
-                ivy-hydra ivy-purpose ivy-xref ivy-yasnippet json-mode
-                json-navigator json-reformat link-hint live-py-mode lorem-ipsum
-                lsp-ivy lsp-origami lsp-ui macrostep markdown-toc multi-line
-                multi-term multi-vterm mwim nameless open-junk-file org
-                org-cliplink org-contrib org-download org-mime org-pomodoro
-                org-present org-projectile org-re-reveal org-rich-yank org-roam
-                org-superstar orgit-forge overseer ox-gfm page-break-lines paradox
-                password-generator pcre2el pet pip-requirements pipenv pippel
-                poetry popwin prettier-js py-isort pydoc pyenv-mode pylookup
-                pytest quickrun rainbow-delimiters restart-emacs shell-pop
-                smeargle smex space-doc spaceline spacemacs-purpose-popwin
-                spacemacs-whitespace-cleanup sphinx-doc string-edit-at-point
-                string-inflection symbol-overlay symon term-cursor terminal-here
-                toc-org treemacs-icons-dired treemacs-magit treemacs-persp
-                treemacs-projectile undo-fu undo-fu-session unfill vi-tilde-fringe
-                volatile-highlights vundo web-beautify wgrep which-key winum
-                writeroom-mode ws-butler yaml-mode yasnippet-snippets)))
+                evil-surround evil-textobj-line evil-tutor evil-unimpaired
+                evil-visual-mark-mode evil-visualstar expand-region eyebrowse
+                fancy-battery flx flycheck-elsa flycheck-package flycheck-pos-tip
+                flyspell-correct-ivy gh-md git-link git-messenger git-modes
+                git-timemachine gitignore-templates gnuplot golden-ratio
+                google-c-style google-translate gptel helm-make hide-comnt
+                highlight-indentation highlight-numbers highlight-parentheses
+                hl-todo holy-mode hungry-delete hybrid-mode indent-guide info+
+                inspector ivy-avy ivy-hydra ivy-purpose ivy-xref ivy-yasnippet
+                json-mode json-navigator json-reformat link-hint live-py-mode
+                lorem-ipsum lsp-ivy lsp-origami lsp-ui macrostep markdown-toc
+                multi-line multi-term multi-vterm mwim nameless open-junk-file
+                overseer ox-gfm page-break-lines paradox password-generator
+                pcre2el pet pip-requirements pipenv pippel poetry popwin
+                prettier-js py-isort pydoc pyenv-mode pylookup pytest quickrun
+                rainbow-delimiters restart-emacs shell-pop smeargle smex space-doc
+                spaceline spacemacs-purpose-popwin spacemacs-whitespace-cleanup
+                sphinx-doc string-edit-at-point string-inflection symbol-overlay
+                symon term-cursor terminal-here treemacs-icons-dired
+                treemacs-magit treemacs-persp treemacs-projectile undo-fu
+                undo-fu-session unfill vi-tilde-fringe volatile-highlights vundo
+                web-beautify wgrep which-key winum writeroom-mode ws-butler
+                yaml-mode yasnippet-snippets)))
   (custom-set-faces
    ;; custom-set-faces was added by Custom.
    ;; If you edit it by hand, you could mess it up, so be careful.

@@ -45,23 +45,22 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
   if (prev_phase == nullptr) {
     if (prev_stage != nullptr) {
-      auto prev_uid = prev_stage->uid();
       prev_stage_capacity = capacity_at(*prev_stage, stage_capacity);
-      prev_capainst_col = get_optvalue(capainst_cols, prev_uid);
-      prev_capacost_col = get_optvalue(capacost_cols, prev_uid);
+      prev_capainst_col = get_optvalue(capainst_cols, prev_stage->uid());
+      prev_capacost_col = get_optvalue(capacost_cols, prev_stage->uid());
     }
   } else {
-#ifdef NONE
     if (prev_stage != nullptr) {
+#ifdef NONE
       auto process_prev_state =
           [&](const std::string_view var_suffix) -> std::optional<Index>
       {
-        auto vname = sc.t_label(stage, cname, var_suffix, "ini", uid());
+        auto vname = sc.t_label(*prev_stage, cname, var_suffix, uid());
 
         if (const auto prev_svar = sc.get_state_variable(*prev_stage, vname);
             prev_svar)
         {
-          auto col = lp.add_col({.name = std::move(vname)});
+          auto col = lp.add_col({.name = sc.label("prev", vname)});
           sc.reg_state_variable(*prev_svar, col);
           return col;
         }
@@ -71,8 +70,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       prev_stage_capacity = stage_capacity;
       prev_capainst_col = process_prev_state("capainst");
       prev_capacost_col = process_prev_state("capacost");
-    }
 #endif
+    }
   }
 
   if (!prev_capainst_col && stage_maxexpcap <= 0) {

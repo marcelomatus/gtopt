@@ -35,9 +35,6 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 {
   constexpr std::string_view cname = "gprof";
 
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
-
   if (!is_active(stage)) {
     return true;
   }
