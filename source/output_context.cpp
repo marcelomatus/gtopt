@@ -47,46 +47,57 @@ constexpr auto make_array(Values&& values, Valids&& valids = {})
 
 using str = std::string;
 
-template<typename Type = Uid>
-constexpr auto make_stb_prelude(auto&& stb_uids)
+template<typename Type = Uid, typename STBUids>
+  requires std::same_as<std::remove_cvref_t<STBUids>, STBUids>
+[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids)
 {
+  auto move_if_rvalue = [](auto&& member) -> auto&& {
+    return std::forward<decltype(member)>(member);
+  };
+
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str{Scenario::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str{Stage::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str{Block::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::move(stb_uids.scenario_uids)),
-      make_array<Type>(std::move(stb_uids.stage_uids)),
-      make_array<Type>(std::move(stb_uids.block_uids))};
+      make_array<Type>(move_if_rvalue(std::forward<STBUids>(stb_uids).scenario_uids)),
+      make_array<Type>(move_if_rvalue(std::forward<STBUids>(stb_uids).stage_uids)),
+      make_array<Type>(move_if_rvalue(std::forward<STBUids>(stb_uids).block_uids))};
 
-  return std::pair {fields, arrays};
+  return std::pair{std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = Uid>
-constexpr auto make_st_prelude(auto&& st_uids)
+template<typename Type = Uid, typename STUids>
+  requires std::same_as<std::remove_cvref_t<STUids>, STUids>
+[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids)
 {
+  auto move_if_rvalue = [](auto&& member) -> auto&& {
+    return std::forward<decltype(member)>(member);
+  };
+
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str{Scenario::class_name}, ArrowTraits<Type>::type()),
+      arrow::field(str{Stage::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::move(st_uids.scenario_uids)),
-      make_array<Type>(std::move(st_uids.stage_uids))};
+      make_array<Type>(move_if_rvalue(std::forward<STUids>(st_uids).scenario_uids)),
+      make_array<Type>(move_if_rvalue(std::forward<STUids>(st_uids).stage_uids))};
 
-  return std::pair {fields, arrays};
+  return std::pair{std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = Uid>
-constexpr auto make_t_prelude(auto&& t_uids)
+template<typename Type = Uid, typename TUids>
+  requires std::same_as<std::remove_cvref_t<TUids>, TUids>
+[[nodiscard]] constexpr auto make_t_prelude(TUids&& t_uids)
 {
   const std::vector<ArrowField> fields = {
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str{Stage::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
-      make_array<Uid>(std::move(t_uids.stage_uids))};
+      make_array<Type>(std::forward<TUids>(t_uids).stage_uids)};
 
-  return std::pair {fields, arrays};
+  return std::pair{std::move(fields), std::move(arrays)};
 }
 
 template<typename Type = double>
