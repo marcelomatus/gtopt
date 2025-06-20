@@ -11,7 +11,7 @@
 #include <filesystem>
 #include <concepts>
 #include <ranges>
-#include <arrow/c/api.h>  // Add missing arrow headers
+#include <arrow/api.h>  // Add missing arrow headers
 #include <algorithm>      // For std::find
 
 template<typename T>
@@ -19,16 +19,6 @@ concept ArrowBuildable = requires {
   { arrow::CTypeTraits<T>::type_singleton() } -> std::same_as<std::shared_ptr<arrow::DataType>>;
 };
 
-constexpr void validate_output_format(std::string_view format)  // Rename parameter to avoid namespace conflict
-{
-  constexpr std::array valid_formats = {"parquet", "csv"};
-  if (std::find(valid_formats.begin(), valid_formats.end(), format) == valid_formats.end()) [[unlikely]] {
-    throw std::invalid_argument(
-      std::format("Invalid format: {} (allowed: {})", 
-                 format, fmt::join(valid_formats, ", "))
-    );
-  }
-}
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
@@ -40,6 +30,17 @@ namespace
 {
 
 using namespace gtopt;
+
+constexpr void validate_output_format(std::string_view format)
+{
+  constexpr std::array valid_formats = {"parquet", "csv"};
+  if (std::find(valid_formats.begin(), valid_formats.end(), format) == valid_formats.end()) [[unlikely]] {
+    throw std::invalid_argument(
+      std::format("Invalid format: {} (allowed: {})", 
+                 format, fmt::join(valid_formats, ", "))
+    );
+  }
+}
 
 template<ArrowBuildable Type = arrow::DoubleType,
          typename Values,
