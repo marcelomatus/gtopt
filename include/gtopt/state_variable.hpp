@@ -15,8 +15,8 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
-#include <gtopt/phase.hpp>
-#include <gtopt/stage.hpp>
+#include <gtopt/linear_interface.hpp>
+#include <gtopt/phase_lp.hpp>
 
 namespace gtopt
 {
@@ -50,15 +50,12 @@ public:
    * leave the source object in a valid but unspecified state (name empty,
    * indices -1).
    */
-  constexpr explicit StateVariable(
-      Name name,
-      PhaseIndex phase_index,
-      Index first_col,
-      Index last_col = unknown_index) noexcept(false)
+  constexpr explicit StateVariable(Name name,
+                                   const PhaseLP& phase,
+                                   Index col) noexcept
       : m_name_(std::move(name))
-      , m_phase_index_(phase_index)
-      , m_first_col_(first_col)
-      , m_last_col_(last_col != unknown_index ? last_col : first_col)
+      , m_phase_index_(phase.index())
+      , m_col_(col)
   {
   }
 
@@ -72,22 +69,7 @@ public:
   }
 
   /// @return First column index in optimization matrix
-  [[nodiscard]] constexpr Index first_col() const noexcept
-  {
-    return m_first_col_;
-  }
-
-  /// @return Last column index in optimization matrix
-  [[nodiscard]] constexpr Index last_col() const noexcept
-  {
-    return m_last_col_;
-  }
-
-  /// @return Last column index in optimization matrix
-  [[nodiscard]] constexpr auto cols() const noexcept
-  {
-    return std::pair {m_first_col_, m_last_col_};
-  }
+  [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
   /// @return Unique key tuple for this variable (name, stage, phase)
   [[nodiscard]] constexpr auto key() const noexcept
@@ -95,11 +77,22 @@ public:
     return key_t {name(), phase_index()};
   }
 
+  [[nodiscard]] constexpr bool reg_client(Name name,
+                                          LinearInterface& lp,
+                                          Index col) const noexcept
+  {
+    auto res = m_clients_.emplace(std::move(name),
+                                  std::pair {std::reference_wrapper {lp}, col});
+    return res.second;
+  }
+
 private:
   Name m_name_;  ///< Variable name
   PhaseIndex m_phase_index_ {unknown_index};  ///< Associated phase index
-  Index m_first_col_ {unknown_index};  ///< First column index
-  Index m_last_col_ {unknown_index};  ///< Last column index
+  Index m_col_ {unknown_index};  ///< Column index
+
+  flat_map<Name, std::pair<std::reference_wrapper<LinearInterface>, Index>>
+      m_clients_;
 };
 
 // Type aliases for cleaner usage
