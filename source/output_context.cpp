@@ -9,6 +9,24 @@
  */
 
 #include <filesystem>
+#include <concepts>
+#include <ranges>
+
+template<typename T>
+concept ArrowBuildable = requires {
+  { arrow::CTypeTraits<T>::type_singleton() } -> std::same_as<std::shared_ptr<arrow::DataType>>;
+};
+
+constexpr void validate_output_format(std::string_view fmt)
+{
+  constexpr std::array valid_formats = {"parquet", "csv"};
+  if (!std::ranges::contains(valid_formats, fmt)) [[unlikely]] {
+    throw std::invalid_argument(
+      std::format("Invalid format: {} (allowed: {})", 
+                 fmt, fmt::join(valid_formats, ", "))
+    );
+  }
+}
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
@@ -21,7 +39,7 @@ namespace
 
 using namespace gtopt;
 
-template<typename Type = arrow::DoubleType,
+template<ArrowBuildable Type = arrow::DoubleType,
          typename Values,
          typename Valids = std::vector<bool>>
 constexpr auto make_array(Values&& values, Valids&& valids = {})
@@ -175,10 +193,10 @@ constexpr auto parquet_write_table(const auto& fpath,
                                       output,
                                       1024 * 1024,  // NOLINT
                                       props);
-  if (!status.ok()) {
-    const auto msg = std::format("can' t write to file {}", fpath.string());
-    SPDLOG_CRITICAL(msg);
-    throw std::runtime_error(msg);
+  if (!status.ok()) [[unlikely]] {
+    auto msg = std::format("File write failed: {}", fpath.string());
+    SPDLOG_CRITICAL("{}", msg);
+    throw std::runtime_error(std::move(msg));
   }
   return status;
 }
@@ -253,17 +271,16 @@ void OutputContext::write() const
   const auto& path_tables =
       create_tables(options().output_directory(), field_vector_map);
 
-  std::vector<std::thread> tasks;
+  std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
   for (auto&& [path, table] : path_tables) {
-    tasks.emplace_back(
-        [&]
-        {
-          if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
-            const auto msg = std::format("can't write file {}", path.string());
-            throw std::runtime_error(msg);
-          }
-        });
+    tasks.emplace_back([path, table, fmt, zfmt] {
+      if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
+        auto msg = std::format("File write failed: {}", path.string());
+        SPDLOG_CRITICAL("{}", msg);
+        throw std::runtime_error(std::move(msg));
+      }
+    });
   }
   for (auto&& t : tasks) {
     t.join();
@@ -273,10 +290,10 @@ void OutputContext::write() const
       std::filesystem::path(options().output_directory()) / "solution.csv";
 
   std::ofstream sol_file(sol_path.string());
-  sol_file << "parameter,value" << '\n';
-  sol_file << "obj_value," << sol_obj_value << '\n';
-  sol_file << "kappa," << sol_kappa << '\n';
-  sol_file << "status," << sol_status << '\n';
+  sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
+                         "obj_value", sol_obj_value,
+                         "kappa", sol_kappa,
+                         "status", sol_status);
 }
 
 OutputContext::OutputContext(const SystemContext& psc,
