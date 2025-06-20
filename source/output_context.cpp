@@ -59,7 +59,7 @@ constexpr auto make_array(Values&& values, Valids&& valids = {})
 using str = std::string;
 
 template<typename Type = Uid, typename STBUids>
-  requires std::same_as<std::remove_cvref_t<STBUids>, STBUids>
+  requires std::same_as<std::remove_cvref_t<STBUids>, gtopt::STBUids>
 [[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids) noexcept(
     noexcept(std::forward<STBUids>(stb_uids)))
 {
@@ -78,7 +78,7 @@ template<typename Type = Uid, typename STBUids>
 }
 
 template<typename Type = Uid, typename STUids>
-  requires std::same_as<std::remove_cvref_t<STUids>, STUids>
+  requires std::same_as<std::remove_cvref_t<STUids>, gtopt::STUids>
 [[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids) noexcept(
     noexcept(std::forward<STUids>(st_uids)))
 {
@@ -94,7 +94,7 @@ template<typename Type = Uid, typename STUids>
 }
 
 template<typename Type = Uid, typename TUids>
-  requires std::same_as<std::remove_cvref_t<TUids>, TUids>
+  requires std::same_as<std::remove_cvref_t<TUids>, gtopt::TUids>
 [[nodiscard]] constexpr auto make_t_prelude(TUids&& t_uids)
 {
   std::vector<ArrowField> fields = {

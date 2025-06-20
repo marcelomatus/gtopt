@@ -13,8 +13,6 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-#include "gtopt/bus_lp.hpp"
-
 using namespace gtopt;
 
 TEST_CASE("Simulation - Constructor initialization")

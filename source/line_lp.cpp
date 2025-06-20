@@ -34,8 +34,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto stage_index = stage.index();
-
   const auto& bus_a_lp = sc.element<BusLP>(bus_a());
   const auto& bus_b_lp = sc.element<BusLP>(bus_b());
   if (!bus_a_lp.is_active(stage) || !bus_b_lp.is_active(stage)) {
