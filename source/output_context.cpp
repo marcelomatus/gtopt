@@ -92,39 +92,59 @@ template<typename Type = Uid, typename TUids>
   return std::pair {std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = double>
-constexpr auto make_field_arrays(auto&& field_vector)
+template<typename Type = double, typename FieldVector>
+constexpr auto make_field_arrays(FieldVector&& field_vector)
 {
   std::vector<ArrowField> fields;
   fields.reserve(field_vector.size() + 3);
   std::vector<ArrowArray> arrays;
   arrays.reserve(field_vector.size() + 3);
 
-  for (bool first = true;
-       auto&& [fname, fvalues, fvalids, prelude] : field_vector)
-  {
+  bool prelude_processed = false;
+
+  for (auto&& field_data : std::forward<FieldVector>(field_vector)) {
+    auto&& [fname, fvalues, fvalids, prelude] =
+        std::forward<decltype(field_data)>(field_data);
+
     if (fvalues.empty()) [[unlikely]] {
       continue;
     }
-    if (first && prelude) [[likely]] {
-      auto&& [pfields, parrays] = *prelude;
-      fields = pfields;
-      arrays = parrays;
-      first = false;
+
+    // Procesar prelude solo una vez
+    if (!prelude_processed && prelude) [[likely]] {
+      auto&& [pfields, parrays] = *std::forward<decltype(prelude)>(prelude);
+
+      // Mover si es rvalue, copiar si es lvalue
+      if constexpr (std::is_rvalue_reference_v<FieldVector&&>) {
+        fields = std::move(pfields);
+        arrays = std::move(parrays);
+      } else {
+        fields = pfields;
+        arrays = parrays;
+      }
+      prelude_processed = true;
     }
-    fields.emplace_back(arrow::field(fname, ArrowTraits<Type>::type()));
-    arrays.emplace_back(make_array<Type>(fvalues, fvalids));
+
+    fields.emplace_back(arrow::field(std::forward<decltype(fname)>(fname),
+                                     ArrowTraits<Type>::type()));
+
+    arrays.emplace_back(
+        make_array<Type>(std::forward<decltype(fvalues)>(fvalues),
+                         std::forward<decltype(fvalids)>(fvalids)));
   }
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = double>
-constexpr auto make_table(auto&& field_vector)
+template<typename Type = double, typename FieldVector>
+constexpr auto make_table(FieldVector&& field_vector)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
-  const auto& [fields, arrays] = make_field_arrays<Type>(field_vector);
-  return arrow::Table::Make(arrow::schema(fields), arrays);
+  auto [fields, arrays] =
+      make_field_arrays<Type>(std::forward<FieldVector>(field_vector));
+
+  return arrow::Table::Make(arrow::schema(std::move(fields)),
+                            std::move(arrays));
 }
 
 constexpr auto parquet_write_table(const auto& fpath,
