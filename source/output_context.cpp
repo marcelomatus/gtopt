@@ -48,7 +48,7 @@ constexpr auto make_array(Values&& values, Valids&& valids = {})
 using str = std::string;
 
 template<typename Type = Uid>
-constexpr auto make_stb_prelude(auto&& stb_active_uids)
+constexpr auto make_stb_prelude(auto&& stb_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -56,36 +56,37 @@ constexpr auto make_stb_prelude(auto&& stb_active_uids)
       arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::get<0>(stb_active_uids)),
-      make_array<Type>(std::get<1>(stb_active_uids)),
-      make_array<Type>(std::get<2>(stb_active_uids))};
+      make_array<Type>(std::move(stb_uids.scenario_uids)),
+      make_array<Type>(std::move(stb_uids.stage_uids)),
+      make_array<Type>(std::move(stb_uids.block_uids))};
 
-  return std::make_pair(fields, arrays);
+  return std::pair {fields, arrays};
 }
 
 template<typename Type = Uid>
-constexpr auto make_st_prelude(auto&& st_active_uids)
+constexpr auto make_st_prelude(auto&& st_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
   const std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::get<0>(st_active_uids)),
-      make_array<Type>(std::get<1>(st_active_uids))};
+      make_array<Type>(std::move(st_uids.scenario_uids)),
+      make_array<Type>(std::move(st_uids.stage_uids))};
 
-  return std::make_pair(fields, arrays);
+  return std::pair {fields, arrays};
 }
 
 template<typename Type = Uid>
-constexpr auto make_t_prelude(auto&& t_active_uids)
+constexpr auto make_t_prelude(auto&& t_uids)
 {
   const std::vector<ArrowField> fields = {
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
-  const std::vector<ArrowArray> arrays = {make_array<Uid>(t_active_uids)};
+  const std::vector<ArrowArray> arrays = {
+      make_array<Uid>(std::move(t_uids.stage_uids))};
 
-  return std::make_pair(fields, arrays);
+  return std::pair {fields, arrays};
 }
 
 template<typename Type = double>
@@ -112,7 +113,7 @@ constexpr auto make_field_arrays(auto&& field_vector)
     arrays.emplace_back(make_array<Type>(fvalues, fvalids));
   }
 
-  return std::make_pair(fields, arrays);
+  return std::pair {fields, arrays};
 }
 
 template<typename Type = double>
