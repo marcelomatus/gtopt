@@ -37,7 +37,7 @@ constexpr void validate_output_format(std::string_view format)
   if (std::find(valid_formats.begin(), valid_formats.end(), format) == valid_formats.end()) [[unlikely]] {
     throw std::invalid_argument(
       std::format("Invalid format: {} (allowed: {})", 
-                 format, fmt::join(valid_formats, ", "))
+                 format, std::string(fmt::join(valid_formats, ", ")))
     );
   }
 }
@@ -71,6 +71,7 @@ using str = std::string;
 template<typename Type = Uid, typename STBUids>
   requires std::same_as<std::remove_cvref_t<STBUids>, STBUids>
 [[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids)
+  noexcept(noexcept(std::forward<STBUids>(stb_uids)))
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -93,6 +94,7 @@ template<typename Type = Uid, typename STBUids>
 template<typename Type = Uid, typename STUids>
   requires std::same_as<std::remove_cvref_t<STUids>, STUids>
 [[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids)
+  noexcept(noexcept(std::forward<STUids>(st_uids)))
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -207,7 +209,7 @@ constexpr auto parquet_write_table(const auto& fpath,
                                       props);
   if (!status.ok()) [[unlikely]] {
     auto msg = std::format("File write failed: {}", fpath.string());
-    SPDLOG_CRITICAL("{}", msg.c_str());
+    SPDLOG_CRITICAL("{}", msg);
     throw std::runtime_error(msg);
   }
   return status;
