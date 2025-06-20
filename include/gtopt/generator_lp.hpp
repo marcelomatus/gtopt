@@ -56,10 +56,10 @@ public:
   bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]]
-  const auto& generation_cols_at(const ScenarioUid scenario_uid,
-                                 const StageUid stage_uid) const
+  const auto& generation_cols_at(const ScenarioLP& scenario,
+                                 const StageLP& stage) const
   {
-    return generation_cols.at({scenario_uid, stage_uid});
+    return generation_cols.at({scenario.uid(), stage.uid()});
   }
 
 private:

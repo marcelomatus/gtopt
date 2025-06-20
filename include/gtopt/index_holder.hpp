@@ -98,9 +98,4 @@ using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
 using stage_factor_matrix_t = std::vector<double>;
 using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
 
-using STBUids =
-    std::tuple<std::vector<Uid>, std::vector<Uid>, std::vector<Uid>>;
-using STUids = std::tuple<std::vector<Uid>, std::vector<Uid>>;
-using TUids = std::vector<Uid>;
-
 }  // namespace gtopt

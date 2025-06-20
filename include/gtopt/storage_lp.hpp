@@ -43,10 +43,10 @@ public:
   {
   }
 
-  constexpr auto vfin_col_at(const ScenarioUid scenario,
-                             const StageUid stage) const
+  constexpr auto vfin_col_at(const ScenarioLP& scenario,
+                             const StageLP& stage) const
   {
-    return vfin_cols.at({scenario, stage});
+    return vfin_cols.at({scenario.uid(), stage.uid()});
   }
 
   constexpr auto vini_col_at(const ScenarioUid scenario,
@@ -84,7 +84,7 @@ public:
         sc.stage_maxmin_at(stage, vmax, vmin, stage_capacity);
 
     const auto vicol = prev_stage
-        ? vfin_col_at(scenario.uid(), prev_stage->uid())
+        ? vfin_col_at(scenario, *prev_stage)
         : lp.add_col(
               {.name = sc.st_label(scenario, stage, cname, "vini", uid()),
                .lowb = storage().vini.value_or(stage_vmin),

@@ -42,10 +42,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& balance_rows_a =
-      bus_a_lp.balance_rows_at(scenario.uid(), stage.uid());
-  const auto& balance_rows_b =
-      bus_b_lp.balance_rows_at(scenario.uid(), stage.uid());
+  const auto& balance_rows_a = bus_a_lp.balance_rows_at(scenario, stage);
+  const auto& balance_rows_b = bus_b_lp.balance_rows_at(scenario, stage);
 
   const auto& blocks = stage.blocks();
 

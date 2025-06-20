@@ -83,7 +83,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
-  const auto& balance_rows = bus.balance_rows_at(scenario.uid(), stage.uid());
+  const auto& balance_rows = bus.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
   BIndexHolder gcols;
