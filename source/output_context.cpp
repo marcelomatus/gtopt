@@ -11,19 +11,21 @@
 #include <filesystem>
 #include <concepts>
 #include <ranges>
+#include <arrow/c/api.h>  // Add missing arrow headers
+#include <algorithm>      // For std::find
 
 template<typename T>
 concept ArrowBuildable = requires {
   { arrow::CTypeTraits<T>::type_singleton() } -> std::same_as<std::shared_ptr<arrow::DataType>>;
 };
 
-constexpr void validate_output_format(std::string_view fmt)
+constexpr void validate_output_format(std::string_view format)  // Rename parameter to avoid namespace conflict
 {
   constexpr std::array valid_formats = {"parquet", "csv"};
-  if (!std::ranges::contains(valid_formats, fmt)) [[unlikely]] {
+  if (std::find(valid_formats.begin(), valid_formats.end(), format) == valid_formats.end()) [[unlikely]] {
     throw std::invalid_argument(
       std::format("Invalid format: {} (allowed: {})", 
-                 fmt, fmt::join(valid_formats, ", "))
+                 format, fmt::join(valid_formats, ", "))
     );
   }
 }
@@ -74,10 +76,15 @@ template<typename Type = Uid, typename STBUids>
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
 
+  // Capture fields before moving stb_uids
+  auto&& scenarios = stb_uids.scenario_uids;
+  auto&& stages = stb_uids.stage_uids;
+  auto&& blocks = stb_uids.block_uids;
+  
   std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<STBUids>(stb_uids).scenario_uids),
-      make_array<Type>(std::forward<STBUids>(stb_uids).stage_uids),
-      make_array<Type>(std::forward<STBUids>(stb_uids).block_uids)};
+      make_array<Type>(std::forward<decltype(scenarios)>(scenarios)),
+      make_array<Type>(std::forward<decltype(stages)>(stages)),
+      make_array<Type>(std::forward<decltype(blocks)>(blocks))};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -90,9 +97,13 @@ template<typename Type = Uid, typename STUids>
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
+  // Capture fields before moving st_uids
+  auto&& scenarios = st_uids.scenario_uids;
+  auto&& stages = st_uids.stage_uids;
+  
   std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<STUids>(st_uids).scenario_uids),
-      make_array<Type>(std::forward<STUids>(st_uids).stage_uids)};
+      make_array<Type>(std::forward<decltype(scenarios)>(scenarios)),
+      make_array<Type>(std::forward<decltype(stages)>(stages))};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -195,8 +206,8 @@ constexpr auto parquet_write_table(const auto& fpath,
                                       props);
   if (!status.ok()) [[unlikely]] {
     auto msg = std::format("File write failed: {}", fpath.string());
-    SPDLOG_CRITICAL("{}", msg);
-    throw std::runtime_error(std::move(msg));
+    SPDLOG_CRITICAL("{}", msg.c_str());
+    throw std::runtime_error(msg);
   }
   return status;
 }
@@ -277,8 +288,8 @@ void OutputContext::write() const
     tasks.emplace_back([path, table, fmt, zfmt] {
       if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
         auto msg = std::format("File write failed: {}", path.string());
-        SPDLOG_CRITICAL("{}", msg);
-        throw std::runtime_error(std::move(msg));
+        SPDLOG_CRITICAL("{}", msg.c_str());
+        throw std::runtime_error(msg);
       }
     });
   }
