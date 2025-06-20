@@ -8,39 +8,29 @@
  * This module
  */
 
-#include <filesystem>
+#include <algorithm>  // For std::find
 #include <concepts>
+#include <filesystem>
 #include <ranges>
+
 #include <arrow/api.h>  // Add missing arrow headers
-#include <algorithm>      // For std::find
-
-template<typename T>
-concept ArrowBuildable = requires {
-  { arrow::CTypeTraits<T>::type_singleton() } -> std::same_as<std::shared_ptr<arrow::DataType>>;
-};
-
-
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <spdlog/spdlog.h>
 
+template<typename T>
+concept ArrowBuildable = requires {
+  {
+    arrow::CTypeTraits<T>::type_singleton()
+  } -> std::same_as<std::shared_ptr<arrow::DataType>>;
+};
+
 namespace
 {
 
 using namespace gtopt;
-
-constexpr void validate_output_format(std::string_view format)
-{
-  constexpr std::array valid_formats = {"parquet", "csv"};
-  if (std::find(valid_formats.begin(), valid_formats.end(), format) == valid_formats.end()) [[unlikely]] {
-    throw std::invalid_argument(
-      std::format("Invalid format: {} (allowed: {})", 
-                 format, std::string(fmt::join(valid_formats, ", ")))
-    );
-  }
-}
 
 template<ArrowBuildable Type = arrow::DoubleType,
          typename Values,
@@ -70,8 +60,8 @@ using str = std::string;
 
 template<typename Type = Uid, typename STBUids>
   requires std::same_as<std::remove_cvref_t<STBUids>, STBUids>
-[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids)
-  noexcept(noexcept(std::forward<STBUids>(stb_uids)))
+[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids) noexcept(
+    noexcept(std::forward<STBUids>(stb_uids)))
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -79,34 +69,26 @@ template<typename Type = Uid, typename STBUids>
       arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
 
   // Capture fields before moving stb_uids
-  auto&& scenarios = stb_uids.scenario_uids;
-  auto&& stages = stb_uids.stage_uids;
-  auto&& blocks = stb_uids.block_uids;
-  
   std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<decltype(scenarios)>(scenarios)),
-      make_array<Type>(std::forward<decltype(stages)>(stages)),
-      make_array<Type>(std::forward<decltype(blocks)>(blocks))};
+      make_array<Type>(std::forward<STBUids>(stb_uids).scenario_uids),
+      make_array<Type>(std::forward<STBUids>(stb_uids).stage_uids),
+      make_array<Type>(std::forward<STBUids>(stb_uids).block_uids)};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
 
 template<typename Type = Uid, typename STUids>
   requires std::same_as<std::remove_cvref_t<STUids>, STUids>
-[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids)
-  noexcept(noexcept(std::forward<STUids>(st_uids)))
+[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids) noexcept(
+    noexcept(std::forward<STUids>(st_uids)))
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
-  // Capture fields before moving st_uids
-  auto&& scenarios = st_uids.scenario_uids;
-  auto&& stages = st_uids.stage_uids;
-  
   std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<decltype(scenarios)>(scenarios)),
-      make_array<Type>(std::forward<decltype(stages)>(stages))};
+      make_array<Type>(std::forward<STUids>(st_uids).scenario_uids),
+      make_array<Type>(std::forward<STUids>(st_uids).stage_uids)};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -209,7 +191,7 @@ constexpr auto parquet_write_table(const auto& fpath,
                                       props);
   if (!status.ok()) [[unlikely]] {
     auto msg = std::format("File write failed: {}", fpath.string());
-    SPDLOG_CRITICAL("{}", msg);
+    SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
   return status;
@@ -288,13 +270,14 @@ void OutputContext::write() const
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
   for (auto&& [path, table] : path_tables) {
-    tasks.emplace_back([path, table, fmt, zfmt] {
-      if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
-        auto msg = std::format("File write failed: {}", path.string());
-        SPDLOG_CRITICAL("{}", msg.c_str());
-        throw std::runtime_error(msg);
-      }
-    });
+    tasks.emplace_back(
+        [path, table, fmt, zfmt]
+        {
+          if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
+            auto msg = std::format("File write failed: {}", path.string());
+            SPDLOG_CRITICAL(msg);
+          }
+        });
   }
   for (auto&& t : tasks) {
     t.join();
@@ -305,9 +288,12 @@ void OutputContext::write() const
 
   std::ofstream sol_file(sol_path.string());
   sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
-                         "obj_value", sol_obj_value,
-                         "kappa", sol_kappa,
-                         "status", sol_status);
+                          "obj_value",
+                          sol_obj_value,
+                          "kappa",
+                          sol_kappa,
+                          "status",
+                          sol_status);
 }
 
 OutputContext::OutputContext(const SystemContext& psc,
