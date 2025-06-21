@@ -1,11 +1,27 @@
 /**
  * @file      stage.hpp
- * @brief     Stage representation for optimization problems
+ * @brief     Time period representation for power system optimization models
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines the Stage struct representing time periods in optimization models
+ * @struct Stage
+ * @brief Represents a distinct time period in optimization planning
+ *
+ * Each Stage:
+ * - Defines a contiguous set of time blocks
+ * - Applies optional discount factors for cost calculations
+ * - Can be marked active/inactive for scenario filtering
+ *
+ * Key attributes:
+ * - uid: Unique identifier for the stage
+ * - first_block: Index of first block in the stage
+ * - count_block: Number of blocks in the stage
+ * - discount_factor: Optional stage-specific cost multiplier
+ * - active: Controls whether stage is included in optimizations
+ *
+ * @see StageLP for the linear programming representation
+ * @see Phase for higher-level time groupings
  */
 
 #pragma once
