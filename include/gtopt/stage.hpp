@@ -17,7 +17,8 @@ namespace gtopt
 
 struct Stage
 {
-  Uid uid {};
+  Uid uid_ {};
+  [[nodiscard]] Uid uid() const { return uid_; }
   OptName name {};
   OptBool active {};
 
