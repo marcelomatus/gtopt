@@ -169,17 +169,22 @@ public:
 
   /**
    * @brief Retrieves a state variable by its key
+   * @tparam Self Type of the object (deduced using 'this' parameter)
    * @tparam Key Type of the key (default state_variable_key_t)
    * @param key The key to search for
-   * @return Optional reference to the state variable if found
+   * @return Optional reference to the state variable if found (const or non-const)
    */
-  template<typename Key = state_variable_key_t>
-  [[nodiscard]] constexpr auto get_state_variable(Key&& key) noexcept
+  template<typename Self, typename Key = state_variable_key_t>
+  [[nodiscard]] constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
   {
-    using value_type = StateVariable;
+    using value_type = std::conditional_t<
+        std::is_const_v<std::remove_reference_t<Self>>,
+        const StateVariable,
+        StateVariable
+    >;
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
-    auto&& map = m_state_variable_map_;
+    auto&& map = self.m_state_variable_map_;
     const auto it = map.find(std::forward<Key>(key));
 
     return (it != map.end()) ? result_t {it->second} : std::nullopt;
