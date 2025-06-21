@@ -13,9 +13,8 @@
 
 #pragma once
 
-#include <utility>
 #include <string>
-#include <type_traits>
+#include <utility>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
@@ -30,6 +29,13 @@ using state_variable_key_t = std::tuple<std::string, StageUid>;
 class StateVariable
 {
 public:
+  template<typename... Var>
+  [[nodiscard]] static auto key(const StageLP& stage, Var... var)
+      -> state_variable_key_t
+  {
+    return {as_label(var...), stage.uid()};
+  }
+
   constexpr explicit StateVariable(Name name,
                                    LinearInterface& lp,
                                    Index col,
@@ -41,22 +47,9 @@ public:
   {
   }
 
-  /// @return Variable name view
   [[nodiscard]] constexpr NameView name() const noexcept { return m_name_; }
 
-  /// @return First column index in optimization matrix
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
-
-  template<typename... Var>
-  static auto key(const StageLP& stage, Var... var)
-      -> state_variable_key_t
-  {
-    if constexpr (sizeof...(Var) == 0) {
-      return {"", stage.uid()};
-    } else {
-      return {fmt::format("{}", (fmt::format("{}", var) + ... + ""), stage.uid()};
-    }
-  }
 
   using state_client_t =
       std::pair<std::reference_wrapper<LinearInterface>, Index>;
