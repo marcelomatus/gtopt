@@ -1,45 +1,39 @@
 #include <doctest/doctest.h>
-#include <gtopt/stage_lp.hpp>
 #include <gtopt/state_variable.hpp>
 
 using namespace gtopt;
 
 TEST_CASE("StateVariable key method")
 {
-  // Create a Stage with UID 42
-  Stage stage;
-  stage.uid = 42;
-
-  // Create StageLP with the Stage object
-  const StageLP stage_lp(stage, {}, 0.0, StageIndex {42}, PhaseIndex {1});
-
   SUBCASE("Basic key formation")
   {
-    auto key = StateVariable::key(stage_lp, "var", 1, "2.0");
-    CHECK(std::get<0>(key) == "var_1_2.0");
-    CHECK(std::get<1>(key) == stage_lp.uid());
+    auto key = StateVariable::key("col_name", 123, "class_name");
+    CHECK(std::get<0>(key) == ScenarioUid{unknown_uid});
+    CHECK(std::get<1>(key) == StageUid{unknown_uid});
+    CHECK(std::get<2>(key) == "class_name");
+    CHECK(std::get<3>(key) == 123);
+    CHECK(std::get<4>(key) == "col_name");
   }
 
-  SUBCASE("Single component")
+  SUBCASE("Key with stage and scenario")
   {
-    auto key = StateVariable::key(stage_lp, "single");
-    CHECK(std::get<0>(key) == "single");
-    CHECK(std::get<1>(key) == stage_lp.uid());
-  }
-
-  SUBCASE("Empty components")
-  {
-    auto key = StateVariable::key(stage_lp);
-    CHECK(std::get<0>(key) == "");
-    CHECK(std::get<1>(key) == stage_lp.uid());
+    StageUid stage_uid{42};
+    ScenarioUid scenario_uid{100};
+    auto key = StateVariable::key("another_col", 456, "Generator", stage_uid, scenario_uid);
+    
+    CHECK(std::get<0>(key) == scenario_uid);
+    CHECK(std::get<1>(key) == stage_uid);
+    CHECK(std::get<2>(key) == "Generator");
+    CHECK(std::get<3>(key) == 456);
+    CHECK(std::get<4>(key) == "another_col");
   }
 
   SUBCASE("Key comparison")
   {
-    auto key1 = StateVariable::key(stage_lp, "same", "key");
-    auto key2 = StateVariable::key(stage_lp, "same", "key");
-    auto key3 = StateVariable::key(stage_lp, "different", "key");
-
+    auto key1 = StateVariable::key("col1", 1, "Class1");
+    auto key2 = StateVariable::key("col1", 1, "Class1");
+    auto key3 = StateVariable::key("col2", 2, "Class2");
+    
     CHECK(key1 == key2);
     CHECK(key1 != key3);
   }
