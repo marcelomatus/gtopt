@@ -45,6 +45,14 @@ public:
   /// @return First column index in optimization matrix
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
+  template<typename... Var>
+  static constexpr auto key(const StageLP& stage, Var... var)
+      -> state_variable_key_t
+  {
+    return {fmt::format("{}", fmt::join(std::forward_as_tuple(var...), "_")),
+            stage.uid()};
+  }
+
   using state_client_t =
       std::pair<std::reference_wrapper<LinearInterface>, Index>;
 

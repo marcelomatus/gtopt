@@ -6,7 +6,7 @@ using namespace gtopt;
 TEST_CASE("StateVariable key method")
 {
   // Use a real StageLP object instead of mock
-  StageLP stage(Stage{"test_stage"}, {}, 0.0, StageIndex{42}, PhaseIndex{1});
+  StageLP stage(Stage{42}, {}, 0.0, StageIndex{42}, PhaseIndex{1});
 
   SUBCASE("Basic key formation")
   {
