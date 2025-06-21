@@ -63,6 +63,14 @@ public:
     return m_clients_.emplace(std::move(name), state_client_t {lp, col}).second;
   }
 
+  template<typename... Var>
+  static constexpr auto key(const StageLP& stage, Var... var)
+      -> state_variable_key_t
+  {
+    return {fmt::format("{}", fmt::join(std::forward_as_tuple(var...), "_")),
+            stage.uid()};
+  }
+
 private:
   Name m_name_;
   std::reference_wrapper<LinearInterface> m_lp_;
