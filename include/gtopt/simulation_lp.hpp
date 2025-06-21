@@ -143,6 +143,48 @@ public:
     return {&m_stage_array_[prev_stage_index], nullptr};
   }
 
+  // Get method with deducing this for automatic const handling
+  using state_variable_key_t = StateVariable::Key;
+  using state_variable_map_t = flat_map<state_variable_key_t, StateVariable>;
+
+  // Add method with deducing this and perfect forwarding
+  template<typename Key = state_variable_key_t>
+  [[nodiscard]] auto add_state_variable(Key&& key,
+                                        LinearInterface& lp,
+                                        Index col) -> const StateVariable&
+  {
+    auto&& map = m_state_variable_map_;
+    const auto [it, inserted] =
+        map.try_emplace(std::forward<Key>(key), lp, col);
+
+    if (!inserted) {
+      auto msg = fmt::format("duplicated variable {} in simulation map",
+                             as_string(key));
+      SPDLOG_CRITICAL(msg);
+      throw std::runtime_error(msg);
+    }
+
+    return it->second;
+  }
+
+  /**
+   * @brief Retrieves a state variable by its key
+   * @tparam Key Type of the key (default state_variable_key_t)
+   * @param key The key to search for
+   * @return Optional reference to the state variable if found
+   */
+  template<typename Key = state_variable_key_t>
+  [[nodiscard]] constexpr auto get_state_variable(Key&& key) noexcept
+  {
+    using value_type = StateVariable;
+    using result_t = std::optional<std::reference_wrapper<value_type>>;
+
+    auto&& map = m_state_variable_map_;
+    const auto it = map.find(std::forward<Key>(key));
+
+    return (it != map.end()) ? result_t {it->second} : std::nullopt;
+  }
+
 private:
   /**
    * @brief Validates all components for consistency
@@ -158,6 +200,8 @@ private:
   std::vector<PhaseLP> m_phase_array_;
   std::vector<ScenarioLP> m_scenario_array_;
   std::vector<SceneLP> m_scene_array_;
+
+  state_variable_map_t m_state_variable_map_;
 };
 
 }  // namespace gtopt
