@@ -14,6 +14,8 @@
 #pragma once
 
 #include <utility>
+#include <string>
+#include <type_traits>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
@@ -46,11 +48,14 @@ public:
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
   template<typename... Var>
-  static constexpr auto key(const StageLP& stage, Var... var)
+  static auto key(const StageLP& stage, Var... var)
       -> state_variable_key_t
   {
-    return {fmt::format("{}", fmt::join(std::forward_as_tuple(var...), "_")),
-            stage.uid()};
+    if constexpr (sizeof...(Var) == 0) {
+      return {"", stage.uid()};
+    } else {
+      return {fmt::format("{}", (fmt::format("{}", var) + ... + ""), stage.uid()};
+    }
   }
 
   using state_client_t =
