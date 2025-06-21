@@ -13,78 +13,52 @@
 
 #pragma once
 
-#include <string>
-#include <utility>
-#include <optional>
-#include <span>
-
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
-#include <gtopt/linear_interface.hpp>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/phase_lp.hpp>
 
 namespace gtopt
 {
 
-// Dedicated struct for state variable key instead of tuple
-struct StateVariableKey {
-    std::string label;
-    StageUid stage_uid;
-    
-    auto operator<=>(const StateVariableKey&) const = default;
-};
-
 class StateVariable
 {
 public:
-  // Use perfect forwarding and constraints
-  template<typename... Var>
-    requires (std::is_constructible_v<std::string, Var> && ...)
-  [[nodiscard]] static auto key(const StageLP& stage, Var&&... var)
-      -> StateVariableKey
+  using ClassName = NameView;
+  using ColName = NameView;
+  using Key = std::tuple<ScenarioUid, StageUid, ClassName, Uid, NameView>;
+
+  [[nodiscard]] constexpr static auto key(
+      NameView col_name,
+      Uid uid,
+      NameView class_name,
+      StageUid stage_uid = StageUid {unknown_uid},
+      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
   {
-    return {as_label(std::forward<Var>(var)...), stage.uid()};
+    return {scenario_uid, stage_uid, class_name, uid, col_name};
   }
 
-  constexpr explicit StateVariable(Name name,
-                                   LinearInterface& lp,
-                                   Index col,
-                                   const StageLP& stage) noexcept
-      : m_name_(std::move(name))
-      , m_lp_(lp)
+  constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept
+      : m_lp_(lp)
       , m_col_(col)
-      , m_stage_uid_(stage.uid())
   {
   }
-
-  [[nodiscard]] constexpr NameView name() const noexcept { return m_name_; }
 
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
-  // Use reference_wrapper + optional for better semantics
-  using state_client_t = std::pair<std::reference_wrapper<LinearInterface>, std::optional<Index>>;
+  using state_client_t =
+      std::tuple<std::reference_wrapper<LinearProblem>, Index>;
 
-  // Use string_view to avoid allocations
-  [[nodiscard]] constexpr bool register_client(std::string_view name,
-                                               LinearInterface& lp,
-                                               std::optional<Index> col = std::nullopt) noexcept
+  constexpr auto&& add_client(LinearProblem& lp, Index col) noexcept
   {
-    return m_clients_.emplace(std::string(name), state_client_t {lp, col}).second;
-  }
-
-  // Additional helper to get clients
-  [[nodiscard]] auto get_clients() const noexcept -> std::span<const typename flat_map<Name, state_client_t>::value_type>
-  {
-    return {m_clients_.sequence().data(), m_clients_.size()};
+    return m_clients_.emplace_back(lp, col);
   }
 
 private:
-  Name m_name_;
-  std::reference_wrapper<LinearInterface> m_lp_;
+  std::reference_wrapper<LinearProblem> m_lp_;
   Index m_col_ {unknown_index};
-  StageUid m_stage_uid_ {unknown_uid};
 
-  flat_map<Name, state_client_t> m_clients_;
+  std::vector<state_client_t> m_clients_;
 };
 
 }  // namespace gtopt
