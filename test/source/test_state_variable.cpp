@@ -7,12 +7,12 @@ using namespace gtopt;
 // Define a mock element for testing
 struct MockElement {
     static constexpr std::string_view class_name = "MockElement";
-    Uid uid() const { return 123; }
+    [[nodiscard]] static Uid uid() { return 123; }
 };
 
 TEST_CASE("StateVariable key method")
 {
-  MockElement element;
+  const MockElement element;
   
   SUBCASE("Basic key formation with element")
   {
@@ -50,7 +50,7 @@ TEST_CASE("StateVariable key method")
   SUBCASE("Key with real stage element")
   {
     gtopt::Stage stage;
-    stage.uid = 456;
+    stage.uid_ = 456;
     auto key = StateVariable::key(stage, "stage_col");
     
     CHECK(key.class_name == "stage");
