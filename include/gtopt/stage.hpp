@@ -49,8 +49,6 @@ using OptStageIndex = std::optional<StageIndex>;
 // Deduction guide for structured bindings (C++23)
 namespace gtopt
 {
-// Deduction guide for structured bindings (C++23)
-Stage() -> Stage;
 }  // namespace gtopt
 
 // Use standard concepts for incrementable traits
