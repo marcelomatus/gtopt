@@ -50,7 +50,7 @@ TEST_CASE("StateVariable key method")
   SUBCASE("Key with real stage element")
   {
     gtopt::Stage stage;
-    stage.uid_ = 456;
+    stage.uid = 456;
     auto key = StateVariable::key(stage, "stage_col");
     
     CHECK(key.class_name == "stage");
