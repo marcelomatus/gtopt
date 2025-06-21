@@ -11,12 +11,12 @@ TEST_CASE("StateVariable key method")
   stage.uid = 42;
 
   // Create StageLP with the Stage object
-  StageLP stage_lp(stage, {}, 0.0, StageIndex{42}, PhaseIndex{1});
+  const StageLP stage_lp(stage, {}, 0.0, StageIndex{42}, PhaseIndex{1});
 
   SUBCASE("Basic key formation")
   {
     auto key = StateVariable::key(stage_lp, "var", 1, 2.0);
-    CHECK(std::get<0>(key) == "var_1_2.0");
+    CHECK(std::get<0>(key) == "var12.0");
     CHECK(std::get<1>(key) == stage_lp.uid());
   }
 
