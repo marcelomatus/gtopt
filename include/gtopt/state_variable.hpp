@@ -24,18 +24,30 @@ namespace gtopt
 class StateVariable
 {
 public:
-  using ClassName = NameView;
-  using ColName = NameView;
-  using Key = std::tuple<ScenarioUid, StageUid, ClassName, Uid, NameView>;
+  struct Key {
+    ScenarioUid scenario_uid;
+    StageUid stage_uid;
+    std::string class_name;
+    Uid uid;
+    std::string col_name;
+
+    auto operator<=>(const Key&) const = default;
+  };
 
   [[nodiscard]] constexpr static auto key(
-      NameView col_name,
+      std::string_view col_name,
       Uid uid,
-      NameView class_name,
+      std::string_view class_name,
       StageUid stage_uid = StageUid {unknown_uid},
       ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
   {
-    return {scenario_uid, stage_uid, class_name, uid, col_name};
+    return {
+      scenario_uid,
+      stage_uid,
+      std::string(class_name),
+      uid,
+      std::string(col_name)
+    };
   }
 
   constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept
