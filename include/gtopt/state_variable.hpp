@@ -73,9 +73,9 @@ public:
   }
 
   // Additional helper to get clients
-  [[nodiscard]] auto get_clients() const noexcept -> std::span<const typename decltype(m_clients_)::value_type>
+  [[nodiscard]] auto get_clients() const noexcept -> std::span<const typename flat_map<Name, state_client_t>::value_type>
   {
-    return m_clients_;
+    return {m_clients_.sequence().data(), m_clients_.size()};
   }
 
 private:
