@@ -33,7 +33,7 @@ struct Stage
   template<typename Self>
   [[nodiscard]] constexpr decltype(auto) is_active(this Self&& self) noexcept
   {
-    return self.active.value_or(true);
+    return std::forward<Self>(self).active.value_or(true);
   }
 
   // Use attribute for explicit member initialization
@@ -49,8 +49,9 @@ using OptStageIndex = std::optional<StageIndex>;
 // Deduction guide for structured bindings (C++23)
 namespace gtopt
 {
-Stage()->Stage;
-}
+// Deduction guide for structured bindings (C++23)
+Stage() -> Stage;
+}  // namespace gtopt
 
 // Use standard concepts for incrementable traits
 namespace std
