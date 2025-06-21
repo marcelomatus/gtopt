@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
-#include <gtopt/state_variable.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/state_variable.hpp>
 
 using namespace gtopt;
 
@@ -11,12 +11,12 @@ TEST_CASE("StateVariable key method")
   stage.uid = 42;
 
   // Create StageLP with the Stage object
-  const StageLP stage_lp(stage, {}, 0.0, StageIndex{42}, PhaseIndex{1});
+  const StageLP stage_lp(stage, {}, 0.0, StageIndex {42}, PhaseIndex {1});
 
   SUBCASE("Basic key formation")
   {
-    auto key = StateVariable::key(stage_lp, "var", 1, 2.0);
-    CHECK(std::get<0>(key) == "var12.0");
+    auto key = StateVariable::key(stage_lp, "var", 1, "2.0");
+    CHECK(std::get<0>(key) == "var_1_2.0");
     CHECK(std::get<1>(key) == stage_lp.uid());
   }
 
@@ -24,12 +24,14 @@ TEST_CASE("StateVariable key method")
   {
     auto key = StateVariable::key(stage_lp, "single");
     CHECK(std::get<0>(key) == "single");
+    CHECK(std::get<1>(key) == stage_lp.uid());
   }
 
   SUBCASE("Empty components")
   {
     auto key = StateVariable::key(stage_lp);
     CHECK(std::get<0>(key) == "");
+    CHECK(std::get<1>(key) == stage_lp.uid());
   }
 
   SUBCASE("Key comparison")
