@@ -15,6 +15,8 @@
 
 #include <string>
 #include <utility>
+#include <optional>
+#include <span>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
@@ -24,16 +26,24 @@
 namespace gtopt
 {
 
-using state_variable_key_t = std::tuple<std::string, StageUid>;
+// Dedicated struct for state variable key instead of tuple
+struct StateVariableKey {
+    std::string label;
+    StageUid stage_uid;
+    
+    auto operator<=>(const StateVariableKey&) const = default;
+};
 
 class StateVariable
 {
 public:
+  // Use perfect forwarding and constraints
   template<typename... Var>
-  [[nodiscard]] static auto key(const StageLP& stage, Var... var)
-      -> state_variable_key_t
+    requires (std::is_constructible_v<std::string, Var> && ...)
+  [[nodiscard]] static auto key(const StageLP& stage, Var&&... var)
+      -> StateVariableKey
   {
-    return {as_label(var...), stage.uid()};
+    return {as_label(std::forward<Var>(var)...), stage.uid()};
   }
 
   constexpr explicit StateVariable(Name name,
@@ -51,14 +61,21 @@ public:
 
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
-  using state_client_t =
-      std::pair<std::reference_wrapper<LinearInterface>, Index>;
+  // Use reference_wrapper + optional for better semantics
+  using state_client_t = std::pair<std::reference_wrapper<LinearInterface>, std::optional<Index>>;
 
-  [[nodiscard]] constexpr bool register_client(Name name,
+  // Use string_view to avoid allocations
+  [[nodiscard]] constexpr bool register_client(std::string_view name,
                                                LinearInterface& lp,
-                                               Index col) noexcept
+                                               std::optional<Index> col = std::nullopt) noexcept
   {
-    return m_clients_.emplace(std::move(name), state_client_t {lp, col}).second;
+    return m_clients_.emplace(std::string(name), state_client_t {lp, col}).second;
+  }
+
+  // Additional helper to get clients
+  [[nodiscard]] auto get_clients() const noexcept -> std::span<const typename decltype(m_clients_)::value_type>
+  {
+    return m_clients_;
   }
 
 private:
