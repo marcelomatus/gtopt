@@ -150,7 +150,7 @@ public:
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]] auto add_state_variable(Key&& key,
-                                        LinearInterface& lp,
+                                        LinearProblem& lp,
                                         Index col) -> const StateVariable&
   {
     auto&& map = m_state_variable_map_;
@@ -184,7 +184,7 @@ public:
     >;
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
-    auto&& map = self.m_state_variable_map_;
+    auto&& map = std::forward<Self>(self).m_state_variable_map_;
     const auto it = map.find(std::forward<Key>(key));
 
     return (it != map.end()) ? result_t {it->second} : std::nullopt;
