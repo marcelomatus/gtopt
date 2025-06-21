@@ -34,19 +34,19 @@ public:
     auto operator<=>(const Key&) const = default;
   };
 
-  [[nodiscard]] constexpr static auto key(
-      std::string_view col_name,
+  [[nodiscard]] static auto key(
+      std::string col_name,
       Uid uid,
-      std::string_view class_name,
+      std::string class_name,
       StageUid stage_uid = StageUid {unknown_uid},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
+      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
   {
     return {
       scenario_uid,
       stage_uid,
-      std::string(class_name),
+      std::move(class_name),
       uid,
-      std::string(col_name)
+      std::move(col_name)
     };
   }
 
