@@ -28,14 +28,6 @@ using state_variable_key_t = std::tuple<std::string, StageUid>;
 class StateVariable
 {
 public:
-  template<typename... Var>
-  static constexpr auto key(const StageLP& stage, Var... var)
-      -> state_variable_key_t
-  {
-    return {fmt::format("{}", fmt::join(std::forward_as_tuple(var...), "_")),
-            stage.uid()};
-  }
-
   constexpr explicit StateVariable(Name name,
                                    LinearInterface& lp,
                                    Index col,
@@ -61,14 +53,6 @@ public:
                                                Index col) noexcept
   {
     return m_clients_.emplace(std::move(name), state_client_t {lp, col}).second;
-  }
-
-  template<typename... Var>
-  static constexpr auto key(const StageLP& stage, Var... var)
-      -> state_variable_key_t
-  {
-    return {fmt::format("{}", fmt::join(std::forward_as_tuple(var...), "_")),
-            stage.uid()};
   }
 
 private:
