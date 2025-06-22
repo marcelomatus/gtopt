@@ -9,7 +9,7 @@ using namespace gtopt;
 struct MockElement : public ObjectUtils
 {
   static constexpr std::string_view class_name() { return "MockElement"; }
-  static Uid uid() { return 123; }
+  [[nodiscard]] constexpr Uid uid() const noexcept { return 123; }
 };
 
 TEST_CASE("StateVariable key method")
@@ -70,23 +70,25 @@ TEST_CASE("StateVariable construction and basic properties")
     StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
     
     CHECK(var.col() == 3);
+    CHECK(var.scene_index() == SceneIndex{1});
+    CHECK(var.phase_index() == PhaseIndex{2});
     CHECK(var.dependent_variables().empty());
   }
 
   SUBCASE("With dependent variables")
   {
     StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
-    LinearProblem lp1("test1");
-    LinearProblem lp2("test2");
 
-    var.add_dependent_variable(lp1, Index{10});
-    var.add_dependent_variable(lp2, Index{20});
+    var.add_dependent_variable(SceneIndex{4}, PhaseIndex{5}, Index{10});
+    var.add_dependent_variable(SceneIndex{6}, PhaseIndex{7}, Index{20});
 
     const auto& deps = var.dependent_variables();
     REQUIRE(deps.size() == 2);
-    CHECK(&deps[0].lp.get() == &lp1);
+    CHECK(deps[0].scene_index == SceneIndex{4});
+    CHECK(deps[0].phase_index == PhaseIndex{5});
     CHECK(deps[0].col == 10);
-    CHECK(&deps[1].lp.get() == &lp2);
+    CHECK(deps[1].scene_index == SceneIndex{6});
+    CHECK(deps[1].phase_index == PhaseIndex{7});
     CHECK(deps[1].col == 20);
   }
 }
@@ -98,19 +100,20 @@ TEST_CASE("StateVariable dependent variables")
 
   SUBCASE("Adding single dependent variable")
   {
-    auto& dep = var.add_dependent_variable(lp, Index{5});
-    CHECK(&dep.lp.get() == &lp);
-    CHECK(dep.col == 5);
+    auto& dep = var.add_dependent_variable(SceneIndex{4}, PhaseIndex{5}, Index{6});
+    CHECK(dep.scene_index == SceneIndex{4});
+    CHECK(dep.phase_index == PhaseIndex{5});
+    CHECK(dep.col == 6);
   }
 
   SUBCASE("Adding multiple dependent variables")
   {
-    var.add_dependent_variable(lp, Index{5});
-    var.add_dependent_variable(lp, Index{6});
+    var.add_dependent_variable(SceneIndex{4}, PhaseIndex{5}, Index{6});
+    var.add_dependent_variable(SceneIndex{7}, PhaseIndex{8}, Index{9});
     
     const auto& deps = var.dependent_variables();
     REQUIRE(deps.size() == 2);
-    CHECK(deps[0].col == 5);
-    CHECK(deps[1].col == 6);
+    CHECK(deps[0].col == 6);
+    CHECK(deps[1].col == 9);
   }
 }
