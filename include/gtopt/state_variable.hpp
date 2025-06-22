@@ -69,8 +69,18 @@ public:
 
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
-  using dependent_variable_t =
-      std::tuple<std::reference_wrapper<LinearProblem>, Index>;
+  struct DependentVariable {
+    std::reference_wrapper<LinearProblem> lp;
+    Index col;
+
+    constexpr DependentVariable(LinearProblem& p_lp, Index p_col) noexcept
+        : lp(p_lp)
+        , col(p_col)
+    {
+    }
+  };
+
+  using dependent_variable_t = DependentVariable;
 
   constexpr auto&& add_dependent_variable(LinearProblem& lp, Index col) noexcept
   {
