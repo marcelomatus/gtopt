@@ -37,15 +37,24 @@ public:
    * @param scenario_uid Scenario UID (default unknown)
    * @return StateVariable::Key
    */
-  template<typename Self>
+  template<typename Self, typename ScenarioLP, typename StageLP>
   [[nodiscard]]
   constexpr auto sv_key(this const Self& self,
-                        std::string_view col_name,
-                        StageUid stage_uid = StageUid {unknown_uid},
-                        ScenarioUid scenario_uid = ScenarioUid {
-                            unknown_uid}) noexcept
+                        const ScenarioLP& scenario,
+                        const StageLP& stage,
+                        std::string_view col_name) noexcept
   {
-    return StateVariable::key(self, col_name, stage_uid, scenario_uid);
+    return StateVariable::key(
+        scenario, stage, self.class_name(), self.uid(), col_name);
+  }
+
+  template<typename Self, typename StageLP>
+  [[nodiscard]]
+  constexpr auto sv_key(this const Self& self,
+                        const StageLP& stage,
+                        std::string_view col_name) noexcept
+  {
+    return StateVariable::key(stage, self.class_name(), self.uid(), col_name);
   }
 
   /**
@@ -64,13 +73,52 @@ public:
            typename SystemContext,
            typename StageLP,
            typename... Args>
-  [[nodiscard]] constexpr auto t_label(this const Self& self,
-                                       SystemContext& sc,
-                                       const StageLP& stage,
-                                       Args&&... args) noexcept
+  [[nodiscard]] constexpr auto lp_label(this const Self& self,
+                                        SystemContext& sc,
+                                        const StageLP& stage,
+                                        Args&&... args) noexcept
   {
     return sc.t_label(
         stage, self.class_name(), std::forward<Args>(args)..., self.uid());
+  }
+
+  template<typename Self,
+           typename SystemContext,
+           typename ScenarioLP,
+           typename StageLP,
+           typename... Args>
+  [[nodiscard]] constexpr auto lp_label(this const Self& self,
+                                        SystemContext& sc,
+                                        const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        Args&&... args) noexcept
+  {
+    return sc.lp_label(scenario,
+                       stage,
+                       self.class_name(),
+                       std::forward<Args>(args)...,
+                       self.uid());
+  }
+
+  template<typename Self,
+           typename SystemContext,
+           typename ScenarioLP,
+           typename StageLP,
+           typename BlockLP,
+           typename... Args>
+  [[nodiscard]] constexpr auto lp_label(this const Self& self,
+                                        SystemContext& sc,
+                                        const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        const BlockLP& block,
+                                        Args&&... args) noexcept
+  {
+    return sc.lp_label(scenario,
+                       stage,
+                       block,
+                       self.class_name(),
+                       std::forward<Args>(args)...,
+                       self.uid());
   }
 };
 

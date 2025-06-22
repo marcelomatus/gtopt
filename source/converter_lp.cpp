@@ -73,7 +73,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     const auto gcol = gen_cols.at(buid);
     const auto lcol = load_cols.at(buid);
 
-    auto rrow = SparseRow {.name = sc.stb_label(
+    auto rrow = SparseRow {.name = sc.lp_label(
                                scenario, stage, block, cname, "conv", uid())}
                     .equal(0);
 
@@ -85,7 +85,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.stb_label(
+      auto crow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "cap", uid())}
                       .greater_equal(0);
 

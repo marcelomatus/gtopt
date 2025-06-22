@@ -62,7 +62,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       return std::nullopt;
     }
 
-    auto name = sc.st_label(scenario, stage, cname, "emin", uid());
+    auto name = sc.lp_label(scenario, stage, cname, "emin", uid());
     const auto emin_col = stage_ecost
         ? lp.add_col(  //
               {.name = name,
@@ -94,12 +94,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
 
     const auto lcol = stage_fcost
-        ? lp.add_col({.name = sc.stb_label(
+        ? lp.add_col({.name = sc.lp_label(
                           scenario, stage, block, cname, "load", uid()),
                       .uppb = block_lmax,
                       .cost = -sc.block_ecost(
                           scenario, stage, block, stage_fcost.value())})
-        : lp.add_col({.name = sc.stb_label(
+        : lp.add_col({.name = sc.lp_label(
                           scenario, stage, block, cname, "load", uid()),
                       .lowb = block_lmax,
                       .uppb = block_lmax});
@@ -112,7 +112,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.stb_label(
+      auto crow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "cap", uid())}
                       .greater_equal(0);
 

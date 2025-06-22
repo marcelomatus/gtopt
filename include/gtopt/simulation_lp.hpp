@@ -149,16 +149,12 @@ public:
 
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
-  [[nodiscard]] auto add_state_variable(Key&& key,
-                                        const ScenarioLP& scenario,
-                                        const StageLP& stage,
-                                        Index col) -> const StateVariable&
+  [[nodiscard]]
+  auto add_state_variable(Key&& key, Index col) -> const StateVariable&
   {
     auto&& map = m_state_variable_map_;
-    const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
-                                                scenario.scene_index(),
-                                                stage.phase_index(),
-                                                col);
+    const auto [it, inserted] =
+        map.try_emplace(std::forward<Key>(key), key.lp_key, col);
 
     if (!inserted) {
       auto msg = fmt::format("duplicated variable {}:{} in simulation map",

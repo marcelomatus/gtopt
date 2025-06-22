@@ -238,13 +238,9 @@ public:
 
   // Methods to handle the state_variables
   template<typename Key>
-  constexpr auto add_state_variable(Key&& key,
-                                    const ScenarioLP& scenario,
-                                    const StageLP& stage,
-                                    Index col)
+  constexpr auto add_state_variable(Key&& key, Index col)
   {
-    return simulation().add_state_variable(
-        std::forward<Key>(key), scenario, stage, col);
+    return simulation().add_state_variable(std::forward<Key>(key), col);
   }
 
   template<typename Key>

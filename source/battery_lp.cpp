@@ -58,7 +58,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
 
   for (auto&& block : blocks) {
     const auto col = lp.add_col(SparseCol {
-        .name = sc.stb_label(scenario, stage, block, cname, "flow", uid())}
+        .name = sc.lp_label(scenario, stage, block, cname, "flow", uid())}
                                     .free());
     fcols[block.uid()] = col;
   }

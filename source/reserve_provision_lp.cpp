@@ -66,7 +66,7 @@ constexpr bool add_provision(const SystemContext& sc,
 
       const auto block_rcost =
           sc.block_ecost(scenario, stage, block, stage_cost);
-      const auto name = sc.stb_label(scenario, stage, block, cname, pname, uid);
+      const auto name = sc.lp_label(scenario, stage, block, cname, pname, uid);
       const auto rcol = lp.add_col(
           {.name = name, .uppb = block_rmax.value(), .cost = block_rcost});
 
@@ -74,7 +74,8 @@ constexpr bool add_provision(const SystemContext& sc,
       rp.provision_rows[stb_k] = lp.add_row(provision_row(name, gcol, rcol));
 
       if (use_capacity) {
-        auto crow = SparseRow {.name = sc.label("cap", name)}.greater_equal(0);
+        auto crow =
+            SparseRow {.name = sc.lp_label("cap", name)}.greater_equal(0);
         crow[capacity_col.value()] = stage_capacity_factor.value();
         crow[rcol] = -1;
         rp.capacity_rows[stb_k] = lp.add_row(std::move(crow));

@@ -44,8 +44,8 @@ public:
       std::string_view col_name,
       PhaseIndex phase_index,
       StageUid stage_uid,
-      SceneIndex scene_index = SceneIndex{unknown_index},
-      ScenarioUid scenario_uid = ScenarioUid{unknown_uid}) noexcept -> Key
+      SceneIndex scene_index = SceneIndex {unknown_index},
+      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
   {
     return {.lp_key = {.scene_index = scene_index, .phase_index = phase_index},
             .scenario_uid = scenario_uid,
@@ -84,8 +84,8 @@ public:
   }
 
   constexpr explicit StateVariable(LPKey lp_key, Index col) noexcept
-      : m_lp_key_{std::move(lp_key)}
-      , m_col_{col}
+      : m_lp_key_ {lp_key}
+      , m_col_ {col}
   {
   }
 
@@ -133,10 +133,10 @@ public:
   }
 
   template<typename ScenarioLP, typename StageLP>
-  constexpr auto add_dependent_variable(
-      const ScenarioLP& scenario,
-      const StageLP& stage,
-      Index col) noexcept -> const DependentVariable&
+  constexpr auto add_dependent_variable(const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        Index col) noexcept
+      -> const DependentVariable&
   {
     return add_dependent_variable(LPKey {.scene_index = scenario.scene_index(),
                                          .phase_index = stage.phase_index()},

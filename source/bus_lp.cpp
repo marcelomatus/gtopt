@@ -30,7 +30,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 
     for (auto&& block : blocks) {
       SparseCol theta_col {
-          .name = sc.stb_label(scenario, stage, block, cname, "theta", uid())};
+          .name = sc.lp_label(scenario, stage, block, cname, "theta", uid())};
       const auto tc =
           lp.add_col(theta ? std::move(theta_col.equal(theta.value()))
                            : std::move(theta_col.free()));
@@ -70,7 +70,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   const auto puid = uid();
   for (auto&& block : blocks) {
     brows[block.uid()] = lp.add_row(
-        {.name = sc.stb_label(scenario, stage, block, cname, "bal", puid)});
+        {.name = sc.lp_label(scenario, stage, block, cname, "bal", puid)});
   }
 
   return emplace_bholder(scenario, stage, balance_rows, std::move(brows))

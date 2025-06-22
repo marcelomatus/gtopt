@@ -86,7 +86,7 @@ public:
     const auto vicol = prev_stage
         ? vfin_col_at(scenario, *prev_stage)
         : lp.add_col(
-              {.name = sc.st_label(scenario, stage, cname, "vini", uid()),
+              {.name = sc.lp_label(scenario, stage, cname, "vini", uid()),
                .lowb = storage().vini.value_or(stage_vmin),
                .uppb = storage().vini.value_or(stage_vmax)});
 
@@ -104,7 +104,7 @@ public:
       const auto buid = block.uid();
       const auto is_last = buid == blocks.back().uid();
 
-      auto vrow = SparseRow {.name = sc.stb_label(
+      auto vrow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "vol", uid())}
                       .equal(0);
 
@@ -125,7 +125,7 @@ public:
 
       // adding the capacity constraint
       if (capacity_col) {
-        auto crow = SparseRow {.name = sc.stb_label(
+        auto crow = SparseRow {.name = sc.lp_label(
                                    scenario, stage, block, cname, "cap", uid())}
                         .greater_equal(0);
         crow[*capacity_col] = 1;
