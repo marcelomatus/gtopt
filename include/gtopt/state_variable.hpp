@@ -38,15 +38,14 @@ public:
     constexpr auto operator<=>(const Key&) const noexcept = default;
   };
 
-  [[nodiscard]]
-  static constexpr auto key(std::string_view class_name,
-                            Uid uid,
-                            std::string_view col_name,
-                            PhaseIndex phase_index,
-                            StageUid stage_uid,
-                            SceneIndex scene_index = SceneIndex {unknown_index},
-                            ScenarioUid scenario_uid = ScenarioUid {
-                                unknown_uid}) noexcept -> Key
+  [[nodiscard]] static constexpr auto key(
+      std::string_view class_name,
+      Uid uid,
+      std::string_view col_name,
+      PhaseIndex phase_index,
+      StageUid stage_uid,
+      SceneIndex scene_index = SceneIndex{unknown_index},
+      ScenarioUid scenario_uid = ScenarioUid{unknown_uid}) noexcept -> Key
   {
     return {.lp_key = {.scene_index = scene_index, .phase_index = phase_index},
             .scenario_uid = scenario_uid,
@@ -84,9 +83,9 @@ public:
         class_name, element_uid, col_name, stage.phase_index(), stage.uid());
   }
 
-  constexpr explicit StateVariable(const LPKey& lp_key, Index col) noexcept
-      : m_lp_key_ {lp_key}
-      , m_col_ {col}
+  constexpr explicit StateVariable(LPKey lp_key, Index col) noexcept
+      : m_lp_key_{std::move(lp_key)}
+      , m_col_{col}
   {
   }
 
@@ -127,16 +126,17 @@ public:
     return m_dependent_variables_;
   }
 
-  constexpr auto add_dependent_variable(const LPKey& lp_key, Index col) noexcept
+  constexpr auto add_dependent_variable(LPKey lp_key, Index col) noexcept
       -> const DependentVariable&
   {
     return m_dependent_variables_.emplace_back(lp_key, col);
   }
 
   template<typename ScenarioLP, typename StageLP>
-  constexpr auto&& add_dependent_variable(const ScenarioLP& scenario,
-                                          const StageLP& stage,
-                                          Index col) noexcept
+  constexpr auto add_dependent_variable(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      Index col) noexcept -> const DependentVariable&
   {
     return add_dependent_variable(LPKey {.scene_index = scenario.scene_index(),
                                          .phase_index = stage.phase_index()},
