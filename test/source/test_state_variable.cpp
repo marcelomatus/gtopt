@@ -10,6 +10,11 @@ struct MockElement : public ObjectUtils
   [[nodiscard]] static Uid uid() { return 123; }
 };
 
+static_assert(requires(const MockElement& e) {
+  { e.class_name } -> std::same_as<std::string_view>;
+  { e.uid() } -> std::same_as<Uid>;
+}, "MockElement must satisfy element interface requirements");
+
 TEST_CASE("StateVariable key method")
 {
   const MockElement element;
