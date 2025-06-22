@@ -78,7 +78,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       const auto fpc = lp.add_col(
           {// flow variable
-           .name = sc.stb_label(scenario, stage, block, cname, "fp", uid()),
+           .name = sc.lp_label(scenario, stage, block, cname, "fp", uid()),
            .lowb = has_loss ? 0 : block_tmin,
            .uppb = block_tmax,
            .cost = block_tcost});
@@ -91,7 +91,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         auto cprow =
-            SparseRow {.name = sc.stb_label(
+            SparseRow {.name = sc.lp_label(
                            scenario, stage, block, cname, "capp", uid())}
                 .greater_equal(0);
         cprow[*capacity_col] = 1;
@@ -106,7 +106,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
       const auto fnc = lp.add_col(
           {// flow variable
-           .name = sc.stb_label(scenario, stage, block, cname, "fn", uid()),
+           .name = sc.lp_label(scenario, stage, block, cname, "fn", uid()),
            .lowb = 0,
            .uppb = -block_tmin,
            .cost = block_tcost});
@@ -120,7 +120,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         SparseRow cnrow {
-            .name = sc.stb_label(scenario, stage, block, cname, "capn", uid())};
+            .name = sc.lp_label(scenario, stage, block, cname, "capn", uid())};
         cnrow[capacity_col.value()] = 1;
         cnrow[fnc] = -1;
 
@@ -148,7 +148,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       for (const auto& block : blocks) {
         const auto buid = block.uid();
         auto trow =
-            SparseRow {.name = sc.stb_label(
+            SparseRow {.name = sc.lp_label(
                            scenario, stage, block, cname, "theta", uid())}
                 .equal(0);
 

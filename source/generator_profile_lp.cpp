@@ -74,7 +74,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
     const auto block_scost =
         sc.block_ecost(scenario, stage, block, stage_scost);
-    auto name = sc.stb_label(scenario, stage, block, cname, "prof", uid());
+    auto name = sc.lp_label(scenario, stage, block, cname, "prof", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
     scols[buid] = scol;
 

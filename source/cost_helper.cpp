@@ -1,8 +1,17 @@
-#include <utility>
+/**
+ * @file      cost_helper.cpp
+ * @brief     Header of
+ * @date      Sun Jun 22 15:57:28 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/utils.hpp>
 #include <range/v3/all.hpp>
+
 namespace gtopt
 {
 

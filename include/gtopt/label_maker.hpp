@@ -23,28 +23,34 @@ class LabelMaker
 {
 public:
   explicit constexpr LabelMaker(const OptionsLP& options) noexcept
-      : m_options_(options)
+      : m_dont_use_lp_names_(!options.use_lp_names())
   {
+  }
+
+  [[nodiscard]]
+  constexpr bool dont_use_lp_names() const noexcept
+  {
+    return m_dont_use_lp_names_;
   }
 
   template<typename... Types>
   [[nodiscard]] constexpr auto lp_label(Types&&... args) const noexcept
       -> std::string
   {
-    if (!m_options_.get().use_lp_names()) [[likely]] {
+    if (dont_use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(std::forward<Types>(args)...);
   }
 
   template<typename StageLP, typename... Types>
-    requires std::same_as<std::remove_cvref_t<StageLP>, StageLP>
+    requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(StageLP&& stage,
                                         Types&&... args) const noexcept
       -> std::string
   {
-    if (!m_options_.get().use_lp_names()) [[likely]] {
+    if (dont_use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(std::forward<Types>(args)...,
@@ -52,15 +58,15 @@ public:
   }
 
   template<typename ScenarioLP, typename StageLP, typename... Types>
-    requires std::same_as<std::remove_cvref_t<ScenarioLP>, ScenarioLP>
-      && std::same_as<std::remove_cvref_t<StageLP>, StageLP>
+    requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
+      && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
                                         Types&&... args) const noexcept
       -> std::string
   {
-    if (!m_options_.get().use_lp_names()) [[likely]] {
+    if (dont_use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(std::forward<Types>(args)...,
@@ -72,17 +78,17 @@ public:
            typename StageLP,
            typename BlockLP,
            typename... Types>
-    requires std::same_as<std::remove_cvref_t<ScenarioLP>, ScenarioLP>
-      && std::same_as<std::remove_cvref_t<StageLP>, StageLP>
-      && std::same_as<std::remove_cvref_t<BlockLP>, BlockLP>
-      && (sizeof...(Types) == 3)
+    requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
+      && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
+      && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
+      && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
                                         BlockLP&& block,
                                         Types&&... args) const noexcept
       -> std::string
   {
-    if (!m_options_.get().use_lp_names()) [[likely]] {
+    if (dont_use_lp_names()) [[likely]] {
       return {};
     }
     return gtopt::as_label(std::forward<Types>(args)...,
@@ -92,7 +98,7 @@ public:
   }
 
 private:
-  std::reference_wrapper<OptionsLP> m_options_;
+  bool m_dont_use_lp_names_;
 };
 
 }  // namespace gtopt

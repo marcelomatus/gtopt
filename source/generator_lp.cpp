@@ -101,7 +101,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Create generation variable for this time block
     const auto gc = lp.add_col(
-        {.name = sc.stb_label(scenario, stage, block, cname, "gen", uid()),
+        {.name = sc.lp_label(scenario, stage, block, cname, "gen", uid()),
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
@@ -115,7 +115,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.stb_label(
+      auto crow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "cap", uid())}
                       .greater_equal(0);
       crow[*capacity_col] = 1;
