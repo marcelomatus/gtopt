@@ -4,15 +4,20 @@
 using namespace gtopt;
 
 // Define a mock element for testing
-struct MockElement : public ObjectUtils
-{
+struct MockElement : public ObjectUtils {
   static constexpr std::string_view class_name = "MockElement";
   [[nodiscard]] static Uid uid() { return 123; }
+  
+  auto sv_key(std::string_view col_name, 
+              StageUid stage_uid = StageUid{unknown_uid},
+              ScenarioUid scenario_uid = ScenarioUid{unknown_uid}) const {
+    return StateVariable::key(*this, col_name, stage_uid, scenario_uid);
+  }
 };
 
-static_assert(requires(const MockElement& e) {
-  { e.class_name } -> std::same_as<std::string_view>;
-  { e.uid() } -> std::same_as<Uid>;
+static_assert(requires {
+  { MockElement::class_name } -> std::same_as<const std::string_view&>;
+  { MockElement::uid() } -> std::same_as<Uid>;
 }, "MockElement must satisfy element interface requirements");
 
 TEST_CASE("StateVariable key method")
@@ -21,7 +26,7 @@ TEST_CASE("StateVariable key method")
 
   SUBCASE("Basic key formation with element")
   {
-    auto key = element.sv_key("col_name");
+    auto key = StateVariable::key(element, "col_name");
     CHECK(key.scenario_uid == ScenarioUid {unknown_uid});
     CHECK(key.stage_uid == StageUid {unknown_uid});
     CHECK(key.class_name == "MockElement");
@@ -33,7 +38,7 @@ TEST_CASE("StateVariable key method")
   {
     StageUid stage_uid {42};
     ScenarioUid scenario_uid {100};
-    auto key = element.sv_key("another_col", stage_uid, scenario_uid);
+    auto key = StateVariable::key(element, "another_col", stage_uid, scenario_uid);
 
     CHECK(key.scenario_uid == scenario_uid);
     CHECK(key.stage_uid == stage_uid);
@@ -44,9 +49,9 @@ TEST_CASE("StateVariable key method")
 
   SUBCASE("Key comparison")
   {
-    auto key1 = element.sv_key("col1");
-    auto key2 = element.sv_key("col1");
-    auto key3 = element.sv_key("col2");
+    auto key1 = StateVariable::key(element, "col1");
+    auto key2 = StateVariable::key(element, "col1");
+    auto key3 = StateVariable::key(element, "col2");
 
     CHECK(key1 == key2);
     CHECK(key1 != key3);
