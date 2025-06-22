@@ -9,7 +9,7 @@ using namespace gtopt;
 struct MockElement : public ObjectUtils
 {
   static constexpr std::string_view class_name() { return "MockElement"; }
-  [[nodiscard]] constexpr Uid uid() const noexcept { return 123; }
+  [[nodiscard]] static constexpr Uid uid() noexcept { return 123; }
 };
 
 TEST_CASE("StateVariable key method")
@@ -67,7 +67,7 @@ TEST_CASE("StateVariable construction and basic properties")
 {
   SUBCASE("Default construction")
   {
-    StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
+    const StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
     
     CHECK(var.col() == 3);
     CHECK(var.scene_index() == SceneIndex{1});
@@ -96,7 +96,7 @@ TEST_CASE("StateVariable construction and basic properties")
 TEST_CASE("StateVariable dependent variables")
 {
   StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
-  LinearProblem lp("test");
+  const LinearProblem lp("test");
 
   SUBCASE("Adding single dependent variable")
   {
