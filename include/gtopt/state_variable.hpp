@@ -16,7 +16,8 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
-#include <gtopt/phase_lp.hpp>
+#include <gtopt/scenario.hpp>
+#include <gtopt/stage.hpp>
 
 namespace gtopt
 {
@@ -24,30 +25,40 @@ namespace gtopt
 class StateVariable
 {
 public:
-  struct Key {
+  struct Key
+  {
     ScenarioUid scenario_uid;
     StageUid stage_uid;
-    std::string class_name;
+    std::string_view class_name;
     Uid uid;
-    std::string col_name;
+    std::string_view col_name;
 
     auto operator<=>(const Key&) const = default;
   };
 
-  [[nodiscard]] static auto key(
-      std::string col_name,
-      Uid uid,
-      std::string class_name,
-      StageUid stage_uid = StageUid {unknown_uid},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
+  [[nodiscard]]
+  static auto key(std::string_view class_name,
+                  Uid uid,
+                  std::string_view col_name,
+                  StageUid stage_uid = StageUid {unknown_uid},
+                  ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
   {
-    return {
-      scenario_uid,
-      stage_uid,
-      std::move(class_name),
-      uid,
-      std::move(col_name)
-    };
+    return {.scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+            .class_name = class_name,
+            .uid = uid,
+            .col_name = col_name};
+  }
+
+  template<typename Element>
+  [[nodiscard]]
+  static auto key(const Element& element,
+                  std::string_view col_name,
+                  StageUid stage_uid = StageUid {unknown_uid},
+                  ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
+  {
+    return key(
+        element.class_name(), element.uid(), col_name, stage_uid, scenario_uid);
   }
 
   constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept
