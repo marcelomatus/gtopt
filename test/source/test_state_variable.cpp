@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/object_utils.hpp>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/linear_problem.hpp>
 
 using namespace gtopt;
 
@@ -39,13 +40,77 @@ TEST_CASE("StateVariable key method")
     CHECK(key.col_name == "another_col");
   }
 
+  SUBCASE("Key formation with direct parameters")
+  {
+    auto key = StateVariable::key("DirectClass", 456, "direct_col");
+    CHECK(key.scenario_uid == ScenarioUid {unknown_uid});
+    CHECK(key.stage_uid == StageUid {unknown_uid});
+    CHECK(key.class_name == "DirectClass");
+    CHECK(key.uid == 456);
+    CHECK(key.col_name == "direct_col");
+  }
+
   SUBCASE("Key comparison")
   {
     auto key1 = StateVariable::key(element, "col1");
     auto key2 = StateVariable::key(element, "col1");
     auto key3 = StateVariable::key(element, "col2");
+    auto key4 = StateVariable::key("OtherClass", 123, "col1");
 
     CHECK(key1 == key2);
     CHECK(key1 != key3);
+    CHECK(key1 != key4);
+  }
+}
+
+TEST_CASE("StateVariable construction and basic properties")
+{
+  SUBCASE("Default construction")
+  {
+    StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
+    
+    CHECK(var.col() == 3);
+    CHECK(var.dependent_variables().empty());
+  }
+
+  SUBCASE("With dependent variables")
+  {
+    StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
+    LinearProblem lp1("test1");
+    LinearProblem lp2("test2");
+
+    var.add_dependent_variable(lp1, Index{10});
+    var.add_dependent_variable(lp2, Index{20});
+
+    const auto& deps = var.dependent_variables();
+    REQUIRE(deps.size() == 2);
+    CHECK(&deps[0].lp.get() == &lp1);
+    CHECK(deps[0].col == 10);
+    CHECK(&deps[1].lp.get() == &lp2);
+    CHECK(deps[1].col == 20);
+  }
+}
+
+TEST_CASE("StateVariable dependent variables")
+{
+  StateVariable var(SceneIndex{1}, PhaseIndex{2}, Index{3});
+  LinearProblem lp("test");
+
+  SUBCASE("Adding single dependent variable")
+  {
+    auto& dep = var.add_dependent_variable(lp, Index{5});
+    CHECK(&dep.lp.get() == &lp);
+    CHECK(dep.col == 5);
+  }
+
+  SUBCASE("Adding multiple dependent variables")
+  {
+    var.add_dependent_variable(lp, Index{5});
+    var.add_dependent_variable(lp, Index{6});
+    
+    const auto& deps = var.dependent_variables();
+    REQUIRE(deps.size() == 2);
+    CHECK(deps[0].col == 5);
+    CHECK(deps[1].col == 6);
   }
 }
