@@ -15,6 +15,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/single_id.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
@@ -27,7 +28,7 @@ namespace gtopt
  */
 struct ObjectAttrs
 {
-  Uid uid {};  ///< Unique identifier for the object
+  Uid uid {unknown_uid};  ///< Unique identifier for the object
   Name name {};  ///< Human-readable name of the object
   OptActive active {};  ///< Optional activity status of the object
 };
@@ -62,6 +63,37 @@ struct Object
   [[nodiscard]] constexpr auto id(this const Self& self) noexcept
   {
     return gtopt::id(self);
+  }
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto class_name(
+      [[maybe_unused]] this const Self& self) noexcept
+  {
+    return Self::ClassName;
+  }
+
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto sv_key(this const Self& self,
+                        std::string_view col_name,
+                        StageUid stage_uid = StageUid {unknown_uid},
+                        ScenarioUid scenario_uid = ScenarioUid {
+                            unknown_uid}) noexcept
+  {
+    return StateVariable::key(self, col_name, stage_uid, scenario_uid);
+  }
+
+  template<typename Self,
+           typename SystemContext,
+           typename StageLP,
+           typename... Args>
+  [[nodiscard]] constexpr auto t_label(this const Self& self,
+                                       SystemContext& sc,
+                                       const StageLP& stage,
+                                       Args&&... args) noexcept
+  {
+    return sc.t_label(
+        stage, self.class_name(), std::forward<Args>(args)..., self.uid());
   }
 };
 
