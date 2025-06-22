@@ -16,7 +16,9 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/scene.hpp>
 #include <gtopt/stage.hpp>
 
 namespace gtopt
@@ -61,34 +63,54 @@ public:
         element.class_name(), element.uid(), col_name, stage_uid, scenario_uid);
   }
 
-  constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept
-      : m_lp_(lp)
+  constexpr explicit StateVariable(SceneIndex scene_index,
+                                   PhaseIndex phase_index,
+                                   Index col) noexcept
+      : m_scene_index_(scene_index)
+      , m_phase_index_(phase_index)
       , m_col_(col)
   {
   }
 
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
-  struct DependentVariable {
-    std::reference_wrapper<LinearProblem> lp;
-    Index col;
-
-    constexpr DependentVariable(LinearProblem& p_lp, Index p_col) noexcept
-        : lp(p_lp)
-        , col(p_col)
-    {
-    }
+  struct DependentVariable
+  {
+    SceneIndex scene_index {unknown_index};
+    PhaseIndex phase_index {unknown_index};
+    Index col {unknown_index};
   };
 
   using dependent_variable_t = DependentVariable;
 
-  constexpr auto&& add_dependent_variable(LinearProblem& lp, Index col) noexcept
+  template<typename ScenarioLP, typename StageLP>
+  constexpr auto&& add_dependent_variable(const ScenarioLP& scenario,
+                                          const StageLP& stage,
+                                          Index col) noexcept
   {
-    return m_dependent_variables_.emplace_back(lp, col);
+    return m_dependent_variables_.emplace_back(
+        scenario.scene_index(), stage.phase_index(), col);
+  }
+
+  [[nodiscard]]
+  constexpr const auto& dependent_variables() const
+  {
+    return m_dependent_variables_;
+  }
+
+  [[nodiscard]] constexpr auto scene_index() const noexcept
+  {
+    return m_scene_index_;
+  }
+
+  [[nodiscard]] constexpr auto phase_index() const noexcept
+  {
+    return m_phase_index_;
   }
 
 private:
-  std::reference_wrapper<LinearProblem> m_lp_;
+  SceneIndex m_scene_index_ {unknown_index};
+  PhaseIndex m_phase_index_ {unknown_index};
   Index m_col_ {unknown_index};
 
   std::vector<dependent_variable_t> m_dependent_variables_;
