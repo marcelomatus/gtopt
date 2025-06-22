@@ -98,12 +98,12 @@ public:
     return m_dependent_variables_;
   }
 
-  [[nodiscard]] constexpr auto scene_index() const noexcept
+  [[nodiscard]] constexpr SceneIndex scene_index() const noexcept
   {
     return m_scene_index_;
   }
 
-  [[nodiscard]] constexpr auto phase_index() const noexcept
+  [[nodiscard]] constexpr PhaseIndex phase_index() const noexcept
   {
     return m_phase_index_;
   }
