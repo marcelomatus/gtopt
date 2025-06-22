@@ -83,13 +83,11 @@ public:
 
   using dependent_variable_t = DependentVariable;
 
-  template<typename ScenarioLP, typename StageLP>
-  constexpr auto&& add_dependent_variable(const ScenarioLP& scenario,
-                                          const StageLP& stage,
+  constexpr auto&& add_dependent_variable(SceneIndex scene_index,
+                                          PhaseIndex phase_index,
                                           Index col) noexcept
   {
-    return m_dependent_variables_.emplace_back(
-        scenario.scene_index(), stage.phase_index(), col);
+    return m_dependent_variables_.emplace_back(scene_index, phase_index, col);
   }
 
   [[nodiscard]]
