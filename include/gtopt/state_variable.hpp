@@ -58,7 +58,7 @@ public:
                   ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
   {
     return key(
-        element.class_name(), element.uid(), col_name, stage_uid, scenario_uid);
+        element.class_name, element.uid(), col_name, stage_uid, scenario_uid);
   }
 
   constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept
