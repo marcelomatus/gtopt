@@ -27,16 +27,22 @@ namespace gtopt
 
 namespace
 {
-constexpr auto create_block_array(const auto& simulation)
+constexpr auto create_block_array(const Simulation& simulation)
 {
-  return enumerate<BlockIndex>(simulation.block_array)
-      | ranges::views::transform(
-             [](auto&& ib)
+  auto index = BlockIndex {0};
+
+  return simulation.stage_array | std::views::filter(&Stage::is_active)
+      | std::views::transform(
+             [&](const Stage& stage)
              {
-               auto&& [index, block] = ib;
-               return BlockLP {block, index};
+               return std::span(simulation.block_array)
+                          .subspan(stage.first_block, stage.count_block)
+                   | std::views::transform([&](const Block& block)
+                                           { return BlockLP {block, index++}; })
+                   | std::ranges::to<std::vector>();
              })
-      | ranges::to<std::vector>();
+      | std::views::join  // Flatten nested ranges
+      | std::ranges::to<std::vector>();
 }
 
 constexpr auto create_stage_array(const Simulation& simulation,
@@ -55,17 +61,22 @@ constexpr auto create_stage_array(const Simulation& simulation,
       | ranges::to<std::vector>();
 }
 
-constexpr auto create_scenario_array(const auto& simulation)
+constexpr auto create_scenario_array(const Simulation& simulation)
 {
   auto&& scenarios = simulation.scenario_array;
 
-  return active(scenarios)
-      | ranges::views::transform([](const auto& s) { return ScenarioLP {s}; })
+  return enumerate_active<ScenarioIndex>(scenarios)
+      | ranges::views::transform(
+             [](const auto& is)
+             {
+               const auto& [index, scenario] = is;
+               return ScenarioLP {scenario, index};
+             })
       | ranges::to<std::vector>();
 }
 
-constexpr std::vector<PhaseLP> create_phase_array(const auto& simulation,
-                                                  const auto& options)
+constexpr auto create_phase_array(const Simulation& simulation,
+                                  const OptionsLP& options)
 {
   return enumerate_active<PhaseIndex>(simulation.phase_array)
       | ranges::views::transform(
@@ -88,15 +99,13 @@ constexpr auto create_scene_array(const Simulation& simulation)
       | ranges::views::transform(
              [&](const auto& si)
              {
-               auto&& [scene_index, scene] = si;
-               return SceneLP {scene, simulation, scene_index};
+               auto&& [index, scene] = si;
+               return SceneLP {scene, simulation, index};
              })
       | ranges::to<std::vector>();
 }
 
 }  // namespace
-
-void SimulationLP::validate_components() {}
 
 /**
  * @brief Constructs a simulation object with the given system

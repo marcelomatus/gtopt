@@ -90,6 +90,15 @@ public:
     return m_dependent_variables_.emplace_back(scene_index, phase_index, col);
   }
 
+  template<typename ScenarioLP, typename StageLP>
+  constexpr auto&& add_dependent_variable(const ScenarioLP& scenario,
+                                          const StageLP& stage,
+                                          Index col) noexcept
+  {
+    return add_dependent_variable(
+        scenario.scene_index(), stage.phase_index(), col);
+  }
+
   [[nodiscard]]
   constexpr const auto& dependent_variables() const
   {
