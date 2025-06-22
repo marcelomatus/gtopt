@@ -26,8 +26,9 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
 #include <span>  // For std::dynamic_extent
+
+#include <gtopt/basic_types.hpp>
 
 namespace gtopt
 {
@@ -42,18 +43,12 @@ struct Stage
   Size count_block {std::dynamic_extent};
   OptReal discount_factor {1};
 
-  // Use static constexpr string_view for class identifier
   static constexpr std::string_view class_name = "stage";
 
-  // Use deducing this to get const and non-const versions
-  template<typename Self>
-  [[nodiscard]] constexpr decltype(auto) is_active(this Self&& self) noexcept
+  [[nodiscard]] constexpr auto is_active() const noexcept
   {
-    return std::forward<Self>(self).active.value_or(true);
+    return active.value_or(true);
   }
-
-  // Use attribute for explicit member initialization
-  [[no_unique_address]] std::byte padding_{};
 };
 
 using StageUid = StrongUidType<Stage>;
@@ -61,18 +56,3 @@ using StageIndex = StrongIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
 
 }  // namespace gtopt
-
-// Deduction guide for structured bindings (C++23)
-namespace gtopt
-{
-}  // namespace gtopt
-
-// Use standard concepts for incrementable traits
-namespace std
-{
-template<>
-struct incrementable_traits<gtopt::StageIndex>
-{
-  using difference_type = ptrdiff_t;  // More standard difference type
-};
-}  // namespace std

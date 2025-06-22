@@ -34,7 +34,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 {
   constexpr std::string_view cname = "demand";
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
   }
 
@@ -150,7 +150,7 @@ bool DemandLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, "emin", pid, emin_cols);
   out.add_row_dual(cname, "emin", pid, emin_rows);
 
-  return CapacityBase::add_to_output(out, cname);
+  return CapacityBase::add_to_output(out);
 }
 
 }  // namespace gtopt

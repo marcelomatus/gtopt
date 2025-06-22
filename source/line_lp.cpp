@@ -24,9 +24,9 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  constexpr std::string_view cname = "line";
+  constexpr std::string_view cname = ClassName;
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
   }
 
@@ -200,7 +200,7 @@ bool LineLP::add_to_output(OutputContext& out) const
 
   out.add_row_dual(cname, "theta", pid, theta_rows);
 
-  return CapacityBase::add_to_output(out, cname);
+  return CapacityBase::add_to_output(out);
 }
 
 }  // namespace gtopt

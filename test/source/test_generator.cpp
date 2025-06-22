@@ -32,7 +32,7 @@ TEST_CASE("Generator construction and attributes")
   Generator gen;
 
   // Default values
-  CHECK(gen.uid == Uid {});
+  CHECK(gen.uid == Uid {unknown_uid});
   CHECK(gen.name == Name {});
   CHECK_FALSE(gen.active.has_value());
 

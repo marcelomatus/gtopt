@@ -11,7 +11,7 @@ TEST_CASE("Battery construction and default values")
   Battery battery;
 
   // Check default values
-  CHECK(battery.uid == Uid {});
+  CHECK(battery.uid == Uid {unknown_uid});
   CHECK(battery.name == Name {});
   CHECK_FALSE(battery.active.has_value());
   CHECK_FALSE(battery.annual_loss.has_value());

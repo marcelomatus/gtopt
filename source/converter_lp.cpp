@@ -38,7 +38,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 {
   constexpr std::string_view cname = "conv";
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
 
@@ -110,7 +110,7 @@ bool ConverterLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, "conversion", id(), conversion_rows);
   out.add_row_dual(cname, "capacity", id(), capacity_rows);
 
-  return CapacityBase::add_to_output(out, cname);
+  return CapacityBase::add_to_output(out);
 }
 
 }  // namespace gtopt

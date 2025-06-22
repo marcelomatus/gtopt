@@ -4,14 +4,15 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Provides common utility methods for objects, such as generating state variable keys and labels.
+ * Provides common utility methods for objects, such as generating state
+ * variable keys and labels.
  */
 
 #pragma once
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/state_variable.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
@@ -21,7 +22,8 @@ class StageLP;
 
 /**
  * @class ObjectUtils
- * @brief Provides common utility methods for objects in the optimization framework
+ * @brief Provides common utility methods for objects in the optimization
+ * framework
  */
 class ObjectUtils
 {
@@ -40,7 +42,8 @@ public:
   constexpr auto sv_key(this const Self& self,
                         std::string_view col_name,
                         StageUid stage_uid = StageUid {unknown_uid},
-                        ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) const noexcept
+                        ScenarioUid scenario_uid = ScenarioUid {
+                            unknown_uid}) noexcept
   {
     return StateVariable::key(self, col_name, stage_uid, scenario_uid);
   }
@@ -64,7 +67,7 @@ public:
   [[nodiscard]] constexpr auto t_label(this const Self& self,
                                        SystemContext& sc,
                                        const StageLP& stage,
-                                       Args&&... args) const noexcept
+                                       Args&&... args) noexcept
   {
     return sc.t_label(
         stage, self.class_name(), std::forward<Args>(args)..., self.uid());

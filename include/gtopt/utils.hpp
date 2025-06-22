@@ -13,8 +13,11 @@
  */
 #pragma once
 
+#include <format>
 #include <iterator>  // for std::back_inserter
 #include <optional>
+#include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 #include <version>
@@ -250,6 +253,24 @@ constexpr double annual_discount_factor(double annual_discount_rate,
 {
   return std::pow(1.0 / (1.0 + annual_discount_rate),
                   time_hours / hours_per_year);
+}
+
+template<typename... Args>
+std::string as_string(const std::tuple<Args...>& t)
+{
+  return std::apply(
+      [](const Args&... args)
+      {
+        std::ostringstream oss;
+        oss << "(";
+        std::size_t count = 0;
+        ((oss << std::format("{}", args)
+              << (++count < sizeof...(Args) ? ", " : "")),
+         ...);
+        oss << ")";
+        return oss.str();
+      },
+      t);
 }
 
 }  // namespace gtopt

@@ -11,8 +11,6 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/view/all.hpp>
-#include <range/v3/view/filter.hpp>
 
 namespace
 {
@@ -22,6 +20,7 @@ using namespace gtopt;
 
 namespace gtopt
 {
+
 SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     : LabelMaker(
           simulation.options(), simulation.scenarios(), simulation.stages())

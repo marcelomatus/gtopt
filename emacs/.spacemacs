@@ -32,7 +32,8 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(;; ----------------------------------------------------------------
+   '(
+     ;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
      ;; `M-m f e R' (Emacs style) to install them.
@@ -42,11 +43,8 @@ This function should only modify configuration layer settings."
                       auto-completion-enable-snippets-in-popup t)
 
      (github-copilot :variables
-                     copilot-enable-chat t
                      copilot-chat-frontend 'org
-                     copilot-chat-backend 'curl
-                     copilot-chat-commit-model t
-                     copilot-chat-debug t)
+                     copilot-chat-backend 'curl)
 
      csv
      yaml
@@ -86,16 +84,7 @@ This function should only modify configuration layer settings."
             c-c++-enable-clang-format-on-save t)
 
      ;;multiple-cursors
-     (org :variables
-          org-enable-github-support t
-          org-enable-reveal-js-support t
-          org-enable-roam-support t
-          org-enable-roam-server-support t
-          org-enable-roam-ui-support t
-          org-enable-roam-graph-support t
-          org-enable-roam-templates-support t
-          org-enable-roam-attachments-support t
-          org-enable-roam-refile-support t)
+     org
 
      (shell :variables
             shell-default-height 30
@@ -181,7 +170,7 @@ It should only modify the values of Spacemacs settings."
    ;; when the current branch is not `develop'. Note that checking for
    ;; new versions works via git commands, thus it calls GitHub services
    ;; whenever you start Emacs. (default nil)
-   dotspacemacs-check-for-update t
+   dotspacemacs-check-for-update nil
 
    ;; If non-nil, a form that evaluates to a package directory. For example, to
    ;; use different package directories for different Emacs versions, set this
@@ -672,64 +661,58 @@ before packages are loaded."
 
 ;; Do not write anything past this comment. This is where Emacs will
 ;; auto-generate custom variable definitions.
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(aidermacs-architect-model "deepseek/deepseek-coder")
+ '(aidermacs-default-model "deepseek/deepseek-coder")
+ '(package-selected-packages
+   '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
+              auto-highlight-symbol auto-yasnippet blacken browse-at-remote
+              centered-cursor-mode clean-aindent-mode cmake-mode code-cells
+              code-review column-enforce-mode company-c-headers
+              company-statistics counsel-projectile cpp-auto-include
+              csv-mode cython-mode dap-mode define-word devdocs diff-hl diminish
+              dired-quick-sort disable-mouse disaster dotenv-mode drag-stuff
+              dumb-jump eat edit-indirect elisp-def elisp-demos elisp-slime-nav
+              ellama emr esh-help eshell-prompt-extras eshell-z eval-sexp-fu
+              evil-anzu evil-args evil-cleverparens evil-escape
+              evil-evilified-state evil-exchange evil-goggles evil-iedit-state
+              evil-indent-plus evil-lion evil-lisp-state evil-matchit
+              evil-nerd-commenter evil-numbers evil-surround evil-textobj-line
+              evil-tutor evil-unimpaired evil-visual-mark-mode evil-visualstar
+              expand-region eyebrowse fancy-battery flx flycheck-elsa
+              flycheck-package flycheck-pos-tip flyspell-correct-ivy gh-md
+              git-link git-messenger git-modes git-timemachine
+              gitignore-templates gnuplot golden-ratio google-c-style
+              google-translate gptel helm-make hide-comnt highlight-indentation
+              highlight-numbers highlight-parentheses hl-todo holy-mode
+              hungry-delete hybrid-mode indent-guide info+ inspector ivy-avy
+              ivy-hydra ivy-purpose ivy-xref ivy-yasnippet json-mode
+              json-navigator json-reformat link-hint live-py-mode lorem-ipsum
+              lsp-ivy lsp-origami lsp-ui macrostep markdown-toc multi-line
+              multi-term multi-vterm mwim nameless open-junk-file overseer
+              ox-gfm page-break-lines paradox password-generator pcre2el pet
+              pip-requirements pipenv pippel poetry popwin prettier-js py-isort
+              pydoc pyenv-mode pylookup pytest quickrun rainbow-delimiters
+              restart-emacs shell-pop smeargle smex space-doc spaceline
+              spacemacs-purpose-popwin spacemacs-whitespace-cleanup sphinx-doc
+              string-edit-at-point string-inflection symbol-overlay symon
+              term-cursor terminal-here treemacs-icons-dired treemacs-magit
+              treemacs-persp treemacs-projectile undo-fu undo-fu-session unfill
+              vi-tilde-fringe volatile-highlights vundo web-beautify wgrep
+              which-key winum writeroom-mode ws-butler yaml-mode
+              yasnippet-snippets)))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ )
 (defun dotspacemacs/emacs-custom-settings ()
   "Emacs custom settings.
 This is an auto-generated function, do not modify its content directly, use
 Emacs customize menu instead.
-This function is called at the very end of Spacemacs initialization."
-  (custom-set-variables
-   ;; custom-set-variables was added by Custom.
-   ;; If you edit it by hand, you could mess it up, so be careful.
-   ;; Your init file should contain only one such instance.
-   ;; If there is more than one, they won't work right.
-   '(aidermacs-architect-model "deepseek/deepseek-coder")
-   '(aidermacs-default-model "deepseek/deepseek-coder")
-   '(copilot-chat-backend 'curl t)
-   '(copilot-chat-commit-model nil t)
-   '(copilot-chat-debug t t)
-   '(copilot-chat-frontend 'org t)
-   '(lsp-idle-delay 0.2)
-   '(package-selected-packages
-     '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
-                auto-highlight-symbol auto-yasnippet blacken browse-at-remote
-                centered-cursor-mode clean-aindent-mode cmake-mode code-cells
-                code-review column-enforce-mode company-c-headers
-                company-statistics copilot copilot-chat counsel-projectile
-                cpp-auto-include csv-mode cython-mode dap-mode define-word devdocs
-                diff-hl diminish dired-quick-sort disable-mouse disaster
-                dotenv-mode drag-stuff dumb-jump eat edit-indirect elisp-def
-                elisp-demos elisp-slime-nav ellama emr esh-help
-                eshell-prompt-extras eshell-z eval-sexp-fu evil-anzu evil-args
-                evil-cleverparens evil-escape evil-evilified-state evil-exchange
-                evil-goggles evil-iedit-state evil-indent-plus evil-lion
-                evil-lisp-state evil-matchit evil-nerd-commenter evil-numbers
-                evil-surround evil-textobj-line evil-tutor evil-unimpaired
-                evil-visual-mark-mode evil-visualstar expand-region eyebrowse
-                fancy-battery flx flycheck-elsa flycheck-package flycheck-pos-tip
-                flyspell-correct-ivy gh-md git-link git-messenger git-modes
-                git-timemachine gitignore-templates gnuplot golden-ratio
-                google-c-style google-translate gptel helm-make hide-comnt
-                highlight-indentation highlight-numbers highlight-parentheses
-                hl-todo holy-mode hungry-delete hybrid-mode indent-guide info+
-                inspector ivy-avy ivy-hydra ivy-purpose ivy-xref ivy-yasnippet
-                json-mode json-navigator json-reformat link-hint live-py-mode
-                lorem-ipsum lsp-ivy lsp-origami lsp-ui macrostep markdown-toc
-                multi-line multi-term multi-vterm mwim nameless open-junk-file
-                overseer ox-gfm page-break-lines paradox password-generator
-                pcre2el pet pip-requirements pipenv pippel poetry popwin
-                prettier-js py-isort pydoc pyenv-mode pylookup pytest quickrun
-                rainbow-delimiters restart-emacs shell-pop smeargle smex space-doc
-                spaceline spacemacs-purpose-popwin spacemacs-whitespace-cleanup
-                sphinx-doc string-edit-at-point string-inflection symbol-overlay
-                symon term-cursor terminal-here treemacs-icons-dired
-                treemacs-magit treemacs-persp treemacs-projectile undo-fu
-                undo-fu-session unfill vi-tilde-fringe volatile-highlights vundo
-                web-beautify wgrep which-key winum writeroom-mode ws-butler
-                yaml-mode yasnippet-snippets)))
-  (custom-set-faces
-   ;; custom-set-faces was added by Custom.
-   ;; If you edit it by hand, you could mess it up, so be careful.
-   ;; Your init file should contain only one such instance.
-   ;; If there is more than one, they won't work right.
-   )
-  )
+This function is called at the very end of Spacemacs initialization.")

@@ -37,7 +37,7 @@ namespace gtopt
  */
 struct Capacity
 {
-  Uid uid {};  ///< Unique identifier for database references
+  Uid uid {unknown_uid};  ///< Unique identifier for database references
   Name name {};  ///< Human-readable descriptive name
   OptActive active {};  ///< Activation status (whether this entity is modeled)
 

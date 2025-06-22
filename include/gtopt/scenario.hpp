@@ -17,7 +17,7 @@ namespace gtopt
 
 struct Scenario
 {
-  Uid uid {};
+  Uid uid {unknown_uid};
   OptName name {};
   OptBool active {};
 

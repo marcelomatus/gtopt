@@ -12,9 +12,7 @@
 #pragma once
 
 #include <expected>
-#include <optional>
 #include <string>
-#include <string_view>
 #include <utility>
 
 #include <fmt/format.h>
@@ -100,16 +98,6 @@ public:
   }
 
   /**
-   * @brief Gets the state variable map
-   * @return Const reference to state variable map
-   */
-  [[nodiscard]] constexpr const state_variable_map_t& state_variables()
-      const noexcept
-  {
-    return m_state_variable_map_;
-  }
-
-  /**
    * @brief Solves the linear programming problem
    * @param lp_opts Solver options (default empty)
    * @return Expected with solution status or error message
@@ -128,48 +116,12 @@ public:
    */
   void write_out() const;
 
-  // Add method with deducing this and perfect forwarding
-  template<typename Self, typename StateVar>
-  constexpr auto&& add_state_variable(this Self&& self, StateVar&& state_var)
-  {
-    const auto& key = state_var.key();
-    auto&& map = std::forward<Self>(self).m_state_variable_map_;
-    const auto [it, inserted] =
-        map.try_emplace(key, std::forward<StateVar>(state_var));
-
-    if (!inserted) {
-      auto msg = fmt::format("duplicated variable {} in simulation map",
-                             state_var.name());
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
-    }
-
-    return std::forward_like<Self>(it->second);
-  }
-
-  // Get method with deducing this for automatic const handling
-  template<typename Key>
-  [[nodiscard]] constexpr auto get_state_variable(Key&& key) const
-      noexcept(noexcept(std::declval<state_variable_map_t>().find(key)))
-  {
-    using value_type = const StateVariable;
-
-    using result_t = std::optional<std::reference_wrapper<value_type>>;
-
-    auto&& map = m_state_variable_map_;
-    const auto it = map.find(std::forward<Key>(key));
-
-    return (it != map.end()) ? result_t {it->second} : std::nullopt;
-  }
-
 private:
   Planning m_planning_;
   OptionsLP m_options_;
   SimulationLP m_simulation_;
 
   scene_phase_systems_t m_systems_;
-
-  state_variable_map_t m_state_variable_map_;
 };
 
 }  // namespace gtopt

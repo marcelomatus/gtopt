@@ -31,7 +31,7 @@ namespace gtopt
 struct Phase
 {
   /// Unique identifier for the phase
-  [[no_unique_address]] Uid uid {};
+  [[no_unique_address]] Uid uid {unknown_uid};
 
   /// Optional name for the phase (human-readable)
   [[no_unique_address]] OptName name {};

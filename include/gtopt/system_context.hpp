@@ -237,14 +237,17 @@ public:
       -> const BusLP&;
 
   // Methods to handle the state_variables
-  [[nodiscard]] auto add_state_variable(const StageLP& stage, const Name& name)
-      -> std::shared_ptr<StateVariable>;
+  template<typename Key>
+  constexpr auto add_state_variable(Key&& key, LinearProblem& lp, Index col)
+  {
+    return simulation().add_state_variable(std::forward<Key>(key), lp, col);
+  }
 
-  [[nodiscard]] auto get_state_variable(const StageLP& stage,
-                                        const Name& name) const
-      -> std::shared_ptr<StateVariable>;
-
-  void reg_state_variable(const StateVariable& svar, const Index& col) const;
+  template<typename Key>
+  [[nodiscard]] constexpr auto get_state_variable(Key&& key) const noexcept
+  {
+    return simulation().get_state_variable(std::forward<Key>(key));
+  }
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;

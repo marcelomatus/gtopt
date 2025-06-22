@@ -11,7 +11,7 @@ TEST_CASE("ReserveZone construction and default values")
   ReserveZone reserve_zone;
 
   // Check default values
-  CHECK(reserve_zone.uid == Uid {});
+  CHECK(reserve_zone.uid == Uid {unknown_uid});
   CHECK(reserve_zone.name == Name {});
   CHECK_FALSE(reserve_zone.active.has_value());
 

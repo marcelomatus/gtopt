@@ -52,7 +52,7 @@ template<typename Obj>
  * Serves as the foundation for all objects in the optimization framework.
  * Provides consistent identification behavior through the id() method.
  */
-struct Object : public ObjectUtils
+struct Object
 {
   /**
    * @brief Gets the object's identifier (explicit object syntax)
@@ -65,14 +65,6 @@ struct Object : public ObjectUtils
   {
     return gtopt::id(self);
   }
-
-  template<typename Self>
-  [[nodiscard]] constexpr auto class_name(
-      [[maybe_unused]] this const Self& self) noexcept
-  {
-    return Self::ClassName;
-  }
-
 };
 
 }  // namespace gtopt

@@ -50,7 +50,7 @@ struct DemandAttrs
  */
 struct Demand
 {
-  Uid uid {};  ///< Unique identifier
+  Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Descriptive name
   OptActive active {};  ///< Activation status
 

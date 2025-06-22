@@ -41,7 +41,7 @@ struct GeneratorAttrs
  */
 struct Generator
 {
-  Uid uid {};  ///< Unique identifier
+  Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Generator name
   OptActive active {};  ///< Generator active status
 

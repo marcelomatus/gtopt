@@ -11,7 +11,7 @@ TEST_CASE("ReserveProvision construction and default values")
   ReserveProvision reserve_provision;
 
   // Check default values for identification
-  CHECK(reserve_provision.uid == Uid {});
+  CHECK(reserve_provision.uid == Uid {unknown_uid});
   CHECK(reserve_provision.name == Name {});
   CHECK_FALSE(reserve_provision.active.has_value());
 
