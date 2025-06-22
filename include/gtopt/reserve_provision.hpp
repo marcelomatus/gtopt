@@ -17,7 +17,7 @@ namespace gtopt
 
 struct ReserveProvision
 {
-  Uid uid {};
+  Uid uid {unknown_uid};
   Name name {};
   OptActive active {};
 

@@ -22,7 +22,7 @@ namespace gtopt
  */
 struct Line
 {
-  Uid uid {};  ///< Unique identifier
+  Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Line name
   OptActive active {};  ///< Line active status
 

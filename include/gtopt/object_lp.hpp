@@ -14,6 +14,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/object_utils.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/stage_lp.hpp>
 
@@ -33,13 +34,20 @@ class LinearProblem;
  * for linear programming, such as activity tracking across stages.
  */
 template<typename ObjectType>
-class ObjectLP
+class ObjectLP : public ObjectUtils
 {
   ObjectType m_object_;  ///< The wrapped object instance
   ActiveSched m_active_;  ///< Schedule tracking object's active status
 
 public:
   using object_type = ObjectType;  ///< Type of the wrapped object
+
+  template<typename Self>
+  [[nodiscard]] constexpr std::string_view class_name(
+      [[maybe_unused]] this const Self& self) noexcept
+  {
+    return Self::ClassName;
+  }
 
   /**
    * @brief Constructs an ObjectLP by moving in an object

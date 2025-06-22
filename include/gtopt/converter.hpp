@@ -9,7 +9,7 @@ namespace gtopt
 
 struct Converter
 {
-  Uid uid {};
+  Uid uid {unknown_uid};
   Name name {};
   OptActive active {};
 

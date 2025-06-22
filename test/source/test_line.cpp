@@ -11,7 +11,7 @@ TEST_CASE("Line construction and default values")
   Line line;
 
   // Check default values
-  CHECK(line.uid == Uid {});
+  CHECK(line.uid == Uid {unknown_uid});
   CHECK(line.name == Name {});
   CHECK_FALSE(line.active.has_value());
   CHECK(line.bus_a == SingleId {});

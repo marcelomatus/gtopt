@@ -32,9 +32,9 @@
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
+#include <gtopt/object_utils.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/state_variable.hpp>
-#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -49,33 +49,40 @@ namespace gtopt
  * capabilities, and associated costs in a linear programming formulation.
  */
 
-struct CapacityObjectBase
+struct CapacityObjectBase : public ObjectUtils
 {
+  [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
+
   template<typename OF>
   constexpr explicit CapacityObjectBase(const InputContext& ic,
-                                        std::string_view ClassName,
-                                        Id id,
+                                        const std::string_view ClassName,
+                                        Id pid,
                                         OF&& capacity,
                                         OF&& expcap,
                                         OF&& capmax,
                                         OF&& expmod,
                                         OF&& annual_capcost,
                                         OF&& annual_derating)
-      : m_id_(id)
-      , m_capacity_(ic, ClassName, id, std::forward<OF>(capacity))
-      , m_expcap_(ic, ClassName, id, std::forward<OF>(expcap))
-      , m_capmax_(ic, ClassName, id, std::forward<OF>(capmax))
-      , m_expmod_(ic, ClassName, id, std::forward<OF>(expmod))
-      , m_annual_capcost_(ic, ClassName, id, std::forward<OF>(annual_capcost))
-      , m_annual_derating_(ic, ClassName, id, std::forward<OF>(annual_derating))
+      : m_class_name_(ClassName)
+      , m_id_(std::move(pid))
+      , m_capacity_(ic, ClassName, id(), std::forward<OF>(capacity))
+      , m_expcap_(ic, ClassName, id(), std::forward<OF>(expcap))
+      , m_capmax_(ic, ClassName, id(), std::forward<OF>(capmax))
+      , m_expmod_(ic, ClassName, id(), std::forward<OF>(expmod))
+      , m_annual_capcost_(ic, ClassName, id(), std::forward<OF>(annual_capcost))
+      , m_annual_derating_(
+            ic, ClassName, id(), std::forward<OF>(annual_derating))
   {
   }
 
-  [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
-
-  [[nodiscard]] constexpr const Uid& uid() const noexcept
+  [[nodiscard]] constexpr auto uid() const noexcept
   {
     return std::get<0>(m_id_);
+  }
+
+  [[nodiscard]] constexpr auto class_name() const noexcept
+  {
+    return m_class_name_;
   }
 
   /**
@@ -147,8 +154,7 @@ struct CapacityObjectBase
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
-                 LinearProblem& lp,
-                 std::string_view cname);
+                 LinearProblem& lp);
 
   /**
    * @brief Add capacity solution data to output context
@@ -162,9 +168,11 @@ struct CapacityObjectBase
    * - Cost values for capacity variables
    * - Dual values for capacity constraints
    */
-  bool add_to_output(OutputContext& out, std::string_view cname) const;
+  bool add_to_output(OutputContext& out) const;
 
 private:
+  std::string_view m_class_name_ = "CapacityObject";
+
   Id m_id_;
   OptTRealSched m_capacity_;
   OptTRealSched m_expcap_;

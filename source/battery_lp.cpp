@@ -42,7 +42,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   constexpr std::string_view cname = "batt";
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
 
@@ -98,7 +98,7 @@ bool BatteryLP::add_to_output(OutputContext& out) const
 
   // Process storage and capacity outputs
   return StorageBase::add_to_output(out, cname)
-      && CapacityBase::add_to_output(out, cname);
+      && CapacityBase::add_to_output(out);
 }
 
 }  // namespace gtopt

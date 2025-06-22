@@ -24,7 +24,7 @@ namespace gtopt
  */
 struct Bus
 {
-  Uid uid {};  ///< Unique identifier
+  Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status
   OptReal voltage {};  ///< Voltage magnitude (KV)

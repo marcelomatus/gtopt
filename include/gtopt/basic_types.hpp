@@ -33,6 +33,9 @@ using uid_t = std::int32_t;
 
 /** @brief Unique identifier type */
 using Uid = uid_t;
+
+constexpr Uid unknown_uid = -1;
+
 /** @brief Optional unique identifier type */
 using OptUid = std::optional<Uid>;
 

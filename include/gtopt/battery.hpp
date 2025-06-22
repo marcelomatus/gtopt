@@ -37,7 +37,7 @@ namespace gtopt
  */
 struct Battery
 {
-  Uid uid {};  ///< Unique identifier for database references
+  Uid uid {unknown_uid};  ///< Unique identifier for database references
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (whether the battery is modeled)
 

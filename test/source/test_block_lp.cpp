@@ -18,7 +18,7 @@ TEST_CASE("BlockLP default construction")
 
   SUBCASE("Default constructed BlockLP has default Block")
   {
-    CHECK(block.uid() == BlockUid {0});
+    CHECK(block.uid() == BlockUid {unknown_uid});
     CHECK(block.duration() == 0);
   }
 }

@@ -19,7 +19,7 @@ namespace gtopt
 
 struct Block
 {
-  Uid uid {};
+  Uid uid {unknown_uid};
   OptName name {};
 
   Real duration {0.0};

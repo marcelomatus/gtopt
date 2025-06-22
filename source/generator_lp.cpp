@@ -64,8 +64,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  constexpr std::string_view cname = "generator";
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp, cname)) [[unlikely]] {
+  constexpr std::string_view cname = ClassName;
+
+  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
 
@@ -152,7 +153,7 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, "generation", pid, generation_cols);
   out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
-  return CapacityBase::add_to_output(out, cname);
+  return CapacityBase::add_to_output(out);
 }
 
 }  // namespace gtopt
