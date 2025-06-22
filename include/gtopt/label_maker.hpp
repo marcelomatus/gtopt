@@ -1,3 +1,12 @@
+/**
+ * @file      label_maker.hpp
+ * @brief     Header of
+ * @date      Sun Jun 22 15:59:11 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
 #pragma once
 
@@ -13,65 +22,72 @@ namespace gtopt
 class LabelMaker
 {
 public:
-  explicit LabelMaker(const OptionsLP& options,
-                      const std::vector<ScenarioLP>& scenarios,
-                      const std::vector<StageLP>& stages)
+  explicit LabelMaker(const OptionsLP& options)
       : m_options_(options)
-      , m_scenarios_(scenarios)
-      , m_stages_(stages)
   {
   }
 
   template<typename... Types>
-    requires(std::constructible_from<std::string, Types> && ...)
-  constexpr auto label(const Types&... var) const noexcept -> std::string
+  constexpr auto lp_label(Types&&... var) const noexcept -> std::string
   {
     if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var...);
+    return gtopt::as_label(std::forward<Types>(var)...);
   }
 
-  template<typename... Types>
-    requires(sizeof...(Types) >= 3)
-  constexpr auto t_label(const StageLP& stage, const Types&... var) const
-      -> std::string
+  template<typename StageLP, typename... Types>
+    requires(sizeof...(Types) >= 3
+             && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>)
+  auto lp_label(StageLP&& stage, Types&&... var) const -> std::string
   {
     if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., stage.uid());
+    return gtopt::as_label(std::forward<Types>(var)...,
+                           std::forward<StageLP>(stage).uid());
   }
 
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto st_label(const ScenarioLP& scenario,
-                          const StageLP& stage,
-                          const Types&... var) const -> std::string
+  template<typename ScenarioLP, typename StageLP, typename... Types>
+    requires(sizeof...(Types) >= 3
+             && std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
+             && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>)
+  constexpr auto lp_label(ScenarioLP&& scenario,
+                          StageLP&& stage,
+                          Types&&... var) const -> std::string
   {
     if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., scenario.uid(), stage.uid());
+    return gtopt::as_label(std::forward<Types>(var)...,
+                           std::forward<ScenarioLP>(scenario).uid(),
+                           std::forward<StageLP>(stage).uid());
   }
 
-  template<typename... Types>
-    requires(sizeof...(Types) == 3)
-  constexpr auto stb_label(const ScenarioLP& scenario,
-                           const StageLP& stage,
-                           const BlockLP& block,
-                           const Types&... var) const noexcept -> std::string
+  template<typename ScenarioLP,
+           typename StageLP,
+           typename BlockLP,
+           typename... Types>
+    requires(sizeof...(Types) == 3
+             && std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
+             && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
+             && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>)
+  constexpr auto lp_label(ScenarioLP&& scenario,
+                          StageLP&& stage,
+                          BlockLP&& block,
+                          Types&&... var) const noexcept -> std::string
   {
     if (!m_options_.get().use_lp_names()) [[likely]] {
       return {};
     }
-    return gtopt::as_label(var..., scenario.uid(), stage.uid(), block.uid());
+    return gtopt::as_label(std::forward<Types>(var)...,
+                           std::forward<ScenarioLP>(scenario).uid(),
+                           std::forward<StageLP>(stage).uid(),
+                           std::forward<BlockLP>(block).uid());
   }
 
 private:
   std::reference_wrapper<const OptionsLP> m_options_;
-  std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
-  std::reference_wrapper<const std::vector<StageLP>> m_stages_;
 };
 
 }  // namespace gtopt
