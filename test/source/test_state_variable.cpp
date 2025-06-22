@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/object_utils.hpp>
 
 using namespace gtopt;
 
@@ -8,7 +9,7 @@ struct MockElement : public ObjectUtils {
   static constexpr std::string_view class_name = "MockElement";
   [[nodiscard]] static Uid uid() { return 123; }
   
-  auto sv_key(std::string_view col_name, 
+  [[nodiscard]] auto sv_key(std::string_view col_name, 
               StageUid stage_uid = StageUid{unknown_uid},
               ScenarioUid scenario_uid = ScenarioUid{unknown_uid}) const {
     return StateVariable::key(*this, col_name, stage_uid, scenario_uid);
