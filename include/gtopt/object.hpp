@@ -14,6 +14,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/object_utils.hpp>  // Include the new ObjectUtils
 #include <gtopt/single_id.hpp>
 #include <gtopt/state_variable.hpp>
 
@@ -51,7 +52,7 @@ template<typename Obj>
  * Serves as the foundation for all objects in the optimization framework.
  * Provides consistent identification behavior through the id() method.
  */
-struct Object
+struct Object : public ObjectUtils
 {
   /**
    * @brief Gets the object's identifier (explicit object syntax)
@@ -72,29 +73,6 @@ struct Object
     return Self::ClassName;
   }
 
-  template<typename Self>
-  [[nodiscard]]
-  constexpr auto sv_key(this const Self& self,
-                        std::string_view col_name,
-                        StageUid stage_uid = StageUid {unknown_uid},
-                        ScenarioUid scenario_uid = ScenarioUid {
-                            unknown_uid}) noexcept
-  {
-    return StateVariable::key(self, col_name, stage_uid, scenario_uid);
-  }
-
-  template<typename Self,
-           typename SystemContext,
-           typename StageLP,
-           typename... Args>
-  [[nodiscard]] constexpr auto t_label(this const Self& self,
-                                       SystemContext& sc,
-                                       const StageLP& stage,
-                                       Args&&... args) noexcept
-  {
-    return sc.t_label(
-        stage, self.class_name(), std::forward<Args>(args)..., self.uid());
-  }
 };
 
 }  // namespace gtopt
