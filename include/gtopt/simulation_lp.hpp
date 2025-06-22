@@ -150,16 +150,20 @@ public:
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]] auto add_state_variable(Key&& key,
-                                        LinearProblem& lp,
+                                        const ScenarioLP& scenario,
+                                        const StageLP& stage,
                                         Index col) -> const StateVariable&
   {
     auto&& map = m_state_variable_map_;
-    const auto [it, inserted] =
-        map.try_emplace(std::forward<Key>(key), lp, col);
+    const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
+                                                scenario.scene_index(),
+                                                stage.phase_index(),
+                                                col);
 
     if (!inserted) {
-      auto msg = fmt::format("duplicated variable {} in simulation map",
-                             as_string(key));
+      auto msg = fmt::format("duplicated variable {}:{} in simulation map",
+                             key.class_name,
+                             key.col_name);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
     }
@@ -172,16 +176,17 @@ public:
    * @tparam Self Type of the object (deduced using 'this' parameter)
    * @tparam Key Type of the key (default state_variable_key_t)
    * @param key The key to search for
-   * @return Optional reference to the state variable if found (const or non-const)
+   * @return Optional reference to the state variable if found (const or
+   * non-const)
    */
   template<typename Self, typename Key = state_variable_key_t>
-  [[nodiscard]] constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
+  [[nodiscard]] constexpr auto get_state_variable(this Self&& self,
+                                                  Key&& key) noexcept
   {
-    using value_type = std::conditional_t<
-        std::is_const_v<std::remove_reference_t<Self>>,
-        const StateVariable,
-        StateVariable
-    >;
+    using value_type =
+        std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
+                           const StateVariable,
+                           StateVariable>;
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
     auto&& map = std::forward<Self>(self).m_state_variable_map_;
@@ -191,13 +196,6 @@ public:
   }
 
 private:
-  /**
-   * @brief Validates all components for consistency
-   * @throws std::runtime_error If any validation check fails
-   */
-  void validate_components();
-
-  // Data members
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const OptionsLP> m_options_;
   std::vector<BlockLP> m_block_array_;
