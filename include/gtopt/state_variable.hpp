@@ -29,8 +29,8 @@ public:
   {
     ScenarioUid scenario_uid;
     StageUid stage_uid;
-    std::string_view class_name;
     Uid uid;
+    std::string_view class_name;
     std::string_view col_name;
 
     auto operator<=>(const Key&) const = default;
@@ -45,8 +45,8 @@ public:
   {
     return {.scenario_uid = scenario_uid,
             .stage_uid = stage_uid,
-            .class_name = class_name,
             .uid = uid,
+            .class_name = class_name,
             .col_name = col_name};
   }
 
@@ -58,7 +58,7 @@ public:
                   ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) -> Key
   {
     return key(
-        element.class_name, element.uid(), col_name, stage_uid, scenario_uid);
+        element.class_name(), element.uid(), col_name, stage_uid, scenario_uid);
   }
 
   constexpr explicit StateVariable(LinearProblem& lp, Index col) noexcept

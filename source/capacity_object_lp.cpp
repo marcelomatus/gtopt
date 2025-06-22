@@ -14,11 +14,11 @@
 
 namespace gtopt
 {
+
 bool CapacityObjectBase::add_to_lp(SystemContext& sc,
                                    const ScenarioLP& scenario,
                                    const StageLP& stage,
-                                   LinearProblem& lp,
-                                   const std::string_view cname)
+                                   LinearProblem& lp)
 {
   if (!scenario.is_first()) {
     return true;
@@ -38,9 +38,9 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto stage_derating = m_annual_derating_.at(stage_uid).value_or(0.0)
       * stage.timeinit() / hours_per_year;
 
-  double prev_stage_capacity = stage_capacity;
-  std::optional<Index> prev_capainst_col = std::nullopt;
-  std::optional<Index> prev_capacost_col = std::nullopt;
+  auto prev_stage_capacity = stage_capacity;
+  auto prev_capainst_col = std::optional<Index> {};
+  auto prev_capacost_col = std::optional<Index> {};
 
   const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
   if (prev_phase == nullptr) {
@@ -51,17 +51,14 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     }
   } else {
     if (prev_stage != nullptr) {
-#ifdef NONE
       auto process_prev_state =
-          [&](const std::string_view var_suffix) -> std::optional<Index>
+          [&](const std::string_view col_name) -> std::optional<Index>
       {
-        auto vname = sc.t_label(*prev_stage, cname, var_suffix, uid());
+        auto key = sv_key(col_name, prev_stage->uid(), scenario.uid());
 
-        if (const auto prev_svar = sc.get_state_variable(*prev_stage, vname);
-            prev_svar)
-        {
-          auto col = lp.add_col({.name = sc.label("prev", vname)});
-          sc.reg_state_variable(*prev_svar, col);
+        if (auto prev_svar = sc.get_state_variable(key); prev_svar) {
+          auto col = lp.add_col({.name = t_label(sc, stage, col_name, "ini")});
+          prev_svar->get().add_client(lp, col);
           return col;
         }
         return std::nullopt;
@@ -70,7 +67,6 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       prev_stage_capacity = stage_capacity;
       prev_capainst_col = process_prev_state("capainst");
       prev_capacost_col = process_prev_state("capacost");
-#endif
     }
   }
 
@@ -78,7 +74,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  SparseRow capainst_row {.name = sc.t_label(stage, cname, "capainst", uid())};
+  SparseRow capainst_row {.name = t_label(sc, stage, "capainst")};
   const auto capainst_col = lp.add_col({
       .name = capainst_row.name,
       .lowb = stage_capacity,
@@ -87,7 +83,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   });
   capainst_row[capainst_col] = -1;
 
-  SparseRow capacost_row {.name = sc.t_label(stage, cname, "capacost", uid())};
+  SparseRow capacost_row {.name = t_label(sc, stage, "capacost")};
   const auto capacost_col = lp.add_col({// capacost variable
                                         .name = capacost_row.name,
                                         .cost = sc.stage_ecost(stage, 1.0)});
@@ -96,7 +92,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage.uid()] =
         lp.add_col({// expmod variable
-                    .name = sc.t_label(stage, cname, "expmod", uid()),
+                    .name = t_label(sc, stage, "expmod"),
                     .uppb = stage_expmod});
 
     capainst_row[expmod_col] = +stage_expcap;
@@ -130,19 +126,18 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       && capacost_row_success;
 }
 
-bool CapacityObjectBase::add_to_output(OutputContext& out,
-                                       std::string_view cname) const
+bool CapacityObjectBase::add_to_output(OutputContext& out) const
 {
-  out.add_col_sol(cname, "capainst", id(), capainst_cols);
-  out.add_col_sol(cname, "capacost", id(), capacost_cols);
-  out.add_col_sol(cname, "expmod", id(), expmod_cols);
+  out.add_col_sol(m_class_name_, "capainst", id(), capainst_cols);
+  out.add_col_sol(m_class_name_, "capacost", id(), capacost_cols);
+  out.add_col_sol(m_class_name_, "expmod", id(), expmod_cols);
 
-  out.add_col_cost(cname, "capainst", id(), capainst_cols);
-  out.add_col_cost(cname, "capacost", id(), capacost_cols);
-  out.add_col_cost(cname, "expmod", id(), expmod_cols);
+  out.add_col_cost(m_class_name_, "capainst", id(), capainst_cols);
+  out.add_col_cost(m_class_name_, "capacost", id(), capacost_cols);
+  out.add_col_cost(m_class_name_, "expmod", id(), expmod_cols);
 
-  out.add_row_dual(cname, "capainst", id(), capainst_rows);
-  out.add_row_dual(cname, "capacost", id(), capacost_rows);
+  out.add_row_dual(m_class_name_, "capainst", id(), capainst_rows);
+  out.add_row_dual(m_class_name_, "capacost", id(), capacost_rows);
 
   return true;
 }
