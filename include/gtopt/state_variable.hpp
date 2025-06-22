@@ -69,19 +69,19 @@ public:
 
   [[nodiscard]] constexpr Index col() const noexcept { return m_col_; }
 
-  using state_client_t =
+  using dependent_variable_t =
       std::tuple<std::reference_wrapper<LinearProblem>, Index>;
 
-  constexpr auto&& add_client(LinearProblem& lp, Index col) noexcept
+  constexpr auto&& add_dependent_variable(LinearProblem& lp, Index col) noexcept
   {
-    return m_clients_.emplace_back(lp, col);
+    return m_dependent_variables_.emplace_back(lp, col);
   }
 
 private:
   std::reference_wrapper<LinearProblem> m_lp_;
   Index m_col_ {unknown_index};
 
-  std::vector<state_client_t> m_clients_;
+  std::vector<dependent_variable_t> m_dependent_variables_;
 };
 
 }  // namespace gtopt
