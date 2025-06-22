@@ -1,11 +1,13 @@
 /**
  * @file      label_maker.hpp
- * @brief     Header of
+ * @brief     Defines the LabelMaker class for creating LP variable labels.
  * @date      Sun Jun 22 15:59:11 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * The LabelMaker class provides functionality to generate labels for linear programming (LP)
+ * variables based on various context objects (like stages, scenarios, blocks) and options.
+ * It conditionally creates labels only when the use_lp_names option is enabled.
  */
 
 #pragma once
