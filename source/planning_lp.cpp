@@ -59,10 +59,20 @@ PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
 
 void PlanningLP::write_lp(const std::string& filename) const
 {
-  for (auto&& phase_systems : m_systems_) {
-    for (auto&& system : phase_systems) {
-      system.write_lp(filename);
+  try {
+    for (auto&& phase_systems : m_systems_) {
+      for (auto&& system : phase_systems) {
+        try {
+          system.write_lp(filename);
+        } catch (const std::exception& e) {
+          SPDLOG_ERROR("Failed to write LP for system: {}", e.what());
+          throw;
+        }
+      }
     }
+  } catch (const std::exception& e) {
+    SPDLOG_ERROR("Failed to write LP file {}: {}", filename, e.what());
+    throw;
   }
 }
 
