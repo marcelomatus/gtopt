@@ -246,7 +246,7 @@ public:
   template<typename Key>
   [[nodiscard]] constexpr auto get_state_variable(Key&& key) const noexcept
   {
-    return simulation().get_state_variable(std::forward<Key>(key));
+    return simulation().state_variable(std::forward<Key>(key));
   }
 
 private:

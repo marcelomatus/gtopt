@@ -40,12 +40,6 @@ namespace gtopt
 class PlanningLP
 {
 public:
-  PlanningLP(PlanningLP&&) noexcept = default;
-  PlanningLP(const PlanningLP&) = default;
-  PlanningLP& operator=(PlanningLP&&) noexcept = default;
-  PlanningLP& operator=(const PlanningLP&) noexcept = default;
-  ~PlanningLP() noexcept = default;
-
   /**
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data
@@ -115,6 +109,14 @@ public:
 
   using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
   using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& system(this Self&& self,
+                                        SceneIndex scene_index,
+                                        PhaseIndex phase_index) noexcept
+  {
+    return std::forward<Self>(self).m_systems_[scene_index][phase_index];
+  }
 
 private:
   Planning m_planning_;
