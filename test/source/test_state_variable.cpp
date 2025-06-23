@@ -57,12 +57,12 @@ TEST_CASE("StateVariable core functionality")
 
     const auto deps = var.dependent_variables();
     REQUIRE(deps.size() == 2);
-    CHECK(deps[0].lp_key.scene_index == SceneIndex {4});
-    CHECK(deps[0].lp_key.phase_index == PhaseIndex {5});
-    CHECK(deps[0].col == 10);
-    CHECK(deps[1].lp_key.scene_index == SceneIndex {6});
-    CHECK(deps[1].lp_key.phase_index == PhaseIndex {7});
-    CHECK(deps[1].col == 20);
+    CHECK(deps[0].scene_index() == SceneIndex {4});
+    CHECK(deps[0].phase_index() == PhaseIndex {5});
+    CHECK(deps[0].col() == 10);
+    CHECK(deps[1].scene_index() == SceneIndex {6});
+    CHECK(deps[1].phase_index() == PhaseIndex {7});
+    CHECK(deps[1].col() == 20);
   }
 }
 
@@ -86,8 +86,8 @@ TEST_CASE("StateVariable dependent variable templates")
     TestStageLP stage;
 
     const auto& dep = var.add_dependent_variable(scenario, stage, 6);
-    CHECK(dep.lp_key.scene_index == SceneIndex {4});
-    CHECK(dep.lp_key.phase_index == PhaseIndex {5});
-    CHECK(dep.col == 6);
+    CHECK(dep.scene_index() == SceneIndex {4});
+    CHECK(dep.phase_index() == PhaseIndex {5});
+    CHECK(dep.col() == 6);
   }
 }

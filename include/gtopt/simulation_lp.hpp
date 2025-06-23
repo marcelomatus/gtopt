@@ -176,18 +176,19 @@ public:
   }
 
   [[nodiscard]]
-  constexpr const auto& get_state_variables() noexcept
+  constexpr const auto& state_variables() noexcept
   {
     return m_global_variable_map_;
   }
 
   template<typename Self>
   [[nodiscard]]
-  constexpr auto&& get_state_variables(this Self&& self,
-                                       lp_key_t lp_key) noexcept
+  constexpr auto&& state_variables(this Self&& self,
+                                   SceneIndex scene_index,
+                                   PhaseIndex phase_index) noexcept
   {
     auto&& vec = std::forward<Self>(self).m_global_variable_map_;
-    return vec[lp_key.scene_index][lp_key.phase_index];
+    return vec[scene_index][phase_index];
   }
 
   /**
@@ -200,7 +201,7 @@ public:
    */
   template<typename Self, typename Key = state_variable_key_t>
   [[nodiscard]]
-  constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
+  constexpr auto state_variable(this Self&& self, Key&& key) noexcept
   {
     using value_type =
         std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
@@ -208,7 +209,8 @@ public:
                            StateVariable>;
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
-    auto&& map = std::forward<Self>(self).get_state_variables(key.lp_key);
+    auto&& map = std::forward<Self>(self).state_variables(
+        key.lp_key.scene_index, key.lp_key.phase_index);
 
     const auto it = map.find(std::forward<Key>(key));
     return (it != map.end()) ? result_t {it->second} : result_t {};

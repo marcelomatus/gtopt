@@ -89,21 +89,22 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
           status = false;
           break;
         }
-        auto&& state_vars = simulation().get_state_variables({
-            .scene_index = scene_index,
-            .phase_index = phase_index,
-        });
+
+        // update state variable dependents with the last solution
+        auto&& state_vars_sp =
+            simulation().state_variables(scene_index, phase_index);
 
         auto&& lp_interface = system_sp.linear_interface();
         const auto& solution_vector = lp_interface.get_col_sol();
 
-        for (auto&& [var_name, state_var] : state_vars) {
+        for (auto&& state_var : state_vars_sp | std::views::values) {
           const double solution_value = solution_vector[state_var.col()];
 
           for (auto&& dependent_var : state_var.dependent_variables()) {
             auto& dependent_lp =
-                system(dependent_var.lp_key).linear_interface();
-            dependent_lp.set_col(dependent_var.col, solution_value);
+                system(dependent_var.scene_index(), dependent_var.phase_index())
+                    .linear_interface();
+            dependent_lp.set_col(dependent_var.col(), solution_value);
           }
         }
       }
