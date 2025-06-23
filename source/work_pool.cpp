@@ -30,7 +30,7 @@ enum class [[nodiscard]] TaskStatus : uint8_t {
     Cancelled
 };
 
-[[nodiscard]] constexpr auto to_string(TaskStatus status) noexcept -> std::string_view {
+static [[nodiscard]] constexpr auto to_string(TaskStatus status) noexcept -> std::string_view {
     switch(status) {
         case TaskStatus::Success: return "Success";
         case TaskStatus::Failed: return "Failed";
@@ -40,7 +40,7 @@ enum class [[nodiscard]] TaskStatus : uint8_t {
 }
 
 // Task priority and resource requirements
-enum class Priority : int
+enum class Priority : uint8_t
 {
   Low = 0,
   Medium = 1,
@@ -57,20 +57,29 @@ struct TaskRequirements
 };
 
 // CPU monitoring with platform-specific implementations
-class CPUMonitor
+class CPUMonitor 
+{
+public:
+  CPUMonitor() = default;
+  ~CPUMonitor() = default;
+  CPUMonitor(const CPUMonitor&) = delete;
+  CPUMonitor& operator=(const CPUMonitor&) = delete;
+  CPUMonitor(CPUMonitor&&) = delete;
+  CPUMonitor& operator=(CPUMonitor&&) = delete;
 {
 private:
   std::atomic<double> current_load_ {0.0};
   std::atomic<bool> running_ {false};
   std::thread monitor_thread_;
 
-  double get_system_cpu_usage()
+  static double get_system_cpu_usage()
   {
 #ifdef __linux__
-    static auto last_idle = 0ULL, last_total = 0ULL;
+    static uint64_t last_idle = 0;
+    static uint64_t last_total = 0;
 
     std::ifstream proc_stat("/proc/stat");
-    if (!proc_stat)
+    if (!proc_stat) {
       return 50.0;  // fallback
 
     std::string line;
@@ -80,15 +89,15 @@ private:
     std::string cpu_name;
     ss >> cpu_name;
 
-    std::vector<unsigned long long> times;
-    unsigned long long time;
+    std::vector<uint64_t> times;
+    uint64_t time = 0;
     while (ss >> time) {
       times.push_back(time);
     }
 
     if (times.size() >= 4) {
       auto idle = times[3];
-      auto total = std::accumulate(times.begin(), times.end(), 0ULL);
+      auto total = boost::accumulate(times, 0ULL);
 
       auto idle_delta = idle - last_idle;
       auto total_delta = total - last_total;
@@ -138,7 +147,7 @@ public:
     }
   }
 
-  double get_load() const noexcept { return current_load_.load(); }
+  [[nodiscard]] double get_load() const noexcept { return current_load_.load(); }
 };
 
 // Task wrapper with metadata
@@ -155,7 +164,7 @@ private:
 
 public:
   template<typename F>
-  Task(F&& func, TaskRequirements req = {})
+  explicit Task(F&& func, TaskRequirements req = {})
       : task_(std::forward<F>(func))
       , requirements_(std::move(req))
       , submit_time_(std::chrono::steady_clock::now())
@@ -166,12 +175,12 @@ public:
 
   void execute() { task_(); }
 
-  const TaskRequirements& requirements() const noexcept
+  [[nodiscard]] const TaskRequirements& requirements() const noexcept
   {
     return requirements_;
   }
 
-  auto age() const noexcept
+  [[nodiscard]] auto age() const noexcept
   {
     return std::chrono::steady_clock::now() - submit_time_;
   }
@@ -203,7 +212,7 @@ public:
   {
   }
 
-  bool is_ready() const
+  [[nodiscard]] bool is_ready() const
   {
     return future_.wait_for(std::chrono::seconds(0))
         == std::future_status::ready;
@@ -211,12 +220,12 @@ public:
 
   void wait() { future_.wait(); }
 
-  const TaskRequirements& requirements() const noexcept
+  [[nodiscard]] const TaskRequirements& requirements() const noexcept
   {
     return requirements_;
   }
 
-  auto runtime() const noexcept
+  [[nodiscard]] auto runtime() const noexcept
   {
     return std::chrono::steady_clock::now() - start_time_;
   }
@@ -498,7 +507,7 @@ namespace example
 
 using namespace work_pool;
 
-void cpu_intensive_task(const std::string& name, int duration_seconds)
+static void cpu_intensive_task(const std::string& name, int duration_seconds)
 {
   std::cout << "Starting CPU intensive task: " << name << "\n";
 
@@ -506,10 +515,10 @@ void cpu_intensive_task(const std::string& name, int duration_seconds)
   auto end = start + std::chrono::seconds(duration_seconds);
 
   // Simulate CPU-intensive work
-  volatile long long counter = 0;
+  volatile int64_t counter = 0;
   while (std::chrono::steady_clock::now() < end) {
     for (int i = 0; i < 1000000; ++i) {
-      counter += i * i;
+      counter += static_cast<int64_t>(i) * i;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -517,7 +526,7 @@ void cpu_intensive_task(const std::string& name, int duration_seconds)
   std::cout << "Completed CPU intensive task: " << name << "\n";
 }
 
-void multi_threaded_task(const std::string& name,
+static void multi_threaded_task(const std::string& name,
                          int num_threads,
                          int duration_seconds)
 {
@@ -531,7 +540,7 @@ void multi_threaded_task(const std::string& name,
     threads.emplace_back(
         [&stop_flag, i, name]()
         {
-          volatile long long counter = 0;
+          volatile int64_t counter = 0;
           while (!stop_flag) {
             for (int j = 0; j < 100000; ++j) {
               counter += j;
@@ -545,16 +554,16 @@ void multi_threaded_task(const std::string& name,
   stop_flag = true;
 
   for (auto& t : threads) {
-    if (t.joinable())
+    if (t.joinable()) {
       t.join();
   }
 
   std::cout << "Completed multi-threaded task: " << name << "\n";
 }
 
-void run_example()
+static void run_example()
 {
-  AdaptiveWorkPool::Config config {
+  const AdaptiveWorkPool::Config config {
       4,  // max_threads
       80.0,  // max_cpu_threshold
       50.0,  // min_cpu_threshold
