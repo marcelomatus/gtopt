@@ -80,11 +80,27 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
 {
   try {
     bool status = true;
-    for (auto&& phase_systems : systems()) {
-      for (auto&& system : phase_systems) {
-        if (auto result = system.resolve(lp_opts); !result) {
+    for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
+    {
+      for (auto&& [phase_index, system_sp] :
+           enumerate<PhaseIndex>(phase_systems))
+      {
+        if (auto result = system_sp.resolve(lp_opts); !result) {
           status = false;
           break;
+        }
+        auto&& state_vars = simulation().get_state_variables({
+            .scene_index = scene_index,
+            .phase_index = phase_index,
+        });
+
+        auto&& lp = system_sp.linear_interface();
+        for (auto&& v : state_vars | std::views::values) {
+          const auto sol = lp.get_col_sol()[v.col()];
+          for (auto&& dv : v.dependent_variables()) {
+            auto&& lp_dv = system(dv.lp_key).linear_interface();
+            lp_dv.set_col(dv.col, sol);
+          }
         }
       }
 
