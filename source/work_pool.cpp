@@ -13,15 +13,31 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <utility>  // for std::move
 
 #ifdef __linux__
 #  include <fstream>
-#elif _WIN32
+#elif defined(_WIN32)
 #  include <windows.h>
 #endif
 
-namespace work_pool
-{
+namespace work_pool {
+
+// Strong types for better type safety
+enum class [[nodiscard]] TaskStatus : uint8_t {
+    Success,
+    Failed,
+    Cancelled
+};
+
+[[nodiscard]] constexpr auto to_string(TaskStatus status) noexcept -> std::string_view {
+    switch(status) {
+        case TaskStatus::Success: return "Success";
+        case TaskStatus::Failed: return "Failed";
+        case TaskStatus::Cancelled: return "Cancelled";
+        default: return "Unknown";
+    }
+}
 
 // Task priority and resource requirements
 enum class Priority : int
@@ -254,12 +270,19 @@ public:
 
   void start()
   {
-    running_ = true;
-    cpu_monitor_.start();
+    if (running_.exchange(true)) {
+        return; // Already running
+    }
 
-    scheduler_thread_ = std::thread([this]() { scheduler_loop(); });
-
-    std::cout << "AdaptiveWorkPool started\n";
+    try {
+        cpu_monitor_.start();
+        scheduler_thread_ = std::thread([this] { scheduler_loop(); });
+        std::cout << "AdaptiveWorkPool started with " 
+                  << max_threads_ << " max threads\n";
+    } catch (const std::exception& e) {
+        running_ = false;
+        throw std::runtime_error(std::string("WorkPool start failed: ") + e.what());
+    }
   }
 
   void shutdown()
@@ -387,29 +410,37 @@ private:
         active_tasks_.end());
   }
 
-  bool should_schedule_new_task() const
+  [[nodiscard]] bool should_schedule_new_task() const
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (task_queue_.empty())
+    if (task_queue_.empty()) {
       return false;
+    }
 
     const auto& next_task = task_queue_.top();
-    double cpu_load = cpu_monitor_.get_load();
-    int threads_needed = next_task.requirements().estimated_threads;
-    int current_threads = active_threads_.load();
+    const double cpu_load = cpu_monitor_.get_load();
+    const unsigned int threads_needed = 
+        static_cast<unsigned int>(next_task.requirements().estimated_threads);
+    const unsigned int current_threads = 
+        static_cast<unsigned int>(active_threads_.load());
 
     // Check thread capacity
-    if (current_threads + threads_needed > max_threads_) {
+    if (current_threads + threads_needed > static_cast<unsigned int>(max_threads_)) {
       return false;
     }
 
     // Adaptive CPU scheduling based on priority
     double threshold = max_cpu_threshold_;
-    if (next_task.requirements().priority == Priority::Critical) {
-      threshold = 95.0;  // Allow critical tasks even at high CPU
-    } else if (next_task.requirements().priority == Priority::High) {
-      threshold = max_cpu_threshold_ + 5.0;
+    switch(next_task.requirements().priority) {
+        case Priority::Critical:
+            threshold = 95.0;  // Allow critical tasks even at high CPU
+            break;
+        case Priority::High:
+            threshold = max_cpu_threshold_ + 5.0;
+            break;
+        default:
+            break;
     }
 
     return cpu_load < threshold;
@@ -419,36 +450,42 @@ private:
   {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    if (task_queue_.empty())
+    if (task_queue_.empty()) {
       return;
+    }
 
     auto task = std::move(const_cast<Task<void>&>(task_queue_.top()));
     task_queue_.pop();
 
-    int threads_needed = task.requirements().estimated_threads;
-    active_threads_ += threads_needed;
+    const auto threads_needed = 
+        static_cast<unsigned int>(task.requirements().estimated_threads);
+    active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
 
     // Launch task in separate thread
-    auto future = std::async(
-        std::launch::async,
-        [task = std::move(task)]() mutable
-        {
-          try {
-            task.execute();
-          } catch (const std::exception& e) {
-            std::cerr << "Task execution failed: " << e.what() << "\n";
-          } catch (...) {
-            std::cerr << "Task execution failed with unknown exception\n";
-          }
-        });
+    try {
+        auto future = std::async(
+            std::launch::async,
+            [task = std::move(task)]() mutable {
+                try {
+                    task.execute();
+                } catch (const std::exception& e) {
+                    std::cerr << "Task execution failed: " << e.what() << '\n';
+                } catch (...) {
+                    std::cerr << "Task execution failed with unknown exception\n";
+                }
+            });
 
-    active_tasks_.push_back(
-        std::make_unique<ActiveTask>(std::move(future), task.requirements()));
+        active_tasks_.push_back(
+            std::make_unique<ActiveTask>(std::move(future), task.requirements()));
 
-    if (task.requirements().name) {
-      std::cout << "Scheduled task: '" << *task.requirements().name
-                << "' (threads: " << threads_needed << ", priority: "
-                << static_cast<int>(task.requirements().priority) << ")\n";
+        if (task.requirements().name) {
+            std::cout << "Scheduled task: '" << *task.requirements().name
+                      << "' (threads: " << threads_needed << ", priority: "
+                      << static_cast<int>(task.requirements().priority) << ")\n";
+        }
+    } catch (...) {
+        active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
+        throw;
     }
   }
 };
