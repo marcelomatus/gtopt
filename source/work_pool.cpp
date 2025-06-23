@@ -88,37 +88,36 @@ private:
     std::ifstream proc_stat("/proc/stat");
     if (!proc_stat) {
       return 50.0;  // fallback
+    }
 
-      std::string line;
-      std::getline(proc_stat, line);
+    std::string line;
+    std::getline(proc_stat, line);
 
-      std::istringstream ss(line);
-      std::string cpu_name;
-      ss >> cpu_name;
+    std::istringstream ss(line);
+    std::string cpu_name;
+    ss >> cpu_name;
 
-      std::vector<uint64_t> times;
-      uint64_t time = 0;
-      while (ss >> time) {
-        times.push_back(time);
+    std::vector<uint64_t> times;
+    uint64_t time = 0;
+    while (ss >> time) {
+      times.push_back(time);
+    }
+
+    if (times.size() >= 4) {
+      auto idle = times[3];
+      auto total = std::accumulate(times.begin(), times.end(), 0ULL);
+
+      auto idle_delta = idle - last_idle;
+      auto total_delta = total - last_total;
+
+      last_idle = idle;
+      last_total = total;
+
+      if (total_delta > 0) {
+        return 100.0 * (1.0 - static_cast<double>(idle_delta) / total_delta);
       }
-
-      if (times.size() >= 4) {
-        auto idle = times[3];
-        auto total =
-            std::accumulate(times.begin(), times.end(), 0ULL);  // NOLINT
-
-        auto idle_delta = idle - last_idle;
-        auto total_delta = total - last_total;
-
-        last_idle = idle;
-        last_total = total;
-
-        if (total_delta > 0) {
-          return 100.0 * (1.0 - static_cast<double>(idle_delta) / total_delta);
-        }
-      }
-      return 0.0;
-
+    }
+    return 0.0;
 #elif _WIN32
     // Simplified Windows version - would need PDH for real implementation
     return 50.0;  // Placeholder
@@ -127,7 +126,6 @@ private:
     // Fallback for other platforms or online compilers
     return 30.0 + (rand() % 40);  // Simulate varying load
 #endif
-    }
   }
 
 public:
@@ -515,9 +513,7 @@ private:
 
 }  // namespace work_pool
 
-// Example usage and testing
-namespace example
-{
+namespace example {
 using namespace work_pool;
 
 static void cpu_intensive_task(const std::string& name, int duration_seconds)
@@ -591,10 +587,13 @@ static void run_example()
 
   // High priority task
   futures.push_back(
-      pool.submit(cpu_intensive_task,
-                  "Critical Task",
-                  2,
-                  TaskRequirements {
+      pool.submit(
+          [](const std::string& name, int duration) {
+            cpu_intensive_task(name, duration);
+          },
+          "Critical Task",
+          2,
+          TaskRequirements {
                       1,  // estimated_threads
                       std::chrono::seconds(2),  // estimated_duration
                       Priority::Critical,  // priority
@@ -605,11 +604,14 @@ static void run_example()
   for (int i = 0; i < 2; ++i) {
     std::string task_name = "MultiTask-" + std::to_string(i);
     futures.push_back(
-        pool.submit(multi_threaded_task,
-                    task_name,
-                    2,
-                    3,
-                    TaskRequirements {
+        pool.submit(
+            [](const std::string& name, int threads, int duration) {
+              multi_threaded_task(name, threads, duration);
+            },
+            task_name,
+            2,
+            3,
+            TaskRequirements {
                         2,  // estimated_threads
                         std::chrono::seconds(3),  // estimated_duration
                         Priority::Medium,  // priority
