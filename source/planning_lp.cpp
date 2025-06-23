@@ -94,13 +94,35 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
             .phase_index = phase_index,
         });
 
-        auto&& lp = system_sp.linear_interface();
-        for (auto&& v : state_vars | std::views::values) {
-          const auto sol = lp.get_col_sol()[v.col()];
-          for (auto&& dv : v.dependent_variables()) {
-            auto&& lp_dv = system(dv.lp_key).linear_interface();
-            lp_dv.set_col(dv.col, sol);
-          }
+        auto&& lp_interface = system_sp.linear_interface();
+        const auto& solution_vector = lp_interface.get_col_sol();
+
+        for (auto&& [var_name, state_var] : state_vars) {
+            try {
+                if (state_var.col() >= solution_vector.size()) {
+                    SPDLOG_WARN("Column index {} out of bounds for solution vector (size {})", 
+                               state_var.col(), solution_vector.size());
+                    continue;
+                }
+
+                const double solution_value = solution_vector[state_var.col()];
+                SPDLOG_DEBUG("Updating dependent variables for state variable {} with solution {}", 
+                            var_name, solution_value);
+
+                for (auto&& dependent_var : state_var.dependent_variables()) {
+                    try {
+                        auto& dependent_lp = system(dependent_var.lp_key).linear_interface();
+                        dependent_lp.set_col(dependent_var.col, solution_value);
+                        SPDLOG_TRACE("Updated dependent variable at column {} in LP {}", 
+                                    dependent_var.col, dependent_var.lp_key);
+                    } catch (const std::exception& e) {
+                        SPDLOG_ERROR("Failed to update dependent variable: {}", e.what());
+                        // Continue with next variable rather than failing completely
+                    }
+                }
+            } catch (const std::exception& e) {
+                SPDLOG_ERROR("Error processing state variable {}: {}", var_name, e.what());
+            }
         }
       }
 
