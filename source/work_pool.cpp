@@ -119,15 +119,25 @@ private:
       }
       return 0.0;
 
-#elif _WIN32
-    // Simplified Windows version - would need PDH for real implementation
-    return 50.0;  // Placeholder
+#elif defined(_WIN32)
+    // Windows implementation using PDH
+    PDH_HQUERY cpuQuery;
+    PDH_HCOUNTER cpuTotal;
+    PDH_FMT_COUNTERVALUE counterVal;
 
+    PdhOpenQuery(nullptr, nullptr, &cpuQuery);
+    PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal);
+    PdhCollectQueryData(cpuQuery);
+    Sleep(100);
+    PdhCollectQueryData(cpuQuery);
+    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, nullptr, &counterVal);
+    PdhCloseQuery(cpuQuery);
+
+    return counterVal.doubleValue;
 #else
     // Fallback for other platforms or online compilers
     return 30.0 + (rand() % 40);  // Simulate varying load
 #endif
-    }
   }
 
 public:
@@ -592,10 +602,13 @@ static void run_example()
 
   // High priority task
   futures.push_back(
-      pool.submit(cpu_intensive_task,
-                  "Critical Task",
-                  2,
-                  TaskRequirements {
+      pool.submit(
+          [](const std::string& name, int duration) {
+            cpu_intensive_task(name, duration);
+          },
+          "Critical Task", 
+          2,
+          TaskRequirements {
                       1,  // estimated_threads
                       std::chrono::seconds(2),  // estimated_duration
                       Priority::Critical,  // priority
@@ -657,7 +670,6 @@ static void run_example()
   std::cout << "All tasks completed!\n";
 }
 
-}  // namespace example
 
 int main()
 {
