@@ -1,11 +1,29 @@
 /**
  * @file      state_variable.hpp
- * @brief     Header of
+ * @brief     State variables and their dependencies for linear programming problems
  * @date      Mon Jun 23 11:56:29 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the StateVariable class which represents variables in a linear programming
+ * problem that may have dependencies across different scenes and phases of the optimization.
+ *
+ * Key concepts:
+ * - State variables track optimization values across different problem phases
+ * - Dependent variables automatically update when state variables change
+ * - LPKey identifies variables by scene and phase indices
+ * - Supports both single-phase and multi-scenario problems
+ *
+ * Usage example:
+ * @code
+ * StateVariable var(LPKey{scene1, phase1}, col_index);
+ * var.add_dependent_variable(LPKey{scene2, phase2}, dependent_col);
+ * // When var's value changes, dependent_col in scene2/phase2 will update
+ * @endcode
+ *
+ * Thread safety:
+ * - Not thread-safe for concurrent modifications
+ * - Read operations are safe if dependent_variables() doesn't change
  */
 
 #pragma once
