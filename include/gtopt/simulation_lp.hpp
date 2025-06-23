@@ -25,6 +25,7 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/strong_index_vector.hpp>
 #include <spdlog/details/log_msg.h>
 #include <spdlog/spdlog.h>
 
@@ -144,15 +145,22 @@ public:
   }
 
   // Get method with deducing this for automatic const handling
+  using lp_key_t = StateVariable::LPKey;
   using state_variable_key_t = StateVariable::Key;
   using state_variable_map_t = flat_map<state_variable_key_t, StateVariable>;
+  using global_variable_map_t =
+      StrongIndexVector<SceneIndex,
+                        StrongIndexVector<PhaseIndex, state_variable_map_t>>;
 
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
-  auto add_state_variable(Key&& key, Index col) -> const StateVariable&
+  constexpr auto add_state_variable(Key&& key, Index col)
+      -> const StateVariable&
   {
-    auto&& map = m_state_variable_map_;
+    auto&& map =
+        m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];
+
     const auto [it, inserted] =
         map.try_emplace(std::forward<Key>(key), key.lp_key, col);
 
@@ -167,6 +175,21 @@ public:
     return it->second;
   }
 
+  [[nodiscard]]
+  constexpr const auto& get_state_variables() noexcept
+  {
+    return m_global_variable_map_;
+  }
+
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto&& get_state_variables(this Self&& self,
+                                       lp_key_t lp_key) noexcept
+  {
+    auto&& vec = std::forward<Self>(self).m_global_variable_map_;
+    return vec[lp_key.scene_index][lp_key.phase_index];
+  }
+
   /**
    * @brief Retrieves a state variable by its key
    * @tparam Self Type of the object (deduced using 'this' parameter)
@@ -176,8 +199,8 @@ public:
    * non-const)
    */
   template<typename Self, typename Key = state_variable_key_t>
-  [[nodiscard]] constexpr auto get_state_variable(this Self&& self,
-                                                  Key&& key) noexcept
+  [[nodiscard]]
+  constexpr auto get_state_variable(this Self&& self, Key&& key) noexcept
   {
     using value_type =
         std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
@@ -185,10 +208,10 @@ public:
                            StateVariable>;
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
-    auto&& map = std::forward<Self>(self).m_state_variable_map_;
-    const auto it = map.find(std::forward<Key>(key));
+    auto&& map = std::forward<Self>(self).get_state_variables(key.lp_key);
 
-    return (it != map.end()) ? result_t {it->second} : std::nullopt;
+    const auto it = map.find(std::forward<Key>(key));
+    return (it != map.end()) ? result_t {it->second} : result_t {};
   }
 
 private:
@@ -200,7 +223,7 @@ private:
   std::vector<ScenarioLP> m_scenario_array_;
   std::vector<SceneLP> m_scene_array_;
 
-  state_variable_map_t m_state_variable_map_;
+  global_variable_map_t m_global_variable_map_;
 };
 
 }  // namespace gtopt

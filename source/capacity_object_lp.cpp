@@ -54,9 +54,10 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       auto process_prev_state =
           [&](const std::string_view col_name) -> std::optional<Index>
       {
-        auto key = sv_key(scenario, *prev_stage, col_name);
-
-        if (auto prev_svar = sc.get_state_variable(key); prev_svar) {
+        if (auto prev_svar =
+                sc.get_state_variable(sv_key(scenario, *prev_stage, col_name));
+            prev_svar)
+        {
           auto col = lp.add_col({.name = lp_label(sc, stage, col_name, "ini")});
           prev_svar->get().add_dependent_variable(scenario, stage, col);
           return col;
@@ -75,21 +76,19 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   SparseRow capainst_row {.name = lp_label(sc, stage, "capainst")};
-  const auto capainst_col = lp.add_col({
-      .name = capainst_row.name,
-      .lowb = stage_capacity,
-      .uppb = stage_capmax,
-      .cost = 0.0  // Explicit initialization
-  });
-
-  sc.add_state_variable(sv_key(stage, "capainst"), capainst_col);
+  const auto capainst_col = lp.add_col({.name = capainst_row.name,
+                                        .lowb = stage_capacity,
+                                        .uppb = stage_capmax,
+                                        .cost = 0.0});
+  sc.add_state_variable(sv_key(scenario, stage, "capainst"), capainst_col);
 
   capainst_row[capainst_col] = -1;
 
   SparseRow capacost_row {.name = lp_label(sc, stage, "capacost")};
-  const auto capacost_col = lp.add_col({// capacost variable
-                                        .name = capacost_row.name,
-                                        .cost = sc.stage_ecost(stage, 1.0)});
+  const auto capacost_col = lp.add_col(
+      {.name = capacost_row.name, .cost = sc.stage_ecost(stage, 1.0)});
+  sc.add_state_variable(sv_key(scenario, stage, "capacost"), capacost_col);
+
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {

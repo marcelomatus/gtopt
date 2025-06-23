@@ -124,6 +124,15 @@ SimulationLP::SimulationLP(const Simulation& simulation,
     , m_phase_array_(create_phase_array(simulation, options))
     , m_scenario_array_(create_scenario_array(simulation))
     , m_scene_array_(create_scene_array(simulation))
+    , m_global_variable_map_(
+          std::views::iota(0U, m_scene_array_.size())
+          | std::views::transform(
+              [&](const auto&)
+              {
+                return StrongIndexVector<PhaseIndex, state_variable_map_t>(
+                    m_phase_array_.size());
+              })
+          | std::ranges::to<global_variable_map_t>())
 {
 }
 

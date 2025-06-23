@@ -37,9 +37,6 @@ namespace gtopt
  * options.
  */
 
-using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
-using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
-
 class PlanningLP
 {
 public:
@@ -115,6 +112,9 @@ public:
    * @brief Writes solution output (implementation-defined destination)
    */
   void write_out() const;
+
+  using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
+  using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
 
 private:
   Planning m_planning_;

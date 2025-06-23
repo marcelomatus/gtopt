@@ -20,21 +20,22 @@ namespace gtopt
 namespace
 {
 
-[[nodiscard]] scene_phase_systems_t create_systems(System& system,
-                                                   SimulationLP& simulation,
-                                                   const OptionsLP& options,
-                                                   const FlatOptions& flat_opts)
+[[nodiscard]] PlanningLP::scene_phase_systems_t create_systems(
+    System& system,
+    SimulationLP& simulation,
+    const OptionsLP& options,
+    const FlatOptions& flat_opts)
 {
   system.setup_reference_bus(options);
 
   auto&& scenes = simulation.scenes();
 
-  scene_phase_systems_t all_systems;
+  PlanningLP::scene_phase_systems_t all_systems;
   all_systems.reserve(scenes.size());
 
   for (auto&& scene : scenes) {
     auto&& phases = simulation.phases();
-    phase_systems_t phase_systems;
+    PlanningLP::phase_systems_t phase_systems;
     phase_systems.reserve(phases.size());
     for (auto&& phase : phases) {
       phase_systems.emplace_back(system, simulation, phase, scene, flat_opts);
