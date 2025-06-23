@@ -93,32 +93,31 @@ private:
     std::string line;
     std::getline(proc_stat, line);
 
-      std::istringstream ss(line);
-      std::string cpu_name;
-      ss >> cpu_name;
+    std::istringstream ss(line);
+    std::string cpu_name;
+    ss >> cpu_name;
 
-      std::vector<uint64_t> times;
-      uint64_t time = 0;
-      while (ss >> time) {
-        times.push_back(time);
+    std::vector<uint64_t> times;
+    uint64_t time = 0;
+    while (ss >> time) {
+      times.push_back(time);
+    }
+
+    if (times.size() >= 4) {
+      auto idle = times[3];
+      auto total = std::accumulate(times.begin(), times.end(), 0ULL);
+
+      auto idle_delta = idle - last_idle;
+      auto total_delta = total - last_total;
+
+      last_idle = idle;
+      last_total = total;
+
+      if (total_delta > 0) {
+        return 100.0 * (1.0 - static_cast<double>(idle_delta) / total_delta);
       }
-
-      if (times.size() >= 4) {
-        auto idle = times[3];
-        auto total =
-            std::accumulate(times.begin(), times.end(), 0ULL);  // NOLINT
-
-        auto idle_delta = idle - last_idle;
-        auto total_delta = total - last_total;
-
-        last_idle = idle;
-        last_total = total;
-
-        if (total_delta > 0) {
-          return 100.0 * (1.0 - static_cast<double>(idle_delta) / total_delta);
-        }
-      }
-      return 0.0;
+    }
+    return 0.0;
 
 #elif defined(_WIN32)
     // Windows implementation using PDH
@@ -126,21 +125,47 @@ private:
     PDH_HCOUNTER cpuTotal;
     PDH_FMT_COUNTERVALUE counterVal;
 
-    if (PdhOpenQuery(nullptr, nullptr, &cpuQuery) != ERROR_SUCCESS) {
+    PDH_STATUS status = PdhOpenQuery(nullptr, nullptr, &cpuQuery);
+    if (status != ERROR_SUCCESS) {
       return 50.0;
     }
-    if (PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal) != ERROR_SUCCESS) {
+    
+    status = PdhAddCounter(cpuQuery, 
+                          L"\\Processor(_Total)\\% Processor Time", 
+                          0, 
+                          &cpuTotal);
+    if (status != ERROR_SUCCESS) {
       PdhCloseQuery(cpuQuery);
       return 50.0;
     }
-    PdhCollectQueryData(cpuQuery);
+    
+    status = PdhCollectQueryData(cpuQuery);
+    if (status != ERROR_SUCCESS) {
+      PdhCloseQuery(cpuQuery);
+      return 50.0;
+    }
+    
     Sleep(100);
-    PdhCollectQueryData(cpuQuery);
-    if (PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, nullptr, &counterVal) != ERROR_SUCCESS) {
+    
+    status = PdhCollectQueryData(cpuQuery);
+    if (status != ERROR_SUCCESS) {
       PdhCloseQuery(cpuQuery);
       return 50.0;
     }
-    PdhCloseQuery(cpuQuery);
+    
+    status = PdhGetFormattedCounterValue(cpuTotal, 
+                                       PDH_FMT_DOUBLE, 
+                                       nullptr, 
+                                       &counterVal);
+    if (status != ERROR_SUCCESS) {
+      PdhCloseQuery(cpuQuery);
+      return 50.0;
+    }
+    
+    status = PdhCloseQuery(cpuQuery);
+    if (status != ERROR_SUCCESS) {
+      return 50.0;
+    }
 
     return counterVal.doubleValue;
 #else

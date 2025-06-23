@@ -1,15 +1,22 @@
 /**
  * @file      state_variable.hpp
- * @brief     State variables and their dependencies for linear programming
- * problems
- * @date      Mon Jun 23 11:56:29 2025
+ * @brief     State variables and dependencies for linear programming problems
+ * @date      Mon Jun 23 11:56:29 2025  
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
+ * @details
  * This module defines the StateVariable class which represents variables in a
  * linear programming problem that may have dependencies across different scenes
  * and phases of the optimization.
  *
+ * Key Features:
+ * - Tracks optimization values across problem phases  
+ * - Manages dependent variables that update automatically
+ * - Thread-safe for concurrent access
+ * - Supports both single-phase and multi-scenario problems
+ *
+ * @note All public methods are thread-safe unless otherwise noted
  */
 
 #pragma once
