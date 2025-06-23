@@ -30,14 +30,15 @@ enum class [[nodiscard]] TaskStatus : uint8_t {
     Cancelled
 };
 
-static [[nodiscard]] constexpr auto to_string(TaskStatus status) noexcept -> std::string_view {
+namespace {
+[[nodiscard]] constexpr auto to_string(TaskStatus status) noexcept -> std::string_view {
     switch(status) {
         case TaskStatus::Success: return "Success";
         case TaskStatus::Failed: return "Failed";
         case TaskStatus::Cancelled: return "Cancelled";
         default: return "Unknown";
     }
-}
+}  // namespace work_pool
 
 // Task priority and resource requirements
 enum class Priority : uint8_t
@@ -66,7 +67,6 @@ public:
   CPUMonitor& operator=(const CPUMonitor&) = delete;
   CPUMonitor(CPUMonitor&&) = delete;
   CPUMonitor& operator=(CPUMonitor&&) = delete;
-{
 private:
   std::atomic<double> current_load_ {0.0};
   std::atomic<bool> running_ {false};
