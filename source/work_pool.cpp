@@ -88,9 +88,10 @@ private:
     std::ifstream proc_stat("/proc/stat");
     if (!proc_stat) {
       return 50.0;  // fallback
+    }
 
-      std::string line;
-      std::getline(proc_stat, line);
+    std::string line;
+    std::getline(proc_stat, line);
 
       std::istringstream ss(line);
       std::string cpu_name;
@@ -125,12 +126,20 @@ private:
     PDH_HCOUNTER cpuTotal;
     PDH_FMT_COUNTERVALUE counterVal;
 
-    PdhOpenQuery(nullptr, nullptr, &cpuQuery);
-    PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal);
+    if (PdhOpenQuery(nullptr, nullptr, &cpuQuery) != ERROR_SUCCESS) {
+      return 50.0;
+    }
+    if (PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal) != ERROR_SUCCESS) {
+      PdhCloseQuery(cpuQuery);
+      return 50.0;
+    }
     PdhCollectQueryData(cpuQuery);
     Sleep(100);
     PdhCollectQueryData(cpuQuery);
-    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, nullptr, &counterVal);
+    if (PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, nullptr, &counterVal) != ERROR_SUCCESS) {
+      PdhCloseQuery(cpuQuery);
+      return 50.0;
+    }
     PdhCloseQuery(cpuQuery);
 
     return counterVal.doubleValue;
@@ -305,7 +314,14 @@ public:
 
     try {
       cpu_monitor_.start();
-      scheduler_thread_ = std::thread([this] { scheduler_loop(); });
+      scheduler_thread_ = std::thread([this] {
+#ifdef __linux__
+        pthread_setname_np(pthread_self(), "WorkPoolScheduler");
+#elif defined(_WIN32)
+        SetThreadDescription(GetCurrentThread(), L"WorkPoolScheduler");
+#endif
+        scheduler_loop();
+      });
       std::cout << "AdaptiveWorkPool started with " << max_threads_
                 << " max threads\n";
     } catch (const std::exception& e) {
