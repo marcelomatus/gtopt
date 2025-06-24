@@ -351,12 +351,17 @@ public:
       -> std::expected<std::future<std::invoke_result_t<F, Args...>>,
                        std::error_code>
   {
+    if (!func) {
+      return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    }
+
     using ReturnType = std::invoke_result_t<F, Args...>;
 
-    auto task = std::make_shared<std::packaged_task<ReturnType()>>(
-        [func = std::forward<F>(func),
-         ... args = std::forward<Args>(args)]() mutable  // NOLINT
-        { return std::invoke(func, args...); });
+    try {
+      auto task = std::make_shared<std::packaged_task<ReturnType()>>(
+          [func = std::forward<F>(func),
+           ... args = std::forward<Args>(args)]() mutable  // NOLINT
+          { return std::invoke(func, args...); });
 
     auto future = task->get_future();
 
