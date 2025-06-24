@@ -294,10 +294,8 @@ public:
       , min_cpu_threshold_(config.min_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    std::println(
-        std::cout,
-        "AdaptiveWorkPool initialized with {} max threads, CPU thresholds: "
-        "{}%-{}%",
+    SPDLOG_INFO(
+        "AdaptiveWorkPool initialized with {} max threads, CPU thresholds: {}%-{}%", 
         max_threads_,
         min_cpu_threshold_,
         max_cpu_threshold_);
@@ -327,9 +325,7 @@ public:
               std::this_thread::sleep_for(scheduler_interval_);
             }
           }};
-      std::println(std::cout,
-                   "AdaptiveWorkPool started with {} max threads",
-                   max_threads_);
+      SPDLOG_INFO("AdaptiveWorkPool started with {} max threads", max_threads_);
     } catch (const std::exception& e) {
       running_ = false;
       throw std::runtime_error(std::string("WorkPool start failed: ")
@@ -360,7 +356,7 @@ public:
     }
 
     cpu_monitor_.stop();
-    std::println(std::cout, "AdaptiveWorkPool shutdown complete");
+    SPDLOG_INFO("AdaptiveWorkPool shutdown complete");
   }
 
   template<typename F, typename... Args>
@@ -416,18 +412,18 @@ public:
   void print_statistics() const
   {
     auto stats = get_statistics();
-    std::println(std::cout, "=== WorkPool Statistics ===");
-    std::println(std::cout,
-                 "Tasks: {} submitted, {} completed, {} pending, {} active",
-                 stats.tasks_submitted,
-                 stats.tasks_completed,
-                 stats.tasks_pending,
-                 stats.tasks_active);
-    std::println(std::cout,
-                 "Threads: {} active / {} max",
-                 stats.active_threads,
-                 max_threads_);
-    std::println(std::cout, "CPU Load: {}%\n", stats.current_cpu_load);
+    SPDLOG_INFO("=== WorkPool Statistics ===");
+    SPDLOG_INFO(
+        "Tasks: {} submitted, {} completed, {} pending, {} active",
+        stats.tasks_submitted,
+        stats.tasks_completed,
+        stats.tasks_pending,
+        stats.tasks_active);
+    SPDLOG_INFO(
+        "Threads: {} active / {} max", 
+        stats.active_threads,
+        max_threads_);
+    SPDLOG_INFO("CPU Load: {}%", stats.current_cpu_load);
   }
 
 private:
@@ -511,10 +507,9 @@ private:
             try {
               task.execute();
             } catch (const std::exception& e) {
-              std::println(std::cerr, "Task execution failed: {}", e.what());
+              SPDLOG_ERROR("Task execution failed: {}", e.what());
             } catch (...) {
-              std::println(std::cerr,
-                           "Task execution failed with unknown exception");
+              SPDLOG_ERROR("Task execution failed with unknown exception");
             }
           });
 
@@ -522,11 +517,11 @@ private:
           std::make_unique<ActiveTask>(std::move(future), task.requirements()));
 
       if (task.requirements().name) {
-        std::println(std::cerr,
-                     "Scheduled task: '{}' (threads: {}, priority: {})",
-                     *task.requirements().name,
-                     threads_needed,
-                     static_cast<int>(task.requirements().priority));
+        SPDLOG_INFO(
+            "Scheduled task: '{}' (threads: {}, priority: {})",
+            *task.requirements().name,
+            threads_needed,
+            static_cast<int>(task.requirements().priority));
       }
     } catch (...) {
       active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
@@ -543,7 +538,7 @@ using namespace work_pool;
 
 static void cpu_intensive_task(const std::string& name, int duration_seconds)
 {
-  std::println(std::cout, "Starting CPU intensive task: {}", name);
+  SPDLOG_INFO("Starting CPU intensive task: {}", name);
 
   auto start = std::chrono::steady_clock::now();
   auto end = start + std::chrono::seconds(duration_seconds);
@@ -556,17 +551,17 @@ static void cpu_intensive_task(const std::string& name, int duration_seconds)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  std::println(std::cout, "Completed CPU intensive task: {}", name);
+  SPDLOG_INFO("Completed CPU intensive task: {}", name);
 }
 
 static void multi_threaded_task(const std::string& name,
                                 int num_threads,
                                 int duration_seconds)
 {
-  std::println(std::cout,
-               "Starting multi-threaded task: {} with {} threads",
-               name,
-               num_threads);
+  SPDLOG_INFO(
+      "Starting multi-threaded task: {} with {} threads", 
+      name,
+      num_threads);
 
   std::vector<std::jthread> threads;
   threads.reserve(num_threads);
@@ -590,7 +585,7 @@ static void multi_threaded_task(const std::string& name,
   std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
   stop_flag = true;
 
-  std::println(std::cout, "Completed multi-threaded task: {}", name);
+  SPDLOG_INFO("Completed multi-threaded task: {}", name);
 }
 
 static void run_example()
@@ -633,9 +628,9 @@ static void run_example()
     futures.push_back(pool.submit_lambda(
         [i]()
         {
-          std::println(std::cout, "Light task {} executing", i);
+          SPDLOG_INFO("Light task {} executing", i);
           std::this_thread::sleep_for(std::chrono::seconds(1));
-          std::println(std::cout, "Light task {} completed", i);
+          SPDLOG_INFO("Light task {} completed", i);
         },
         TaskRequirements {
             1,
@@ -661,7 +656,7 @@ static void run_example()
   monitor_future.wait();
   pool.print_statistics();
 
-  std::println(std::cout, "All tasks completed!");
+  SPDLOG_INFO("All tasks completed!");
 }
 
 int main()
@@ -669,7 +664,7 @@ int main()
   try {
     example::run_example();
   } catch (const std::exception& e) {
-    std::println(std::cerr, "Error: {}", e.what());
+    SPDLOG_ERROR("Error: {}", e.what());
     return 1;
   }
 
