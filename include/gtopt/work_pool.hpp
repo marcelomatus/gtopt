@@ -248,9 +248,8 @@ class AdaptiveWorkPool
   std::atomic<bool> running_ {false};
   std::jthread scheduler_thread_;
 
-  unsigned int max_threads_;
+  int max_threads_;
   double max_cpu_threshold_;
-  double min_cpu_threshold_;
   std::chrono::milliseconds scheduler_interval_;
 
   std::atomic<size_t> tasks_completed_ {0};
@@ -259,15 +258,15 @@ class AdaptiveWorkPool
 public:
   struct Config
   {
-    unsigned int max_threads;
+    int max_threads;
     double max_cpu_threshold;
     std::chrono::milliseconds scheduler_interval;
 
-    explicit Config(
-        unsigned int max_threads_ = std::thread::hardware_concurrency(),
-        double max_cpu_threshold_ = 95.0,
-        std::chrono::milliseconds scheduler_interval_ =
-            std::chrono::milliseconds(50))
+    explicit Config(int max_threads_ =
+                        static_cast<int>(std::thread::hardware_concurrency()),
+                    double max_cpu_threshold_ = 98.0,
+                    std::chrono::milliseconds scheduler_interval_ =
+                        std::chrono::milliseconds(50))
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
         , scheduler_interval(scheduler_interval_)
@@ -286,10 +285,11 @@ public:
       , max_cpu_threshold_(config.max_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    SPDLOG_INFO(std::format(
-        "AdaptiveWorkPool initialized with {} max threads, max CPU threshold: {}%",
-        max_threads_,
-        max_cpu_threshold_));
+    SPDLOG_INFO(
+        std::format("AdaptiveWorkPool initialized with {} max threads, max CPU "
+                    "threshold: {}%",
+                    max_threads_,
+                    max_cpu_threshold_));
   }
 
   ~AdaptiveWorkPool() { shutdown(); }
@@ -448,21 +448,17 @@ private:
 
     const auto& next_task = task_queue_.top();
     const double cpu_load = cpu_monitor_.get_load();
-    const auto threads_needed =
-        static_cast<unsigned int>(next_task.requirements().estimated_threads);
-    const auto current_threads =
-        static_cast<unsigned int>(active_threads_.load());
+    const auto threads_needed = (next_task.requirements().estimated_threads);
+    const auto current_threads = (active_threads_.load());
 
-    if (current_threads + threads_needed
-        > static_cast<unsigned int>(max_threads_))
-    {
+    if (current_threads + threads_needed > (max_threads_)) {
       return false;
     }
 
     double threshold = max_cpu_threshold_;
     switch (next_task.requirements().priority) {
       case Priority::Critical:
-        threshold = 95.0;
+        threshold = 99.0;
         break;
       case Priority::High:
         threshold = max_cpu_threshold_ + 5.0;
