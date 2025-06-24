@@ -270,7 +270,7 @@ public:
     }
   };
 
-  AdaptiveWorkPool(AdaptiveWorkPool&&) noexcept = default;
+  AdaptiveWorkPool(AdaptiveWorkPool&&) noexcept = delete;
   AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
@@ -284,7 +284,7 @@ public:
     std::println("AdaptiveWorkPool initialized with {} max threads, max CPU "
                     "threshold: {}%",
                     max_threads_,
-                    max_cpu_threshold_));
+                    max_cpu_threshold_);
   }
 
   ~AdaptiveWorkPool() { shutdown(); }
@@ -487,7 +487,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task), req = task.requirements()]() mutable
+          [task = std::move(task), req = std::move(task).requirements()]() mutable
           {
             try {
               task.execute();
