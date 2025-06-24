@@ -266,7 +266,7 @@ public:
 
     explicit Config(
         unsigned int max_threads_ = std::thread::hardware_concurrency(),
-        double max_cpu_threshold_ = 85.0,
+        double max_cpu_threshold_ = 95.0,
         double min_cpu_threshold_ = 60.0,
         std::chrono::milliseconds scheduler_interval_ =
             std::chrono::milliseconds(50))
