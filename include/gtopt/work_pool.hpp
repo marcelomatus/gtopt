@@ -389,7 +389,7 @@ public:
       cv_.notify_one();
       return future;
     } catch (std::exception& e) {
-      SPDLOG_ERROR(fmt::format("Failed to get statistics: {}", e.what()));
+      SPDLOG_ERROR(fmt::format("Failed to submit : {}", e.what()));
       return std::unexpected(std::make_error_code(std::errc::invalid_argument));
     }
   }
