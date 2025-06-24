@@ -150,7 +150,8 @@ TEST_SUITE("WorkPool")
     SUBCASE("Pending tasks generator")
     {
       for (int i = 0; i < 5; ++i) {
-        (void)pool.submit([] { std::this_thread::sleep_for(10ms); });
+        auto result = pool.submit([] { std::this_thread::sleep_for(10ms); });
+        REQUIRE(result.has_value());
       }
 
       // Pending tasks test placeholder
@@ -167,9 +168,6 @@ TEST_SUITE("WorkPool")
     config.max_threads = max_threads;
     config.max_cpu_threshold = 90.0;
     config.scheduler_interval = 10ms;
-    AdaptiveWorkPool pool(config);
-    AdaptiveWorkPool::Config config;
-    config.max_threads = 16;
     AdaptiveWorkPool pool(config);
     pool.start();
 
@@ -236,7 +234,9 @@ TEST_SUITE("WorkPool")
     SUBCASE("Invalid task submission")
     {
       // Test handling of invalid tasks
-      auto result = pool.submit(nullptr);
+      // Test handling of invalid tasks by passing a null function pointer
+      std::function<void()> null_func;
+      auto result = pool.submit(null_func);
       CHECK_FALSE(result.has_value());
       CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
     }
@@ -256,7 +256,7 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Noexcept verification")
     {
-      AdaptiveWorkPool pool;
+      const AdaptiveWorkPool pool;
       CHECK(noexcept(pool.get_statistics()));
       CHECK(noexcept(pool.shutdown()));
     }
