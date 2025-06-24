@@ -14,28 +14,28 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <expected>
+#include <format>
 #include <functional>
 #include <future>
+#include <generator>
 #include <iostream>
+#include <latch>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <queue>
 #include <ranges>
-#include <sstream>
+#include <semaphore>
+#include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <spdlog/formatter.h>
 #include <spdlog/spdlog.h>
-
-#ifdef __linux__
-#  include <fstream>
-#endif
 
 namespace gtopt
 {
@@ -84,13 +84,40 @@ public:
   CPUMonitor() = default;
   CPUMonitor(const CPUMonitor&) = delete;
   CPUMonitor& operator=(const CPUMonitor&) = delete;
-  CPUMonitor(CPUMonitor&&) = delete;
-  CPUMonitor& operator=(CPUMonitor&&) = delete;
+  
+  ~CPUMonitor() { stop(); }
+
+  void start()
+  {
+    running_.store(true, std::memory_order_relaxed);
+    monitor_thread_ = std::jthread{[this](std::stop_token stoken)
+    {
+      while (!stoken.stop_requested() && running_.load(std::memory_order_relaxed)) 
+      {
+        current_load_.store(get_system_cpu_usage(), std::memory_order_relaxed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      }
+    }};
+  }
+
+  void stop()
+  {
+    running_.store(false, std::memory_order_relaxed);
+    if (monitor_thread_.joinable()) {
+      monitor_thread_.request_stop();
+      monitor_thread_.join();
+    }
+  }
+
+  [[nodiscard]] double get_load() const noexcept
+  {
+    return current_load_.load(std::memory_order_relaxed);
+  }
 
 private:
-  std::atomic<double> current_load_ {0.0};
-  std::atomic<bool> running_ {false};
-  std::jthread monitor_thread_;  // Changed to std::jthread!
+  std::atomic<double> current_load_{0.0};
+  std::atomic<bool> running_{false};
+  std::jthread monitor_thread_;
 
   static double get_system_cpu_usage()
   {
@@ -217,58 +244,27 @@ public:
   }
 };
 
-class ActiveTask
-{
-  std::future<void> future_;
-  TaskRequirements requirements_;
-  std::chrono::steady_clock::time_point start_time_;
-
-public:
-  ActiveTask(std::future<void> fut, TaskRequirements req)
-      : future_(std::move(fut))
-      , requirements_(std::move(req))
-      , start_time_(std::chrono::steady_clock::now())
-  {
-  }
-
-  [[nodiscard]] bool is_ready() const
-  {
-    return future_.wait_for(std::chrono::seconds(0))
-        == std::future_status::ready;
-  }
-
-  void wait() { future_.wait(); }
-
-  [[nodiscard]] const TaskRequirements& requirements() const noexcept
-  {
-    return requirements_;
-  }
-
-  [[nodiscard]] auto runtime() const noexcept
-  {
-    return std::chrono::steady_clock::now() - start_time_;
-  }
-};
 
 class AdaptiveWorkPool
 {
   mutable std::mutex mutex_;
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
-  std::vector<std::unique_ptr<ActiveTask>> active_tasks_;
+  std::vector<ActiveTask> active_tasks_;
+  std::counting_semaphore<> available_threads_;
 
   CPUMonitor cpu_monitor_;
-  std::atomic<int> active_threads_ {0};
-  std::atomic<bool> running_ {false};
+  std::atomic<int> active_threads_{0};
+  std::atomic<bool> running_{false};
   std::jthread scheduler_thread_;
 
-  int max_threads_ {1000};
+  int max_threads_;
   double max_cpu_threshold_;
   double min_cpu_threshold_;
   std::chrono::milliseconds scheduler_interval_;
 
-  std::atomic<size_t> tasks_completed_ {0};
-  std::atomic<size_t> tasks_submitted_ {0};
+  std::atomic<size_t> tasks_completed_{0};
+  std::atomic<size_t> tasks_submitted_{0};
 
 public:
   struct Config
