@@ -10,21 +10,21 @@
 #include <numeric>
 #include <optional>
 #include <queue>
+#include <ranges>
 #include <sstream>
+#include <string>
+#include <string_view>
 #include <thread>
-#include <utility>  // for std::move
+#include <utility>
 #include <vector>
 
 #ifdef __linux__
 #  include <fstream>
-#elif defined(_WIN32)
-#  include <windows.h>
 #endif
 
 namespace work_pool
 {
 
-// Strong types for better type safety
 enum class [[nodiscard]] TaskStatus : uint8_t
 {
   Success,
@@ -33,22 +33,21 @@ enum class [[nodiscard]] TaskStatus : uint8_t
 };
 
 [[nodiscard]]
-static constexpr auto to_string(TaskStatus status) noexcept  // NOLINT
-    -> std::string_view
+constexpr std::string_view to_string(TaskStatus status) noexcept
 {
+  using enum TaskStatus;
   switch (status) {
-    case TaskStatus::Success:
+    case Success:
       return "Success";
-    case TaskStatus::Failed:
+    case Failed:
       return "Failed";
-    case TaskStatus::Cancelled:
+    case Cancelled:
       return "Cancelled";
     default:
       return "Unknown";
   }
-}  // namespace work_pool
+}
 
-// Task priority and resource requirements
 enum class Priority : uint8_t
 {
   Low = 0,
@@ -65,7 +64,6 @@ struct TaskRequirements
   std::optional<std::string> name;
 };
 
-// CPU monitoring with platform-specific implementations
 class CPUMonitor
 {
 public:
@@ -78,7 +76,7 @@ public:
 private:
   std::atomic<double> current_load_ {0.0};
   std::atomic<bool> running_ {false};
-  std::thread monitor_thread_;
+  std::jthread monitor_thread_;  // Changed to std::jthread!
 
   static double get_system_cpu_usage()
   {
@@ -106,7 +104,7 @@ private:
 
     if (times.size() >= 4) {
       auto idle = times[3];
-      auto total = std::accumulate(times.begin(), times.end(), 0ULL);  // NOLINT
+      auto total = std::accumulate(times.begin(), times.end(), 0ULL);
 
       auto idle_delta = idle - last_idle;
       auto total_delta = total - last_total;
@@ -122,56 +120,10 @@ private:
       }
     }
     return 0.0;
-
-#elif defined(_WIN32)
-    // Windows implementation using PDH
-    PDH_HQUERY cpuQuery;
-    PDH_HCOUNTER cpuTotal;
-    PDH_FMT_COUNTERVALUE counterVal;
-
-    PDH_STATUS status = PdhOpenQuery(nullptr, nullptr, &cpuQuery);
-    if (status != ERROR_SUCCESS) {
-      SPDLOG_WARN("Failed to open PDH query: {}", status);
-      return 50.0;
-    }
-
-    status = PdhAddCounter(
-        cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal);
-    if (status != ERROR_SUCCESS) {
-      PdhCloseQuery(cpuQuery);
-      return 50.0;
-    }
-
-    status = PdhCollectQueryData(cpuQuery);
-    if (status != ERROR_SUCCESS) {
-      PdhCloseQuery(cpuQuery);
-      return 50.0;
-    }
-
-    Sleep(100);
-
-    status = PdhCollectQueryData(cpuQuery);
-    if (status != ERROR_SUCCESS) {
-      PdhCloseQuery(cpuQuery);
-      return 50.0;
-    }
-
-    status = PdhGetFormattedCounterValue(
-        cpuTotal, PDH_FMT_DOUBLE, nullptr, &counterVal);
-    if (status != ERROR_SUCCESS) {
-      PdhCloseQuery(cpuQuery);
-      return 50.0;
-    }
-
-    status = PdhCloseQuery(cpuQuery);
-    if (status != ERROR_SUCCESS) {
-      return 50.0;
-    }
-
-    return counterVal.doubleValue;
 #else
-    // Fallback for other platforms or online compilers
-    return 30.0 + (rand() % 40);  // Simulate varying load
+    thread_local std::mt19937 rng(std::random_device {}());
+    std::uniform_real_distribution<double> dist(30.0, 70.0);
+    return dist(rng);
 #endif
   }
 
@@ -181,20 +133,21 @@ public:
   void start()
   {
     running_ = true;
-    monitor_thread_ = std::thread(
-        [this]()
+    monitor_thread_ = std::jthread {
+        [this](const std::stop_token& stoken)
         {
-          while (running_) {
+          while (!stoken.stop_requested() && running_) {
             current_load_ = get_system_cpu_usage();
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
           }
-        });
+        }};
   }
 
   void stop()
   {
     running_ = false;
     if (monitor_thread_.joinable()) {
+      monitor_thread_.request_stop();
       monitor_thread_.join();
     }
   }
@@ -205,7 +158,6 @@ public:
   }
 };
 
-// Task wrapper with metadata
 template<typename T = void>
 class Task
 {
@@ -220,10 +172,9 @@ private:
 public:
   Task() = default;
   Task(Task&&) = default;
-  Task(const Task&) = default;
-
   Task& operator=(Task&&) = default;
-  Task& operator=(const Task&) = default;
+  Task(const Task&) = delete;
+  Task& operator=(const Task&) = delete;
   ~Task() = default;
 
   template<typename F>
@@ -249,18 +200,15 @@ public:
     return std::chrono::steady_clock::now() - submit_time_;
   }
 
-  // Priority comparison for priority queue
   bool operator<(const Task& other) const noexcept
   {
     if (requirements_.priority != other.requirements_.priority) {
       return requirements_.priority < other.requirements_.priority;
     }
-    return submit_time_
-        > other.submit_time_;  // Older tasks have higher priority
+    return submit_time_ > other.submit_time_;
   }
 };
 
-// Active task tracking
 class ActiveTask
 {
   std::future<void> future_;
@@ -294,7 +242,6 @@ public:
   }
 };
 
-// Main adaptive work pool
 class AdaptiveWorkPool
 {
   mutable std::mutex mutex_;
@@ -305,36 +252,55 @@ class AdaptiveWorkPool
   CPUMonitor cpu_monitor_;
   std::atomic<int> active_threads_ {0};
   std::atomic<bool> running_ {false};
-  std::thread scheduler_thread_;
+  std::jthread scheduler_thread_;
 
-  // Configuration
   int max_threads_ {1000};
   double max_cpu_threshold_;
   double min_cpu_threshold_;
   std::chrono::milliseconds scheduler_interval_;
 
-  // Statistics
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
 
 public:
   struct Config
   {
-    int max_threads {1000};
-    double max_cpu_threshold {85.0};
-    double min_cpu_threshold {60.0};
-    std::chrono::milliseconds scheduler_interval {50};
+    int max_threads;
+    double max_cpu_threshold;
+    double min_cpu_threshold;
+    std::chrono::milliseconds scheduler_interval;
+
+    explicit Config(int max_threads_ = 1000,
+                    double max_cpu_threshold_ = 85.0,
+                    double min_cpu_threshold_ = 60.0,
+                    std::chrono::milliseconds scheduler_interval_ =
+                        std::chrono::milliseconds(50))
+        : max_threads(max_threads_)
+        , max_cpu_threshold(max_cpu_threshold_)
+        , min_cpu_threshold(min_cpu_threshold_)
+        , scheduler_interval(scheduler_interval_)
+    {
+    }
   };
 
-  explicit AdaptiveWorkPool(Config config)
+  AdaptiveWorkPool(const AdaptiveWorkPool&&) = delete;
+  AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
+  AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
+  AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
+
+  explicit AdaptiveWorkPool(Config config = Config {})
       : max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
       , min_cpu_threshold_(config.min_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    std::cout << "AdaptiveWorkPool initialized with " << max_threads_
-              << " max threads, CPU thresholds: " << config.min_cpu_threshold
-              << "%-" << config.max_cpu_threshold << "%\n";
+    std::println(
+        std::cout,
+        "AdaptiveWorkPool initialized with {} max threads, CPU thresholds: "
+        "{}%-{}%",
+        max_threads_,
+        min_cpu_threshold_,
+        max_cpu_threshold_);
   }
 
   ~AdaptiveWorkPool() { shutdown(); }
@@ -342,23 +308,28 @@ public:
   void start()
   {
     if (running_.exchange(true)) {
-      return;  // Already running
+      return;
     }
 
     try {
       cpu_monitor_.start();
-      scheduler_thread_ = std::thread(
-          [this]
+      scheduler_thread_ = std::jthread {
+          [this](const std::stop_token& stoken)
           {
 #ifdef __linux__
             pthread_setname_np(pthread_self(), "WorkPoolScheduler");
-#elif defined(_WIN32)
-            SetThreadDescription(GetCurrentThread(), L"WorkPoolScheduler");
 #endif
-            scheduler_loop();
-          });
-      std::cout << "AdaptiveWorkPool started with " << max_threads_
-                << " max threads\n";
+            while (!stoken.stop_requested() && running_) {
+              cleanup_completed_tasks();
+              if (should_schedule_new_task()) {
+                schedule_next_task();
+              }
+              std::this_thread::sleep_for(scheduler_interval_);
+            }
+          }};
+      std::println(std::cout,
+                   "AdaptiveWorkPool started with {} max threads",
+                   max_threads_);
     } catch (const std::exception& e) {
       running_ = false;
       throw std::runtime_error(std::string("WorkPool start failed: ")
@@ -376,10 +347,10 @@ public:
     cv_.notify_all();
 
     if (scheduler_thread_.joinable()) {
+      scheduler_thread_.request_stop();
       scheduler_thread_.join();
     }
 
-    // Wait for active tasks to complete
     {
       std::lock_guard<std::mutex> lock(mutex_);
       for (auto& task : active_tasks_) {
@@ -389,7 +360,7 @@ public:
     }
 
     cpu_monitor_.stop();
-    std::cout << "AdaptiveWorkPool shutdown complete\n";
+    std::println(std::cout, "AdaptiveWorkPool shutdown complete");
   }
 
   template<typename F, typename... Args>
@@ -399,18 +370,15 @@ public:
     using ReturnType = std::invoke_result_t<F, Args...>;
 
     auto task = std::make_shared<std::packaged_task<ReturnType()>>(
-        [func = std::forward<F>(func), args...]() mutable
+        [func = std::forward<F>(func),
+         ... args = std::forward<Args>(args)]() mutable
         { return std::invoke(func, args...); });
 
     auto future = task->get_future();
 
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if constexpr (std::is_void_v<ReturnType>) {
-        task_queue_.emplace([task]() { (*task)(); }, std::move(req));
-      } else {
-        task_queue_.emplace([task]() { (*task)(); }, std::move(req));
-      }
+      task_queue_.emplace([task]() { (*task)(); }, std::move(req));
       tasks_submitted_++;
     }
 
@@ -418,7 +386,6 @@ public:
     return future;
   }
 
-  // Convenience method for lambda submission
   template<typename F>
   auto submit_lambda(F&& func, TaskRequirements req = {})
   {
@@ -449,53 +416,38 @@ public:
   void print_statistics() const
   {
     auto stats = get_statistics();
-    std::cout << "=== WorkPool Statistics ===\n";
-    std::cout << "Tasks: " << stats.tasks_submitted << " submitted, "
-              << stats.tasks_completed << " completed, " << stats.tasks_pending
-              << " pending, " << stats.tasks_active << " active\n";
-    std::cout << "Threads: " << stats.active_threads << " active / "
-              << max_threads_ << " max\n";
-    std::cout << "CPU Load: " << stats.current_cpu_load << "%\n\n";
+    std::println(std::cout, "=== WorkPool Statistics ===");
+    std::println(std::cout,
+                 "Tasks: {} submitted, {} completed, {} pending, {} active",
+                 stats.tasks_submitted,
+                 stats.tasks_completed,
+                 stats.tasks_pending,
+                 stats.tasks_active);
+    std::println(std::cout,
+                 "Threads: {} active / {} max",
+                 stats.active_threads,
+                 max_threads_);
+    std::println(std::cout, "CPU Load: {}%\n", stats.current_cpu_load);
   }
 
 private:
-  void scheduler_loop()
-  {
-    try {
-      while (running_) {
-        try {
-          cleanup_completed_tasks();
-
-          if (should_schedule_new_task()) {
-            schedule_next_task();
-          }
-
-          std::this_thread::sleep_for(scheduler_interval_);
-        } catch (const std::exception& e) {
-          SPDLOG_ERROR("Scheduler loop error: {}", e.what());
-        }
-      }
-    } catch (...) {
-      SPDLOG_CRITICAL("Fatal error in scheduler loop");
-      throw;
-    }
-  }
-
   void cleanup_completed_tasks()
   {
     std::lock_guard<std::mutex> lock(mutex_);
-
-    std::ranges::remove_if(active_tasks_,
-                           [this](const auto& task)
-                           {
-                             if (task->is_ready()) {
-                               active_threads_ -=
-                                   task->requirements().estimated_threads;
-                               tasks_completed_++;
-                               return true;
-                             }
-                             return false;
-                           });
+    auto new_end =
+        std::ranges::remove_if(active_tasks_,
+                               [this](const auto& task)
+                               {
+                                 if (task->is_ready()) {
+                                   active_threads_ -=
+                                       task->requirements().estimated_threads;
+                                   tasks_completed_++;
+                                   return true;
+                                 }
+                                 return false;
+                               })
+            .begin();
+    active_tasks_.erase(new_end, active_tasks_.end());
   }
 
   [[nodiscard]] bool should_schedule_new_task() const
@@ -513,18 +465,16 @@ private:
     const auto current_threads =
         static_cast<unsigned int>(active_threads_.load());
 
-    // Check thread capacity
     if (current_threads + threads_needed
         > static_cast<unsigned int>(max_threads_))
     {
       return false;
     }
 
-    // Adaptive CPU scheduling based on priority
     double threshold = max_cpu_threshold_;
     switch (next_task.requirements().priority) {
       case Priority::Critical:
-        threshold = 95.0;  // Allow critical tasks even at high CPU
+        threshold = 95.0;
         break;
       case Priority::High:
         threshold = max_cpu_threshold_ + 5.0;
@@ -544,14 +494,15 @@ private:
       return;
     }
 
-    auto task = std::move(task_queue_.top());
+    // move out of priority_queue safely for move-only type
+    Task<void> task =
+        std::move(const_cast<Task<void>&>(task_queue_.top()));  // NOLINT
     task_queue_.pop();
 
     const auto threads_needed =
         static_cast<int>(task.requirements().estimated_threads);
     active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
 
-    // Launch task in separate thread
     try {
       auto future = std::async(
           std::launch::async,
@@ -560,9 +511,10 @@ private:
             try {
               task.execute();
             } catch (const std::exception& e) {
-              std::cerr << "Task execution failed: " << e.what() << '\n';
+              std::println(std::cerr, "Task execution failed: {}", e.what());
             } catch (...) {
-              std::cerr << "Task execution failed with unknown exception\n";
+              std::println(std::cerr,
+                           "Task execution failed with unknown exception");
             }
           });
 
@@ -570,9 +522,11 @@ private:
           std::make_unique<ActiveTask>(std::move(future), task.requirements()));
 
       if (task.requirements().name) {
-        std::cout << "Scheduled task: '" << *task.requirements().name
-                  << "' (threads: " << threads_needed << ", priority: "
-                  << static_cast<int>(task.requirements().priority) << ")\n";
+        std::println(std::cerr,
+                     "Scheduled task: '{}' (threads: {}, priority: {})",
+                     *task.requirements().name,
+                     threads_needed,
+                     static_cast<int>(task.requirements().priority));
       }
     } catch (...) {
       active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
@@ -583,46 +537,49 @@ private:
 
 }  // namespace work_pool
 
-namespace example {
+namespace example
 {
 using namespace work_pool;
 
 static void cpu_intensive_task(const std::string& name, int duration_seconds)
 {
-  std::cout << "Starting CPU intensive task: " << name << "\n";
+  std::println(std::cout, "Starting CPU intensive task: {}", name);
 
   auto start = std::chrono::steady_clock::now();
   auto end = start + std::chrono::seconds(duration_seconds);
 
-  // Simulate CPU-intensive work
   volatile int64_t counter = 0;
   while (std::chrono::steady_clock::now() < end) {
-    for (int i = 0; i < 1000000; ++i) {
+    for (int i = 0; i < 1'000'000; ++i) {
       counter += static_cast<int64_t>(i) * i;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  std::cout << "Completed CPU intensive task: " << name << "\n";
+  std::println(std::cout, "Completed CPU intensive task: {}", name);
 }
 
 static void multi_threaded_task(const std::string& name,
                                 int num_threads,
                                 int duration_seconds)
 {
-  std::cout << "Starting multi-threaded task: " << name << " with "
-            << num_threads << " threads\n";
+  std::println(std::cout,
+               "Starting multi-threaded task: {} with {} threads",
+               name,
+               num_threads);
 
-  std::vector<std::thread> threads;
+  std::vector<std::jthread> threads;
+  threads.reserve(num_threads);
+
   std::atomic<bool> stop_flag {false};
 
   for (int i = 0; i < num_threads; ++i) {
     threads.emplace_back(
-        [&stop_flag, i, name]()
+        [&stop_flag](const std::stop_token& stoken)
         {
           volatile int64_t counter = 0;
-          while (!stop_flag) {
-            for (int j = 0; j < 100000; ++j) {
+          while (!stop_flag && !stoken.stop_requested()) {
+            for (int j = 0; j < 100'000; ++j) {
               counter += j;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -633,80 +590,60 @@ static void multi_threaded_task(const std::string& name,
   std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
   stop_flag = true;
 
-  for (auto& t : threads) {
-    if (t.joinable()) {
-      t.join();
-    }
-
-    std::cout << "Completed multi-threaded task: " << name << "\n";
-  }
+  std::println(std::cout, "Completed multi-threaded task: {}", name);
 }
 
 static void run_example()
 {
   const AdaptiveWorkPool::Config config {
-      4,  // max_threads
-      80.0,  // max_cpu_threshold
-      50.0,  // min_cpu_threshold
-      std::chrono::milliseconds(100)  // scheduler_interval
-  };
+      4, 80.0, 50.0, std::chrono::milliseconds(100)};
 
   AdaptiveWorkPool pool(config);
   pool.start();
 
-  // Submit various types of tasks
   std::vector<std::future<void>> futures;
 
-  // High priority task
-  futures.push_back(
-      pool.submit([](const std::string& name, int duration)
-                  { cpu_intensive_task(name, duration); },
-                  "Critical Task",
-                  2,
-                  TaskRequirements {
-                      1,  // estimated_threads
-                      std::chrono::seconds(2),  // estimated_duration
-                      Priority::Critical,  // priority
-                      "Critical Processing"  // name
-                  }));
+  futures.push_back(pool.submit(
+      [](const std::string& name, int duration)
+      { cpu_intensive_task(name, duration); },
+      TaskRequirements {
+          .estimated_threads = 1,
+          .estimated_duration = std::chrono::seconds(2),
+          .priority = Priority::Critical,
+          .name = std::optional<std::string> {"Critical Processing"}},
+      "Critical Task",
+      2));
 
-  // Multi-threaded tasks
   for (int i = 0; i < 2; ++i) {
     std::string task_name = "MultiTask-" + std::to_string(i);
-    futures.push_back(
-        pool.submit(
-            [](const std::string& name, int threads, int duration) {
-              multi_threaded_task(name, threads, duration);
-            },
-            task_name,
+    futures.push_back(pool.submit(
+        [](const std::string& name, int threads, int duration)
+        { multi_threaded_task(name, threads, duration); },
+        TaskRequirements {
             2,
-            3,
-            TaskRequirements {
-                        2,  // estimated_threads
-                        std::chrono::seconds(3),  // estimated_duration
-                        Priority::Medium,  // priority
-                        "Multi-Task-" + std::to_string(i)  // name
-                    }));
+            std::chrono::seconds(3),
+            Priority::Medium,
+            std::optional<std::string> {"Multi-Task-" + std::to_string(i)}},
+        task_name,
+        2,
+        3));
   }
 
-  // Light tasks
   for (int i = 0; i < 3; ++i) {
     futures.push_back(pool.submit_lambda(
         [i]()
         {
-          std::cout << "Light task " << i << " executing\n";
+          std::println(std::cout, "Light task {} executing", i);
           std::this_thread::sleep_for(std::chrono::seconds(1));
-          std::cout << "Light task " << i << " completed\n";
+          std::println(std::cout, "Light task {} completed", i);
         },
         TaskRequirements {
-            1,  // estimated_threads
-            std::chrono::seconds(1),  // estimated_duration
-            Priority::Low,  // priority
-            "Light-Task-" + std::to_string(i)  // name
-        }));
+            1,
+            std::chrono::seconds(1),
+            Priority::Low,
+            std::optional<std::string> {"Light-Task-" + std::to_string(i)}}));
   }
 
-  // Monitor progress
   auto monitor_future =
       std::async(std::launch::async,
                  [&pool]()
@@ -717,7 +654,6 @@ static void run_example()
                    }
                  });
 
-  // Wait for all tasks to complete
   for (auto& future : futures) {
     future.wait();
   }
@@ -725,7 +661,7 @@ static void run_example()
   monitor_future.wait();
   pool.print_statistics();
 
-  std::cout << "All tasks completed!\n";
+  std::println(std::cout, "All tasks completed!");
 }
 
 int main()
@@ -733,9 +669,10 @@ int main()
   try {
     example::run_example();
   } catch (const std::exception& e) {
-    std::cerr << "Error: " << e.what() << "\n";
+    std::println(std::cerr, "Error: {}", e.what());
     return 1;
   }
 
   return 0;
 }
+}  // namespace example
