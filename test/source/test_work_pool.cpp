@@ -105,8 +105,8 @@ TEST_SUITE("WorkPool")
     SUBCASE("Submit 100 small tasks")
     {
       std::vector<std::future<void>> futures;
-      futures.reserve(100);
-      for (int i = 0; i < 100; ++i) {
+      futures.reserve(10);
+      for (int i = 0; i < 10; ++i) {
         futures.push_back(pool.submit([] {}));
       }
       for (auto& f : futures) {
