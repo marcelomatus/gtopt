@@ -23,27 +23,65 @@ TEST_SUITE("WorkPool")
     {
       std::vector<int> execution_order;
       std::mutex order_mutex;
+      std::atomic<int> counter{0};
 
+      // Submit tasks with different priorities
       auto high_task = pool.submit(
           [&]
           {
             const std::lock_guard<std::mutex> lock(order_mutex);
             execution_order.push_back(1);
+            counter++;
           },
           {.priority = Priority::High, .name = "high_priority_task"});
+
+      auto medium_task = pool.submit(
+          [&]
+          {
+            const std::lock_guard<std::mutex> lock(order_mutex);
+            execution_order.push_back(2);
+            counter++;
+          },
+          {.priority = Priority::Medium, .name = "medium_priority_task"});
 
       auto low_task = pool.submit(
           [&]
           {
             const std::lock_guard<std::mutex> lock(order_mutex);
-            execution_order.push_back(2);
+            execution_order.push_back(3);
+            counter++;
           },
           {.priority = Priority::Low, .name = "low_priority_task"});
 
+      // Wait for all tasks to complete
       high_task.wait();
+      medium_task.wait();
       low_task.wait();
 
-      CHECK(execution_order == std::vector {1, 2});
+      CHECK(counter == 3);
+      // High priority should execute first
+      CHECK(execution_order[0] == 1);
+      // Medium should execute before low
+      CHECK(std::find(execution_order.begin(), execution_order.end(), 2) < 
+            std::find(execution_order.begin(), execution_order.end(), 3));
+    }
+
+    SUBCASE("Statistics tracking")
+    {
+      auto stats = pool.get_statistics();
+      CHECK(stats.tasks_submitted == 0);
+      CHECK(stats.tasks_completed == 0);
+
+      auto task1 = pool.submit([] {});
+      auto task2 = pool.submit([] {});
+      
+      task1.wait();
+      task2.wait();
+
+      stats = pool.get_statistics();
+      CHECK(stats.tasks_submitted >= 2);
+      CHECK(stats.tasks_completed >= 2);
+      CHECK(stats.tasks_active == 0);
     }
 
 #ifdef NONE
@@ -104,28 +142,53 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Submit 100 small tasks")
     {
-      std::vector<std::future<void>> futures;
-      futures.reserve(10);
-      for (int i = 0; i < 10; ++i) {
-        futures.push_back(pool.submit([] {}));
+      std::vector<std::future<int>> futures;
+      futures.reserve(100);
+      std::atomic<int> counter{0};
+
+      for (int i = 0; i < 100; ++i) {
+        futures.push_back(pool.submit([&] { return counter++; }));
       }
+
+      int total = 0;
       for (auto& f : futures) {
-        f.wait();
+        total += f.get();
       }
+
+      // Verify all tasks executed and returned unique values
+      CHECK(counter == 100);
+      CHECK(total == 4950); // Sum of 0..99
     }
 
     SUBCASE("Submit 10 medium tasks")
     {
-      std::vector<std::future<void>> futures;
+      std::vector<std::future<int>> futures;
       futures.reserve(10);
+      std::atomic<int> counter{0};
+
       for (int i = 0; i < 10; ++i) {
         futures.push_back(
-            pool.submit([] { std::this_thread::sleep_for(1ms); },
-                        {.estimated_duration = 1ms, .name = "medium_task"}));
+            pool.submit(
+                [&] {
+                  std::this_thread::sleep_for(1ms);
+                  return counter++;
+                },
+                {.estimated_duration = 1ms, .name = "medium_task"}));
       }
+
+      int total = 0;
       for (auto& f : futures) {
-        f.wait();
+        total += f.get();
       }
+
+      CHECK(counter == 10);
+      CHECK(total == 45); // Sum of 0..9
+    }
+
+    SUBCASE("Task exception handling")
+    {
+      auto future = pool.submit([] { throw std::runtime_error("test error"); });
+      CHECK_THROWS_AS(future.get(), std::runtime_error);
     }
 
     pool.shutdown();
