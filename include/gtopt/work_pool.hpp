@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <expected>
 #include <format>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <generator>
@@ -23,6 +24,7 @@
 #include <latch>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <ranges>
@@ -162,35 +164,6 @@ private:
     return 0.0;
   }
 
-public:
-  ~CPUMonitor() { stop(); }
-
-  void start()
-  {
-    running_ = true;
-    monitor_thread_ = std::jthread {
-        [this](const std::stop_token& stoken)
-        {
-          while (!stoken.stop_requested() && running_) {
-            current_load_ = get_system_cpu_usage();
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-          }
-        }};
-  }
-
-  void stop()
-  {
-    running_ = false;
-    if (monitor_thread_.joinable()) {
-      monitor_thread_.request_stop();
-      monitor_thread_.join();
-    }
-  }
-
-  [[nodiscard]] double get_load() const noexcept
-  {
-    return current_load_.load();
-  }
 };
 
 template<typename T = void>
@@ -250,8 +223,22 @@ class AdaptiveWorkPool
   mutable std::mutex mutex_;
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
+  struct ActiveTask {
+    std::future<void> future;
+    TaskRequirements requirements;
+    std::chrono::steady_clock::time_point start_time;
+
+    [[nodiscard]] bool is_ready() const {
+      return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+    }
+
+    [[nodiscard]] auto runtime() const noexcept {
+      return std::chrono::steady_clock::now() - start_time;
+    }
+  };
+
   std::vector<ActiveTask> active_tasks_;
-  std::counting_semaphore<> available_threads_;
+  std::counting_semaphore<> available_threads_{0};
 
   CPUMonitor cpu_monitor_;
   std::atomic<int> active_threads_{0};
@@ -293,7 +280,8 @@ public:
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
 
   explicit AdaptiveWorkPool(Config config = Config {})
-      : max_threads_(config.max_threads)
+      : available_threads_(config.max_threads)
+      , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
       , min_cpu_threshold_(config.min_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
@@ -508,7 +496,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [req = task.requirements(), task = std::move(task)]() mutable
+          [task = std::move(task), req = task.requirements()]() mutable
           {
             try {
               task.execute();
