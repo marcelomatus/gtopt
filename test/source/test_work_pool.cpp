@@ -233,15 +233,16 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Invalid task submission")
     {
-      // Test handling of invalid tasks
       // Test handling of invalid tasks by passing a null function pointer
       std::function<void()> null_func = nullptr;
-      try {
-        auto result = pool.submit(null_func);
-        CHECK_FALSE(result.has_value());
+      auto result = pool.submit(null_func);
+      
+      // Either the submission should fail with expected error code
+      // or throw an exception (both are valid behaviors)
+      if (result) {
+        FAIL_CHECK("Expected invalid task submission to fail");
+      } else {
         CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
-      } catch (const std::exception& e) {
-        FAIL_CHECK("Unexpected exception: ", e.what());
       }
     }
 
