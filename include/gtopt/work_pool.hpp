@@ -281,8 +281,7 @@ public:
       , max_cpu_threshold_(config.max_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    SPDLOG_INFO(
-        std::format("AdaptiveWorkPool initialized with {} max threads, max CPU "
+    std::println("AdaptiveWorkPool initialized with {} max threads, max CPU "
                     "threshold: {}%",
                     max_threads_,
                     max_cpu_threshold_));
