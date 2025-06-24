@@ -91,13 +91,17 @@ TEST_SUITE("WorkPool")
       task1.wait();
       task2.wait();
 
-      // Wait for pool to process completions
+      // Wait for pool to process completions with random sleep
+      static std::random_device rd;
+      static std::mt19937 gen(rd());
+      static std::uniform_int_distribution<> dist(1, 10);
+      
       while (true) {
         stats = pool.get_statistics();
         if (stats.tasks_completed >= 2 && stats.tasks_active == 0) {
           break;
         }
-        std::this_thread::sleep_for(1ms);
+        std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
       }
 
       CHECK(stats.tasks_submitted >= 2);
@@ -154,7 +158,15 @@ TEST_SUITE("WorkPool")
     pool.shutdown();
   }
 
-  TEST_CASE("WorkPool stress testing")
+  TEST_CASE("WorkPool stress testing") 
+  {
+    constexpr int max_threads = 16;
+    AdaptiveWorkPool::Config config {
+      .max_threads = max_threads,
+      .max_cpu_threshold = 90.0,
+      .scheduler_interval = 10ms
+    };
+    AdaptiveWorkPool pool(config);
   {
     AdaptiveWorkPool::Config config;
     config.max_threads = 16;
@@ -210,10 +222,35 @@ TEST_SUITE("WorkPool")
       CHECK(total == ((n - 1) * n) / 2);  // Sum of 0..n-1
     }
 
-    SUBCASE("Task exception handling")
+    SUBCASE("Task exception handling") 
     {
-      auto future = pool.submit([] { throw std::runtime_error("test error"); });
-      CHECK_THROWS_AS(future.get(), std::runtime_error);
+      auto result = pool.submit([] { throw std::runtime_error("test error"); });
+      REQUIRE(result.has_value());
+      CHECK_THROWS_AS(result.value().get(), std::runtime_error);
+    }
+
+    SUBCASE("Invalid task submission")
+    {
+      // Test handling of invalid tasks
+      auto result = pool.submit(nullptr);
+      CHECK_FALSE(result.has_value());
+      CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
+    }
+
+    SUBCASE("Constexpr verification")
+    {
+      constexpr auto cfg = AdaptiveWorkPool::Config{};
+      static_assert(cfg.max_threads > 0);
+      static_assert(cfg.max_cpu_threshold > 0.0);
+      static_assert(cfg.scheduler_interval.count() > 0);
+      CHECK(true);
+    }
+
+    SUBCASE("Noexcept verification")
+    {
+      AdaptiveWorkPool pool;
+      CHECK(noexcept(pool.get_statistics()));
+      CHECK(noexcept(pool.shutdown()));
     }
 
     pool.shutdown();
