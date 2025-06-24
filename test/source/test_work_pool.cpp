@@ -72,11 +72,23 @@ TEST_SUITE("WorkPool")
       CHECK(stats.tasks_submitted == 0);
       CHECK(stats.tasks_completed == 0);
 
-      auto task1 = pool.submit([] {});
-      auto task2 = pool.submit([] {});
+      // Use a barrier to ensure tasks complete before checking stats
+      std::promise<void> p1, p2;
+      auto f1 = p1.get_future(), f2 = p2.get_future();
       
+      auto task1 = pool.submit([&] { f1.wait(); });
+      auto task2 = pool.submit([&] { f2.wait(); });
+
+      // Allow tasks to start
+      p1.set_value();
+      p2.set_value();
+
+      // Wait for both tasks to complete
       task1.wait();
       task2.wait();
+
+      // Give pool time to update stats
+      std::this_thread::sleep_for(10ms);
 
       stats = pool.get_statistics();
       CHECK(stats.tasks_submitted >= 2);
