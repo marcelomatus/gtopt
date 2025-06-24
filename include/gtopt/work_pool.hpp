@@ -28,7 +28,6 @@
 #include <semaphore>
 #include <stop_token>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -37,28 +36,12 @@
 
 namespace gtopt
 {
-enum class [[nodiscard]] TaskStatus : uint8_t
+enum class TaskStatus : uint8_t
 {
   Success,
   Failed,
   Cancelled
 };
-
-[[nodiscard]]
-constexpr std::string_view to_string(TaskStatus status) noexcept
-{
-  using enum TaskStatus;
-  switch (status) {
-    case Success:
-      return "Success";
-    case Failed:
-      return "Failed";
-    case Cancelled:
-      return "Cancelled";
-    default:
-      return "Unknown";
-  }
-}
 
 enum class Priority : uint8_t
 {
@@ -98,7 +81,7 @@ public:
           {
             current_load_.store(get_system_cpu_usage(),
                                 std::memory_order_relaxed);
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
           }
         }};
   }
@@ -221,7 +204,7 @@ class AdaptiveWorkPool
 {
   // Separate mutexes for different concerns
   mutable std::mutex queue_mutex_;  // Protects task queue
-  mutable std::mutex active_mutex_; // Protects active tasks
+  mutable std::mutex active_mutex_;  // Protects active tasks
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
   struct ActiveTask
@@ -266,9 +249,9 @@ public:
 
     explicit Config(int max_threads_ =
                         static_cast<int>(std::thread::hardware_concurrency()),
-                    double max_cpu_threshold_ = 98.0,
+                    double max_cpu_threshold_ = 95.0,
                     std::chrono::milliseconds scheduler_interval_ =
-                        std::chrono::milliseconds(50))
+                        std::chrono::milliseconds(20))
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
         , scheduler_interval(scheduler_interval_)
@@ -307,9 +290,7 @@ public:
       scheduler_thread_ = std::jthread {
           [this](const std::stop_token& stoken)
           {
-#ifdef __linux__
             pthread_setname_np(pthread_self(), "WorkPoolScheduler");
-#endif
             while (!stoken.stop_requested() && running_) {
               cleanup_completed_tasks();
               if (should_schedule_new_task()) {
@@ -344,7 +325,7 @@ public:
     }
 
     {
-      const std::lock_guard<std::mutex> lock(mutex_);
+      const std::lock_guard<std::mutex> lock(active_mutex_);
       for (auto& task : active_tasks_) {
         task.future.wait();
       }
@@ -446,14 +427,14 @@ private:
   {
     std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
     std::unique_lock active_lock(active_mutex_, std::defer_lock);
-    std::lock(queue_lock, active_lock); // Lock both without deadlock
+    std::lock(queue_lock, active_lock);  // Lock both without deadlock
 
     if (task_queue_.empty()) {
       return false;
     }
 
     const auto& next_task = task_queue_.top();
-    const double cpu_load = cpu_monitor_.get_load();
+    const auto cpu_load = cpu_monitor_.get_load();
     const auto threads_needed = (next_task.requirements().estimated_threads);
     const auto current_threads = (active_threads_.load());
 
@@ -461,10 +442,10 @@ private:
       return false;
     }
 
-    double threshold = max_cpu_threshold_;
+    auto threshold = max_cpu_threshold_;
     switch (next_task.requirements().priority) {
       case Priority::Critical:
-        threshold = 99.0;
+        threshold = 95.0;
         break;
       case Priority::High:
         threshold = max_cpu_threshold_ + 5.0;
@@ -478,7 +459,7 @@ private:
 
   void schedule_next_task()
   {
-    std::unique_lock queue_lock(queue_mutex_);
+    const std::unique_lock queue_lock(queue_mutex_);
 
     if (task_queue_.empty()) {
       return;
@@ -496,7 +477,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [req = task.requirements(), task = std::move(task)]() mutable
+          [task = std::move(task), req = task.requirements()]() mutable
           {
             try {
               task.execute();
