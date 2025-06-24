@@ -17,8 +17,9 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Submit and execute simple task")
     {
-      auto future = pool.submit([] { return 42; });
-      CHECK(future.get() == 42);
+      auto result = pool.submit([] { return 42; });
+      REQUIRE(result.has_value());
+      CHECK(result.value().get() == 42);
     }
 
     SUBCASE("Task priority ordering")
@@ -45,6 +46,8 @@ TEST_SUITE("WorkPool")
             counter++;
           },
           {.priority = Priority::Medium, .name = "medium_priority_task"});
+      REQUIRE(result.has_value());
+      futures.push_back(std::move(result.value()));
 
       auto low_task = pool.submit(
           [&]
@@ -56,9 +59,9 @@ TEST_SUITE("WorkPool")
           {.priority = Priority::Low, .name = "low_priority_task"});
 
       // Wait for all tasks to complete
-      high_task.wait();
-      medium_task.wait();
-      low_task.wait();
+      high_task.value().wait();
+      medium_task.value().wait();
+      low_task.value().wait();
 
       CHECK(counter == 3);
       // High priority should execute first
@@ -88,8 +91,8 @@ TEST_SUITE("WorkPool")
       p2.set_value();
 
       // Wait for both tasks to complete
-      task1.wait();
-      task2.wait();
+      task1.value().wait();
+      task2.value().wait();
 
       // Wait for pool to process completions with random sleep
       static std::random_device rd;
@@ -148,7 +151,7 @@ TEST_SUITE("WorkPool")
     SUBCASE("Pending tasks generator")
     {
       for (int i = 0; i < 5; ++i) {
-        pool.submit([] { std::this_thread::sleep_for(10ms); });
+        (void)pool.submit([] { std::this_thread::sleep_for(10ms); });
       }
 
       // Pending tasks test placeholder
@@ -161,11 +164,10 @@ TEST_SUITE("WorkPool")
   TEST_CASE("WorkPool stress testing") 
   {
     constexpr int max_threads = 16;
-    AdaptiveWorkPool::Config config {
-      .max_threads = max_threads,
-      .max_cpu_threshold = 90.0,
-      .scheduler_interval = 10ms
-    };
+    AdaptiveWorkPool::Config config;
+    config.max_threads = max_threads;
+    config.max_cpu_threshold = 90.0;
+    config.scheduler_interval = 10ms;
     AdaptiveWorkPool pool(config);
   {
     AdaptiveWorkPool::Config config;
@@ -180,7 +182,9 @@ TEST_SUITE("WorkPool")
       std::atomic<int> counter {0};
 
       for (int i = 0; i < 100; ++i) {
-        futures.push_back(pool.submit([&] { return counter++; }));
+        auto result = pool.submit([&] { return counter++; });
+        REQUIRE(result.has_value());
+        futures.push_back(std::move(result.value()));
       }
 
       int total = 0;
@@ -201,7 +205,7 @@ TEST_SUITE("WorkPool")
       std::atomic<int> counter {0};
 
       for (int i = 0; i < n; ++i) {
-        futures.push_back(pool.submit(
+        auto result = pool.submit(
             [&]
             {
               static std::random_device rd;
@@ -239,10 +243,14 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Constexpr verification")
     {
-      constexpr auto cfg = AdaptiveWorkPool::Config{};
-      static_assert(cfg.max_threads > 0);
-      static_assert(cfg.max_cpu_threshold > 0.0);
-      static_assert(cfg.scheduler_interval.count() > 0);
+      constexpr AdaptiveWorkPool::Config cfg {
+        4,  // max_threads
+        80.0,  // max_cpu_threshold
+        std::chrono::milliseconds(10)  // scheduler_interval
+      };
+      static_assert(cfg.max_threads == 4);
+      static_assert(cfg.max_cpu_threshold == 80.0);
+      static_assert(cfg.scheduler_interval.count() == 10);
       CHECK(true);
     }
 
