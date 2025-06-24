@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/work_pool.hpp>
+#include <random>
 
 using namespace std::chrono_literals;
 
@@ -189,7 +190,10 @@ TEST_SUITE("WorkPool")
         futures.push_back(pool.submit(
             [&]
             {
-              std::this_thread::sleep_for(1ms);
+              static std::random_device rd;
+              static std::mt19937 gen(rd());
+              static std::uniform_int_distribution<> dist(1, 10);
+              std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
               return counter++;
             },
             {.estimated_duration = 1ms, .name = "medium_task"}));
