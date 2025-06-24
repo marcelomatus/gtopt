@@ -260,6 +260,7 @@ public:
     int active_threads;
     double current_cpu_load;
   };
+
   struct Config
   {
     int max_threads;
@@ -298,10 +299,6 @@ public:
 
   ~AdaptiveWorkPool() { shutdown(); }
 
-public:
-  void cleanup_completed_tasks();
-  bool should_schedule_new_task() const;
-  void schedule_next_task();
   void start()
   {
     if (running_.exchange(true)) {
@@ -360,13 +357,16 @@ public:
   }
 
   template<typename Func, typename... Args>
-  [[nodiscard]] auto submit(Func&& func, const TaskRequirements& req = {}, Args&&... args)
+  [[nodiscard]] auto submit(Func&& func,
+                            const TaskRequirements& req = {},
+                            Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
   {
     if constexpr (std::is_same_v<std::decay_t<Func>, std::function<void()>>) {
       if (!func) {
-        return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+        return std::unexpected(
+            std::make_error_code(std::errc::invalid_argument));
       }
     }
 
@@ -378,16 +378,20 @@ public:
            ... args = std::forward<Args>(args)]() mutable  // NOLINT
           { return std::invoke(func, args...); });
 
-    auto future = task->get_future();
+      auto future = task->get_future();
 
-    {
-      const std::lock_guard<std::mutex> lock(queue_mutex_);
-      task_queue_.emplace([task]() { (*task)(); }, std::move(req));
-      tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+      {
+        const std::lock_guard<std::mutex> lock(queue_mutex_);
+        task_queue_.emplace([task]() { (*task)(); }, std::move(req));
+        tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+      }
+
+      cv_.notify_one();
+      return future;
+    } catch (std::exception& e) {
+      SPDLOG_ERROR(fmt::format("Failed to get statistics: {}", e.what()));
+      return std::unexpected(std::make_error_code(std::errc::invalid_argument));
     }
-
-    cv_.notify_one();
-    return future;
   }
 
   template<typename Func>
@@ -396,17 +400,7 @@ public:
     return submit(std::forward<Func>(func), std::move(req));
   }
 
-  struct Statistics
-  {
-    size_t tasks_submitted;
-    size_t tasks_completed;
-    size_t tasks_pending;
-    size_t tasks_active;
-    int active_threads;
-    double current_cpu_load;
-  };
-
-  Statistics get_statistics() const
+  Statistics get_statistics() const noexcept
   {
     std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
     std::unique_lock active_lock(active_mutex_, std::defer_lock);
@@ -434,7 +428,6 @@ public:
     SPDLOG_INFO(std::format("CPU Load: {}%", stats.current_cpu_load));
   }
 
-private:
   void cleanup_completed_tasks()
   {
     const std::lock_guard<std::mutex> lock(active_mutex_);

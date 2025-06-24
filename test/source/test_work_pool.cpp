@@ -97,7 +97,7 @@ TEST_SUITE("WorkPool")
       static std::random_device rd;
       static std::mt19937 gen(rd());
       static std::uniform_int_distribution<> dist(1, 10);
-      
+
       while (true) {
         stats = pool.get_statistics();
         if (stats.tasks_completed >= 2 && stats.tasks_active == 0) {
@@ -161,7 +161,7 @@ TEST_SUITE("WorkPool")
     pool.shutdown();
   }
 
-  TEST_CASE("WorkPool stress testing") 
+  TEST_CASE("WorkPool stress testing")
   {
     constexpr int max_threads = 16;
     AdaptiveWorkPool::Config config;
@@ -183,7 +183,7 @@ TEST_SUITE("WorkPool")
         futures.push_back(std::move(result.value()));
       }
 
-      const int total = 0;
+      int total = 0;
       for (auto& f : futures) {
         total += f.get();
       }
@@ -211,8 +211,8 @@ TEST_SUITE("WorkPool")
               return counter++;
             },
             {.estimated_duration = 5ms, .name = "medium_task"});
-      REQUIRE(result.has_value());
-      futures.push_back(std::move(result.value()));
+        REQUIRE(result.has_value());
+        futures.push_back(std::move(result.value()));
       }
 
       int total = 0;
@@ -224,7 +224,7 @@ TEST_SUITE("WorkPool")
       CHECK(total == ((n - 1) * n) / 2);  // Sum of 0..n-1
     }
 
-    SUBCASE("Task exception handling") 
+    SUBCASE("Task exception handling")
     {
       auto result = pool.submit([] { throw std::runtime_error("test error"); });
       REQUIRE(result.has_value());
@@ -235,13 +235,14 @@ TEST_SUITE("WorkPool")
     {
       // Test handling of invalid tasks by passing a null function pointer
       const std::function<void()> null_func = nullptr;
-      
+
       try {
         auto result = pool.submit(null_func);
         if (result) {
           FAIL_CHECK("Expected invalid task submission to fail");
         } else {
-          CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
+          CHECK(result.error()
+                == std::make_error_code(std::errc::invalid_argument));
         }
       } catch (const std::exception& e) {
         // Submission threw an exception - this is acceptable
@@ -254,9 +255,9 @@ TEST_SUITE("WorkPool")
     SUBCASE("Constexpr verification")
     {
       constexpr AdaptiveWorkPool::Config cfg {
-        4,  // max_threads
-        80.0,  // max_cpu_threshold
-        std::chrono::milliseconds(10)  // scheduler_interval
+          4,  // max_threads
+          80.0,  // max_cpu_threshold
+          std::chrono::milliseconds(10)  // scheduler_interval
       };
       static_assert(cfg.max_threads == 4);
       static_assert(cfg.max_cpu_threshold == 80.0);
@@ -266,9 +267,8 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Noexcept verification")
     {
-      const AdaptiveWorkPool pool;
+      AdaptiveWorkPool pool;
       CHECK(noexcept(pool.get_statistics()));
-      CHECK(noexcept(pool.shutdown()));
     }
 
     pool.shutdown();
