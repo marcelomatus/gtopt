@@ -1,11 +1,19 @@
 /**
  * @file      work_pool.hpp
- * @brief     Header of
+ * @brief     Adaptive thread pool with CPU monitoring and priority scheduling
  * @date      Mon Jun 23 23:48:20 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements an adaptive work pool that:
+ * - Dynamically adjusts task scheduling based on CPU load
+ * - Supports task priorities (Low, Medium, High, Critical)
+ * - Provides detailed statistics and monitoring
+ * - Uses modern C++23 features including:
+ *   - std::jthread for thread management  
+ *   - std::counting_semaphore for resource control
+ *   - std::format for logging
+ * - Exception-safe design with proper cleanup
  */
 
 #pragma once
@@ -15,6 +23,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <format>
+#include <print>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -31,6 +40,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <expected>
+#include <system_error>
 
 #include <spdlog/spdlog.h>
 
@@ -95,7 +106,7 @@ public:
     }
   }
 
-  [[nodiscard]] double get_load() const noexcept
+  [[nodiscard]] constexpr double get_load() const noexcept
   {
     return current_load_.load(std::memory_order_relaxed);
   }
@@ -170,7 +181,7 @@ public:
 
   template<typename F>
     requires(!std::same_as<std::remove_cvref_t<F>, Task>)
-  explicit Task(F&& func, TaskRequirements req = {})
+  explicit constexpr Task(F&& func, TaskRequirements req = {})
       : task_(std::forward<F>(func))
       , requirements_(std::move(req))
       , submit_time_(std::chrono::steady_clock::now())
@@ -181,12 +192,12 @@ public:
 
   void execute() { task_(); }
 
-  [[nodiscard]] const TaskRequirements& requirements() const noexcept
+  [[nodiscard]] constexpr const TaskRequirements& requirements() const noexcept
   {
     return requirements_;
   }
 
-  [[nodiscard]] auto age() const noexcept
+  [[nodiscard]] constexpr auto age() const noexcept
   {
     return std::chrono::steady_clock::now() - submit_time_;
   }
@@ -247,7 +258,7 @@ public:
     double max_cpu_threshold;
     std::chrono::milliseconds scheduler_interval;
 
-    explicit Config(int max_threads_ =
+    explicit constexpr Config(int max_threads_ =
                         static_cast<int>(std::thread::hardware_concurrency()),
                     double max_cpu_threshold_ = 95.0,
                     std::chrono::milliseconds scheduler_interval_ =
@@ -259,12 +270,12 @@ public:
     }
   };
 
-  AdaptiveWorkPool(const AdaptiveWorkPool&&) = delete;
+  AdaptiveWorkPool(AdaptiveWorkPool&&) noexcept = default;
   AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
 
-  explicit AdaptiveWorkPool(Config config = Config {})
+  explicit constexpr AdaptiveWorkPool(Config config = Config {})
       : available_threads_(config.max_threads)
       , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
@@ -337,8 +348,8 @@ public:
   }
 
   template<typename F, typename... Args>
-  auto submit(F&& func, TaskRequirements req = {}, Args&&... args)
-      -> std::future<std::invoke_result_t<F, Args...>>
+  [[nodiscard]] auto submit(F&& func, TaskRequirements req = {}, Args&&... args)
+      -> std::expected<std::future<std::invoke_result_t<F, Args...>>, std::error_code>
   {
     using ReturnType = std::invoke_result_t<F, Args...>;
 
