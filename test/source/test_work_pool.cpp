@@ -117,7 +117,7 @@ TEST_SUITE("WorkPool")
       // Mock CPU monitor
       class MockCPUMonitor : public CPUMonitor
       {
-        [[nodiscard]] static double get_load()
+        [[nodiscard]] static constexpr double get_load() noexcept
         {
           return 95.0;
         }  // Simulate high load
