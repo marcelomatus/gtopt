@@ -86,13 +86,15 @@ public:
   CPUMonitor() = default;
   CPUMonitor(const CPUMonitor&) = delete;
   CPUMonitor& operator=(const CPUMonitor&) = delete;
+  CPUMonitor(CPUMonitor&&) = default;
+  CPUMonitor& operator=(CPUMonitor&&) = default;
   
   ~CPUMonitor() { stop(); }
 
   void start()
   {
     running_.store(true, std::memory_order_relaxed);
-    monitor_thread_ = std::jthread{[this](std::stop_token stoken)
+    monitor_thread_ = std::jthread{[this](const std::stop_token& stoken)
     {
       while (!stoken.stop_requested() && running_.load(std::memory_order_relaxed)) 
       {
@@ -346,7 +348,7 @@ public:
     {
       const std::lock_guard<std::mutex> lock(mutex_);
       for (auto& task : active_tasks_) {
-        task->wait();
+        task.wait();
       }
       active_tasks_.clear();
     }
@@ -423,12 +425,12 @@ public:
 private:
   void cleanup_completed_tasks()
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(mutex_);
     auto new_end =
         std::ranges::remove_if(active_tasks_,
                                [this](const auto& task)
                                {
-                                 if (task->is_ready()) {
+                                 if (task.is_ready()) {
                                    active_threads_ -=
                                        task->requirements().estimated_threads;
                                    tasks_completed_++;
@@ -508,8 +510,10 @@ private:
           });
 
       const auto req = task.requirements();
-      active_tasks_.push_back(
-          std::make_unique<ActiveTask>(std::move(future), req));
+      active_tasks_.push_back(ActiveTask{
+          std::move(future),
+          req,
+          std::chrono::steady_clock::now()});
 
       if (task.requirements().name) {
         SPDLOG_INFO(
