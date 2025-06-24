@@ -10,7 +10,7 @@
  * - Supports task priorities (Low, Medium, High, Critical)
  * - Provides detailed statistics and monitoring
  * - Uses modern C++23 features including:
- *   - std::jthread for thread management  
+ *   - std::jthread for thread management
  *   - std::counting_semaphore for resource control
  *   - std::format for logging
  * - Exception-safe design with proper cleanup
@@ -22,8 +22,8 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <expected>
 #include <format>
-#include <print>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -37,11 +37,10 @@
 #include <semaphore>
 #include <stop_token>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
-#include <expected>
-#include <system_error>
 
 #include <spdlog/spdlog.h>
 
@@ -258,11 +257,11 @@ public:
     double max_cpu_threshold;
     std::chrono::milliseconds scheduler_interval;
 
-    explicit constexpr Config(int max_threads_ =
-                        static_cast<int>(std::thread::hardware_concurrency()),
-                    double max_cpu_threshold_ = 95.0,
-                    std::chrono::milliseconds scheduler_interval_ =
-                        std::chrono::milliseconds(20))
+    explicit constexpr Config(int max_threads_ = static_cast<int>(
+                                  std::thread::hardware_concurrency()),
+                              double max_cpu_threshold_ = 95.0,
+                              std::chrono::milliseconds scheduler_interval_ =
+                                  std::chrono::milliseconds(20))
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
         , scheduler_interval(scheduler_interval_)
@@ -270,7 +269,7 @@ public:
     }
   };
 
-  AdaptiveWorkPool(AdaptiveWorkPool&&) noexcept = delete;
+  AdaptiveWorkPool(AdaptiveWorkPool&&) = delete;
   AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
@@ -281,10 +280,11 @@ public:
       , max_cpu_threshold_(config.max_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    std::println("AdaptiveWorkPool initialized with {} max threads, max CPU "
+    SPDLOG_INFO(
+        std::format("AdaptiveWorkPool initialized with {} max threads, max CPU "
                     "threshold: {}%",
                     max_threads_,
-                    max_cpu_threshold_);
+                    max_cpu_threshold_));
   }
 
   ~AdaptiveWorkPool() { shutdown(); }
@@ -348,7 +348,8 @@ public:
 
   template<typename F, typename... Args>
   [[nodiscard]] auto submit(F&& func, TaskRequirements req = {}, Args&&... args)
-      -> std::expected<std::future<std::invoke_result_t<F, Args...>>, std::error_code>
+      -> std::expected<std::future<std::invoke_result_t<F, Args...>>,
+                       std::error_code>
   {
     using ReturnType = std::invoke_result_t<F, Args...>;
 
@@ -487,7 +488,8 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task), req = std::move(task).requirements()]() mutable
+          [task = std::move(task),
+           req = std::move(task).requirements()]() mutable
           {
             try {
               task.execute();
