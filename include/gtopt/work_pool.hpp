@@ -219,7 +219,9 @@ public:
 
 class AdaptiveWorkPool
 {
-  mutable std::mutex mutex_;
+  // Separate mutexes for different concerns
+  mutable std::mutex queue_mutex_;  // Protects task queue
+  mutable std::mutex active_mutex_; // Protects active tasks
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
   struct ActiveTask
@@ -367,9 +369,9 @@ public:
     auto future = task->get_future();
 
     {
-      const std::lock_guard<std::mutex> lock(mutex_);
+      const std::lock_guard<std::mutex> lock(queue_mutex_);
       task_queue_.emplace([task]() { (*task)(); }, std::move(req));
-      tasks_submitted_++;
+      tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
     }
 
     cv_.notify_one();
@@ -394,7 +396,9 @@ public:
 
   Statistics get_statistics() const
   {
-    const std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
+    std::unique_lock active_lock(active_mutex_, std::defer_lock);
+    std::lock(queue_lock, active_lock);
     return Statistics {.tasks_submitted = tasks_submitted_.load(),
                        .tasks_completed = tasks_completed_.load(),
                        .tasks_pending = task_queue_.size(),
@@ -421,7 +425,7 @@ public:
 private:
   void cleanup_completed_tasks()
   {
-    const std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(active_mutex_);
     auto new_end =
         std::ranges::remove_if(active_tasks_,
                                [this](const auto& task)
@@ -440,7 +444,9 @@ private:
 
   [[nodiscard]] bool should_schedule_new_task() const
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
+    std::unique_lock active_lock(active_mutex_, std::defer_lock);
+    std::lock(queue_lock, active_lock); // Lock both without deadlock
 
     if (task_queue_.empty()) {
       return false;
@@ -472,7 +478,7 @@ private:
 
   void schedule_next_task()
   {
-    const std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock queue_lock(queue_mutex_);
 
     if (task_queue_.empty()) {
       return;
