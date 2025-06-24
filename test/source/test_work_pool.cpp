@@ -23,7 +23,7 @@ TEST_SUITE("WorkPool")
     {
       std::vector<int> execution_order;
       std::mutex order_mutex;
-      std::atomic<int> counter{0};
+      std::atomic<int> counter {0};
 
       // Submit tasks with different priorities
       auto high_task = pool.submit(
@@ -62,8 +62,8 @@ TEST_SUITE("WorkPool")
       // High priority should execute first
       CHECK(execution_order[0] == 1);
       // Medium should execute before low
-      CHECK(std::find(execution_order.begin(), execution_order.end(), 2) < 
-            std::find(execution_order.begin(), execution_order.end(), 3));
+      CHECK(std::ranges::find(execution_order, 2)
+            < std::ranges::find(execution_order, 3));
     }
 
     SUBCASE("Statistics tracking")
@@ -73,9 +73,11 @@ TEST_SUITE("WorkPool")
       CHECK(stats.tasks_completed == 0);
 
       // Use a barrier to ensure tasks complete before checking stats
-      std::promise<void> p1, p2;
-      auto f1 = p1.get_future(), f2 = p2.get_future();
-      
+      std::promise<void> p1;
+      std::promise<void> p2;
+      auto f1 = p1.get_future();
+      auto f2 = p2.get_future();
+
       auto task1 = pool.submit([&] { f1.wait(); });
       auto task2 = pool.submit([&] { f2.wait(); });
 
@@ -90,7 +92,9 @@ TEST_SUITE("WorkPool")
       // Wait for pool to process completions
       while (true) {
         stats = pool.get_statistics();
-        if (stats.tasks_completed >= 2 && stats.tasks_active == 0) break;
+        if (stats.tasks_completed >= 2 && stats.tasks_active == 0) {
+          break;
+        }
         std::this_thread::sleep_for(1ms);
       }
 
@@ -159,7 +163,7 @@ TEST_SUITE("WorkPool")
     {
       std::vector<std::future<int>> futures;
       futures.reserve(100);
-      std::atomic<int> counter{0};
+      std::atomic<int> counter {0};
 
       for (int i = 0; i < 100; ++i) {
         futures.push_back(pool.submit([&] { return counter++; }));
@@ -172,23 +176,23 @@ TEST_SUITE("WorkPool")
 
       // Verify all tasks executed and returned unique values
       CHECK(counter == 100);
-      CHECK(total == 4950); // Sum of 0..99
+      CHECK(total == 4950);  // Sum of 0..99
     }
 
     SUBCASE("Submit 10 medium tasks")
     {
       std::vector<std::future<int>> futures;
       futures.reserve(10);
-      std::atomic<int> counter{0};
+      std::atomic<int> counter {0};
 
       for (int i = 0; i < 10; ++i) {
-        futures.push_back(
-            pool.submit(
-                [&] {
-                  std::this_thread::sleep_for(1ms);
-                  return counter++;
-                },
-                {.estimated_duration = 1ms, .name = "medium_task"}));
+        futures.push_back(pool.submit(
+            [&]
+            {
+              std::this_thread::sleep_for(1ms);
+              return counter++;
+            },
+            {.estimated_duration = 1ms, .name = "medium_task"}));
       }
 
       int total = 0;
@@ -197,7 +201,7 @@ TEST_SUITE("WorkPool")
       }
 
       CHECK(counter == 10);
-      CHECK(total == 45); // Sum of 0..9
+      CHECK(total == 45);  // Sum of 0..9
     }
 
     SUBCASE("Task exception handling")
