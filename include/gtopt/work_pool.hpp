@@ -358,8 +358,8 @@ public:
 
   template<typename Func, typename... Args>
   [[nodiscard]] auto submit(Func&& func,
-                           const TaskRequirements& req = {},
-                           Args&&... args)
+                            const TaskRequirements& req = {},
+                            Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
   {
@@ -376,7 +376,7 @@ public:
     try {
       auto task = std::make_shared<std::packaged_task<ReturnType()>>(
           [func = std::forward<Func>(func),
-           ...args = std::forward<Args>(args)]() mutable
+           ... args = std::forward<Args>(args)]() mutable
           { return std::invoke(func, args...); });
 
       auto future = task->get_future();
@@ -436,7 +436,7 @@ public:
                        .current_cpu_load = cpu_monitor_.get_load()};
   }
 
-  void print_statistics() const
+  void info_statistics() const
   {
     auto stats = get_statistics();
     SPDLOG_INFO("=== WorkPool Statistics ===");
