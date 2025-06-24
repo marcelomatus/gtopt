@@ -289,6 +289,12 @@ public:
 
   ~AdaptiveWorkPool() { shutdown(); }
 
+private:
+  void cleanup_completed_tasks();
+  bool should_schedule_new_task() const;
+  void schedule_next_task();
+
+public:
   void start()
   {
     if (running_.exchange(true)) {
@@ -302,9 +308,9 @@ public:
           {
             pthread_setname_np(pthread_self(), "WorkPoolScheduler");
             while (!stoken.stop_requested() && running_) {
-              cleanup_completed_tasks();
-              if (should_schedule_new_task()) {
-                schedule_next_task();
+              this->cleanup_completed_tasks();
+              if (this->should_schedule_new_task()) {
+                this->schedule_next_task();
               }
               std::this_thread::sleep_for(scheduler_interval_);
             }
@@ -347,7 +353,7 @@ public:
   }
 
   template<typename F, typename... Args>
-  [[nodiscard]] auto submit(F&& func, TaskRequirements req = {}, Args&&... args)
+  [[nodiscard]] auto submit(F&& func, const TaskRequirements& req = {}, Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<F, Args...>>,
                        std::error_code>
   {
