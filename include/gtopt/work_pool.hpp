@@ -86,8 +86,8 @@ public:
   CPUMonitor() = default;
   CPUMonitor(const CPUMonitor&) = delete;
   CPUMonitor& operator=(const CPUMonitor&) = delete;
-  CPUMonitor(CPUMonitor&&) = default;
-  CPUMonitor& operator=(CPUMonitor&&) = default;
+  CPUMonitor(CPUMonitor&&) = delete;
+  CPUMonitor& operator=(CPUMonitor&&) = delete;
   
   ~CPUMonitor() { stop(); }
 
@@ -348,7 +348,7 @@ public:
     {
       const std::lock_guard<std::mutex> lock(mutex_);
       for (auto& task : active_tasks_) {
-        task.wait();
+        task.future.wait();
       }
       active_tasks_.clear();
     }
@@ -432,7 +432,7 @@ private:
                                {
                                  if (task.is_ready()) {
                                    active_threads_ -=
-                                       task->requirements().estimated_threads;
+                                       task.requirements.estimated_threads;
                                    tasks_completed_++;
                                    return true;
                                  }
@@ -498,7 +498,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task), req = task.requirements()]() mutable
+          [req = task.requirements(), task = std::move(task)]() mutable
           {
             try {
               task.execute();
@@ -511,9 +511,9 @@ private:
 
       const auto req = task.requirements();
       active_tasks_.push_back(ActiveTask{
-          std::move(future),
-          req,
-          std::chrono::steady_clock::now()});
+          .future = std::move(future),
+          .requirements = req,
+          .start_time = std::chrono::steady_clock::now()});
 
       if (task.requirements().name) {
         SPDLOG_INFO(
