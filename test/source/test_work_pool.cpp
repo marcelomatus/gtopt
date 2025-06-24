@@ -235,10 +235,14 @@ TEST_SUITE("WorkPool")
     {
       // Test handling of invalid tasks
       // Test handling of invalid tasks by passing a null function pointer
-      const std::function<void()> null_func;
-      auto result = pool.submit(null_func);
-      CHECK_FALSE(result.has_value());
-      CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
+      std::function<void()> null_func = nullptr;
+      try {
+        auto result = pool.submit(null_func);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error() == std::make_error_code(std::errc::invalid_argument));
+      } catch (const std::exception& e) {
+        FAIL_CHECK("Unexpected exception: ", e.what());
+      }
     }
 
     SUBCASE("Constexpr verification")
