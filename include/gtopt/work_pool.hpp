@@ -223,13 +223,13 @@ class AdaptiveWorkPool
     TaskRequirements requirements;
     std::chrono::steady_clock::time_point start_time;
 
-    [[nodiscard]] bool is_ready() const
+    [[nodiscard]] bool is_ready() const noexcept
     {
       return future.wait_for(std::chrono::seconds(0))
           == std::future_status::ready;
     }
 
-    [[nodiscard]] auto runtime() const noexcept
+    [[nodiscard]] constexpr auto runtime() const noexcept
     {
       return std::chrono::steady_clock::now() - start_time;
     }
@@ -271,7 +271,7 @@ public:
                                   std::thread::hardware_concurrency()),
                               double max_cpu_threshold_ = 95.0,
                               std::chrono::milliseconds scheduler_interval_ =
-                                  std::chrono::milliseconds(20))
+                                  std::chrono::milliseconds(20)) noexcept
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
         , scheduler_interval(scheduler_interval_)
