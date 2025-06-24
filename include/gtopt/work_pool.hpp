@@ -251,6 +251,15 @@ class AdaptiveWorkPool
   std::atomic<size_t> tasks_submitted_ {0};
 
 public:
+  struct Statistics
+  {
+    size_t tasks_submitted;
+    size_t tasks_completed;
+    size_t tasks_pending;
+    size_t tasks_active;
+    int active_threads;
+    double current_cpu_load;
+  };
   struct Config
   {
     int max_threads;
@@ -290,11 +299,6 @@ public:
   ~AdaptiveWorkPool() { shutdown(); }
 
 public:
-  // Move public methods before private ones
-  Statistics get_statistics() const;
-  void print_statistics() const;
-
-private:
   void cleanup_completed_tasks();
   bool should_schedule_new_task() const;
   void schedule_next_task();
@@ -366,11 +370,11 @@ private:
       }
     }
 
-    using ReturnType = std::invoke_result_t<F, Args...>;
+    using ReturnType = std::invoke_result_t<Func, Args...>;
 
     try {
       auto task = std::make_shared<std::packaged_task<ReturnType()>>(
-          [func = std::forward<F>(func),
+          [func = std::forward<Func>(func),
            ... args = std::forward<Args>(args)]() mutable  // NOLINT
           { return std::invoke(func, args...); });
 

@@ -183,7 +183,7 @@ TEST_SUITE("WorkPool")
         futures.push_back(std::move(result.value()));
       }
 
-      int total = 0;
+      const int total = 0;
       for (auto& f : futures) {
         total += f.get();
       }
