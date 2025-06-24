@@ -261,18 +261,15 @@ public:
   {
     unsigned int max_threads;
     double max_cpu_threshold;
-    double min_cpu_threshold;
     std::chrono::milliseconds scheduler_interval;
 
     explicit Config(
         unsigned int max_threads_ = std::thread::hardware_concurrency(),
         double max_cpu_threshold_ = 95.0,
-        double min_cpu_threshold_ = 60.0,
         std::chrono::milliseconds scheduler_interval_ =
             std::chrono::milliseconds(50))
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
-        , min_cpu_threshold(min_cpu_threshold_)
         , scheduler_interval(scheduler_interval_)
     {
     }
@@ -287,14 +284,11 @@ public:
       : available_threads_(config.max_threads)
       , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
-      , min_cpu_threshold_(config.min_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
     SPDLOG_INFO(std::format(
-        "AdaptiveWorkPool initialized with {} max threads, CPU thresholds: "
-        "{}%-{}%",
+        "AdaptiveWorkPool initialized with {} max threads, max CPU threshold: {}%",
         max_threads_,
-        min_cpu_threshold_,
         max_cpu_threshold_));
   }
 
