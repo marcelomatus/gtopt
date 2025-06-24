@@ -46,8 +46,7 @@ TEST_SUITE("WorkPool")
             counter++;
           },
           {.priority = Priority::Medium, .name = "medium_priority_task"});
-      REQUIRE(result.has_value());
-      futures.push_back(std::move(result.value()));
+      REQUIRE(medium_task.has_value());
 
       auto low_task = pool.submit(
           [&]
@@ -169,7 +168,6 @@ TEST_SUITE("WorkPool")
     config.max_cpu_threshold = 90.0;
     config.scheduler_interval = 10ms;
     AdaptiveWorkPool pool(config);
-  {
     AdaptiveWorkPool::Config config;
     config.max_threads = 16;
     AdaptiveWorkPool pool(config);
@@ -214,7 +212,9 @@ TEST_SUITE("WorkPool")
               std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
               return counter++;
             },
-            {.estimated_duration = 5ms, .name = "medium_task"}));
+            {.estimated_duration = 5ms, .name = "medium_task"});
+      REQUIRE(result.has_value());
+      futures.push_back(std::move(result.value()));
       }
 
       int total = 0;
