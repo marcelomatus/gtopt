@@ -358,13 +358,14 @@ public:
 
   template<typename Func, typename... Args>
   [[nodiscard]] auto submit(Func&& func,
-                            const TaskRequirements& req = {},
-                            Args&&... args)
+                           const TaskRequirements& req = {},
+                           Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
   {
     if constexpr (std::is_same_v<std::decay_t<Func>, std::function<void()>>) {
       if (!func) {
+        SPDLOG_WARN("Attempted to submit null std::function");
         return std::unexpected(
             std::make_error_code(std::errc::invalid_argument));
       }
@@ -375,22 +376,44 @@ public:
     try {
       auto task = std::make_shared<std::packaged_task<ReturnType()>>(
           [func = std::forward<Func>(func),
-           ... args = std::forward<Args>(args)]() mutable  // NOLINT
+           ...args = std::forward<Args>(args)]() mutable
           { return std::invoke(func, args...); });
 
       auto future = task->get_future();
 
       {
         const std::lock_guard<std::mutex> lock(queue_mutex_);
-        task_queue_.emplace([task]() { (*task)(); }, std::move(req));
-        tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+        try {
+          task_queue_.emplace([task]() { (*task)(); }, req);
+          tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+        } catch (const std::bad_alloc&) {
+          SPDLOG_ERROR("Failed to allocate memory for task queue");
+          return std::unexpected(
+              std::make_error_code(std::errc::not_enough_memory));
+        } catch (const std::length_error&) {
+          SPDLOG_ERROR("Task queue size limit exceeded");
+          return std::unexpected(
+              std::make_error_code(std::errc::resource_unavailable_try_again));
+        }
       }
 
       cv_.notify_one();
       return future;
-    } catch (std::exception& e) {
-      SPDLOG_ERROR(fmt::format("Failed to submit : {}", e.what()));
-      return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    } catch (const std::bad_alloc&) {
+      SPDLOG_ERROR("Failed to allocate memory for task");
+      return std::unexpected(
+          std::make_error_code(std::errc::not_enough_memory));
+    } catch (const std::system_error& e) {
+      SPDLOG_ERROR(std::format("System error submitting task: {}", e.what()));
+      return std::unexpected(e.code());
+    } catch (const std::exception& e) {
+      SPDLOG_ERROR(std::format("Failed to submit task: {}", e.what()));
+      return std::unexpected(
+          std::make_error_code(std::errc::operation_not_permitted));
+    } catch (...) {
+      SPDLOG_ERROR("Unknown exception while submitting task");
+      return std::unexpected(
+          std::make_error_code(std::errc::operation_not_permitted));
     }
   }
 
