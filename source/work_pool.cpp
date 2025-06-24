@@ -34,7 +34,7 @@ enum class [[nodiscard]] TaskStatus : uint8_t
 };
 
 [[nodiscard]]
-static constexpr std::string_view to_string(TaskStatus status) noexcept
+constexpr std::string_view to_string(TaskStatus status) noexcept
 {
   using enum TaskStatus;
   switch (status) {
@@ -401,7 +401,7 @@ public:
 
   Statistics get_statistics() const
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    const std::lock_guard<std::mutex> lock(mutex_);
     return Statistics {.tasks_submitted = tasks_submitted_.load(),
                        .tasks_completed = tasks_completed_.load(),
                        .tasks_pending = task_queue_.size(),
@@ -485,7 +485,7 @@ private:
 
   void schedule_next_task()
   {
-    std::unique_lock<std::mutex> lock(mutex_);
+    const std::unique_lock<std::mutex> lock(mutex_);
 
     if (task_queue_.empty()) {
       return;
@@ -503,7 +503,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task), req = task.requirements()]() mutable
+          [req = task.requirements(), task = std::move(task)]() mutable
           {
             try {
               task.execute();
@@ -639,7 +639,7 @@ void run_example()
             .estimated_threads = 1,
             .estimated_duration = std::chrono::seconds(1),
             .priority = Priority::Low,
-            std::optional<std::string> {"Light-Task-" + std::to_string(i)}}));
+            .name = std::optional<std::string> {"Light-Task-" + std::to_string(i)}}));
   }
 
   auto monitor_future =
@@ -674,3 +674,4 @@ int main()
   return 0;
 }
 }  // namespace
+}  // namespace example
