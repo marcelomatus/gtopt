@@ -234,7 +234,7 @@ TEST_SUITE("WorkPool")
     SUBCASE("Invalid task submission")
     {
       // Test handling of invalid tasks by passing a null function pointer
-      std::function<void()> null_func = nullptr;
+      const std::function<void()> null_func = nullptr;
       
       try {
         auto result = pool.submit(null_func);
@@ -266,7 +266,7 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Noexcept verification")
     {
-      AdaptiveWorkPool pool;
+      const AdaptiveWorkPool pool;
       CHECK(noexcept(pool.get_statistics()));
       CHECK(noexcept(pool.shutdown()));
     }
