@@ -35,6 +35,7 @@ Checks: "*,\
   -cppcoreguidelines-avoid-magic-numbers,\
 #  -clang-analyzer-core.uninitialized.UndefReturn,\
 #  -constexpr_local_var_non_literal_type,\
+  -boost-use-ranges,\
   -misc-non-private-member-variables-in-classes"
 
 WarningsAsErrors: ''

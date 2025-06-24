@@ -86,14 +86,6 @@ constexpr auto emplace_value(const ScenarioLP& scenario,
                      std::forward<Value>(value));
 }
 
-template<typename Map, typename Value = typename Map::value_type>
-constexpr auto emplace_stage_value(const StageUid& stage_uid,
-                                   Map& map,
-                                   Value&& value)
-{
-  return map.emplace(stage_uid, std::forward<Value>(value));
-}
-
 using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
 using stage_factor_matrix_t = std::vector<double>;
 using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;

@@ -20,8 +20,6 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const std::vector<BlockLP>& blocks) const
     -> const BIndexHolder&
 {
-  constexpr std::string_view cname = "bus";
-
   BIndexHolder tblocks;
   tblocks.reserve(blocks.size());
 
@@ -29,11 +27,10 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     const auto& theta = reference_theta();
 
     for (auto&& block : blocks) {
-      SparseCol theta_col {
-          .name = sc.lp_label(scenario, stage, block, cname, "theta", uid())};
-      const auto tc =
-          lp.add_col(theta ? std::move(theta_col.equal(theta.value()))
-                           : std::move(theta_col.free()));
+      SparseCol theta_col {.name =
+                               lp_label(sc, scenario, stage, block, "theta")};
+      const auto tc = lp.add_col(theta ? std::move(theta_col.equal(*theta))
+                                       : std::move(theta_col.free()));
       tblocks[block.uid()] = tc;
     }
   }
@@ -56,8 +53,6 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  constexpr std::string_view cname = "bus";
-
   if (!is_active(stage)) {
     return true;
   }
@@ -67,10 +62,9 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   BIndexHolder brows;
   brows.reserve(blocks.size());
 
-  const auto puid = uid();
   for (auto&& block : blocks) {
-    brows[block.uid()] = lp.add_row(
-        {.name = sc.lp_label(scenario, stage, block, cname, "bal", puid)});
+    brows[block.uid()] =
+        lp.add_row({.name = lp_label(sc, scenario, stage, block, "bal")});
   }
 
   return emplace_bholder(scenario, stage, balance_rows, std::move(brows))
