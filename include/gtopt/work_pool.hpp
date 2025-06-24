@@ -438,19 +438,23 @@ public:
 
   [[nodiscard]] std::string format_statistics() const noexcept
   {
-    const auto stats = get_statistics();
-    return std::format(
-        "=== WorkPool Statistics ===\n"
-        "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} active\n"
-        "Threads: {:>6} active / {:>6} max\n"
-        "CPU Load: {:>6.1f}%\n",
-        stats.tasks_submitted,
-        stats.tasks_completed,
-        stats.tasks_pending,
-        stats.tasks_active,
-        stats.active_threads,
-        max_threads_,
-        stats.current_cpu_load);
+    try {
+      const auto stats = get_statistics();
+      return std::format(
+          "=== WorkPool Statistics ===\n"
+          "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} active\n"
+          "Threads: {:>6} active / {:>6} max\n"
+          "CPU Load: {:>6.1f}%\n",
+          stats.tasks_submitted,
+          stats.tasks_completed,
+          stats.tasks_pending,
+          stats.tasks_active,
+          stats.active_threads,
+          max_threads_,
+          stats.current_cpu_load);
+    } catch (...) {
+      return "WorkPool statistics unavailable";
+    }
   }
 
   void info_statistics() const
@@ -524,15 +528,15 @@ public:
         std::move(const_cast<Task<void>&>(task_queue_.top()));  // NOLINT
     task_queue_.pop();
 
-    const auto threads_needed =
-        static_cast<int>(task.requirements().estimated_threads);
+    // Extract requirements before moving task
+    auto req = task.requirements();
+    const auto threads_needed = static_cast<int>(req.estimated_threads);
     active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
 
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task),
-           req = std::move(task).requirements()]() mutable
+          [task = std::move(task), req = std::move(req)]() mutable noexcept
           {
             try {
               task.execute();
