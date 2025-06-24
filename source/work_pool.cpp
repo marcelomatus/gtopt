@@ -34,7 +34,7 @@ enum class [[nodiscard]] TaskStatus : uint8_t
 };
 
 [[nodiscard]]
-constexpr std::string_view to_string(TaskStatus status) noexcept
+static constexpr std::string_view to_string(TaskStatus status) noexcept
 {
   using enum TaskStatus;
   switch (status) {
@@ -374,7 +374,7 @@ public:
     auto future = task->get_future();
 
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      const std::lock_guard<std::mutex> lock(mutex_);
       task_queue_.emplace([task]() { (*task)(); }, std::move(req));
       tasks_submitted_++;
     }
@@ -503,7 +503,7 @@ private:
     try {
       auto future = std::async(
           std::launch::async,
-          [task = std::move(task)]() mutable
+          [task = std::move(task), req = task.requirements()]() mutable
           {
             try {
               task.execute();
@@ -514,8 +514,8 @@ private:
             }
           });
 
+      const auto req = task.requirements();
       active_tasks_.push_back(
-          const auto req = task.requirements();
           std::make_unique<ActiveTask>(std::move(future), req));
 
       if (task.requirements().name) {
@@ -591,7 +591,7 @@ void multi_threaded_task(const std::string& name,
   SPDLOG_INFO("Completed multi-threaded task: {}", name);
 }
 
-static void run_example()
+void run_example()
 {
   const AdaptiveWorkPool::Config config {
       4, 80.0, 50.0, std::chrono::milliseconds(100)};
@@ -613,7 +613,7 @@ static void run_example()
       2));
 
   for (int i = 0; i < 2; ++i) {
-    std::string task_name = "MultiTask-" + std::to_string(i);
+    const std::string task_name = "MultiTask-" + std::to_string(i);
     futures.push_back(pool.submit(
         [](const std::string& name, int threads, int duration)
         { multi_threaded_task(name, threads, duration); },
@@ -636,9 +636,9 @@ static void run_example()
           SPDLOG_INFO("Light task {} completed", i);
         },
         TaskRequirements {
-            1,
-            std::chrono::seconds(1),
-            Priority::Low,
+            .estimated_threads = 1,
+            .estimated_duration = std::chrono::seconds(1),
+            .priority = Priority::Low,
             std::optional<std::string> {"Light-Task-" + std::to_string(i)}}));
   }
 
@@ -662,7 +662,7 @@ static void run_example()
   SPDLOG_INFO("All tasks completed!");
 }
 
-static int main()
+int main()
 {
   try {
     example::run_example();
@@ -673,4 +673,4 @@ static int main()
 
   return 0;
 }
-}  // namespace example
+}  // namespace
