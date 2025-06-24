@@ -87,10 +87,13 @@ TEST_SUITE("WorkPool")
       task1.wait();
       task2.wait();
 
-      // Give pool time to update stats
-      std::this_thread::sleep_for(10ms);
+      // Wait for pool to process completions
+      while (true) {
+        stats = pool.get_statistics();
+        if (stats.tasks_completed >= 2 && stats.tasks_active == 0) break;
+        std::this_thread::sleep_for(1ms);
+      }
 
-      stats = pool.get_statistics();
       CHECK(stats.tasks_submitted >= 2);
       CHECK(stats.tasks_completed >= 2);
       CHECK(stats.tasks_active == 0);
