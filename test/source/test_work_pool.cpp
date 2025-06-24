@@ -1,6 +1,7 @@
+#include <random>
+
 #include <doctest/doctest.h>
 #include <gtopt/work_pool.hpp>
-#include <random>
 
 using namespace std::chrono_literals;
 
@@ -182,21 +183,22 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Submit 10 medium tasks")
     {
+      int n = 50;
       std::vector<std::future<int>> futures;
-      futures.reserve(10);
+      futures.reserve(n);
       std::atomic<int> counter {0};
 
-      for (int i = 0; i < 10; ++i) {
+      for (int i = 0; i < n; ++i) {
         futures.push_back(pool.submit(
             [&]
             {
               static std::random_device rd;
               static std::mt19937 gen(rd());
-              static std::uniform_int_distribution<> dist(1, 10);
+              static std::uniform_int_distribution<> dist(0, 10);
               std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
               return counter++;
             },
-            {.estimated_duration = 1ms, .name = "medium_task"}));
+            {.estimated_duration = 5ms, .name = "medium_task"}));
       }
 
       int total = 0;
@@ -204,8 +206,8 @@ TEST_SUITE("WorkPool")
         total += f.get();
       }
 
-      CHECK(counter == 10);
-      CHECK(total == 45);  // Sum of 0..9
+      CHECK(counter == n);
+      CHECK(total == ((n - 1) * n) / 2);  // Sum of 0..n-1
     }
 
     SUBCASE("Task exception handling")
