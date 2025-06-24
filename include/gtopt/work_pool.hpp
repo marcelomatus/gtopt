@@ -436,19 +436,26 @@ public:
                        .current_cpu_load = cpu_monitor_.get_load()};
   }
 
+  [[nodiscard]] std::string format_statistics() const noexcept
+  {
+    const auto stats = get_statistics();
+    return std::format(
+        "=== WorkPool Statistics ===\n"
+        "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} active\n"
+        "Threads: {:>6} active / {:>6} max\n"
+        "CPU Load: {:>6.1f}%\n",
+        stats.tasks_submitted,
+        stats.tasks_completed,
+        stats.tasks_pending,
+        stats.tasks_active,
+        stats.active_threads,
+        max_threads_,
+        stats.current_cpu_load);
+  }
+
   void info_statistics() const
   {
-    auto stats = get_statistics();
-    SPDLOG_INFO("=== WorkPool Statistics ===");
-    SPDLOG_INFO(
-        std::format("Tasks: {} submitted, {} completed, {} pending, {} active",
-                    stats.tasks_submitted,
-                    stats.tasks_completed,
-                    stats.tasks_pending,
-                    stats.tasks_active));
-    SPDLOG_INFO(std::format(
-        "Threads: {} active / {} max", stats.active_threads, max_threads_));
-    SPDLOG_INFO(std::format("CPU Load: {}%", stats.current_cpu_load));
+    SPDLOG_INFO(format_statistics());
   }
 
   void cleanup_completed_tasks()
