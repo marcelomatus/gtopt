@@ -1,142 +1,117 @@
 #include <gtopt/work_pool.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/benchmark/catch_benchmark.hpp>
 
-namespace example
+namespace gtopt::test
 {
-using namespace gtopt;
-
-namespace
+TEST_CASE("WorkPool basic functionality", "[work_pool]")
 {
-void cpu_intensive_task(const std::string& name, int duration_seconds)
-{
-  SPDLOG_INFO(std::format("Starting CPU intensive task: ", name));
-
-  auto start = std::chrono::steady_clock::now();
-  auto end = start + std::chrono::seconds(duration_seconds);
-
-  volatile int64_t counter = 0;
-  while (std::chrono::steady_clock::now() < end) {
-    for (int i = 0; i < 1'000'000; ++i) {
-      counter += static_cast<int64_t>(i) * i;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  SPDLOG_INFO(std::format("Completed CPU intensive task: {}", name));
-}
-
-void multi_threaded_task(const std::string& name,
-                         int num_threads,
-                         int duration_seconds)
-{
-  SPDLOG_INFO(std::format("Starting multi-threaded task: {}", name));
-
-  std::vector<std::jthread> threads;
-  threads.reserve(num_threads);
-
-  std::atomic<bool> stop_flag {false};
-
-  for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back(
-        [&stop_flag](const std::stop_token& stoken)
-        {
-          volatile int64_t counter = 0;
-          while (!stop_flag && !stoken.stop_requested()) {
-            for (int j = 0; j < 100'000; ++j) {
-              counter += j;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-          }
-        });
-  }
-
-  std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
-  stop_flag = true;
-
-  SPDLOG_INFO(std::format("Completed multi-threaded task: ", name));
-}
-
-void run_example()
-{
-  const AdaptiveWorkPool::Config config {
-      4, 80.0, 50.0, std::chrono::milliseconds(100)};
-
-  AdaptiveWorkPool pool(config);
+  AdaptiveWorkPool pool;
   pool.start();
 
-  std::vector<std::future<void>> futures;
-
-  futures.push_back(pool.submit(
-      [](const std::string& name, int duration)
-      { cpu_intensive_task(name, duration); },
-      TaskRequirements {
-          .estimated_threads = 1,
-          .estimated_duration = std::chrono::seconds(2),
-          .priority = Priority::Critical,
-          .name = std::optional<std::string> {"Critical Processing"}},
-      "Critical Task",
-      2));
-
-  for (int i = 0; i < 2; ++i) {
-    const std::string task_name = "MultiTask-" + std::to_string(i);
-    futures.push_back(pool.submit(
-        [](const std::string& name, int threads, int duration)
-        { multi_threaded_task(name, threads, duration); },
-        TaskRequirements {
-            .estimated_threads = 2,
-            .estimated_duration = std::chrono::seconds(3),
-            .priority = Priority::Medium,
-            .name =
-                std::optional<std::string> {"Multi-Task-" + std::to_string(i)}},
-        task_name,
-        2,
-        3));
+  SECTION("Submit and execute simple task")
+  {
+    auto future = pool.submit([] { return 42; });
+    REQUIRE(future.get() == 42);
   }
 
-  for (int i = 0; i < 3; ++i) {
-    futures.push_back(pool.submit_lambda(
-        [&i]()
-        {
-          SPDLOG_INFO(std::format("Light task {} executing", i));
-          std::this_thread::sleep_for(std::chrono::seconds(1));
-          SPDLOG_INFO(std::format("Light task {} completed", i));
+  SECTION("Task priority ordering")
+  {
+    std::vector<int> execution_order;
+    std::mutex order_mutex;
+
+    auto high_task = pool.submit(
+        [&] { 
+          std::lock_guard lock(order_mutex);
+          execution_order.push_back(1); 
         },
-        TaskRequirements {.estimated_threads = 1,
-                          .estimated_duration = std::chrono::seconds(1),
-                          .priority = Priority::Low,
-                          .name = std::optional<std::string> {
-                              "Light-Task-" + std::to_string(i)}}));
+        {.priority = Priority::High});
+
+    auto low_task = pool.submit(
+        [&] { 
+          std::lock_guard lock(order_mutex);
+          execution_order.push_back(2); 
+        },
+        {.priority = Priority::Low});
+
+    high_task.wait();
+    low_task.wait();
+
+    REQUIRE(execution_order == std::vector{1, 2});
   }
 
-  auto monitor_future =
-      std::async(std::launch::async,
-                 [&pool]()
-                 {
-                   for (int i = 0; i < 15; ++i) {
-                     std::this_thread::sleep_for(std::chrono::seconds(1));
-                     pool.print_statistics();
-                   }
-                 });
+  SECTION("CPU monitoring affects scheduling")
+  {
+    // Mock CPU monitor
+    class MockCPUMonitor : public CPUMonitor
+    {
+      double get_load() const override { return 95.0; } // Simulate high load
+    };
 
-  for (auto& future : futures) {
-    future.wait();
+    AdaptiveWorkPool pool_with_mock;
+    pool_with_mock.start();
+
+    bool task_executed = false;
+    auto future = pool_with_mock.submit([&] { task_executed = true; });
+
+    // Task shouldn't execute immediately due to high load
+    REQUIRE(future.wait_for(100ms) == std::future_status::timeout);
+    REQUIRE(!task_executed);
   }
 
-  monitor_future.wait();
-  pool.print_statistics();
+  SECTION("Batch submission")
+  {
+    std::vector<Task<void>> tasks;
+    for (int i = 0; i < 10; ++i) {
+      tasks.emplace_back([i] { /* no-op */ });
+    }
 
-  SPDLOG_INFO("All tasks completed!");
+    auto result = pool.submit_batch(tasks);
+    REQUIRE(result.has_value());
+    REQUIRE(pool.get_statistics().tasks_submitted == 10);
+  }
+
+  SECTION("Pending tasks generator")
+  {
+    for (int i = 0; i < 5; ++i) {
+      pool.submit([] { std::this_thread::sleep_for(100ms); });
+    }
+
+    int count = 0;
+    for (const auto& task : pool.pending_tasks()) {
+      ++count;
+    }
+    REQUIRE(count == 5);
+  }
+
+  pool.shutdown();
 }
 
-int main()
+TEST_CASE("WorkPool stress testing", "[work_pool][stress]")
 {
-  try {
-    example::run_example();
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR(std::format("Error: {}", e.what()));
-    return 1;
-  }
+  AdaptiveWorkPool pool({.max_threads = 16});
+  pool.start();
 
-  return 0;
+  BENCHMARK("Submit 1000 small tasks")
+  {
+    std::vector<std::future<void>> futures;
+    futures.reserve(1000);
+    for (int i = 0; i < 1000; ++i) {
+      futures.push_back(pool.submit([] {}));
+    }
+    for (auto& f : futures) f.wait();
+  };
+
+  BENCHMARK("Submit 100 medium tasks")
+  {
+    std::vector<std::future<void>> futures;
+    futures.reserve(100);
+    for (int i = 0; i < 100; ++i) {
+      futures.push_back(pool.submit([] { std::this_thread::sleep_for(10ms); }));
+    }
+    for (auto& f : futures) f.wait();
+  };
+
+  pool.shutdown();
 }
-}  // namespace
-}  // namespace example
+} // namespace gtopt::test
