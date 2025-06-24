@@ -250,6 +250,24 @@ class AdaptiveWorkPool
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
 
+struct WorkPoolConfig
+{
+  int max_threads;
+  double max_cpu_threshold;
+  std::chrono::milliseconds scheduler_interval;
+
+  explicit constexpr WorkPoolConfig(int max_threads_ = static_cast<int>(
+                                std::thread::hardware_concurrency()),
+                            double max_cpu_threshold_ = 95.0,
+                            std::chrono::milliseconds scheduler_interval_ =
+                                std::chrono::milliseconds(20)) noexcept
+      : max_threads(max_threads_)
+      , max_cpu_threshold(max_cpu_threshold_)
+      , scheduler_interval(scheduler_interval_)
+  {
+  }
+};
+
 public:
   struct Statistics
   {
@@ -261,30 +279,12 @@ public:
     double current_cpu_load;
   };
 
-  struct Config
-  {
-    int max_threads;
-    double max_cpu_threshold;
-    std::chrono::milliseconds scheduler_interval;
-
-    explicit constexpr Config(int max_threads_ = static_cast<int>(
-                                  std::thread::hardware_concurrency()),
-                              double max_cpu_threshold_ = 95.0,
-                              std::chrono::milliseconds scheduler_interval_ =
-                                  std::chrono::milliseconds(20)) noexcept
-        : max_threads(max_threads_)
-        , max_cpu_threshold(max_cpu_threshold_)
-        , scheduler_interval(scheduler_interval_)
-    {
-    }
-  };
-
   AdaptiveWorkPool(AdaptiveWorkPool&&) = delete;
   AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&&) = delete;
 
-  explicit constexpr AdaptiveWorkPool(Config config = Config {})
+  explicit constexpr AdaptiveWorkPool(WorkPoolConfig config = WorkPoolConfig {})
       : available_threads_(config.max_threads)
       , max_threads_(config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)

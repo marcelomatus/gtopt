@@ -164,7 +164,7 @@ TEST_SUITE("WorkPool")
   TEST_CASE("WorkPool stress testing")
   {
     constexpr int max_threads = 16;
-    AdaptiveWorkPool::Config config;
+    WorkPoolConfig config;
     config.max_threads = max_threads;
     config.max_cpu_threshold = 90.0;
     config.scheduler_interval = 10ms;
@@ -254,7 +254,7 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Constexpr verification")
     {
-      constexpr AdaptiveWorkPool::Config cfg {
+      constexpr WorkPoolConfig cfg {
           4,  // max_threads
           80.0,  // max_cpu_threshold
           std::chrono::milliseconds(10)  // scheduler_interval
