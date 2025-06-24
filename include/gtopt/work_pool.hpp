@@ -14,14 +14,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <expected>
 #include <format>
 #include <fstream>
 #include <functional>
 #include <future>
-#include <generator>
 #include <iostream>
-#include <latch>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -29,7 +26,6 @@
 #include <queue>
 #include <ranges>
 #include <semaphore>
-#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -88,20 +84,23 @@ public:
   CPUMonitor& operator=(const CPUMonitor&) = delete;
   CPUMonitor(CPUMonitor&&) = delete;
   CPUMonitor& operator=(CPUMonitor&&) = delete;
-  
+
   ~CPUMonitor() { stop(); }
 
   void start()
   {
     running_.store(true, std::memory_order_relaxed);
-    monitor_thread_ = std::jthread{[this](const std::stop_token& stoken)
-    {
-      while (!stoken.stop_requested() && running_.load(std::memory_order_relaxed)) 
-      {
-        current_load_.store(get_system_cpu_usage(), std::memory_order_relaxed);
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-      }
-    }};
+    monitor_thread_ = std::jthread {
+        [this](const std::stop_token& stoken)
+        {
+          while (!stoken.stop_requested()
+                 && running_.load(std::memory_order_relaxed))
+          {
+            current_load_.store(get_system_cpu_usage(),
+                                std::memory_order_relaxed);
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          }
+        }};
   }
 
   void stop()
@@ -119,8 +118,8 @@ public:
   }
 
 private:
-  std::atomic<double> current_load_{0.0};
-  std::atomic<bool> running_{false};
+  std::atomic<double> current_load_ {0.0};
+  std::atomic<bool> running_ {false};
   std::jthread monitor_thread_;
 
   static double get_system_cpu_usage()
@@ -165,7 +164,6 @@ private:
     }
     return 0.0;
   }
-
 };
 
 template<typename T = void>
@@ -219,55 +217,59 @@ public:
   }
 };
 
-
 class AdaptiveWorkPool
 {
   mutable std::mutex mutex_;
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
-  struct ActiveTask {
+  struct ActiveTask
+  {
     std::future<void> future;
     TaskRequirements requirements;
     std::chrono::steady_clock::time_point start_time;
 
-    [[nodiscard]] bool is_ready() const {
-      return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+    [[nodiscard]] bool is_ready() const
+    {
+      return future.wait_for(std::chrono::seconds(0))
+          == std::future_status::ready;
     }
 
-    [[nodiscard]] auto runtime() const noexcept {
+    [[nodiscard]] auto runtime() const noexcept
+    {
       return std::chrono::steady_clock::now() - start_time;
     }
   };
 
   std::vector<ActiveTask> active_tasks_;
-  std::counting_semaphore<> available_threads_{0};
+  std::counting_semaphore<> available_threads_ {0};
 
   CPUMonitor cpu_monitor_;
-  std::atomic<int> active_threads_{0};
-  std::atomic<bool> running_{false};
+  std::atomic<int> active_threads_ {0};
+  std::atomic<bool> running_ {false};
   std::jthread scheduler_thread_;
 
-  int max_threads_;
+  unsigned int max_threads_;
   double max_cpu_threshold_;
   double min_cpu_threshold_;
   std::chrono::milliseconds scheduler_interval_;
 
-  std::atomic<size_t> tasks_completed_{0};
-  std::atomic<size_t> tasks_submitted_{0};
+  std::atomic<size_t> tasks_completed_ {0};
+  std::atomic<size_t> tasks_submitted_ {0};
 
 public:
   struct Config
   {
-    int max_threads;
+    unsigned int max_threads;
     double max_cpu_threshold;
     double min_cpu_threshold;
     std::chrono::milliseconds scheduler_interval;
 
-    explicit Config(int max_threads_ = 1000,
-                    double max_cpu_threshold_ = 85.0,
-                    double min_cpu_threshold_ = 60.0,
-                    std::chrono::milliseconds scheduler_interval_ =
-                        std::chrono::milliseconds(50))
+    explicit Config(
+        unsigned int max_threads_ = std::thread::hardware_concurrency(),
+        double max_cpu_threshold_ = 85.0,
+        double min_cpu_threshold_ = 60.0,
+        std::chrono::milliseconds scheduler_interval_ =
+            std::chrono::milliseconds(50))
         : max_threads(max_threads_)
         , max_cpu_threshold(max_cpu_threshold_)
         , min_cpu_threshold(min_cpu_threshold_)
@@ -510,10 +512,10 @@ private:
           });
 
       const auto req = task.requirements();
-      active_tasks_.push_back(ActiveTask{
-          .future = std::move(future),
-          .requirements = req,
-          .start_time = std::chrono::steady_clock::now()});
+      active_tasks_.push_back(
+          ActiveTask {.future = std::move(future),
+                      .requirements = req,
+                      .start_time = std::chrono::steady_clock::now()});
 
       if (task.requirements().name) {
         SPDLOG_INFO(

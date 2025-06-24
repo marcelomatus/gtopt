@@ -65,13 +65,15 @@ void PlanningLP::write_lp(const std::string& filename) const
         try {
           system.write_lp(filename);
         } catch (const std::exception& e) {
-          SPDLOG_ERROR("Failed to write LP for system: {}", std::string(e.what()));
+          SPDLOG_ERROR(
+              fmt::format("Failed to write LP for system: {}", e.what()));
           throw;
         }
       }
     }
   } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to write LP file {}: {}", filename, std::string(e.what()));
+    SPDLOG_ERROR(fmt::format(
+        "Failed to write LP file {}: {}", filename, std::string(e.what())));
     throw;
   }
 }
