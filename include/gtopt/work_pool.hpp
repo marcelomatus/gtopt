@@ -289,12 +289,15 @@ public:
 
   ~AdaptiveWorkPool() { shutdown(); }
 
+public:
+  // Move public methods before private ones
+  Statistics get_statistics() const;
+  void print_statistics() const;
+
 private:
   void cleanup_completed_tasks();
   bool should_schedule_new_task() const;
   void schedule_next_task();
-
-public:
   void start()
   {
     if (running_.exchange(true)) {
@@ -352,13 +355,15 @@ public:
     SPDLOG_INFO("AdaptiveWorkPool shutdown complete");
   }
 
-  template<typename F, typename... Args>
-  [[nodiscard]] auto submit(F&& func, const TaskRequirements& req = {}, Args&&... args)
-      -> std::expected<std::future<std::invoke_result_t<F, Args...>>,
+  template<typename Func, typename... Args>
+  [[nodiscard]] auto submit(Func&& func, const TaskRequirements& req = {}, Args&&... args)
+      -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
   {
-    if (!func) {
-      return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    if constexpr (std::is_same_v<std::decay_t<Func>, std::function<void()>>) {
+      if (!func) {
+        return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+      }
     }
 
     using ReturnType = std::invoke_result_t<F, Args...>;
@@ -381,10 +386,10 @@ public:
     return future;
   }
 
-  template<typename F>
-  auto submit_lambda(F&& func, TaskRequirements req = {})
+  template<typename Func>
+  auto submit_lambda(Func&& func, TaskRequirements req = {})
   {
-    return submit(std::forward<F>(func), std::move(req));
+    return submit(std::forward<Func>(func), std::move(req));
   }
 
   struct Statistics
