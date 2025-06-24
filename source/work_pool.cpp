@@ -131,6 +131,7 @@ private:
 
     PDH_STATUS status = PdhOpenQuery(nullptr, nullptr, &cpuQuery);
     if (status != ERROR_SUCCESS) {
+      SPDLOG_WARN("Failed to open PDH query: {}", status);
       return 50.0;
     }
 
@@ -460,14 +461,23 @@ public:
 private:
   void scheduler_loop()
   {
-    while (running_) {
-      cleanup_completed_tasks();
+    try {
+      while (running_) {
+        try {
+          cleanup_completed_tasks();
 
-      if (should_schedule_new_task()) {
-        schedule_next_task();
+          if (should_schedule_new_task()) {
+            schedule_next_task();
+          }
+
+          std::this_thread::sleep_for(scheduler_interval_);
+        } catch (const std::exception& e) {
+          SPDLOG_ERROR("Scheduler loop error: {}", e.what());
+        }
       }
-
-      std::this_thread::sleep_for(scheduler_interval_);
+    } catch (...) {
+      SPDLOG_CRITICAL("Fatal error in scheduler loop");
+      throw;
     }
   }
 
@@ -573,8 +583,7 @@ private:
 
 }  // namespace work_pool
 
-// Example usage and testing
-namespace example
+namespace example {
 {
 using namespace work_pool;
 
@@ -728,4 +737,3 @@ int main()
 
   return 0;
 }
-}  // namespace example
