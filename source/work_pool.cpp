@@ -674,12 +674,14 @@ static void run_example()
   for (int i = 0; i < 2; ++i) {
     std::string task_name = "MultiTask-" + std::to_string(i);
     futures.push_back(
-        pool.submit([](const std::string& name, int threads, int duration)
-                    { multi_threaded_task(name, threads, duration); },
-                    task_name,
-                    2,
-                    3,
-                    TaskRequirements {
+        pool.submit(
+            [](const std::string& name, int threads, int duration) {
+              multi_threaded_task(name, threads, duration);
+            },
+            task_name,
+            2,
+            3,
+            TaskRequirements {
                         2,  // estimated_threads
                         std::chrono::seconds(3),  // estimated_duration
                         Priority::Medium,  // priority
