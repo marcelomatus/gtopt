@@ -107,3 +107,4 @@ TEST_SUITE("WorkPool") {
         pool.shutdown();
     }
 } // namespace gtopt::test
+}
