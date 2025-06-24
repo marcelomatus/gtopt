@@ -17,6 +17,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <spdlog/spdlog.h>
 
 #ifdef __linux__
 #  include <fstream>
@@ -348,7 +349,7 @@ public:
     }
 
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      const std::lock_guard<std::mutex> lock(mutex_);
       for (auto& task : active_tasks_) {
         task->wait();
       }
@@ -514,7 +515,8 @@ private:
           });
 
       active_tasks_.push_back(
-          std::make_unique<ActiveTask>(std::move(future), task.requirements()));
+          const auto req = task.requirements();
+          std::make_unique<ActiveTask>(std::move(future), req));
 
       if (task.requirements().name) {
         SPDLOG_INFO(
@@ -536,7 +538,8 @@ namespace example
 {
 using namespace work_pool;
 
-static void cpu_intensive_task(const std::string& name, int duration_seconds)
+namespace {
+void cpu_intensive_task(const std::string& name, int duration_seconds)
 {
   SPDLOG_INFO("Starting CPU intensive task: {}", name);
 
@@ -554,7 +557,7 @@ static void cpu_intensive_task(const std::string& name, int duration_seconds)
   SPDLOG_INFO("Completed CPU intensive task: {}", name);
 }
 
-static void multi_threaded_task(const std::string& name,
+void multi_threaded_task(const std::string& name,
                                 int num_threads,
                                 int duration_seconds)
 {
@@ -615,10 +618,10 @@ static void run_example()
         [](const std::string& name, int threads, int duration)
         { multi_threaded_task(name, threads, duration); },
         TaskRequirements {
-            2,
-            std::chrono::seconds(3),
-            Priority::Medium,
-            std::optional<std::string> {"Multi-Task-" + std::to_string(i)}},
+            .estimated_threads = 2,
+            .estimated_duration = std::chrono::seconds(3),
+            .priority = Priority::Medium,
+            .name = std::optional<std::string> {"Multi-Task-" + std::to_string(i)}},
         task_name,
         2,
         3));
@@ -659,7 +662,7 @@ static void run_example()
   SPDLOG_INFO("All tasks completed!");
 }
 
-int main()
+static int main()
 {
   try {
     example::run_example();
