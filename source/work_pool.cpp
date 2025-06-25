@@ -1,6 +1,16 @@
+// Standard library
 #include <algorithm>
 #include <functional>
+#include <format>
+#include <memory>
+#include <system_error>
+#include <utility>
+#include <vector>
 
+// Third-party
+#include <spdlog/spdlog.h>
+
+// Project headers
 #include <gtopt/cpu_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 
