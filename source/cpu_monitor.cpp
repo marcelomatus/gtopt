@@ -12,17 +12,17 @@ namespace gtopt
 void CPUMonitor::start()
 {
   running_.store(true, std::memory_order_relaxed);
-  monitor_thread_ = std::jthread {
-      [this](const std::stop_token& stoken)
-      {
-        while (!stoken.stop_requested()
-               && running_.load(std::memory_order_relaxed))
-        {
-          current_load_.store(get_system_cpu_usage(),
-                              std::memory_order_relaxed);
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-      }};
+  monitor_thread_ =
+      std::jthread {[this](const std::stop_token& stoken)
+                    {
+                      while (!stoken.stop_requested()
+                             && running_.load(std::memory_order_relaxed))
+                      {
+                        current_load_.store(get_system_cpu_usage(),
+                                            std::memory_order_relaxed);
+                        std::this_thread::sleep_for(monitor_interval_);
+                      }
+                    }};
 }
 
 void CPUMonitor::stop()
