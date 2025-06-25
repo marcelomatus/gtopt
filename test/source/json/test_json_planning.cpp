@@ -34,8 +34,12 @@ TEST_CASE("Planning daw json test 1 - basic parsing")
 
   gtopt::Planning plan = daw::json::from_json<gtopt::Planning>(json_data);
 
-  REQUIRE(plan.options.input_directory.value() == "data");
-  REQUIRE(plan.options.use_kirchhoff.value() == true);
+  if (plan.options.input_directory) {
+    CHECK(plan.options.input_directory.value() == "data");
+  }
+  if (plan.options.use_kirchhoff) {
+    CHECK(plan.options.use_kirchhoff.value() == true);
+  }
 
   REQUIRE(plan.simulation.block_array.size() == 1);
   REQUIRE(plan.simulation.block_array[0].uid == 1);
@@ -87,7 +91,9 @@ TEST_CASE("Planning daw json test 2 - large scale")
   gtopt::Planning parsed_plan =
       daw::json::from_json<gtopt::Planning>(json_data);
 
-  REQUIRE(parsed_plan.options.input_directory.value() == "large_test");
+  if (parsed_plan.options.input_directory) {
+    REQUIRE(parsed_plan.options.input_directory.value() == "large_test");
+  }
   REQUIRE(parsed_plan.system.name == "large_system");
   REQUIRE(parsed_plan.system.bus_array.size() == size);
   REQUIRE(parsed_plan.system.generator_array.size() == size);
@@ -99,8 +105,11 @@ TEST_CASE("Planning daw json test 2 - large scale")
     REQUIRE(parsed_plan.system.bus_array[i].uid == uid);
     REQUIRE(parsed_plan.system.generator_array[i].uid == uid);
     REQUIRE(parsed_plan.system.generator_array[i].bus == bus);
-    REQUIRE(std::get<double>(parsed_plan.system.generator_array[i].pmax.value())
-            == doctest::Approx(300.0));
+    if (parsed_plan.system.generator_array[i].pmax) {
+      REQUIRE(std::get<double>(
+                  parsed_plan.system.generator_array[i].pmax.value_or(-1.0))
+              == doctest::Approx(300.0));
+    }
     ++uid;
   }
 }

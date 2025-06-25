@@ -69,10 +69,10 @@ template<typename Type = Uid, typename STBUids>
       arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
 
   // Capture fields before moving stb_uids
-  std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<STBUids>(stb_uids).scenario_uids),
-      make_array<Type>(std::forward<STBUids>(stb_uids).stage_uids),
-      make_array<Type>(std::forward<STBUids>(stb_uids).block_uids)};
+  auto&& f_uids = std::forward<STBUids>(stb_uids);
+  std::vector<ArrowArray> arrays = {make_array<Type>(f_uids.scenario_uids),
+                                    make_array<Type>(f_uids.stage_uids),
+                                    make_array<Type>(f_uids.block_uids)};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -86,9 +86,9 @@ template<typename Type = Uid, typename STUids>
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
 
-  std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<STUids>(st_uids).scenario_uids),
-      make_array<Type>(std::forward<STUids>(st_uids).stage_uids)};
+  auto&& f_uids = std::forward<STUids>(st_uids);
+  std::vector<ArrowArray> arrays = {make_array<Type>(f_uids.scenario_uids),
+                                    make_array<Type>(f_uids.stage_uids)};
 
   return std::pair {std::move(fields), std::move(arrays)};
 }

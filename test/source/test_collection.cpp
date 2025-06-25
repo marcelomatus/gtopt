@@ -102,8 +102,8 @@ private:
 
 TEST_CASE("visit_elements basic functionality")
 {
-  MyCollection c1 {1, 2, 3, 4, 5};
-  MyCollection c2 {6, 7, 8, 9, 10};
+  const MyCollection c1 {1, 2, 3, 4, 5};
+  const MyCollection c2 {6, 7, 8, 9, 10};
   auto collections = std::make_tuple(c1, c2);
 
   SUBCASE("Count all elements")
@@ -146,8 +146,8 @@ TEST_CASE("visit_elements with different collection types")
     std::vector<std::string> data;
   };
 
-  MyCollection c1 {1, 2, 3};
-  StringMyCollection c2 {"a", "bb", "ccc"};
+  const MyCollection c1 {1, 2, 3};
+  const StringMyCollection c2 {"a", "bb", "ccc"};
   auto collections = std::make_tuple(c1, c2);
 
   SUBCASE("Count elements with specific properties")

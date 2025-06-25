@@ -96,7 +96,7 @@ TEST_CASE("LinearInterface - LP solution")
   interface.add_row(row1);
 
   // Solve the problem
-  SolverOptions options;
+  const SolverOptions options;
 
   const bool status = interface.initial_solve(options);
   REQUIRE(status);
@@ -176,11 +176,11 @@ TEST_CASE("LinearInterface - LP file output")
   interface.set_prob_name("TestLP");
 
   // Write LP to file
-  std::string temp_file = "test_interface_lp";
+  const std::string temp_file = "test_interface_lp";
   interface.write_lp(temp_file);
 
   // Verify file was created
-  std::string lp_file = temp_file + ".lp";
+  const std::string lp_file = temp_file + ".lp";
   bool file_exists = std::filesystem::exists(lp_file);
   if (file_exists) {
     std::filesystem::remove(lp_file);  // Clean up

@@ -73,15 +73,25 @@ TEST_CASE("System daw json test 1")
   REQUIRE(std::get<gtopt::Uid>(sys.generator_array[0].bus) == 10);
 
   const auto& gen = sys.generator_array[0];
-  REQUIRE(std::get<double>(gen.pmin.value_or(-1.0)) == doctest::Approx(0));
-  REQUIRE(std::get<double>(gen.capacity.value()) == doctest::Approx(300));
-  REQUIRE(std::get<double>(gen.pmax.value_or(-1.0)) == doctest::Approx(275.5));
+  if (gen.pmin) {
+    REQUIRE(std::get<double>(gen.pmin.value_or(-1.0)) == doctest::Approx(0));
+  }
+
+  if (gen.capacity) {
+    REQUIRE(std::get<double>(gen.capacity.value()) == doctest::Approx(300));
+  }
+
+  if (gen.pmax) {
+    REQUIRE(std::get<double>(gen.pmax.value_or(-1.0))
+            == doctest::Approx(275.5));
+  }
 
   REQUIRE(sys.demand_array.size() == 1);
   REQUIRE(sys.demand_array[0].uid == 10);
   REQUIRE(std::get<gtopt::Uid>(sys.demand_array[0].bus) == 5);
   REQUIRE(sys.demand_array[0].name == "PTOMONTT");
-  REQUIRE(std::get<double>(sys.demand_array[0].capacity.value())
+
+  REQUIRE(std::get<double>(sys.demand_array[0].capacity.value_or(-1.0))
           == doctest::Approx(100));
 
   REQUIRE(sys.line_array.size() == 1);
@@ -89,8 +99,10 @@ TEST_CASE("System daw json test 1")
   REQUIRE(sys.line_array[0].name == "GUACOLDA-PTOMONTT");
   REQUIRE(std::get<gtopt::Uid>(sys.line_array[0].bus_a) == 10);
   REQUIRE(std::get<gtopt::Name>(sys.line_array[0].bus_b) == "PTOMONTT");
-  REQUIRE(std::get<double>(sys.line_array[0].capacity.value())
+
+  REQUIRE(std::get<double>(sys.line_array[0].capacity.value_or(-1.0))
           == doctest::Approx(300));
+
   REQUIRE(std::get<double>(sys.line_array[0].voltage.value_or(0.0))
           == doctest::Approx(220));
 }

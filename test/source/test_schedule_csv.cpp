@@ -44,8 +44,8 @@ TEST_CASE("CSV file write and read test")
     std::ifstream check_file(filename);
     REQUIRE(check_file.is_open());
 
-    std::string content((std::istreambuf_iterator<char>(check_file)),
-                        std::istreambuf_iterator<char>());
+    const std::string content((std::istreambuf_iterator<char>(check_file)),
+                              std::istreambuf_iterator<char>());
     check_file.close();
 
     CHECK(!content.empty());

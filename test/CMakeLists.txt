@@ -19,7 +19,8 @@ cmake_policy(SET CMP0167 NEW)
 
 # --- Import tools ----
 
-# set(USE_STATIC_ANALYZER "cppcheck")
+set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError")
+#set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
 set(USE_CCACHE YES)
 
 

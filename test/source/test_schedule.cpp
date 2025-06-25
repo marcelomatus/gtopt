@@ -8,10 +8,10 @@ using namespace gtopt;
 
 TEST_CASE("schedule test vector")
 {
-  Id id;
-  System sys;
+  const Id id;
+  const System sys;
 
-  Simulation sim = {
+  const Simulation sim = {
       .block_array = {{.uid = Uid {1}, .duration = 1},
                       {.uid = Uid {2}, .duration = 2},
                       {.uid = Uid {3}, .duration = 3}},
@@ -20,19 +20,19 @@ TEST_CASE("schedule test vector")
       .scenario_array = {{.uid = Uid {1}, .probability_factor = 0.5},
                          {.uid = Uid {2}, .probability_factor = 0.5}}};
 
-  OptionsLP options;
+  const OptionsLP options;
   SimulationLP simulation {sim, options};
 
   SystemLP system {sys, simulation};
-  SystemContext sc {simulation, system};
-  InputContext ic {sc};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
 
   SUBCASE("tfield")
   {
     std::vector<double> vec = {1, 2};
-    TRealFieldSched tfield {vec};
+    const TRealFieldSched tfield {vec};
 
-    TRealSched tsched {ic, "class", id, tfield};
+    const TRealSched tsched {ic, "class", id, tfield};
 
     REQUIRE(tsched.at(StageUid {1}) == 1);
     REQUIRE(tsched.at(StageUid {2}) == 2);
@@ -42,9 +42,9 @@ TEST_CASE("schedule test vector")
   {
     std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
                                                          {{4}, {5, 6}}};
-    STBRealFieldSched stbfield {vec};
+    const STBRealFieldSched stbfield {vec};
 
-    STBRealSched stbsched {ic, "class", id, stbfield};
+    const STBRealSched stbsched {ic, "class", id, stbfield};
 
     REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
     REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);
@@ -57,9 +57,9 @@ TEST_CASE("schedule test vector")
   SUBCASE("tbfield")
   {
     std::vector<std::vector<double>> vec = {{{1}, {2, 3}}};
-    TBRealFieldSched tbfield {vec};
+    const TBRealFieldSched tbfield {vec};
 
-    TBRealSched tbsched {ic, "class", id, tbfield};
+    const TBRealSched tbsched {ic, "class", id, tbfield};
 
     REQUIRE(tbsched.at(StageUid {1}, BlockUid {1}) == 1);
     REQUIRE(tbsched.at(StageUid {2}, BlockUid {2}) == 2);
@@ -69,9 +69,9 @@ TEST_CASE("schedule test vector")
   SUBCASE("stfield")
   {
     std::vector<std::vector<double>> vec = {{1, 2}, {3, 4}};
-    STRealFieldSched stfield {vec};
+    const STRealFieldSched stfield {vec};
 
-    STRealSched stsched {ic, "class", id, stfield};
+    const STRealSched stsched {ic, "class", id, stfield};
 
     REQUIRE(stsched.at(ScenarioUid {1}, StageUid {1}) == 1);
     REQUIRE(stsched.at(ScenarioUid {1}, StageUid {2}) == 2);
@@ -84,8 +84,8 @@ TEST_CASE("opt schedule test ")
 {
   const gtopt::OptSchedule<int, StageUid, BlockUid> sched0;
 
-  ArrowChunkedArray array;
-  UidToArrowIdx<StageUid, BlockUid>::UidIdx uididx;
+  const ArrowChunkedArray array;
+  const UidToArrowIdx<StageUid, BlockUid>::UidIdx uididx;
 
   auto array_tuple = std::make_tuple(array, uididx);
 

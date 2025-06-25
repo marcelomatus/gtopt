@@ -16,7 +16,7 @@ TEST_CASE("Planning - Default construction")
 {
   using namespace gtopt;
 
-  Planning opt {};
+  const Planning opt {};
 
   // Default planning should have empty components
   CHECK(opt.system.name.empty());
@@ -27,12 +27,12 @@ TEST_CASE("Planning - Construction with properties")
   using namespace gtopt;
 
   // Create basic components
-  Options options {};
-  Simulation simulation {};
+  const Options options {};
+  const Simulation simulation {};
 
   // Create minimal system
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  System system {.name = "TestSystem", .bus_array = bus_array};
+  const System system {.name = "TestSystem", .bus_array = bus_array};
 
   // Create planning with components
   Planning opt {.options = options, .simulation = simulation, .system = system};
@@ -75,9 +75,10 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   // Create planning with components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
-  Planning original {.options = {},
-                     .simulation = {},
-                     .system = {.name = "JsonSystem", .bus_array = bus_array}};
+  const Planning original {
+      .options = {},
+      .simulation = {},
+      .system = {.name = "JsonSystem", .bus_array = bus_array}};
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(original);

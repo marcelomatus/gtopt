@@ -28,10 +28,10 @@ TEST_CASE("Parquet file write and read test")
   SUBCASE("Write Parquet file")
   {
     // Crear datos de prueba
-    std::vector<int32_t> scenario_data = {1, 1, 1, 2, 2, 2};
-    std::vector<int32_t> stage_data = {1, 2, 2, 1, 2, 2};
-    std::vector<int32_t> block_data = {1, 2, 3, 1, 2, 3};
-    std::vector<double> uid_1_data = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    const std::vector<int32_t> scenario_data = {1, 1, 1, 2, 2, 2};
+    const std::vector<int32_t> stage_data = {1, 2, 2, 1, 2, 2};
+    const std::vector<int32_t> block_data = {1, 2, 3, 1, 2, 3};
+    const std::vector<double> uid_1_data = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 
     // Crear arrays de Arrow usando builders
     arrow::Int32Builder scenario_builder;
@@ -190,7 +190,7 @@ TEST_CASE("Parquet file write and read test")
   {
     using namespace gtopt;
 
-    Simulation sim = {
+    const Simulation sim = {
         .block_array = {{.uid = Uid {1}, .duration = 1},
                         {.uid = Uid {2}, .duration = 2},
                         {.uid = Uid {3}, .duration = 3}},
@@ -201,24 +201,24 @@ TEST_CASE("Parquet file write and read test")
     Options opt;
     opt.input_directory = iname;
     opt.input_format = "parquet";
-    OptionsLP options {opt};
+    const OptionsLP options {opt};
 
     SimulationLP simulation {sim, options};
 
-    System sys;
+    const System sys;
     SystemLP system {sys, simulation};
-    SystemContext sc {simulation, system};
-    InputContext ic {sc};
+    const SystemContext sc {simulation, system};
+    const InputContext ic {sc};
 
     SUBCASE("stbfield")
     {
-      std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
-                                                           {{4}, {5, 6}}};
-      STBRealFieldSched stbfield {cname + "@" + fname};
+      const std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
+                                                                 {{4}, {5, 6}}};
+      const STBRealFieldSched stbfield {cname + "@" + fname};
 
-      Id id {1, "uid_1"};
+      const Id id {1, "uid_1"};
 
-      STBRealSched stbsched {ic, cname, id, stbfield};
+      const STBRealSched stbsched {ic, cname, id, stbfield};
 
       REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
       REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);

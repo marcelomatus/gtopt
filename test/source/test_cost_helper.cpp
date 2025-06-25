@@ -63,7 +63,7 @@ TEST_CASE("stage_cost calculation")
 
   Scenario scenario;
   scenario.probability_factor = 1.0;
-  std::vector<ScenarioLP> scenarios {ScenarioLP {scenario}};
+  const std::vector<ScenarioLP> scenarios {ScenarioLP {scenario}};
 
   std::vector<Block> pblocks(2);
   pblocks[0].duration = 1.0;
@@ -186,7 +186,7 @@ TEST_CASE("Factor matrix generation")
   stage_lps.emplace_back(stages[0], pblocks);
   stage_lps.emplace_back(stages[1], pblocks);
 
-  CostHelper helper(options, scenario_lps, stage_lps);
+  const CostHelper helper(options, scenario_lps, stage_lps);
 
   SUBCASE("block_icost_factors")
   {

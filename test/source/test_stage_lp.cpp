@@ -12,13 +12,13 @@ TEST_SUITE("StageLP")
                                  Block {.uid = 3, .duration = 24.0},
                                  Block {.uid = 4, .duration = 12.0}};
 
-    Stage stage {.uid = 42,
-                 .active = true,
-                 .first_block = 1,
-                 .count_block = 2,
-                 .discount_factor = 0.9};
+    const Stage stage {.uid = 42,
+                       .active = true,
+                       .first_block = 1,
+                       .count_block = 2,
+                       .discount_factor = 0.9};
 
-    StageLP stage_lp(stage, blocks, 0.05, StageIndex {1}, PhaseIndex {2});
+    const StageLP stage_lp(stage, blocks, 0.05, StageIndex {1}, PhaseIndex {2});
 
     SUBCASE("Basic properties")
     {
@@ -61,9 +61,9 @@ TEST_SUITE("StageLP")
 
     SUBCASE("Empty stage")
     {
-      Stage stage {.first_block = 0, .count_block = 0};
+      const Stage stage {.first_block = 0, .count_block = 0};
 
-      StageLP stage_lp(stage, blocks);
+      const StageLP stage_lp(stage, blocks);
 
       CHECK(stage_lp.blocks().empty());
       CHECK(stage_lp.duration() == doctest::Approx(0.0));
@@ -72,27 +72,27 @@ TEST_SUITE("StageLP")
 
     SUBCASE("Inactive stage")
     {
-      Stage stage {.active = false, .first_block = 0, .count_block = 1};
+      const Stage stage {.active = false, .first_block = 0, .count_block = 1};
 
-      StageLP stage_lp(stage, blocks);
+      const StageLP stage_lp(stage, blocks);
 
       CHECK(stage_lp.is_active() == false);
     }
 
     SUBCASE("Default discount factor")
     {
-      Stage stage {.first_block = 0, .count_block = 1};
+      const Stage stage {.first_block = 0, .count_block = 1};
 
-      StageLP stage_lp(stage, blocks, 0.0);
+      const StageLP stage_lp(stage, blocks, 0.0);
 
       CHECK(stage_lp.discount_factor() == doctest::Approx(1.0));
     }
 
     SUBCASE("No stage discount factor")
     {
-      Stage stage {.first_block = 0, .count_block = 1};
+      const Stage stage {.first_block = 0, .count_block = 1};
 
-      StageLP stage_lp(stage, blocks, 0.05);
+      const StageLP stage_lp(stage, blocks, 0.05);
 
       CHECK(stage_lp.discount_factor() == doctest::Approx(1.0).epsilon(1e-6));
     }
@@ -102,10 +102,10 @@ TEST_SUITE("StageLP")
   {
     std::vector<Block> blocks = {Block {.uid = 1, .duration = 24.0}};
 
-    Stage stage {.uid = 10, .first_block = 0, .count_block = 1};
+    const Stage stage {.uid = 10, .first_block = 0, .count_block = 1};
 
     StageLP original(stage, blocks);
-    StageLP moved(std::move(original));
+    const StageLP moved(std::move(original));
 
     CHECK(moved.uid() == StageUid {10});
     CHECK(moved.blocks().size() == 1);

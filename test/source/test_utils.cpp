@@ -16,7 +16,7 @@ TEST_CASE("merge vectors")
     std::vector<int> b {3, 4};
     merge(a, std::move(b));
     CHECK(a == std::vector {1, 2, 3, 4});
-    CHECK(b.empty());
+    CHECK(b.empty());  // NOLINT
   }
 
   SUBCASE("empty source")
@@ -96,13 +96,17 @@ TEST_CASE("enumerate_if and active")
 
 TEST_CASE("map utilities")
 {
-  std::map<int, std::string> test_map {{1, "one"}, {2, "two"}, {3, "three"}};
+  const std::map<int, std::string> test_map {
+      {1, "one"}, {2, "two"}, {3, "three"}};
 
   SUBCASE("get_optiter")
   {
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt.has_value());
-    CHECK(opt.value()->second == "two");
+    if (opt.has_value()) {
+      CHECK(opt.value()->first == 2);
+      CHECK(opt.value()->second == "two");
+    }
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2.has_value());
@@ -112,7 +116,11 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue(test_map, 3);
     REQUIRE(opt.has_value());
-    CHECK(*opt == "three");
+    if (opt.has_value()) {
+      CHECK(*opt == "three");
+    } else {
+      FAIL("Expected value for key 3");
+    }
 
     auto opt2 = get_optvalue(test_map, 42);
     CHECK_FALSE(opt2.has_value());
@@ -122,7 +130,11 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt.has_value());
-    CHECK(*opt == "two");
+    if (opt.has_value()) {
+      CHECK(*opt == "two");
+    } else {
+      FAIL("Expected value for key 2");
+    }
 
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
     CHECK_FALSE(opt2.has_value());
@@ -134,11 +146,11 @@ TEST_CASE("optional utilities")
   SUBCASE("merge_opt")
   {
     std::optional<int> a = 1;
-    std::optional<int> b = 2;
+    const std::optional<int> b = 2;
     merge_opt(a, b);
     CHECK(a == 2);
 
-    std::optional<int> c;
+    const std::optional<int> c;
     merge_opt(a, c);
     CHECK(a == 2);
 

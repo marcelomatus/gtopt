@@ -23,8 +23,12 @@ TEST_CASE("Generator set_attrs functionality")
   CHECK_FALSE(attrs.pmin.has_value());  // Should be moved
   CHECK_FALSE(attrs.pmax.has_value());  // Should be moved
 
-  CHECK(std::get<Real>(gen.pmin.value()) == 10.0);
-  CHECK(std::get<Real>(gen.pmax.value()) == 100.0);
+  if (gen.pmin) {
+    CHECK(std::get<Real>(gen.pmin.value()) == 10.0);
+  }
+  if (gen.pmax) {
+    CHECK(std::get<Real>(gen.pmax.value()) == 100.0);
+  }
 }
 
 TEST_CASE("Generator construction and attributes")

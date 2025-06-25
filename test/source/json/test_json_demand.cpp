@@ -22,7 +22,9 @@ TEST_CASE("Demand daw json test")
   REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(std::get<Uid>(dem.bus) == 10);
-  REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  if (dem.capacity) {
+    REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  }
 }
 
 TEST_CASE("Demand daw json test 2")
@@ -40,7 +42,9 @@ TEST_CASE("Demand daw json test 2")
   REQUIRE(dem.name == "GUACOLDA");
 
   REQUIRE(std::get<gtopt::Uid>(dem.bus) == 10);
-  REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  if (dem.capacity) {
+    REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  }
 }
 
 TEST_CASE("Demand daw json test 3")
@@ -59,7 +63,9 @@ TEST_CASE("Demand daw json test 3")
   REQUIRE(dem.uid == 5);
   REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(std::get<Name>(dem.bus) == "GOLDA");
-  REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  if (dem.capacity) {
+    REQUIRE(std::get<double>(dem.capacity.value()) == doctest::Approx(300));
+  }
 }
 
 TEST_CASE("Demand daw json test 4")

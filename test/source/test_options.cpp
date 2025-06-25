@@ -15,7 +15,7 @@ TEST_CASE("Options - Default construction")
 {
   using namespace gtopt;
 
-  Options options {};
+  const Options options {};
 
   // Check that all optional fields are empty
   CHECK_FALSE(options.input_directory.has_value());
@@ -128,18 +128,61 @@ TEST_CASE("Options - Merge operation")
 
   // Check that values were properly merged
   // Overlapping values should be replaced by overlay
-  CHECK(*base.input_directory == "overlay_input");
-  CHECK(*base.use_kirchhoff == false);
+  if (base.input_directory.has_value()) {
+    CHECK(*base.input_directory == "overlay_input");
+  } else {
+    FAIL("input_directory should have been set");
+  }
+
+  if (base.use_kirchhoff.has_value()) {
+    CHECK(*base.use_kirchhoff == false);
+  } else {
+    FAIL("use_kirchhoff should have been set");
+  }
+
+  if (base.input_directory.has_value()) {
+    CHECK(*base.input_directory == "overlay_input");
+  } else {
+    FAIL("output_format should have been set");
+  }
+
+  if (base.output_directory.has_value()) {
+    CHECK(*base.output_directory == "base_output");
+  } else {
+    FAIL("output_directory should have been set");
+  }
+
+  if (base.demand_fail_cost.has_value()) {
+    CHECK(*base.demand_fail_cost == doctest::Approx(2000.0));
+  } else {
+    FAIL("demand_fail_cost should have been set");
+  }
+
+  if (base.use_kirchhoff.has_value()) {
+    CHECK(*base.use_kirchhoff == false);
+  } else {
+    FAIL("use_kirchhoff should have been set");
+  }
 
   // Non-overlapping values should remain unchanged in base
-  CHECK(*base.scale_objective == doctest::Approx(1.0));
-  CHECK(*base.output_directory == "base_output");
+  if (base.scale_objective.has_value()) {
+    CHECK(*base.scale_objective == doctest::Approx(1.0));
+  } else {
+    FAIL("scale_objective should not have been set");
+  }
+
+  if (base.output_directory.has_value()) {
+    CHECK(*base.output_directory == "base_output");
+  } else {
+    FAIL("output_directory should not have been set");
+  }
 
   // New values from overlay should be added to base
-  REQUIRE(base.demand_fail_cost.has_value());
-  CHECK(*base.demand_fail_cost == doctest::Approx(2000.0));
-  REQUIRE(base.output_format.has_value());
-  CHECK(*base.output_format == "parquet");
+  if (base.output_format.has_value()) {
+    CHECK(*base.output_format == "parquet");
+  } else {
+    FAIL("output_format should have been set");
+  }
 }
 
 TEST_CASE("Options - Merging with empty options")
@@ -158,17 +201,43 @@ TEST_CASE("Options - Merging with empty options")
   Options filled_copy = filled;
   filled_copy.merge(empty);
 
-  CHECK(*filled_copy.input_directory == "input_dir");
-  CHECK(*filled_copy.demand_fail_cost == doctest::Approx(1000.0));
-  CHECK(*filled_copy.use_kirchhoff == true);
+  if (filled_copy.input_directory.has_value()) {
+    CHECK(*filled_copy.input_directory == "input_dir");
+  } else {
+    FAIL("input_directory should not have been removed");
+  }
+
+  if (filled_copy.demand_fail_cost.has_value()) {
+    CHECK(*filled_copy.demand_fail_cost == doctest::Approx(1000.0));
+  } else {
+    FAIL("demand_fail_cost should not have been removed");
+  }
+
+  if (filled_copy.use_kirchhoff.has_value()) {
+    CHECK(*filled_copy.use_kirchhoff == true);
+  } else {
+    FAIL("use_kirchhoff should not have been removed");
+  }
 
   // Test merging filled into empty (empty should gain all values)
   empty.merge(filled);
 
-  REQUIRE(empty.input_directory.has_value());
-  CHECK(*empty.input_directory == "input_dir");
-  REQUIRE(empty.demand_fail_cost.has_value());
-  CHECK(*empty.demand_fail_cost == doctest::Approx(1000.0));
+  if (empty.input_directory.has_value()) {
+    CHECK(*empty.input_directory == "input_dir");
+  } else {
+    FAIL("input_directory should have been set");
+  }
+
+  if (empty.demand_fail_cost.has_value()) {
+    CHECK(*empty.demand_fail_cost == doctest::Approx(1000.0));
+  } else {
+    FAIL("demand_fail_cost should have been set");
+  }
+
   REQUIRE(empty.use_kirchhoff.has_value());
-  CHECK(*empty.use_kirchhoff == true);
+  if (empty.use_kirchhoff.has_value()) {
+    CHECK(*empty.use_kirchhoff == true);
+  } else {
+    FAIL("use_kirchhoff should have been set");
+  }
 }

@@ -14,8 +14,8 @@ using namespace gtopt;
 TEST_CASE("BusLP construction and basic properties")
 {
   // Create minimal input context
-  OptionsLP options({});
-  Simulation simu = {
+  const OptionsLP options({});
+  const Simulation simu = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -23,11 +23,11 @@ TEST_CASE("BusLP construction and basic properties")
 
   SimulationLP simulation(simu, options);
 
-  System sys;
+  const System sys;
   SystemLP system(sys, simulation);
 
-  SystemContext sc(simulation, system);
-#if 0
+  const SystemContext sc(simulation, system);
+#ifdef NONE
   InputContext ic(sc);
 
   // Create a bus
@@ -53,9 +53,9 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
   SUBCASE("Default behavior")
   {
-    Options opt;
-    OptionsLP options(opt);
-    Simulation simu = {
+    const Options opt;
+    const OptionsLP options(opt);
+    const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
         .scenario_array = {{.uid = Uid {0}}},
@@ -63,12 +63,12 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     SimulationLP simulation(simu, options);
     SystemLP system({}, simulation);
-    SystemContext sc(simulation, system);
-    InputContext ic(sc);
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
 
     // Create a bus with defaults
     Bus bus(1, "bus_1");
-    BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(ic, std::move(bus));
 
     // With default options (use_kirchhoff=true, use_single_bus=false)
     // needs_kirchhoff should be true
@@ -82,8 +82,8 @@ TEST_CASE("BusLP needs_kirchhoff method")
     // Create system with single bus mode
     opt.use_single_bus = true;
 
-    OptionsLP options(opt);
-    Simulation simu = {
+    const OptionsLP options(opt);
+    const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
         .scenario_array = {{.uid = Uid {0}}},
@@ -92,11 +92,11 @@ TEST_CASE("BusLP needs_kirchhoff method")
     SimulationLP simulation(simu, options);
 
     SystemLP system({}, simulation);
-    SystemContext sc(simulation, system);
-    InputContext ic(sc);
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
 
     Bus bus(1, "bus_1");
-    BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(ic, std::move(bus));
 
     // With single bus mode, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -109,8 +109,8 @@ TEST_CASE("BusLP needs_kirchhoff method")
     // Create system with single bus mode
     opt.use_kirchhoff = false;
 
-    OptionsLP options(opt);
-    Simulation simu = {
+    const OptionsLP options(opt);
+    const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
         .scenario_array = {{.uid = Uid {0}}},
@@ -119,11 +119,11 @@ TEST_CASE("BusLP needs_kirchhoff method")
     SimulationLP simulation(simu, options);
 
     SystemLP system({}, simulation);
-    SystemContext sc(simulation, system);
-    InputContext ic(sc);
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
 
     Bus bus(1, "bus_1");
-    BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(ic, std::move(bus));
 
     // With kirchhoff disabled in options, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -136,9 +136,9 @@ TEST_CASE("BusLP needs_kirchhoff method")
     // Create system with single bus mode
     opt.kirchhoff_threshold = 1.5;
 
-    OptionsLP options(opt);
+    const OptionsLP options(opt);
 
-    Simulation simu = {
+    const Simulation simu = {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
         .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
         .scenario_array = {{.uid = Uid {0}}},
@@ -147,12 +147,12 @@ TEST_CASE("BusLP needs_kirchhoff method")
     SimulationLP simulation(simu, options);
 
     SystemLP system({}, simulation);
-    SystemContext sc(simulation, system);
-    InputContext ic(sc);
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
 
     Bus bus(1, "bus_1");
     bus.voltage = 1.0;
-    BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(ic, std::move(bus));
 
     // With voltage below threshold, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -162,10 +162,10 @@ TEST_CASE("BusLP needs_kirchhoff method")
 TEST_CASE("BusLP add_to_lp method")
 {
   // Basic setup for add_to_lp test
-  Options opt;
-  OptionsLP options(opt);
+  const Options opt;
+  const OptionsLP options(opt);
 
-  Simulation simu = {
+  const Simulation simu = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -174,8 +174,8 @@ TEST_CASE("BusLP add_to_lp method")
   SimulationLP simulation(simu, options);
 
   SystemLP system({}, simulation);
-  SystemContext sc(simulation, system);
-  InputContext ic(sc);
+  const SystemContext sc(simulation, system);
+  const InputContext ic(sc);
 
   LinearProblem lp;
 
@@ -183,7 +183,7 @@ TEST_CASE("BusLP add_to_lp method")
   BusLP bus_lp(ic, std::move(bus));
 
   // Add to LP should succeed
-  StageLP stage {};
-  ScenarioLP scenario {};
+  const StageLP stage {};
+  const ScenarioLP scenario {};
   CHECK(bus_lp.add_to_lp(sc, scenario, stage, lp) == true);
 }
