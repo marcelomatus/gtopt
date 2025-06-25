@@ -166,7 +166,7 @@ class AdaptiveWorkPool
   std::vector<ActiveTask> active_tasks_;
   std::counting_semaphore<> available_threads_ {0};
 
-  CPUMonitor cpu_monitor_;
+  gtopt::CPUMonitor cpu_monitor_;
   std::atomic<int> active_threads_ {0};
   std::atomic<bool> running_ {false};
   std::jthread scheduler_thread_;
