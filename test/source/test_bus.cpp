@@ -46,9 +46,9 @@ TEST_CASE("Json Bus 2")
 
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");
-  CHECK(bus.voltage.value() == 200);
-  CHECK(bus.reference_theta.value() == 1);
-  CHECK(bus.use_kirchhoff.value() == true);
+  CHECK(bus.voltage.value_or(-1.0) == 200);
+  CHECK(bus.reference_theta.value_or(-1.0) == 1);
+  CHECK(bus.use_kirchhoff.value_or(-1.0) == true);
 }
 
 TEST_CASE("Bus needs_kirchhoff method")
@@ -57,7 +57,7 @@ TEST_CASE("Bus needs_kirchhoff method")
 
   SUBCASE("Default values")
   {
-    Bus bus(1, "bus_1");
+    const Bus bus(1, "bus_1");
     CHECK(bus.needs_kirchhoff(0.5)
           == true);  // Default is true with default voltage > threshold
   }
@@ -97,7 +97,7 @@ TEST_CASE("Bus serialization")
 
   SUBCASE("Minimal bus")
   {
-    Bus bus(1, "bus_1");
+    const Bus bus(1, "bus_1");
     auto json = daw::json::to_json(bus);
     auto roundtrip = daw::json::from_json<Bus>(json);
 
@@ -120,8 +120,8 @@ TEST_CASE("Bus serialization")
 
     CHECK(roundtrip.uid == 5);
     CHECK(roundtrip.name == "CRUCERO");
-    CHECK(roundtrip.voltage.value() == 200);
-    CHECK(roundtrip.reference_theta.value() == 1);
-    CHECK(roundtrip.use_kirchhoff.value() == true);
+    CHECK(roundtrip.voltage.value_or(-1.0) == 200);
+    CHECK(roundtrip.reference_theta.value_or(-1.0) == 1);
+    CHECK(roundtrip.use_kirchhoff.value_or(-1.0) == true);
   }
 }

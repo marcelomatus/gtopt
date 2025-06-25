@@ -32,7 +32,8 @@ TEST_CASE("Generator daw json test 1")
   REQUIRE(gen.name == "GUACOLDA");
   REQUIRE(std::get<Uid>(gen.bus) == 10);
   REQUIRE(std::get<double>(gen.pmin.value_or(-1.0)) == doctest::Approx(0));
-  REQUIRE(std::get<double>(gen.capacity.value()) == doctest::Approx(300));
+  REQUIRE(std::get<double>(gen.capacity.value_or(-1.0))
+          == doctest::Approx(300));
   REQUIRE(std::get<double>(gen.pmax.value_or(-1.0)) == doctest::Approx(275.5));
 }
 
@@ -56,6 +57,7 @@ TEST_CASE("Generator daw json test 2")
   REQUIRE(gen.name == "GUACOLDA");
   REQUIRE(std::get<Name>(gen.bus) == "GUACOLDA");
   REQUIRE(std::get<double>(gen.pmin.value_or(-1.0)) == doctest::Approx(0));
-  REQUIRE(std::get<double>(gen.capacity.value()) == doctest::Approx(300));
+  REQUIRE(std::get<double>(gen.capacity.value_or(-1.0))
+          == doctest::Approx(300));
   REQUIRE(std::get<double>(gen.pmax.value_or(-1.0)) == doctest::Approx(275.5));
 }

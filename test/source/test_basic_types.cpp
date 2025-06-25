@@ -28,7 +28,7 @@ TEST_CASE("gtopt types 1")  // NOLINT
   REQUIRE(gtopt::as_label("").empty());
   REQUIRE(gtopt::as_label().empty());
 
-  std::string s2 = "s2";
+  const std::string s2 = "s2";
   REQUIRE(gtopt::as_label("s1", s2) == "s1_s2");
 }
 

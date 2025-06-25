@@ -22,12 +22,12 @@ using namespace gtopt;
 TEST_CASE("PlanningLP - Default construction base")
 {
   // Create minimal components
-  Options options {};
-  Simulation simulation {};
-  Planning planning {};
+  const Options options {};
+  const Simulation simulation {};
+  const Planning planning {};
 
   // Test constructor
-  PlanningLP planning_lp(planning);
+  const PlanningLP planning_lp(planning);
 
   // Verify construction was successful
 
@@ -38,22 +38,22 @@ TEST_CASE("PlanningLP - Default construction base")
 TEST_CASE("PlanningLP - Default construction")
 {
   // Create minimal components
-  Options options {};
-  Simulation simulation {};
+  const Options options {};
+  const Simulation simulation {};
 
   // Create minimal system with one bus
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  System system {.name = "TestSystem", .bus_array = bus_array};
+  const System system {.name = "TestSystem", .bus_array = bus_array};
 
   // Create planning with components
-  Planning planning {
+  const Planning planning {
       .options = options, .simulation = simulation, .system = system};
 
   // Convert options to flat options
-  FlatOptions flat_options;
+  const FlatOptions flat_options;
 
   // Test constructor
-  PlanningLP planning_lp(planning, flat_options);
+  const PlanningLP planning_lp(planning, flat_options);
 
   // Verify construction was successful
 
@@ -65,7 +65,7 @@ TEST_CASE("PlanningLP - Default construction")
 TEST_CASE("PlanningLP - Create simulations")
 {
   // Create a simulation with blocks, stages, and scenarios
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -81,19 +81,20 @@ TEST_CASE("PlanningLP - Create simulations")
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
 
-  System system {.name = "TestSystem",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array};
+  const System system {.name = "TestSystem",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array};
 
   // Create planning with components
-  Planning planning {.options = {}, .simulation = simulation, .system = system};
+  const Planning planning {
+      .options = {}, .simulation = simulation, .system = system};
 
   // Create flat options
-  FlatOptions flat_options;
+  const FlatOptions flat_options;
 
   // Create planning_lp
-  PlanningLP planning_lp(planning, flat_options);
+  const PlanningLP planning_lp(planning, flat_options);
 
   // Verify systems were created as expected (indirect test)
   // Further tests would depend on PlanningLP internal implementation
@@ -102,7 +103,7 @@ TEST_CASE("PlanningLP - Create simulations")
 TEST_CASE("PlanningLP - Write LP file")
 {
   // Create a simulation with blocks, stages, and scenarios
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -118,19 +119,20 @@ TEST_CASE("PlanningLP - Write LP file")
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
 
-  System system {.name = "TestSystem",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array};
+  const System system {.name = "TestSystem",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array};
 
   // Create planning with components
-  Planning planning {.options = {}, .simulation = simulation, .system = system};
+  const Planning planning {
+      .options = {}, .simulation = simulation, .system = system};
 
   // Create flat options for LP file writing
-  FlatOptions flat_options;
+  const FlatOptions flat_options;
 
   // Create planning_lp
-  PlanningLP planning_lp(planning, flat_options);
+  const PlanningLP planning_lp(planning, flat_options);
 
   // Create systems first
 
@@ -138,7 +140,7 @@ TEST_CASE("PlanningLP - Write LP file")
   planning_lp.write_lp("test_planning");
 
   // Check if the file was created
-  std::string lp_file = "test_planning_0_0.lp";
+  const std::string lp_file = "test_planning_0_0.lp";
   bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists
@@ -153,7 +155,7 @@ TEST_CASE("PlanningLP - Write LP file")
 TEST_CASE("PlanningLP - Run LP")
 {
   // Create a simulation with blocks, stages, and scenarios
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -169,16 +171,17 @@ TEST_CASE("PlanningLP - Run LP")
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0}};
 
-  System system {.name = "TestSystem",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array};
+  const System system {.name = "TestSystem",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array};
 
   // Create planning with components
-  Planning planning {.options = {}, .simulation = simulation, .system = system};
+  const Planning planning {
+      .options = {}, .simulation = simulation, .system = system};
 
   // Create flat options
-  FlatOptions flat_options;
+  const FlatOptions flat_options;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
@@ -196,7 +199,7 @@ TEST_CASE("PlanningLP - Run LP")
 TEST_CASE("PlanningLP - Run with write_only flag")
 {
   // Create a simulation with blocks, stages, and scenarios
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
@@ -212,16 +215,17 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0}};
 
-  System system {.name = "TestSystem",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array};
+  const System system {.name = "TestSystem",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array};
 
   // Create planning with components
-  Planning planning {.options = {}, .simulation = simulation, .system = system};
+  const Planning planning {
+      .options = {}, .simulation = simulation, .system = system};
 
   // Create flat options
-  FlatOptions flat_options;
+  const FlatOptions flat_options;
 
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
@@ -237,7 +241,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   CHECK(result.value() == 1);
 
   // Check if the file was created
-  std::string lp_file = "test_planning_lp_write_only_0_0.lp";
+  const std::string lp_file = "test_planning_lp_write_only_0_0.lp";
   bool file_exists = std::filesystem::exists(lp_file);
 
   // Clean up the file if it exists
@@ -261,7 +265,7 @@ TEST_CASE("PlanningLP - Solver test")
                                              .gcost = 50.0,
                                              .capacity = 1000.0}};
 
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {3}, .duration = 1},
                       {.uid = Uid {4}, .duration = 2},
                       {.uid = Uid {5}, .duration = 3}},
@@ -269,10 +273,10 @@ TEST_CASE("PlanningLP - Solver test")
                       {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
       .scenario_array = {{.uid = Uid {0}}}};
 
-  System system = {.name = "SEN",
-                   .bus_array = bus_array,
-                   .demand_array = demand_array,
-                   .generator_array = generator_array};
+  const System system = {.name = "SEN",
+                         .bus_array = bus_array,
+                         .demand_array = demand_array,
+                         .generator_array = generator_array};
 
   REQUIRE(simulation.scenario_array.size() == 1);
   REQUIRE(simulation.stage_array.size() == 2);
@@ -284,7 +288,8 @@ TEST_CASE("PlanningLP - Solver test")
   REQUIRE(!system.line_array.empty() == false);
 
   // Create planning with components
-  Planning planning {.options = {}, .simulation = simulation, .system = system};
+  const Planning planning {
+      .options = {}, .simulation = simulation, .system = system};
 
   // Create planning_lp
   PlanningLP planning_lp(planning);

@@ -3,10 +3,14 @@
 # misc-non-private-member-variables-in-classes: the options don't do anything
 # modernize-use-nodiscard: too aggressive, attribute is situationally useful
 Checks: "*,\
+  misc-const-correctness, \
+  bugprone-*, \
+  hicpp-*, \
    -system-headers,\
    -template_param_default_arg_redefinition,\
    -portability-avoid-pragma-once,\
    -clang-analyzer-cplusplus.NewDeleteLeaks,\
+   -clang-analyzer-security.ArrayBound, \
 #  -cppcoreguidelines-avoid-do-while,\
 #  -google-readability-todo,\
    -altera-*,\
@@ -40,6 +44,16 @@ Checks: "*,\
 
 WarningsAsErrors: ''
 CheckOptions:
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: true
+  - key: bugprone-use-after-move.IgnoreUnnamedTypes
+    value: false
+  - key: bugprone-use-after-move.IgnorePartialMoves
+    value: false
+  - key: hicpp-invalid-access-moved.IgnoreUnnamedTypes
+    value: false
+  - key: hicpp-invalid-access-moved.IgnorePartialMoves
+    value: false
   - key: 'bugprone-argument-comment.StrictMode'
     value: 'true'
 # Prefer using enum classes with 2 values for parameters instead of bools

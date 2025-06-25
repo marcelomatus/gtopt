@@ -112,10 +112,11 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   LinearInterface lp(flat_lp);
 
   // Create solver options with custom values
-  SolverOptions solver_options {.algorithm = static_cast<int>(LPAlgo::primal),
-                                .presolve = true,
-                                .optimal_eps = 1e-6,
-                                .feasible_eps = 1e-5};
+  const SolverOptions solver_options {
+      .algorithm = static_cast<int>(LPAlgo::primal),
+      .presolve = true,
+      .optimal_eps = 1e-6,
+      .feasible_eps = 1e-5};
 
   // Solve with custom options
   const bool result = lp.initial_solve(solver_options);

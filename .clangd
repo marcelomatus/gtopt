@@ -5,19 +5,27 @@ Diagnostics:
   UnusedIncludes: Strict
   ClangTidy:
     Add: [
+      "*",
       "bugprone-*",
+      "bugprone-unchecked-optional-access",
       "cppcoreguidelines-*", 
       "hicpp-*",
       "modernize-*",
       "performance-*",
       "readability-*",
-      "misc-const-correctness",
-      "misc-non-private-member-variables-in-classes",
-      "misc-unused-parameters"
+      "misc-non-private-member-variables-in-classes"
     ]
     Remove: [
+      "llvmlibc-*",
+      "google-build-using-namespace",
       "modernize-use-trailing-return-type",
-      "hicpp-no-array-decay"
+      "hicpp-no-array-decay",
+      "fuchsia-*",
+      "readability-identifier-length",
+      "readability-identifier-naming",
+      "altera-*",
+      "cppcoreguidelines-avoid-magic-numbers",
+      "readability-magic-numbers"
     ]
     
 Index:

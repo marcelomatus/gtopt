@@ -38,8 +38,8 @@ set(CPM_USE_LOCAL_PACKAGES ON)
 set(CPM_DOWNLOAD_ALL ON)
 
 
-# set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime")
-# set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
+set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError")
+#set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 
 set(USE_CCACHE YES)
 

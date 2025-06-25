@@ -82,8 +82,8 @@ TEST_CASE("StateVariable dependent variable templates")
       static SceneIndex scene_index() { return SceneIndex {4}; }
     };
 
-    TestScenarioLP scenario;
-    TestStageLP stage;
+    const TestScenarioLP scenario;
+    const TestStageLP stage;
 
     const auto& dep = var.add_dependent_variable(scenario, stage, 6);
     CHECK(dep.scene_index() == SceneIndex {4});

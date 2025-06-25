@@ -19,7 +19,7 @@ TEST_CASE("JSON Planning - Serialize empty")
   using namespace gtopt;
 
   // Create empty planning
-  Planning opt {};
+  const Planning opt {};
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(opt);
@@ -35,16 +35,16 @@ TEST_CASE("JSON Planning - Round trip serialization")
   using namespace gtopt;
 
   // Create planning with components
-  Options options {};
-  Simulation simulation {};
+  const Options options {};
+  const Simulation simulation {};
 
   // Create minimal system
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> gen_array = {
       {.uid = Uid {1}, .name = "g1", .bus = Uid {1}}};
-  System system {.name = "TestSystem",
-                 .bus_array = bus_array,
-                 .generator_array = gen_array};
+  const System system {.name = "TestSystem",
+                       .bus_array = bus_array,
+                       .generator_array = gen_array};
 
   Planning original {
       .options = options, .simulation = simulation, .system = system};
@@ -74,7 +74,7 @@ TEST_CASE("JSON Planning - Partial filled objects")
   using namespace gtopt;
 
   // Create planning with only some components filled
-  Planning opt1 {
+  const Planning opt1 {
       .options = {},
       .simulation = {},  // Empty simulation
       .system = {}  // Empty system
@@ -88,9 +88,9 @@ TEST_CASE("JSON Planning - Partial filled objects")
   CHECK(deserialized1.system.name.empty());
 
   // Another test with different components filled
-  Planning opt2 {.options = {},  // Empty options
-                 .simulation = {},  // Empty simulation
-                 .system = {.name = "TestSystem"}};
+  const Planning opt2 {.options = {},  // Empty options
+                       .simulation = {},  // Empty simulation
+                       .system = {.name = "TestSystem"}};
 
   // Serialize and deserialize
   const auto json_data2 = daw::json::to_json(opt2);

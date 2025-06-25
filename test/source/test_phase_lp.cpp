@@ -71,7 +71,7 @@ TEST_CASE("PhaseLP duration calculation")
       Block {.duration = 5.0}  // stage 2 total: 12.0
   };
 
-  Phase phase {.uid = 1, .first_stage = 0, .count_stage = 2};
+  const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 2};
   const PhaseLP phase_lp(phase, options, stages, blocks);
 
   // Total duration should be sum of all stage durations (3.0 + 12.0)
@@ -103,7 +103,7 @@ TEST_CASE("PhaseLP stage access")
 
   SUBCASE("Full phase")
   {
-    Phase phase {.uid = 1, .first_stage = 0, .count_stage = 3};
+    const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 3};
     const PhaseLP phase_lp(phase, options, stages, blocks);
 
     CHECK(phase_lp.stages().size() == 2);  // Only active stages
@@ -113,7 +113,7 @@ TEST_CASE("PhaseLP stage access")
 
   SUBCASE("Partial phase")
   {
-    Phase phase {.uid = 1, .first_stage = 1, .count_stage = 2};
+    const Phase phase {.uid = 1, .first_stage = 1, .count_stage = 2};
     const PhaseLP phase_lp(phase, options, stages, blocks);
 
     CHECK(phase_lp.stages().size() == 1);  // Only one active stage in range
@@ -134,14 +134,16 @@ TEST_CASE("PhaseLP active status")
 
   SUBCASE("Active phase")
   {
-    Phase phase {.uid = 1, .active = true, .first_stage = 0, .count_stage = 1};
+    const Phase phase {
+        .uid = 1, .active = true, .first_stage = 0, .count_stage = 1};
     const PhaseLP phase_lp(phase, options, stages, blocks);
     CHECK(phase_lp.is_active());
   }
 
   SUBCASE("Inactive phase")
   {
-    Phase phase {.uid = 1, .active = false, .first_stage = 0, .count_stage = 1};
+    const Phase phase {
+        .uid = 1, .active = false, .first_stage = 0, .count_stage = 1};
     const PhaseLP phase_lp(phase, options, stages, blocks);
     CHECK_FALSE(phase_lp.is_active());
   }
@@ -166,7 +168,7 @@ TEST_CASE("PhaseLP construction from simulation")
                                    .discount_factor = std::nullopt}};
   simulation.block_array = {Block {.duration = 1.0}};
 
-  Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
+  const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
   const PhaseLP phase_lp(phase, options, simulation);
 
   CHECK(phase_lp.stages().size() == 1);

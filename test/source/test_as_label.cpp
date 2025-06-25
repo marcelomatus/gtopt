@@ -35,8 +35,8 @@ TEST_CASE("as_label basic functionality")
 
   SUBCASE("mixed types")
   {
-    std::string s = "str";
-    std::string_view sv = "view";
+    const std::string s = "str";
+    const std::string_view sv = "view";
     CHECK(as_label(s, sv, 42) == "str_view_42");
     CHECK(as_label("prefix", 3.14, "suffix") == "prefix_3.14_suffix");
   }

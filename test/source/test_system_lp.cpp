@@ -27,7 +27,7 @@ TEST_CASE("SystemLP 1")
                                              .gcost = 50.0,
                                              .capacity = 1000.0}};
 
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {3}, .duration = 1},
                       {.uid = Uid {4}, .duration = 2},
                       {.uid = Uid {5}, .duration = 3}},
@@ -35,10 +35,10 @@ TEST_CASE("SystemLP 1")
                       {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
       .scenario_array = {{.uid = Uid {0}}}};
 
-  System system = {.name = "SEN",
-                   .bus_array = bus_array,
-                   .demand_array = demand_array,
-                   .generator_array = generator_array};
+  const System system = {.name = "SEN",
+                         .bus_array = bus_array,
+                         .demand_array = demand_array,
+                         .generator_array = generator_array};
 
   REQUIRE(simulation.scenario_array.size() == 1);
   REQUIRE(simulation.stage_array.size() == 2);
@@ -49,7 +49,7 @@ TEST_CASE("SystemLP 1")
   REQUIRE(system.generator_array.size() == 1);
   REQUIRE(!system.line_array.empty() == false);
 
-  OptionsLP options;
+  const OptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);

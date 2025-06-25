@@ -30,27 +30,27 @@ TEST_CASE("Simulation - Constructor initialization")
                                              .capacity = 100.0}};
 
   // Create minimal system
-  Options options = {};
+  const Options options = {};
 
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  System system {.name = "TestSys",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array,
-                 .line_array = {}};
+  const System system {.name = "TestSys",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array,
+                       .line_array = {}};
 
   // Test constructor
-  OptionsLP options_lp(options);
+  const OptionsLP options_lp(options);
   SimulationLP simulation_lp(simulation, options_lp);
 
   SystemLP system_lp(system, simulation_lp);
-  SystemContext system_context(simulation_lp, system_lp);
-  InputContext ic(system_context);
+  const SystemContext system_context(simulation_lp, system_lp);
+  const InputContext ic(system_context);
 
   CHECK(ic.system_context().system().elements<BusLP>().size()
         == system.bus_array.size());
@@ -71,27 +71,27 @@ TEST_CASE("Simulation - Basic LP run without solving")
                                              .gcost = 50.0,
                                              .capacity = 100.0}};
 
-  Options options = {};
+  const Options options = {};
 
-  Simulation simulation = {
+  const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  System system {.name = "TestSys",
-                 .bus_array = bus_array,
-                 .demand_array = demand_array,
-                 .generator_array = generator_array,
-                 .line_array = {}};
+  const System system {.name = "TestSys",
+                       .bus_array = bus_array,
+                       .demand_array = demand_array,
+                       .generator_array = generator_array,
+                       .line_array = {}};
 
   // Test constructor
-  OptionsLP options_lp(options);
+  const OptionsLP options_lp(options);
   SimulationLP simulation_lp(simulation, options_lp);
 
   SystemLP system_lp(system, simulation_lp);
-  SystemContext system_context(simulation_lp, system_lp);
-  InputContext ic(system_context);
+  const SystemContext system_context(simulation_lp, system_lp);
+  const InputContext ic(system_context);
 
   // Create minimal system
 

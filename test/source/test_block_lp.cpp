@@ -48,17 +48,17 @@ TEST_CASE("BlockLP move semantics")
   constexpr Block test_block {.uid = 123};
   constexpr BlockIndex test_index {42};
 
-  BlockLP original(test_block, test_index);
-
   SUBCASE("Move construction")
   {
-    BlockLP moved(std::move(original));
+    BlockLP original(test_block, test_index);
+    const BlockLP moved(std::move(original));
     CHECK(moved.uid() == BlockUid {test_block.uid});
     CHECK(moved.index() == test_index);
   }
 
   SUBCASE("Move assignment")
   {
+    BlockLP original(test_block, test_index);
     BlockLP moved;
     moved = std::move(original);
     CHECK(moved.uid() == BlockUid {test_block.uid});
