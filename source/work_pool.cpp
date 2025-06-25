@@ -1,9 +1,6 @@
 // Standard library
 #include <algorithm>
-#include <functional>
 #include <format>
-#include <memory>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -133,7 +130,9 @@ void AdaptiveWorkPool::schedule_next_task()
     return;
   }
 
-  Task<void> task = std::move(const_cast<Task<void>&>(task_queue_.top()));
+  Task<void> task =
+      std::move(const_cast<Task<void>&>(task_queue_.top()));  // NOLINT
+
   task_queue_.pop();
 
   auto req = task.requirements();
