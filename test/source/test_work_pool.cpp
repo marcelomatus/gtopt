@@ -275,4 +275,85 @@ TEST_SUITE("WorkPool")
   }
 }
 
+TEST_SUITE("CPUMonitor")
+{
+  TEST_CASE("Basic functionality")
+  {
+    gtopt::CPUMonitor monitor;
+    
+    SUBCASE("Start/stop monitoring")
+    {
+      monitor.start();
+      CHECK_NOTHROW(monitor.stop());
+    }
+
+    SUBCASE("Get CPU load")
+    {
+      monitor.start();
+      const auto load = monitor.get_load();
+      CHECK(load >= 0.0);
+      CHECK(load <= 100.0);
+      monitor.stop();
+    }
+
+    SUBCASE("Get system CPU usage")
+    {
+      const auto usage = gtopt::CPUMonitor::get_system_cpu_usage();
+      CHECK(usage >= 0.0);
+      CHECK(usage <= 100.0);
+    }
+  }
+
+  TEST_CASE("Edge cases")
+  {
+    gtopt::CPUMonitor monitor;
+    
+    SUBCASE("Double start")
+    {
+      monitor.start();
+      CHECK_NOTHROW(monitor.start()); // Should handle gracefully
+      monitor.stop();
+    }
+
+    SUBCASE("Stop without start")
+    {
+      CHECK_NOTHROW(monitor.stop());
+    }
+
+    SUBCASE("Get load when not running") 
+    {
+      CHECK(monitor.get_load() == 0.0);
+    }
+  }
+
+  TEST_CASE("Mock CPU monitoring")
+  {
+    class MockCPUMonitor : public gtopt::CPUMonitor {
+    public:
+      void set_test_load(double load) { test_load_ = load; }
+      
+      [[nodiscard]] double get_load() const noexcept override {
+        return test_load_;
+      }
+
+    private:
+      double test_load_ = 50.0;
+    };
+
+    MockCPUMonitor monitor;
+    
+    SUBCASE("Simulate low CPU load")
+    {
+      monitor.set_test_load(25.0);
+      CHECK(monitor.get_load() == 25.0);
+    }
+
+    SUBCASE("Simulate high CPU load")
+    {
+      monitor.set_test_load(90.0);
+      CHECK(monitor.get_load() == 90.0);
+    }
+  }
+}
+
 }  // namespace gtopt
