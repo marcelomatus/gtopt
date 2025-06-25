@@ -1,11 +1,24 @@
 CompileFlags:
-  Add: [-Wlifetime, -Wall]
+  Add: [-Wlifetime, -Wall, -Wextra, -Wconversion, -Werror]
 
 Diagnostics:
   UnusedIncludes: Strict
-  Diagnostics:
   ClangTidy:
-    Add: [*, readability-*, modernize-*, misc-const-correctness]
-    Remove: [modernize-use-trailing-return-type]
-
+    Add: [
+      "bugprone-*",
+      "cppcoreguidelines-*", 
+      "hicpp-*",
+      "modernize-*",
+      "performance-*",
+      "readability-*",
+      "misc-const-correctness",
+      "misc-non-private-member-variables-in-classes",
+      "misc-unused-parameters"
+    ]
+    Remove: [
+      "modernize-use-trailing-return-type",
+      "hicpp-no-array-decay"
+    ]
     
+Index:
+  Background: Build
