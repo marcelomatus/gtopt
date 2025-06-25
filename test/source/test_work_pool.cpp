@@ -189,7 +189,8 @@ TEST_CASE("WorkPool stress testing")
   {
     int n = 50;
     std::vector<std::future<int>> futures;
-    futures.reserve(n);  // Implicit conversion from int to size_t is safe here
+    futures.reserve(std::static_cast<std::size_t>(
+        n));  // Implicit conversion from int to size_t is safe here
 
     std::atomic<int> counter {0};
 
