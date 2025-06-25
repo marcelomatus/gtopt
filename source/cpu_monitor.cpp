@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <gtopt/cpu_monitor.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
