@@ -164,7 +164,7 @@ TEST_SUITE("WorkPool")
   TEST_CASE("WorkPool stress testing")
   {
     constexpr int max_threads = 16;
-    gtopt::WorkPoolConfig config;
+    WorkPoolConfig config;
     config.max_threads = max_threads;
     config.max_cpu_threshold = 90.0;
     config.scheduler_interval = 10ms;
@@ -254,7 +254,7 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Constexpr verification")
     {
-      constexpr gtopt::WorkPoolConfig cfg {
+      constexpr WorkPoolConfig cfg {
           4,  // max_threads
           80.0,  // max_cpu_threshold
           std::chrono::milliseconds(10)  // scheduler_interval
@@ -267,7 +267,7 @@ TEST_SUITE("WorkPool")
 
     SUBCASE("Noexcept verification")
     {
-      const gtopt::AdaptiveWorkPool pool;
+      const AdaptiveWorkPool pool;
       CHECK(noexcept(pool.get_statistics()));
     }
 
@@ -279,8 +279,8 @@ TEST_SUITE("CPUMonitor")
 {
   TEST_CASE("Basic functionality")
   {
-    gtopt::CPUMonitor monitor;
-    
+    CPUMonitor monitor;
+
     SUBCASE("Start/stop monitoring")
     {
       monitor.start();
@@ -298,7 +298,7 @@ TEST_SUITE("CPUMonitor")
 
     SUBCASE("Get system CPU usage")
     {
-      const auto usage = gtopt::CPUMonitor::get_system_cpu_usage();
+      const auto usage = CPUMonitor::get_system_cpu_usage();
       CHECK(usage >= 0.0);
       CHECK(usage <= 100.0);
     }
@@ -307,11 +307,11 @@ TEST_SUITE("CPUMonitor")
   TEST_CASE("Edge cases")
   {
     gtopt::CPUMonitor monitor;
-    
+
     SUBCASE("Double start")
     {
       monitor.start();
-      CHECK_NOTHROW(monitor.start()); // Should handle gracefully
+      CHECK_NOTHROW(monitor.start());  // Should handle gracefully
       monitor.stop();
     }
 
@@ -320,7 +320,7 @@ TEST_SUITE("CPUMonitor")
       CHECK_NOTHROW(monitor.stop());
     }
 
-    SUBCASE("Get load when not running") 
+    SUBCASE("Get load when not running")
     {
       CHECK(monitor.get_load() == 0.0);
     }
@@ -328,20 +328,19 @@ TEST_SUITE("CPUMonitor")
 
   TEST_CASE("Mock CPU monitoring")
   {
-    class MockCPUMonitor : public gtopt::CPUMonitor {
+    class MockCPUMonitor : public gtopt::CPUMonitor
+    {
     public:
       void set_test_load(double load) { test_load_ = load; }
-      
-      [[nodiscard]] double get_load() const noexcept override {
-        return test_load_;
-      }
+
+      [[nodiscard]] double get_load() const noexcept { return test_load_; }
 
     private:
       double test_load_ = 50.0;
     };
 
     MockCPUMonitor monitor;
-    
+
     SUBCASE("Simulate low CPU load")
     {
       monitor.set_test_load(25.0);
