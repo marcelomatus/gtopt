@@ -111,6 +111,19 @@ struct SparseRow
   }
 
   /**
+   * @brief Compile-time element access (consteval version)
+   * @param key Column index to access
+   * @return Coefficient value (0.0 by default for compile-time evaluation)
+   * @note This is primarily for constexpr contexts where runtime map access isn't possible
+   * @warning Returns 0.0 for all keys - override in derived classes for actual compile-time storage
+   */
+  [[nodiscard]] static consteval double static_get_coeff(ColIndex key) noexcept
+  {
+    [[assume(key >= 0)]]; // Column indices are non-negative
+    return 0.0; // Default for compile-time evaluation
+  }
+
+  /**
    * Sets a coefficient value
    * @param c Column index
    * @param e Coefficient value
@@ -128,13 +141,21 @@ struct SparseRow
    * @return Reference to coefficient value
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& operator[](this Self&& self, ColIndex key)
+  [[nodiscard]] constexpr decltype(auto) operator[](this Self&& self, ColIndex key)
+    requires std::same_as<std::remove_cvref_t<Self>, SparseRow>
   {
-    if (std::is_const_v<std::remove_reference_t<Self>()>()) {
-      // If Self is const, return a value, no insertion
-      return std::forward<Self>(self).get_coeff(key);
+#ifndef NDEBUG
+    if (key < 0) {
+      throw std::out_of_range("Negative column index");
     }
-    return std::forward<Self>(self).cmap[key];
+#endif
+    if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
+      // Const version - return by value
+      return std::forward<Self>(self).get_coeff(key);
+    } else {
+      // Non-const version - return reference for modification
+      return std::forward<Self>(self).cmap[key];
+    }
   }
 
   /**
