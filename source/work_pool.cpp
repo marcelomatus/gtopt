@@ -1,4 +1,5 @@
 #include <gtopt/work_pool.hpp>
+#include <gtopt/cpu_monitor.hpp>
 
 namespace gtopt {
 
