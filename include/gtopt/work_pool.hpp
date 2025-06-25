@@ -9,10 +9,6 @@
  * - Dynamically adjusts task scheduling based on CPU load
  * - Supports task priorities (Low, Medium, High, Critical)
  * - Provides detailed statistics and monitoring
- * - Uses modern C++23 features including:
- *   - std::jthread for thread management
- *   - std::counting_semaphore for resource control
- *   - std::format for logging
  * - Exception-safe design with proper cleanup
  */
 
@@ -132,6 +128,24 @@ public:
   }
 };
 
+struct ActiveTask
+{
+  std::future<void> future;
+  TaskRequirements requirements;
+  std::chrono::steady_clock::time_point start_time;
+
+  [[nodiscard]] bool is_ready() const noexcept
+  {
+    return future.wait_for(std::chrono::seconds(0))
+        == std::future_status::ready;
+  }
+
+  [[nodiscard]] constexpr auto runtime() const noexcept
+  {
+    return std::chrono::steady_clock::now() - start_time;
+  }
+};
+
 class AdaptiveWorkPool
 {
   // Separate mutexes for different concerns
@@ -139,23 +153,6 @@ class AdaptiveWorkPool
   mutable std::mutex active_mutex_;  // Protects active tasks
   std::condition_variable cv_;
   std::priority_queue<Task<void>> task_queue_;
-  struct ActiveTask
-  {
-    std::future<void> future;
-    TaskRequirements requirements;
-    std::chrono::steady_clock::time_point start_time;
-
-    [[nodiscard]] bool is_ready() const noexcept
-    {
-      return future.wait_for(std::chrono::seconds(0))
-          == std::future_status::ready;
-    }
-
-    [[nodiscard]] constexpr auto runtime() const noexcept
-    {
-      return std::chrono::steady_clock::now() - start_time;
-    }
-  };
 
   std::vector<ActiveTask> active_tasks_;
   std::counting_semaphore<> available_threads_ {0};
@@ -173,16 +170,6 @@ class AdaptiveWorkPool
   std::atomic<size_t> tasks_submitted_ {0};
 
 public:
-  struct Statistics
-  {
-    size_t tasks_submitted;
-    size_t tasks_completed;
-    size_t tasks_pending;
-    size_t tasks_active;
-    int active_threads;
-    double current_cpu_load;
-  };
-
   AdaptiveWorkPool(AdaptiveWorkPool&&) = delete;
   AdaptiveWorkPool(const AdaptiveWorkPool&) = delete;
   AdaptiveWorkPool& operator=(const AdaptiveWorkPool&) = delete;
@@ -273,6 +260,16 @@ public:
     return submit(std::forward<Func>(func), std::move(req));
   }
 
+  struct Statistics
+  {
+    size_t tasks_submitted;
+    size_t tasks_completed;
+    size_t tasks_pending;
+    size_t tasks_active;
+    int active_threads;
+    double current_cpu_load;
+  };
+
   Statistics get_statistics() const noexcept
   {
     std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
@@ -308,7 +305,7 @@ public:
     }
   }
 
-  void info_statistics() const { SPDLOG_INFO(format_statistics()); }
+  void log_statistics() const { SPDLOG_INFO(format_statistics()); }
 
 private:
   void cleanup_completed_tasks();

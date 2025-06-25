@@ -1,10 +1,13 @@
-#include <gtopt/cpu_monitor.hpp>
+
 #include <fstream>
 #include <numeric>
 #include <sstream>
 #include <vector>
 
-namespace gtopt {
+#include <gtopt/cpu_monitor.hpp>
+
+namespace gtopt
+{
 
 void CPUMonitor::start()
 {
@@ -74,4 +77,4 @@ double CPUMonitor::get_system_cpu_usage()
   return 0.0;
 }
 
-} // namespace gtopt
+}  // namespace gtopt

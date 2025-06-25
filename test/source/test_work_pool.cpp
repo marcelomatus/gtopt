@@ -36,7 +36,7 @@ TEST_SUITE("WorkPool")
             execution_order.push_back(1);
             counter++;
           },
-          {.priority = Priority::High, .name = "high_priority_task"});
+          {.priority = TaskPriority::High, .name = "high_priority_task"});
 
       auto medium_task = pool.submit(
           [&]
@@ -45,7 +45,7 @@ TEST_SUITE("WorkPool")
             execution_order.push_back(2);
             counter++;
           },
-          {.priority = Priority::Medium, .name = "medium_priority_task"});
+          {.priority = TaskPriority::Medium, .name = "medium_priority_task"});
       REQUIRE(medium_task.has_value());
 
       auto low_task = pool.submit(
@@ -55,7 +55,7 @@ TEST_SUITE("WorkPool")
             execution_order.push_back(3);
             counter++;
           },
-          {.priority = Priority::Low, .name = "low_priority_task"});
+          {.priority = TaskPriority::Low, .name = "low_priority_task"});
 
       // Wait for all tasks to complete
       high_task.value().wait();
