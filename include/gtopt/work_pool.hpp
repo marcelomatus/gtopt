@@ -52,11 +52,11 @@ struct WorkPoolConfig
   double max_cpu_threshold;
   std::chrono::milliseconds scheduler_interval;
 
-  explicit constexpr WorkPoolConfig(int max_threads_ = static_cast<int>(
-                                std::thread::hardware_concurrency()),
-                            double max_cpu_threshold_ = 95.0,
-                            std::chrono::milliseconds scheduler_interval_ =
-                                std::chrono::milliseconds(20)) noexcept
+  explicit constexpr WorkPoolConfig(
+      int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
+      double max_cpu_threshold_ = 95.0,
+      std::chrono::milliseconds scheduler_interval_ =
+          std::chrono::milliseconds(20)) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , scheduler_interval(scheduler_interval_)
@@ -442,7 +442,8 @@ public:
       const auto stats = get_statistics();
       return std::format(
           "=== WorkPool Statistics ===\n"
-          "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} active\n"
+          "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} "
+          "active\n"
           "Threads: {:>6} active / {:>6} max\n"
           "CPU Load: {:>6.1f}%\n",
           stats.tasks_submitted,
@@ -457,10 +458,7 @@ public:
     }
   }
 
-  void info_statistics() const
-  {
-    SPDLOG_INFO(format_statistics());
-  }
+  void info_statistics() const { SPDLOG_INFO(format_statistics()); }
 
   void cleanup_completed_tasks()
   {
@@ -530,7 +528,7 @@ public:
 
     // Extract requirements before moving task
     auto req = task.requirements();
-    const auto threads_needed = static_cast<int>(req.estimated_threads);
+    const auto threads_needed = req.estimated_threads;
     active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
 
     try {

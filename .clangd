@@ -12,8 +12,7 @@ Diagnostics:
       "hicpp-*",
       "modernize-*",
       "performance-*",
-      "readability-*",
-      "misc-non-private-member-variables-in-classes"
+      "readability-*"
     ]
     Remove: [
       "llvmlibc-*",
@@ -25,7 +24,10 @@ Diagnostics:
       "readability-identifier-naming",
       "altera-*",
       "cppcoreguidelines-avoid-magic-numbers",
-      "readability-magic-numbers"
+      "readability-magic-numbers",
+      "misc-non-private-member-variables-in-classes",
+      "bugprone-easily-swappable-parameters",
+      "boost-use-ranges"
     ]
     
 Index:
