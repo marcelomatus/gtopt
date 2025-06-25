@@ -66,7 +66,7 @@ enum class TaskStatus : uint8_t
   Cancelled
 };
 
-enum class Priority : uint8_t
+enum class TaskPriority : uint8_t
 {
   Low = 0,
   Medium = 1,
@@ -78,7 +78,7 @@ struct TaskRequirements
 {
   int estimated_threads = 1;
   std::chrono::milliseconds estimated_duration {1000};
-  Priority priority = Priority::Medium;
+  TaskPriority priority = TaskPriority::Medium;
   std::optional<std::string> name;
 };
 

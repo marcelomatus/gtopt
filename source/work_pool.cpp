@@ -101,10 +101,10 @@ bool AdaptiveWorkPool::should_schedule_new_task() const
 
   auto threshold = max_cpu_threshold_;
   switch (next_task.requirements().priority) {
-    case Priority::Critical:
+    case TaskPriority::Critical:
       threshold = 95.0;
       break;
-    case Priority::High:
+    case TaskPriority::High:
       threshold = max_cpu_threshold_ + 5.0;
       break;
     default:
