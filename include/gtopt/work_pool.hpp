@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -33,7 +32,6 @@
 #include <numeric>
 #include <optional>
 #include <queue>
-#include <ranges>
 #include <semaphore>
 #include <stop_token>
 #include <string>
