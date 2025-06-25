@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <gtopt/fmap.hpp>
+#include <gtopt/sparse_col.hpp>
 
 namespace gtopt
 {
@@ -47,13 +48,13 @@ struct SparseRow
 {
   static constexpr double const CoinDblMax = std::numeric_limits<double>::max();
 
-  using cmap_t = flat_map<size_t, double>;  ///< Type for coefficient storage
+  using cmap_t = flat_map<ColIndex, double>;  ///< Type for coefficient storage
   using size_type = typename cmap_t::size_type;
 
   std::string name;  ///< Row/constraint name (empty for anonymous constraints)
   double lowb {0};  ///< Lower bound (default: 0)
   double uppb {0};  ///< Upper bound (default: 0)
-  cmap_t cmap {};  ///< Sparse coefficient map
+  cmap_t cmap;  ///< Sparse coefficient map
 
   /**
    * Sets both lower and upper bounds for the constraint
@@ -115,7 +116,7 @@ struct SparseRow
    * @param e Coefficient value
    * @return Reference to this row for method chaining
    */
-  constexpr SparseRow& set_coeff(size_t c, double e) noexcept
+  constexpr SparseRow& set_coeff(ColIndex c, double e) noexcept
   {
     cmap[c] = e;
     return *this;
@@ -126,16 +127,14 @@ struct SparseRow
    * @param key Column index
    * @return Reference to coefficient value
    */
-  constexpr double& operator[](size_t key) noexcept { return cmap[key]; }
-
-  /**
-   * Gets a coefficient (const version)
-   * @param key Column index
-   * @return Coefficient value (0 if not found)
-   */
-  [[nodiscard]] constexpr double operator[](size_t key) const noexcept
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& operator[](this Self&& self, ColIndex key)
   {
-    return get_coeff(key);
+    if (std::is_const_v<std::remove_reference_t<Self>()>()) {
+      // If Self is const, return a value, no insertion
+      return std::forward<Self>(self).get_coeff(key);
+    }
+    return std::forward<Self>(self).cmap[key];
   }
 
   /**
@@ -191,5 +190,7 @@ struct SparseRow
     return {std::move(keys), std::move(vals)};
   }
 };
+
+using RowIndex = int;  ///< Type alias for row index
 
 }  // namespace gtopt
