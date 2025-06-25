@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <functional>
 
 #include <gtopt/cpu_monitor.hpp>
 #include <gtopt/work_pool.hpp>

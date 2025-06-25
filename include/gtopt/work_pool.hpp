@@ -23,7 +23,6 @@
 #include <condition_variable>
 #include <expected>
 #include <format>
-#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
