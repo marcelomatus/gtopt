@@ -3,3 +3,9 @@ CompileFlags:
 
 Diagnostics:
   UnusedIncludes: Strict
+  Diagnostics:
+  ClangTidy:
+    Add: [*, readability-*, modernize-*, misc-const-correctness]
+    Remove: [modernize-use-trailing-return-type]
+
+    
