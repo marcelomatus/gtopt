@@ -23,23 +23,20 @@
 #include <condition_variable>
 #include <expected>
 #include <format>
-#include <fstream>
 #include <functional>
 #include <future>
-#include <iostream>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <queue>
 #include <semaphore>
-#include <stop_token>
 #include <string>
 #include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include <gtopt/cpu_monitor.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -84,8 +81,6 @@ struct TaskRequirements
   Priority priority = Priority::Medium;
   std::optional<std::string> name;
 };
-
-#include <gtopt/cpu_monitor.hpp>
 
 template<typename T = void>
 class Task

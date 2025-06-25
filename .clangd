@@ -12,7 +12,9 @@ Diagnostics:
       "hicpp-*",
       "modernize-*",
       "performance-*",
-      "readability-*"
+      "readability-*",
+      "bugprone-use-after-move",
+      "hicpp-invalid-access-moved"
     ]
     Remove: [
       "llvmlibc-*",
@@ -27,7 +29,8 @@ Diagnostics:
       "readability-magic-numbers",
       "misc-non-private-member-variables-in-classes",
       "bugprone-easily-swappable-parameters",
-      "boost-use-ranges"
+      "boost-use-ranges",
+      "llvm-include-order"
     ]
     
 Index:
