@@ -36,11 +36,18 @@ void CPUMonitor::stop()
 
 double CPUMonitor::get_system_cpu_usage()
 {
+  // Note: We open/close /proc/stat each time rather than keeping it open
+  // because:
+  // 1. /proc files are cheap to open
+  // 2. It ensures we always get fresh data
+  // 3. Avoids thread-safety and file descriptor leak issues
+  
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;
 
   std::ifstream proc_stat("/proc/stat");
   if (!proc_stat) {
+    SPDLOG_WARN("Failed to open /proc/stat, using fallback CPU value");
     return 50.0;  // fallback
   }
 
