@@ -54,12 +54,9 @@ double CPUMonitor::get_system_cpu_usage()
   ss >> cpu_name;
 
   std::array<uint64_t, 10> times {};
-  size_t count = 0;
-  uint64_t time = 0;
-  while (count < times.size() && ss >> time) {
-    times[count] = time;  // NOLINT
-    ++count;
-  }
+  auto count = std::ranges::copy(
+      std::views::istream<uint64_t>(ss) | std::views::take(times.size()),
+      times.begin()).in - times.begin();
 
   if (count < 4) {
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
