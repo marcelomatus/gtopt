@@ -37,12 +37,6 @@ void CPUMonitor::stop()
 
 double CPUMonitor::get_system_cpu_usage()
 {
-  // Note: We open/close /proc/stat each time rather than keeping it open
-  // because:
-  // 1. /proc files are cheap to open
-  // 2. It ensures we always get fresh data
-  // 3. Avoids thread-safety and file descriptor leak issues
-  
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;
 
@@ -60,6 +54,7 @@ double CPUMonitor::get_system_cpu_usage()
   ss >> cpu_name;
 
   std::vector<uint64_t> times;
+  times.reserve(10);
   uint64_t time = 0;
   while (ss >> time) {
     times.push_back(time);
