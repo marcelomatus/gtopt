@@ -53,14 +53,16 @@ double CPUMonitor::get_system_cpu_usage()
   std::string cpu_name;
   ss >> cpu_name;
 
-  std::vector<uint64_t> times;
-  times.reserve(10);
-  uint64_t time = 0;
-  while (ss >> time) {
-    times.push_back(time);
+  std::array<uint64_t, 10> times{};
+  size_t count = 0;
+  while (count < times.size() && ss >> times[count]) {
+    ++count;
   }
 
-  if (times.size() >= 4) {
+  if (count < 4) {
+    SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
+    return 0.0;
+  }
     auto idle = times[3];
     auto total = std::accumulate(times.begin(), times.end(), 0ULL);
 
