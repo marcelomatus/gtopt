@@ -42,7 +42,7 @@ public:
   void start();
   void stop();
 
-  void set_interval(std::chrono::milliseconds interval)
+  void set_interval(std::chrono::milliseconds interval) noexcept
   {
     monitor_interval_ = interval;
   }
