@@ -41,14 +41,37 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value)
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;
 
-  std::ifstream proc_stat("/proc/stat");
-  if (!proc_stat) {
-    SPDLOG_WARN("Failed to open /proc/stat, using fallback CPU value");
-    return 50.0;  // fallback
-  }
+  const std::filesystem::path proc_stat_path("/proc/stat");
+  
+  try {
+    if (!std::filesystem::exists(proc_stat_path)) {
+      SPDLOG_WARN("{} does not exist, using fallback CPU value: {}",
+                 proc_stat_path.string(), fallback_value);
+      return fallback_value;
+    }
 
-  std::string line;
-  std::getline(proc_stat, line);
+    std::ifstream proc_stat(proc_stat_path);
+    if (!proc_stat.is_open()) {
+      SPDLOG_WARN("Failed to open {} (errno: {}), using fallback CPU value: {}",
+                 proc_stat_path.string(), errno, fallback_value);
+      return fallback_value;
+    }
+
+    std::string line;
+    if (!std::getline(proc_stat, line)) {
+      SPDLOG_WARN("Failed to read from {}, using fallback CPU value: {}",
+                 proc_stat_path.string(), fallback_value);
+      return fallback_value;
+    }
+  } catch (const std::filesystem::filesystem_error& e) {
+    SPDLOG_WARN("Filesystem error accessing {} ({}), using fallback CPU value: {}",
+               proc_stat_path.string(), e.what(), fallback_value);
+    return fallback_value;
+  } catch (const std::exception& e) {
+    SPDLOG_WARN("Exception while reading {} ({}), using fallback CPU value: {}",
+               proc_stat_path.string(), e.what(), fallback_value);
+    return fallback_value;
+  }
 
   std::istringstream ss(line);
   // skip the 'cpu' string until we reach the first space/number
