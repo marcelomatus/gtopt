@@ -36,7 +36,7 @@ void CPUMonitor::stop()
   }
 }
 
-double CPUMonitor::get_system_cpu_usage()
+double CPUMonitor::get_system_cpu_usage(double fallback_value)
 {
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;

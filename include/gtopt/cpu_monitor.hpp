@@ -33,7 +33,7 @@ public:
     return monitor_interval_;
   }
 
-  static double get_system_cpu_usage();
+  static double get_system_cpu_usage(double fallback_value = 50.0);
 
 private:
   std::atomic<double> current_load_ {0.0};
