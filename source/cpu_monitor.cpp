@@ -60,7 +60,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value)
 
     std::string line;
     if (!std::getline(proc_stat, line)) {
-      SPDLOG_WARN("Failed to read from {}, using fallback CPU value: {}",
+      SPDLOG_WARN("Failed to read from {}, using fallback CPU value: {:.1f}",
                  proc_stat_path.string(), fallback_value);
       return fallback_value;
     }
@@ -74,7 +74,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value)
     return fallback_value;
   }
 
-  std::istringstream ss(std::move(line));
+  std::istringstream ss(line);
   // skip the 'cpu' string until we reach the first space/number
   ss.ignore(std::numeric_limits<std::streamsize>::max(), ' ');
 
