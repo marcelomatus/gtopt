@@ -21,7 +21,7 @@ void AdaptiveWorkPool::start()
   }
 
   try {
-    cpu_monitor_.set_interval(scheduler_interval_);
+    cpu_monitor_.set_interval(3 * scheduler_interval_);
     cpu_monitor_.start();
     scheduler_thread_ =
         std::jthread {[this](const std::stop_token& stoken)

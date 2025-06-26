@@ -311,8 +311,6 @@ private:
   void cleanup_completed_tasks();
   bool should_schedule_new_task() const;
   void schedule_next_task();
-
-public:
 };
 
 }  // namespace gtopt

@@ -227,11 +227,11 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
   REQUIRE(interface.get_obj_coeff()[1] == doctest::Approx(3.0));
 
   // Solve the problem
-  bool status = interface.initial_solve();
+  const bool status = interface.initial_solve();
   REQUIRE(status);
 
   // Get solution
-  auto sol = interface.get_col_sol();
+  const auto sol = interface.get_col_sol();
 
   // For this simple problem, both variables should be at their lower bounds (0)
   // since we're minimizing and they have positive objective coefficients

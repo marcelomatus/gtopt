@@ -72,7 +72,7 @@ public:
    * @param name The name of the column
    * @return The index of the newly added column
    */
-  size_t add_col(const std::string& name);
+  ColIndex add_col(const std::string& name);
 
   /**
    * @brief Adds a new column (variable) with bounds to the problem
@@ -81,14 +81,14 @@ public:
    * @param colub Upper bound for the column
    * @return The index of the newly added column
    */
-  size_t add_col(const std::string& name, double collb, double colub);
+  ColIndex add_col(const std::string& name, double collb, double colub);
 
   /**
    * @brief Adds a new unbounded column (free variable) to the problem
    * @param name The name of the column
    * @return The index of the newly added column
    */
-  size_t add_free_col(const std::string& name);
+  ColIndex add_free_col(const std::string& name);
 
   /**
    * @brief Adds a new constraint row to the problem
@@ -97,7 +97,7 @@ public:
    * ignored)
    * @return The index of the newly added row
    */
-  size_t add_row(const SparseRow& row, double eps = 0.0);
+  RowIndex add_row(const SparseRow& row, double eps = 0.0);
 
   /**
    * @brief Gets the number of constraint rows in the problem
@@ -111,24 +111,24 @@ public:
    */
   [[nodiscard]] size_t get_numcols() const;
 
-  void set_rhs(size_t row, double rhs);
-  void set_row_low(size_t index, double value);
-  void set_row_upp(size_t index, double value);
+  void set_rhs(RowIndex row, double rhs);
+  void set_row_low(RowIndex index, double value);
+  void set_row_upp(RowIndex index, double value);
 
 #ifdef OSI_EXTENDED
-  double get_coeff(size_t row, size_t column) const;
-  void set_coeff(size_t row, size_t column, double value);
+  double get_coeff(RowIndex row, ColIndex column) const;
+  void set_coeff(RowIndex row, ColIndex column, double value);
 #endif
 
-  void set_obj_coeff(size_t index, double value);
+  void set_obj_coeff(ColIndex ijuanndex, double value);
   [[nodiscard]] constexpr auto get_obj_coeff() const
   {
     return std::span(solver->getObjCoefficients(), get_numcols());
   }
 
-  void set_col_low(size_t index, double value);
-  void set_col_upp(size_t index, double value);
-  void set_col(size_t index, double value);
+  void set_col_low(ColIndex index, double value);
+  void set_col_upp(ColIndex index, double value);
+  void set_col(ColIndex index, double value);
 
   [[nodiscard]] double get_obj_value() const;
 
@@ -186,33 +186,33 @@ public:
    * @brief Sets a variable to be continuous (floating-point)
    * @param index Column index to modify
    */
-  void set_continuous(size_t index);
+  void set_continuous(ColIndex index);
 
   /**
    * @brief Sets a variable to be integer
    * @param index Column index to modify
    */
-  void set_integer(size_t index);
+  void set_integer(ColIndex index);
 
   /**
    * @brief Sets a variable to be binary (0-1 integer)
    * @param index Column index to modify
    */
-  void set_binary(size_t index);
+  void set_binary(ColIndex index);
 
   /**
    * @brief Checks if a variable is continuous
    * @param index Column index to check
    * @return True if continuous, false otherwise
    */
-  [[nodiscard]] bool is_continuous(size_t index) const;
+  [[nodiscard]] bool is_continuous(ColIndex index) const;
 
   /**
    * @brief Checks if a variable is integer
    * @param index Column index to check
    * @return True if integer, false otherwise
    */
-  [[nodiscard]] bool is_integer(size_t index) const;
+  [[nodiscard]] bool is_integer(ColIndex index) const;
 
   /**
    * @brief Sets a time limit for the solver
@@ -294,12 +294,12 @@ public:
 private:
   void set_solver_opts(const SolverOptions& solver_options);
 
-  size_t add_row(const std::string& name,
-                 size_t numberElements,
-                 const std::span<const int>& columns,
-                 const std::span<const double>& elements,
-                 double rowlb,
-                 double rowub);
+  RowIndex add_row(const std::string& name,
+                   size_t numberElements,
+                   const std::span<const int>& columns,
+                   const std::span<const double>& elements,
+                   double rowlb,
+                   double rowub);
 
   void open_log_handler(int log_level);
   void close_log_handler();

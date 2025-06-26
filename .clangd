@@ -1,5 +1,5 @@
 CompileFlags:
-  Add: [-Wlifetime, -Wall, -Wextra, -Wconversion, -Werror]
+  Add: [-Wlifetime, -Wall, -Wextra, -Werror]
 
 Diagnostics:
   UnusedIncludes: Strict
@@ -14,7 +14,8 @@ Diagnostics:
       "performance-*",
       "readability-*",
       "bugprone-use-after-move",
-      "hicpp-invalid-access-moved"
+      "hicpp-invalid-access-moved",
+      "modernize-use-ranges"
     ]
     Remove: [
       "llvmlibc-*",
@@ -30,7 +31,8 @@ Diagnostics:
       "misc-non-private-member-variables-in-classes",
       "bugprone-easily-swappable-parameters",
       "boost-use-ranges",
-      "llvm-include-order"
+      "llvm-include-order",
+      "readability-redundant-member-init"
     ]
     
 Index:

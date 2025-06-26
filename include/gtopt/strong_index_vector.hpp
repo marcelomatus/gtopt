@@ -65,6 +65,16 @@ public:
     return std::vector<T>::operator[](pos.value_of());
   }
 
+  typename std::vector<T>::const_reference at(Index pos) const noexcept
+  {
+    return std::vector<T>::at(pos.value_of());
+  }
+
+  typename std::vector<T>::reference at(Index pos) noexcept
+  {
+    return std::vector<T>::at(pos.value_of());
+  }
+
   using typename std::vector<T>::value_type;
   using typename std::vector<T>::allocator_type;
   using typename std::vector<T>::size_type;

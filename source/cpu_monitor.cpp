@@ -11,52 +11,6 @@
 
 namespace gtopt
 {
-
-void CPUMonitor::start()
-{
-  if (running_.exchange(true)) {
-    return; // Already running
-  }
-
-  try {
-    std::jthread temp_thread([this](const std::stop_token& stoken) {
-      while (!stoken.stop_requested() && running_.load(std::memory_order_relaxed)) {
-        try {
-          const double load = get_system_cpu_usage();
-          if (load >= 0.0 && load <= 100.0) {
-            current_load_.store(load, std::memory_order_relaxed);
-          } else {
-            SPDLOG_WARN("Invalid CPU load value: {:.1f}", load);
-          }
-        } catch (const std::exception& e) {
-          SPDLOG_ERROR("Exception in CPU monitoring thread: {} - continuing", e.what());
-        } catch (...) {
-          SPDLOG_ERROR("Unknown exception in CPU monitoring thread - continuing");
-        }
-        std::this_thread::sleep_for(monitor_interval_);
-      }
-    });
-
-    // Verify thread was actually created
-    if (!temp_thread.joinable()) {
-      throw std::runtime_error("Failed to create monitoring thread");
-    }
-    monitor_thread_ = std::move(temp_thread);
-  } catch (...) {
-    running_.store(false); // Rollback state on failure
-    throw;
-  }
-}
-
-void CPUMonitor::stop()
-{
-  running_.store(false, std::memory_order_relaxed);
-  if (monitor_thread_.joinable()) {
-    monitor_thread_.request_stop();
-    monitor_thread_.join();
-  }
-}
-
 double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 {
   static uint64_t last_idle = 0;
@@ -124,6 +78,55 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
   return 100.0
       * (1.0
          - static_cast<double>(idle_delta) / static_cast<double>(total_delta));
+}
+
+void CPUMonitor::start()
+{
+  if (running_.exchange(true)) {
+    return;  // Already running
+  }
+
+  try {
+    std::jthread temp_thread(
+        [this](const std::stop_token& stoken)
+        {
+          while (!stoken.stop_requested()
+                 && running_.load(std::memory_order_relaxed))
+          {
+            try {
+              const double load = get_system_cpu_usage();
+              current_load_.store(load, std::memory_order_relaxed);
+            } catch (const std::exception& e) {
+              SPDLOG_ERROR(fmt::format(
+                  "Exception in CPU monitoring thread: {} - continuing",
+                  e.what()));
+            } catch (...) {
+              SPDLOG_ERROR(
+                  "Unknown exception in CPU monitoring thread - continuing");
+            }
+            std::this_thread::sleep_for(monitor_interval_);
+          }
+        });
+
+    // Verify thread was actually created
+    if (!temp_thread.joinable()) {
+      throw std::runtime_error("Failed to create monitoring thread");
+    }
+    monitor_thread_ = std::move(temp_thread);
+  } catch (...) {
+    running_.store(false);  // Rollback state on failure
+    SPDLOG_ERROR("Exit by exception in CPU monitoring");
+    throw;
+  }
+}
+
+void CPUMonitor::stop()
+{
+  running_.store(false, std::memory_order_relaxed);
+  if (monitor_thread_.joinable()) {
+    monitor_thread_.request_stop();
+    monitor_thread_.join();
+  }
 }
 
 }  // namespace gtopt

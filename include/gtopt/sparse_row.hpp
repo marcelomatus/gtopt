@@ -54,7 +54,7 @@ struct SparseRow
   std::string name;  ///< Row/constraint name (empty for anonymous constraints)
   double lowb {0};  ///< Lower bound (default: 0)
   double uppb {0};  ///< Upper bound (default: 0)
-  cmap_t cmap;  ///< Sparse coefficient map
+  cmap_t cmap {};  ///< Sparse coefficient map
 
   /**
    * Sets both lower and upper bounds for the constraint
@@ -104,23 +104,10 @@ struct SparseRow
    * @param key Column index
    * @return Coefficient value (0 if not found)
    */
-  [[nodiscard]] constexpr double get_coeff(size_t key) const noexcept
+  [[nodiscard]] constexpr double get_coeff(ColIndex key) const noexcept
   {
     const auto iter = cmap.find(key);
     return (iter != cmap.end()) ? iter->second : 0.0;
-  }
-
-  /**
-   * @brief Compile-time element access (consteval version)
-   * @param key Column index to access
-   * @return Coefficient value (0.0 by default for compile-time evaluation)
-   * @note This is primarily for constexpr contexts where runtime map access isn't possible
-   * @warning Returns 0.0 for all keys - override in derived classes for actual compile-time storage
-   */
-  [[nodiscard]] static consteval double static_get_coeff(ColIndex key) noexcept
-  {
-    [[assume(key >= 0)]]; // Column indices are non-negative
-    return 0.0; // Default for compile-time evaluation
   }
 
   /**
@@ -141,14 +128,9 @@ struct SparseRow
    * @return Reference to coefficient value
    */
   template<typename Self>
-  [[nodiscard]] constexpr decltype(auto) operator[](this Self&& self, ColIndex key)
-    requires std::same_as<std::remove_cvref_t<Self>, SparseRow>
+  [[nodiscard]] constexpr decltype(auto) operator[](this Self&& self,
+                                                    ColIndex key)
   {
-#ifndef NDEBUG
-    if (key < 0) {
-      throw std::out_of_range("Negative column index");
-    }
-#endif
     if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
       // Const version - return by value
       return std::forward<Self>(self).get_coeff(key);
@@ -212,6 +194,6 @@ struct SparseRow
   }
 };
 
-using RowIndex = int;  ///< Type alias for row index
+using RowIndex = Index;  ///< Type alias for row index
 
 }  // namespace gtopt
