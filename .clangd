@@ -32,7 +32,8 @@ Diagnostics:
       "bugprone-easily-swappable-parameters",
       "boost-use-ranges",
       "llvm-include-order",
-      "readability-redundant-member-init"
+      "readability-redundant-member-init",
+      "readability-function-cognitive-complexity"
     ]
     
 Index:
