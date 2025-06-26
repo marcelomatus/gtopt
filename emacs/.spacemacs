@@ -280,7 +280,7 @@ It should only modify the values of Spacemacs settings."
    ;; a non-negative integer (pixel size), or a floating-point (point size).
    ;; Point size is recommended, because it's device independent. (default 10.0)
    dotspacemacs-default-font '("Source Code Pro"
-                               :size 10.0
+                               :size 9.0
                                :weight normal
                                :width normal)
 
@@ -481,7 +481,7 @@ It should only modify the values of Spacemacs settings."
    ;; If non-nil pressing the closing parenthesis `)' key in insert mode passes
    ;; over any automatically added closing parenthesis, bracket, quote, etc...
    ;; This can be temporary disabled by pressing `C-q' before `)'. (default nil)
-   dotspacemacs-smart-closing-parenthesis nil
+   dotspacemacs-smart-closing-parenthesis t
 
    ;; Select a scope to highlight delimiters. Possible values are `any',
    ;; `current', `all' or `nil'. Default is `all' (highlight any scope and
@@ -587,31 +587,31 @@ It should only modify the values of Spacemacs settings."
    dotspacemacs-home-shorten-agenda-source nil
 
    ;; If non-nil then byte-compile some of Spacemacs files.
-   dotspacemacs-byte-compile nil))
+   dotspacemacs-byte-compile t))
 
 (defun dotspacemacs/user-env ()
   "Environment variables setup.
-This function defines the environment variables for your Emacs session. By
-default it calls `spacemacs/load-spacemacs-env' which loads the environment
-variables declared in `~/.spacemacs.env' or `~/.spacemacs.d/.spacemacs.env'.
-See the header of this file for more information."
+   This function defines the environment variables for your Emacs session. By
+   default it calls `spacemacs/load-spacemacs-env' which loads the environment
+   variables declared in `~/.spacemacs.env' or `~/.spacemacs.d/.spacemacs.env'.
+   See the header of this file for more information."
   (spacemacs/load-spacemacs-env)
   )
 
 (defun dotspacemacs/user-init ()
   "Initialization for user code:
-This function is called immediately after `dotspacemacs/init', before layer
-configuration.
-It is mostly for variables that should be set before packages are loaded.
-If you are unsure, try setting them in `dotspacemacs/user-config' first."
+   This function is called immediately after `dotspacemacs/init', before layer
+   configuration.
+   It is mostly for variables that should be set before packages are loaded.
+   If you are unsure, try setting them in `dotspacemacs/user-config' first."
   )
 
 (defun dotspacemacs/user-config ()
   "Configuration for user code:
-This function is called at the very end of Spacemacs startup, after layer
-configuration.
-Put your configuration code here, except for variables that should be set
-before packages are loaded."
+   This function is called at the very end of Spacemacs startup, after layer
+   configuration.
+   Put your configuration code here, except for variables that should be set
+   before packages are loaded."
 
   ;; Enable parallel compilation
   (setq compilation-flags '(parallel))
@@ -635,23 +635,23 @@ before packages are loaded."
 
     ;; Configure for Claude
     :init (setq gptel-backend (gptel-make-anthropic
-                                  "Claude"
-                                :models '("claude-3-7-sonnet-20250219"
-                                          "claude-3-5-sonnet-20240620"
-                                          "claude-3-opus-20240229")
-                                :stream t
-                                :key gptel-api-key))
+                               "Claude"
+                               :models '("claude-3-7-sonnet-20250219"
+                                         "claude-3-5-sonnet-20240620"
+                                         "claude-3-opus-20240229")
+                               :stream t
+                               :key gptel-api-key))
 
     (setq gptel-model "claude-3-7-sonnet-20250219")
 
 
     ;; DeepSeek configuration
     :init (setq gptel-backend (gptel-make-deepseek "DeepSeek"
-                                :stream t
-                                :models '("deepseek-coder"
-                                          "deepseek-reasoner"
-                                          "deepseek-chat")
-                                :key gptel-api-key))
+                                                   :stream t
+                                                   :models '("deepseek-coder"
+                                                             "deepseek-reasoner"
+                                                             "deepseek-chat")
+                                                   :key gptel-api-key))
 
     (setq gptel-model "deepseek-coder")
 
@@ -717,6 +717,6 @@ before packages are loaded."
  )
 (defun dotspacemacs/emacs-custom-settings ()
   "Emacs custom settings.
-This is an auto-generated function, do not modify its content directly, use
-Emacs customize menu instead.
-This function is called at the very end of Spacemacs initialization.")
+   This is an auto-generated function, do not modify its content directly, use
+   Emacs customize menu instead.
+   This function is called at the very end of Spacemacs initialization.")

@@ -92,61 +92,77 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, std::string>
 {
   WorkPoolConfig pool_config {};
-  pool_config.max_threads = lp_opts.threads;
+  pool_config.max_threads = 16;
   pool_config.max_cpu_threshold = 125;
 
   AdaptiveWorkPool pool(pool_config);
+  pool.start();
 
   try {
     bool status = true;
+    std::vector<std::future<int>> futures;
+    futures.reserve(systems().size());
+
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
     {
-      for (auto&& [phase_index, system_sp] :
-           enumerate<PhaseIndex>(phase_systems))
-      {
-        if (auto result = system_sp.resolve(lp_opts); !result) {
-          status = false;
-          break;
-        }
+      auto result = pool.submit(
+          [&]
+          {
+            for (auto&& [phase_index, system_sp] :
+                 enumerate<PhaseIndex>(phase_systems))
+            {
+              if (auto result = system_sp.resolve(lp_opts); !result) {
+                status = false;
+                break;
+              }
 
-        // update state variable dependents with the last solution
+              // update state variable dependents with the last solution
 
-        const auto& solution_vector =
-            system_sp.linear_interface().get_col_sol();
+              const auto& solution_vector =
+                  system_sp.linear_interface().get_col_sol();
 
-        for (auto&& state_var :
-             simulation().state_variables(scene_index, phase_index)
-                 | std::views::values)
-        {
-          const double solution_value = solution_vector[state_var.col()];
+              for (auto&& state_var :
+                   simulation().state_variables(scene_index, phase_index)
+                       | std::views::values)
+              {
+                const double solution_value = solution_vector[state_var.col()];
 
-          for (auto&& dep_var : state_var.dependent_variables()) {
-            system(dep_var.scene_index(), dep_var.phase_index())
-                .linear_interface()
-                .set_col(dep_var.col(), solution_value);
-          }
-        }
-      }
+                for (auto&& dep_var : state_var.dependent_variables()) {
+                  system(dep_var.scene_index(), dep_var.phase_index())
+                      .linear_interface()
+                      .set_col(dep_var.col(), solution_value);
+                }
+              }
+            }
+            // Handle infeasible or unbounded problems
+            if (!status) {
+              // On error, write the problematic model to a file for debugging
+              try {
+                write_lp("error");
+              } catch (const std::exception& e) {
+                SPDLOG_WARN(
+                    std::format("Failed to write error LP file: {}", e.what()));
+              }
 
-      // Handle infeasible or unbounded problems
-      if (!status) {
-        // On error, write the problematic model to a file for debugging
-        try {
-          write_lp("error");
-        } catch (const std::exception& e) {
-          SPDLOG_WARN(
-              std::format("Failed to write error LP file: {}", e.what()));
-        }
+              // Return detailed error message
+              constexpr auto unexpected = std::unexpected(
+                  "Problem is not feasible, check the error.lp file");
+              SPDLOG_INFO(unexpected.error());
+            }
 
-        // Return detailed error message
-        constexpr auto unexpected =
-            std::unexpected("Problem is not feasible, check the error.lp file");
-        SPDLOG_INFO(unexpected.error());
-        return unexpected;
-      }
+            return status ? 1 : 0;
+          });
+
+      futures.push_back(std::move(result.value()));
     }
 
-    return {status};  // Success
+    size_t total = 0UL;
+    for (auto& f : futures) {
+      total += f.get();
+    }
+
+    return {total == futures.size()};  // Success
+
   } catch (const std::exception& e) {
     // Handle unexpected errors gracefully
     return std::unexpected(std::string("Unexpected error: ") + e.what());
