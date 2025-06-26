@@ -2,6 +2,7 @@
 #include <array>
 #include <fstream>
 #include <numeric>
+#include <ranges>
 #include <sstream>
 
 #include <gtopt/cpu_monitor.hpp>
@@ -54,12 +55,12 @@ double CPUMonitor::get_system_cpu_usage()
   ss >> cpu_name;
 
   std::array<uint64_t, 10> times {};
-  size_t count = 0;
-  uint64_t time = 0;
-  while (count < times.size() && ss >> time) {
-    times[count] = time;
-    ++count;
-  }
+  auto count = std::ranges::distance(
+      std::ranges::copy(std::ranges::istream_view<uint64_t>(ss)
+                            | std::views::take(times.size()),
+                        times.begin())
+          .out,
+      times.begin());
 
   if (count < 4) {
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
