@@ -55,7 +55,9 @@ double CPUMonitor::get_system_cpu_usage()
 
   std::array<uint64_t, 10> times{};
   size_t count = 0;
-  while (count < times.size() && ss >> times[count]) {
+  uint64_t time = 0;
+  while (count < times.size() && ss >> time) {
+    times[count] = time;
     ++count;
   }
 
@@ -63,23 +65,21 @@ double CPUMonitor::get_system_cpu_usage()
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
     return 0.0;
   }
-    auto idle = times[3];
-    auto total = std::accumulate(times.begin(), times.end(), 0ULL);
 
-    auto idle_delta = idle - last_idle;
-    auto total_delta = total - last_total;
+  const auto idle = times[3];
+  const auto total = std::accumulate(times.begin(), times.begin() + count, 0ULL);
 
-    last_idle = idle;
-    last_total = total;
+  const auto idle_delta = idle - last_idle;
+  const auto total_delta = total - last_total;
 
-    if (total_delta > 0) {
-      return 100.0
-          * (1.0
-             - static_cast<double>(idle_delta)
-                 / static_cast<double>(total_delta));
-    }
+  last_idle = idle;
+  last_total = total;
+
+  if (total_delta == 0) {
+    return 0.0;
   }
-  return 0.0;
+
+  return 100.0 * (1.0 - static_cast<double>(idle_delta) / static_cast<double>(total_delta));
 }
 
 }  // namespace gtopt
