@@ -26,7 +26,7 @@ void CPUMonitor::start()
           if (load >= 0.0 && load <= 100.0) {
             current_load_.store(load, std::memory_order_relaxed);
           } else {
-            SPDLOG_WARN("Invalid CPU load value: {}", load);
+            SPDLOG_WARN("Invalid CPU load value: {:.1f}", load);
           }
         } catch (const std::exception& e) {
           SPDLOG_ERROR("Exception in CPU monitoring thread: {} - continuing", e.what());
