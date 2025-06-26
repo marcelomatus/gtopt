@@ -1,3 +1,13 @@
+/**
+ * @file      cpu_monitor.hpp
+ * @brief     Header of
+ * @date      Wed Jun 25 21:33:13 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
 #pragma once
 
 #include <atomic>
@@ -20,7 +30,8 @@ public:
   void start();
   void stop();
 
-  void set_interval(std::chrono::milliseconds interval) {
+  void set_interval(std::chrono::milliseconds interval)
+  {
     monitor_interval_ = interval;
   }
 
@@ -29,11 +40,12 @@ public:
     return current_load_.load(std::memory_order_relaxed);
   }
 
-  [[nodiscard]] constexpr auto get_interval() const noexcept {
+  [[nodiscard]] constexpr auto get_interval() const noexcept
+  {
     return monitor_interval_;
   }
 
-  static double get_system_cpu_usage(double fallback_value = 50.0);
+  static double get_system_cpu_usage(double fallback_value = 50.0) noexcept;
 
 private:
   std::atomic<double> current_load_ {0.0};
