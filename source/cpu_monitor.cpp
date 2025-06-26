@@ -37,44 +37,40 @@ void CPUMonitor::stop()
   }
 }
 
-double CPUMonitor::get_system_cpu_usage(double fallback_value)
+double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 {
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;
 
   const std::filesystem::path proc_stat_path("/proc/stat");
-  
+
+  std::string line;
   try {
     if (!std::filesystem::exists(proc_stat_path)) {
-      SPDLOG_WARN("{} does not exist, using fallback CPU value: {}",
-                 proc_stat_path.string(), fallback_value);
+      SPDLOG_WARN(fmt::format("{} does not exist, using fallback CPU value: {}",
+                              proc_stat_path.string(),
+                              fallback_value));
       return fallback_value;
     }
 
     std::ifstream proc_stat(proc_stat_path);
     if (!proc_stat.is_open()) {
-      SPDLOG_WARN("Failed to open {} (errno: {}), using fallback CPU value: {}",
-                 proc_stat_path.string(), errno, fallback_value);
+      SPDLOG_WARN("Failed to open /proc/stat");
       return fallback_value;
     }
 
-    std::string line;
     if (!std::getline(proc_stat, line)) {
-      SPDLOG_WARN("Failed to read from {}, using fallback CPU value: {:.1f}",
-                 proc_stat_path.string(), fallback_value);
       return fallback_value;
     }
   } catch (const std::filesystem::filesystem_error& e) {
-    SPDLOG_WARN("Filesystem error accessing {} ({}), using fallback CPU value: {}",
-               proc_stat_path.string(), e.what(), fallback_value);
+    SPDLOG_WARN("Filesystem error accessing /proc/stat");
     return fallback_value;
   } catch (const std::exception& e) {
-    SPDLOG_WARN("Exception while reading {} ({}), using fallback CPU value: {}",
-               proc_stat_path.string(), e.what(), fallback_value);
+    SPDLOG_WARN("Exception while reading /proc/stat");
     return fallback_value;
   }
 
-  std::istringstream ss(line);
+  std::istringstream ss(std::move(line));
   // skip the 'cpu' string until we reach the first space/number
   ss.ignore(std::numeric_limits<std::streamsize>::max(), ' ');
 
@@ -88,7 +84,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value)
 
   if (count < 4) {
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
-    return 50.0;
+    return fallback_value;
   }
 
   const auto idle = times[3];
