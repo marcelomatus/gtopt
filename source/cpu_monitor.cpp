@@ -62,16 +62,13 @@ double CPUMonitor::get_system_cpu_usage()
     return 0.0;
   }
 
-  if (count < 4) {
+  if (times.size() < 4) {
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
     return 0.0;
   }
 
   const auto idle = times[3];
-  const auto total = std::ranges::fold_left(
-      times | std::views::take(count),
-      0ULL,
-      std::plus<>());
+  const auto total = std::accumulate(times.begin(), times.begin() + times.size(), 0ULL);
 
   const auto idle_delta = idle - last_idle;
   const auto total_delta = total - last_total;
