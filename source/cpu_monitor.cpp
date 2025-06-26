@@ -1,8 +1,8 @@
 
+#include <array>
 #include <fstream>
 #include <numeric>
 #include <sstream>
-#include <vector>
 
 #include <gtopt/cpu_monitor.hpp>
 #include <spdlog/spdlog.h>
