@@ -111,30 +111,6 @@ TEST_SUITE("WorkPool")
       CHECK(stats.tasks_active == 0);
     }
 
-#ifdef NONE
-    SUBCASE("CPU monitoring affects scheduling")
-    {
-      // Mock CPU monitor
-      class MockCPUMonitor : public CPUMonitor
-      {
-        [[nodiscard]] static constexpr double get_load() noexcept
-        {
-          return 95.0;
-        }  // Simulate high load
-      };
-
-      AdaptiveWorkPool pool_with_mock;
-      pool_with_mock.start();
-
-      bool task_executed = false;
-      auto future = pool_with_mock.submit([&] { task_executed = true; });
-
-      // Task shouldn't execute immediately due to high load
-      CHECK(future.wait_for(10ms) == std::future_status::timeout);
-      CHECK(!task_executed);
-    }
-#endif
-
     SUBCASE("Batch submission")
     {
       std::vector<Task<void>> tasks;
@@ -306,7 +282,7 @@ TEST_SUITE("CPUMonitor")
 
   TEST_CASE("Edge cases")
   {
-    gtopt::CPUMonitor monitor;
+    CPUMonitor monitor;
 
     SUBCASE("Double start")
     {
@@ -328,7 +304,7 @@ TEST_SUITE("CPUMonitor")
 
   TEST_CASE("Mock CPU monitoring")
   {
-    class MockCPUMonitor : public gtopt::CPUMonitor
+    class MockCPUMonitor : public CPUMonitor
     {
     public:
       void set_test_load(double load) { test_load_ = load; }

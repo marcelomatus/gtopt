@@ -117,9 +117,9 @@ void LinearInterface::set_time_limit(double time_limit)
 void LinearInterface::set_time_limit(double /*time_limit*/) {}
 #endif
 
-size_t LinearInterface::add_col(const std::string& name,
-                                double collb,
-                                double colub)
+ColIndex LinearInterface::add_col(const std::string& name,
+                                  double collb,
+                                  double colub)
 {
   const auto index = solver->getNumCols();
 
@@ -128,29 +128,29 @@ size_t LinearInterface::add_col(const std::string& name,
 
   solver->addCol(vec, collb, colub, obj, name);
 
-  return static_cast<size_t>(index);
+  return index;
 }
 
-size_t LinearInterface::add_col(const std::string& name)
+ColIndex LinearInterface::add_col(const std::string& name)
 {
   const double collb = 0;
   const double colub = COIN_DBL_MAX;
   return add_col(name, collb, colub);
 }
 
-size_t LinearInterface::add_free_col(const std::string& name)
+ColIndex LinearInterface::add_free_col(const std::string& name)
 {
   const double collb = -COIN_DBL_MAX;
   const double colub = COIN_DBL_MAX;
   return add_col(name, collb, colub);
 }
 
-size_t LinearInterface::add_row(const std::string& name,
-                                const size_t numberElements,
-                                const std::span<const int>& columns,
-                                const std::span<const double>& elements,
-                                const double rowlb,
-                                const double rowub)
+RowIndex LinearInterface::add_row(const std::string& name,
+                                  const size_t numberElements,
+                                  const std::span<const int>& columns,
+                                  const std::span<const double>& elements,
+                                  const double rowlb,
+                                  const double rowub)
 {
   const auto index = solver->getNumRows();
 
@@ -161,10 +161,10 @@ size_t LinearInterface::add_row(const std::string& name,
                  rowub);
   solver->setRowName(index, name);
 
-  return static_cast<size_t>(index);
+  return index;
 }
 
-size_t LinearInterface::add_row(const SparseRow& row, const double eps)
+RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   const auto [columns, elements] = row.to_flat<int>(eps);
 
@@ -173,53 +173,53 @@ size_t LinearInterface::add_row(const SparseRow& row, const double eps)
 }
 
 #ifdef OSI_EXTENDED
-void LinearInterface::set_coeff(const size_t row,
-                                const size_t column,
+void LinearInterface::set_coeff(const RowIndex row,
+                                const ColIndex column,
                                 const double value)
 {
   solver->setCoefficient(
       static_cast<int>(row), static_cast<int>(column), value);
 }
 
-double LinearInterface::get_coeff(size_t row, size_t column) const
+double LinearInterface::get_coeff(RowIndex row, size_t column) const
 {
   return solver->getCoefficient(static_cast<int>(row),
                                 static_cast<int>(column));
 }
 #endif
 
-void LinearInterface::set_obj_coeff(const size_t index, const double value)
+void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 {
   solver->setObjCoeff(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_col_low(const size_t index, const double value)
+void LinearInterface::set_col_low(const ColIndex index, const double value)
 {
   solver->setColLower(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_col_upp(const size_t index, const double value)
+void LinearInterface::set_col_upp(const ColIndex index, const double value)
 {
   solver->setColUpper(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_row_low(const size_t index, const double value)
+void LinearInterface::set_row_low(const RowIndex index, const double value)
 {
   solver->setRowLower(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_row_upp(const size_t index, const double value)
+void LinearInterface::set_row_upp(const RowIndex index, const double value)
 {
   solver->setRowUpper(static_cast<int>(index), value);
 }
 
-void LinearInterface::set_col(const size_t index, const double value)
+void LinearInterface::set_col(const ColIndex index, const double value)
 {
   set_col_low(index, value);
   set_col_upp(index, value);
 }
 
-void LinearInterface::set_rhs(const size_t row, const double rhs)
+void LinearInterface::set_rhs(const RowIndex row, const double rhs)
 {
   solver->setRowBounds(static_cast<int>(row), rhs, rhs);
 }
@@ -234,29 +234,29 @@ size_t LinearInterface::get_numcols() const
   return static_cast<size_t>(solver->getNumCols());
 }
 
-void LinearInterface::set_continuous(const size_t index)
+void LinearInterface::set_continuous(const ColIndex index)
 {
   solver->setContinuous(static_cast<int>(index));
 }
 
-void LinearInterface::set_integer(const size_t index)
+void LinearInterface::set_integer(const ColIndex index)
 {
   solver->setInteger(static_cast<int>(index));
 }
 
-void LinearInterface::set_binary(const size_t index)
+void LinearInterface::set_binary(const ColIndex index)
 {
   set_integer(index);
   set_col_low(index, 0);
   set_col_upp(index, 1);
 }
 
-bool LinearInterface::is_continuous(const size_t index) const
+bool LinearInterface::is_continuous(const ColIndex index) const
 {
   return solver->isContinuous(static_cast<int>(index));
 }
 
-bool LinearInterface::is_integer(const size_t index) const
+bool LinearInterface::is_integer(const ColIndex index) const
 {
   return solver->isInteger(static_cast<int>(index));
 }

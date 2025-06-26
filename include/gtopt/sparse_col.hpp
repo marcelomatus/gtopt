@@ -15,6 +15,8 @@
 #include <limits>
 #include <string>
 
+#include <gtopt/basic_types.hpp>
+
 namespace gtopt
 {
 
@@ -73,5 +75,7 @@ struct SparseCol
     return *this;
   }
 };
+
+using ColIndex = Index;  ///< Type alias for column index
 
 }  // namespace gtopt

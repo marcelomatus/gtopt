@@ -19,6 +19,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt
 {
@@ -87,8 +88,10 @@ class LinearProblem
 {
 public:
   using index_t = FlatLinearProblem::index_t;
-  using SparseVector = flat_map<index_t, double>;
+  using SparseVector = flat_map<ColIndex, double>;
   using SparseMatrix = std::vector<SparseVector>;
+  using cols_t = std::vector<SparseCol>;
+  using rows_t = std::vector<SparseRow>;
 
   /**
    * Constructs a new linear problem
@@ -141,7 +144,7 @@ public:
    * @return Reference to the column
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& col_at(this Self&& self, index_t index)
+  [[nodiscard]] constexpr auto&& col_at(this Self&& self, ColIndex index)
   {
     return std::forward<Self>(self).cols.at(index);
   }
@@ -151,7 +154,7 @@ public:
    * @param index Column index
    * @return Lower bound value
    */
-  [[nodiscard]] constexpr auto get_col_lowb(index_t index) const
+  [[nodiscard]] constexpr auto get_col_lowb(ColIndex index) const
   {
     return cols.at(index).lowb;
   }
@@ -161,7 +164,7 @@ public:
    * @param index Column index
    * @return Upper bound value
    */
-  [[nodiscard]] constexpr auto get_col_uppb(index_t index) const
+  [[nodiscard]] constexpr auto get_col_uppb(ColIndex index) const
   {
     return cols.at(index).uppb;
   }
@@ -172,7 +175,7 @@ public:
    * @return Reference to the row
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& row_at(this Self&& self, index_t index)
+  [[nodiscard]] constexpr auto&& row_at(this Self&& self, RowIndex index)
   {
     return std::forward<Self>(self).rows.at(index);
   }
@@ -200,7 +203,7 @@ public:
    * @param coeff Coefficient value
    * @param eps Epsilon value for zero comparison
    */
-  constexpr void set_coeff(index_t row, index_t col, double coeff)
+  constexpr void set_coeff(RowIndex row, ColIndex col, double coeff)
   {
     rows[row][col] = coeff;
     ++ncoeffs;
@@ -212,7 +215,7 @@ public:
    * @param col Column index
    * @return Coefficient value
    */
-  [[nodiscard]] constexpr double get_coeff(index_t row, index_t col) const
+  [[nodiscard]] constexpr double get_coeff(RowIndex row, ColIndex col) const
   {
     return rows[row][col];
   }
@@ -225,9 +228,6 @@ public:
   [[nodiscard]] FlatLinearProblem to_flat(const FlatOptions& opts = {});
 
 private:
-  using cols_t = std::vector<SparseCol>;
-  using rows_t = std::vector<SparseRow>;
-
   std::string pname;  ///< Problem name
   cols_t cols;  ///< Variables (columns)
   rows_t rows;  ///< Constraints (rows)

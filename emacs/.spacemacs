@@ -623,6 +623,10 @@ before packages are loaded."
   ;; Set leader key for Aidermacs
   (spacemacs/set-leader-keys "aa" 'aidermacs-transient-menu) ; Example binding SPC a a
 
+  (use-package copilot-chat
+    :ensure t
+    :after (request org markdown-mode))
+
   ;; gptel configuration for Claude
   (use-package gptel
     :ensure t

@@ -12,6 +12,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -90,6 +91,12 @@ void PlanningLP::write_out() const
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, std::string>
 {
+  WorkPoolConfig pool_config {};
+  pool_config.max_threads = lp_opts.threads;
+  pool_config.max_cpu_threshold = 125;
+
+  AdaptiveWorkPool pool(pool_config);
+
   try {
     bool status = true;
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))

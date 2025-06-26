@@ -6,6 +6,7 @@ Checks: "*,\
   misc-const-correctness, \
   bugprone-*, \
   hicpp-*, \
+  modernize-use-ranges, \
    -system-headers,\
    -template_param_default_arg_redefinition,\
    -portability-avoid-pragma-once,\
@@ -39,7 +40,7 @@ Checks: "*,\
   -cppcoreguidelines-avoid-magic-numbers,\
 #  -clang-analyzer-core.uninitialized.UndefReturn,\
 #  -constexpr_local_var_non_literal_type,\
-  -boost-use-ranges,\
+#  -boost-use-ranges,\
   -misc-non-private-member-variables-in-classes"
 
 WarningsAsErrors: ''
