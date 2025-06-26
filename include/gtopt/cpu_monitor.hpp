@@ -1,11 +1,23 @@
 /**
  * @file      cpu_monitor.hpp
- * @brief     Header of
+ * @brief     CPU usage monitoring and statistics collection
  * @date      Wed Jun 25 21:33:13 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides real-time CPU usage monitoring capabilities:
+ * - System-wide CPU utilization tracking
+ * - Thread-safe load measurement
+ * - Configurable sampling interval
+ * - Fallback mechanisms for robustness
+ * - Efficient /proc/stat parsing
+ *
+ * Key Features:
+ * - Lightweight monitoring with minimal overhead
+ * - Accurate CPU percentage calculation
+ * - RAII-style lifecycle management
+ * - Exception-safe implementation
+ * - Suitable for adaptive workload scheduling
  */
 
 #pragma once
