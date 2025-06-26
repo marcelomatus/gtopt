@@ -47,6 +47,11 @@ public:
     monitor_interval_ = interval;
   }
 
+  /**
+   * @brief Gets current CPU load percentage
+   * @return Value between 0.0 and 100.0, or negative if invalid
+   * @note Provides noexcept guarantee
+   */
   [[nodiscard]] constexpr double get_load() const noexcept
   {
     return current_load_.load(std::memory_order_relaxed);
