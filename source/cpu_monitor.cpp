@@ -54,13 +54,13 @@ double CPUMonitor::get_system_cpu_usage()
   std::string cpu_name;
   ss >> cpu_name;
 
-  std::array<uint64_t, 10> times {};
-  auto count = std::ranges::distance(
-      std::ranges::copy(std::ranges::istream_view<uint64_t>(ss)
-                            | std::views::take(times.size()),
-                        times.begin())
-          .out,
-      times.begin());
+  auto times = std::views::istream<uint64_t>(ss)
+             | std::views::take(10)
+             | std::ranges::to<std::vector>();
+  if (times.empty()) {
+    SPDLOG_WARN("No CPU stats values read from /proc/stat");
+    return 0.0;
+  }
 
   if (count < 4) {
     SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
@@ -68,8 +68,10 @@ double CPUMonitor::get_system_cpu_usage()
   }
 
   const auto idle = times[3];
-  const auto total =
-      std::accumulate(times.begin(), times.begin() + count, 0ULL);
+  const auto total = std::ranges::fold_left(
+      times | std::views::take(count),
+      0ULL,
+      std::plus<>());
 
   const auto idle_delta = idle - last_idle;
   const auto total_delta = total - last_total;
