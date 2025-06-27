@@ -16,6 +16,12 @@ void LinearInterface::set_prob_name(const std::string& pname)
   solver->setStrParam(OsiProbName, pname);
 }
 
+std::string LinearInterface::get_prob_name() const
+{
+  std::string name;
+  return solver->getStrParam(OsiProbName, name) ? name : "";
+}
+
 void LinearInterface::set_log_file(const std::string& plog_file)
 {
   this->log_file = plog_file;
@@ -352,33 +358,24 @@ std::expected<int, Error> LinearInterface::initial_solve(
     }
 
     if (!is_optimal()) {
-      std::string message;
-      if (is_prim_infeasible()) {
-        message = "Problem is primal infeasible";
-      } else if (is_dual_infeasible()) {
-        message = "Problem is dual infeasible";
-      } else {
-        message = fmt::format("Solver returned non-optimal status: {}", 
-                            get_status());
-      }
+      std::string message = fmt::format(
+          "Failed to resolve. Solver returned non-optimal for problem: {} "
+          "status: {} ",
+          get_prob_name(),
+          get_status());
 
-      return std::unexpected(Error{
-          .code = ErrorCode::SolverError,
-          .message = std::move(message),
-          .context = {
-              {"status", std::to_string(get_status())},
-              {"kappa", std::to_string(get_kappa())}
-          }
-      });
+      return std::unexpected(Error {.code = ErrorCode::SolverError,
+                                    .message = std::move(message),
+                                    .status = get_status()});
     }
 
     return get_status();
 
   } catch (const std::exception& e) {
-    return std::unexpected(Error{
+    return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = fmt::format("Unexpected error in initial_solve: {}", e.what())
-    });
+        .message =
+            fmt::format("Unexpected error in initial_solve: {}", e.what())});
   }
 }
 
@@ -394,33 +391,23 @@ std::expected<int, Error> LinearInterface::resolve(
     }
 
     if (!is_optimal()) {
-      std::string message;
-      if (is_prim_infeasible()) {
-        message = "Problem is primal infeasible";
-      } else if (is_dual_infeasible()) {
-        message = "Problem is dual infeasible";
-      } else {
-        message = fmt::format("Solver returned non-optimal status: {}", 
-                            get_status());
-      }
+      std::string message = fmt::format(
+          "Failed to resolve. Solver returned non-optimal for problem: {} "
+          "status: {} ",
+          get_prob_name(),
+          get_status());
 
-      return std::unexpected(Error{
-          .code = ErrorCode::SolverError,
-          .message = std::move(message),
-          .context = {
-              {"status", std::to_string(get_status())},
-              {"kappa", std::to_string(get_kappa())}
-          }
-      });
+      return std::unexpected(Error {.code = ErrorCode::SolverError,
+                                    .message = std::move(message),
+                                    .status = get_status()});
     }
 
     return get_status();
 
   } catch (const std::exception& e) {
-    return std::unexpected(Error{
+    return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = fmt::format("Unexpected error in resolve: {}", e.what())
-    });
+        .message = fmt::format("Unexpected error in resolve: {}", e.what())});
   }
 }
 

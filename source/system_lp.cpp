@@ -225,12 +225,7 @@ void SystemLP::write_lp(const std::string& filename) const
 
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
-  auto result = linear_interface().resolve(solver_options);
-  if (!result) {
-    // Log the error before propagating it
-    SPDLOG_ERROR("Failed to resolve system LP: {}", result.error().message);
-  }
-  return result;
+  return linear_interface().resolve(solver_options);
 }
 
 }  // namespace gtopt

@@ -13,8 +13,8 @@
 
 #pragma once
 
-#include <memory>
 #include <expected>
+#include <memory>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -299,6 +299,7 @@ public:
   [[nodiscard]] constexpr const auto& get_log_file() const { return log_file; }
 
   void set_prob_name(const std::string& pname);
+  [[nodiscard]] std::string get_prob_name() const;
 
 private:
   void set_solver_opts(const SolverOptions& solver_options);

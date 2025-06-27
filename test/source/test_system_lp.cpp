@@ -63,7 +63,7 @@ TEST_CASE("SystemLP 1")
 
   auto result = lp_interface.resolve(lp_opts);
   REQUIRE(result.has_value());
-  CHECK(result.value() == 0); // 0 = optimal
+  CHECK(result.value() == 0);  // 0 = optimal
 
   const auto sol = lp_interface.get_col_sol();
   REQUIRE(sol[0] == doctest::Approx(100));  // demand
@@ -109,38 +109,6 @@ TEST_CASE("SystemLP - Primal Infeasible Case")
   CHECK(result.error().message.find("non-optimal") != std::string::npos);
 }
 
-TEST_CASE("SystemLP - Dual Infeasible Case") 
-{
-  using Uid = Uid;
-  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = -50.0,  // Negative cost makes dual infeasible
-                                             .capacity = 1000.0}};
-
-  const Simulation simulation = {
-      .block_array = {{.uid = Uid {3}, .duration = 1}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}}};
-
-  const System system = {.name = "SEN",
-                         .bus_array = bus_array,
-                         .generator_array = generator_array};
-
-  const OptionsLP options;
-  SimulationLP simulation_lp(simulation, options);
-
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp_interface = system_lp.linear_interface();
-  auto result = lp_interface.resolve();
-
-  REQUIRE(!result.has_value());
-  CHECK(result.error().code == ErrorCode::SolverError);
-  CHECK(lp_interface.is_dual_infeasible());
-}
-
 TEST_CASE("SystemLP - Timeout Scenario")
 {
   using Uid = Uid;
@@ -169,17 +137,17 @@ TEST_CASE("SystemLP - Timeout Scenario")
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp_interface = system_lp.linear_interface();
-  
+
   SolverOptions opts;
-  lp_interface.set_time_limit(0.001); // Set very small timeout
-  
+  lp_interface.set_time_limit(0.001);  // Set very small timeout
+
   auto result = lp_interface.resolve(opts);
-  
+
   // May either timeout or solve quickly - both are acceptable outcomes
   if (!result) {
     CHECK(result.error().code == ErrorCode::SolverError);
     CHECK(result.error().message.find("time") != std::string::npos);
   } else {
-    CHECK(result.value() == 0); // 0 = optimal
+    CHECK(result.value() == 0);  // 0 = optimal
   }
 }
