@@ -7,13 +7,14 @@
  *
  */
 
+#include <ranges>
+
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
-#include <ranges>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -49,53 +50,6 @@ namespace
 }
 
 }  // namespace
-
-int PlanningLP::resolve_scene_phases(SceneIndex scene_index,
-                                     phase_systems_t& phase_systems,
-                                     const SolverOptions& lp_opts)
-{
-  bool status = true;
-
-  for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
-    if (auto result = system_sp.resolve(lp_opts); !result) {
-      status = false;
-      break;
-    }
-
-    // update state variable dependents with the last solution
-    const auto& solution_vector = system_sp.linear_interface().get_col_sol();
-
-    for (auto&& state_var :
-         simulation().state_variables(scene_index, phase_index)
-             | std::views::values)
-    {
-      const double solution_value = solution_vector[state_var.col()];
-
-      for (auto&& dep_var : state_var.dependent_variables()) {
-        auto& target_system =
-            system(dep_var.scene_index(), dep_var.phase_index());
-        target_system.linear_interface().set_col(dep_var.col(), solution_value);
-      }
-    }
-  }
-
-  // Handle infeasible or unbounded problems
-  if (!status) {
-    // On error, write the problematic model to a file for debugging
-    try {
-      write_lp("error");
-    } catch (const std::exception& e) {
-      SPDLOG_WARN(std::format("Failed to write error LP file: {}", e.what()));
-    }
-
-    // Return detailed error message
-    constexpr auto unexpected =
-        std::unexpected("Problem is not feasible, check the error.lp file");
-    SPDLOG_INFO(unexpected.error());
-  }
-
-  return status ? 1 : 0;
-}
 
 PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
     : m_planning_(std::move(planning))
@@ -136,18 +90,60 @@ void PlanningLP::write_out() const
   }
 }
 
+int PlanningLP::resolve_scene_phases(SceneIndex scene_index,
+                                     phase_systems_t& phase_systems,
+                                     const SolverOptions& lp_opts)
+{
+  bool status = true;
+
+  for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
+    if (auto result = system_sp.resolve(lp_opts); !result) {
+      // On error, write the problematic model to a file for debugging
+      auto filename =
+          fmt::format("error_scene_{}_phase_{}.lp", scene_index, phase_index);
+      system_sp.write_lp(filename);
+
+      status = false;
+      break;
+    }
+
+    // update state variable dependents with the last solution
+    const auto& solution_vector = system_sp.linear_interface().get_col_sol();
+
+    for (auto&& state_var :
+         simulation().state_variables(scene_index, phase_index)
+             | std::views::values)
+    {
+      const double solution_value = solution_vector[state_var.col()];
+
+      for (auto&& dep_var : state_var.dependent_variables()) {
+        auto& target_system =
+            system(dep_var.scene_index(), dep_var.phase_index());
+        target_system.linear_interface().set_col(dep_var.col(), solution_value);
+      }
+    }
+  }
+
+  return status ? 1 : 0;
+}
+
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, std::string>
 {
   WorkPoolConfig pool_config {};
-  pool_config.max_threads = 16;
-  pool_config.max_cpu_threshold = 125;
+
+  const double cpu_factor = 1.25;
+  pool_config.max_threads =
+      static_cast<int>(cpu_factor * std::thread::hardware_concurrency());
+  pool_config.max_cpu_threshold = static_cast<int>(cpu_factor * 100);
 
   AdaptiveWorkPool pool(pool_config);
   pool.start();
 
   try {
-    std::vector<std::future<int>> futures;
+    using future_t = std::future<int>;
+
+    std::vector<future_t> futures;
     futures.reserve(systems().size());
 
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
@@ -160,12 +156,10 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
       futures.push_back(std::move(result.value()));
     }
 
-    auto total = std::ranges::fold_left(
-        futures | std::views::transform([](auto& f) { return f.get(); }),
-        0UL,
-        std::plus<>());
+    const auto total = std::ranges::fold_left(
+        futures | std::views::transform(&future_t::get), 0UL, std::plus<>());
 
-    return {total == futures.size()};  // Success
+    return total == futures.size();  // Success
 
   } catch (const std::exception& e) {
     // Handle unexpected errors gracefully

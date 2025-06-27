@@ -119,10 +119,9 @@ public:
   }
 
 private:
-  [[nodiscard]] int resolve_scene_phases(
-      SceneIndex scene_index,
-      const std::vector<SystemLP>& phase_systems,
-      const SolverOptions& lp_opts) const;
+  [[nodiscard]] int resolve_scene_phases(SceneIndex scene_index,
+                                         phase_systems_t& phase_systems,
+                                         const SolverOptions& lp_opts);
 
   Planning m_planning_;
   OptionsLP m_options_;
