@@ -62,9 +62,9 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& battery = sc.element(battery_index);
   auto&& flow_cols = battery.flow_cols_at(scenario, stage);
 
-  BIndexHolder rrows;
+  BIndexHolder<RowIndex> rrows;
   rrows.reserve(blocks.size());
-  BIndexHolder crows;
+  BIndexHolder<RowIndex> crows;
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {

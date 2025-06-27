@@ -57,8 +57,8 @@ private:
 
     OptTBRealSched req;
     OptTRealSched cost;
-    GSTBIndexHolder requirement_cols;
-    GSTBIndexHolder requirement_rows;
+    GSTBIndexHolder<ColIndex> requirement_cols;
+    GSTBIndexHolder<RowIndex> requirement_rows;
   } ur, dr;
 };
 

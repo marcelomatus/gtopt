@@ -155,7 +155,7 @@ public:
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
-  constexpr auto add_state_variable(Key&& key, Index col)
+  constexpr auto add_state_variable(Key&& key, ColIndex col)
       -> const StateVariable&
   {
     auto&& map =

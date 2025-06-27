@@ -87,9 +87,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
-  BIndexHolder gcols;
+  BIndexHolder<ColIndex> gcols;
   gcols.reserve(blocks.size());
-  BIndexHolder crows;
+  BIndexHolder<RowIndex> crows;
   crows.reserve(blocks.size());
 
   for (auto&& block : blocks) {

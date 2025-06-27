@@ -102,8 +102,8 @@ public:
 private:
   OptTRealSched conversion_rate;
 
-  STBIndexHolder conversion_rows;
-  STBIndexHolder capacity_rows;
+  STBIndexHolder<RowIndex> conversion_rows;
+  STBIndexHolder<RowIndex> capacity_rows;
 
   ElementIndex<GeneratorLP> generator_index;
   ElementIndex<DemandLP> demand_index;

@@ -61,9 +61,9 @@ public:
                  const StageLP& stage,
                  LinearProblem& lp,
                  const std::string_view cname,
-                 const BIndexHolder& rcols,
+                 const BIndexHolder<ColIndex>& rcols,
                  double stage_capacity,
-                 std::optional<Index> capacity_col = {})
+                 std::optional<ColIndex> capacity_col = {})
   {
     if (!is_active(stage)) {
       return true;
@@ -92,11 +92,11 @@ public:
 
     const auto& blocks = stage.blocks();
 
-    BIndexHolder vcols;
+    BIndexHolder<ColIndex> vcols;
     vcols.reserve(blocks.size());
-    BIndexHolder vrows;
+    BIndexHolder<RowIndex> vrows;
     vrows.reserve(blocks.size());
-    BIndexHolder crows;
+    BIndexHolder<RowIndex> crows;
     crows.reserve(blocks.size());
 
     auto prev_vc = vicol;
@@ -174,12 +174,12 @@ private:
 
   OptTRealSched annual_loss;
 
-  STBIndexHolder volumen_cols;
-  STBIndexHolder volumen_rows;
-  STBIndexHolder capacity_rows;
+  STBIndexHolder<ColIndex> volumen_cols;
+  STBIndexHolder<RowIndex> volumen_rows;
+  STBIndexHolder<RowIndex> capacity_rows;
 
-  STIndexHolder vini_cols;
-  STIndexHolder vfin_cols;
+  STIndexHolder<ColIndex> vini_cols;
+  STIndexHolder<ColIndex> vfin_cols;
 };
 
 }  // namespace gtopt

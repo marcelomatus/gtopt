@@ -76,6 +76,6 @@ struct SparseCol
   }
 };
 
-using ColIndex = Index;  ///< Type alias for column index
+using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index
 
 }  // namespace gtopt

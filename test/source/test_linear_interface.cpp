@@ -162,13 +162,13 @@ TEST_CASE("LinearInterface - LP file output")
   interface.add_col("x2", 0.0, 10.0);
 
   // Set objective
-  interface.set_obj_coeff(0, 2.0);
-  interface.set_obj_coeff(1, 3.0);
+  interface.set_obj_coeff(ColIndex {0}, 2.0);
+  interface.set_obj_coeff(ColIndex {1}, 3.0);
 
   // Add constraint
   SparseRow row;
-  row[0] = 1.0;
-  row[1] = 1.0;
+  row[ColIndex {0}] = 1.0;
+  row[ColIndex {1}] = 1.0;
   row.uppb = 15.0;
   interface.add_row(row);
 

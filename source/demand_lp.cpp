@@ -56,7 +56,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   // adding the minimum energy constraint
   const auto emin_row = [&](auto stage_emin,
-                            auto stage_ecost) -> std::optional<Index>
+                            auto stage_ecost) -> std::optional<RowIndex>
   {
     if (!stage_emin) [[unlikely]] {
       return std::nullopt;
@@ -83,9 +83,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return emin_rows[st_k] = lp.add_row(std::move(row));
   }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
 
-  BIndexHolder lcols;
+  BIndexHolder<ColIndex> lcols;
   lcols.reserve(blocks.size());
-  BIndexHolder crows;
+  BIndexHolder<RowIndex> crows;
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {

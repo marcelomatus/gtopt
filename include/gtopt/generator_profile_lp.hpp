@@ -43,8 +43,8 @@ private:
   OptTRealSched scost;
   STBRealSched profile;
 
-  STBIndexHolder spillover_cols;
-  STBIndexHolder spillover_rows;
+  STBIndexHolder<ColIndex> spillover_cols;
+  STBIndexHolder<RowIndex> spillover_rows;
 
   ElementIndex<GeneratorLP> generator_index;
 };

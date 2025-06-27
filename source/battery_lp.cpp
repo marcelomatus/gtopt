@@ -53,7 +53,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   // Create flow variables for each time block
-  BIndexHolder fcols;
+  BIndexHolder<ColIndex> fcols;
   fcols.reserve(blocks.size());
 
   for (auto&& block : blocks) {

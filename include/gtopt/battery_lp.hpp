@@ -93,7 +93,8 @@ public:
   }
 
 private:
-  STBIndexHolder flow_cols;  ///< Holds flow variables by scenario and stage
+  STBIndexHolder<ColIndex>
+      flow_cols;  ///< Holds flow variables by scenario and stage
 };
 
 }  // namespace gtopt

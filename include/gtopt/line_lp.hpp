@@ -49,12 +49,12 @@ private:
   OptTRealSched reactance;
   OptTRealSched voltage;
 
-  STBIndexHolder flowp_cols;
-  STBIndexHolder flown_cols;
-  STBIndexHolder capacityp_rows;
-  STBIndexHolder capacityn_rows;
+  STBIndexHolder<ColIndex> flowp_cols;
+  STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<RowIndex> capacityp_rows;
+  STBIndexHolder<RowIndex> capacityn_rows;
 
-  STBIndexHolder theta_rows;
+  STBIndexHolder<RowIndex> theta_rows;
 };
 
 }  // namespace gtopt

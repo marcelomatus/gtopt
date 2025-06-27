@@ -128,7 +128,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
 
   solver->addCol(vec, collb, colub, obj, name);
 
-  return index;
+  return ColIndex {index};
 }
 
 ColIndex LinearInterface::add_col(const std::string& name)
@@ -161,7 +161,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
                  rowub);
   solver->setRowName(index, name);
 
-  return index;
+  return RowIndex {index};
 }
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
