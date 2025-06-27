@@ -147,15 +147,14 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
   pool.start();
 
   try {
-    std::vector<std::future<int>> futures;
+    std::vector<std::future<void>> futures;
     futures.reserve(systems().size());
 
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems())) {
-      auto result = pool.submit(
+      futures.push_back(pool.submit(
           [this, scene_index, &phase_systems, &lp_opts] {
-            return resolve_scene_phases(scene_index, phase_systems, lp_opts);
-          });
-      futures.push_back(std::move(result.value()));
+            (void)resolve_scene_phases(scene_index, phase_systems, lp_opts);
+          }));
     }
 
     size_t total = 0UL;
