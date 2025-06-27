@@ -2,22 +2,23 @@
 
 #include <map>
 #include <string>
-#include <system_error>
 
-namespace gtopt {
+namespace gtopt
+{
 
-enum class ErrorCode {
-    Success = 0,
-    SolverError,
-    InternalError,
-    InvalidInput,
-    FileIOError
+enum class ErrorCode
+{
+  Success = 0,
+  SolverError,
+  InternalError,
+  InvalidInput,
+  FileIOError
 };
 
-struct Error {
-    ErrorCode code;
-    std::string message;
-    std::map<std::string, std::string> context;
+struct Error
+{
+  ErrorCode code;
+  std::string message;
 };
 
-} // namespace gtopt
+}  // namespace gtopt

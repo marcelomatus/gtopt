@@ -55,7 +55,6 @@ PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
     : m_planning_(std::move(planning))
     , m_options_(m_planning_.options)
     , m_simulation_(m_planning_.simulation, m_options_)
-    , m_systems_(create_systems(m_planning_.system, m_simulation_, m_options_, flat_opts))
     , m_systems_(create_systems(
           m_planning_.system, m_simulation_, m_options_, flat_opts))
 {
@@ -96,92 +95,83 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     phase_systems_t& phase_systems,
     const SolverOptions& lp_opts)
 {
-    for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
-        if (auto result = system_sp.resolve(lp_opts); !result) {
-            // On error, write the problematic model to a file for debugging
-            auto filename = 
-                fmt::format("error_scene_{}_phase_{}.lp", scene_index, phase_index);
-            system_sp.write_lp(filename);
+  for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
+    if (auto result = system_sp.resolve(lp_opts); !result) {
+      // On error, write the problematic model to a file for debugging
+      auto filename =
+          fmt::format("error_scene_{}_phase_{}.lp", scene_index, phase_index);
+      system_sp.write_lp(filename);
 
-            return std::unexpected(Error{
-                .code = ErrorCode::SolverError,
-                .message = fmt::format("Failed to resolve scene {} phase {}", 
-                                      scene_index, phase_index),
-                .context = {
-                    {"scene_index", std::to_string(scene_index.value())},
-                    {"phase_index", std::to_string(phase_index.value())},
-                    {"error_file", filename}
-                }
-            });
-        }
-
-        // update state variable dependents with the last solution
-        const auto& solution_vector = system_sp.linear_interface().get_col_sol();
-
-        for (auto&& state_var :
-             simulation().state_variables(scene_index, phase_index)
-                 | std::views::values)
-        {
-            const double solution_value = solution_vector[state_var.col()];
-
-            for (auto&& dep_var : state_var.dependent_variables()) {
-                auto& target_system =
-                    system(dep_var.scene_index(), dep_var.phase_index());
-                target_system.linear_interface().set_col(dep_var.col(), solution_value);
-            }
-        }
+      return std::unexpected(
+          Error {.code = ErrorCode::SolverError,
+                 .message = fmt::format("Failed to resolve scene {} phase {}",
+                                        scene_index,
+                                        phase_index)});
     }
 
-    return {};
+    // update state variable dependents with the last solution
+    const auto& solution_vector = system_sp.linear_interface().get_col_sol();
+
+    for (auto&& state_var :
+         simulation().state_variables(scene_index, phase_index)
+             | std::views::values)
+    {
+      const double solution_value = solution_vector[state_var.col()];
+
+      for (auto&& dep_var : state_var.dependent_variables()) {
+        auto& target_system =
+            system(dep_var.scene_index(), dep_var.phase_index());
+        target_system.linear_interface().set_col(dep_var.col(), solution_value);
+      }
+    }
+  }
+
+  return {};
 }
 
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
-    WorkPoolConfig pool_config {};
+  WorkPoolConfig pool_config {};
 
-    const double cpu_factor = 1.25;
-    pool_config.max_threads =
-        static_cast<int>(cpu_factor * std::thread::hardware_concurrency());
-    pool_config.max_cpu_threshold = static_cast<int>(cpu_factor * 100);
+  const double cpu_factor = 1.25;
+  pool_config.max_threads =
+      static_cast<int>(cpu_factor * std::thread::hardware_concurrency());
+  pool_config.max_cpu_threshold = static_cast<int>(cpu_factor * 100);
 
-    AdaptiveWorkPool pool(pool_config);
-    pool.start();
+  AdaptiveWorkPool pool(pool_config);
+  pool.start();
 
-    try {
-        using future_t = std::future<std::expected<void, Error>>;
+  try {
+    using future_t = std::future<std::expected<void, Error>>;
 
-        std::vector<future_t> futures;
-        futures.reserve(systems().size());
+    std::vector<future_t> futures;
+    futures.reserve(systems().size());
 
-        for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
-        {
-            auto result = pool.submit(
-                [&]
-                {
-                    return resolve_scene_phases(scene_index, phase_systems, lp_opts);
-                });
-            futures.push_back(std::move(result.value()));
-        }
-
-        // Check all futures for errors
-        for (auto& future : futures) {
-            if (auto result = future.get(); !result) {
-                return std::unexpected(std::move(result.error()));
-            }
-        }
-
-        return futures.size(); // Return number of successfully processed scenes
-
-    } catch (const std::exception& e) {
-        return std::unexpected(Error{
-            .code = ErrorCode::InternalError,
-            .message = "Unexpected error in resolve",
-            .context = {
-                {"exception", e.what()}
-            }
-        });
+    for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
+    {
+      auto result = pool.submit(
+          [&]
+          {
+            return resolve_scene_phases(scene_index, phase_systems, lp_opts);
+          });
+      futures.push_back(std::move(result.value()));
     }
+
+    // Check all futures for errors
+    for (auto& future : futures) {
+      if (auto result = future.get(); !result) {
+        return std::unexpected(std::move(result.error()));
+      }
+    }
+
+    return futures.size();  // Return number of successfully processed scenes
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InternalError,
+        .message = fmt::format("Unexpected error in resolve: {}", e.what())});
+  }
 }
 
 }  // namespace gtopt
