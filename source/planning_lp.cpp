@@ -13,6 +13,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
+#include <ranges>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -159,10 +160,10 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
       futures.push_back(std::move(result.value()));
     }
 
-    size_t total = 0UL;
-    for (auto& f : futures) {
-      total += f.get();
-    }
+    auto total = std::ranges::fold_left(
+        futures | std::views::transform([](auto& f) { return f.get(); }),
+        0UL,
+        std::plus<>());
 
     return {total == futures.size()};  // Success
 
