@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 
+#include <gtopt/error.hpp>
 #include <fmt/format.h>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
@@ -93,7 +94,7 @@ public:
    * @param lp_opts Solver options (default empty)
    * @return Expected with solution status or error message
    */
-  [[nodiscard]] std::expected<int, std::string> resolve(
+  [[nodiscard]] std::expected<int, Error> resolve(
       const SolverOptions& lp_opts = {});
 
   /**
@@ -119,9 +120,10 @@ public:
   }
 
 private:
-  [[nodiscard]] int resolve_scene_phases(SceneIndex scene_index,
-                                         phase_systems_t& phase_systems,
-                                         const SolverOptions& lp_opts);
+  [[nodiscard]] std::expected<void, Error> resolve_scene_phases(
+      SceneIndex scene_index,
+      phase_systems_t& phase_systems,
+      const SolverOptions& lp_opts);
 
   Planning m_planning_;
   OptionsLP m_options_;

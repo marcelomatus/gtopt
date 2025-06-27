@@ -253,6 +253,38 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   CHECK(file_exists);
 }
 
+TEST_CASE("PlanningLP - Error handling") {
+    // Setup test with invalid data that should cause a solver error
+    const Simulation simulation = {
+        .block_array = {{.uid = Uid{1}, .duration = 1}},
+        .stage_array = {{.uid = Uid{1}, .first_block = 0, .count_block = 1}},
+        .scenario_array = {{.uid = Uid{0}}},
+    };
+
+    // Create system with conflicting constraints
+    const Array<Bus> bus_array = {{.uid = Uid{1}, .name = "b1"}};
+    const Array<Demand> demand_array = {
+        {.uid = Uid{1}, .name = "d1", .bus = Uid{1}, .capacity = 200.0}};
+    const Array<Generator> generator_array = {
+        {.uid = Uid{1}, .name = "g1", .bus = Uid{1}, .gcost = 50.0, .capacity = 100.0}};
+
+    const System system = {.name = "TestSystem",
+                          .bus_array = bus_array,
+                          .demand_array = demand_array,
+                          .generator_array = generator_array};
+
+    const Planning planning = {
+        .options = {}, .simulation = simulation, .system = system};
+
+    PlanningLP planning_lp(planning);
+
+    // Test error handling
+    auto result = planning_lp.resolve();
+    REQUIRE(!result);
+    CHECK(result.error().code == ErrorCode::SolverError);
+    CHECK(result.error().message.find("Failed to resolve") != std::string::npos);
+}
+
 TEST_CASE("PlanningLP - Solver test")
 {
   using Uid = Uid;
