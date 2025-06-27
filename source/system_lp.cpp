@@ -223,21 +223,14 @@ void SystemLP::write_lp(const std::string& filename) const
   linear_interface().write_lp(fname);
 }
 
-/**
- * @brief Resolves all linear programming interfaces with given solver
- * options
- *
- * Attempts to solve each linear programming problem in the system using the
- * provided solver options. Returns true only if all problems were solved
- * successfully.
- *
- * @param solver_options Configuration options for the LP solver
- * @return true if all LP problems were solved successfully
- * @return false if any LP problem failed to solve
- */
-bool SystemLP::resolve(const SolverOptions& solver_options)
+std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
-  return linear_interface().resolve(solver_options);
+  auto result = linear_interface().resolve(solver_options);
+  if (!result) {
+    // Log the error before propagating it
+    SPDLOG_ERROR("Failed to resolve system LP: {}", result.error().message);
+  }
+  return result;
 }
 
 }  // namespace gtopt
