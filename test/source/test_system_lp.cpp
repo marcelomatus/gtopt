@@ -61,8 +61,9 @@ TEST_CASE("SystemLP 1")
 
   const SolverOptions lp_opts {};
 
-  const auto status = lp_interface.resolve(lp_opts);
-  REQUIRE(status == 1);
+  auto result = lp_interface.resolve(lp_opts);
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0); // 0 = optimal
 
   const auto sol = lp_interface.get_col_sol();
   REQUIRE(sol[0] == doctest::Approx(100));  // demand
