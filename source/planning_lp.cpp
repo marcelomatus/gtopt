@@ -71,8 +71,8 @@ int PlanningLP::resolve_scene_phases(
       const double solution_value = solution_vector[state_var.col()];
 
       for (auto&& dep_var : state_var.dependent_variables()) {
-        system(dep_var.scene_index(), dep_var.phase_index())
-            .linear_interface()
+        const auto& target_system = system(dep_var.scene_index(), dep_var.phase_index());
+        const_cast<SystemLP&>(target_system).linear_interface()
             .set_col(dep_var.col(), solution_value);
       }
     }
