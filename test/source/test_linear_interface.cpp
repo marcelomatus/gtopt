@@ -99,7 +99,8 @@ TEST_CASE("LinearInterface - LP solution")
   const SolverOptions options;
 
   auto result = interface.initial_solve(options);
-  REQUIRE(result);
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0); // 0 = optimal
 
   // Check the solution (should be x1=4, x2=3)
   auto sol = interface.get_col_sol();
@@ -227,7 +228,8 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
 
   // Solve the problem
   auto result = interface.initial_solve();
-  REQUIRE(result);
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0); // 0 = optimal
 
   // Get solution
   const auto sol = interface.get_col_sol();

@@ -143,14 +143,21 @@ public:
    * @param solver_options Options controlling the solve process
    * @return True if the solve was successful, false otherwise
    */
-  [[nodiscard]] bool initial_solve(const SolverOptions& solver_options = {});
+  /**
+   * @brief Performs initial solve of the problem from scratch
+   * @param solver_options Options controlling the solve process
+   * @return Expected with solver status code (0 = optimal) or error
+   */
+  [[nodiscard]] std::expected<int, Error> initial_solve(
+      const SolverOptions& solver_options = {});
 
   /**
    * @brief Resolves the problem with updated data using warm start
    * @param solver_options Options controlling the solve process
-   * @return True if the solve was successful, false otherwise
+   * @return Expected with solver status code (0 = optimal) or error
    */
-  [[nodiscard]] bool resolve(const SolverOptions& solver_options = {});
+  [[nodiscard]] std::expected<int, Error> resolve(
+      const SolverOptions& solver_options = {});
 
   /**
    * @brief Gets the condition number of the basis matrix (if available)

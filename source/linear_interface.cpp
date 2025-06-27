@@ -338,28 +338,88 @@ void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
   }
 }
 
-bool LinearInterface::initial_solve(const SolverOptions& solver_options)
+std::expected<int, Error> LinearInterface::initial_solve(
+    const SolverOptions& solver_options)
 {
-  set_solver_opts(solver_options);
+  try {
+    set_solver_opts(solver_options);
 
-  {
-    const HandlerGuard guard(*this, solver_options.log_level);
-    solver->initialSolve();
+    {
+      const HandlerGuard guard(*this, solver_options.log_level);
+      solver->initialSolve();
+    }
+
+    if (!is_optimal()) {
+      std::string message;
+      if (is_prim_infeasible()) {
+        message = "Problem is primal infeasible";
+      } else if (is_dual_infeasible()) {
+        message = "Problem is dual infeasible";
+      } else {
+        message = fmt::format("Solver returned non-optimal status: {}", 
+                            get_status());
+      }
+
+      return std::unexpected(Error{
+          .code = ErrorCode::SolverError,
+          .message = std::move(message),
+          .context = {
+              {"status", std::to_string(get_status())},
+              {"kappa", std::to_string(get_kappa())}
+          }
+      });
+    }
+
+    return get_status();
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error{
+        .code = ErrorCode::InternalError,
+        .message = fmt::format("Unexpected error in initial_solve: {}", e.what())
+    });
   }
-
-  return is_optimal();
 }
 
-bool LinearInterface::resolve(const SolverOptions& solver_options)
+std::expected<int, Error> LinearInterface::resolve(
+    const SolverOptions& solver_options)
 {
-  set_solver_opts(solver_options);
+  try {
+    set_solver_opts(solver_options);
 
-  {
-    const HandlerGuard guard(*this, solver_options.log_level);
-    solver->resolve();
+    {
+      const HandlerGuard guard(*this, solver_options.log_level);
+      solver->resolve();
+    }
+
+    if (!is_optimal()) {
+      std::string message;
+      if (is_prim_infeasible()) {
+        message = "Problem is primal infeasible";
+      } else if (is_dual_infeasible()) {
+        message = "Problem is dual infeasible";
+      } else {
+        message = fmt::format("Solver returned non-optimal status: {}", 
+                            get_status());
+      }
+
+      return std::unexpected(Error{
+          .code = ErrorCode::SolverError,
+          .message = std::move(message),
+          .context = {
+              {"status", std::to_string(get_status())},
+              {"kappa", std::to_string(get_kappa())}
+          }
+      });
+    }
+
+    return get_status();
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error{
+        .code = ErrorCode::InternalError,
+        .message = fmt::format("Unexpected error in resolve: {}", e.what())
+    });
   }
-
-  return is_optimal();
 }
 
 int LinearInterface::get_status() const
