@@ -1,8 +1,10 @@
 #include <cerrno>
+#include <expected>
 #include <format>
 #include <memory>
 
 #include <coin/CoinPackedVector.hpp>
+#include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <spdlog/spdlog.h>
 
