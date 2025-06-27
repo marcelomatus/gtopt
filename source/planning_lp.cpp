@@ -102,11 +102,11 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
           fmt::format("error_scene_{}_phase_{}.lp", scene_index, phase_index);
       system_sp.write_lp(filename);
 
-      return std::unexpected(
-          Error {.code = ErrorCode::SolverError,
-                 .message = fmt::format("Failed to resolve scene {} phase {}",
-                                        scene_index,
-                                        phase_index)});
+      auto&& error = result.error();
+      result.error().message += fmt::format(
+          ", failed at scene {} phase {}", scene_index, phase_index);
+
+      return std::unexpected(error);
     }
 
     // update state variable dependents with the last solution

@@ -119,10 +119,10 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
       .feasible_eps = 1e-5};
 
   // Solve with custom options
-  const bool result = lp.initial_solve(solver_options);
+  const auto result = lp.initial_solve(solver_options);
 
   // Check that the solve worked
-  CHECK(result == true);
+  CHECK(result);
   CHECK(lp.is_optimal() == true);
   CHECK(lp.get_obj_value() == doctest::Approx(1.0));
 
