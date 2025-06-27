@@ -18,9 +18,9 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp,
                            const std::vector<BlockLP>& blocks) const
-    -> const BIndexHolder&
+    -> const BIndexHolder<ColIndex>&
 {
-  BIndexHolder tblocks;
+  BIndexHolder<ColIndex> tblocks;
   tblocks.reserve(blocks.size());
 
   if (stage.is_active() && needs_kirchhoff(sc)) {
@@ -59,7 +59,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  BIndexHolder brows;
+  BIndexHolder<RowIndex> brows;
   brows.reserve(blocks.size());
 
   for (auto&& block : blocks) {

@@ -94,7 +94,7 @@ public:
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const GSTBIndexHolder& holder,
+                             const GSTBIndexHolder<ColIndex>& holder,
                              Operation op = {})
   {
     return add_field(cname,
@@ -112,7 +112,7 @@ public:
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const STBIndexHolder& holder,
+                             const STBIndexHolder<ColIndex>& holder,
                              Operation op = {})
   {
     return add_field(cname,
@@ -130,7 +130,7 @@ public:
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const GSTBIndexHolder& holder,
+                              const GSTBIndexHolder<ColIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -148,7 +148,7 @@ public:
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const STBIndexHolder& holder,
+                              const STBIndexHolder<ColIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -166,7 +166,7 @@ public:
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const GSTBIndexHolder& holder,
+                              const GSTBIndexHolder<RowIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -184,7 +184,7 @@ public:
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const STBIndexHolder& holder,
+                              const STBIndexHolder<RowIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -203,7 +203,7 @@ public:
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const STIndexHolder& holder,
+                             const STIndexHolder<ColIndex>& holder,
                              Operation op = {})
   {
     return add_field(cname,
@@ -221,7 +221,7 @@ public:
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const STIndexHolder& holder,
+                              const STIndexHolder<ColIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -239,7 +239,7 @@ public:
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const STIndexHolder& holder,
+                              const STIndexHolder<RowIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -257,7 +257,7 @@ public:
   constexpr void add_col_sol(std::string_view cname,
                              std::string_view col_name,
                              const Id& id,
-                             const TIndexHolder& holder,
+                             const TIndexHolder<ColIndex>& holder,
                              Operation op = {})
   {
     return add_field(cname,
@@ -275,7 +275,7 @@ public:
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
-                              const TIndexHolder& holder,
+                              const TIndexHolder<ColIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,
@@ -293,7 +293,7 @@ public:
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
-                              const TIndexHolder& holder,
+                              const TIndexHolder<RowIndex>& holder,
                               Operation op = {})
   {
     return add_field(cname,

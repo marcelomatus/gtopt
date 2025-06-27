@@ -53,23 +53,23 @@ TEST_SUITE("SparseRow")
 
     SUBCASE("Get/Set Coefficients")
     {
-      CHECK(row.get_coeff(0) == 0.0);
-      CHECK(row[0] == 0.0);
+      CHECK(row.get_coeff(ColIndex {0}) == 0.0);
+      CHECK(row[ColIndex {0}] == 0.0);
 
-      row.set_coeff(0, 1.5);
-      CHECK(row.get_coeff(0) == 1.5);
-      CHECK(row[0] == 1.5);
+      row.set_coeff(ColIndex {0}, 1.5);
+      CHECK(row.get_coeff(ColIndex {0}) == 1.5);
+      CHECK(row[ColIndex {0}] == 1.5);
 
-      row[1] = 2.5;
-      CHECK(row.get_coeff(1) == 2.5);
-      CHECK(row[1] == 2.5);
+      row[ColIndex {1}] = 2.5;
+      CHECK(row.get_coeff(ColIndex {1}) == 2.5);
+      CHECK(row[ColIndex {1}] == 2.5);
     }
 
     SUBCASE("Size and Reserve")
     {
       CHECK(row.size() == 0);
       row.reserve(10);
-      row.set_coeff(5, 1.0);
+      row.set_coeff(ColIndex {5}, 1.0);
       CHECK(row.size() == 1);
     }
   }
@@ -77,21 +77,21 @@ TEST_SUITE("SparseRow")
   TEST_CASE("Const Access")
   {
     SparseRow row;
-    row.set_coeff(1, 3.0);
-    row.set_coeff(2, 4.0);
+    row.set_coeff(ColIndex {1}, 3.0);
+    row.set_coeff(ColIndex {2}, 4.0);
 
     const SparseRow& const_row = row;
-    CHECK(const_row.get_coeff(1) == 3.0);
-    CHECK(const_row[2] == 4.0);
+    CHECK(const_row.get_coeff(ColIndex {1}) == 3.0);
+    CHECK(const_row[ColIndex {2}] == 4.0);
     CHECK(const_row.size() == 2);
   }
 
   TEST_CASE("To Flat Conversion")
   {
     SparseRow row;
-    row.set_coeff(1, 1.0);
-    row.set_coeff(3, 2.0);
-    row.set_coeff(5, 0.001);  // Below default epsilon
+    row.set_coeff(ColIndex {1}, 1.0);
+    row.set_coeff(ColIndex {3}, 2.0);
+    row.set_coeff(ColIndex {5}, 0.001);  // Below default epsilon
 
     SUBCASE("Default Epsilon")
     {
@@ -123,7 +123,7 @@ TEST_SUITE("SparseRow")
   {
     SparseRow row;
     row.bound(-1.0, 1.0);
-    row.set_coeff(0, 1.0);
+    row.set_coeff(ColIndex {0}, 1.0);
 
     CHECK(row.lowb == -1.0);
     CHECK(row.uppb == 1.0);

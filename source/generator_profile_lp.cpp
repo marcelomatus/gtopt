@@ -61,9 +61,9 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  BIndexHolder scols;
+  BIndexHolder<ColIndex> scols;
   scols.reserve(blocks.size());
-  BIndexHolder srows;
+  BIndexHolder<RowIndex> srows;
   srows.reserve(blocks.size());
 
   for (const auto& block : blocks) {

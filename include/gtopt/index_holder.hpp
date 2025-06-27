@@ -20,8 +20,9 @@
 
 namespace gtopt
 {
-template<typename FirstIndex>
-using IndexHolder0 = gtopt::flat_map<FirstIndex, Index>;
+
+template<typename FirstIndex, typename Value = Index>
+using IndexHolder0 = gtopt::flat_map<FirstIndex, Value>;
 
 // #define FESOP_USE_UNORDERED_MAP
 
@@ -31,30 +32,43 @@ using index_map_t = gtopt::flat_map<key_type, value_type>;
 template<typename key_type, typename value_type>
 using tuple_map_t = gtopt::flat_map<key_type, value_type>;
 
-template<typename FirstIndex>
-using IndexHolder1 = index_map_t<FirstIndex, Index>;
+template<typename FirstIndex, typename Value = Index>
+using IndexHolder1 = index_map_t<FirstIndex, Value>;
 
-template<typename FirstIndex, typename SecondIndex>
-using IndexHolder2 = tuple_map_t<std::tuple<FirstIndex, SecondIndex>, Index>;
+template<typename FirstIndex, typename SecondIndex, typename Value = Index>
+using IndexHolder2 = tuple_map_t<std::tuple<FirstIndex, SecondIndex>, Value>;
 
-template<typename FirstIndex, typename SecondIndex, typename ThirdIndex>
-using IndexHolder3 =
-    tuple_map_t<std::tuple<FirstIndex, SecondIndex>, IndexHolder0<ThirdIndex>>;
+template<typename FirstIndex,
+         typename SecondIndex,
+         typename ThirdIndex,
+         typename Value = Index>
+using IndexHolder3 = tuple_map_t<std::tuple<FirstIndex, SecondIndex>,
+                                 IndexHolder0<ThirdIndex, Value>>;
 
-using BIndexHolder = IndexHolder0<BlockUid>;
-using TIndexHolder = IndexHolder1<StageUid>;
-using STIndexHolder = IndexHolder2<ScenarioUid, StageUid>;
-using STBIndexHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid>;
+template<typename Value = Index>
+using BIndexHolder = IndexHolder0<BlockUid, Value>;
+template<typename Value = Index>
+using TIndexHolder = IndexHolder1<StageUid, Value>;
+template<typename Value = Index>
+using STIndexHolder = IndexHolder2<ScenarioUid, StageUid, Value>;
+template<typename Value = Index>
+using STBIndexHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid, Value>;
 
-using BIndexUHolder = IndexHolder0<BlockUid>;
-using TIndexUHolder = IndexHolder1<StageUid>;
-using STIndexUHolder = IndexHolder2<ScenarioUid, StageUid>;
-using STBIndexUHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid>;
+template<typename Value = Index>
+using BIndexUHolder = IndexHolder0<BlockUid, Value>;
+template<typename Value = Index>
+using TIndexUHolder = IndexHolder1<StageUid, Value>;
+template<typename Value = Index>
+using STIndexUHolder = IndexHolder2<ScenarioUid, StageUid, Value>;
+template<typename Value = Index>
+using STBIndexUHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid, Value>;
 
-using GSTIndexHolder = tuple_map_t<std::tuple<ScenarioUid, StageUid>, Index>;
+template<typename Value = Index>
+using GSTIndexHolder = tuple_map_t<std::tuple<ScenarioUid, StageUid>, Value>;
 
+template<typename Value = Index>
 using GSTBIndexHolder =
-    tuple_map_t<std::tuple<ScenarioUid, StageUid, BlockUid>, Index>;
+    tuple_map_t<std::tuple<ScenarioUid, StageUid, BlockUid>, Value>;
 
 template<typename Map, typename BHolder>
 constexpr auto emplace_bholder(const ScenarioLP& scenario,

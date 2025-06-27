@@ -57,9 +57,9 @@ private:
     OptTRealSched cost;
     OptTRealSched capacity_factor;
     OptTRealSched provision_factor;
-    GSTBIndexHolder provision_cols;
-    GSTBIndexHolder provision_rows;
-    GSTBIndexHolder capacity_rows;
+    GSTBIndexHolder<ColIndex> provision_cols;
+    GSTBIndexHolder<RowIndex> provision_rows;
+    GSTBIndexHolder<RowIndex> capacity_rows;
   } up, dp;
 
   ElementIndex<GeneratorLP> generator_index;

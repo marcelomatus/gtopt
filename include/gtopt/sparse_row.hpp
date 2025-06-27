@@ -194,6 +194,6 @@ struct SparseRow
   }
 };
 
-using RowIndex = Index;  ///< Type alias for row index
+using RowIndex = StrongIndexType<SparseRow>;  ///< Type alias for row index
 
 }  // namespace gtopt

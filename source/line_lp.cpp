@@ -50,13 +50,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
   const auto has_loss = stage_lossfactor > 0.0;
 
-  BIndexHolder fpcols;
+  BIndexHolder<ColIndex> fpcols;
   fpcols.reserve(blocks.size());
-  BIndexHolder cprows;
+  BIndexHolder<RowIndex> cprows;
   cprows.reserve(blocks.size());
-  BIndexHolder fncols;
+  BIndexHolder<ColIndex> fncols;
   fncols.reserve(blocks.size());
-  BIndexHolder cnrows;
+  BIndexHolder<RowIndex> cnrows;
   cnrows.reserve(blocks.size());
 
   for (const auto& block : blocks) {
@@ -142,7 +142,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       const double V = voltage.at(stage.uid()).value_or(1);
       const double x = scale_theta * (X / (V * V));
 
-      BIndexHolder trows;
+      BIndexHolder<RowIndex> trows;
       trows.reserve(blocks.size());
 
       for (const auto& block : blocks) {

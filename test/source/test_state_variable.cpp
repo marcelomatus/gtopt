@@ -38,7 +38,7 @@ TEST_CASE("StateVariable core functionality")
 {
   const StateVariable::LPKey lp_key {.scene_index = SceneIndex {1},
                                      .phase_index = PhaseIndex {2}};
-  StateVariable var {lp_key, 3};
+  StateVariable var {lp_key, ColIndex {3}};
 
   SUBCASE("Basic properties")
   {
@@ -51,9 +51,11 @@ TEST_CASE("StateVariable core functionality")
   SUBCASE("Dependent variables")
   {
     var.add_dependent_variable(
-        {.scene_index = SceneIndex {4}, .phase_index = PhaseIndex {5}}, 10);
+        {.scene_index = SceneIndex {4}, .phase_index = PhaseIndex {5}},
+        ColIndex {10});
     var.add_dependent_variable(
-        {.scene_index = SceneIndex {6}, .phase_index = PhaseIndex {7}}, 20);
+        {.scene_index = SceneIndex {6}, .phase_index = PhaseIndex {7}},
+        ColIndex {20});
 
     const auto deps = var.dependent_variables();
     REQUIRE(deps.size() == 2);
@@ -69,7 +71,8 @@ TEST_CASE("StateVariable core functionality")
 TEST_CASE("StateVariable dependent variable templates")
 {
   StateVariable var {
-      {.scene_index = SceneIndex {1}, .phase_index = PhaseIndex {2}}, 3};
+      {.scene_index = SceneIndex {1}, .phase_index = PhaseIndex {2}},
+      ColIndex {3}};
 
   SUBCASE("Template add_dependent_variable")
   {
@@ -85,7 +88,7 @@ TEST_CASE("StateVariable dependent variable templates")
     const TestScenarioLP scenario;
     const TestStageLP stage;
 
-    const auto& dep = var.add_dependent_variable(scenario, stage, 6);
+    const auto& dep = var.add_dependent_variable(scenario, stage, ColIndex {6});
     CHECK(dep.scene_index() == SceneIndex {4});
     CHECK(dep.phase_index() == PhaseIndex {5});
     CHECK(dep.col() == 6);

@@ -39,8 +39,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       * stage.timeinit() / hours_per_year;
 
   auto prev_stage_capacity = stage_capacity;
-  auto prev_capainst_col = std::optional<Index> {};
-  auto prev_capacost_col = std::optional<Index> {};
+  auto prev_capainst_col = std::optional<ColIndex> {};
+  auto prev_capacost_col = std::optional<ColIndex> {};
 
   const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
   if (prev_phase == nullptr) {
@@ -52,7 +52,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   } else {
     if (prev_stage != nullptr) {
       auto process_prev_state =
-          [&](const std::string_view col_name) -> std::optional<Index>
+          [&](const std::string_view col_name) -> std::optional<ColIndex>
       {
         if (auto prev_svar =
                 sc.get_state_variable(sv_key(scenario, *prev_stage, col_name));

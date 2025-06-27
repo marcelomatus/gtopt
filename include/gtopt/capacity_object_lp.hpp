@@ -114,7 +114,7 @@ struct CapacityObjectBase : public ObjectUtils
 
   /**
    * @brief Get capacity value and optional column index for a stage
-   * @tparam Out Return type (defaults to pair<double, optional<Index>>)
+   * @tparam Out Return type (defaults to pair<double, optional<ColIndex>>)
    * @param stage_index The stage to query
    * @param lp Linear problem reference to check column bounds
    * @return Pair containing:
@@ -122,7 +122,7 @@ struct CapacityObjectBase : public ObjectUtils
    * value)
    *   - Second: Optional column index if exists
    */
-  template<typename Out = std::pair<double, std::optional<Index>>>
+  template<typename Out = std::pair<double, std::optional<ColIndex>>>
   [[nodiscard]] constexpr auto capacity_and_col(const StageLP& stage,
                                                 LinearProblem& lp) const -> Out
   {
@@ -181,11 +181,11 @@ private:
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
 
-  TIndexUHolder capainst_cols;
-  TIndexUHolder capacost_cols;
-  TIndexUHolder expmod_cols;
-  TIndexUHolder capainst_rows;
-  TIndexUHolder capacost_rows;
+  TIndexUHolder<ColIndex> capainst_cols;
+  TIndexUHolder<ColIndex> capacost_cols;
+  TIndexUHolder<ColIndex> expmod_cols;
+  TIndexUHolder<RowIndex> capainst_rows;
+  TIndexUHolder<RowIndex> capacost_rows;
 };
 
 template<typename Object>

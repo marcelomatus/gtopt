@@ -89,7 +89,7 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp,
                                const std::vector<BlockLP>& blocks) const
-      -> const BIndexHolder&
+      -> const BIndexHolder<ColIndex>&
   {
     const auto key = std::pair {scenario.uid(), stage.uid()};
     if (const auto it = theta_cols.find(key); it != theta_cols.end()) {
@@ -104,10 +104,10 @@ private:
                       const StageLP& stage,
                       LinearProblem& lp,
                       const std::vector<BlockLP>& blocks) const
-      -> const BIndexHolder&;
+      -> const BIndexHolder<ColIndex>&;
 
-  STBIndexHolder balance_rows;
-  mutable STBIndexHolder theta_cols;
+  STBIndexHolder<RowIndex> balance_rows;
+  mutable STBIndexHolder<ColIndex> theta_cols;
 };
 
 using BusLPId = ObjectId<class BusLP>;

@@ -235,8 +235,10 @@ public:
    * active_blocks
    * @note If factor is provided, must match active element dimensions
    */
-  template<typename Projection, typename Factor = block_factor_matrix_t>
-  constexpr auto flat(const GSTBIndexHolder& hstb,
+  template<typename Projection,
+           typename Value = Index,
+           typename Factor = block_factor_matrix_t>
+  constexpr auto flat(const GSTBIndexHolder<Value>& hstb,
                       Projection proj,
                       const Factor& factor = Factor()) const noexcept
   {
@@ -271,8 +273,10 @@ public:
                       need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
-  template<typename Projection, typename Factor = block_factor_matrix_t>
-  constexpr auto flat(const STBIndexHolder& hstb,
+  template<typename Projection,
+           typename Value = Index,
+           typename Factor = block_factor_matrix_t>
+  constexpr auto flat(const STBIndexHolder<Value>& hstb,
                       Projection proj,
                       const Factor& factor = Factor()) const noexcept
   {
@@ -311,8 +315,9 @@ public:
   }
 
   template<typename Projection,
+           typename Value = Index,
            typename Factor = scenario_stage_factor_matrix_t>
-  constexpr auto flat(const STIndexHolder& hst,
+  constexpr auto flat(const STIndexHolder<Value>& hst,
                       Projection proj,
                       const Factor& factor = Factor()) const noexcept
   {
@@ -346,8 +351,9 @@ public:
   }
 
   template<typename Projection = std::identity,
+           typename Value = Index,
            typename Factor = stage_factor_matrix_t>
-  constexpr auto flat(const TIndexHolder& ht,
+  constexpr auto flat(const TIndexHolder<Value>& ht,
                       Projection proj = {},
                       const Factor& factor = {}) const noexcept
   {

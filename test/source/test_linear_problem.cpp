@@ -18,14 +18,14 @@ TEST_CASE("Linear problem test 1")
   REQUIRE(row.name == "r1");
   REQUIRE(row.size() == 0);
 
-  row[3] = 1;
-  row[5] = 2;
+  row[ColIndex {3}] = 1;
+  row[ColIndex {5}] = 2;
 
   REQUIRE(row.size() == 2);
-  REQUIRE(row.get_coeff(0) == doctest::Approx(0));
-  REQUIRE(row.get_coeff(3) == doctest::Approx(1));
-  REQUIRE(row.get_coeff(5) == doctest::Approx(2));
-  REQUIRE(row.get_coeff(7) == doctest::Approx(0));
+  REQUIRE(row.get_coeff(ColIndex {0}) == doctest::Approx(0));
+  REQUIRE(row.get_coeff(ColIndex {3}) == doctest::Approx(1));
+  REQUIRE(row.get_coeff(ColIndex {5}) == doctest::Approx(2));
+  REQUIRE(row.get_coeff(ColIndex {7}) == doctest::Approx(0));
 
   REQUIRE(row.size() == 2);
 }
@@ -64,14 +64,14 @@ TEST_CASE("Linear problem matrix operations")
   LinearProblem lp("matrix_test");
 
   // Add multiple rows/columns
-  std::vector<LinearProblem::index_t> col_indices;
+  std::vector<ColIndex> col_indices;
   col_indices.reserve(5);
   for (int i = 0; i < 5; ++i) {
     col_indices.push_back(
         lp.add_col(gtopt::SparseCol {.name = fmt::format("col{}", i)}));
   }
 
-  std::vector<LinearProblem::index_t> row_indices;
+  std::vector<RowIndex> row_indices;
   row_indices.reserve(3);
   for (int i = 0; i < 3; ++i) {
     row_indices.push_back(

@@ -24,7 +24,7 @@ constexpr bool add_requirement(const SystemContext& sc,
   const auto stage_index = stage.index();
   const auto scenario_index = scenario.index();
 
-  using STBKey = GSTBIndexHolder::key_type;
+  using STBKey = GSTBIndexHolder<ColIndex>::key_type;
   if (!(rr.req.has_value())) {
     return true;
   }

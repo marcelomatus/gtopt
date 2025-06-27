@@ -68,8 +68,8 @@ private:
   OptTRealSched lossfactor;
   OptTRealSched gcost;
 
-  STBIndexHolder generation_cols;
-  STBIndexHolder capacity_rows;
+  STBIndexHolder<ColIndex> generation_cols;
+  STBIndexHolder<RowIndex> capacity_rows;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;

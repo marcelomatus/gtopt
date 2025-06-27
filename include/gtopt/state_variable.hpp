@@ -1,7 +1,7 @@
 /**
  * @file      state_variable.hpp
  * @brief     State variables and dependencies for linear programming problems
- * @date      Mon Jun 23 11:56:29 2025  
+ * @date      Mon Jun 23 11:56:29 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
@@ -11,7 +11,7 @@
  * and phases of the optimization.
  *
  * Key Features:
- * - Tracks optimization values across problem phases  
+ * - Tracks optimization values across problem phases
  * - Manages dependent variables that update automatically
  * - Thread-safe for concurrent access
  * - Supports both single-phase and multi-scenario problems
@@ -45,14 +45,14 @@ struct LPKey
 
 struct LPVariable
 {
-  constexpr explicit LPVariable(LPKey lp_key, Index col) noexcept
+  constexpr explicit LPVariable(LPKey lp_key, ColIndex col) noexcept
       : m_lp_key_ {lp_key}
       , m_col_ {col}
   {
   }
 
   [[nodiscard]]
-  constexpr auto col() const noexcept -> Index
+  constexpr auto col() const noexcept -> ColIndex
   {
     return m_col_;
   }
@@ -77,7 +77,7 @@ struct LPVariable
 
 private:
   LPKey m_lp_key_;
-  Index m_col_ {unknown_index};
+  ColIndex m_col_ {unknown_index};
 };
 
 class StateVariable : public LPVariable
@@ -142,7 +142,7 @@ public:
         class_name, element_uid, col_name, stage.phase_index(), stage.uid());
   }
 
-  constexpr explicit StateVariable(LPKey lp_key, Index col) noexcept
+  constexpr explicit StateVariable(LPKey lp_key, ColIndex col) noexcept
       : LPVariable(lp_key, col)
   {
   }
@@ -155,7 +155,7 @@ public:
     return m_dependent_variables_;
   }
 
-  constexpr auto add_dependent_variable(LPKey lp_key, Index col) noexcept
+  constexpr auto add_dependent_variable(LPKey lp_key, ColIndex col) noexcept
       -> const DependentVariable&
   {
     return m_dependent_variables_.emplace_back(lp_key, col);
@@ -164,7 +164,7 @@ public:
   template<typename ScenarioLP, typename StageLP>
   constexpr auto add_dependent_variable(const ScenarioLP& scenario,
                                         const StageLP& stage,
-                                        Index col) noexcept
+                                        ColIndex col) noexcept
       -> const DependentVariable&
   {
     return add_dependent_variable(LPKey {.scene_index = scenario.scene_index(),

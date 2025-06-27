@@ -53,10 +53,10 @@ private:
   OptTRealSched emin;
   OptTRealSched ecost;
 
-  STBIndexHolder load_cols;
-  STBIndexHolder capacity_rows;
-  GSTIndexHolder emin_cols;
-  GSTIndexHolder emin_rows;
+  STBIndexHolder<ColIndex> load_cols;
+  STBIndexHolder<RowIndex> capacity_rows;
+  GSTIndexHolder<ColIndex> emin_cols;
+  GSTIndexHolder<RowIndex> emin_rows;
 };
 
 }  // namespace gtopt

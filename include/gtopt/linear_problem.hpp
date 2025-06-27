@@ -110,9 +110,9 @@ public:
    */
   template<typename SparseCol = gtopt::SparseCol>
   [[nodiscard]]
-  constexpr index_t add_col(SparseCol&& col) noexcept
+  constexpr ColIndex add_col(SparseCol&& col) noexcept
   {
-    const auto index = static_cast<index_t>(cols.size());
+    const auto index = ColIndex {static_cast<Index>(cols.size())};
 
     if (col.is_integer) {
       ++colints;
@@ -129,9 +129,9 @@ public:
    */
   template<typename SparseRow = gtopt::SparseRow>
   [[nodiscard]]
-  constexpr index_t add_row(SparseRow&& row) noexcept
+  constexpr RowIndex add_row(SparseRow&& row) noexcept
   {
-    const auto index = static_cast<index_t>(rows.size());
+    const auto index = RowIndex {static_cast<Index>(rows.size())};
 
     ncoeffs += row.size();
     rows.emplace_back(std::forward<SparseRow>(row));
