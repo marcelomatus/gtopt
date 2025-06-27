@@ -358,6 +358,7 @@ bool LinearInterface::resolve(const SolverOptions& solver_options)
     const HandlerGuard guard(*this, solver_options.log_level);
     solver->resolve();
   }
+
   return is_optimal();
 }
 
