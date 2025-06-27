@@ -49,13 +49,12 @@ namespace
 
 }  // namespace
 
-int PlanningLP::resolve_scene_phases(
-    SceneIndex scene_index,
-    const std::vector<SystemLP>& phase_systems,
-    const SolverOptions& lp_opts) const
+int PlanningLP::resolve_scene_phases(SceneIndex scene_index,
+                                     phase_systems_t& phase_systems,
+                                     const SolverOptions& lp_opts)
 {
   bool status = true;
-  
+
   for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
     if (auto result = system_sp.resolve(lp_opts); !result) {
       status = false;
@@ -67,13 +66,14 @@ int PlanningLP::resolve_scene_phases(
 
     for (auto&& state_var :
          simulation().state_variables(scene_index, phase_index)
-             | std::views::values) {
+             | std::views::values)
+    {
       const double solution_value = solution_vector[state_var.col()];
 
       for (auto&& dep_var : state_var.dependent_variables()) {
-        const auto& target_system = system(dep_var.scene_index(), dep_var.phase_index());
-        const_cast<SystemLP&>(target_system).linear_interface()
-            .set_col(dep_var.col(), solution_value);
+        auto& target_system =
+            system(dep_var.scene_index(), dep_var.phase_index());
+        target_system.linear_interface().set_col(dep_var.col(), solution_value);
       }
     }
   }
@@ -84,13 +84,12 @@ int PlanningLP::resolve_scene_phases(
     try {
       write_lp("error");
     } catch (const std::exception& e) {
-      SPDLOG_WARN(
-          std::format("Failed to write error LP file: {}", e.what()));
+      SPDLOG_WARN(std::format("Failed to write error LP file: {}", e.what()));
     }
 
     // Return detailed error message
-    constexpr auto unexpected = std::unexpected(
-        "Problem is not feasible, check the error.lp file");
+    constexpr auto unexpected =
+        std::unexpected("Problem is not feasible, check the error.lp file");
     SPDLOG_INFO(unexpected.error());
   }
 
@@ -147,14 +146,17 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
   pool.start();
 
   try {
-    std::vector<std::future<void>> futures;
+    std::vector<std::future<int>> futures;
     futures.reserve(systems().size());
 
-    for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems())) {
-      futures.push_back(pool.submit(
-          [this, scene_index, &phase_systems, &lp_opts] {
-            (void)resolve_scene_phases(scene_index, phase_systems, lp_opts);
-          }));
+    for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
+    {
+      auto result = pool.submit(
+          [&]
+          {
+            return resolve_scene_phases(scene_index, phase_systems, lp_opts);
+          });
+      futures.push_back(std::move(result.value()));
     }
 
     size_t total = 0UL;
