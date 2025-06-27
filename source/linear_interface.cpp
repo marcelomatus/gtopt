@@ -342,8 +342,10 @@ bool LinearInterface::initial_solve(const SolverOptions& solver_options)
 {
   set_solver_opts(solver_options);
 
-  const HandlerGuard guard(*this, solver_options.log_level);
-  solver->initialSolve();
+  {
+    const HandlerGuard guard(*this, solver_options.log_level);
+    solver->initialSolve();
+  }
 
   return is_optimal();
 }
@@ -352,9 +354,10 @@ bool LinearInterface::resolve(const SolverOptions& solver_options)
 {
   set_solver_opts(solver_options);
 
-  const HandlerGuard guard(*this, solver_options.log_level);
-  solver->resolve();
-
+  {
+    const HandlerGuard guard(*this, solver_options.log_level);
+    solver->resolve();
+  }
   return is_optimal();
 }
 
