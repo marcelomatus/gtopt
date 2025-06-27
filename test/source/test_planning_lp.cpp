@@ -189,11 +189,9 @@ TEST_CASE("PlanningLP - Run LP")
   // Run the LP
   auto result = planning_lp.resolve();
 
-  // Check that we got a successful result
-  CHECK(result.has_value());
-  // 0 indicates success
-
-  CHECK(result.value() == 1);
+  // Check that we got a successful result (status 0 = optimal)
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 }
 
 TEST_CASE("PlanningLP - Run with write_only flag")
@@ -235,10 +233,9 @@ TEST_CASE("PlanningLP - Run with write_only flag")
 
   auto result = planning_lp.resolve();
 
-  // Check that we got a successful result
-  CHECK(result.has_value());
-  // 0 indicates success
-  CHECK(result.value() == 1);
+  // Check that we got a successful result (status 0 = optimal)
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 
   // Check if the file was created
   const std::string lp_file = "test_planning_lp_write_only_0_0.lp";
@@ -333,7 +330,8 @@ TEST_CASE("PlanningLP - Solver test")
   // Run the LP - should result in an error
   auto result = planning_lp.resolve();
 
-  CHECK(result.has_value());
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 
   auto&& systems = planning_lp.systems();
   CHECK(systems.size() == 1);
