@@ -55,6 +55,7 @@ PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
     : m_planning_(std::move(planning))
     , m_options_(m_planning_.options)
     , m_simulation_(m_planning_.simulation, m_options_)
+    , m_systems_(create_systems(m_planning_.system, m_simulation_, m_options_, flat_opts))
     , m_systems_(create_systems(
           m_planning_.system, m_simulation_, m_options_, flat_opts))
 {

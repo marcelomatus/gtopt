@@ -184,7 +184,7 @@ TEST_CASE("PlanningLP - Run LP")
   const FlatOptions flat_options;
 
   // Create planning_lp
-  PlanningLP planning_lp(planning, flat_options);
+  const PlanningLP planning_lp(planning, flat_options);
 
   // Run the LP
   auto result = planning_lp.resolve();
@@ -228,7 +228,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   const FlatOptions flat_options;
 
   // Create planning_lp
-  PlanningLP planning_lp(planning, flat_options);
+  const PlanningLP planning_lp(planning, flat_options);
 
   planning_lp.write_lp("test_planning_lp_write_only");
   // Run the LP (should only create LP model, not solve)
@@ -276,7 +276,7 @@ TEST_CASE("PlanningLP - Error handling") {
     const Planning planning = {
         .options = {}, .simulation = simulation, .system = system};
 
-    PlanningLP planning_lp(planning);
+    const PlanningLP planning_lp(planning);
 
     // Test error handling
     auto result = planning_lp.resolve();
@@ -324,7 +324,7 @@ TEST_CASE("PlanningLP - Solver test")
       .options = {}, .simulation = simulation, .system = system};
 
   // Create planning_lp
-  PlanningLP planning_lp(planning);
+  const PlanningLP planning_lp(planning);
 
   // Run the LP - should result in an error
   auto result = planning_lp.resolve();
