@@ -98,9 +98,9 @@ TEST_CASE("LinearInterface - LP solution")
   // Solve the problem
   const SolverOptions options;
 
-  const bool status = interface.initial_solve(options);
-  REQUIRE(status);
-  REQUIRE(interface.is_optimal());
+  auto result = interface.initial_solve(options);
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
 
   // Check the solution (should be x1=4, x2=3)
   auto sol = interface.get_col_sol();
@@ -227,8 +227,9 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
   REQUIRE(interface.get_obj_coeff()[1] == doctest::Approx(3.0));
 
   // Solve the problem
-  const bool status = interface.initial_solve();
-  REQUIRE(status);
+  auto result = interface.initial_solve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
 
   // Get solution
   const auto sol = interface.get_col_sol();
