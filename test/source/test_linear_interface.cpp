@@ -7,8 +7,10 @@
  */
 
 #include <filesystem>
+#include <expected>
 
 #include <doctest/doctest.h>
+#include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>

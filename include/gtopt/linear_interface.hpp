@@ -14,7 +14,9 @@
 #pragma once
 
 #include <memory>
+#include <expected>
 
+#include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/osi_solver.hpp>
 #include <gtopt/solver_options.hpp>
@@ -120,7 +122,7 @@ public:
   void set_coeff(RowIndex row, ColIndex column, double value);
 #endif
 
-  void set_obj_coeff(ColIndex ijuanndex, double value);
+  void set_obj_coeff(ColIndex index, double value);
   [[nodiscard]] constexpr auto get_obj_coeff() const
   {
     return std::span(solver->getObjCoefficients(), get_numcols());
