@@ -258,11 +258,12 @@ public:
   void write_lp(const std::string& filename) const;
 
   /**
-   * @brief Resolve the LP problem
-   * @param solver_options Solver configuration
-   * @return true if resolution succeeded
+   * @brief Resolves the linear programming problem
+   * @param solver_options Configuration options for the LP solver
+   * @return Expected with solver status code (0 = optimal) or error
    */
-  bool resolve(const SolverOptions& solver_options = {});
+  [[nodiscard]] std::expected<int, Error> resolve(
+      const SolverOptions& solver_options = {});
 
   /**
    * @brief Write output for all linear interfaces
