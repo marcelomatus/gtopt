@@ -181,11 +181,11 @@ private:
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
 
-  TIndexUHolder<ColIndex> capainst_cols;
-  TIndexUHolder<ColIndex> capacost_cols;
-  TIndexUHolder<ColIndex> expmod_cols;
-  TIndexUHolder<RowIndex> capainst_rows;
-  TIndexUHolder<RowIndex> capacost_rows;
+  TIndexHolder<ColIndex> capainst_cols;
+  TIndexHolder<ColIndex> capacost_cols;
+  TIndexHolder<ColIndex> expmod_cols;
+  TIndexHolder<RowIndex> capainst_rows;
+  TIndexHolder<RowIndex> capacost_rows;
 };
 
 template<typename Object>
