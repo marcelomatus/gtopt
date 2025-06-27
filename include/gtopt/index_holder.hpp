@@ -55,15 +55,6 @@ template<typename Value = Index>
 using STBIndexHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid, Value>;
 
 template<typename Value = Index>
-using BIndexUHolder = IndexHolder0<BlockUid, Value>;
-template<typename Value = Index>
-using TIndexUHolder = IndexHolder1<StageUid, Value>;
-template<typename Value = Index>
-using STIndexUHolder = IndexHolder2<ScenarioUid, StageUid, Value>;
-template<typename Value = Index>
-using STBIndexUHolder = IndexHolder3<ScenarioUid, StageUid, BlockUid, Value>;
-
-template<typename Value = Index>
 using GSTIndexHolder = tuple_map_t<std::tuple<ScenarioUid, StageUid>, Value>;
 
 template<typename Value = Index>
