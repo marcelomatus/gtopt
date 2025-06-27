@@ -170,7 +170,7 @@ TEST_CASE("SystemLP - Timeout Scenario")
   auto&& lp_interface = system_lp.linear_interface();
   
   SolverOptions opts;
-  opts.time_limit = 0.001; // Set very small timeout
+  lp_interface.set_time_limit(0.001); // Set very small timeout
   
   auto result = lp_interface.resolve(opts);
   
