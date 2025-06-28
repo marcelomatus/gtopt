@@ -54,15 +54,18 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
+  const auto st_k = std::pair {scenario.uid(), stage.uid()};
+
   // adding the minimum energy constraint
-  const auto emin_row = [&](auto stage_emin,
-                            auto stage_ecost) -> std::optional<RowIndex>
+  auto emin_row = [&](auto stage_emin,
+                      auto stage_ecost) -> std::optional<SparseRow>
   {
     if (!stage_emin) [[unlikely]] {
       return std::nullopt;
     }
 
-    auto name = sc.lp_label(scenario, stage, cname, "emin", uid());
+    auto name = lp_label(sc, scenario, stage, "emin");
+
     const auto emin_col = stage_ecost
         ? lp.add_col(  //
               {.name = name,
@@ -74,13 +77,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                .lowb = stage_emin.value(),
                .uppb = stage_emin.value()});
 
-    const auto st_k = std::pair {scenario.uid(), stage.uid()};
     emin_cols[st_k] = emin_col;
 
     auto row = SparseRow {.name = std::move(name)}.greater_equal(0);
     row[emin_col] = -1;
 
-    return emin_rows[st_k] = lp.add_row(std::move(row));
+    return {row};
   }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
 
   BIndexHolder<ColIndex> lcols;
@@ -124,9 +126,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the minimum energy constraint
     if (emin_row) {
-      const auto dbloque = block.duration();
-      lp.set_coeff(emin_row.value(), lcol, dbloque);
+      (*emin_row)[lcol] = block.duration();
     }
+  }
+
+  if (emin_row && emin_row->size() > 0) {
+    emin_rows[st_k] = lp.add_row(std::move(*emin_row));
   }
 
   const auto crow_inserted =
