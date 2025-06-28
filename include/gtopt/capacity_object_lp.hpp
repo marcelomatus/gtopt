@@ -49,7 +49,7 @@ namespace gtopt
  * capabilities, and associated costs in a linear programming formulation.
  */
 
-struct CapacityObjectBase : public ObjectUtils
+struct CapacityObjectBase
 {
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
 
@@ -78,11 +78,6 @@ struct CapacityObjectBase : public ObjectUtils
   [[nodiscard]] constexpr auto uid() const noexcept
   {
     return std::get<0>(m_id_);
-  }
-
-  [[nodiscard]] constexpr auto class_name() const noexcept
-  {
-    return m_class_name_;
   }
 
   /**
@@ -170,6 +165,29 @@ struct CapacityObjectBase : public ObjectUtils
    */
   bool add_to_output(OutputContext& out) const;
 
+private:
+  template<typename Self, typename ScenarioLP, typename StageLP>
+  [[nodiscard]]
+  constexpr auto sv_key_p(this const Self& self,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          std::string_view col_name) noexcept
+  {
+    return StateVariable::key(
+        scenario, stage, self.m_class_name_, self.uid(), col_name);
+  }
+
+  template<typename Self, typename SystemContext, typename... Args>
+  [[nodiscard]] constexpr auto lp_label_p(this const Self& self,
+                                          SystemContext& sc,
+                                          const StageLP& stage,
+                                          Args&&... args) noexcept
+  {
+    return sc.lp_label(
+        stage, self.m_class_name_, std::forward<Args>(args)..., self.uid());
+  }
+
+public:
 private:
   std::string_view m_class_name_ = "CapacityObject";
 

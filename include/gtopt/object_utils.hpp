@@ -69,24 +69,17 @@ public:
    * @param args Additional arguments to include in the label
    * @return Label string
    */
-  template<typename Self,
-           typename SystemContext,
-           typename StageLP,
-           typename... Args>
+  template<typename Self, typename SystemContext, typename... Args>
   [[nodiscard]] constexpr auto lp_label(this const Self& self,
                                         SystemContext& sc,
                                         const StageLP& stage,
                                         Args&&... args) noexcept
   {
-    return sc.t_label(
+    return sc.lp_label(
         stage, self.class_name(), std::forward<Args>(args)..., self.uid());
   }
 
-  template<typename Self,
-           typename SystemContext,
-           typename ScenarioLP,
-           typename StageLP,
-           typename... Args>
+  template<typename Self, typename SystemContext, typename... Args>
   [[nodiscard]] constexpr auto lp_label(this const Self& self,
                                         SystemContext& sc,
                                         const ScenarioLP& scenario,
@@ -100,12 +93,7 @@ public:
                        self.uid());
   }
 
-  template<typename Self,
-           typename SystemContext,
-           typename ScenarioLP,
-           typename StageLP,
-           typename BlockLP,
-           typename... Args>
+  template<typename Self, typename SystemContext, typename... Args>
   [[nodiscard]] constexpr auto lp_label(this const Self& self,
                                         SystemContext& sc,
                                         const ScenarioLP& scenario,
