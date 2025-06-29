@@ -24,18 +24,18 @@ using namespace gtopt;
 
 [[nodiscard]] std::expected<int, std::string> Main(
     std::span<const std::string> planning_files,
-         const std::optional<std::string>& input_directory,
-         const std::optional<std::string>& input_format,
-         const std::optional<std::string>& output_directory,
-         const std::optional<std::string>& output_format,
-         const std::optional<std::string>& compression_format,
-         const std::optional<bool>& use_single_bus,
-         const std::optional<std::string>& lp_file,
-         const std::optional<int>& use_lp_names,
-         const std::optional<double>& matrix_eps,
-         const std::optional<std::string>& json_file,
-         const std::optional<bool>& just_create,
-         const std::optional<bool>& fast_parsing)
+    const std::optional<std::string>& input_directory,
+    const std::optional<std::string>& input_format,
+    const std::optional<std::string>& output_directory,
+    const std::optional<std::string>& output_format,
+    const std::optional<std::string>& compression_format,
+    const std::optional<bool>& use_single_bus,
+    const std::optional<std::string>& lp_file,
+    const std::optional<int>& use_lp_names,
+    const std::optional<double>& matrix_eps,
+    const std::optional<std::string>& json_file,
+    const std::optional<bool>& just_create,
+    const std::optional<bool>& fast_parsing)
 {
   //
   // parsing the system from json
@@ -280,13 +280,20 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    auto [lp_file, json_file, quiet, use_single_bus] = [&vm]() {
+    auto [lp_file, json_file, quiet, use_single_bus] = [&vm]()
+    {
       return std::make_tuple(
-          vm.contains("lp-file") ? std::make_optional(vm["lp-file"].as<std::string>()) : std::nullopt,
-          vm.contains("json-file") ? std::make_optional(vm["json-file"].as<std::string>()) : std::nullopt,
-          vm.contains("quiet") ? std::make_optional(vm["quiet"].as<bool>()) : std::nullopt,
-          vm.contains("use-single-bus") ? std::make_optional(vm["use-single-bus"].as<bool>()) : std::nullopt
-      );
+          vm.contains("lp-file")
+              ? std::make_optional(vm["lp-file"].as<std::string>())
+              : std::nullopt,
+          vm.contains("json-file")
+              ? std::make_optional(vm["json-file"].as<std::string>())
+              : std::nullopt,
+          vm.contains("quiet") ? std::make_optional(vm["quiet"].as<bool>())
+                               : std::nullopt,
+          vm.contains("use-single-bus")
+              ? std::make_optional(vm["use-single-bus"].as<bool>())
+              : std::nullopt);
     }();
 
     std::optional<int> use_lp_names;
@@ -347,24 +354,27 @@ int main(int argc, char** argv)
     //
     // dispatch the real main function
     //
-    if (auto result = Main(std::span{system_files},
-                input_directory,
-                input_format,
-                output_directory,
-                output_format,
-                compression_format,
-                use_single_bus,
-                lp_file,
-                use_lp_names,
-                matrix_eps,
-                json_file,
-                just_create,
-                fast_parsing)) {
-      return *result;
+    int result_value = 0;
+    if (auto result = Main(std::span {system_files},
+                           input_directory,
+                           input_format,
+                           output_directory,
+                           output_format,
+                           compression_format,
+                           use_single_bus,
+                           lp_file,
+                           use_lp_names,
+                           matrix_eps,
+                           json_file,
+                           just_create,
+                           fast_parsing))
+    {
+      result_value = 0;
     } else {
       spdlog::critical(result.error());
-      return 1;
+      result_value = 1;
     }
+    return result_value;
   } catch (const std::exception& ex) {
     spdlog::critical(fmt::format("Exception: {}", ex.what()));
     return 1;

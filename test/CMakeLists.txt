@@ -16,22 +16,18 @@ option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 cmake_policy(SET CMP0167 NEW)
-
-# --- Import tools ----
-
 set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError")
 #set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
 set(USE_CCACHE YES)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# --- Import tools ----
+
+include(../cmake/tools.cmake)
 
 # ---- Dependencies ----
 
 include(../cmake/CPM.cmake)
-include(../cmake/tools.cmake)
-
-CPMAddPackage("gh:doctest/doctest@2.4.11")
-
-CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 if(TEST_INSTALLED_VERSION)
   find_package(gtopt REQUIRED)
@@ -39,16 +35,20 @@ else()
   CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()
 
+CPMAddPackage("gh:doctest/doctest@2.4.11")
+
+CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
+
 # ---- Create binary ----
 
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp
-)
+file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp)
 
 add_executable(${PROJECT_NAME} ${sources})
+
 target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
