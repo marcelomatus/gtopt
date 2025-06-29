@@ -33,7 +33,7 @@ public:
 
   template<typename ObjectT>
   explicit StorageLP(const InputContext& ic,
-                     const std::string_view& ClassName,
+                     const std::string_view ClassName,
                      ObjectT&& pstorage)
       : Object(ic, ClassName, std::forward<ObjectT>(pstorage))
       , vmin(ic, ClassName, id(), std::move(storage().vmin))
