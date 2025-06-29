@@ -20,7 +20,10 @@ namespace
 {
 using namespace gtopt;
 
-int Main(const std::vector<std::string>& planning_files,
+#include <expected>
+
+[[nodiscard]] std::expected<int, std::string> Main(
+    std::span<const std::string> planning_files,
          const std::optional<std::string>& input_directory,
          const std::optional<std::string>& input_format,
          const std::optional<std::string>& output_directory,
@@ -64,9 +67,8 @@ int Main(const std::vector<std::string>& planning_files,
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {
-        spdlog::critical(
+        return std::unexpected(
             fmt::format("problem reading input file {}", planning_file));
-        return 1;
       }
       spdlog::info(fmt::format("parsing input file {}", fpath.string()));
 
@@ -278,24 +280,14 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    std::optional<std::string> lp_file;
-    if (vm.contains("lp-file")) {
-      lp_file = vm["lp-file"].as<std::string>();
-    }
-
-    std::optional<std::string> json_file;
-    if (vm.contains("json-file")) {
-      json_file = vm["json-file"].as<std::string>();
-    }
-
-    std::optional<bool> quiet;
-    if (vm.contains("quiet")) {
-      quiet = vm["quiet"].as<bool>();
-    }
-    std::optional<bool> use_single_bus;
-    if (vm.contains("use-single-bus")) {
-      use_single_bus = vm["use-single-bus"].as<bool>();
-    }
+    auto [lp_file, json_file, quiet, use_single_bus] = [&vm]() {
+      return std::make_tuple(
+          vm.contains("lp-file") ? std::make_optional(vm["lp-file"].as<std::string>()) : std::nullopt,
+          vm.contains("json-file") ? std::make_optional(vm["json-file"].as<std::string>()) : std::nullopt,
+          vm.contains("quiet") ? std::make_optional(vm["quiet"].as<bool>()) : std::nullopt,
+          vm.contains("use-single-bus") ? std::make_optional(vm["use-single-bus"].as<bool>()) : std::nullopt
+      );
+    }();
 
     std::optional<int> use_lp_names;
     if (vm.contains("use-lp-names")) {
@@ -355,7 +347,7 @@ int main(int argc, char** argv)
     //
     // dispatch the real main function
     //
-    return Main(system_files,
+    if (auto result = Main(std::span{system_files},
                 input_directory,
                 input_format,
                 output_directory,
@@ -369,14 +361,16 @@ int main(int argc, char** argv)
                 just_create,
                 fast_parsing);
 
-  } catch (daw::json::json_exception const& jex) {
-    spdlog::critical(
-        fmt::format("exception thrown by json parser: {}", jex.reason()));
-  } catch (std::exception const& ex) {
-    spdlog::critical(fmt::format("exception thrown: {}", ex.what()));
-  } catch (...) {
-    spdlog::critical(fmt::format("unknown exception"));
+        json_file,
+        just_create,
+        fast_parsing); result) {
+      return *result;
+    } else {
+      spdlog::critical(result.error());
+      return 1;
+    }
+  } catch (const std::exception& ex) {
+    spdlog::critical(fmt::format("Exception: {}", ex.what()));
+    return 1;
   }
-
-  return 1;
 }
