@@ -359,11 +359,7 @@ int main(int argc, char** argv)
                 matrix_eps,
                 json_file,
                 just_create,
-                fast_parsing);
-
-        json_file,
-        just_create,
-        fast_parsing); result) {
+                fast_parsing)) {
       return *result;
     } else {
       spdlog::critical(result.error());
