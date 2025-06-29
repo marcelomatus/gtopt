@@ -105,6 +105,7 @@ This function should only modify configuration layer settings."
    ;; Also include the dependencies as they will not be resolved automatically.
    dotspacemacs-additional-packages '(
                                       (aidermacs :variables
+                                                 aidermacs-enable-architect t
                                                  aidermacs-backend 'vterm
                                                  aidermacs-use-architect-mode nil
                                                  aidermacs-use-default-model t
@@ -635,23 +636,23 @@ It should only modify the values of Spacemacs settings."
 
     ;; Configure for Claude
     :init (setq gptel-backend (gptel-make-anthropic
-                               "Claude"
-                               :models '("claude-3-7-sonnet-20250219"
-                                         "claude-3-5-sonnet-20240620"
-                                         "claude-3-opus-20240229")
-                               :stream t
-                               :key gptel-api-key))
+                                  "Claude"
+                                :models '("claude-3-7-sonnet-20250219"
+                                          "claude-3-5-sonnet-20240620"
+                                          "claude-3-opus-20240229")
+                                :stream t
+                                :key gptel-api-key))
 
     (setq gptel-model "claude-3-7-sonnet-20250219")
 
 
     ;; DeepSeek configuration
     :init (setq gptel-backend (gptel-make-deepseek "DeepSeek"
-                                                   :stream t
-                                                   :models '("deepseek-coder"
-                                                             "deepseek-reasoner"
-                                                             "deepseek-chat")
-                                                   :key gptel-api-key))
+                                :stream t
+                                :models '("deepseek-coder"
+                                          "deepseek-reasoner"
+                                          "deepseek-chat")
+                                :key gptel-api-key))
 
     (setq gptel-model "deepseek-coder")
 

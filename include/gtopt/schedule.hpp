@@ -105,8 +105,8 @@ public:
 
   constexpr std::optional<Type> at(Uid... uids) const
   {
-    if (m_sched_.has_value()) {
-      return at_sched<Type>(m_sched_.value(), m_arrow_array_uids_, uids...);
+    if (m_sched_) {
+      return at_sched<Type>(*m_sched_, m_arrow_array_uids_, uids...);
     }
     return {};
   }
@@ -114,7 +114,7 @@ public:
   constexpr std::optional<Type> optval(Uid... uids) const
   {
     if (m_sched_) {
-      return optval_sched<Type>(m_sched_.value(), m_arrow_array_uids_, uids...);
+      return optval_sched<Type>(*m_sched_, m_arrow_array_uids_, uids...);
     }
     return {};
   }
