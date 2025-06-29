@@ -49,7 +49,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
   const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
-  const auto stage_lossfactor = *lossfactor.optval(stage.uid()); // C++23 direct access
+  const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   const auto& balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
@@ -57,7 +57,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto st_k = std::pair {scenario.uid(), stage.uid()};
 
   // adding the minimum energy constraint
-  auto emin_row = [&](auto stage_emin, auto stage_ecost) -> std::optional<SparseRow> {
+  auto emin_row = [&](auto stage_emin,
+                      auto stage_ecost) -> std::optional<SparseRow>
+  {
     if (!stage_emin) [[unlikely]] {
       return std::nullopt;
     }
@@ -65,21 +67,16 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     auto name = lp_label(sc, scenario, stage, "emin");
 
     const auto emin_col = stage_ecost
-        ? lp.add_col({
-            .name = std::move(name),
-            .uppb = *stage_emin,
-            .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration())
-          })
-        : lp.add_col({
-            .name = std::move(name),
-            .lowb = *stage_emin,
-            .uppb = *stage_emin
-          });
+        ? lp.add_col(
+              {.name = name,
+               .uppb = *stage_emin,
+               .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration())})
+        : lp.add_col({.name = name, .lowb = *stage_emin, .uppb = *stage_emin});
 
     emin_cols[st_k] = emin_col;
 
-    auto row = SparseRow{.name = std::move(name)}.greater_equal(0);
-    row[emin_col] = -1;
+    auto row = SparseRow {.name = std::move(name)}.greater_equal(0);
+    row[emin_col] = -1.0;
 
     return {row};
   }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
@@ -95,31 +92,30 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
 
     const auto lcol = stage_fcost
-        ? lp.add_col({
-            .name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
-            .uppb = block_lmax,
-            .cost = -sc.block_ecost(scenario, stage, block, *stage_fcost)
-          })
-        : lp.add_col({
-            .name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
-            .lowb = block_lmax,
-            .uppb = block_lmax
-          });
+        ? lp.add_col(
+              {.name =
+                   sc.lp_label(scenario, stage, block, cname, "load", uid()),
+               .uppb = block_lmax,
+               .cost = -sc.block_ecost(scenario, stage, block, *stage_fcost)})
+        : lp.add_col({.name = sc.lp_label(
+                          scenario, stage, block, cname, "load", uid()),
+                      .lowb = block_lmax,
+                      .uppb = block_lmax});
 
     lcols[buid] = lcol;
 
     // adding load variable to the balance and load rows
     auto& brow = lp.row_at(balance_row);
-    brow[lcol] = -(1 + stage_lossfactor);
+    brow[lcol] = -(1.0 + stage_lossfactor);
 
     // adding the capacity constraint
     if (capacity_col) {
       auto crow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "cap", uid())}
-                      .greater_equal(0);
+                      .greater_equal(0.0);
 
-      crow[*capacity_col] = 1;
-      crow[lcol] = -1;
+      crow[*capacity_col] = 1.0;
+      crow[lcol] = -1.0;
 
       crows[buid] = lp.add_row(std::move(crow));
     }
@@ -130,7 +126,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  if (emin_row && emin_row->size() > 0) {
+  if (emin_row && emin_row->size() > 1U) {
     emin_rows[st_k] = lp.add_row(std::move(*emin_row));
   }
 
