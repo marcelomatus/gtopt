@@ -96,7 +96,7 @@ constexpr void add_to_lp(auto& collections,
     using T = std::decay_t<decltype(e)>;
 
     if constexpr (std::is_same_v<T, BusLP>) {
-      return !use_single_bus || system_context.is_single_bus(e.id())
+      return !use_single_bus || system_context.system().is_single_bus(e.id())
           ? e.add_to_lp(system_context, scenario, stage, lp)
           : true;
     } else if constexpr (std::is_same_v<T, LineLP>) {
@@ -198,11 +198,18 @@ SystemLP::SystemLP(const System& system,
                    SceneLP scene,
                    const FlatOptions& flat_opts)
     : m_system_(system)
-    , m_collections_(create_collections(system_context(), system))
     , m_system_context_(simulation, *this)
+    , m_collections_(create_collections(m_system_context_, system))
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
 {
+  if (options().use_single_bus()) {
+    const auto& buses = system.bus_array;
+    if (!buses.empty()) {
+      m_single_bus_id_.emplace(buses.front().uid);
+    }
+  }
+
   create_lp(flat_opts);
 }
 

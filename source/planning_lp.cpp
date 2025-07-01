@@ -20,45 +20,6 @@
 
 namespace gtopt
 {
-namespace
-{
-
-[[nodiscard]] PlanningLP::scene_phase_systems_t create_systems(
-    System& system,
-    SimulationLP& simulation,
-    const OptionsLP& options,
-    const FlatOptions& flat_opts)
-{
-  system.setup_reference_bus(options);
-
-  auto&& scenes = simulation.scenes();
-
-  PlanningLP::scene_phase_systems_t all_systems;
-  all_systems.reserve(scenes.size());
-
-  for (auto&& scene : scenes) {
-    auto&& phases = simulation.phases();
-    PlanningLP::phase_systems_t phase_systems;
-    phase_systems.reserve(phases.size());
-    for (auto&& phase : phases) {
-      phase_systems.emplace_back(system, simulation, phase, scene, flat_opts);
-    }
-    all_systems.push_back(std::move(phase_systems));
-  }
-
-  return all_systems;
-}
-
-}  // namespace
-
-PlanningLP::PlanningLP(Planning planning, const FlatOptions& flat_opts)
-    : m_planning_(std::move(planning))
-    , m_options_(m_planning_.options)
-    , m_simulation_(m_planning_.simulation, m_options_)
-    , m_systems_(create_systems(
-          m_planning_.system, m_simulation_, m_options_, flat_opts))
-{
-}
 
 void PlanningLP::write_lp(const std::string& filename) const
 {

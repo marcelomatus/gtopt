@@ -61,17 +61,20 @@ struct InputTraits : UidTraits
           if (!array || !a_uid_idx) {
             throw std::runtime_error("Invalid arrow array or index");
           }
-          using array_value_type = typename arrow::CTypeTraits<Type>::ArrayType;
+
           const auto chunk = array->chunk(0);
           if (!chunk) {
             throw std::runtime_error("Null chunk in array");
           }
-          if (chunk->type_id() != array_value_type::type_id) {
+
+          if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
             throw std::runtime_error(
                 fmt::format("Type mismatch: expected {} got {}",
-                           array_value_type::type_name(),
-                           chunk->type()->ToString()));
+                            ArrowTraits<Type>::Type::type_name(),
+                            chunk->type()->ToString()));
           }
+
+          using array_value_type = typename arrow::CTypeTraits<Type>::ArrayType;
           auto array_value = std::static_pointer_cast<array_value_type>(chunk);
 
           return RType {

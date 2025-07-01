@@ -18,7 +18,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <expected>
-#include <format>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -31,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gtopt/cpu_monitor.hpp>
 #include <spdlog/spdlog.h>
 
@@ -182,7 +182,7 @@ public:
       , scheduler_interval_(config.scheduler_interval)
   {
     SPDLOG_INFO(
-        std::format("AdaptiveWorkPool initialized with {} max threads, max CPU "
+        fmt::format("AdaptiveWorkPool initialized with {} max threads, max CPU "
                     "threshold: {}%",
                     max_threads_,
                     max_cpu_threshold_));
@@ -241,10 +241,10 @@ public:
       return std::unexpected(
           std::make_error_code(std::errc::not_enough_memory));
     } catch (const std::system_error& e) {
-      SPDLOG_ERROR(std::format("System error submitting task: {}", e.what()));
+      SPDLOG_ERROR(fmt::format("System error submitting task: {}", e.what()));
       return std::unexpected(e.code());
     } catch (const std::exception& e) {
-      SPDLOG_ERROR(std::format("Failed to submit task: {}", e.what()));
+      SPDLOG_ERROR(fmt::format("Failed to submit task: {}", e.what()));
       return std::unexpected(
           std::make_error_code(std::errc::operation_not_permitted));
     } catch (...) {
@@ -287,7 +287,7 @@ public:
   {
     try {
       const auto stats = get_statistics();
-      return std::format(
+      return fmt::format(
           "=== WorkPool Statistics ===\n"
           "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} "
           "active\n"

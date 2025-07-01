@@ -15,8 +15,8 @@
 #include <string>
 #include <utility>
 
-#include <gtopt/error.hpp>
 #include <fmt/format.h>
+#include <gtopt/error.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -41,12 +41,51 @@ namespace gtopt
 class PlanningLP
 {
 public:
+  using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
+  using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
+
+private:
+  constexpr static auto create_systems(System& system,
+                                       SimulationLP& simulation,
+                                       const OptionsLP& options,
+                                       const FlatOptions& flat_opts)
+      -> scene_phase_systems_t
+  {
+    system.setup_reference_bus(options);
+    auto&& scenes = simulation.scenes();
+
+    PlanningLP::scene_phase_systems_t all_systems;
+    all_systems.reserve(scenes.size());
+
+    for (auto&& scene : scenes) {
+      auto&& phases = simulation.phases();
+      PlanningLP::phase_systems_t phase_systems;
+      phase_systems.reserve(phases.size());
+      for (auto&& phase : phases) {
+        phase_systems.emplace_back(system, simulation, phase, scene, flat_opts);
+      }
+      all_systems.push_back(std::move(phase_systems));
+    }
+
+    return all_systems;
+  }
+
+public:
   /**
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data
    * @param flat_opts Configuration options (default empty)
    */
-  explicit PlanningLP(Planning planning, const FlatOptions& flat_opts = {});
+  template<typename Planning>
+    requires(std::is_same_v<std::remove_cvref_t<Planning>, gtopt::Planning>)
+  explicit PlanningLP(Planning&& planning, const FlatOptions& flat_opts = {})
+      : m_planning_(std::forward<Planning>(planning))
+      , m_options_(m_planning_.options)
+      , m_simulation_(m_planning_.simulation, m_options_)
+      , m_systems_(create_systems(
+            m_planning_.system, m_simulation_, m_options_, flat_opts))
+  {
+  }
 
   /**
    * @brief Gets the LP options configuration
@@ -107,9 +146,6 @@ public:
    * @brief Writes solution output (implementation-defined destination)
    */
   void write_out() const;
-
-  using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
-  using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& system(this Self&& self,

@@ -10,7 +10,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/version.h>
 
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
+#endif
+
 #include <spdlog/cfg/argv.h>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
@@ -160,7 +163,7 @@ using namespace gtopt;
   flat_opts.reserve_matrix = false;  // Don't pre-reserve matrix (already done)
   flat_opts.reserve_factor = 2;  // Memory reservation factor
 
-  PlanningLP planning_lp {planning, flat_opts};
+  PlanningLP planning_lp {std::move(planning), flat_opts};
 
   if (lp_file) {
     planning_lp.write_lp(lp_file.value());
@@ -260,6 +263,10 @@ int main(int argc, char** argv)
       std::cout << "ERROR: " << e.what() << "\n";
       std::cout << desc << "\n";
       return 1;
+    }
+
+    if (vm.contains("verbose")) {
+      spdlog::set_level(spdlog::level::trace);
     }
 
     if (vm.contains("help")) {

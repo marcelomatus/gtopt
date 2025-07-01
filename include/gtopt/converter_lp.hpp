@@ -10,8 +10,7 @@
 
 #pragma once
 
-#include <format>
-
+#include <fmt/format.h>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/converter.hpp>
@@ -43,7 +42,7 @@ public:
   {
     if (auto&& bus_gen = converter().bus_generator) {
       if (converter().generator) {
-        const auto msg = std::format(
+        const auto msg = fmt::format(
             "in converter {} can't define both bus_generator and generator "
             "fields",
             uid());
@@ -61,7 +60,7 @@ public:
     }
 
     const auto msg =
-        std::format("in converter {} missing bus or generator", uid());
+        fmt::format("in converter {} missing bus or generator", uid());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
@@ -70,7 +69,7 @@ public:
   {
     if (auto&& bus_dem = converter().bus_demand) {
       if (converter().demand) {
-        const auto msg = std::format(
+        const auto msg = fmt::format(
             "in converter {} can't define both bus_demand and demand "
             "fields",
             uid());
@@ -87,7 +86,7 @@ public:
     }
 
     const auto msg =
-        std::format("in converter {} missing bus or demand", uid());
+        fmt::format("in converter {} missing bus or demand", uid());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }

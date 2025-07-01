@@ -19,9 +19,9 @@
  *
  * Supported argument types:
  * - std::string and string views
- * - Built-in numeric types (converted via std::format)
+ * - Built-in numeric types (converted via fmt::format)
  * - Any type convertible to string_view
- * - Any type formattable via std::format
+ * - Any type formattable via fmt::format
  *
  * Example usage:
  * @code
@@ -33,12 +33,13 @@
 #pragma once
 
 #include <array>
-#include <format>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
+
+#include <fmt/format.h>
 
 namespace gtopt
 {
@@ -61,7 +62,7 @@ class string_holder
     if constexpr (std::is_convertible_v<T, std::string_view>) {
       return std::string_view(std::forward<T>(t));
     } else {
-      return std::format("{}", std::forward<T>(t));
+      return fmt::format("{}", std::forward<T>(t));
     }
   }
 
@@ -91,7 +92,7 @@ public:
   template<typename T>
     requires(!string_like<T>)
   constexpr explicit string_holder(const T& value)
-      : storage(std::format("{}", value))
+      : storage(fmt::format("{}", value))
   {
   }
 
