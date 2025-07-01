@@ -221,6 +221,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
       }
     }
 
+    // Return a shared pointer to the map containing the index to uid mapping
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
 };
@@ -240,9 +241,12 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
+  [[nodiscard]] static constexpr auto make_vector_uids_idx(
+      const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
+    index_uids.reserve(sim.scenarios().size() * sim.blocks().size());
+
     for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
       for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
         for (const auto& [bi, block] : enumerate<Index>(stage.blocks())) {
@@ -255,6 +259,8 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
         }
       }
     }
+
+    // Return a shared pointer to the map containing the index to uid mapping
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
   }
 };
@@ -272,6 +278,8 @@ struct UidToVectorIdx<StageUid, BlockUid>
   static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
+    index_uids.reserve(sim.blocks().size());
+
     for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
       for (const auto& [bi, block] : enumerate<Index>(stage.blocks())) {
         const auto res = index_uids.emplace(UidKey {stage.uid(), block.uid()},
@@ -281,6 +289,8 @@ struct UidToVectorIdx<StageUid, BlockUid>
         }
       }
     }
+
+    // Return a shared pointer to the map containing the index to uid mapping
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
   }
 };
@@ -295,9 +305,11 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  static auto make_vector_uids_idx(const SimulationLP& sim) noexcept
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
+    index_uids.reserve(sim.scenarios().size() * sim.stages().size());
+
     for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
       for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
         const auto res = index_uids.emplace(
@@ -307,6 +319,8 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
         }
       }
     }
+
+    // Return a shared pointer to the map containing the index to uid mapping
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
   }
 };
@@ -324,12 +338,16 @@ struct UidToVectorIdx<StageUid>
   static auto make_vector_uids_idx(const SimulationLP& sim) noexcept
   {
     uid_vector_idx_map_t index_uids;
+    index_uids.reserve(sim.stages().size());
+
     for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
       const auto res = index_uids.emplace(UidKey {stage.uid()}, IndexKey {ti});
       if (!res.second) {
         SPDLOG_WARN("Duplicate uid values");
       }
     }
+
+    // Return a shared pointer to the map containing the index to uid mapping
     return std::make_shared<uid_vector_idx_map_t>(std::move(index_uids));
   }
 };
