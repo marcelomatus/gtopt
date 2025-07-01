@@ -44,9 +44,9 @@ TEST_CASE("Inheritance and type traits")
 
   SUBCASE("make_uid_column error cases")
   {
-    auto result = TestTraits::make_uid_column(nullptr, "");
+    auto result = TestTraits::make_uid_column(nullptr, "test");
     CHECK(!result.has_value());
-    CHECK(result.error() == "Null table provided");
+    CHECK(result.error() == "Null table, no column for name 'test'");
   }
 }
 
