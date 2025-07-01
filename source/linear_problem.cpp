@@ -68,8 +68,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       }
     }
 
-    matind.reserve_and_overwrite(nnzero, [](auto* ptr, auto n) { return n; });
-    matval.reserve_and_overwrite(nnzero, [](auto* ptr, auto n) { return n; });
+    matind.resize(nnzero);
+    matval.resize(nnzero);
     for (size_t ic = 0, ii = 0; const auto& ai : A) {
       matbeg[ic] = std::in_range<fp_index_t>(ii) ? static_cast<fp_index_t>(ii)
                   : throw std::overflow_error("Index conversion overflow");
