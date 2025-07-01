@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <gtopt/field_sched.hpp>
 #include <gtopt/mvector_traits.hpp>
 #include <gtopt/overload.hpp>  // Add Overload include
 #include <gtopt/uid_traits.hpp>
@@ -43,6 +44,7 @@ struct InputTraits : UidTraits
     using idx_key_t = typename UidToVectorIdx<Uid...>::IndexKey;
     using vector_traits = mvector_traits<value_type, idx_key_t>;
     using vector_type = typename vector_traits::vector_type;
+    using file_sched = FileSched;
 
     auto visitor = Overload {
         [](const value_type& val) -> RType { return RType {val}; },
@@ -52,18 +54,19 @@ struct InputTraits : UidTraits
           idx_key_t idx_key = v_uid_idx->at(std::make_tuple(uid...));
           return RType {vector_traits::at_value(vec, idx_key)};
         },
-        [&]([[maybe_unused]] const auto& arr_idx) -> RType
+        [&]([[maybe_unused]] const file_sched& arr_idx) -> RType
         {
           using a_uid_idx_type = arrow_array_uid_idx_t<Uid...>;
           const auto& [array, a_uid_idx] = std::get<a_uid_idx_type>(uid_idx);
           if (!array || !a_uid_idx) {
             throw std::runtime_error("Invalid arrow array or index");
           }
-          using array_value = typename arrow::CTypeTraits<Type>::ArrayType;
-          return RType {access_oper(
-              std::static_pointer_cast<array_value>(array->chunk(0)),
-              a_uid_idx,
-              std::make_tuple(uid...))};
+          using array_value_type = typename arrow::CTypeTraits<Type>::ArrayType;
+          auto array_value =
+              std::static_pointer_cast<array_value_type>(array->chunk(0));
+
+          return RType {
+              access_oper(array_value, a_uid_idx, std::make_tuple(uid...))};
         }};
 
     return std::visit(visitor, sched);
@@ -78,7 +81,16 @@ struct InputTraits : UidTraits
         sched,
         uid_idx,
         [](const auto& values, const auto& uid_idx, const auto& key) -> Type
-        { return values->Value(uid_idx->at(key)); },
+        {
+          try {
+            return values->Value(uid_idx->at(key));
+          } catch (const std::out_of_range& e) {
+            SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
+                                     gtopt::as_string(key),
+                                     e.what()));
+            throw;
+          }
+        },
         uid...);
   }
 
@@ -94,8 +106,15 @@ struct InputTraits : UidTraits
            const auto& uid_idx,
            const auto& key) -> std::optional<Type>
         {
-          return get_optvalue(*uid_idx, key)
-              .transform([&values](auto idx) { return values->Value(idx); });
+          try {
+            return get_optvalue(*uid_idx, key)
+                .transform([&values](auto idx) { return values->Value(idx); });
+          } catch (const std::out_of_range& e) {
+            SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
+                                     gtopt::as_string(key),
+                                     e.what()));
+            return std::nullopt;
+          }
         },
         uid...);
   }
