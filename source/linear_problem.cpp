@@ -108,25 +108,25 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
-  auto build_name_vector = 
+  auto build_name_vector =
       [](auto& source, size_t size, bool move_names) -> fp_name_vec_t
   {
-      fp_name_vec_t names;
-      names.reserve(size);
-      for (auto& item : source) {
-          names.emplace_back(move_names ? std::move(item.name) : item.name);
-      }
-      return names;
+    fp_name_vec_t names;
+    names.reserve(size);
+    for (auto& item : source) {
+      names.emplace_back(move_names ? std::move(item.name) : item.name);
+    }
+    return names;
   };
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-      colnm = build_name_vector(cols, ncols, opts.move_names);
+    colnm = build_name_vector(cols, ncols, opts.move_names);
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-      rownm = build_name_vector(rows, nrows, opts.move_names);
+    rownm = build_name_vector(rows, nrows, opts.move_names);
   }
 
   using fp_index_map_t = FlatLinearProblem::index_map_t;
