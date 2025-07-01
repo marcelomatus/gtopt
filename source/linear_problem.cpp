@@ -59,7 +59,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       }
     } else [[likely]] {
       for (const auto& [i, row] : std::views::enumerate(rows)) {
-        for (const auto [j, v] : row.cmap) {
+        for (const auto& [j, v] : row.cmap) {
           if (std::abs(v) > eps) [[likely]] {
             A[j].emplace(std::piecewise_construct,
                          std::forward_as_tuple(i),
@@ -111,28 +111,16 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
     colnm.reserve(ncols);
-    if (opts.move_names) [[likely]] {
-      for (auto& col : cols) {
-        colnm.emplace_back(std::move(col.name));
-      }
-    } else [[unlikely]] {
-      for (auto& col : cols) {
-        colnm.emplace_back(col.name);
-      }
+    for (auto& col : cols) {
+      colnm.emplace_back(opts.move_names ? std::move(col.name) : col.name);
     }
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
     rownm.reserve(nrows);
-    if (opts.move_names) [[likely]] {
-      for (auto& row : rows) {
-        rownm.emplace_back(std::move(row.name));
-      }
-    } else [[unlikely]] {
-      for (auto& row : rows) {
-        rownm.emplace_back(row.name);
-      }
+    for (auto& row : rows) {
+      rownm.emplace_back(opts.move_names ? std::move(row.name) : row.name);
     }
   }
 
@@ -155,7 +143,9 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   if (opts.row_with_name_map) [[unlikely]] {
     rowmp.reserve(nrows);
     for (const auto& [i, name] : std::views::enumerate(rownm)) {
-      if (!rowmp.emplace(name, i).second) [[unlikely]] {
+      if (auto [it, inserted] = rowmp.try_emplace(name, i); !inserted)
+          [[unlikely]]
+      {
         const auto msg = fmt::format("repeated row name {}", name);
         SPDLOG_WARN(msg);
       }
