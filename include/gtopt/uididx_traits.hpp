@@ -39,19 +39,21 @@ struct UidColumn
                        std::string>
   {
     if (!table) {
-      SPDLOG_ERROR(fmt::format("Null table, no column for name '{}'", name));
-      return std::unexpected("Null table provided");
+      auto msg = fmt::format("Null table, no column for name '{}'", name);
+      SPDLOG_ERROR(msg);
+      return std::unexpected(std::move(msg));
     }
 
     SPDLOG_INFO(fmt::format("Looking for column '{}'", name));
     const auto column = table->GetColumnByName(std::string {name});
     if (!column) {
-      SPDLOG_ERROR(fmt::format("Not column '{}' found", name));
-      return std::unexpected(fmt::format("Column '{}' not found", name));
+      auto msg = fmt::format("Column '{}' not found in table", name);
+      SPDLOG_ERROR(msg);
+      return std::unexpected(std::move(msg));
     }
 
     try {
-      const auto& chunk = column->chunk(0);
+      const auto chunk = column->chunk(0);
       if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
         auto msg = fmt::format("Type mismatch: expected {} got {}",
                                ArrowTraits<Uid>::Type::type_name(),
@@ -64,7 +66,7 @@ struct UidColumn
     } catch (const std::exception& e) {
       auto msg = fmt::format("Column cast failed: {}", e.what());
       SPDLOG_ERROR(msg);
-      return std::unexpected(msg);
+      return std::unexpected(std::move(msg));
     }
   }
 };
