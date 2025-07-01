@@ -319,7 +319,7 @@ TEST_CASE("Linear problem advanced operations")
                                 .rownm = {},
                                 .colmp = {},
                                 .rowmp = {},
-                                .name = "SEN"};
+                                .name = ""};
 
     REQUIRE(flat_lp.ncols == flat_lp2.ncols);
     REQUIRE(flat_lp.nrows == flat_lp2.nrows);
