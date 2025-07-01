@@ -131,28 +131,28 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   using fp_index_map_t = FlatLinearProblem::index_map_t;
 
-  auto build_name_map =
-      [](const auto& names, auto& map, std::string_view entity_type)
+  auto build_name_map = 
+      [](const auto& names, std::string_view entity_type) -> fp_index_map_t
   {
-    map.reserve(names.size());
-    for (const auto& [i, name] : std::views::enumerate(names)) {
-      if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
-          [[unlikely]]
-      {
-        const auto msg = fmt::format("repeated {} name {}", entity_type, name);
-        SPDLOG_WARN(msg);
+      fp_index_map_t map;
+      map.reserve(names.size());
+      for (const auto& [i, name] : std::views::enumerate(names)) {
+          if (auto [it, inserted] = map.try_emplace(name, i); !inserted) [[unlikely]] {
+              const auto msg = fmt::format("repeated {} name {}", entity_type, name);
+              SPDLOG_WARN(msg);
+          }
       }
-    }
+      return map;
   };
 
   fp_index_map_t colmp;
   if (opts.col_with_name_map) [[unlikely]] {
-    build_name_map(colnm, colmp, "column");
+      colmp = build_name_map(colnm, "column");
   }
 
   fp_index_map_t rowmp;
   if (opts.row_with_name_map) [[unlikely]] {
-    build_name_map(rownm, rowmp, "row");
+      rowmp = build_name_map(rownm, "row");
   }
 
 #ifdef GTOPT_TRACE_LINEAR_PROBLEM
