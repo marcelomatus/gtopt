@@ -31,7 +31,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
   std::string line;
   try {
     if (!std::filesystem::exists(proc_stat_path)) {
-      SPDLOG_WARN(fmt::format("{} does not exist, using fallback CPU value: {}",
+      SPDLOG_WARN(std::format("{} does not exist, using fallback CPU value: {}",
                               proc_stat_path.string(),
                               fallback_value));
       return fallback_value;
@@ -67,7 +67,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
           .out);
 
   if (count < 4) {
-    SPDLOG_WARN(fmt::format(
+    SPDLOG_WARN(std::format(
         "Insufficient CPU stats, {} values read from /proc/stat", count));
     SPDLOG_WARN(line);
     return fallback_value;
@@ -93,11 +93,8 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 
   if (call_count++ % 10 == 0) {
     SPDLOG_INFO(
-        fmt::format("CPU load: {:.2f}% (idle: {}, total: {}, idle_delta: {}, "
-                    "total_delta: {})",
+        std::format("CPU load: {:.2f}% (idle_delta: {}, total_delta: {})",
                     load,
-                    idle,
-                    total,
                     idle_delta,
                     total_delta));
   }
@@ -122,7 +119,7 @@ void CPUMonitor::start()
               const double load = get_system_cpu_usage();
               current_load_.store(load, std::memory_order_relaxed);
             } catch (const std::exception& e) {
-              SPDLOG_ERROR(fmt::format(
+              SPDLOG_ERROR(std::format(
                   "Exception in CPU monitoring thread: {} - continuing",
                   e.what()));
             } catch (...) {
