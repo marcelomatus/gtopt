@@ -53,14 +53,30 @@ struct UidColumn
     }
 
     try {
+      if (column->num_chunks() == 0) {
+        auto msg = fmt::format("Column '{}' has no chunks", name);
+        SPDLOG_ERROR(msg);
+        return std::unexpected(std::move(msg));
+      }
+
       const auto chunk = column->chunk(0);
+      if (!chunk) {
+        auto msg = fmt::format("Null chunk in column '{}'", name);
+        SPDLOG_ERROR(msg);
+        return std::unexpected(std::move(msg));
+      }
+
       if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
-        auto msg = fmt::format("Type mismatch: expected {} got {}",
+        auto msg = fmt::format("Type mismatch in column '{}': expected {} got {}",
+                               name,
                                ArrowTraits<Uid>::Type::type_name(),
                                chunk->type()->ToString());
         SPDLOG_ERROR(msg);
         return std::unexpected(std::move(msg));
       }
+
+      SPDLOG_DEBUG(fmt::format("Successfully validated column '{}' with type {}",
+                              name, chunk->type()->ToString()));
       return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
           chunk);
     } catch (const std::exception& e) {
