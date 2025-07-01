@@ -128,10 +128,10 @@ TEST_CASE("Scenario-Stage-Block mapping")
     CHECK(result->at({ScenarioUid {1}, StageUid {1}, BlockUid {1}})
           == std::tuple {0, 0, 0});
 
+    auto tuid = std::tuple {ScenarioUid {1}, StageUid {2}, BlockUid {3}};
     auto tidx = std::tuple {0, 1, 1};
-    CHECK(as_string(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {3}}))
-          == as_string(tidx));
-    CHECK(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {3}}) == tidx);
+    CHECK(as_string(result->at(tuid)) == as_string(tidx));
+    CHECK(result->at(tuid) == tidx);
   }
 }
 
