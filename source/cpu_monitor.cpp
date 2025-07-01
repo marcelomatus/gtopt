@@ -53,7 +53,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 
     // Skip "cpu" prefix and any following whitespace
     auto cpu_data = std::string_view(line).substr(3);
-    cpu_data = cpu_data.substr(cpu_data.find_first_not_of(" \t"));
+    cpu_data = cpu_data.substr(cpu_data.find_first_not_of(' '));
 
     std::array<uint64_t, 10> times {};
 
@@ -71,7 +71,6 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     size_t count = 0;
     for (auto&& [val, time] : std::views::zip(parse_view, times)) {
       time = val;
-      SPDLOG_WARN(fmt::format("{} {}", count, val));
       ++count;
     }
 
