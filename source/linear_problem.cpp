@@ -108,7 +108,9 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
-  auto build_name_vector = [](auto& source, auto& dest, size_t size, bool move_names) {
+  auto build_name_vector =
+      [](auto& source, auto& dest, size_t size, bool move_names)
+  {
     dest.reserve(size);
     for (auto& item : source) {
       dest.emplace_back(move_names ? std::move(item.name) : item.name);
@@ -127,23 +129,26 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   using fp_index_map_t = FlatLinearProblem::index_map_t;
 
-  fp_index_map_t colmp;
-  fp_index_map_t rowmp;
-
-  auto build_name_map = [](const auto& names, auto& map, std::string_view entity_type) {
+  auto build_name_map =
+      [](const auto& names, auto& map, std::string_view entity_type)
+  {
     map.reserve(names.size());
     for (const auto& [i, name] : std::views::enumerate(names)) {
-      if (auto [it, inserted] = map.try_emplace(name, i); !inserted) [[unlikely]] {
+      if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
+          [[unlikely]]
+      {
         const auto msg = fmt::format("repeated {} name {}", entity_type, name);
         SPDLOG_WARN(msg);
       }
     }
   };
 
+  fp_index_map_t colmp;
   if (opts.col_with_name_map) [[unlikely]] {
     build_name_map(colnm, colmp, "column");
   }
 
+  fp_index_map_t rowmp;
   if (opts.row_with_name_map) [[unlikely]] {
     build_name_map(rownm, rowmp, "row");
   }
