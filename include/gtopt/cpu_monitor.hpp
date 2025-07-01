@@ -40,7 +40,7 @@ public:
   ~CPUMonitor() { stop(); }
 
   void start();
-  void stop();
+  void stop() noexcept;
 
   void set_interval(std::chrono::milliseconds interval) noexcept
   {
