@@ -36,14 +36,15 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
         }
 
         // Open /proc/stat in text mode (default)
-        std::ifstream proc_stat(std::string(proc_stat_path));
+        std::ifstream proc_stat{std::string(proc_stat_path)};
         if (!proc_stat.is_open()) [[unlikely]] {
-            SPDLOG_WARN("Failed to open {}", proc_stat_path);
+            const auto msg = fmt::format("Failed to open {}", proc_stat_path);
+            SPDLOG_WARN(msg);
             return fallback_value;
         }
 
         // Read first line efficiently
-        std::string line;
+        const std::string line;
         if (!std::getline(proc_stat, line)) [[unlikely]] {
             return fallback_value;
         }
@@ -67,8 +68,8 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
             if (count >= times.size()) {
                 break;
             }
-            if (count < times.size()) {
-                times[count] = val;
+            if (count < times.size()) [[likely]] {
+                times.at(count) = val;
                 ++count;
             }
         }
