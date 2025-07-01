@@ -31,6 +31,36 @@
 
 namespace gtopt
 {
+struct UidColumn
+{
+  [[nodiscard]] static constexpr auto make_uid_column(
+      const ArrowTable& table, const std::string_view name) noexcept
+      -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
+                       std::string>
+  {
+    if (!table) {
+      SPDLOG_ERROR(fmt::format("Null table, no column for name '{}'", name));
+      return std::unexpected("Null table provided");
+    }
+
+    SPDLOG_INFO(fmt::format("Looking for column '{}'", name));
+    const auto column = table->GetColumnByName(std::string {name});
+    if (!column) {
+      SPDLOG_ERROR(fmt::format("Not column '{}' found", name));
+      return std::unexpected(fmt::format("Column '{}' not found", name));
+    }
+
+    try {
+      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
+          column->chunk(0));
+    } catch (const std::exception& e) {
+      auto msg = fmt::format("Column cast failed: {}", e.what());
+      SPDLOG_ERROR(msg);
+      return std::unexpected(msg);
+    }
+  }
+};
+
 template<typename Value, typename... Uids>
 struct UidMapTraits
 {
@@ -44,34 +74,13 @@ template<typename... Uids>
 struct ArrowUidTraits
     : ArrowTraits<Uid>
     , UidMapTraits<ArrowIndex, Uids...>
+    , UidColumn
 {
   using BaseMapTraits = UidMapTraits<ArrowIndex, Uids...>;
 
   using typename BaseMapTraits::key_type;
   using uid_arrow_idx_map_t = typename BaseMapTraits::uid_map_t;
   using uid_arrow_idx_map_ptr = typename BaseMapTraits::uid_map_ptr;
-
-  [[nodiscard]] static constexpr auto make_uid_column(
-      const ArrowTable& table, const std::string_view name) noexcept
-      -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
-                       std::string>
-  {
-    if (!table) {
-      return std::unexpected("Null table provided");
-    }
-
-    const auto& column = table->GetColumnByName(std::string {name});
-    if (!column) {
-      return std::unexpected(fmt::format("Column '{}' not found", name));
-    }
-
-    try {
-      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
-          column->chunk(0));
-    } catch (const std::exception& e) {
-      return std::unexpected(fmt::format("Column cast failed: {}", e.what()));
-    }
-  }
 };
 
 template<typename... Uids>
@@ -97,19 +106,16 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(
-        std::views::iota(ArrowIndex {0}, table->num_rows()),
-        [&](ArrowIndex i) constexpr noexcept
-        {
-          const auto res =
-              uid_idx.emplace(key_type {ScenarioUid {(*scenarios)->Value(i)},
-                                        StageUid {(*stages)->Value(i)},
-                                        BlockUid {(*blocks)->Value(i)}},
-                              i);
-          if (!res.second) {
-            SPDLOG_WARN("using duplicate uid values at element");
-          }
-        });
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
+                                 StageUid {(*stages)->Value(i)},
+                                 BlockUid {(*blocks)->Value(i)}};
+      const auto res = uid_idx.emplace(key, i);
+      if (!res.second) {
+        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+                                as_string(key)));
+      }
+    }
 
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
@@ -128,18 +134,15 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(
-        std::views::iota(ArrowIndex {0}, table->num_rows()),
-        [&](ArrowIndex i) constexpr noexcept
-        {
-          const auto res =
-              uid_idx.emplace(key_type {StageUid {(*stages)->Value(i)},
-                                        BlockUid {(*blocks)->Value(i)}},
-                              i);
-          if (!res.second) {
-            SPDLOG_WARN("using duplicate uid values at element");
-          }
-        });
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto key = key_type {StageUid {(*stages)->Value(i)},
+                                 BlockUid {(*blocks)->Value(i)}};
+      const auto res = uid_idx.emplace(key, i);
+      if (!res.second) {
+        SPDLOG_WARN(fmt::format("using duplicated id values at element {}",
+                                as_string(key)));
+      }
+    }
 
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
@@ -159,17 +162,15 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(std::views::iota(ArrowIndex {0}, table->num_rows()),
-                          [&](ArrowIndex i) constexpr noexcept
-                          {
-                            const auto res = uid_idx.emplace(
-                                key_type {ScenarioUid {(*scenarios)->Value(i)},
-                                          StageUid {(*stages)->Value(i)}},
-                                i);
-                            if (!res.second) {
-                              SPDLOG_WARN("using duplicate uid values");
-                            }
-                          });
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
+                                 StageUid {(*stages)->Value(i)}};
+      const auto res = uid_idx.emplace(key, i);
+      if (!res.second) {
+        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+                                as_string(key)));
+      }
+    }
 
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
@@ -187,15 +188,15 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
 
-    std::ranges::for_each(std::views::iota(ArrowIndex {0}, table->num_rows()),
-                          [&](ArrowIndex i) constexpr noexcept
-                          {
-                            const auto res = uid_idx.emplace(
-                                key_type {StageUid {(*stages)->Value(i)}}, i);
-                            if (!res.second) {
-                              SPDLOG_WARN("using duplicate uid values");
-                            }
-                          });
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto key = key_type {StageUid {(*stages)->Value(i)}};
+      const auto res = uid_idx.emplace(key, i);
+      if (!res.second) {
+        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+                                as_string(key)));
+      }
+    }
+
     return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
   }
 };
