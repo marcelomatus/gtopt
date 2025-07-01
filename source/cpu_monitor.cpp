@@ -29,13 +29,13 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     try {
         // Fast existence check
         if (!std::filesystem::exists(proc_stat_path)) [[unlikely]] {
-            SPDLOG_WARN("{} does not exist, using fallback CPU value: {}",
-                       proc_stat_path, fallback_value);
+            SPDLOG_WARN("{} does not exist, using fallback CPU value: {:.2f}",
+                       std::string(proc_stat_path), fallback_value);
             return fallback_value;
         }
 
         // Open /proc/stat in text mode (default)
-        std::ifstream proc_stat(proc_stat_path);
+        std::ifstream proc_stat(proc_stat_path.data());
         if (!proc_stat.is_open()) [[unlikely]] {
             SPDLOG_WARN("Failed to open {}", proc_stat_path);
             return fallback_value;
@@ -63,7 +63,9 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
             | std::views::take(times.size());
 
         for (auto val : parse_view) {
-            if (count >= times.size()) break;
+            if (count >= times.size()) {
+                break;
+            }
             times[count++] = val;
         }
 
@@ -84,7 +86,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
         }
 
         // Fast floating-point conversion
-        const double load = 100.0 * (1.0 - static_cast<double>(idle_delta) / total_delta);
+        const double load = 100.0 * (1.0 - static_cast<double>(idle_delta) / static_cast<double>(total_delta));
 
         // Log every 10th call (thread-safe counter)
         if (call_count.fetch_add(1, std::memory_order_relaxed) % 10 == 0) {
@@ -107,15 +109,17 @@ void CPUMonitor::start()
 
     try {
         monitor_thread_ = std::jthread(
-            [this](std::stop_token stoken)
+            [this](const std::stop_token& stoken)
             {
                 while (!stoken.stop_requested()) {
                     const double load = get_system_cpu_usage();
                     current_load_.store(load, std::memory_order_relaxed);
                     
                     // Using C++20's jthread stop token for interruption
-                    std::this_thread::sleep_for(monitor_interval_, stoken);
-                    if (stoken.stop_requested()) break;
+                    std::this_thread::sleep_for(monitor_interval_);
+                    if (stoken.stop_requested()) {
+                        break;
+                    }
                 }
             });
 
