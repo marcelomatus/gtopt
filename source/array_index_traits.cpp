@@ -76,10 +76,15 @@ using namespace gtopt;
   const auto filename = fpath.string() + ".parquet";
 
   std::shared_ptr<arrow::io::RandomAccessFile> input;
-  GTOPT_ARROW_ASSIGN_OR_RAISE(
-      input,
-      arrow::io::ReadableFile::Open(filename),
-      fmt::format("Arrow can't open file {}", filename));
+  {
+    auto&& __name = arrow::io::ReadableFile::Open(filename);
+    {
+      if (not(__name.ok())) {
+        throw std::runtime_error(fmt::format("Arrow can't open file {}", filename));
+      }
+    }
+    input = std::move(__name).ValueUnsafe();
+  }
 
   auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
