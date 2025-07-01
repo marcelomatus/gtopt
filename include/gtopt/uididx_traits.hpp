@@ -51,8 +51,15 @@ struct UidColumn
     }
 
     try {
-      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
-          column->chunk(0));
+      const auto& chunk = column->chunk(0);
+      if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
+        auto msg = fmt::format("Type mismatch: expected {} got {}",
+                              ArrowTraits<Uid>::Type::type_name(),
+                              chunk->type()->ToString());
+        SPDLOG_ERROR(msg);
+        return std::unexpected(msg);
+      }
+      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(chunk);
     } catch (const std::exception& e) {
       auto msg = fmt::format("Column cast failed: {}", e.what());
       SPDLOG_ERROR(msg);
