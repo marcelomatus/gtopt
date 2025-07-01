@@ -190,7 +190,7 @@ constexpr auto parquet_write_table(const auto& fpath,
                                       1024 * 1024,  // NOLINT
                                       props);
   if (!status.ok()) [[unlikely]] {
-    auto msg = std::format("File write failed: {}", fpath.string());
+    auto msg = fmt::format("File write failed: {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
@@ -209,7 +209,7 @@ constexpr auto csv_write_table(const auto& fpath,
   const auto write_options = arrow::csv::WriteOptions::Defaults();
   status = WriteCSV(*table.get(), write_options, output.get());
   if (!status.ok()) {
-    const auto msg = std::format("can' t write to file {}", fpath.string());
+    const auto msg = fmt::format("can' t write to file {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
@@ -274,7 +274,7 @@ void OutputContext::write() const
         [path, table, fmt, zfmt]
         {
           if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
-            auto msg = std::format("File write failed: {}", path.string());
+            auto msg = fmt::format("File write failed: {}", path.string());
             SPDLOG_CRITICAL(msg);
           }
         });
@@ -287,7 +287,7 @@ void OutputContext::write() const
       std::filesystem::path(options().output_directory()) / "solution.csv";
 
   std::ofstream sol_file(sol_path.string());
-  sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
+  sol_file << fmt::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
                           "obj_value",
                           sol_obj_value,
                           "kappa",

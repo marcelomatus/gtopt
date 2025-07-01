@@ -18,17 +18,14 @@
 namespace gtopt
 {
 
-namespace detail
+struct ArrayIndexBase
 {
-[[nodiscard]] auto read_arrow_table(const SystemContext& sc,
-                                    std::string_view cname,
-                                    std::string_view fname) -> ArrowTable;
-}  // namespace detail
+  [[nodiscard]] static auto read_arrow_table(const SystemContext& sc,
+                                             std::string_view cname,
+                                             std::string_view fname)
+      -> ArrowTable;
 
-template<typename Type, typename Map, typename FSched, typename... Uid>
-struct ArrayIndexTraits : InputTraits
-{
-private:
+  template<typename... Uid>
   [[nodiscard]] static constexpr auto get_arrow_index(
       const SystemContext& system_context,
       const std::string_view cname,
@@ -40,7 +37,7 @@ private:
     using array_map_key = typename std::decay_t<decltype(array_map)>::key_type;
     using table_map_key = typename std::decay_t<decltype(table_map)>::key_type;
 
-    auto&& [uid, name] = id;
+    const auto& [uid, name] = id;
 
     const auto array_key = array_map_key {cname, fname, uid};
 
@@ -50,7 +47,7 @@ private:
     }
 
     // Cache miss - need to load table and create index
-    auto&& [table, index_idx] = [&]()
+    auto [table, index_idx] = [&]()
     {
       const auto table_key = table_map_key {cname, fname};
 
@@ -59,17 +56,17 @@ private:
       }
 
       // Load table and create index if not found
-      auto table = detail::read_arrow_table(system_context, cname, fname);
+      auto table = read_arrow_table(system_context, cname, fname);
       auto index = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
 
       if (!table || !index) [[unlikely]] {
         const auto msg =
-            std::format("Can't create table/index for {}:{}", fname, name);
+            fmt::format("Can't create table/index for {}:{}", fname, name);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
       }
 
-      auto&& [res, ok] = table_map.emplace(table_key, std::pair {table, index});
+      auto [res, ok] = table_map.emplace(table_key, std::pair {table, index});
       if (!ok) [[unlikely]] {
         const auto msg = fmt::format(
             "Can't insert non-unique table key {} {}", cname, fname);
@@ -81,7 +78,7 @@ private:
     }();
 
     // Try multiple column name patterns
-    auto&& array = [&]()
+    auto array = [&]()
     {
       if (auto col = table->GetColumnByName(std::string {name})) {
         return col;
@@ -94,14 +91,13 @@ private:
 
     if (!array) [[unlikely]] {
       const auto msg =
-          std::format("Can't find column {} in table {}", name, fname);
+          fmt::format("Can't find column {} in table {}", name, fname);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
     }
 
     // Cache the array
-    auto&& [res, ok] =
-        array_map.emplace(array_key, std::pair {array, index_idx});
+    auto [res, ok] = array_map.emplace(array_key, std::pair {array, index_idx});
     if (!ok) [[unlikely]] {
       const auto msg = fmt::format(
           "Can't insert non-unique arrow key {} {} {}", cname, fname, uid);
@@ -111,7 +107,14 @@ private:
 
     return res->second;
   }
+};
 
+template<typename Type, typename Map, typename FSched, typename... Uid>
+struct ArrayIndexTraits
+    : InputTraits
+    , ArrayIndexBase
+{
+private:
 public:
   using uid_tuple = std::tuple<Uid...>;
 
@@ -145,7 +148,7 @@ public:
             },
             [&](const file_sched& fsched) -> array_vector_uid_idx_v
             {
-              return get_arrow_index(
+              return get_arrow_index<Uid...>(
                   system_context, class_name, fsched, id, array_map, table_map);
             }},
         sched);

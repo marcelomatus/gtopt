@@ -1,8 +1,9 @@
 // Standard library
 #include <algorithm>
-#include <format>
 #include <utility>
 #include <vector>
+
+#include <fmt/format.h>
 
 // Third-party
 #include <spdlog/spdlog.h>
@@ -35,11 +36,11 @@ void AdaptiveWorkPool::start()
                           std::this_thread::sleep_for(scheduler_interval_);
                         }
                       }};
-    SPDLOG_INFO(std::format("AdaptiveWorkPool started with {} max threads",
+    SPDLOG_INFO(fmt::format("AdaptiveWorkPool started with {} max threads",
                             max_threads_));
   } catch (const std::exception& e) {
     running_ = false;
-    auto msg = std::format("Failed to start AdaptiveWorkPool: {}", e.what());
+    auto msg = fmt::format("Failed to start AdaptiveWorkPool: {}", e.what());
     SPDLOG_ERROR(msg);
     throw std::runtime_error(msg);
   }
@@ -148,7 +149,7 @@ void AdaptiveWorkPool::schedule_next_task()
           try {
             task.execute();
           } catch (const std::exception& e) {
-            SPDLOG_ERROR(std::format("Task execution failed: {}", e.what()));
+            SPDLOG_ERROR(fmt::format("Task execution failed: {}", e.what()));
           } catch (...) {
             SPDLOG_ERROR("Task execution failed with unknown exception");
           }
@@ -161,7 +162,7 @@ void AdaptiveWorkPool::schedule_next_task()
 
     if (task.requirements().name) {
       SPDLOG_INFO(
-          std::format("Scheduled task: '{}' (threads: {}, priority: {})",
+          fmt::format("Scheduled task: '{}' (threads: {}, priority: {})",
                       *task.requirements().name,
                       threads_needed,
                       static_cast<int>(task.requirements().priority)));

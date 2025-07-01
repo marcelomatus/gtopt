@@ -29,18 +29,12 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     , m_simulation_(simulation)
     , m_system_(system)
 {
-  if (options().use_single_bus()) {
-    const auto& buses = system.elements<BusLP>();
-    if (!buses.empty()) {
-      m_single_bus_id_.emplace(buses.front().uid());
-    }
-  }
 }
 
 auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
     -> ElementIndex<BusLP>
 {
-  return system().element_index(m_single_bus_id_.value_or(id));
+  return system().element_index(system().single_bus_id().value_or(id));
 }
 
 auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const

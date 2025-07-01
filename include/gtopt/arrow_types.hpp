@@ -36,6 +36,13 @@ struct ArrowTraits<int16_t>
 };
 
 template<>
+struct ArrowTraits<int8_t>
+{
+  using Type = arrow::Int8Type;
+  static constexpr auto type() { return arrow::int8(); }
+};
+
+template<>
 struct ArrowTraits<double>
 {
   using Type = arrow::DoubleType;

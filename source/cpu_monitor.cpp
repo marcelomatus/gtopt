@@ -1,3 +1,12 @@
+/**
+ * @file      cpu_monitor.cpp
+ * @brief     Header of
+ * @date      Mon Jun 30 19:43:33 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
 
 #include <array>
 #include <filesystem>
@@ -15,6 +24,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 {
   static uint64_t last_idle = 0;
   static uint64_t last_total = 0;
+  static size_t call_count = 0;
 
   const std::filesystem::path proc_stat_path("/proc/stat");
 
@@ -44,20 +54,22 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     return fallback_value;
   }
 
-  std::istringstream ss(std::move(line));
+  std::istringstream ss(line);
   // skip the 'cpu' string until we reach the first space/number
   ss.ignore(std::numeric_limits<std::streamsize>::max(), ' ');
 
   std::array<uint64_t, 10> times {};
   auto count = std::ranges::distance(
+      times.begin(),
       std::ranges::copy(std::ranges::istream_view<uint64_t>(ss)
                             | std::views::take(times.size()),
                         times.begin())
-          .out,
-      times.begin());
+          .out);
 
   if (count < 4) {
-    SPDLOG_WARN("Insufficient CPU stats values read from /proc/stat");
+    SPDLOG_WARN(fmt::format(
+        "Insufficient CPU stats, {} values read from /proc/stat", count));
+    SPDLOG_WARN(line);
     return fallback_value;
   }
 
@@ -75,9 +87,22 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     return 0.0;
   }
 
-  return 100.0
+  const auto load = 100.0
       * (1.0
          - static_cast<double>(idle_delta) / static_cast<double>(total_delta));
+
+  if (call_count++ % 10 == 0) {
+    SPDLOG_INFO(
+        fmt::format("CPU load: {:.2f}% (idle: {}, total: {}, idle_delta: {}, "
+                    "total_delta: {})",
+                    load,
+                    idle,
+                    total,
+                    idle_delta,
+                    total_delta));
+  }
+
+  return load;
 }
 
 void CPUMonitor::start()

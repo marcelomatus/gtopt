@@ -130,8 +130,8 @@ public:
                                          | std::ranges::to<std::vector>();
                                    })
                                | std::ranges::to<std::vector>())
-      , m_active_blocks_(m_active_stage_blocks_
-                         | std::views::join  // Flatten nested ranges
+      , m_active_blocks_(simulation.blocks()
+                         | std::views::transform(&BlockLP::uid)
                          | std::ranges::to<std::vector>())
   {
   }
@@ -252,8 +252,8 @@ public:
 
     size_t idx = 0;
     for (size_t count = 0; auto&& suid : m_active_scenarios_) {
-      for (auto&& tuid : m_active_stages_) {
-        for (auto&& buid : m_active_stage_blocks_[tuid]) {
+      for (auto [tidx, tuid] : enumerate(m_active_stages_)) {
+        for (auto&& buid : m_active_stage_blocks_[tidx]) {
           auto&& stbiter = hstb.find({suid, tuid, buid});
           if (stbiter != hstb.end()) {
             const auto value = proj(stbiter->second);
@@ -289,16 +289,20 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
-      for (auto&& tuid : m_active_stages_) {
+    for (size_t count = 0;
+         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+    {
+      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
         auto&& stiter = hstb.find({suid, tuid});
         const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
 
-        for (auto&& buid : m_active_stage_blocks_[tuid]) {
+        for (const auto [bidx, buid] :
+             std::views::enumerate(m_active_stage_blocks_[tidx]))
+        {
           if (has_stuid) {
             const auto value = proj(stiter->second.at(buid));
             values[idx] =
-                factor.empty() ? value : value * factor[suid][tuid][buid];
+                factor.empty() ? value : value * factor[sidx][tidx][bidx];
 
             valid[idx] = (true);
             ++count;
@@ -329,14 +333,16 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& suid : m_active_scenarios_) {
-      for (auto&& tuid : m_active_stages_) {
+    for (size_t count = 0;
+         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+    {
+      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
         auto&& stiter = hst.find({suid, tuid});
         const auto has_stuid = stiter != hst.end();
 
         if (has_stuid) {
           const auto value = proj(stiter->second);
-          values[idx] = factor.empty() ? value : value * factor[suid][tuid];
+          values[idx] = factor.empty() ? value : value * factor[sidx][tidx];
           valid[idx] = true;
           ++count;
 
@@ -365,13 +371,15 @@ public:
     bool need_valids = false;
 
     size_t idx = 0;
-    for (size_t count = 0; auto&& tuid : m_active_stages_) {
+    for (size_t count = 0;
+         const auto [tidx, tuid] : std::views::enumerate(m_active_stages_))
+    {
       auto&& titer = ht.find(tuid);
       const auto has_tuid = titer != ht.end();
 
       if (has_tuid) {
         const auto value = proj(titer->second);
-        values[idx] = factor.empty() ? value : value * factor[tuid];
+        values[idx] = factor.empty() ? value : value * factor[tidx];
 
         valid[idx] = true;
         ++count;

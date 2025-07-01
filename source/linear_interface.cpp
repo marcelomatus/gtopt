@@ -1,9 +1,9 @@
 #include <cerrno>
 #include <expected>
-#include <format>
 #include <memory>
 
 #include <coin/CoinPackedVector.hpp>
+#include <fmt/format.h>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <spdlog/spdlog.h>
@@ -52,7 +52,7 @@ void LinearInterface::open_log_handler(const int log_level)
     log_file_ptr = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
 
     if (!log_file_ptr) {
-      const auto msg = std::format(
+      const auto msg = fmt::format(
           "failed to open solver log file {} : errno", log_file, errno);
 
       SPDLOG_CRITICAL(msg);

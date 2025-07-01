@@ -10,10 +10,10 @@
 
 #include <expected>
 #include <filesystem>
-#include <format>
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
+#include <fmt/format.h>
 #include <gtopt/array_index_traits.hpp>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/input_context.hpp>
@@ -32,7 +32,7 @@ using namespace gtopt;
 
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (!maybe_infile.ok()) {
-    return std::unexpected(std::format("Can't open file {}", filename));
+    return std::unexpected(fmt::format("Can't open file {}", filename));
   }
 
   const auto& infile = *maybe_infile;
@@ -56,13 +56,13 @@ using namespace gtopt;
       io_context, infile, read_options, parse_options, convert_options);
   if (!maybe_reader.ok()) {
     return std::unexpected(
-        std::format("Can't create CSV reader for {}", filename));
+        fmt::format("Can't create CSV reader for {}", filename));
   }
 
   auto maybe_table = (*maybe_reader)->Read();
   if (!maybe_table.ok()) {
     return std::unexpected(
-        std::format("Can't read CSV table from {}", filename));
+        fmt::format("Can't read CSV table from {}", filename));
   }
 
   SPDLOG_TRACE("Read table from file {}", filename);
@@ -79,20 +79,20 @@ using namespace gtopt;
   GTOPT_ARROW_ASSIGN_OR_RAISE(
       input,
       arrow::io::ReadableFile::Open(filename),
-      std::format("Arrow can't open file {}", filename));
+      fmt::format("Arrow can't open file {}", filename));
 
   auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
   GTOPT_ARROW_ASSIGN_OR_RAISE(
       reader,
       parquet::arrow::OpenFile(input, pool),
-      std::format("Parquet can't read file {}", filename));
+      fmt::format("Parquet can't read file {}", filename));
 
   ArrowTable table;
   const arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
     return std::unexpected(
-        std::format("Can't read Parquet table from {}", filename));
+        fmt::format("Can't read Parquet table from {}", filename));
   }
 
   SPDLOG_TRACE("Read table from file {}", filename);
@@ -104,9 +104,8 @@ using namespace gtopt;
 namespace gtopt
 {
 
-[[nodiscard]] ArrowTable detail::read_arrow_table(const SystemContext& sc,
-                                                  std::string_view cname,
-                                                  std::string_view fname)
+[[nodiscard]] ArrowTable ArrayIndexBase::read_arrow_table(
+    const SystemContext& sc, std::string_view cname, std::string_view fname)
 {
   auto fpath = std::filesystem::path(sc.options().input_directory());
 
@@ -137,7 +136,7 @@ namespace gtopt
   const auto result = try_read(sc.options().input_format());
   if (!result) {
     const auto msg =
-        std::format("Can't read table for class '{}' field '{}': {}",
+        fmt::format("Can't read table for class '{}' field '{}': {}",
                     cname,
                     fname,
                     result.error());
@@ -145,7 +144,8 @@ namespace gtopt
     throw std::runtime_error(msg);
   }
 
-  SPDLOG_TRACE("Successfully loaded table for class {} field {}", cname, fname);
+  SPDLOG_TRACE(fmt::format(
+      "Successfully loaded table for class {} field {}", cname, fname));
   return *result;
 }
 

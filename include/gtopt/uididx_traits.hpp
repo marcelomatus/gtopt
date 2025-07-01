@@ -44,7 +44,6 @@ struct UidColumn
       return std::unexpected(std::move(msg));
     }
 
-    SPDLOG_INFO(fmt::format("Looking for column '{}'", name));
     const auto column = table->GetColumnByName(std::string {name});
     if (!column) {
       auto msg = fmt::format("Column '{}' not found in table", name);
@@ -67,16 +66,15 @@ struct UidColumn
       }
 
       if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
-        auto msg = fmt::format("Type mismatch in column '{}': expected {} got {}",
-                               name,
-                               ArrowTraits<Uid>::Type::type_name(),
-                               chunk->type()->ToString());
+        auto msg =
+            fmt::format("Type mismatch in column '{}': expected {} got {}",
+                        name,
+                        ArrowTraits<Uid>::Type::type_name(),
+                        chunk->type()->ToString());
         SPDLOG_ERROR(msg);
         return std::unexpected(std::move(msg));
       }
 
-      SPDLOG_DEBUG(fmt::format("Successfully validated column '{}' with type {}",
-                              name, chunk->type()->ToString()));
       return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
           chunk);
     } catch (const std::exception& e) {

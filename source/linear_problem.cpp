@@ -144,7 +144,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     colmp.reserve(ncols);
     for (fp_index_t i = 0; auto&& name : colnm) {
       if (!colmp.emplace(name, i++).second) [[unlikely]] {
-        const auto msg = std::format("repeated column name {}", name);
+        const auto msg = fmt::format("repeated column name {}", name);
         SPDLOG_WARN(msg);
       }
     }
@@ -155,7 +155,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     rowmp.reserve(nrows);
     for (fp_index_t i = 0; auto&& name : rownm) {
       if (!rowmp.emplace(name, i++).second) [[unlikely]] {
-        const auto msg = std::format("repeated row name {}", name);
+        const auto msg = fmt::format("repeated row name {}", name);
         SPDLOG_WARN(msg);
       }
     }

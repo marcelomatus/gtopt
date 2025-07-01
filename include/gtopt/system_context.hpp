@@ -215,22 +215,6 @@ public:
   //  get_bus, single_bus and related
   //
 
-  [[nodiscard]] constexpr auto&& single_bus_id() const noexcept
-  {
-    return m_single_bus_id_;
-  }
-
-  template<typename Id>
-  constexpr bool is_single_bus(const Id& id) const noexcept
-  {
-    if (m_single_bus_id_) {
-      auto&& sid = m_single_bus_id_.value();
-      return sid.index() == 0 ? std::get<0>(sid) == id.first
-                              : std::get<1>(sid) == id.second;
-    }
-    return false;
-  }
-
   [[nodiscard]] auto get_bus_index(const ObjectSingleId<BusLP>& id) const
       -> ElementIndex<BusLP>;
   [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
@@ -252,8 +236,6 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
-
-  std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
 
 }  // namespace gtopt

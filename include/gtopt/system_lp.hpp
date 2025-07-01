@@ -280,13 +280,30 @@ public:
     return m_scene_;
   }
 
+  [[nodiscard]] constexpr const auto& single_bus_id() const noexcept
+  {
+    return m_single_bus_id_;
+  }
+
+  template<typename Id>
+  constexpr bool is_single_bus(const Id& id) const noexcept
+  {
+    if (m_single_bus_id_) {
+      auto&& sid = *m_single_bus_id_;
+      return sid.index() == 0 ? std::get<0>(sid) == id.first
+                              : std::get<1>(sid) == id.second;
+    }
+    return false;
+  }
+
 private:
   std::reference_wrapper<const System> m_system_;
-  collections_t m_collections_;
   SystemContext m_system_context_;
+  collections_t m_collections_;
   PhaseLP m_phase_;
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
+  std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 };
 
 }  // namespace gtopt
