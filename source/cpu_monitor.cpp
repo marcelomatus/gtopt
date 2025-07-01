@@ -34,9 +34,9 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
             return fallback_value;
         }
 
-        // Memory-mapped file would be better but requires platform-specific code
-        std::ifstream proc_stat(proc_stat_path, std::ios::binary);
-        if (!proc_stat) [[unlikely]] {
+        // Open /proc/stat in text mode (default)
+        std::ifstream proc_stat(proc_stat_path);
+        if (!proc_stat.is_open()) [[unlikely]] {
             SPDLOG_WARN("Failed to open {}", proc_stat_path);
             return fallback_value;
         }
