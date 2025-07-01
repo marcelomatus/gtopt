@@ -49,8 +49,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
     const auto eps = opts.eps;
     if (eps < 0) [[unlikely]] {
-      for (size_t i = 0; i < nrows; ++i) {
-        for (const auto [j, v] : rows[i].cmap) {
+      for (auto&& [i, row] : std::views::enumerate(rows)) {
+        for (const auto& [j, v] : row.cmap) {
           A[j].emplace(i, v);
           ++nnzero;
         }
@@ -58,18 +58,21 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     } else [[likely]] {
       for (size_t i = 0; i < nrows; ++i) {
         for (const auto [j, v] : rows[i].cmap) {
-          if (v > eps || -v > eps) [[likely]] {  // std::abs(v) > eps
-            A[j].emplace(i, v);
+          if (std::abs(v) > eps) [[likely]] {  // More efficient absolute value check
+            A[j].emplace(std::piecewise_construct,
+                        std::forward_as_tuple(i),
+                        std::forward_as_tuple(v));
             ++nnzero;
           }
         }
       }
     }
 
-    matind.resize(nnzero);
-    matval.resize(nnzero);
+    matind.reserve_and_overwrite(nnzero, [](auto* ptr, auto n) { return n; });
+    matval.reserve_and_overwrite(nnzero, [](auto* ptr, auto n) { return n; });
     for (size_t ic = 0, ii = 0; const auto& ai : A) {
-      matbeg[ic] = static_cast<fp_index_t>(ii);
+      matbeg[ic] = std::in_range<fp_index_t>(ii) ? static_cast<fp_index_t>(ii)
+                  : throw std::overflow_error("Index conversion overflow");
       ++ic;
       for (const auto [j, aij] : ai) {
         matind[ii] = static_cast<fp_index_t>(j);
@@ -114,11 +117,11 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     colnm.reserve(ncols);
     if (opts.move_names) [[likely]] {
       for (auto& col : cols) {
-        colnm.emplace_back(std::move(col.name));
+        colnm.emplace_back(opts.move_names ? std::move(col.name) : col.name);
       }
     } else [[unlikely]] {
       for (auto& col : cols) {
-        colnm.emplace_back(col.name);
+        colnm.emplace_back(opts.move_names ? std::move(col.name) : col.name);
       }
     }
   }
@@ -143,7 +146,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   if (opts.col_with_name_map) [[unlikely]] {
     colmp.reserve(ncols);
     for (fp_index_t i = 0; auto&& name : colnm) {
-      if (!colmp.emplace(name, i++).second) [[unlikely]] {
+      if (auto [it, inserted] = colmp.try_emplace(name, i++); !inserted) [[unlikely]] {
         const auto msg = fmt::format("repeated column name {}", name);
         SPDLOG_WARN(msg);
       }
