@@ -68,11 +68,9 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
                           })
         | std::views::take(times.size());
 
-    size_t count = 0;
-    for (auto&& [val, time] : std::views::zip(parse_view, times)) {
-      time = val;
-      ++count;
-    }
+    // Copy parsed values into times array and get count
+    auto [in, out] = std::ranges::copy(parse_view, times.begin());
+    const size_t count = std::distance(times.begin(), out);
 
     if (count < min_stats) [[unlikely]] {
       SPDLOG_WARN(
