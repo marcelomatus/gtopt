@@ -98,7 +98,8 @@ public:
    * @param name Problem name
    * @param rsize Initial reserve size for rows/columns
    */
-  [[nodiscard]] constexpr explicit LinearProblem(std::string name = {}) noexcept
+  [[nodiscard]]
+  constexpr explicit LinearProblem(std::string name = {}) noexcept
       : pname(std::move(name))
   {
   }
@@ -144,7 +145,8 @@ public:
    * @return Reference to the column
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& col_at(this Self&& self, ColIndex index)
+  [[nodiscard]]
+  constexpr auto&& col_at(this Self&& self, ColIndex index)
   {
     return std::forward<Self>(self).cols.at(index);
   }
@@ -175,7 +177,8 @@ public:
    * @return Reference to the row
    */
   template<typename Self>
-  [[nodiscard]] constexpr auto&& row_at(this Self&& self, RowIndex index)
+  [[nodiscard]]
+  constexpr auto&& row_at(this Self&& self, RowIndex index)
   {
     return std::forward<Self>(self).rows.at(index);
   }
