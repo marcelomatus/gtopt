@@ -44,7 +44,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
         ai.reserve(avg_size);
       }
 
-      SPDLOG_TRACE("reserving matrix with avg_size of {}", avg_size);
+      SPDLOG_TRACE(
+          fmt::format("reserving matrix with avg_size of {}", avg_size));
     }
 
     const auto eps = opts.eps;
@@ -106,13 +107,12 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // Name vectors
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
-
-  auto build_name_vector =
-      [](auto& source, size_t size, bool move_names) -> fp_name_vec_t
+  auto build_name_vector = [](auto& source, bool move_names) -> fp_name_vec_t
   {
     fp_name_vec_t names;
-    names.reserve(size);
+    names.reserve(source.size());
     for (auto& item : source) {
       names.emplace_back(move_names ? std::move(item.name) : item.name);
     }
@@ -121,58 +121,42 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-    colnm = build_name_vector(cols, ncols, opts.move_names);
+    colnm = build_name_vector(cols, opts.move_names);
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-    rownm = build_name_vector(rows, nrows, opts.move_names);
+    rownm = build_name_vector(rows, opts.move_names);
   }
 
+  // Index name maps
   using fp_index_map_t = FlatLinearProblem::index_map_t;
-
-  auto build_name_map = 
-      [](const auto& names, std::string_view entity_type) -> fp_index_map_t
+  auto build_name_map = [](const auto& names,
+                           std::string_view entity_type) -> fp_index_map_t
   {
-      fp_index_map_t map;
-      map.reserve(names.size());
-      for (const auto& [i, name] : std::views::enumerate(names)) {
-          if (auto [it, inserted] = map.try_emplace(name, i); !inserted) [[unlikely]] {
-              const auto msg = fmt::format("repeated {} name {}", entity_type, name);
-              SPDLOG_WARN(msg);
-          }
+    fp_index_map_t map;
+    map.reserve(names.size());
+    for (const auto& [i, name] : std::views::enumerate(names)) {
+      if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
+          [[unlikely]]
+      {
+        const auto msg = fmt::format(
+            "linear problem using repeated {} name {}", entity_type, name);
+        SPDLOG_WARN(msg);
       }
-      return map;
+    }
+    return map;
   };
 
   fp_index_map_t colmp;
   if (opts.col_with_name_map) [[unlikely]] {
-      colmp = build_name_map(colnm, "column");
+    colmp = build_name_map(colnm, "column");
   }
 
   fp_index_map_t rowmp;
   if (opts.row_with_name_map) [[unlikely]] {
-      rowmp = build_name_map(rownm, "row");
+    rowmp = build_name_map(rownm, "row");
   }
-
-#ifdef GTOPT_TRACE_LINEAR_PROBLEM
-  {
-    const double s_ratio = static_cast<double>(nnzero)
-        / static_cast<double>(nrows) / static_cast<double>(ncols);
-    SPDLOG_TRACE(
-        "flattening lp with "
-        " {} constraints, "
-        " {} variables, "
-        " {} nnzeros, "
-        " {} opts-eps,"
-        " {} s_ratio",
-        nrows,
-        ncols,
-        nnzero,
-        opts.eps,
-        s_ratio);
-  }
-#endif
 
   return {.ncols = static_cast<fp_index_t>(ncols),
           .nrows = static_cast<fp_index_t>(nrows),
