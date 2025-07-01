@@ -79,15 +79,17 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     }
 
     const auto idle = times[3];
-    const auto total =
-        std::accumulate(times.begin(), times.begin() + count, 0ULL);
+    times[4] = 0;  // IOWait time is the 5th value and is not included in CPU
+                   // load calculation
+
+    const auto total = std::accumulate(times.begin(), times.end(), 0ULL);
 
     // Atomic updates
     const auto idle_delta = idle - last_idle.exchange(idle);
     const auto total_delta = total - last_total.exchange(total);
 
     if (total_delta == 0) [[unlikely]] {
-      return 0.0;
+      return fallback_value;
     }
 
     // Fast floating-point conversion
@@ -97,7 +99,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
                / static_cast<double>(total_delta));
 
     // Log every 10th call (thread-safe counter)
-    if (call_count.fetch_add(1, std::memory_order_relaxed) % 10 == 0) {
+    if (call_count.fetch_add(1, std::memory_order_relaxed) % 50 == 0) {
       SPDLOG_INFO(
           fmt::format("CPU load: {:.2f}% (idle_delta: {}, total_delta: {})",
                       load,
