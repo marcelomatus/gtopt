@@ -89,7 +89,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     const auto total_delta = total - last_total.exchange(total);
 
     if (total_delta == 0) [[unlikely]] {
-      return fallback_value;
+      return 0.0;
     }
 
     // Fast floating-point conversion
