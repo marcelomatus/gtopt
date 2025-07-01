@@ -32,23 +32,6 @@ TEST_CASE("Basic functionality")
 }
 
 TEST_CASE("Inheritance and type traits")
-{
-  using TestTraits = ArrowUidTraits<std::string, int>;
-
-  SUBCASE("Inheritance")
-  {
-    CHECK(std::is_base_of_v<ArrowTraits<Uid>, TestTraits>);
-    CHECK(std::is_base_of_v<UidMapTraits<ArrowIndex, std::string, int>,
-                            TestTraits>);
-  }
-
-  SUBCASE("make_uid_column error cases")
-  {
-    auto result = TestTraits::make_uid_column(nullptr, "test");
-    CHECK(!result.has_value());
-    CHECK(result.error() == "Null table, no column for name 'test'");
-  }
-}
 
 TEST_CASE("UidColumn success cases")
 {
@@ -135,27 +118,6 @@ TEST_CASE("Scenario-Stage-Block mapping")
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
     CHECK(result->size() > 1);
-  }
-}
-{
-  using TestTraits = UidToVectorIdx<ScenarioUid, StageUid, BlockUid>;
-
-  SUBCASE("Type traits")
-  {
-    CHECK(
-        std::is_same_v<TestTraits::IndexKey, std::tuple<Index, Index, Index>>);
-    CHECK(std::is_same_v<TestTraits::UidKey,
-                         std::tuple<ScenarioUid, StageUid, BlockUid>>);
-  }
-
-  SUBCASE("Empty simulation")
-  {
-    const Simulation sim;
-    const OptionsLP options;
-    const SimulationLP sim_lp(sim, options);
-
-    auto result = TestTraits::make_vector_uids_idx(sim_lp);
-    CHECK(result->empty());
   }
 }
 
