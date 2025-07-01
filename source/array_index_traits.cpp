@@ -77,21 +77,28 @@ using namespace gtopt;
 
   std::shared_ptr<arrow::io::RandomAccessFile> input;
   {
-    auto&& __name = arrow::io::ReadableFile::Open(filename);
+    auto&& ofile = arrow::io::ReadableFile::Open(filename);
     {
-      if (not(__name.ok())) {
-        throw std::runtime_error(fmt::format("Arrow can't open file {}", filename));
+      if (not(ofile.ok())) {
+        return std::unexpected(
+            fmt::format("Arrow can't open file {}", filename));
       }
     }
-    input = std::move(__name).ValueUnsafe();
+    input = std::move(ofile).ValueUnsafe();
   }
 
   auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
-  GTOPT_ARROW_ASSIGN_OR_RAISE(
-      reader,
-      parquet::arrow::OpenFile(input, pool),
-      fmt::format("Parquet can't read file {}", filename));
+  {
+    auto&& ofile = parquet::arrow::OpenFile(input, pool);
+    {
+      if (not(ofile.ok())) {
+        return std::unexpected(
+            fmt::format("Arrow can't open file {}", filename));
+      }
+    }
+    reader = std::move(ofile).ValueUnsafe();
+  }
 
   ArrowTable table;
   const arrow::Status st = reader->ReadTable(&table);

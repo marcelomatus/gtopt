@@ -50,14 +50,3 @@ struct ArrowTraits<double>
 };
 
 }  // namespace gtopt
-
-#define GTOPT_ARROW_ASSIGN_OR_RAISE(lhs, rexpr, msg) \
-  { \
-    auto&& __name = (rexpr); \
-    { \
-      if (not((__name).ok())) { \
-        throw std::runtime_error((msg)); \
-      } \
-    } \
-    (lhs) = std ::move((__name)).ValueUnsafe(); \
-  }
