@@ -8,7 +8,7 @@
 
 namespace gtopt
 {
-TEST_CASE("Basic functionality") 
+TEST_CASE("Basic functionality")
 {
   using TestTraits = UidMapTraits<int, std::string, int>;
 
@@ -31,8 +31,6 @@ TEST_CASE("Basic functionality")
   }
 }
 
-TEST_CASE("Inheritance and type traits")
-
 TEST_CASE("UidColumn success cases")
 {
   // Would need mock Arrow table setup to test successfully
@@ -49,10 +47,12 @@ TEST_CASE("UidToArrowIdx specializations")
 
   SUBCASE("Stage-Block mapping errors")
   {
-    // Test error cases for make_arrow_uids_idx  
+    // Test error cases for make_arrow_uids_idx
     // Currently missing from test coverage
   }
 }
+
+TEST_CASE("Inheritance and type traits")
 {
   using TestTraits = ArrowUidTraits<std::string, int>;
 
@@ -109,15 +109,29 @@ TEST_CASE("Scenario-Stage-Block mapping")
     Simulation sim;
     sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {1}});
     sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {2}});
-    sim.stage_array.emplace_back(Stage {.uid = StageUid {1}});
-    sim.stage_array.emplace_back(Stage {.uid = StageUid {2}});
+
+    sim.stage_array.emplace_back(
+        Stage {.uid = StageUid {1}, .first_block = 0, .count_block = 1});
+    sim.stage_array.emplace_back(
+        Stage {.uid = StageUid {2}, .first_block = 1, .count_block = 2});
+
+    sim.block_array.emplace_back(Block {.uid = BlockUid {1}});
+    sim.block_array.emplace_back(Block {.uid = BlockUid {2}});
+    sim.block_array.emplace_back(Block {.uid = BlockUid {3}});
     // Need to add blocks to test full mapping
 
     const OptionsLP options;
     const SimulationLP sim_lp(sim, options);
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
-    CHECK(result->size() > 1);
+    CHECK(result->size() == 6);
+    CHECK(result->at({ScenarioUid {1}, StageUid {1}, BlockUid {1}})
+          == std::tuple {0, 0, 0});
+
+    auto tidx = std::tuple {0, 1, 1};
+    CHECK(as_string(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {3}}))
+          == as_string(tidx));
+    CHECK(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {3}}) == tidx);
   }
 }
 
