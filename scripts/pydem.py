@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""Parser for plpdem.dat format files containing bus demand data."""
 
-"""
-Parser for plpdem.dat format files containing bus demand data.
-"""
+from typing import Dict, List, Optional, Union
+
 
 class DemandParser:
-    """Parser for plpdem.dat format files containing bus demand data."""
+    """Parser for plpdem.dat format files containing bus demand data.
     
-    def __init__(self, file_path):
+    Attributes:
+        file_path: Path to the demand file
+        demands: List of parsed demand entries
+        num_bars: Number of bars in the file
+    """
+    
+    def __init__(self, file_path: str) -> None:
         self.file_path = file_path
         self.demands = []
         self.num_bars = 0
