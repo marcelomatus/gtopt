@@ -3,7 +3,7 @@
 
 """Parser for plpdem.dat format files containing bus demand data."""
 
-from typing import Dict, List, Optional, Union
+from typing import Any
 
 
 class DemandParser:
@@ -17,7 +17,7 @@ class DemandParser:
 
     def __init__(self, file_path: str) -> None:
         self.file_path = file_path
-        self.demands = []
+        self.demands: list[dict[str, Any]] = []
         self.num_bars = 0
 
     def parse(self) -> None:
@@ -57,15 +57,15 @@ class DemandParser:
 
             self.demands.append({"nombre": name, "demandas": demands})
 
-    def get_demands(self):
+    def get_demands(self) -> list[dict[str, Any]]:
         """Return the parsed demands structure."""
         return self.demands
 
-    def get_num_bars(self):
+    def get_num_bars(self) -> int:
         """Return the number of bars in the file."""
         return self.num_bars
 
-    def get_demand_by_name(self, name):
+    def get_demand_by_name(self, name: str) -> dict[str, Any] | None:
         """Get demand data for a specific bus name."""
         for demand in self.demands:
             if demand["nombre"] == name:
