@@ -20,7 +20,7 @@ class DemandParser:
         self.demands = []
         self.num_bars = 0
         
-    def parse(self):
+    def parse(self) -> None:
         """Parse the demand file and populate the demands structure."""
         with open(self.file_path, 'r', encoding='utf-8') as f:
             # Skip initial comments and empty lines
@@ -30,36 +30,35 @@ class DemandParser:
                 if line and not line.startswith('#'):
                     lines.append(line)
         
-        try:
-            idx = 0
-            self.num_bars = int(lines[idx])
+        idx = 0
+        self.num_bars = int(lines[idx])
+        idx += 1
+            
+        for _ in range(self.num_bars):
+            # Get bus name (removing quotes and any remaining comments)
+            name = lines[idx].strip("'").split('#')[0].strip()
             idx += 1
-                
-            for _ in range(self.num_bars):
-                # Get bus name (removing quotes and any remaining comments)
-                name = lines[idx].strip("'").split('#')[0].strip()
+            
+            # Get number of demand entries
+            num_demands = int(lines[idx])
+            idx += 1
+            
+            # Read demand entries
+            demands = []
+            for _ in range(num_demands):
+                parts = lines[idx].split()
+                if len(parts) < 3:
+                    raise ValueError(f"Invalid demand entry at line {idx+1}")
+                month = int(parts[0])
+                stage = int(parts[1])
+                demand = float(parts[2])
+                demands.append({
+                    'mes': month,
+                    'etapa': stage,
+                    'demanda': demand
+                })
                 idx += 1
-                
-                # Get number of demand entries
-                num_demands = int(lines[idx])
-                idx += 1
-                
-                # Read demand entries
-                demands = []
-                for _ in range(num_demands):
-                    parts = lines[idx].split()
-                    if len(parts) < 3:
-                        raise ValueError(f"Invalid demand entry at line {idx+1}")
-                    month = int(parts[0])
-                    stage = int(parts[1])
-                    demand = float(parts[2])
-                    demands.append({
-                        'mes': month,
-                        'etapa': stage,
-                        'demanda': demand
-                    })
-                    idx += 1
-                
+            
             self.demands.append({
                 'nombre': name,
                 'demandas': demands
