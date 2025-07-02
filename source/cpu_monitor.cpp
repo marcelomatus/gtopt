@@ -88,15 +88,11 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     const auto idle_delta = idle - last_idle.exchange(idle);
     const auto total_delta = total - last_total.exchange(total);
 
-    if (total_delta == 0) [[unlikely]] {
-      return 0.0;
-    }
-
-    // Fast floating-point conversion
-    const double load = 100.0
-        * (1.0
-           - static_cast<double>(idle_delta)
-               / static_cast<double>(total_delta));
+    const double load = total_delta > 0 ? 100.0
+            * (1.0
+               - static_cast<double>(idle_delta)
+                   / static_cast<double>(total_delta))
+                                        : 0.0;
 
     // Log every 10th call (thread-safe counter)
     if (call_count.fetch_add(1, std::memory_order_relaxed) % 50 == 0) {
