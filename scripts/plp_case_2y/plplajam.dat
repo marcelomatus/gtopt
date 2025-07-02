@@ -1,0 +1,92 @@
+# Archivo con la definicion del nuevo convenio de riego Laja 
+# Nombre Central Lago Laja
+'ELTORO'                        
+# Numero Caudales Hoya Intermedia
+4              
+# Nombre Caudales Hoya Intermedia
+'ABANICO'                       
+'ANTUCO'                        
+'CANECOL'                       
+'TUCAPEL'                       
+# Volumen maximo Lago Laja
+5582.0         
+# Numero de colchones
+4              
+# Volumen util colchones
+1200.0	170.0	530.0	3682.0	
+# Derecho base y factores  incrementales de derechos de riego por colchon
+570.00	0.00	0.40	0.40	0.25	
+# Derecho base y factores  incrementales de derechos electricos por colchon
+0.00	0.05	0.05	0.40	0.65	
+# Derecho base y factores  incrementales de derechos mixtos por colchon
+30.00	1.00	0.00	0.00	0.00	
+# Derecho maximo (riego, electrico, mixto y anticipos)
+5000	1200	30	5000	
+# Mes inicio temporada de riego y anticipos (1/12 y 1/9), en meses hidrologicos
+9    6    
+# Caudal Maximo [m3/s] derechos riego, electrico, mixtos y anticipados
+1000 1000 1000 0    
+# Costos de riego no servido y uso derechos riego, electrico, mixtos y anticipos
+1100.0 0.0    1150.0 0.1    1.0    
+# Factor mensual de costo de riego no servido ano hidrologico abr-mar
+1.0   0.0   0.0   0.0   0.0   0.1   0.2   0.5   1.5   1.5   1.2   1.0   
+# Factor mensual de costo de derechos de riego ano hidrologico abr-mar
+1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   
+# Factor mensual de costo de derechos electricos ano hidrologico abr-mar
+1.1   0.0   0.0   0.0   0.0   0.0   0.0   0.0   1.5   1.5   1.2   1.1   
+# Factor mensual de costo de derechos mixto ano hidrologico abr-mar
+1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   
+# Factor mensual de costo de gasto anticipado ano hidrologico abr-mar
+1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   1.0   
+# Factor máximo de uso mensual de derechos de riego ano hidrologico abr-mar
+1.00  0.00  0.00  0.00  0.00  0.00  0.00  0.00  1.00  1.00  1.00  1.00  
+# Factor máximo de uso mensual de derechos electricos ano hidrologico abr-mar
+1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  
+# Factor máximo de uso mensual de derechos mixtos ano hidrologico abr-mar
+1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  
+# Factor máximo de uso mensual de derechos anticipados ano hidrologico abr-mar
+0.00  0.00  0.00  0.00  0.00  1.00  1.00  1.00  0.00  0.00  0.00  0.00  
+# Derechos iniciales disponibles para riego, elect, mixto y anticipos
+544   277   0     0     
+# Numero de retiros de riego
+3  
+# Nombre Retiro Zanartu-Collao
+'RIEGZACO'                      
+# Nombre inyeccion retiro ZaCo
+''                              
+# Factor Costo, Porcentajes de retiro 1oReg, 2oReg, Emer, Saltos en Zanartu-Collao
+1.500          0.372          0.000          0.372          0.000          
+# Nombre Retiro Tucapel
+'RieTucapel'                    
+# Nombre inyeccion retiro Tucapel
+''                              
+# Factor Costo, Porcentajes de retiro 1oReg, 2oReg, Emer, Saltos en Tucapel
+1.000          0.628          1.000          0.628          0.000          
+# Nombre Retiro Saltos
+'RieSaltos'                     
+# Nombre inyeccion retiro Saltos
+'LAJA_I'                        
+# Factor Costo, Porcentajes de retiro 1oReg, 2oReg, Emer, Saltos en Saltos del Laja
+0.200          0.000          0.000          0.000          1.000          
+# Filtraciones históricas
+47.0
+# Caudales de demanda de riego por defecto por regantes
+90.0           53.0           0.0            7.0            
+# Curva variación estacional primeros regantes por defecto mensual ano hidrologico abr-mar
+1.00  0.00  0.00  0.00  0.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  
+# Curva variación estacional segundos regantes por defecto mensual ano hidrologico abr-mar
+0.20  0.00  0.00  0.00  0.00  0.30  0.65  0.85  1.00  1.00  0.80  0.50  
+# Curva variación estacional primeros regantes EMERGENCIAS por defecto mensual ano hidrologico abr-mar
+0.20  0.00  0.00  0.00  0.00  0.30  0.65  0.85  1.00  1.00  0.80  0.50  
+# Curva variación estacional Saltos del Laja por defecto mensual ano hidrologico abr-mar
+0.00  0.00  0.00  0.00  0.00  0.00  0.00  0.00  0.50  1.00  1.00  0.00  
+# Volumen muerto
+0.0            
+# Retiro manuales de riego por etapa por retiro (m3/s)
+# Etapas
+0
+# Etapa   1oReg     2oReg     Emer      Saltos
+# Caudales forzados en El Toro por etapa (m3/s)
+# Etapas
+0
+# NEtapa  QGxElToro

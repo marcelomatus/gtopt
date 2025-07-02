@@ -88,13 +88,13 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     const auto idle_delta = idle - last_idle.exchange(idle);
     const auto total_delta = total - last_total.exchange(total);
 
-    const double load = total_delta > 0 ? 100.0
+    const double load = total_delta != 0 ? 100.0
             * (1.0
                - static_cast<double>(idle_delta)
                    / static_cast<double>(total_delta))
-                                        : 0.0;
+                                         : 0.0;
 
-    // Log every 10th call (thread-safe counter)
+    // Log every 50th call (thread-safe counter)
     if (call_count.fetch_add(1, std::memory_order_relaxed) % 50 == 0) {
       SPDLOG_INFO(
           fmt::format("CPU load: {:.2f}% (idle_delta: {}, total_delta: {})",
