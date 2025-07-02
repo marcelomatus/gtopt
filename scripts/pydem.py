@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Parser for plpdem.dat format files containing bus demand data.
+"""
+
 class DemandParser:
     """Parser for plpdem.dat format files containing bus demand data."""
     
@@ -27,11 +34,14 @@ class DemandParser:
             # Read demand entries
             demands = []
             for _ in range(num_demands):
-                month, stage, demand = lines[idx].split()
+                parts = lines[idx].split()
+                month = int(parts[0])
+                stage = int(parts[1])
+                demand = float(parts[2])
                 demands.append({
-                    'mes': int(month),
-                    'etapa': int(stage),
-                    'demanda': float(demand)
+                    'mes': month,
+                    'etapa': stage,
+                    'demanda': demand
                 })
                 idx += 1
                 
@@ -54,3 +64,7 @@ class DemandParser:
             if demand['nombre'] == name:
                 return demand
         return None
+
+
+if __name__ == '__main__':
+    pass
