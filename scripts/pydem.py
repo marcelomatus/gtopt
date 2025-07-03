@@ -74,4 +74,34 @@ class DemandParser:
 
 
 if __name__ == "__main__":
-    pass
+    import sys
+    from pathlib import Path
+
+    def main():
+        if len(sys.argv) != 2:
+            print(f"Usage: {sys.argv[0]} <plpdem.dat file>")
+            sys.exit(1)
+
+        file_path = Path(sys.argv[1])
+        if not file_path.exists():
+            print(f"Error: File '{file_path}' not found")
+            sys.exit(1)
+
+        parser = DemandParser(file_path)
+        parser.parse()
+
+        print(f"\nDemand File Analysis: {file_path.name}")
+        print("=" * 40)
+        print(f"Total bars: {parser.get_num_bars()}")
+        print(f"Total demand entries: {sum(len(d['demandas']) for d in parser.get_demands())}")
+
+        # Show first 3 bars as sample
+        print("\nSample bars (first 3):")
+        for i, demand in enumerate(parser.get_demands()[:3], 1):
+            print(f"\nBar {i}: {demand['nombre']}")
+            print(f"  Demand entries: {len(demand['demandas'])}")
+            print("  First demand entry:")
+            first = demand['demandas'][0]
+            print(f"    Month: {first['mes']}, Stage: {first['etapa']}, Demand: {first['demanda']}")
+
+    main()
