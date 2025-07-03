@@ -103,10 +103,13 @@ if __name__ == "__main__":
         bar_stats = []
         for demand in parser.get_demands():
             demands = demand['demandas']
-            avg_demand = sum(d['demanda'] for d in demands) / len(demands)
+            demand_count = len(demands)
+            avg_demand = 0.0
+            if demand_count > 0:
+                avg_demand = sum(d['demanda'] for d in demands) / demand_count
             bar_stats.append({
                 'name': demand['nombre'],
-                'count': len(demands),
+                'count': demand_count,
                 'avg': avg_demand,
             })
 
