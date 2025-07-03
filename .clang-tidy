@@ -1,7 +1,5 @@
 ---
-# Enable ALL the things! Except not really
-# misc-non-private-member-variables-in-classes: the options don't do anything
-# modernize-use-nodiscard: too aggressive, attribute is situationally useful
+# Only apply to C++ files
 Checks: "*,\
   misc-const-correctness, \
   bugprone-*, \
