@@ -4,6 +4,15 @@ project(plp2gtopt LANGUAGES Python)
 # Find Python and required packages
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
+# Install pytest for testing
+execute_process(
+  COMMAND ${Python_EXECUTABLE} -m pip install pytest
+  RESULT_VARIABLE pytest_install_result
+)
+if(NOT pytest_install_result EQUAL 0)
+  message(WARNING "Failed to install pytest - Python tests will not run")
+endif()
+
 # Install Python package
 set(PYTHON_PACKAGE_DIR "${CMAKE_INSTALL_PREFIX}/lib/python${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}/site-packages")
 
