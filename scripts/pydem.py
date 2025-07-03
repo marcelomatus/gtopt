@@ -94,7 +94,8 @@ if __name__ == "__main__":
         print(f"\nDemand File Analysis: {file_path.name}")
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
-        print(f"Total demand entries: {sum(len(d['demandas']) for d in parser.get_demands())}")
+        total_entries = sum(len(d['demandas']) for d in parser.get_demands())
+        print(f"Total demand entries: {total_entries}")
 
         # Calculate stats for all bars
         bar_stats = []
