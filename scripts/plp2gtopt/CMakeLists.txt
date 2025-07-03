@@ -4,13 +4,13 @@ project(plp2gtopt LANGUAGES Python)
 # Find Python and required packages
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
-# Install pytest for testing
+# Install Python development tools
 execute_process(
-  COMMAND ${Python_EXECUTABLE} -m pip install pytest
-  RESULT_VARIABLE pytest_install_result
+  COMMAND ${Python_EXECUTABLE} -m pip install pytest pylint ruff
+  RESULT_VARIABLE python_tools_install_result
 )
-if(NOT pytest_install_result EQUAL 0)
-  message(WARNING "Failed to install pytest - Python tests will not run")
+if(NOT python_tools_install_result EQUAL 0)
+  message(WARNING "Failed to install Python tools - Python tests/linting will not run")
 endif()
 
 # Install Python package
