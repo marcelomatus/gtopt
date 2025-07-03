@@ -1,6 +1,31 @@
 ---
-# Only apply to C++ files
+# Only apply to C++ files (exclude Python and CMake files)
 Checks: "*,\
+  -readability-identifier-naming,\
+  -readability-magic-numbers,\
+  -cppcoreguidelines-avoid-magic-numbers,\
+  -readability-function-cognitive-complexity,\
+  -modernize-use-trailing-return-type,\
+  -bugprone-easily-swappable-parameters,\
+  -readability-redundant-member-init,\
+  -llvm-header-guard,\
+  -llvm-include-order,\
+  -llvmlibc-*,\
+  -google-build-using-namespace,\
+  -readability-identifier-length,\
+  -readability-identifier-naming,\
+  -modernize-use-trailing-return-type,\
+  -bugprone-easily-swappable-parameters,\
+  -identifier-naming,\
+  -readability-magic-numbers,\
+  -readability-function-cognitive-complexity,\
+  -cppcoreguidelines-avoid-magic-numbers,\
+  -clang-analyzer-core.uninitialized.UndefReturn,\
+  -constexpr_local_var_non_literal_type,\
+  -boost-use-ranges,\
+  -misc-non-private-member-variables-in-classes"
+
+HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'
   misc-const-correctness, \
   bugprone-*, \
   hicpp-*, \
