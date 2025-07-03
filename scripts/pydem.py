@@ -77,6 +77,7 @@ if __name__ == "__main__":
     import sys
     from pathlib import Path
 
+
     def main() -> None:
         """Main function to run demand file analysis."""
         if len(sys.argv) != 2:
@@ -94,7 +95,8 @@ if __name__ == "__main__":
         print(f"\nDemand File Analysis: {file_path.name}")
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
-        total_entries = sum(len(d['demandas']) for d in parser.get_demands())
+        demands = parser.get_demands()
+        total_entries = sum(len(d['demandas']) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
         # Calculate stats for all bars
@@ -113,7 +115,7 @@ if __name__ == "__main__":
 
         print("\nBar Demand Statistics:")
         print("=" * 40)
-        
+
         if len(bar_stats) <= 20:
             # Print all bars if <= 20
             print("All bars (sorted by average demand):")
