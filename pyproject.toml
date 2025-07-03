@@ -1,6 +1,21 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "plp2gtopt"
+version = "1.0.0"
+description = "PLP to GTOPT conversion tool"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pylint>=2.15",
+    "ruff>=0.0.280",
+    "black>=22.0"
+]
 
 [tool.black]
 line-length = 88
@@ -24,7 +39,7 @@ exclude = '''
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["gtopt"]
+known_first_party = ["plp2gtopt"]
 
 [tool.pylint]
 max-line-length = 88
@@ -33,3 +48,8 @@ disable = [
     "too-few-public-methods",
     "import-error"
 ]
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+testpaths = ["tests"]
+addopts = "-v"

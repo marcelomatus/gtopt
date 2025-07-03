@@ -101,8 +101,6 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
 # interface target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
 
-# Add Python conversion tool
-add_subdirectory(scripts/plp2gtopt)
 
 # Set experimental flag to enable `import std` support from CMake. This must be
 # enabled before C++ language support.
