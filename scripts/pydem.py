@@ -95,13 +95,42 @@ if __name__ == "__main__":
         print(f"Total bars: {parser.get_num_bars()}")
         print(f"Total demand entries: {sum(len(d['demandas']) for d in parser.get_demands())}")
 
-        # Show first 3 bars as sample
-        print("\nSample bars (first 3):")
-        for i, demand in enumerate(parser.get_demands()[:3], 1):
-            print(f"\nBar {i}: {demand['nombre']}")
-            print(f"  Demand entries: {len(demand['demandas'])}")
-            print("  First demand entry:")
-            first = demand['demandas'][0]
-            print(f"    Month: {first['mes']}, Stage: {first['etapa']}, Demand: {first['demanda']}")
+        # Calculate stats for all bars
+        bar_stats = []
+        for demand in parser.get_demands():
+            demands = demand['demandas']
+            avg_demand = sum(d['demanda'] for d in demands) / len(demands)
+            bar_stats.append({
+                'name': demand['nombre'],
+                'count': len(demands),
+                'avg': avg_demand
+            })
+
+        # Sort bars by average demand
+        bar_stats.sort(key=lambda x: x['avg'], reverse=True)
+
+        print("\nBar Demand Statistics:")
+        print("=" * 40)
+        
+        if len(bar_stats) <= 20:
+            # Print all bars if <= 20
+            print("All bars (sorted by average demand):")
+            for stat in bar_stats:
+                print(f"\nBar: {stat['name']}")
+                print(f"  Demand entries: {stat['count']}")
+                print(f"  Average demand: {stat['avg']:.2f}")
+        else:
+            # Print top and bottom 10 if > 20
+            print("Top 10 bars by average demand:")
+            for stat in bar_stats[:10]:
+                print(f"\nBar: {stat['name']}")
+                print(f"  Demand entries: {stat['count']}")
+                print(f"  Average demand: {stat['avg']:.2f}")
+            
+            print("\nBottom 10 bars by average demand:")
+            for stat in bar_stats[-10:]:
+                print(f"\nBar: {stat['name']}")
+                print(f"  Demand entries: {stat['count']}")
+                print(f"  Average demand: {stat['avg']:.2f}")
 
     main()
