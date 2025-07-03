@@ -1,0 +1,58 @@
+[MASTER]
+load-plugins=pylint.extensions.mccabe
+
+[MESSAGES CONTROL]
+disable=
+    # Disabled checks
+    missing-docstring,
+    too-few-public-methods,
+    invalid-name,
+    line-too-long,
+    fixme,
+    duplicate-code,
+    too-many-arguments,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-instance-attributes,
+    too-many-public-methods,
+    too-many-lines,
+    too-many-nested-blocks,
+    too-complex
+
+[FORMAT]
+max-line-length=120
+
+[BASIC]
+# Naming style
+variable-naming-style=snake_case
+const-naming-style=UPPER_CASE
+function-naming-style=snake_case
+method-naming-style=snake_case
+module-naming-style=snake_case
+class-naming-style=PascalCase
+argument-naming-style=snake_case
+class-attribute-naming-style=snake_case
+instance-attribute-naming-style=snake_case
+inlinevar-naming-style=snake_case
+
+[DESIGN]
+max-args=8
+max-locals=20
+max-returns=6
+max-branches=15
+max-statements=50
+max-parents=7
+max-attributes=15
+min-public-methods=1
+max-public-methods=30
+
+[IMPORTS]
+# Allow wildcard imports
+allow-wildcard-with-all=no
+
+# Allow relative imports
+allow-relative-imports=yes
+
+# Allow ungrouped imports
+allow-ungrouped-imports=no
