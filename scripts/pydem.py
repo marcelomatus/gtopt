@@ -77,7 +77,8 @@ if __name__ == "__main__":
     import sys
     from pathlib import Path
 
-    def main():
+    def main() -> None:
+        """Main function to run demand file analysis."""
         if len(sys.argv) != 2:
             print(f"Usage: {sys.argv[0]} <plpdem.dat file>")
             sys.exit(1)
@@ -103,7 +104,7 @@ if __name__ == "__main__":
             bar_stats.append({
                 'name': demand['nombre'],
                 'count': len(demands),
-                'avg': avg_demand
+                'avg': avg_demand,
             })
 
         # Sort bars by average demand
