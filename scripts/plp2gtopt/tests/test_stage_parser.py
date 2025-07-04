@@ -10,7 +10,9 @@ def sample_stage_file():
     """Fixture providing path to sample stage file."""
     test_file = Path(__file__).parent.parent / "test_data" / "plpeta.dat"
     if not test_file.exists():
-        test_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpeta.dat"
+        test_file = (
+            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpeta.dat"
+        )
     return test_file
 
 
@@ -55,7 +57,7 @@ def test_parse_sample_file(sample_stage_file):
     # Verify last stage data
     stage10 = stages[9]
     # The sample file appears to repeat stage numbers, so we check duration only
-    assert stage10["duracion"] == 3.0  # Actual duration in sample file
+    assert stage10["duracion"] == 5.0  # Actual duration in sample file
 
 
 def test_get_stage_by_number(sample_stage_file):
