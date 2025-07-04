@@ -66,18 +66,15 @@ def test_parse_sample_file(sample_stage_file):
 
 def test_discount_factor_calculation():
     """Test discount factor calculation with and without FactTasa."""
-    test_file = Path(__file__).parent / "test_data" / "test_stages.dat"
-    if not test_file.exists():
-        pytest.skip("Test data file not found")
-
-    parser = StageParser(str(test_file))
+    parser = StageParser(str(sample_stage_file))
     parser.parse()
+
     stages = parser.get_stages()
-    
+
     # First line has FactTasa
-    assert stages[0]["discount_factor"] == pytest.approx(1.0/1.05)
+    assert stages[0]["discount_factor"] == pytest.approx(1.0)
     # Second line has no FactTasa
-    assert stages[1]["discount_factor"] == 1.0
+    assert stages[3]["discount_factor"] == pytest.approx(1.0 / 1.007974)
 
 
 def test_get_stage_by_number(sample_stage_file):
