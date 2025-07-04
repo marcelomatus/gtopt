@@ -3,7 +3,7 @@
 
 """Parser for plpeta.dat format files containing stage data."""
 
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Union
 from pathlib import Path
 
 
