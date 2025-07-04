@@ -70,13 +70,18 @@ class BusParser:
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
 
-            # Try to extract voltage from name (look for numbers at end of name)
-            voltage_match = re.search(r'(\d+)(kV|KV)?$', name)
+            # Try to extract voltage from name (handles various patterns)
+            voltage_match = re.search(r'(\d+)(?:kV|KV)?(?:[-_].*)?$', name, re.IGNORECASE)
             if voltage_match:
                 voltage = float(voltage_match.group(1))
             else:
-                # Default to 0 if no voltage found in name
-                voltage = 0.0
+                # Try alternative patterns like 'KV220' format
+                voltage_match = re.search(r'(?:kV|KV)(\d+)', name, re.IGNORECASE)
+                if voltage_match:
+                    voltage = float(voltage_match.group(1))
+                else:
+                    # Default to 0 if no voltage found in name
+                    voltage = 0.0
 
             self.buses.append({
                 "number": bus_num,
