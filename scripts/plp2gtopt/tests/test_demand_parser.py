@@ -10,7 +10,9 @@ def sample_demand_file():
     """Fixture providing path to sample demand file."""
     test_file = Path(__file__).parent.parent / "test_data" / "plpdem.dat"
     if not test_file.exists():
-        test_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpdem.dat"
+        test_file = (
+            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpdem.dat"
+        )
     return test_file
 
 
@@ -49,17 +51,17 @@ def test_parse_sample_file(sample_demand_file):
 
     # Verify first bar data
     bar1 = demands[0]
-    assert bar1["nombre"] == "Coronel066"
-    assert len(bar1["demandas"]) == 5
-    assert bar1["demandas"][0] == {"mes": 3, "etapa": 1, "demanda": 89.05}
-    assert bar1["demandas"][4] == {"mes": 3, "etapa": 5, "demanda": 82.63}
+    assert bar1["name"] == "Coronel066"
+    assert len(bar1["demands"]) == 5
+    assert bar1["demands"][0] == {"mes": 3, "block": 1, "demand": 89.05}
+    assert bar1["demands"][4] == {"mes": 3, "block": 5, "demand": 82.63}
 
     # Verify second bar data
     bar2 = demands[1]
-    assert bar2["nombre"] == "Condores220"
-    assert len(bar2["demandas"]) == 4
-    assert bar2["demandas"][0] == {"mes": 3, "etapa": 1, "demanda": 105.21}
-    assert bar2["demandas"][3] == {"mes": 3, "etapa": 4, "demanda": 93.05}
+    assert bar2["name"] == "Condores220"
+    assert len(bar2["demands"]) == 4
+    assert bar2["demands"][0] == {"mes": 3, "block": 1, "demand": 105.21}
+    assert bar2["demands"][3] == {"mes": 3, "block": 4, "demand": 93.05}
 
 
 def test_get_demand_by_name(sample_demand_file):
@@ -70,14 +72,14 @@ def test_get_demand_by_name(sample_demand_file):
     # Test existing bus
     coronel = parser.get_demand_by_name("Coronel066")
     assert coronel is not None
-    assert coronel["nombre"] == "Coronel066"
-    assert len(coronel["demandas"]) == 5
+    assert coronel["name"] == "Coronel066"
+    assert len(coronel["demands"]) == 5
 
     # Test existing bus
     condores = parser.get_demand_by_name("Condores220")
     assert condores is not None
-    assert condores["nombre"] == "Condores220"
-    assert len(condores["demandas"]) == 4
+    assert condores["name"] == "Condores220"
+    assert len(condores["demands"]) == 4
 
     # Test non-existent bus
     missing = parser.get_demand_by_name("NonExistentBus")
