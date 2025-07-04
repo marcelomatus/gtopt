@@ -18,8 +18,9 @@ def sample_demand_file():
 
 def test_demand_parser_initialization():
     """Test DemandParser initialization."""
-    parser = DemandParser("test.dat")
-    assert parser.file_path == "test.dat"
+    test_path = "test.dat"
+    parser = DemandParser(test_path)
+    assert parser.file_path == Path(test_path)  # Compare Path objects
     assert parser.demands == []
     assert parser.num_bars == 0
 

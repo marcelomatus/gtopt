@@ -11,7 +11,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, List, Dict, Union
 
 
 class DemandParser:
@@ -23,13 +23,13 @@ class DemandParser:
         num_bars: Number of bars in the file
     """
 
-    def __init__(self, file_path: str) -> None:
+    def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with demand file path.
         
         Args:
-            file_path: Path to plpdem.dat format file
+            file_path: Path to plpdem.dat format file (str or Path)
         """
-        self.file_path = Path(file_path)
+        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self.demands: List[Dict[str, Any]] = []
         self.num_bars: int = 0
 
@@ -112,7 +112,11 @@ def main(args: Optional[List[str]] = None) -> int:
         return 1
 
     try:
-        parser = DemandParser(args[0])
+        input_path = Path(args[0])
+        if not input_path.exists():
+            raise FileNotFoundError(f"Demand file not found: {input_path}")
+            
+        parser = DemandParser(str(input_path))
         parser.parse()
 
         print(f"\nDemand File Analysis: {parser.file_path.name}")
