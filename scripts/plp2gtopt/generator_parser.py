@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Parser for plpgen.dat format files containing generator data.
+"""Parser for plpcnfce.dat format files containing generator data.
 
 Handles:
-- File parsing and validation
+- File parsing and validation 
 - Generator data structure creation
 - Generator lookup by bus
+- Battery storage identification
 """
 
 import sys
 from pathlib import Path
-from typing import Any, Optional, List, Dict, Union
+from typing import Any, List, Dict, Union
 
 
 class GeneratorParser:
-    """Parser for plpgen.dat format files containing generator data.
+    """Parser for plpcnfce.dat format files containing generator data.
 
     Attributes:
         file_path: Path to the generator file
         generators: List of parsed generator entries
-        num_generators: Number of generators in the file
     """
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with generator file path.
 
         Args:
-            file_path: Path to plpgen.dat format file (str or Path)
+            file_path: Path to plpcnfce.dat format file (str or Path)
         """
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self.generators: List[Dict[str, Any]] = []
-        self.num_generators: int = 0
 
     def parse(self) -> None:
         """Parse the generator file and populate the generators structure.
@@ -39,38 +38,67 @@ class GeneratorParser:
         Raises:
             FileNotFoundError: If input file doesn't exist
             ValueError: If file format is invalid
-            IndexError: If file is empty or malformed
         """
         if not self.file_path.exists():
             raise FileNotFoundError(f"Generator file not found: {self.file_path}")
 
+        current_gen = None
+        
         with open(self.file_path, "r", encoding="utf-8") as f:
-            # Skip initial comments and empty lines
-            lines = []
             for line in f:
                 line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
+                
+                # Skip comments and empty lines
+                if not line or line.startswith("#"):
+                    continue
+                
+                # Generator header line
+                if line[0].isdigit():
+                    if current_gen:
+                        self._finalize_generator(current_gen)
+                    
+                    parts = line.split()
+                    current_gen = {
+                        "id": parts[0],
+                        "name": parts[1].strip("'"),
+                        "bus": "0",  # Default if not found
+                        "p_min": 0.0,
+                        "p_max": 0.0,
+                        "start_cost": 0.0,
+                        "variable_cost": 0.0,
+                        "efficiency": 1.0,
+                        "is_battery": False
+                    }
+                    
+                # Power limits line
+                elif line.startswith("PotMin"):
+                    if not current_gen:
+                        continue
+                    parts = line.split()
+                    current_gen["p_min"] = float(parts[1])
+                    current_gen["p_max"] = float(parts[2])
+                
+                # Cost and bus line
+                elif line.startswith("CosVar"):
+                    if not current_gen:
+                        continue
+                    parts = line.split()
+                    current_gen["variable_cost"] = float(parts[1])
+                    current_gen["efficiency"] = float(parts[2])
+                    current_gen["bus"] = parts[3]
+                    
+                    # Check for battery in name
+                    if "BESS" in current_gen["name"].upper():
+                        current_gen["is_battery"] = True
+            
+            # Add last generator
+            if current_gen:
+                self._finalize_generator(current_gen)
 
-        idx = 0
-        self.num_generators = int(lines[idx])
-        idx += 1
-
-        for _ in range(self.num_generators):
-            parts = lines[idx].split()
-            if len(parts) < 4:
-                raise ValueError(f"Invalid generator entry at line {idx+1}")
-
-            self.generators.append(
-                {
-                    "id": parts[0],
-                    "bus": parts[1],
-                    "p_min": float(parts[2]),
-                    "p_max": float(parts[3]),
-                    # Add other generator attributes as needed
-                }
-            )
-            idx += 1
+    def _finalize_generator(self, gen: Dict[str, Any]) -> None:
+        """Validate and add a completed generator to the list."""
+        if gen["p_max"] > 0:  # Only add generators with positive capacity
+            self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Any]]:
         """Return the parsed generators structure."""
@@ -78,7 +106,7 @@ class GeneratorParser:
 
     def get_num_generators(self) -> int:
         """Return the number of generators in the file."""
-        return self.num_generators
+        return len(self.generators)
 
     def get_generators_by_bus(self, bus_id: str) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus."""
