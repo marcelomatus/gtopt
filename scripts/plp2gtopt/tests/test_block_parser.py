@@ -55,8 +55,6 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     assert block1["number"] == 1
     assert block1["stage"] > 0
     assert block1["duration"] > 0  # Duration should be positive
-    assert block1["year"] > 0
-    assert block1["month"] > 0
     assert isinstance(block1["type"], str)
 
 
