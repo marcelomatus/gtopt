@@ -80,6 +80,7 @@ def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-ou
     parser.parse()
 
     # Test existing bus
+    demands = parser.get_demands()
     first_bus = demands[0]["name"]
     bus_data = parser.get_demand_by_name(first_bus)
     assert bus_data is not None
