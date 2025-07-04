@@ -4,7 +4,7 @@
 """Parser for plpcnfce.dat format files containing generator data.
 
 Handles:
-- File parsing and validation 
+- File parsing and validation
 - Generator data structure creation
 - Generator lookup by bus
 - Battery storage identification
@@ -12,7 +12,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, List, Dict, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 class GeneratorParser:
@@ -42,21 +42,21 @@ class GeneratorParser:
         if not self.file_path.exists():
             raise FileNotFoundError(f"Generator file not found: {self.file_path}")
 
-        current_gen = None
-        
+        current_gen: Dict[str, Any] = {}
+
         with open(self.file_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                
+
                 # Skip comments and empty lines
                 if not line or line.startswith("#"):
                     continue
-                
+
                 # Generator header line
                 if line[0].isdigit():
                     if current_gen:
                         self._finalize_generator(current_gen)
-                    
+
                     parts = line.split()
                     current_gen = {
                         "id": parts[0],
@@ -69,7 +69,6 @@ class GeneratorParser:
                         "efficiency": 1.0,
                         "is_battery": False
                     }
-                    
                 # Power limits line
                 elif line.startswith("PotMin"):
                     if not current_gen:
@@ -77,7 +76,7 @@ class GeneratorParser:
                     parts = line.split()
                     current_gen["p_min"] = float(parts[1])
                     current_gen["p_max"] = float(parts[2])
-                
+
                 # Cost and bus line
                 elif line.startswith("CosVar"):
                     if not current_gen:
@@ -86,11 +85,10 @@ class GeneratorParser:
                     current_gen["variable_cost"] = float(parts[1])
                     current_gen["efficiency"] = float(parts[2])
                     current_gen["bus"] = parts[3]
-                    
+
                     # Check for battery in name
                     if "BESS" in current_gen["name"].upper():
                         current_gen["is_battery"] = True
-            
             # Add last generator
             if current_gen:
                 self._finalize_generator(current_gen)
