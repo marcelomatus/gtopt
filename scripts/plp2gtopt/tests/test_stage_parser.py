@@ -51,15 +51,15 @@ def test_parse_sample_file(sample_stage_file):
 
     # Verify first stage data
     stage1 = stages[0]
-    assert stage1["numero"] == 1
-    assert stage1["duracion"] == 3.0  # Actual duration in sample file
+    assert stage1["number"] == 1
+    assert stage1["duration"] == 168.0  # Actual duration in sample file
     assert "discount_factor" in stage1
     assert isinstance(stage1["discount_factor"], float)
 
     # Verify last stage data
     stage10 = stages[9]
     # The sample file repeats stage numbers, so we only check duration
-    assert stage10["duracion"] == 5.0  # Actual duration in sample file
+    assert stage10["duration"] == 192.0  # Actual duration in sample file
     assert "discount_factor" in stage10
     assert isinstance(stage10["discount_factor"], float)
 
@@ -74,7 +74,7 @@ def test_discount_factor_calculation(sample_stage_file):
     # Verify discount factors are calculated correctly
     assert "discount_factor" in stages[0]
     assert isinstance(stages[0]["discount_factor"], float)
-    
+
     # If FactTasa exists in test data, verify specific calculations
     if "FactTasa" in stages[0]:
         assert stages[0]["discount_factor"] == pytest.approx(1.0)
@@ -90,8 +90,8 @@ def test_get_stage_by_number(sample_stage_file):
     # Test existing stage
     stage1 = parser.get_stage_by_number(1)
     assert stage1 is not None
-    assert stage1["numero"] == 1
-    assert stage1["duracion"] == 3.0  # Actual duration in sample file
+    assert stage1["number"] == 1
+    assert stage1["duration"] == 168.0  # Actual duration in sample file
 
     # Test non-existent stage
     missing = parser.get_stage_by_number(99)

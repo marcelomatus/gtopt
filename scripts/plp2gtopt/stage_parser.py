@@ -43,17 +43,19 @@ class StageParser:
             if len(parts) < 2:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
 
-            stage_num = int(parts[0])
-            duration = float(parts[1])
+            stage_num = int(parts[2])
+            duration = float(parts[4])
             # Calculate discount factor from FactTasa if present, default to 1.0
-            discount_factor = 1.0 / float(parts[2]) if len(parts) > 2 else 1.0
+            discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 else 1.0
             idx += 1
 
-            self.stages.append({
-                "numero": stage_num,
-                "duracion": duration,
-                "discount_factor": discount_factor
-            })
+            self.stages.append(
+                {
+                    "number": stage_num,
+                    "duration": duration,
+                    "discount_factor": discount_factor,
+                }
+            )
 
     def get_stages(self) -> List[Dict[str, Any]]:
         """Return the parsed stages structure."""
@@ -66,7 +68,7 @@ class StageParser:
     def get_stage_by_number(self, stage_num: int) -> Dict[str, Any] | None:
         """Get stage data for a specific stage number."""
         for stage in self.stages:
-            if stage["numero"] == stage_num:
+            if stage["number"] == stage_num:
                 return stage
         return None
 
@@ -96,8 +98,8 @@ if __name__ == "__main__":
         print("\nStage Details:")
         print("=" * 40)
         for stage in parser.get_stages():
-            print(f"\nStage: {stage['numero']}")
-            print(f"  Duration: {stage['duracion']}")
+            print(f"\nStage: {stage['number']}")
+            print(f"  Duration: {stage['duration']}")
             print(f"  Discount Factor: {stage['discount_factor']}")
 
     main()
