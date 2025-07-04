@@ -1,4 +1,14 @@
-# .aider.yml
+# Aider configuration
 lint-cmd:
-  - "cpp: clang-tidy -p ."
-  - "python: pylint --output-format=text"
+  - "cpp: clang-tidy -p . --quiet --warnings-as-errors='*'"
+  - "python: pylint --output-format=text --score=no --fail-under=8.0"
+  - "shell: shellcheck -x"
+  - "yaml: yamllint -d relaxed"
+  - "markdown: markdownlint -c .markdownlint.json"
+  - "cmake: cmake-lint"
+  
+pre-commit:
+  - "git ls-files | xargs pre-commit run --files"
+  
+chat-model: gpt-4
+max-context: 16000
