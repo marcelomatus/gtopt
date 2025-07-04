@@ -60,14 +60,16 @@ class GeneratorParser:
             parts = lines[idx].split()
             if len(parts) < 4:
                 raise ValueError(f"Invalid generator entry at line {idx+1}")
-            
-            self.generators.append({
-                "id": parts[0],
-                "bus": parts[1],
-                "p_min": float(parts[2]),
-                "p_max": float(parts[3]),
-                # Add other generator attributes as needed
-            })
+
+            self.generators.append(
+                {
+                    "id": parts[0],
+                    "bus": parts[1],
+                    "p_min": float(parts[2]),
+                    "p_max": float(parts[3]),
+                    # Add other generator attributes as needed
+                }
+            )
             idx += 1
 
     def get_generators(self) -> List[Dict[str, Any]]:
