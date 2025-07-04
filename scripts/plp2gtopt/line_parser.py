@@ -64,33 +64,28 @@ class LineParser:
             line_parts = lines[idx].split()
             if len(line_parts) < 11:
                 raise ValueError(f"Invalid line entry at line {idx+1}")
-            
+
             # Parse line name (removing quotes)
             line_name = line_parts[0].strip("'")
             bus_a, bus_b = self._parse_line_name(line_name)
-            voltage = self._parse_line_voltage(line_name)
 
-            # Handle the case where num_sections might be 'T'/'F' instead of a number
-            try:
-                num_sections = int(line_parts[8])
-            except ValueError:
-                num_sections = 1  # Default value if not a number
-                
-            self.lines.append({
-                "name": line_name,
-                "bus_a": bus_a,
-                "bus_b": bus_b,
-                "voltage": voltage,
-                "f_max_ab": float(line_parts[1]),  # Forward rating (MW)
-                "f_max_ba": float(line_parts[2]),  # Reverse rating (MW)
-                "bus_a_num": int(line_parts[3]),    # Bus A number
-                "bus_b_num": int(line_parts[4]),    # Bus B number
-                "r": float(line_parts[5]),          # Resistance (Ohm)
-                "x": float(line_parts[6]),          # Reactance (Ohm)
-                "has_losses": line_parts[7] == 'T', # Loss modeling flag
-                "num_sections": num_sections,       # Number of sections
-                "is_operational": line_parts[9] == 'T' # Operational status
-            })
+            self.lines.append(
+                {
+                    "name": line_name,
+                    "bus_a": bus_a,
+                    "bus_b": bus_b,
+                    "voltage": float(line_parts[5]),
+                    "f_max_ab": float(line_parts[1]),  # Forward rating (MW)
+                    "f_max_ba": float(line_parts[2]),  # Reverse rating (MW)
+                    "bus_a_num": int(line_parts[3]),  # Bus A number
+                    "bus_b_num": int(line_parts[4]),  # Bus B number
+                    "r": float(line_parts[6]),  # Resistance (Ohm)
+                    "x": float(line_parts[7]),  # Reactance (Ohm)
+                    "has_losses": line_parts[8] == "T",  # Loss modeling flag
+                    "num_sections": int(line_parts[9]),  # Number of sections
+                    "is_operational": line_parts[10] == "T",  # Operational status
+                }
+            )
             idx += 1
 
     def _parse_line_name(self, name: str) -> tuple[str, str]:
@@ -106,7 +101,7 @@ class LineParser:
     def _parse_line_voltage(self, name: str) -> float:
         """Extract voltage from line name."""
         # Look for voltage patterns like '220', '220kV', 'KV220' etc.
-        voltage_match = re.search(r'(\d+)(?:kV|KV)?', name, re.IGNORECASE)
+        voltage_match = re.search(r"(\d+)(?:kV|KV)?", name, re.IGNORECASE)
         if voltage_match:
             return float(voltage_match.group(1))
         return 0.0  # Default if no voltage found
@@ -128,13 +123,17 @@ class LineParser:
 
     def get_lines_by_bus(self, bus_name: str) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus."""
-        return [line for line in self.lines
-                if bus_name in (line["bus_a"], line["bus_b"])]
+        return [
+            line for line in self.lines if bus_name in (line["bus_a"], line["bus_b"])
+        ]
 
     def get_lines_by_bus_num(self, bus_num: int) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus number."""
-        return [line for line in self.lines
-                if bus_num in (line["bus_a_num"], line["bus_b_num"])]
+        return [
+            line
+            for line in self.lines
+            if bus_num in (line["bus_a_num"], line["bus_b_num"])
+        ]
 
 
 def main(args: Optional[List[str]] = None) -> int:
