@@ -1,8 +1,9 @@
 # Aider configuration
 lint-cmd:
   - "cpp: clang-tidy -p . --quiet"
-  - "python: pylint --output-format=text --score=no --fail-under=8.0"
+  - "python: black"
   - "python: flake8 --max-line-length=120 --ignore=E203,E266,E501,W503"
+  - "python: pylint --output-format=text --score=no --fail-under=8.0"
   - "shell: shellcheck -x"
   - "yaml: yamllint -d relaxed"
   - "markdown: markdownlint -c .markdownlint.json"
@@ -11,5 +12,4 @@ lint-cmd:
 pre-commit:
   - "git ls-files | xargs pre-commit run --files"
 
-chat-model: deepseek/deepseek-coder
-
+model: deepseek/deepseek-coder

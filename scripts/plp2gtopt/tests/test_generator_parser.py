@@ -16,19 +16,25 @@ class TestGeneratorParser(unittest.TestCase):
     def setUp(self):
         """Create temporary test files."""
         # Context manager would prevent cleanup in tearDown
-        self.test_dir = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.test_dir = (
+            tempfile.TemporaryDirectory()
+        )  # pylint: disable=consider-using-with
         self.test_path = Path(self.test_dir.name)
-        
+
         # Create valid test file in plpcnfce.dat format
         self.valid_file = self.test_path / "valid_gen.dat"
         with open(self.valid_file, "w", encoding="utf-8") as f:
             f.write("# Test generator file\n")
-            f.write("    1 'TEST_GEN1'                                       1    F       F       F       F           F          0           0\n")
+            f.write(
+                "    1 'TEST_GEN1'                                       1    F       F       F       F           F          0           0\n"
+            )
             f.write("          PotMin PotMax VertMin VertMax\n")
             f.write("           010.0  100.0   000.0   000.0\n")
             f.write("          CosVar  Rendi  Barra Genera Vertim\n")
             f.write("             5.0  1.000      1      0      0\n")
-            f.write("    2 'TEST_GEN2'                                       1    F       F       F       F           F          0           0\n")
+            f.write(
+                "    2 'TEST_GEN2'                                       1    F       F       F       F           F          0           0\n"
+            )
             f.write("          PotMin PotMax VertMin VertMax\n")
             f.write("           020.0  200.0   000.0   000.0\n")
             f.write("          CosVar  Rendi  Barra Genera Vertim\n")
@@ -41,7 +47,9 @@ class TestGeneratorParser(unittest.TestCase):
         # Create malformed test file
         self.bad_file = self.test_path / "bad_gen.dat"
         with open(self.bad_file, "w", encoding="utf-8") as f:
-            f.write("    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0\n")
+            f.write(
+                "    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0\n"
+            )
             f.write("          PotMin PotMax VertMin VertMax\n")
             f.write("           010.0\n")  # Incomplete line
 
@@ -56,7 +64,7 @@ class TestGeneratorParser(unittest.TestCase):
         self.assertEqual(parser.get_num_generators(), 2)
         generators = parser.get_generators()
         self.assertEqual(len(generators), 2)
-        
+
         # Test first generator
         gen1 = generators[0]
         self.assertEqual(gen1["id"], "1")
@@ -67,7 +75,7 @@ class TestGeneratorParser(unittest.TestCase):
         self.assertEqual(gen1["variable_cost"], 5.0)
         self.assertEqual(gen1["efficiency"], 1.0)
         self.assertEqual(gen1["is_battery"], False)
-        
+
         # Test second generator
         gen2 = generators[1]
         self.assertEqual(gen2["id"], "2")
