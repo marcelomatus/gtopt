@@ -45,9 +45,15 @@ class StageParser:
 
             stage_num = int(parts[0])
             duration = float(parts[1])
+            # Calculate discount factor from FactTasa if present, default to 1.0
+            discount_factor = 1.0 / float(parts[2]) if len(parts) > 2 else 1.0
             idx += 1
 
-            self.stages.append({"numero": stage_num, "duracion": duration})
+            self.stages.append({
+                "numero": stage_num,
+                "duracion": duration,
+                "discount_factor": discount_factor
+            })
 
     def get_stages(self) -> List[Dict[str, Any]]:
         """Return the parsed stages structure."""
@@ -92,5 +98,6 @@ if __name__ == "__main__":
         for stage in parser.get_stages():
             print(f"\nStage: {stage['numero']}")
             print(f"  Duration: {stage['duracion']}")
+            print(f"  Discount Factor: {stage['discount_factor']}")
 
     main()
