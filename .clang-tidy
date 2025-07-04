@@ -25,7 +25,9 @@ Checks: "*,\
   -boost-use-ranges,\
   -misc-non-private-member-variables-in-classes"
 
+# Explicitly exclude Python and CMake files
 HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'
+Exclude: '.*\.(py|pyc|pyo|toml|cmake|txt)$'
   misc-const-correctness, \
   bugprone-*, \
   hicpp-*, \
