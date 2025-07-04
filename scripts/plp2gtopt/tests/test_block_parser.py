@@ -8,12 +8,7 @@ from ..block_parser import BlockParser
 @pytest.fixture
 def sample_block_file():
     """Fixture providing path to sample block file."""
-    test_file = Path(__file__).parent.parent / "test_data" / "plpblo.dat"
-    if not test_file.exists():
-        test_file = (
-            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpblo.dat"
-        )
-    return test_file
+    return get_example_file("plpblo.dat")
 
 
 def test_block_parser_initialization():

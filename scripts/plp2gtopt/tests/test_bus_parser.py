@@ -8,12 +8,7 @@ from ..bus_parser import BusParser
 @pytest.fixture
 def sample_bus_file():
     """Fixture providing path to sample bus file."""
-    test_file = Path(__file__).parent.parent / "test_data" / "plpbar.dat"
-    if not test_file.exists():
-        test_file = (
-            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpbar.dat"
-        )
-    return test_file
+    return get_example_file("plpbar.dat")
 
 
 def test_bus_parser_initialization():

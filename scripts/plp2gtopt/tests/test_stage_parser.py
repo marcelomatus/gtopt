@@ -8,12 +8,7 @@ from ..stage_parser import StageParser
 @pytest.fixture
 def sample_stage_file():
     """Fixture providing path to sample stage file."""
-    test_file = Path(__file__).parent.parent / "test_data" / "plpeta.dat"
-    if not test_file.exists():
-        test_file = (
-            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpeta.dat"
-        )
-    return test_file
+    return get_example_file("plpeta.dat")
 
 
 def test_stage_parser_initialization():
