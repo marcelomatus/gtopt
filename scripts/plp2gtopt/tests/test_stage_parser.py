@@ -2,13 +2,16 @@
 
 import pytest
 from pathlib import Path
-from scripts.plp2gtopt import StageParser
+from ..stage_parser import StageParser
 
 
 @pytest.fixture
 def sample_stage_file():
     """Fixture providing path to sample stage file."""
-    return Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpeta.dat"
+    test_file = Path(__file__).parent.parent / "test_data" / "plpeta.dat"
+    if not test_file.exists():
+        test_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpeta.dat"
+    return test_file
 
 
 def test_stage_parser_initialization():

@@ -2,13 +2,16 @@
 
 import pytest
 from pathlib import Path
-from scripts.plp2gtopt import DemandParser
+from ..demand_parser import DemandParser
 
 
 @pytest.fixture
 def sample_demand_file():
     """Fixture providing path to sample demand file."""
-    return Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpdem.dat"
+    test_file = Path(__file__).parent.parent / "test_data" / "plpdem.dat"
+    if not test_file.exists():
+        test_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpdem.dat"
+    return test_file
 
 
 def test_demand_parser_initialization():

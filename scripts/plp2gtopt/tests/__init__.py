@@ -1,1 +1,1 @@
-"""Test package for plp2gtopt."""
+"""Tests for plp2gtopt package."""

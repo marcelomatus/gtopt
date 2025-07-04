@@ -11,3 +11,8 @@ from .demand_parser import DemandParser
 from .stage_parser import StageParser
 
 __all__ = ["convert_plp_case", "main", "DemandParser", "StageParser"]
+"""PLP to GTOPT conversion package."""
+from .demand_parser import DemandParser
+from .stage_parser import StageParser
+
+__all__ = ['DemandParser', 'StageParser']
