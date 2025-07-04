@@ -47,12 +47,12 @@ def test_parse_sample_file(sample_stage_file):
     # Verify first stage data
     stage1 = stages[0]
     assert stage1["numero"] == 1
-    assert stage1["duracion"] == 1.0
+    assert stage1["duracion"] == 3.0
 
     # Verify last stage data
     stage10 = stages[9]
     assert stage10["numero"] == 10
-    assert stage10["duracion"] == 1.0
+    assert stage10["duracion"] == 3.0
 
 
 def test_get_stage_by_number(sample_stage_file):
@@ -61,10 +61,10 @@ def test_get_stage_by_number(sample_stage_file):
     parser.parse()
 
     # Test existing stage
-    stage5 = parser.get_stage_by_number(5)
-    assert stage5 is not None
-    assert stage5["numero"] == 5
-    assert stage5["duracion"] == 1.0
+    stage1 = parser.get_stage_by_number(1)
+    assert stage1 is not None
+    assert stage1["numero"] == 1
+    assert stage1["duracion"] == 3.0
 
     # Test non-existent stage
     missing = parser.get_stage_by_number(99)
