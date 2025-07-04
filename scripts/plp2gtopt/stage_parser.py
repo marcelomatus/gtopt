@@ -57,7 +57,7 @@ class StageParser:
             stage_num = int(parts[2])
             duration = float(parts[4])
             # Calculate discount factor from FactTasa if present, default to 1.0
-            discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 else 1.0
+            discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 and float(parts[5]) != 0 else 1.0
             idx += 1
 
             self.stages.append(

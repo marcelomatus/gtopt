@@ -120,8 +120,7 @@ def main(args: Optional[List[str]] = None) -> int:
         buses = parser.get_buses()
         for bus in buses:
             print(f"\nBus: {bus['name']}")
-            print(f"  Voltage: {bus['voltage']}")
-            print(f"  Type: {bus['type']}")
+            print(f"  Number: {bus['number']}")
 
         return 0
     except (FileNotFoundError, ValueError, IndexError) as e:
