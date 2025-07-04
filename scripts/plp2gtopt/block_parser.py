@@ -125,9 +125,6 @@ def main(args: Optional[List[str]] = None) -> int:
             print(f"\nBlock: {block['number']}")
             print(f"  Stage: {block['stage']}")
             print(f"  Duration: {block['duration']}")
-            print(f"  Year: {block['year']}")
-            print(f"  Month: {block['month']}")
-            print(f"  Type: {block['type']}")
 
         return 0
     except (FileNotFoundError, ValueError, IndexError) as e:
