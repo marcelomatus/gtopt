@@ -16,13 +16,24 @@ class StageParser:
         num_stages: Number of stages in the file
     """
 
-    def __init__(self, file_path: str) -> None:
-        self.file_path = file_path
+    def __init__(self, file_path: Union[str, Path]) -> None:
+        """Initialize parser with stage file path.
+        
+        Args:
+            file_path: Path to plpeta.dat format file (str or Path)
+        """
+        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self.stages: List[Dict[str, Any]] = []
         self.num_stages = 0
 
     def parse(self) -> None:
-        """Parse the stage file and populate the stages structure."""
+        """Parse the stage file and populate the stages structure.
+        
+        Raises:
+            FileNotFoundError: If input file doesn't exist
+            ValueError: If file format is invalid
+            IndexError: If file is empty or malformed
+        """
         with open(self.file_path, "r", encoding="utf-8") as f:
             # Skip initial comments and empty lines
             lines = []

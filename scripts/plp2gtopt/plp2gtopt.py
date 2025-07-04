@@ -1,6 +1,6 @@
 """PLP to GTOPT conversion functions."""
 
-def convert_plp_case(input_dir, output_dir):
+def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) -> None:
     """Convert PLP input files to GTOPT format.
     
     Args:

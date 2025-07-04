@@ -1,7 +1,7 @@
 """Unit tests for stage_parser.py StageParser class."""
 
-import pytest
 from pathlib import Path
+import pytest
 from ..stage_parser import StageParser
 
 
@@ -39,7 +39,7 @@ def test_get_stages():
     assert parser.get_stages() == test_stages
 
 
-def test_parse_sample_file(sample_stage_file):
+def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample stage file."""
     parser = StageParser(str(sample_stage_file))
     parser.parse()
@@ -64,7 +64,7 @@ def test_parse_sample_file(sample_stage_file):
     assert isinstance(stage10["discount_factor"], float)
 
 
-def test_discount_factor_calculation(sample_stage_file):
+def test_discount_factor_calculation(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test discount factor calculation with and without FactTasa."""
     parser = StageParser(str(sample_stage_file))
     parser.parse()
@@ -82,7 +82,7 @@ def test_discount_factor_calculation(sample_stage_file):
         assert stages[3]["discount_factor"] == pytest.approx(1.0 / 1.007974)
 
 
-def test_get_stage_by_number(sample_stage_file):
+def test_get_stage_by_number(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test getting stage by number."""
     parser = StageParser(str(sample_stage_file))
     parser.parse()
