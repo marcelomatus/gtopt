@@ -1,7 +1,7 @@
 """Unit tests for pydem.py DemandParser class."""
 
-import pytest
 from pathlib import Path
+import pytest
 from ..demand_parser import DemandParser
 
 
@@ -21,7 +21,7 @@ def test_demand_parser_initialization():
     test_path = "test.dat"
     parser = DemandParser(test_path)
     assert parser.file_path == Path(test_path)  # Compare Path objects
-    assert parser.demands == []
+    assert not parser.demands
     assert parser.num_bars == 0
 
 
@@ -40,7 +40,7 @@ def test_get_demands():
     assert parser.get_demands() == test_demands
 
 
-def test_parse_sample_file(sample_demand_file):
+def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample demand file."""
     parser = DemandParser(str(sample_demand_file))
     parser.parse()
@@ -65,7 +65,7 @@ def test_parse_sample_file(sample_demand_file):
     assert bar2["demands"][3] == {"block": 4, "demand": 93.05}
 
 
-def test_get_demand_by_name(sample_demand_file):
+def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-outer-name
     """Test getting demand by bus name."""
     parser = DemandParser(str(sample_demand_file))
     parser.parse()
