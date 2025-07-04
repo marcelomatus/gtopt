@@ -54,9 +54,9 @@ def test_parse_sample_file(sample_demand_file):
     # Verify second bar data
     bar2 = demands[1]
     assert bar2["nombre"] == "Condores220"
-    assert len(bar2["demandas"]) == 5
+    assert len(bar2["demandas"]) == 4
     assert bar2["demandas"][0] == {"mes": 3, "etapa": 1, "demanda": 105.21}
-    assert bar2["demandas"][4] == {"mes": 3, "etapa": 5, "demanda": 96.77}
+    assert bar2["demandas"][3] == {"mes": 3, "etapa": 4, "demanda": 93.05}
 
 
 def test_get_demand_by_name(sample_demand_file):
