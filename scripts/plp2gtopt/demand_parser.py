@@ -69,10 +69,11 @@ class DemandParser:
             demands = []
             for _ in range(num_demands):
                 parts = lines[idx].split()
-                if len(parts) < 2:
+                if len(parts) < 3:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
-                block = int(parts[0])
-                demand = float(parts[1])
+                # Format is: Mes Etapa Demanda
+                block = int(parts[1])  # Etapa is the block number
+                demand = float(parts[2])  # Demanda is the demand value
                 demands.append({"block": block, "demand": demand})
                 idx += 1
 
