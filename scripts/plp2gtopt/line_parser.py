@@ -70,6 +70,12 @@ class LineParser:
             bus_a, bus_b = self._parse_line_name(line_name)
             voltage = self._parse_line_voltage(line_name)
 
+            # Handle the case where num_sections might be 'T'/'F' instead of a number
+            try:
+                num_sections = int(line_parts[8])
+            except ValueError:
+                num_sections = 1  # Default value if not a number
+                
             self.lines.append({
                 "name": line_name,
                 "bus_a": bus_a,
@@ -82,7 +88,7 @@ class LineParser:
                 "r": float(line_parts[5]),          # Resistance (Ohm)
                 "x": float(line_parts[6]),          # Reactance (Ohm)
                 "has_losses": line_parts[7] == 'T', # Loss modeling flag
-                "num_sections": int(line_parts[8]), # Number of sections
+                "num_sections": num_sections,       # Number of sections
                 "is_operational": line_parts[9] == 'T' # Operational status
             })
             idx += 1
