@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from ..pydem import DemandParser
+from plp2gtopt.pydem import DemandParser
 
 @pytest.fixture
 def sample_demand_file(tmp_path):
