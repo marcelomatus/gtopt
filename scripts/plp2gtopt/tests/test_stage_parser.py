@@ -42,22 +42,40 @@ def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-oute
 
     # Verify basic structure
     num_stages = parser.get_num_stages()
-    assert num_stages > 0
+    assert num_stages == 51
     stages = parser.get_stages()
     assert len(stages) == num_stages
+
+    # Verify all stages have required fields
+    for stage in stages:
+        assert isinstance(stage["number"], int)
+        assert isinstance(stage["duration"], float)
+        assert isinstance(stage["discount_factor"], float)
+        assert stage["number"] > 0
+        assert stage["duration"] > 0
+        assert 0 < stage["discount_factor"] <= 1.0
 
     # Verify first stage data
     stage1 = stages[0]
     assert stage1["number"] == 1
     assert stage1["duration"] == 168.0
-    assert "discount_factor" in stage1
-    assert isinstance(stage1["discount_factor"], float)
+    assert stage1["discount_factor"] == 1.0
 
     # Verify last stage data
     last_stage = stages[-1]
-    assert last_stage["duration"] == 192
-    assert "discount_factor" in last_stage
-    assert isinstance(last_stage["discount_factor"], float)
+    assert last_stage["number"] == 51
+    assert last_stage["duration"] == 192.0
+    assert 0 < last_stage["discount_factor"] < 1.0
+
+    # Verify stage numbers are sequential
+    for i, stage in enumerate(stages, 1):
+        assert stage["number"] == i
+
+    # Verify discount factors are properly calculated
+    for stage in stages[1:]:  # Skip first stage which defaults to 1.0
+        if stage["discount_factor"] != 1.0:
+            assert stage["discount_factor"] == pytest.approx(1.0 / 1.082665, rel=1e-6)
+            break  # Just check one non-default value
 
 
 def test_discount_factor_calculation(
