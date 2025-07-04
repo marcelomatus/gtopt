@@ -9,6 +9,7 @@ Handles:
 - Bus lookup by name
 """
 
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
@@ -65,12 +66,11 @@ class BusParser:
             parts = bus_line.split(maxsplit=1)
             if len(parts) < 2:
                 raise ValueError(f"Invalid bus entry at line {idx}")
-            
+
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
-            
+
             # Try to extract voltage from name (look for numbers at end of name)
-            import re
             voltage_match = re.search(r'(\d+)(kV|KV)?$', name)
             if voltage_match:
                 voltage = float(voltage_match.group(1))
