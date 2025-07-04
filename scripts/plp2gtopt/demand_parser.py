@@ -69,12 +69,11 @@ class DemandParser:
             demands = []
             for _ in range(num_demands):
                 parts = lines[idx].split()
-                if len(parts) < 3:
+                if len(parts) < 2:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
-                month = int(parts[0])
-                stage = int(parts[1])
-                demand = float(parts[2])
-                demands.append({"mes": month, "block": stage, "demand": demand})
+                stage = int(parts[0])
+                demand = float(parts[1])
+                demands.append({"block": stage, "demand": demand})
                 idx += 1
 
             self.demands.append({"name": name, "demands": demands})
