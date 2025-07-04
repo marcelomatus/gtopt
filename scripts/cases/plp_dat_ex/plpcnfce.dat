@@ -1,0 +1,1990 @@
+# Archivo de configuracion de las centrales (plpcnfce.dat)
+# Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
+     247            10           75       1        129         25
+# Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
+  F      F        F            F          00
+# Caracteristicas Centrales
+# Centrales de Embalse
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    1 'LMAULE'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  100.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  1.2934600  0.0000000  1.4534093  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    6 'CIPRESES'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  105.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  2.864    115      9      9    0.0  0034.2  0.9554300  1.6053943  0.0471636  1.7466033  1.0E+8       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   21 'PEHUENCHE'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  543.3   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.780    161     25     22    0.0  0000.0  1.2278968  1.2161593  1.0658307  1.3364405  1.0E+8       F
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   28 'COLBUN'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  474.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.530    120     33      0    0.0  0068.5  0.9087234  1.5532459  0.3816243  1.5532459  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   37 'ELTORO'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  450.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  4.800     96     39     38    0.0  0183.4  0.1731823  0.3777430  0.0000000  0.5585888  1.0E+10      T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   63 'RAPEL'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  362.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  0.640    177      0      0    0.0  0576.9  0.2850326  0.5632124  0.1302219  0.5632124  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   64 'CANUTILLAR'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  170.2   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  2.000    102      0      0    0.0  0126.3  0.5401160  1.0653785  0.4497390  1.0653785  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   65 'RALCO'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  690.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.518    175     67     67    0.0  0682.2  0.5653324  0.7569599  0.4094096  1.1732862  1.0E+9       T
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   67 'PANGUE'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           080.0  450.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  0.800    158     68     68    0.0  0153.8  0.6976151  0.6976151  0.5758340  0.7196000  1.0E+8       F
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   83 'PILMAIQUEN'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           007.0  039.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  0.270    174     84     84    0.0  0113.5  1.6553160  0.8938706  0.0000000  2.8968030  1.0E+8       T
+# Centrales Serie Hidraulica
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    2 'LOS_CONDORES'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  150.0   000.0  9976.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  6.000     93      3      3    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    3 'B_LaMina'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  007.0   000.0  9975.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      5      4    0.0  0020.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    4 'LA_MINA'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  036.9   000.0  9901.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.570    161      5      5    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    5 'B_M_Isla'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  048.0   000.0  9901.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     10     13    0.0  0026.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    7 'FILT_CIPRESES'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  020.1   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      8      8    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    8 'OJOS_DE_AGUA'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.0   000.0   020.1
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.580    115      9      9    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+    9 'B_C_Isla'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  050.0   000.0  9906.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     10     13    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   10 'ISLA'                                            1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  069.0   000.0  9907.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.810    115     11     13    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   11 'CURILLINQUE'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  087.0   000.0  9908.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.010    115     12     13    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   12 'LOMA_ALTA'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  039.0   000.0  9909.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.450    161     13     13    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   13 'B_Maule'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  140.0   000.0  9910.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     21     22    0.0  0043.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   14 'Rio_Melado'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  025.3   000.0  9911.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     15     21    0.0  0239.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   15 'C_Melado'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.0   000.0  9911.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     20     16    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   16 'LOS_HIERROS'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  025.1   000.0  9911.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.900    161     17     21    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   17 'LOS_HIERROS_2'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.0   000.0  9911.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.210    161     21     21    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   18 'ANCOA'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  024.1   000.0  9911.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.948    140     19     19    0.0  0009.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   19 'ROBLERIA'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  004.0   000.0  9911.5
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.111    140      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   20 'RieMelado'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9999.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   22 'CMNTronco'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     23     25    0.0  0048.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   23 'BPasoNevado'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  026.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     24     26    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   24 'RieCMNA'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   25 'BCanelon'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  180.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     26     28    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   26 'BPretilCol'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  030.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     27     31    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   27 'RieCMNB'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9913.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   29 'CHIBURGO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.4   000.0  9917.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.970    120     30     30    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   30 'RieMauleSur'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9917.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   31 'SAN_CLEMENTE'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.5   000.0  9918.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.324    120     32     32    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   32 'RieMaitenes'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9918.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   33 'MACHICURA'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           018.6  090.0   000.0  9918.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.330    120     34     34    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   34 'RieSur123SCDZ'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9919.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0     35    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   35 'SAN_IGNACIO'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  036.0   000.0  9920.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.190    192     36     36    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   36 'RieMolinosOtros'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9921.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   38 'ABANICO'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  093.0   000.0  9925.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.200    105     39     39    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   39 'ANTUCO'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           020.0  320.0   000.0  9926.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.600     96     40     40    0.0  0193.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   40 'RIEGZACO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  070.0   000.0  9927.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0     43    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   41 'CANECOL'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9928.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     46     42    0.0  0010.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   42 'CANRUCUE'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  010.0   000.0  9929.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     44     46    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   43 'CLAJRUCUE'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  120.0   000.0  9930.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     44     46    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   44 'RUCUE'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  178.4   000.0  9931.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.280    106     45     46    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   45 'QUILLECO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  070.0   000.0  9932.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.550    106     46     46    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   46 'TUCAPEL'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9933.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     47     48    0.0  0265.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   47 'CANAL_LAJA'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  020.0   000.0  9934.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     51     50    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   48 'RieSaltos'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9999.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0     49    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   49 'LAJA_I'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  034.3   000.0  9934.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.137    106      0      0    0.0  0157.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   50 'RieTucapel'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0  9999.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   51 'EL_DIUTO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.3   000.0  9934.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.163    105     50      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   52 'CANHORN'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  012.1   000.0  9934.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     53     54    0.0  0003.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   53 'HORNITOS_CH'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  055.0   000.0  9935.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  5.000    168     54     54    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   54 'JUNCAL'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  032.0   000.0  9936.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  2.200    168     57     57    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   55 'CANBLANCO'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.2   000.0  9937.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     56     57    0.0  0001.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   56 'BLANCO'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  057.0   000.0  9938.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  5.760    168     57     57    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   57 'CANACO'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  014.5   000.0  9939.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     59     60    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   58 'CANCOLOR'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  007.0   000.0  9940.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     59      0    0.0  0003.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   59 'LOS_QUILOS'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  031.8   000.0  9941.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.900    168     61      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   60 'CANCHAC'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0  9942.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     61      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   61 'CHACABUQUITO'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  025.7   000.0  9943.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.220    168      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   62 'RIO_TENO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  065.0   000.0  9943.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     63      0    0.0  0020.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   66 'PALMUCHO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           028.0  032.0   000.0  9947.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.143    175     67     67    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   68 'ANGOSTURA'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  328.1   000.0  9948.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.430     95      0      0    0.0  0488.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   69 'HLH_TINGUIRIRICA_RN'                             1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   70 'HLH_AZUFRE_RN'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0003.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   71 'HLH_TINGUIRIRICA'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  023.0   000.0  9966.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     73      0    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   72 'HLH_AZUFRE'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  032.0   000.0  9967.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     73      0    0.0  0003.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   73 'LA_HIGUERA'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  155.0   000.0  9967.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  3.120    167      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   74 'HLC_TINGUIRIRICA_RN'                             1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   75 'HLC_PORTILLO_RN'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0003.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   76 'HLC_TINGUIRIRICA'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  021.4   000.0  9967.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     78      0    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   77 'HLC_PORTILLO'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  029.7   000.0  9967.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     78      0    0.0  0003.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   78 'LA_CONFLUENCIA'                                  1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  163.2   000.0  9978.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  3.110    167      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   79 'AFL_CACH'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0      0      0    0.0  0049.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   80 'CIPRESES_CHAC'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  020.0   000.0  9949.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     82      0    0.0  0007.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   81 'A_CHACAYES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  154.0   000.0  9950.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      0     82      0    0.0  0018.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   82 'CHACAYES'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  111.7   000.0  9999.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.540    184      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   84 'RUCATAYO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  055.0   000.0  9977.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.315    163     85     85    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   85 'LOS_LAGOS'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  048.7   000.0  9977.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  0.320    163      0      0    0.0  0000.0
+# Centrales Pasada Puras
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   86 'LOS_MOLLES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  018.0   000.0  9949.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     35      0      0    0.0  0001.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   87 'SANTA_ELENA'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.8   000.0  9949.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0002.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   88 'VOLCAN'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  014.0   000.0  9949.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0004.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   89 'QUELTEHUES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  048.0   000.0  9950.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0032.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   90 'FLORIDA_1'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.0   000.0  9951.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   91 'FLORIDA_2'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.1   000.0  9951.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0004.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   92 'FLORIDA_3'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0  9951.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0002.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   93 'SAUCEANDES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.4   000.0  9952.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    168      0      0    0.0  0000.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   94 'PEHUI'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.1   000.0  9953.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   95 'CHANLEUFU'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.4   000.0  9953.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   96 'TRANQUIL'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.9   000.0  9953.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0002.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   97 'LOS_MORROS'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.6   000.0  9954.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     85      0      0    0.0  0001.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   98 'MAITENES'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  024.0   000.0  9955.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   99 'PUNTILLA'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  022.2   000.0  9956.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0014.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  100 'LAS_VERTIENTES'                                  1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.7   000.0  9956.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0001.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  101 'EL_LLANO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.0   000.0  9956.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  102 'ALFALFAL'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  178.0   000.0  9957.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  5.940     89      0      0    0.0  0008.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  103 'SAUZAL'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  076.8   000.0  9958.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    185      0      0    0.0  0049.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  104 'SAUZALITO'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  012.0   000.0  9959.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    185      0      0    0.0  0009.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  105 'PEUCHEN'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  085.6   000.0  9960.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0066.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  106 'MAMPIL'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  055.0   000.0  9961.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0042.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  107 'PULLINQUE'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  051.4   000.0  9962.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0022.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  108 'CAPULLO'                                         1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  012.0   000.0  9963.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0010.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  109 'EYZAGUIRRE'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.1   000.0  9966.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  110 'COYA'                                            1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  012.0   000.0  9967.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    185      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  111 'LA_PALOMA'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  004.6   000.0  9968.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     35      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  112 'PUCLARO'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.6   000.0  9969.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     71      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  113 'LICAN'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  017.0   000.0  9970.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0013.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  114 'EL_PASO'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  060.0   000.0  9971.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0006.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  115 'RIO_TRUENO'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.8   000.0  9972.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0005.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  116 'GUAYACAN'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  012.0   000.0  9973.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0008.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  117 'PULELFU'                                         1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.0   000.0  9974.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0008.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  118 'MARIPOSAS'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.0   000.0  9975.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    147      0      0    0.0  0003.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  119 'EL_MANZANO'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  004.9   000.0  9976.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0003.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  120 'HIDRO_BONITO_MC1'                                1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.0   000.0  9978.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0006.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  121 'HIDRO_BONITO_MC2'                                1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.2   000.0  9979.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0002.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  122 'RIO_PICOIQUEN'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.2   000.0  9980.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0017.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  123 'ITATA'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  020.0   000.0  9981.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    110      0      0    0.0  0019.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  124 'RIO_COLORADO'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  016.5   000.0  9982.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    161      0      0    0.0  0013.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  125 'LIRCAY'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.0   000.0  9983.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    147      0      0    0.0  0010.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  126 'SAN_ANDRES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  040.0   000.0  9984.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0004.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  127 'LA_ARENA'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.8   000.0  9985.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    166      0      0    0.0  0003.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  128 'MUCHI'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.0   000.0  9986.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  129 'MALLARAUCO'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.4   000.0  9987.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     92      0      0    0.0  0000.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  130 'PROVIDENCIA'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  014.0   000.0  9988.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    147      0      0    0.0  0007.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  131 'ALLIPEN'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.7   000.0  9989.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0001.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  132 'EL_CANELO'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.1   000.0  9990.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0003.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  133 'LOS_BAJOS'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.6   000.0  9991.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    100      0      0    0.0  0002.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  134 'AUX_DEL_MAIPO'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.1   000.0  9992.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    100      0      0    0.0  0003.5
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  135 'DONGO'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.0   000.0  9993.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    114      0      0    0.0  0002.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  136 'PURISIMA'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.4   000.0  9994.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    136      0      0    0.0  0000.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  137 'CARENA'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  010.0   000.0  9995.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     87      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  138 'RECA'                                            1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.6   000.0  9996.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0001.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  139 'DON_WALTERIO'                                    1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0  9997.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0002.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  140 'RENAICO'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.2   000.0  9998.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0004.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  141 'ALTO_RENAICO'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.4   000.0  9999.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0001.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  142 'TRAILELFU'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0 10000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    193      0      0    0.0  0002.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  143 'NALCAS'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  007.0   000.0 10001.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0005.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  144 'CALLAO'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.3   000.0 10002.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0002.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  145 'ENSENADA'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.6   000.0 10003.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    166      0      0    0.0  0001.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  146 'RIO_HUASCO'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.1   000.0 10004.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     52      0      0    0.0  0000.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  147 'LLAUQUEREO'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.8   000.0 10005.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0001.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  148 'NUBLE'                                           1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  136.0   000.0 10006.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     93      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  149 'LAS_LAJAS'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  267.0   000.0 10007.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  4.200    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  150 'ALFALFAL_2'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  264.0   000.0 10008.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  9.800     91      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  151 'LAS_NIEVES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  006.5   000.0 10009.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    103      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  152 'LOS_PADRES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.2   000.0 10010.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0001.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  153 'CUMBRES'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  017.9   000.0 10011.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0017.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  154 'CONVENTO_VIEJO'                                  1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  015.7   000.0 10012.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    136      0      0    0.0  0002.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  155 'LA_MONTANA_1'                                    1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10014.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    195      0      0    0.0  0000.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  156 'CUMPEO'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  005.8   000.0 10015.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    136      0      0    0.0  0002.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  157 'EL_AGRIO'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0 10016.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    139      0      0    0.0  0000.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  158 'EL_GALPON'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.3   000.0 10017.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    136      0      0    0.0  0000.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  159 'MELO'                                            1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10018.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0001.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  160 'CALIBORO'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.4   000.0 10019.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0000.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  161 'SANTA_ISABEL'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.4   000.0 10020.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    193      0      0    0.0  0000.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  162 'LA_MONTANA_2'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.9   000.0 10021.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    195      0      0    0.0  0000.6
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  163 'TRUFUL-TRUFUL'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.9   000.0 10022.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  164 'DONGUIL'                                         1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.3   000.0 10023.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0000.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  165 'COLLIL'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  007.0   000.0 10024.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    114      0      0    0.0  0005.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  166 'EL_MIRADOR'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10025.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  167 'MARIA_ELENA'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.3   000.0 10026.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  168 'EL_ARRAYAN'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.2   000.0 10027.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  169 'PIUTEL'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.5   000.0 10028.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  170 'DOS_VALLES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10029.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  173 'PALACIOS'                                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10029.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0000.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  174 'EL_COLORADO'                                     1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.0   000.0 10030.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    166      0      0    0.0  0001.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  175 'MSA_1'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10030.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0002.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  176 'MALALCAHUELLO'                                   1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.2   000.0 10031.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    179      0      0    0.0  0006.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  177 'CARILAFQUEN'                                     1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  019.8   000.0 10032.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    179      0      0    0.0  0008.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  178 'MOLINERA_VILLARRICA'                             1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.6   000.0 10033.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    193      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  179 'MAISAN'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.6   000.0 10039.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  180 'LOS_CORRALES_1'                                  1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.8   000.0 10040.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  181 'LOS_CORRALES_2'                                  1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.0   000.0 10041.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  182 'LOS_PORTONES'                                    1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0001.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  185 'CHAPIQUINA'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  010.1   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      6      0      0    0.0  0003.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  188 'EL_RINCON'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.3   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    131      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  189 'QUILLAILEO'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.8   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  190 'MULCHEN'                                         1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0001.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  191 'LA_VINA'                                         1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0000.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  192 'EL_TARTARO'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.1   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    168      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  193 'LAS_FLORES'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0001.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  194 'PICHILONCO'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.7
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  195 'BOQUIAMARGO'                                     1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.1   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  196 'DOSAL'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.3   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    195      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  197 'PANGUIPULLI'                                     1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    204      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  198 'CONTRA'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.3   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  199 'CURILEUFU'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  200 'BUREO'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0001.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  201 'MUNILQUE_1'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  202 'MUNILQUE_2'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  203 'BIFURCADA'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0000.1
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  204 'EL_BRINCO'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  205 'PALMAR'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  008.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0007.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  206 'CORRENTOSO'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  008.4   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0006.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  207 'EL_PINAR'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  011.4   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    113      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  208 'DONA_HILDA'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.5   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    194      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  209 'CIPRESILLOS'                                     1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.0   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    185      0      0    0.0  0004.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  210 'DIGUA'                                           1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  020.0   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     93      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  212 'HIDROMOCHO'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  014.8   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0014.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  213 'LA_CONFIANZA'                                    1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.3   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0001.8
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  214 'AILLIN'                                          1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  009.0   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    106      0      0    0.0  0001.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  215 'EL_ATAJO'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.2   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     95      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  216 'HIDRO_BONITO_MC3'                                1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0  9979.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    174      0      0    0.0  0002.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  217 'CORRALES'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    199      0      0    0.0  0001.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  218 'COMPANIA_2'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    160      0      0    0.0  0001.2
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  219 'PUNTA_DEL_VIENTO'                                1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.9   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    199      0      0    0.0  0002.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  220 'COSAPILLA'                                       1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.5   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     68      0      0    0.0  0000.3
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  222 'PIEDRAS_NEGRAS'                                  1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.9   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    199      0      0    0.0  0001.9
+# Centrales Termicas o Embalses Equivalentes,FV, EO, CS
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  171 'DOS_VALLES_AMPL'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.6   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  172 'DOS_VALLES_AMPL2'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  004.5   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  183 'CAVANCHA'                                        1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.6   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     68      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  184 'ALTO_HOSPICIO'                                   1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.1   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     19      0      0    0.0  0000.4
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  186 'EL_TORO_N2'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.1   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     19      0      0    0.0  0000.9
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  187 'SANTA_ROSA'                                      1    F       F       F       F           T          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  000.5   000.0 10042.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     19      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+  211 'TRUPAN'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  010.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    105      0      0    0.0  0000.0
+# Baterias
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1187 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  059.3   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     89      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1189 'BAT_ARICA'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      6      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1191 'DIEGO_ALMAGRO_SUR_BESS'                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  008.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    218      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1193 'BAT_ALICANTO'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     25      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1195 'ANDES_2B_BESS'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  112.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      2      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1197 'SALVADOR_BESS'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  054.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     24      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1199 'COYA_BESS'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  144.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     21      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1201 'URIBE_SOLAR_BESS'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  002.5   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     37      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1203 'ANDES_2B_AMP_BESS'                               1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  017.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      2      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1205 'SAN_MARCOS_BESS'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      6      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1207 'SAN_ANDRES_BESS'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  035.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     20      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1209 'LA_CABANA_BESS'                                  1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  032.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    150      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1211 'CAPRICORNIO_BESS'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  048.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      9      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1213 'ANDES_4_BESS'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  130.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      2      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1215 'ANDES_2A_BESS'                                   1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  080.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      2      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1217 'DON_HUMBERTO_BESS'                               1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  067.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    170      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1219 'EL_MANZANO_BESS'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  060.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    168      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1221 'TAMAYA_BESS'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  068.2   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     80      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1223 'NUEVO_QUILLAGUA_BESS'                            1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  095.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     55      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1225 'PUNTA_SIERRA_BESS'                               1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  003.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     74      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1227 'MARIA_ELENA_BESS'                                1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  060.5   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     55      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1229 'DESIERTO_DE_ATACAMA_BESS'                        1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  110.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     11      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1231 'GABRIELA_COBRE_BESS'                             1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  220.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     32      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1233 'SOL_DE_DESIERTO_BESS'                            1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  200.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     55      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1235 'ANDES_3_BESS'                                    1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  171.3   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      2      0      0    0.0  0000.0
+# Fallas
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1785 'FALLA_001_1'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+           406.0  1.000      1      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 
