@@ -15,7 +15,8 @@ class TestGeneratorParser(unittest.TestCase):
 
     def setUp(self):
         """Create temporary test files."""
-        self.test_dir = tempfile.TemporaryDirectory()  # Will be cleaned up in tearDown
+        # Using context manager would prevent cleanup in tearDown
+        self.test_dir = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
         self.test_path = Path(self.test_dir.name)
         
         # Create valid test file
