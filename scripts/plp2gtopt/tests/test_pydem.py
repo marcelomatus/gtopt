@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from plp2gtopt.pydem import DemandParser
+from plp2gtopt import DemandParser
 
 def test_demand_parser_initialization():
     """Test DemandParser initialization."""

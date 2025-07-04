@@ -20,6 +20,7 @@ dev = [
 [tool.setuptools]
 packages = ["plp2gtopt"]
 package-dir = {"plp2gtopt" = "scripts/plp2gtopt"}
+include-package-data = true
 
 [tool.black]
 line-length = 88
