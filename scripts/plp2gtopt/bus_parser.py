@@ -57,19 +57,26 @@ class BusParser:
         idx += 1
 
         for _ in range(self.num_buses):
-            # Get bus name (removing quotes and any remaining comments)
-            name = lines[idx].strip("'").split("#")[0].strip()
+            # Parse bus line with format: "number 'name'"
+            bus_line = lines[idx].strip()
             idx += 1
+            
+            # Split into number and quoted name
+            parts = bus_line.split(maxsplit=1)
+            if len(parts) < 2:
+                raise ValueError(f"Invalid bus entry at line {idx}")
+                
+            bus_num = int(parts[0])
+            name = parts[1].strip("'").split("#")[0].strip()
 
-            # Get bus voltage
+            # Get voltage and type from next lines
             voltage = float(lines[idx])
             idx += 1
-
-            # Get bus type (PQ, PV, or Slack)
             bus_type = lines[idx].strip()
             idx += 1
 
             self.buses.append({
+                "number": bus_num,
                 "name": name,
                 "voltage": voltage,
                 "type": bus_type
