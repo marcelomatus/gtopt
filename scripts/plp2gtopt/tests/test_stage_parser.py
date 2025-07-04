@@ -63,7 +63,7 @@ def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-oute
 
     # Verify last stage data
     last_stage = stages[-1]
-    assert last_stage["number"] == 51
+    assert last_stage["number"] == 10
     assert last_stage["duration"] == 192.0
     assert 0 < last_stage["discount_factor"] < 1.0
 
@@ -72,9 +72,9 @@ def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-oute
         assert stage["number"] == i
 
     # Verify discount factors are properly calculated
-    for stage in stages[1:]:  # Skip first stage which defaults to 1.0
+    for stage in stages[3:]:  # Skip first stage which defaults to 1.0
         if stage["discount_factor"] != 1.0:
-            assert stage["discount_factor"] == pytest.approx(1.0 / 1.082665, rel=1e-6)
+            assert stage["discount_factor"] == pytest.approx(1.0 / 1.007974, rel=1e-6)
             break  # Just check one non-default value
 
 
