@@ -1,0 +1,15 @@
+# Archivo de configuracion de lineas (plpcnfli.dat)
+# Num.Lineas 330   Modela Perdidas  Perd.en.ERM   Ang. de Ref.
+         10          T             'M'         1000.d0
+# Caracteristicas de las Lineas
+# Nombre                                              F.Max. A-B F.Max. B-A  Barra A  Barra B   Tension  R(Ohm)  X(ohm)   Mod.Perd.  Num.Tramos   Operativa
+'Andes220->Oeste220'                                 290.0      290.0        2       65     220.0   3.431  15.802      T           3            T
+'Andes345->Andes220'                                 750.0      750.0        3        2     345.0   0.000  15.473      T           3            T
+'Angamos220->Kapatur220'                            1401.0     1401.0        4       42     220.0   0.148   1.665      T           3            T
+'Antofag110->Desalant110'                             91.5       91.5        5       27     110.0   1.811   4.520      T           3            T
+'Antofag110->LaNegra110'                             122.0      122.0        5       47     110.0   3.034   7.526      T           3            T
+'Atacama220->OHiggins220'                            467.0      467.0        7       66     220.0   3.370  15.084      T           3            T
+'Capricorn220->Capricorn110'                         100.0      100.0       10        9     220.0   0.000  62.436      F           3            T
+'Capricornio110->Antofag110'                          76.0       76.0        9        5     110.0   3.671  11.928      T           3            T
+'Capricornio110->ElNegro110'                         100.0      100.0        9       34     110.0   4.851  15.239      T           3            T
+'Capricornio110->LaNegra110'                          76.0       76.0        9       47     110.0   6.704  19.454      T           3            T
