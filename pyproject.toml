@@ -19,7 +19,7 @@ dev = [
 
 [tool.setuptools]
 packages = ["plp2gtopt"]
-package-dir = {"" = "scripts"}
+package-dir = {"plp2gtopt" = "scripts/plp2gtopt"}
 
 [tool.black]
 line-length = 88
