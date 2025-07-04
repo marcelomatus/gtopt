@@ -83,10 +83,15 @@ class GeneratorParser:
                 elif line.startswith("CosVar"):
                     if not current_gen:
                         continue
-                    parts = line.split()
-                    current_gen["variable_cost"] = float(parts[1])
-                    current_gen["efficiency"] = float(parts[2])
-                    current_gen["bus"] = parts[3]
+                    # Skip the header line and read the next line for values
+                    next_line = next(f).strip()
+                    while not next_line:  # Skip empty lines
+                        next_line = next(f).strip()
+                    parts = next_line.split()
+                    if len(parts) >= 5:  # Ensure we have all expected columns
+                        current_gen["variable_cost"] = float(parts[0])
+                        current_gen["efficiency"] = float(parts[1])
+                        current_gen["bus"] = parts[3]  # Barra column
 
                     # Check for battery in name
                     if "BESS" in current_gen["name"].upper():
