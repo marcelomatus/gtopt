@@ -86,6 +86,7 @@ def test_get_stage_by_number(sample_stage_file):  # pylint: disable=redefined-ou
     parser.parse()
 
     # Test existing stage
+    stages = parser.get_stages()
     first_stage_num = stages[0]["number"]
     stage = parser.get_stage_by_number(first_stage_num)
     assert stage is not None
