@@ -46,11 +46,30 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     blocks = parser.get_blocks()
     assert len(blocks) == num_blocks
 
+    # Verify all blocks have required fields
+    for block in blocks:
+        assert isinstance(block["number"], int)
+        assert isinstance(block["stage"], int) 
+        assert isinstance(block["duration"], float)
+        assert block["number"] > 0
+        assert block["stage"] > 0
+        assert block["duration"] > 0
+
     # Verify first block data
     block1 = blocks[0]
     assert block1["number"] == 1
     assert block1["stage"] == 1
-    assert block1["duration"] == 7  # Duration should be positive
+    assert block1["duration"] == 7.0
+
+    # Verify last block data
+    last_block = blocks[-1]
+    assert last_block["number"] == 10
+    assert last_block["stage"] == 1
+    assert last_block["duration"] == 8.0
+
+    # Verify block numbers are sequential
+    for i, block in enumerate(blocks, 1):
+        assert block["number"] == i
 
 
 def test_get_block_by_number(sample_block_file):  # pylint: disable=redefined-outer-name
