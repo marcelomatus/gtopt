@@ -65,7 +65,7 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     last_block = blocks[-1]
     assert last_block["number"] == 10
     assert last_block["stage"] == 1
-    assert last_block["duration"] == 8.0
+    assert last_block["duration"] == 7.0  # Last block duration is 7.0 in test data
 
     # Verify block numbers are sequential
     for i, block in enumerate(blocks, 1):

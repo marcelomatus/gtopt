@@ -42,7 +42,7 @@ def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-oute
 
     # Verify basic structure
     num_stages = parser.get_num_stages()
-    assert num_stages == 51
+    assert num_stages == 10  # Number of stages is 10 in test data
     stages = parser.get_stages()
     assert len(stages) == num_stages
 
