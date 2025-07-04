@@ -3,7 +3,6 @@
 
 """Unit tests for generator_parser.py"""
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +15,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def setUp(self):
         """Create temporary test files."""
-        self.test_dir = tempfile.TemporaryDirectory()
+        self.test_dir = tempfile.TemporaryDirectory()  # Will be cleaned up in tearDown
         self.test_path = Path(self.test_dir.name)
         
         # Create valid test file
