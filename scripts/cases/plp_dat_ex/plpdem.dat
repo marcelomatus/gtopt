@@ -1,0 +1,22 @@
+# Archivo de demandas por barra (plpdem.dat)
+# Numero de barras
+2
+# Nombre de la Barra
+'Coronel066'
+# Numero de Demandas
+5
+# Mes  Etapa   Demanda
+   03    001     89.05
+   03    002     84.62
+   03    003     75.90
+   03    004     77.54
+   03    005     82.63
+# Nombre de la Barra
+'Condores220'
+# Numero de Demandas
+4
+# Mes  Etapa   Demanda
+   03    001    105.21
+   03    002     97.34
+   03    003     88.37
+   03    004     93.05

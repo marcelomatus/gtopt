@@ -77,7 +77,6 @@ if __name__ == "__main__":
     import sys
     from pathlib import Path
 
-
     def main() -> None:
         """Main function to run demand file analysis."""
         if len(sys.argv) != 2:
@@ -96,25 +95,27 @@ if __name__ == "__main__":
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
         demands = parser.get_demands()
-        total_entries = sum(len(d['demandas']) for d in demands)
+        total_entries = sum(len(d["demandas"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
         # Calculate stats for all bars
         bar_stats = []
         for demand in parser.get_demands():
-            demands = demand['demandas']
+            demands = demand["demandas"]
             demand_count = len(demands)
             avg_demand = 0.0
             if demand_count > 0:
-                avg_demand = sum(d['demanda'] for d in demands) / demand_count
-            bar_stats.append({
-                'name': demand['nombre'],
-                'count': demand_count,
-                'avg': avg_demand,
-            })
+                avg_demand = sum(d["demanda"] for d in demands) / demand_count
+            bar_stats.append(
+                {
+                    "name": demand["nombre"],
+                    "count": demand_count,
+                    "avg": avg_demand,
+                }
+            )
 
         # Sort bars by average demand
-        bar_stats.sort(key=lambda x: x['avg'], reverse=True)
+        bar_stats.sort(key=lambda x: x["avg"], reverse=True)
 
         print("\nBar Demand Statistics:")
         print("=" * 40)
@@ -133,7 +134,7 @@ if __name__ == "__main__":
                 print(f"\nBar: {stat['name']}")
                 print(f"  Demand entries: {stat['count']}")
                 print(f"  Average demand: {stat['avg']:.2f}")
-            
+
             print("\nBottom 10 bars by average demand:")
             for stat in bar_stats[-10:]:
                 print(f"\nBar: {stat['name']}")
