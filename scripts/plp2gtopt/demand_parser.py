@@ -123,13 +123,13 @@ def main(args: Optional[List[str]] = None) -> int:
         total_entries = sum(len(d["demands"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
-        self._print_demand_stats(demands)
+        _print_demand_stats(demands)
         return 0
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         return 1
 
-def _print_demand_stats(self, demands: List[Dict[str, Any]]) -> None:
+def _print_demand_stats(demands: List[Dict[str, Any]]) -> None:
     """Print formatted demand statistics."""
     bar_stats = []
     for demand in demands:
@@ -143,9 +143,9 @@ def _print_demand_stats(self, demands: List[Dict[str, Any]]) -> None:
         })
 
     bar_stats.sort(key=lambda x: x["avg"], reverse=True)
-    self._print_stats_table(bar_stats)
+    _print_stats_table(bar_stats)
 
-def _print_stats_table(self, stats: List[Dict[str, Any]], limit: int = 10) -> None:
+def _print_stats_table(stats: List[Dict[str, Any]], limit: int = 10) -> None:
     """Print formatted statistics table."""
     print("\nBar Demand Statistics:")
     print("=" * 40)
@@ -163,7 +163,7 @@ def _print_stats_table(self, stats: List[Dict[str, Any]], limit: int = 10) -> No
         for stat in stats[-limit:]:
             self._print_stat_row(stat)
 
-def _print_stat_row(self, stat: Dict[str, Any]) -> None:
+def _print_stat_row(stat: Dict[str, Any]) -> None:
     """Print single statistic row."""
     print(f"\nBar: {stat['name']}")
     print(f"  Demand entries: {stat['count']}")
