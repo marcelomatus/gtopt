@@ -11,7 +11,7 @@ def sample_block_file():
     test_file = Path(__file__).parent.parent / "test_data" / "plpblo.dat"
     if not test_file.exists():
         test_file = (
-            Path(__file__).parent.parent.parent / "cases" / "plp_case_2y" / "plpblo.dat"
+            Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpblo.dat"
         )
     return test_file
 
@@ -46,15 +46,15 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
 
     # Verify basic structure
     num_blocks = parser.get_num_blocks()
-    assert num_blocks > 0
+    assert num_blocks == 10
     blocks = parser.get_blocks()
     assert len(blocks) == num_blocks
 
     # Verify first block data
     block1 = blocks[0]
     assert block1["number"] == 1
-    assert block1["stage"] > 0
-    assert block1["duration"] > 0  # Duration should be positive
+    assert block1["stage"] == 1
+    assert block1["duration"] == 7  # Duration should be positive
 
 
 def test_get_block_by_number(sample_block_file):  # pylint: disable=redefined-outer-name
@@ -68,7 +68,7 @@ def test_get_block_by_number(sample_block_file):  # pylint: disable=redefined-ou
     block = parser.get_block_by_number(first_block_num)
     assert block is not None
     assert block["number"] == first_block_num
-    assert block["duration"] > 0  # Duration should be positive
+    assert block["duration"] == 7  # Duration should be positive
 
     # Test non-existent block
     missing = parser.get_block_by_number(9999)
