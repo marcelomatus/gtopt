@@ -58,25 +58,21 @@ class BlockParser:
 
         for _ in range(self.num_blocks):
             # Parse block line with format:
-            # block stage hours year month type
+            # block stage hours type
             parts = lines[idx].split()
-            if len(parts) < 6:
+            if len(parts) < 4:
                 raise ValueError(f"Invalid block entry at line {idx+1}")
 
             # Handle zero-padded numbers
             block_num = int(parts[0].lstrip('0') or 0)  # Convert "001" to 1
             stage = int(parts[1].lstrip('0') or 0)
             duration = float(parts[2].lstrip('0') or 0)
-            year = int(parts[3].lstrip('0') or 0)
-            month = int(parts[4].lstrip('0') or 0)
             # Join remaining parts for type (may contain spaces)
-            block_type = ' '.join(parts[5:]).strip("'")  # Remove quotes
+            block_type = ' '.join(parts[3:]).strip("'")  # Remove quotes
             self.blocks.append({
                 "number": block_num,
                 "stage": stage,
                 "duration": duration,
-                "year": year,
-                "month": month,
                 "type": block_type
             })
             idx += 1
