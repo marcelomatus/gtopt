@@ -57,7 +57,7 @@ class BlockParser:
         idx += 1
 
         for _ in range(self.num_blocks):
-            # Parse block line with format: 
+            # Parse block line with format:
             # block stage hours year month type
             parts = lines[idx].split()
             if len(parts) < 6:
@@ -71,7 +71,6 @@ class BlockParser:
             month = int(parts[4].lstrip('0') or 0)
             # Join remaining parts for type (may contain spaces)
             block_type = ' '.join(parts[5:]).strip("'")  # Remove quotes
-            
             self.blocks.append({
                 "number": block_num,
                 "stage": stage,
