@@ -5,14 +5,12 @@ This package provides utilities to convert PLP input files to GTOPT format.
 
 __version__ = "1.0.0"
 
+from pathlib import Path
+from typing import Union
+
 from .plp2gtopt import convert_plp_case
 from .main import main
 from .demand_parser import DemandParser
 from .stage_parser import StageParser
 
 __all__ = ["convert_plp_case", "main", "DemandParser", "StageParser"]
-"""PLP to GTOPT conversion package."""
-from .demand_parser import DemandParser
-from .stage_parser import StageParser
-
-__all__ = ['DemandParser', 'StageParser']
