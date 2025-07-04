@@ -53,11 +53,31 @@ def test_parse_sample_file(sample_stage_file):
     stage1 = stages[0]
     assert stage1["numero"] == 1
     assert stage1["duracion"] == 3.0  # Actual duration in sample file
+    assert "discount_factor" in stage1
+    assert isinstance(stage1["discount_factor"], float)
 
     # Verify last stage data
     stage10 = stages[9]
     # The sample file repeats stage numbers, so we only check duration
     assert stage10["duracion"] == 5.0  # Actual duration in sample file
+    assert "discount_factor" in stage10
+    assert isinstance(stage10["discount_factor"], float)
+
+
+def test_discount_factor_calculation():
+    """Test discount factor calculation with and without FactTasa."""
+    test_file = Path(__file__).parent / "test_data" / "test_stages.dat"
+    if not test_file.exists():
+        pytest.skip("Test data file not found")
+
+    parser = StageParser(str(test_file))
+    parser.parse()
+    stages = parser.get_stages()
+    
+    # First line has FactTasa
+    assert stages[0]["discount_factor"] == pytest.approx(1.0/1.05)
+    # Second line has no FactTasa
+    assert stages[1]["discount_factor"] == 1.0
 
 
 def test_get_stage_by_number(sample_stage_file):
