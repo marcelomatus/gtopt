@@ -68,17 +68,9 @@ class BusParser:
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
 
-            # Get voltage and type from next lines
-            voltage = float(lines[idx])
-            idx += 1
-            bus_type = lines[idx].strip()
-            idx += 1
-
             self.buses.append({
                 "number": bus_num,
-                "name": name,
-                "voltage": voltage,
-                "type": bus_type
+                "name": name
             })
 
     def get_buses(self) -> list[dict[str, Any]]:
