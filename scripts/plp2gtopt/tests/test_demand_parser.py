@@ -47,10 +47,10 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     assert len(demands) == 2
 
     # Verify all bars have required fields
-    for bar in demands:
-        assert isinstance(bar["name"], str)
-        assert bar["name"] != ""
-        assert isinstance(bar["demands"], list)
+    for demand_bar in demands:
+        assert isinstance(demand_bar["name"], str)
+        assert demand_bar["name"] != ""
+        assert isinstance(demand_bar["demands"], list)
         assert len(bar["demands"]) > 0
 
         # Verify all demand entries
@@ -79,8 +79,8 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     assert bar2["demands"][-1]["demand"] == 93.05
 
     # Verify block numbers are sequential per bar
-    for bar in demands:
-        for i, demand in enumerate(bar["demands"], 1):
+    for demand_bar in demands:
+        for i, demand in enumerate(demand_bar["demands"], 1):
             assert demand["block"] == i
 
 
