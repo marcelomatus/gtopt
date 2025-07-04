@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from plp2gtopt import StageParser
+from scripts.plp2gtopt import StageParser
 
 
 @pytest.fixture
