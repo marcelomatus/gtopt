@@ -57,17 +57,26 @@ class BusParser:
         idx += 1
 
         for _ in range(self.num_buses):
-            # Parse bus line with format: "number 'name' voltage"
+            # Parse bus line with format: "number 'name' [voltage]"
             bus_line = lines[idx].strip()
             idx += 1
 
-            # Split into number, quoted name, and voltage
-            parts = bus_line.split(maxsplit=2)
-            if len(parts) < 3:
+            # Split into number and quoted name (voltage is optional)
+            parts = bus_line.split(maxsplit=1)
+            if len(parts) < 2:
                 raise ValueError(f"Invalid bus entry at line {idx}")
+            
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
-            voltage = float(parts[2])
+            
+            # Try to extract voltage from name (look for numbers at end of name)
+            import re
+            voltage_match = re.search(r'(\d+)(kV|KV)?$', name)
+            if voltage_match:
+                voltage = float(voltage_match.group(1))
+            else:
+                # Default to 0 if no voltage found in name
+                voltage = 0.0
 
             self.buses.append({
                 "number": bus_num,
