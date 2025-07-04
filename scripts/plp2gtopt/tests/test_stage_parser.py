@@ -56,7 +56,7 @@ def test_parse_sample_file(sample_stage_file):
 
     # Verify last stage data
     stage10 = stages[9]
-    # The sample file appears to repeat stage numbers, so we check duration only
+    # The sample file repeats stage numbers, so we only check duration
     assert stage10["duracion"] == 5.0  # Actual duration in sample file
 
 
