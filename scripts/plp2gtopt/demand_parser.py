@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Parser for plpdem.dat format files containing bus demand data."""
+"""Parser for plpdem.dat format files containing bus demand data.
 
-from typing import Any
+Handles:
+- File parsing and validation
+- Demand data structure creation
+- Bus demand lookup
+"""
+
+import sys
+from pathlib import Path
+from typing import Any, Optional, List, Dict
 
 
 class DemandParser:
@@ -16,12 +24,26 @@ class DemandParser:
     """
 
     def __init__(self, file_path: str) -> None:
-        self.file_path = file_path
-        self.demands: list[dict[str, Any]] = []
-        self.num_bars = 0
+        """Initialize parser with demand file path.
+        
+        Args:
+            file_path: Path to plpdem.dat format file
+        """
+        self.file_path = Path(file_path)
+        self.demands: List[Dict[str, Any]] = []
+        self.num_bars: int = 0
 
     def parse(self) -> None:
-        """Parse the demand file and populate the demands structure."""
+        """Parse the demand file and populate the demands structure.
+        
+        Raises:
+            FileNotFoundError: If input file doesn't exist
+            ValueError: If file format is invalid
+            IndexError: If file is empty or malformed
+        """
+        if not self.file_path.exists():
+            raise FileNotFoundError(f"Demand file not found: {self.file_path}")
+
         with open(self.file_path, "r", encoding="utf-8") as f:
             # Skip initial comments and empty lines
             lines = []
@@ -73,72 +95,79 @@ class DemandParser:
         return None
 
 
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
+def main(args: Optional[List[str]] = None) -> int:
+    """Command line entry point for demand file analysis.
+    
+    Args:
+        args: Command line arguments (uses sys.argv if None)
+    
+    Returns:
+        int: Exit status (0 for success)
+    """
+    if args is None:
+        args = sys.argv[1:]
 
-    def main() -> None:
-        """Main function to run demand file analysis."""
-        if len(sys.argv) != 2:
-            print(f"Usage: {sys.argv[0]} <plpdem.dat file>")
-            sys.exit(1)
+    if len(args) != 1:
+        print(f"Usage: {sys.argv[0]} <plpdem.dat file>", file=sys.stderr)
+        return 1
 
-        file_path = Path(sys.argv[1])
-        if not file_path.exists():
-            print(f"Error: File '{file_path}' not found")
-            sys.exit(1)
-
-        parser = DemandParser(file_path)
+    try:
+        parser = DemandParser(args[0])
         parser.parse()
 
-        print(f"\nDemand File Analysis: {file_path.name}")
+        print(f"\nDemand File Analysis: {parser.file_path.name}")
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
+        
         demands = parser.get_demands()
         total_entries = sum(len(d["demands"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
-        # Calculate stats for all bars
-        bar_stats = []
-        for demand in parser.get_demands():
-            demands = demand["demands"]
-            demand_count = len(demands)
-            avg_demand = 0.0
-            if demand_count > 0:
-                avg_demand = sum(d["demand"] for d in demands) / demand_count
-            bar_stats.append(
-                {
-                    "name": demand["name"],
-                    "count": demand_count,
-                    "avg": avg_demand,
-                }
-            )
+        self._print_demand_stats(demands)
+        return 0
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        return 1
 
-        # Sort bars by average demand
-        bar_stats.sort(key=lambda x: x["avg"], reverse=True)
+def _print_demand_stats(self, demands: List[Dict[str, Any]]) -> None:
+    """Print formatted demand statistics."""
+    bar_stats = []
+    for demand in demands:
+        demand_list = demand["demands"]
+        count = len(demand_list)
+        avg = sum(d["demand"] for d in demand_list) / count if count > 0 else 0
+        bar_stats.append({
+            "name": demand["name"],
+            "count": count,
+            "avg": avg
+        })
 
-        print("\nBar Demand Statistics:")
-        print("=" * 40)
+    bar_stats.sort(key=lambda x: x["avg"], reverse=True)
+    self._print_stats_table(bar_stats)
 
-        if len(bar_stats) <= 20:
-            # Print all bars if <= 20
-            print("All bars (sorted by average demand):")
-            for stat in bar_stats:
-                print(f"\nBar: {stat['name']}")
-                print(f"  Demand entries: {stat['count']}")
-                print(f"  Average demand: {stat['avg']:.2f}")
-        else:
-            # Print top and bottom 10 if > 20
-            print("Top 10 bars by average demand:")
-            for stat in bar_stats[:10]:
-                print(f"\nBar: {stat['name']}")
-                print(f"  Demand entries: {stat['count']}")
-                print(f"  Average demand: {stat['avg']:.2f}")
+def _print_stats_table(self, stats: List[Dict[str, Any]], limit: int = 10) -> None:
+    """Print formatted statistics table."""
+    print("\nBar Demand Statistics:")
+    print("=" * 40)
+    
+    if len(stats) <= 2 * limit:
+        print("All bars (sorted by average demand):")
+        for stat in stats:
+            self._print_stat_row(stat)
+    else:
+        print(f"Top {limit} bars by average demand:")
+        for stat in stats[:limit]:
+            self._print_stat_row(stat)
+        
+        print(f"\nBottom {limit} bars by average demand:")
+        for stat in stats[-limit:]:
+            self._print_stat_row(stat)
 
-            print("\nBottom 10 bars by average demand:")
-            for stat in bar_stats[-10:]:
-                print(f"\nBar: {stat['name']}")
-                print(f"  Demand entries: {stat['count']}")
-                print(f"  Average demand: {stat['avg']:.2f}")
+def _print_stat_row(self, stat: Dict[str, Any]) -> None:
+    """Print single statistic row."""
+    print(f"\nBar: {stat['name']}")
+    print(f"  Demand entries: {stat['count']}")
+    print(f"  Average demand: {stat['avg']:.2f}")
 
-    main()
+if __name__ == "__main__":
+    sys.exit(main())
