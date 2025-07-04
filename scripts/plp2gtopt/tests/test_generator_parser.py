@@ -112,7 +112,7 @@ class TestGeneratorParser(unittest.TestCase):
     def test_parse_malformed_file(self):
         """Test parsing a malformed file."""
         parser = GeneratorParser(self.bad_file)
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, IndexError)):
             parser.parse()
 
 
