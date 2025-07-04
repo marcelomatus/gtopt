@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 from ..demand_parser import DemandParser
+from .conftest import get_example_file
 
 
 @pytest.fixture

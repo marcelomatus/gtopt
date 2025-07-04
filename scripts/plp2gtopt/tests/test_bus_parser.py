@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 from ..bus_parser import BusParser
+from .conftest import get_example_file
 
 
 @pytest.fixture

@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 from ..stage_parser import StageParser
+from .conftest import get_example_file
 
 
 @pytest.fixture
