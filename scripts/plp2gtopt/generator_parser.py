@@ -19,7 +19,7 @@ class GeneratorParser:
 
     Attributes:
         file_path: Path to the generator file
-        generators: List of parsed generator entries  
+        generators: List of parsed generator entries
         num_generators: Number of generators in the file
     """
 
@@ -38,7 +38,7 @@ class GeneratorParser:
 
         Raises:
             FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid  
+            ValueError: If file format is invalid
             IndexError: If file is empty or malformed
         """
         if not self.file_path.exists():
