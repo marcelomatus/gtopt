@@ -1,0 +1,14 @@
+# Archivo con definicion de Barras (plpbar.dat)
+# Numero de Barras
+     10
+# Numero       Nombre
+       1       'AltoNorte110'
+       2       'Andes220'
+       3       'Andes345'
+       4       'Angamos220'
+       5       'Antofagasta110'
+       6       'Arica066'
+       7       'Atacama220_BP1'
+       8       'Barriles220'
+       9       'Capricornio110'
+      10       'Capricornio220'
