@@ -64,7 +64,7 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     bar1 = demands[0]
     assert bar1["name"] == "Coronel066"
     assert len(bar1["demands"]) == 5
-    assert bar1["demands"][0]["block"] == 1
+    assert bar1["demands"][0]["block"] == 3  # First demand block is 3 in test data
     assert bar1["demands"][0]["demand"] == 89.05
     assert bar1["demands"][-1]["block"] == 5
     assert bar1["demands"][-1]["demand"] == 82.63
