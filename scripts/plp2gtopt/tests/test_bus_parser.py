@@ -55,6 +55,7 @@ def test_parse_sample_file(sample_bus_file):  # pylint: disable=redefined-outer-
     bus1 = buses[0]
     assert isinstance(bus1["number"], int)
     assert isinstance(bus1["name"], str)
+    assert isinstance(bus1["voltage"], float)
 
 
 def test_get_bus_by_name(sample_bus_file):  # pylint: disable=redefined-outer-name

@@ -57,20 +57,22 @@ class BusParser:
         idx += 1
 
         for _ in range(self.num_buses):
-            # Parse bus line with format: "number 'name'"
+            # Parse bus line with format: "number 'name' voltage"
             bus_line = lines[idx].strip()
             idx += 1
 
-            # Split into number and quoted name
-            parts = bus_line.split(maxsplit=1)
-            if len(parts) < 2:
+            # Split into number, quoted name, and voltage
+            parts = bus_line.split(maxsplit=2)
+            if len(parts) < 3:
                 raise ValueError(f"Invalid bus entry at line {idx}")
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
+            voltage = float(parts[2])
 
             self.buses.append({
                 "number": bus_num,
-                "name": name
+                "name": name,
+                "voltage": voltage
             })
 
     def get_buses(self) -> list[dict[str, Any]]:
@@ -121,6 +123,7 @@ def main(args: Optional[List[str]] = None) -> int:
         for bus in buses:
             print(f"\nBus: {bus['name']}")
             print(f"  Number: {bus['number']}")
+            print(f"  Voltage: {bus['voltage']} kV")
 
         return 0
     except (FileNotFoundError, ValueError, IndexError) as e:
