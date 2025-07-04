@@ -32,11 +32,13 @@ class StageParser:
                     lines.append(line)
 
         idx = 0
-        self.num_stages = int(lines[idx])
+        # Extract just the number part from first line (may have trailing metadata)
+        first_line_parts = lines[idx].split()
+        self.num_stages = int(first_line_parts[0])
         idx += 1
 
         for _ in range(self.num_stages):
-            # Get stage number and duration
+            # Get stage number and duration (may have trailing metadata)
             parts = lines[idx].split()
             if len(parts) < 2:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
