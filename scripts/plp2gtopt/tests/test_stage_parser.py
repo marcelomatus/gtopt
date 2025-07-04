@@ -53,18 +53,20 @@ def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-oute
     # Verify first stage data
     stage1 = stages[0]
     assert stage1["number"] == 1
-    assert stage1["duration"] > 0  # Duration should be positive
+    assert stage1["duration"] == 168.0
     assert "discount_factor" in stage1
     assert isinstance(stage1["discount_factor"], float)
 
     # Verify last stage data
     last_stage = stages[-1]
-    assert last_stage["duration"] > 0  # Duration should be positive
+    assert last_stage["duration"] == 192
     assert "discount_factor" in last_stage
     assert isinstance(last_stage["discount_factor"], float)
 
 
-def test_discount_factor_calculation(sample_stage_file):  # pylint: disable=redefined-outer-name
+def test_discount_factor_calculation(
+    sample_stage_file,
+):  # pylint: disable=redefined-outer-name
     """Test discount factor calculation with and without FactTasa."""
     parser = StageParser(str(sample_stage_file))
     parser.parse()
