@@ -49,13 +49,13 @@ class StageParser:
         idx += 1
 
         for _ in range(self.num_stages):
-            # Get stage number and duration (may have trailing metadata)
+            # Parse stage line with format: Ano Mes Etapa FDesh NHoras FactTasa TipoEtapa
             parts = lines[idx].split()
-            if len(parts) < 2:
+            if len(parts) < 6:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
 
-            stage_num = int(parts[2])
-            duration = float(parts[4])
+            stage_num = int(parts[2])  # Etapa is the stage number
+            duration = float(parts[4])  # NHoras is the duration
             # Calculate discount factor from FactTasa if present, default to 1.0
             discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 and float(parts[5]) != 0 else 1.0
             idx += 1
