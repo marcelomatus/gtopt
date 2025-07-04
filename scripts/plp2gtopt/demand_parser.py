@@ -25,7 +25,7 @@ class DemandParser:
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with demand file path.
-        
+
         Args:
             file_path: Path to plpdem.dat format file (str or Path)
         """
@@ -35,7 +35,7 @@ class DemandParser:
 
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.
-        
+
         Raises:
             FileNotFoundError: If input file doesn't exist
             ValueError: If file format is invalid
@@ -71,9 +71,9 @@ class DemandParser:
                 parts = lines[idx].split()
                 if len(parts) < 2:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
-                stage = int(parts[0])
+                block = int(parts[0])
                 demand = float(parts[1])
-                demands.append({"block": stage, "demand": demand})
+                demands.append({"block": block, "demand": demand})
                 idx += 1
 
             self.demands.append({"name": name, "demands": demands})
@@ -96,10 +96,10 @@ class DemandParser:
 
 def main(args: Optional[List[str]] = None) -> int:
     """Command line entry point for demand file analysis.
-    
+
     Args:
         args: Command line arguments (uses sys.argv if None)
-    
+
     Returns:
         int: Exit status (0 for success)
     """
@@ -132,6 +132,7 @@ def main(args: Optional[List[str]] = None) -> int:
         print(f"Error: {str(e)}", file=sys.stderr)
         return 1
 
+
 def _print_demand_stats(demands: List[Dict[str, Any]]) -> None:
     """Print formatted demand statistics."""
     bar_stats = []
@@ -139,14 +140,11 @@ def _print_demand_stats(demands: List[Dict[str, Any]]) -> None:
         demand_list = demand["demands"]
         count = len(demand_list)
         avg = sum(d["demand"] for d in demand_list) / count if count > 0 else 0
-        bar_stats.append({
-            "name": demand["name"],
-            "count": count,
-            "avg": avg
-        })
+        bar_stats.append({"name": demand["name"], "count": count, "avg": avg})
 
     bar_stats.sort(key=lambda x: x["avg"], reverse=True)
     _print_stats_table(bar_stats)
+
 
 def _print_stats_table(stats: List[Dict[str, Any]], limit: int = 10) -> None:
     """Print formatted statistics table."""
@@ -166,11 +164,13 @@ def _print_stats_table(stats: List[Dict[str, Any]], limit: int = 10) -> None:
         for stat in stats[-limit:]:
             _print_stat_row(stat)
 
+
 def _print_stat_row(stat: Dict[str, Any]) -> None:
     """Print single statistic row."""
     print(f"\nBar: {stat['name']}")
     print(f"  Demand entries: {stat['count']}")
     print(f"  Average demand: {stat['avg']:.2f}")
+
 
 if __name__ == "__main__":
     sys.exit(main())
