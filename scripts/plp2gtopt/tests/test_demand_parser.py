@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from plp2gtopt import DemandParser
+from scripts.plp2gtopt import DemandParser
 
 
 @pytest.fixture
