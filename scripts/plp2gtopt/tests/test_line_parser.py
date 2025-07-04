@@ -3,7 +3,6 @@
 
 """Unit tests for line_parser.py"""
 
-import os
 import unittest
 from pathlib import Path
 
