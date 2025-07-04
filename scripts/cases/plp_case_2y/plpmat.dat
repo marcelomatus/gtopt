@@ -1,0 +1,14 @@
+# Archivo con Parametros Matematicos (plpmat.dat)
+# PDMaxIte    PDError UmbIntConf NPlanosPorDefecto
+    1          0.001       0.001                50
+# PMMaxIte    PMError
+    1            5.0
+# Lambda CTasa CCauFal  CVert CInter Ctransm FCotFinEF FPreProc FPrevia
+    0.00   0.0  7000.0   0.01   0.01    0.01         F        F       F
+# FFixTrasm  FSeparaFCF  FGrabaCSV   FGrabaRES
+  T          F           T           F
+# ABLMax   ABLEpsilon NumEtaCF 
+    20        0.001         1 
+# FConvPGradx FConvPVar UmbGradX UmbVar
+  F           F         0.5       100
+

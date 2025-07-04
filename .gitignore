@@ -9,3 +9,5 @@ CMakeCache.txt
 TAGS
 *~
 .aider*
+*.egg-info
+__pycache__

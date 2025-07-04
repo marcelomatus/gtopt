@@ -1,0 +1,179 @@
+#Archivo de caracteristicas de baterias (plpcenbat.dat)
+# Numero de baterias total, Numero maximo de inyecciones
+25          1
+# Baterias
+1     BAT_ARICA
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ARICA_NEG     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+6     0.90     0.0     2.0
+2     BAT_ALICANTO
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BAT_ALICANTO_NEG     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+25     0.90     0.0     9.6
+3     ANDES_2B_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_2B_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.90     0.0     560.0
+4     SALVADOR_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SALVADOR_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+24     0.90     0.0     276.8
+5     COYA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     COYA_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+21     0.90     0.0     681.3
+6     URIBE_SOLAR_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     URIBE_SOLAR_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+37     0.90     0.0     4.2
+7     ANDES_2B_AMP_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_2B_AMP_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.90     0.0     85.0
+8     SAN_MARCOS_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SAN_MARCOS_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+6     0.90     0.0     2.3
+9     SAN_ANDRES_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SAN_ANDRES_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+20     0.90     0.0     175.0
+10     LA_CABANA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     LA_CABANA_EO     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+150     0.90     0.0     64.0
+11     ANDES_4_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_4_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.90     0.0     650.0
+12     ANDES_2A_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_2A_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.90     0.0     268.8
+13     DON_HUMBERTO_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DON_HUMBERTO_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+170     0.90     0.0     120.0
+14     EL_MANZANO_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     EL_MANZANO_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+168     0.90     0.0     120.0
+15     TAMAYA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     TAMAYA_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+80     0.90     0.0     420.0
+16     CAPRICORNIO_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     CAPRICORNIO_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+9     0.90     0.0     264.2
+17     NUEVO_QUILLAGUA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     NUEVO_QUILLAGUA_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.90     0.0     475.0
+18     ALFALFAL_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ALFALFAL     5.35
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+89     0.90     0.0     244.3
+19     DIEGO_ALMAGRO_SUR_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DIEGO_ALMAGRO_SUR_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+218     0.90     0.0     32.0
+20     PUNTA_SIERRA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     PUNTA_SIERRA_EO     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+74     0.90     0.0     6.0
+21     MARIA_ELENA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     MARIA_ELENA_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.90     0.0     121.0
+22     DESIERTO_DE_ATACAMA_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     DESIERTO_DE_ATACAMA_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+11     0.90     0.0     220.0
+23     GABRIELA_COBRE_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     GABRIELA_COBRE_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+32     0.90     0.0     1100.0
+24     SOL_DE_DESIERTO_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     SOL_DE_DESIERTO_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+55     0.90     0.0     800.0
+25     ANDES_3_BESS
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     ANDES_3_FV     0.90
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+2     0.90     0.0     513.9

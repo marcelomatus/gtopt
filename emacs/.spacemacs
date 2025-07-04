@@ -32,7 +32,7 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(
+   '(toml
      ;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
@@ -721,57 +721,54 @@ It should only modify the values of Spacemacs settings."
 This is an auto-generated function, do not modify its content directly, use
 Emacs customize menu instead.
 This function is called at the very end of Spacemacs initialization."
-  (custom-set-variables
-   ;; custom-set-variables was added by Custom.
-   ;; If you edit it by hand, you could mess it up, so be careful.
-   ;; Your init file should contain only one such instance.
-   ;; If there is more than one, they won't work right.
-   '(aidermacs-architect-model "deepseek/deepseek-coder")
-   '(aidermacs-default-model "deepseek/deepseek-coder")
-   '(package-selected-packages
-     '(ace-link ag aggressive-indent aidermacs all-the-icons amx auto-compile
-                auto-highlight-symbol auto-yasnippet blacken browse-at-remote
-                centered-cursor-mode clean-aindent-mode cmake-mode code-cells
-                code-review column-enforce-mode company-c-headers
-                company-statistics copilot copilot-chat counsel-projectile
-                cpp-auto-include csv-mode cython-mode dap-mode define-word devdocs
-                diff-hl diminish dired-quick-sort disable-mouse disaster
-                dotenv-mode drag-stuff dumb-jump eat edit-indirect elisp-def
-                elisp-demos elisp-slime-nav ellama emr esh-help
-                eshell-prompt-extras eshell-z eval-sexp-fu evil-anzu evil-args
-                evil-cleverparens evil-escape evil-evilified-state evil-exchange
-                evil-goggles evil-iedit-state evil-indent-plus evil-lion
-                evil-lisp-state evil-matchit evil-nerd-commenter evil-numbers
-                evil-org evil-surround evil-textobj-line evil-tutor
-                evil-unimpaired evil-visual-mark-mode evil-visualstar
-                expand-region eyebrowse fancy-battery flx flycheck-elsa
-                flycheck-package flycheck-pos-tip flyspell-correct-ivy gendoxy
-                gh-md git-link git-messenger git-modes git-timemachine
-                gitignore-templates gnuplot golden-ratio google-c-style
-                google-translate gptel helm-make hide-comnt highlight-indentation
-                highlight-numbers highlight-parentheses hl-todo holy-mode htmlize
-                hungry-delete hybrid-mode indent-guide info+ inspector ivy-avy
-                ivy-hydra ivy-purpose ivy-xref ivy-yasnippet json-mode
-                json-navigator json-reformat link-hint live-py-mode lorem-ipsum
-                lsp-ivy lsp-origami lsp-ui macrostep markdown-toc multi-line
-                multi-term multi-vterm mwim nameless open-junk-file org-cliplink
-                org-contrib org-download org-mime org-pomodoro org-present
-                org-projectile org-rich-yank org-superstar orgit-forge overseer
-                page-break-lines paradox password-generator pcre2el
-                pip-requirements pipenv pippel poetry popwin prettier-js py-isort
-                pydoc pyenv-mode pylookup pytest quickrun rainbow-delimiters
-                restart-emacs shell-pop smeargle space-doc spaceline
-                spacemacs-purpose-popwin spacemacs-whitespace-cleanup sphinx-doc
-                string-edit-at-point string-inflection symbol-overlay symon
-                term-cursor terminal-here toc-org treemacs-icons-dired
-                treemacs-magit treemacs-persp treemacs-projectile undo-fu
-                undo-fu-session unfill vi-tilde-fringe volatile-highlights vundo
-                web-beautify wgrep which-key winum writeroom-mode ws-butler
-                yaml-mode yasnippet-snippets)))
-  (custom-set-faces
-   ;; custom-set-faces was added by Custom.
-   ;; If you edit it by hand, you could mess it up, so be careful.
-   ;; Your init file should contain only one such instance.
-   ;; If there is more than one, they won't work right.
-   )
-  )
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(aidermacs-architect-model "deepseek/deepseek-coder")
+ '(aidermacs-default-model "deepseek/deepseek-coder")
+ '(package-selected-packages
+   '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
+              auto-highlight-symbol auto-yasnippet blacken browse-at-remote
+              centered-cursor-mode clean-aindent-mode cmake-mode code-cells
+              code-review column-enforce-mode company-c-headers
+              company-statistics counsel-projectile cpp-auto-include csv-mode
+              cython-mode dap-mode define-word devdocs diff-hl diminish
+              dired-quick-sort disable-mouse disaster dotenv-mode drag-stuff
+              dumb-jump eat edit-indirect elisp-def elisp-demos elisp-slime-nav
+              ellama emr esh-help eshell-prompt-extras eshell-z eval-sexp-fu
+              evil-anzu evil-args evil-cleverparens evil-escape
+              evil-evilified-state evil-exchange evil-goggles evil-iedit-state
+              evil-indent-plus evil-lion evil-lisp-state evil-matchit
+              evil-nerd-commenter evil-numbers evil-surround evil-textobj-line
+              evil-tutor evil-unimpaired evil-visual-mark-mode evil-visualstar
+              expand-region eyebrowse fancy-battery flx flycheck-elsa
+              flycheck-package flycheck-pos-tip flyspell-correct-ivy gh-md
+              git-link git-messenger git-modes git-timemachine
+              gitignore-templates gnuplot golden-ratio google-c-style
+              google-translate gptel helm-make hide-comnt highlight-indentation
+              highlight-numbers highlight-parentheses hl-todo holy-mode
+              hungry-delete hybrid-mode indent-guide info+ inspector ivy-avy
+              ivy-hydra ivy-purpose ivy-xref ivy-yasnippet json-mode
+              json-navigator json-reformat link-hint live-py-mode lorem-ipsum
+              lsp-ivy lsp-origami lsp-ui macrostep markdown-toc multi-line
+              multi-term multi-vterm mwim nameless open-junk-file overseer
+              ox-gfm page-break-lines paradox password-generator pcre2el pet
+              pip-requirements pipenv pippel poetry popwin prettier-js py-isort
+              pydoc pyenv-mode pylookup pytest quickrun rainbow-delimiters
+              restart-emacs shell-pop smeargle smex space-doc spaceline
+              spacemacs-purpose-popwin spacemacs-whitespace-cleanup sphinx-doc
+              string-edit-at-point string-inflection symbol-overlay symon
+              term-cursor terminal-here toml-mode treemacs-icons-dired
+              treemacs-magit treemacs-persp treemacs-projectile undo-fu
+              undo-fu-session unfill vi-tilde-fringe volatile-highlights vundo
+              web-beautify wgrep which-key winum writeroom-mode ws-butler
+              yaml-mode yasnippet-snippets)))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ )
+)

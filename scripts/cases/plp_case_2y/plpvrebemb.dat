@@ -1,0 +1,63 @@
+# Archivo de Volumenes de vertimiento de Embalses (plpvrebemb.dat)
+# Número Embalses con volumenes espe
+10       
+# Nombre del Embalse                 
+'LMAULE'                             
+# Volumen de Rebalse [ 10^3 m3 ]     
+1453409                             
+# Costo de Rebalse                   
+5000                                 
+# Nombre del Embalse                 
+'CIPRESES'                           
+# Volumen de Rebalse [ 10^3 m3 ]     
+174660                             
+# Costo de Rebalse                   
+150                                  
+# Nombre del Embalse                 
+'PEHUENCHE'                          
+# Volumen de Rebalse [ 10^3 m3 ]     
+133644                     
+# Costo de Rebalse                   
+0.01                                   
+# Nombre del Embalse                 
+'COLBUN'                             
+# Volumen de Rebalse [ 10^3 m3 ]     
+1553245                              
+# Costo de Rebalse                   
+0.1                                  
+# Nombre del Embalse                 
+'RAPEL'                              
+# Volumen de Rebalse [ 10^3 m3 ]     
+563212                              
+# Costo de Rebalse                   
+0.1                                   
+# Nombre del Embalse                 
+'CANUTILLAR'                         
+# Volumen de Rebalse [ 10^3 m3 ]     
+1065378                           
+# Costo de Rebalse                   
+0.1                                  
+# Nombre del Embalse                 
+'RALCO'                              
+# Volumen de Rebalse [ 10^3 m3 ]     
+1173286                            
+# Costo de Rebalse                   
+0.1                                   
+# Nombre del Embalse                 
+'PANGUE'                             
+# Volumen de Rebalse [ 10^3 m3 ]     
+71960                                
+# Costo de Rebalse                   
+0.01                                   
+# Nombre del Embalse                 
+'ELTORO'                             
+# Volumen de Rebalse [ 10^3 m3 ]     
+5582000                              
+# Costo de Rebalse                   
+5000                                 
+# Nombre del Embalse                 
+'PILMAIQUEN'                         
+# Volumen de Rebalse [ 10^3 m3 ]     
+289680                              
+# Costo de Rebalse                   
+0.01                                   

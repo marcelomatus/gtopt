@@ -1,0 +1,7 @@
+# Archivo con parametros de Debug (pcpdeb.dat)
+# FLogFile
+         T
+# PriProgDin PDSvFl PMSvFl FDatChe ErSvFl PsFzFl FTSvFl FSvLaPs
+           T      F      F       F      T      T      F       F
+# IndSimImp, IndIteImp, FBest, IndEta1Imp, IndEta2Imp
+  00         00          F     0           0
