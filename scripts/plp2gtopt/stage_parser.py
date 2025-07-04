@@ -18,7 +18,7 @@ class StageParser:
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with stage file path.
-        
+
         Args:
             file_path: Path to plpeta.dat format file (str or Path)
         """
@@ -28,7 +28,7 @@ class StageParser:
 
     def parse(self) -> None:
         """Parse the stage file and populate the stages structure.
-        
+
         Raises:
             FileNotFoundError: If input file doesn't exist
             ValueError: If file format is invalid
@@ -54,10 +54,10 @@ class StageParser:
             if len(parts) < 2:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
 
-            stage_num = int(parts[0])
-            duration = float(parts[1])
+            stage_num = int(parts[2])
+            duration = float(parts[4])
             # Calculate discount factor from FactTasa if present, default to 1.0
-            discount_factor = 1.0 / float(parts[2]) if len(parts) > 2 else 1.0
+            discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 else 1.0
             idx += 1
 
             self.stages.append(
