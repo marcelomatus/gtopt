@@ -42,15 +42,12 @@ class StageParser:
             parts = lines[idx].split()
             if len(parts) < 2:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
-            
+
             stage_num = int(parts[0])
             duration = float(parts[1])
             idx += 1
 
-            self.stages.append({
-                "numero": stage_num,
-                "duracion": duration
-            })
+            self.stages.append({"numero": stage_num, "duracion": duration})
 
     def get_stages(self) -> List[Dict[str, Any]]:
         """Return the parsed stages structure."""
