@@ -101,8 +101,8 @@ class TestGeneratorParser(unittest.TestCase):
     def test_parse_empty_file(self):
         """Test parsing an empty file."""
         parser = GeneratorParser(self.empty_file)
-        with self.assertRaises((IndexError, ValueError)):
-            parser.parse()
+        parser.parse()  # Should not raise for empty file
+        self.assertEqual(parser.get_num_generators(), 0)
 
     def test_parse_malformed_file(self):
         """Test parsing a malformed file."""

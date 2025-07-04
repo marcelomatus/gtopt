@@ -73,9 +73,11 @@ class GeneratorParser:
                 elif line.startswith("PotMin"):
                     if not current_gen:
                         continue
-                    parts = line.split()
-                    current_gen["p_min"] = float(parts[1])
-                    current_gen["p_max"] = float(parts[2])
+                    # Skip the header line and read the next line for values
+                    next_line = next(f).strip()
+                    parts = next_line.split()
+                    current_gen["p_min"] = float(parts[0])
+                    current_gen["p_max"] = float(parts[1])
 
                 # Cost and bus line
                 elif line.startswith("CosVar"):
