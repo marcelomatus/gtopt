@@ -51,10 +51,10 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
         assert isinstance(demand_bar["name"], str)
         assert demand_bar["name"] != ""
         assert isinstance(demand_bar["demands"], list)
-        assert len(bar["demands"]) > 0
+        assert len(demand_bar["demands"]) > 0
 
         # Verify all demand entries
-        for demand in bar["demands"]:
+        for demand in demand_bar["demands"]:
             assert isinstance(demand["block"], int)
             assert isinstance(demand["demand"], float)
             assert demand["block"] > 0
