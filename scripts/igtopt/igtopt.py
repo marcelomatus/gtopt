@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 
+import argparse
+import json
+import logging
+import pathlib
+import re
+import sys
 import warnings
+from itertools import zip_longest
+
 import numpy as np
+import pandas as pd
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-
-import pandas as pd
-import json
-import re
-import pathlib
-import sys
-import argparse
-import logging
-from itertools import zip_longest
 
 expected_sheets = [
     "options",
@@ -54,12 +53,12 @@ json_separators = compact_separators
 
 def split_in_columns(my_list):
     columns = 3
-    str = ""
+    result = []
     for first, second, third in zip_longest(
         my_list[0::columns], my_list[1::columns], my_list[2::columns], fillvalue=""
     ):
-        str = str + f"  {first: <20}{second: <20}{third}" + "\n"
-    return str
+        result.append(f"  {first: <20}{second: <20}{third}")
+    return "\n".join(result)
 
 
 description = """
@@ -173,13 +172,13 @@ def main(args) -> int:
         if filepath.is_dir() or not filepath.exists():
             filepath = filepath.with_suffix(".xlsx")
         if not filepath.exists():
-            logging.info("skipping not existing file %s" % filepath)
+            logging.info("skipping not existing file %s", filepath)
             continue
 
         xls = pd.read_excel(str(filepath), sheet_name=None, engine="openpyxl")
         for sheet_name, df in xls.items():
             if sheet_name[0] == ".":
-                logging.info("skipping sheet %s" % sheet_name)
+                logging.info("skipping sheet %s", sheet_name)
                 continue
 
             if "@" in sheet_name:
@@ -192,7 +191,7 @@ def main(args) -> int:
                     args.input_format,
                     args.compression,
                 )
-                logging.info("sheet %s saved as %s" % (sheet_name, input_file))
+                logging.info("sheet %s saved as %s", sheet_name, input_file)
 
                 continue
 
@@ -216,9 +215,9 @@ def main(args) -> int:
                     # lazy open the json_file
                     json_file = json_path.open("w")
                     json_file.write("{\n")
-                    json_file.write("%s\n" % pstr)
+                    json_file.write(f"{pstr}\n")
 
-                json_file.write(',"%s":' % sheet_name)
+                json_file.write(f',"{sheet_name}":')
                 json_file.write(df_str)
                 json_file.write("\n")
 
@@ -329,8 +328,8 @@ if __name__ == "__main__":
             logging.info("using system name %s" % args.name)
 
         result = main(args)
-    except Exception as e:
-        logging.error("unexpected error: %s" % str(e))
+    except (IOError, ValueError, argparse.ArgumentError) as e:
+        logging.error("unexpected error: %s", str(e))
         sys.exit(1)
 
     sys.exit(result)
