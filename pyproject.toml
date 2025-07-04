@@ -9,6 +9,12 @@ description = "PLP to GTOPT conversion tool"
 requires-python = ">=3.8"
 dependencies = []
 
+[project.scripts]
+plp2gtopt-bus = "plp2gtopt.bus_parser:main"
+plp2gtopt-line = "plp2gtopt.line_parser:main" 
+plp2gtopt-gen = "plp2gtopt.generator_parser:main"
+plp2gtopt-dem = "plp2gtopt.demand_parser:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
