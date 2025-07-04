@@ -114,21 +114,21 @@ def main(args: Optional[List[str]] = None) -> int:
         input_path = Path(args[0])
         if not input_path.exists():
             raise FileNotFoundError(f"Demand file not found: {input_path}")
-            
+
         parser = DemandParser(str(input_path))
         parser.parse()
 
         print(f"\nDemand File Analysis: {parser.file_path.name}")
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
-        
+
         demands = parser.get_demands()
         total_entries = sum(len(d["demands"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
         _print_demand_stats(demands)
         return 0
-    except Exception as e:
+    except (FileNotFoundError, ValueError, IndexError) as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         return 1
 
@@ -152,19 +152,19 @@ def _print_stats_table(stats: List[Dict[str, Any]], limit: int = 10) -> None:
     """Print formatted statistics table."""
     print("\nBar Demand Statistics:")
     print("=" * 40)
-    
+
     if len(stats) <= 2 * limit:
         print("All bars (sorted by average demand):")
         for stat in stats:
-            self._print_stat_row(stat)
+            _print_stat_row(stat)
     else:
         print(f"Top {limit} bars by average demand:")
         for stat in stats[:limit]:
-            self._print_stat_row(stat)
-        
+            _print_stat_row(stat)
+
         print(f"\nBottom {limit} bars by average demand:")
         for stat in stats[-limit:]:
-            self._print_stat_row(stat)
+            _print_stat_row(stat)
 
 def _print_stat_row(stat: Dict[str, Any]) -> None:
     """Print single statistic row."""
