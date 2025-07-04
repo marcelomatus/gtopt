@@ -77,6 +77,8 @@ def test_discount_factor_calculation(
     assert "discount_factor" in stages[0]
     assert isinstance(stages[0]["discount_factor"], float)
 
+    assert stages[0]["discount_factor"] == 1.0  # First stage should default to 1.0
+
     # Verify discount factors are valid
     for stage in stages:
         assert 0 < stage["discount_factor"] <= 1.0  # Should be between 0 and 1
@@ -93,7 +95,7 @@ def test_get_stage_by_number(sample_stage_file):  # pylint: disable=redefined-ou
     stage = parser.get_stage_by_number(first_stage_num)
     assert stage is not None
     assert stage["number"] == first_stage_num
-    assert stage["duration"] > 0  # Duration should be positive
+    assert stage["duration"] == 168
 
     # Test non-existent stage
     missing = parser.get_stage_by_number(99)
