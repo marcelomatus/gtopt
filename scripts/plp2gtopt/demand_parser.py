@@ -52,10 +52,10 @@ class DemandParser:
                 month = int(parts[0])
                 stage = int(parts[1])
                 demand = float(parts[2])
-                demands.append({"mes": month, "etapa": stage, "demanda": demand})
+                demands.append({"mes": month, "block": stage, "demand": demand})
                 idx += 1
 
-            self.demands.append({"nombre": name, "demandas": demands})
+            self.demands.append({"name": name, "demands": demands})
 
     def get_demands(self) -> list[dict[str, Any]]:
         """Return the parsed demands structure."""
@@ -68,7 +68,7 @@ class DemandParser:
     def get_demand_by_name(self, name: str) -> dict[str, Any] | None:
         """Get demand data for a specific bus name."""
         for demand in self.demands:
-            if demand["nombre"] == name:
+            if demand["name"] == name:
                 return demand
         return None
 
@@ -95,20 +95,20 @@ if __name__ == "__main__":
         print("=" * 40)
         print(f"Total bars: {parser.get_num_bars()}")
         demands = parser.get_demands()
-        total_entries = sum(len(d["demandas"]) for d in demands)
+        total_entries = sum(len(d["demands"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
         # Calculate stats for all bars
         bar_stats = []
         for demand in parser.get_demands():
-            demands = demand["demandas"]
+            demands = demand["demands"]
             demand_count = len(demands)
             avg_demand = 0.0
             if demand_count > 0:
-                avg_demand = sum(d["demanda"] for d in demands) / demand_count
+                avg_demand = sum(d["demand"] for d in demands) / demand_count
             bar_stats.append(
                 {
-                    "name": demand["nombre"],
+                    "name": demand["name"],
                     "count": demand_count,
                     "avg": avg_demand,
                 }
