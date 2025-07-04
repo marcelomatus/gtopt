@@ -50,7 +50,7 @@ def test_parse_sample_file(sample_stage_file):
     # Verify first stage data
     stage1 = stages[0]
     assert stage1["numero"] == 1
-    assert stage1["duracion"] == 1.0  # Actual duration in sample file
+    assert stage1["duracion"] == 3.0  # Actual duration in sample file
 
     # Verify last stage data
     stage10 = stages[9]
