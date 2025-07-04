@@ -1,4 +1,7 @@
 # .aider.yml
-lint-cmd: clang-tidy  -p .
+lint:
+  cpp:
+    cmd: clang-tidy -p .
+    files: \.(cpp|hpp|h|cxx|cc)$
 
 
