@@ -33,7 +33,6 @@ module-naming-style=snake_case
 class-naming-style=PascalCase
 argument-naming-style=snake_case
 class-attribute-naming-style=snake_case
-instance-attribute-naming-style=snake_case
 inlinevar-naming-style=snake_case
 
 [DESIGN]
@@ -51,8 +50,3 @@ max-public-methods=30
 # Allow wildcard imports
 allow-wildcard-with-all=no
 
-# Allow relative imports
-allow-relative-imports=yes
-
-# Allow ungrouped imports
-allow-ungrouped-imports=no
