@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 from ..block_parser import BlockParser
+from .conftest import get_example_file
 
 
 @pytest.fixture
