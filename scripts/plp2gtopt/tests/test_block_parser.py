@@ -49,7 +49,7 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     # Verify all blocks have required fields
     for block in blocks:
         assert isinstance(block["number"], int)
-        assert isinstance(block["stage"], int) 
+        assert isinstance(block["stage"], int)
         assert isinstance(block["duration"], float)
         assert block["number"] > 0
         assert block["stage"] > 0
