@@ -72,7 +72,14 @@ converts an Excel file to the Fesopp input files.
 the basic expected sheets are:\n%s""" % split_in_columns(expected_sheets)
 
 
-def df_to_file(df, input_path, cname, fname, input_format, compression):
+def df_to_file(
+    df,
+    input_path,
+    cname,
+    fname,
+    input_format,
+    compression
+):
     input_dir = pathlib.Path(input_path) / cname
     input_dir.mkdir(parents=True, exist_ok=True)
     input_file = input_dir / (fname + "." + input_format)
@@ -134,8 +141,7 @@ def df_to_str(df, skip_nulls=True):
             indent=json_indent,
             separators=json_separators,
         )
-    else:
-        return df.to_json(
+    return df.to_json(
             lines=False,
             orient="records",
             date_format="epoch",
