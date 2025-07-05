@@ -1,9 +1,8 @@
+import json
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
-from .base_parser import BaseParser
-import json
-import sys
 
 T = TypeVar("T", bound="BaseWriter")
 P = TypeVar("P", bound="BaseParser")
