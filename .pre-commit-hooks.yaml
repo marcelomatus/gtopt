@@ -3,7 +3,7 @@
   description: Run all GTOPT-specific linting checks
   entry: ./scripts/lint.sh
   language: system
-  types: [python, cpp, shell, yaml, markdown, cmake]
+  types: [python, c, shell, yaml, markdown, cmake]
   require_serial: true
   verbose: true
 
@@ -12,7 +12,7 @@
   description: Run all GTOPT-specific formatting
   entry: ./scripts/format.sh
   language: system
-  types: [python, cpp, shell, yaml, markdown, cmake]
+  types: [python, c, shell, yaml, markdown, cmake]
   require_serial: true
   verbose: true
 
