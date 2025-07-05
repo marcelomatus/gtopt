@@ -26,12 +26,14 @@ def sample_generator_writer(sample_generator_file):
     return GeneratorWriter(parser)
 
 
-def test_generator_writer_initialization(sample_generator_file):  # pylint: disable=redefined-outer-name
+def test_generator_writer_initialization(
+    sample_generator_file,
+):  # pylint: disable=redefined-outer-name
     """Test GeneratorWriter initialization."""
     parser = GeneratorParser(sample_generator_file)
     parser.parse()
     writer = GeneratorWriter(parser)
-    
+
     assert writer.generator_parser == parser
     assert len(writer.generators) == parser.num_generators
 
@@ -39,11 +41,11 @@ def test_generator_writer_initialization(sample_generator_file):  # pylint: disa
 def test_to_json_array(sample_generator_writer):  # pylint: disable=redefined-outer-name
     """Test conversion of generators to JSON array format."""
     json_generators = sample_generator_writer.to_json_array()
-    
+
     # Verify basic structure
     assert isinstance(json_generators, list)
     assert len(json_generators) > 0
-    
+
     # Verify each generator has required fields
     for generator in json_generators:
         assert "uid" in generator
@@ -61,7 +63,9 @@ def test_to_json_array(sample_generator_writer):  # pylint: disable=redefined-ou
         assert isinstance(generator["capacity"], float)
         assert generator["expcap"] is None or isinstance(generator["expcap"], float)
         assert generator["expmod"] is None or isinstance(generator["expmod"], float)
-        assert generator["annual_capcost"] is None or isinstance(generator["annual_capcost"], float)
+        assert generator["annual_capcost"] is None or isinstance(
+            generator["annual_capcost"], float
+        )
 
 
 def test_write_to_file(sample_generator_writer):  # pylint: disable=redefined-outer-name
@@ -69,26 +73,30 @@ def test_write_to_file(sample_generator_writer):  # pylint: disable=redefined-ou
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:
         output_path = Path(tmp_file.name)
         sample_generator_writer.write_to_file(output_path)
-        
+
         # Verify file was created and contains valid JSON
         assert output_path.exists()
-        with open(output_path, 'r', encoding='utf-8') as f:
+        with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             assert isinstance(data, list)
             assert len(data) > 0
 
 
-def test_from_generator_file(sample_generator_file):  # pylint: disable=redefined-outer-name
+def test_from_generator_file(
+    sample_generator_file,
+):  # pylint: disable=redefined-outer-name
     """Test creating GeneratorWriter directly from generator file."""
     writer = GeneratorWriter.from_generator_file(sample_generator_file)
-    
+
     # Verify parser was initialized and parsed
     assert writer.generator_parser.file_path == sample_generator_file
     assert writer.generator_parser.num_generators > 0
     assert len(writer.generators) == writer.generator_parser.num_generators
 
 
-def test_json_output_structure(sample_generator_writer):  # pylint: disable=redefined-outer-name
+def test_json_output_structure(
+    sample_generator_writer,
+):  # pylint: disable=redefined-outer-name
     """Verify JSON output matches expected structure."""
     json_generators = sample_generator_writer.to_json_array()
 
@@ -121,16 +129,16 @@ def test_write_empty_generators():
     parser = GeneratorParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
     parser._num_generators = 0  # Set internal attribute directly
-    
+
     writer = GeneratorWriter(parser)
     json_generators = writer.to_json_array()
     assert not json_generators
-    
+
     # Test writing empty list
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:
         output_path = Path(tmp_file.name)
         writer.write_to_file(output_path)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
+
+        with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             assert data == []
