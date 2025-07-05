@@ -37,7 +37,6 @@ class GeneratorParser:
             raise TypeError(f"Expected str or Path, got {type(file_path).__name__}")
         if not file_path:
             raise ValueError("File path cannot be empty")
-            
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self.generators: List[Dict[str, Union[str, float, bool]]] = []
 
@@ -128,7 +127,7 @@ class GeneratorParser:
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        required_fields = {'id', 'name', 'bus', 'p_min', 'p_max', 
+        required_fields = {'id', 'name', 'bus', 'p_min', 'p_max',
                          'variable_cost', 'efficiency', 'is_battery'}
         missing = required_fields - gen.keys()
         if missing:
