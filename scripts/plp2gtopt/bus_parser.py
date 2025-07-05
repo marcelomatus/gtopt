@@ -28,7 +28,8 @@ class BusParser(BaseParser):
         """
         super().__init__(file_path)
         self._data: List[Dict[str, Any]] = []
-        self._count: int = 0
+        self.buses: List[Dict[str, Any]] = self._data  # Alias for _data
+        self.num_buses: int = 0
 
     def parse(self) -> None:
         """Parse the bus file and populate the buses structure.
@@ -79,7 +80,7 @@ class BusParser(BaseParser):
                     # Default to 0 if no voltage found in name
                     voltage = 0.0
 
-            self.buses.append({"number": bus_num, "name": name, "voltage": voltage})
+            self._data.append({"number": bus_num, "name": name, "voltage": voltage})
 
     def get_buses(self) -> list[dict[str, Any]]:
         """Return the parsed buses structure."""
