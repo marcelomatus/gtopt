@@ -1,4 +1,27 @@
 repos:
+  - repo: local
+    hooks:
+      - id: gtopt-lint
+        name: GTOPT Lint
+        entry: ./scripts/lint.sh
+        language: system
+        types: [python, cpp, shell, yaml, markdown, cmake]
+        pass_filenames: false
+        verbose: true
+      - id: gtopt-format
+        name: GTOPT Format
+        entry: ./scripts/format.sh
+        language: system
+        types: [python, cpp, shell, yaml, markdown, cmake]
+        pass_filenames: false
+        verbose: true
+      - id: gtopt-tests
+        name: GTOPT Tests
+        entry: ./scripts/run_tests.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
