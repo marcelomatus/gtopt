@@ -43,6 +43,3 @@ add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(${PROJECT_NAME} gtopt::gtopt Boost::program_options)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23 OUTPUT_NAME "gtopt")
-
-
-

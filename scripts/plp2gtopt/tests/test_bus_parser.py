@@ -79,7 +79,7 @@ def test_parse_sample_file(sample_bus_file):  # pylint: disable=redefined-outer-
         ("Andes345", 345.0),
         ("Arica066", 66.0),
         ("Atacama220_BP1", 220.0),
-        ("Capricornio110", 110.0)
+        ("Capricornio110", 110.0),
     ]
     for name, expected_voltage in test_cases:
         assert any(bus["name"] == name and bus["voltage"] == expected_voltage for bus in buses)

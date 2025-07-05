@@ -67,7 +67,7 @@ class GeneratorParser:
                         "start_cost": 0.0,
                         "variable_cost": 0.0,
                         "efficiency": 1.0,
-                        "is_battery": False
+                        "is_battery": False,
                     }
                 # Power limits line
                 elif line.startswith("PotMin"):
@@ -93,11 +93,9 @@ class GeneratorParser:
                             current_gen["variable_cost"] = float(parts[0])
                             current_gen["efficiency"] = float(parts[1])
                             # Bus ID is in column 3 (0-based index 2) for "Barra"
-                            current_gen["bus"] = parts[2]  
+                            current_gen["bus"] = parts[2]
                         except (ValueError, IndexError) as e:
-                            raise ValueError(
-                                f"Invalid generator data format at line: {next_line}"
-                            ) from e
+                            raise ValueError(f"Invalid generator data format at line: {next_line}") from e
 
                     # Check for battery in name
                     if "BESS" in current_gen["name"].upper():

@@ -10,11 +10,11 @@ PLPBIN=/opt/plp_cen65/plp
 #
 # Interfaz de usuario
 #
-export PLP_INTERFAZ_MODE=no 
+export PLP_INTERFAZ_MODE=no
 
 #
 # Convenios de Riego
-#  
+#
 export PLP_CONVLAJA_MODE=2
 export PLP_CONVMAULE_MODE=2
 export PLP_RESTRALCO_MODE=no
@@ -30,7 +30,7 @@ export PLP_RENDBDRS_MODE=si
 export PLP_SCALE_MODE=si
 export PLP_SCALEOBJ_MODE=1e3
 export PLP_SCALEPHI_MODE=1e6
-export PLP_ANGZERO_MODE=si 
+export PLP_ANGZERO_MODE=si
 #export PLP_SCALEVDI_MODE=no
 
 #

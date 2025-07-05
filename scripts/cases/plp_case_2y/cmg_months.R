@@ -5,7 +5,7 @@ library(data.table)
 PATH = "~/git/plp_colbun/test_cases/cen/20240611/original"
 setwd(PATH)
 
-fread("indhor.csv") %>% 
+fread("indhor.csv") %>%
   rename(
     year = 1,
     month = Mes,
@@ -15,7 +15,7 @@ fread("indhor.csv") %>%
 
 plpbar <- fread("plpbar.csv")
 
-plpbar %>% 
+plpbar %>%
   filter(Hidro == "MEDIA", BarNom == "AJahuel220") %>%
   group_by(Hidro, block = Bloque) %>%
   summarise(CMg = sum(CMgBar * DemBarE) / sum(DemBarE)) %>%

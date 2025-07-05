@@ -7,10 +7,10 @@ a new C++ generation and transmission planning project.
 ## Features
 
 - Optimizes
-  
+
 ## Usage
 - With care
-  
+
 ### Build and run the standalone target
 
 Use the following command to build and run the executable target.
@@ -30,7 +30,7 @@ cmake -S test -B build/test
 cmake --build build/test
 CTEST_OUTPUT_ON_FAILURE=1 cmake --build build/test --target test
 
-# or simply call the executable: 
+# or simply call the executable:
 ./build/test/GreeterTests
 ```
 
@@ -109,4 +109,3 @@ Additional arguments can be passed to the analyzers by setting the `CLANG_TIDY_A
 #### Ccache
 
 Ccache can be enabled by configuring with `-DUSE_CCACHE=<ON | OFF>`.
-
