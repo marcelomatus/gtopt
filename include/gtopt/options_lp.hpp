@@ -34,7 +34,7 @@ public:
   static constexpr auto default_input_directory = "input";
   /** @brief Default input file format */
   static constexpr auto default_input_format = "parquet";
-  
+
   // Default values for optimization parameters
   /** @brief Default setting for line loss modeling */
   static constexpr Bool default_use_line_losses = true;
@@ -48,7 +48,7 @@ public:
   static constexpr Real default_scale_objective = 1'000;
   /** @brief Default voltage angle scaling factor (10 * 100 * 100 = 100,000) */
   static constexpr Real default_scale_theta = 10 * 100 * 100;
-  
+
   // Default values for output settings
   /** @brief Default output directory path */
   static constexpr auto default_output_directory = "output";

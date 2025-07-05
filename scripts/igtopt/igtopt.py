@@ -68,17 +68,12 @@ converts an Excel file to the Fesopp input files.
 - All the sheets with name that include "@", such as "demand@lmax", are saved
   directly in the input directory.
 
-the basic expected sheets are:\n%s""" % split_in_columns(expected_sheets)
+the basic expected sheets are:\n%s""" % split_in_columns(
+    expected_sheets
+)
 
 
-def df_to_file(
-    df,
-    input_path,
-    cname,
-    fname,
-    input_format,
-    compression
-):
+def df_to_file(df, input_path, cname, fname, input_format, compression):
     input_dir = pathlib.Path(input_path) / cname
     input_dir.mkdir(parents=True, exist_ok=True)
     input_file = input_dir / (fname + "." + input_format)
@@ -113,9 +108,7 @@ def df_to_opts(df, options):
             opts[key] = value
         return opts
     else:
-        logging.error(
-            "'options' sheet requires both 'option' or 'value' columns, not found"
-        )
+        logging.error("'options' sheet requires both 'option' or 'value' columns, not found")
         sys.exit(1)
 
 
@@ -141,15 +134,15 @@ def df_to_str(df, skip_nulls=True):
             separators=json_separators,
         )
     return df.to_json(
-            lines=False,
-            orient="records",
-            date_format="epoch",
-            double_precision=10,
-            force_ascii=True,
-            date_unit="ms",
-            default_handler=None,
-            indent=json_indent,
-        )
+        lines=False,
+        orient="records",
+        date_format="epoch",
+        double_precision=10,
+        force_ascii=True,
+        date_unit="ms",
+        default_handler=None,
+        indent=json_indent,
+    )
 
 
 def main(args) -> int:
@@ -224,27 +217,20 @@ def main(args) -> int:
     if json_file:
         # close the json_file
         if options:
-            json_file.write(
-                ',"options":%s\n'
-                % json.dumps(options, indent=json_indent, separators=json_separators)
-            )
+            json_file.write(',"options":%s\n' % json.dumps(options, indent=json_indent, separators=json_separators))
 
         json_file.write("}\n")
         json_file.close()
         logging.info("Fesopp input file %s was successfully generated" % str(json_path))
     else:
-        logging.warning(
-            "no valid data was found, the file %s was not generated" % str(json_path)
-        )
+        logging.warning("no valid data was found, the file %s was not generated" % str(json_path))
 
     return 0
 
 
 if __name__ == "__main__":
     try:
-        parser = argparse.ArgumentParser(
-            description=description, formatter_class=argparse.RawTextHelpFormatter
-        )
+        parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
         parser.add_argument(
             dest="filenames",
             nargs="+",
@@ -307,9 +293,7 @@ if __name__ == "__main__":
 
         args = parser.parse_args()
 
-        logging.basicConfig(
-            level=args.log_level, format="%(asctime)s %(levelname)s %(message)s"
-        )
+        logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(message)s")
 
         if args.pretty:
             json_indent = pretty_indent

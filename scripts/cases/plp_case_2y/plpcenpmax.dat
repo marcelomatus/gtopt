@@ -3,21 +3,21 @@
 4
 # Nombre de Central
 'CIPRESES'
-# Nombre Embalse                   
+# Nombre Embalse
 'CIPRESES'
 # Numero de Segmentos
 6
 # Volumen [10e6 m3]			Pendiente		Coeficiente
 0.0     				0.000000000		30.00000000
-4.7     				0.295071481		87.75930472	
+4.7     				0.295071481		87.75930472
 11.0					0.209379029		88.81748014
 30.0					0.149079218		90.65171263
 60.0					0.110907612		92.98439893
 108.0					0.000000000		105.0000000
 # Nombre de Central
 'COLBUN'
-# Nombre Embalse                   
-'COLBUN'    
+# Nombre Embalse
+'COLBUN'
 # Numero de Segmentos
 6
 # Volumen [10e6 m3]			Pendiente		Coeficiente
@@ -29,8 +29,8 @@
 1144.0					0.000000000		474.0000000
 # Nombre de Central
 'RALCO'
-# Nombre Embalse                   
-'RALCO'      
+# Nombre Embalse
+'RALCO'
 # Numero de Segmentos
 7
 # Volumen [10e6 m3]			Pendiente		Coeficiente
@@ -43,17 +43,10 @@
 1070.0					0.096364626		588.3122838
 # Nombre de Central
 'CANUTILLAR'
-# Nombre Embalse                   
-'CANUTILLAR'    
+# Nombre Embalse
+'CANUTILLAR'
 # Numero de Segmentos
 2
 # Volumen [10e6 m3]			Pendiente		Coeficiente
 89.94					0.815290000		-23.3333333
 224.90					0.000000000		160.0000000
-
-
-
-
-
-	
-

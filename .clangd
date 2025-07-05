@@ -8,7 +8,7 @@ Diagnostics:
       "*",
       "bugprone-*",
       "bugprone-unchecked-optional-access",
-      "cppcoreguidelines-*", 
+      "cppcoreguidelines-*",
       "hicpp-*",
       "modernize-*",
       "performance-*",
@@ -35,6 +35,6 @@ Diagnostics:
       "readability-redundant-member-init",
       "readability-function-cognitive-complexity"
     ]
-    
+
 Index:
   Background: Build

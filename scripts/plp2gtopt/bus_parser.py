@@ -71,23 +71,19 @@ class BusParser:
             name = parts[1].strip("'").split("#")[0].strip()
 
             # Try to extract voltage from name (handles various patterns)
-            voltage_match = re.search(r'(\d+)(?:kV|KV)?(?:[-_].*)?$', name, re.IGNORECASE)
+            voltage_match = re.search(r"(\d+)(?:kV|KV)?(?:[-_].*)?$", name, re.IGNORECASE)
             if voltage_match:
                 voltage = float(voltage_match.group(1))
             else:
                 # Try alternative patterns like 'KV220' format
-                voltage_match = re.search(r'(?:kV|KV)(\d+)', name, re.IGNORECASE)
+                voltage_match = re.search(r"(?:kV|KV)(\d+)", name, re.IGNORECASE)
                 if voltage_match:
                     voltage = float(voltage_match.group(1))
                 else:
                     # Default to 0 if no voltage found in name
                     voltage = 0.0
 
-            self.buses.append({
-                "number": bus_num,
-                "name": name,
-                "voltage": voltage
-            })
+            self.buses.append({"number": bus_num, "name": name, "voltage": voltage})
 
     def get_buses(self) -> list[dict[str, Any]]:
         """Return the parsed buses structure."""

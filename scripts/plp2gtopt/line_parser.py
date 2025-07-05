@@ -123,17 +123,11 @@ class LineParser:
 
     def get_lines_by_bus(self, bus_name: str) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus."""
-        return [
-            line for line in self.lines if bus_name in (line["bus_a"], line["bus_b"])
-        ]
+        return [line for line in self.lines if bus_name in (line["bus_a"], line["bus_b"])]
 
     def get_lines_by_bus_num(self, bus_num: int) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus number."""
-        return [
-            line
-            for line in self.lines
-            if bus_num in (line["bus_a_num"], line["bus_b_num"])
-        ]
+        return [line for line in self.lines if bus_num in (line["bus_a_num"], line["bus_b_num"])]
 
 
 def main(args: Optional[List[str]] = None) -> int:

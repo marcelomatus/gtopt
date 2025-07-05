@@ -1,116 +1,116 @@
 # Archivo de convenio del Maule (plpmaule.dat)
-# Nombre Central Embalse Maule    
-'LMAULE'                      
-# Nombre Central Laguna Invernada 
-'CIPRESES'                    
-# Nombre Central Embalse Melado   
-'PEHUENCHE'                   
-# Nombre Central Embalse Colbun   
-'COLBUN'                      
-# Numero Caudales Hoya Intermedia 
-6              
-# Nombre Caudales Hoya Intermedia 
-'B_LaMina'          
-'B_M_Isla'          
-'B_Maule'           
-'Rio_Melado'        
-'CMNTronco'         
-'COLBUN'            
-# VEmbalseUtilMin (en 10^3 m3)    
-0              
-# VReservaExtraord (en 10^3 m3)   
-129000         
-# VReservaOrdinaria (en 10^3 m3)  
-452000         
-# VDerRiegoTempMax (en 10^3 m3)   
-800000         
-# VDerElectAnuMax (en 10^3 m3)    
-250000         
-# VCompElecMax (en 10^3 m3)       
-350000         
-# VGastoElecMenIni (en 10^3 m3)   
-0              
-# VGastoElecAnuIni (en 10^3 m3)   
-73406          
-# VGastoRiegoIni (en 10^3 m3)     
-420488         
-# VGastoRExtElecIni (en 10^3 m3)  
-0              
-# VGastoRExtRiegoIni (en 10^3 m3) 
-0              
-# VDerRExtElecIni (en 10^3 m3)    
-0.0            
-# VDerRExtRiegoIni (en 10^3 m3)   
-0.0            
-# VCompElecIni (en 10^3 m3)       
-10589.3        
-# VEconInverIni (en 10^3 m3)      
-0.0            
-# GastoElecMenMax (en m3/seg)     
-25             
-# GastoElecDiaMax (en m3/seg)     
-30             
-# Modulacion porcentual de GastoElecDiaMax mensual en reserva (%)               
-100 100 100 100 100 100 0 0 0 0 0 0 
-# Descuenta caudales de derechos electricos del balance en Armerillo            
-T        
-# Gasto Riego Maximo [m3/seg]     
-200            
+# Nombre Central Embalse Maule
+'LMAULE'
+# Nombre Central Laguna Invernada
+'CIPRESES'
+# Nombre Central Embalse Melado
+'PEHUENCHE'
+# Nombre Central Embalse Colbun
+'COLBUN'
+# Numero Caudales Hoya Intermedia
+6
+# Nombre Caudales Hoya Intermedia
+'B_LaMina'
+'B_M_Isla'
+'B_Maule'
+'Rio_Melado'
+'CMNTronco'
+'COLBUN'
+# VEmbalseUtilMin (en 10^3 m3)
+0
+# VReservaExtraord (en 10^3 m3)
+129000
+# VReservaOrdinaria (en 10^3 m3)
+452000
+# VDerRiegoTempMax (en 10^3 m3)
+800000
+# VDerElectAnuMax (en 10^3 m3)
+250000
+# VCompElecMax (en 10^3 m3)
+350000
+# VGastoElecMenIni (en 10^3 m3)
+0
+# VGastoElecAnuIni (en 10^3 m3)
+73406
+# VGastoRiegoIni (en 10^3 m3)
+420488
+# VGastoRExtElecIni (en 10^3 m3)
+0
+# VGastoRExtRiegoIni (en 10^3 m3)
+0
+# VDerRExtElecIni (en 10^3 m3)
+0.0
+# VDerRExtRiegoIni (en 10^3 m3)
+0.0
+# VCompElecIni (en 10^3 m3)
+10589.3
+# VEconInverIni (en 10^3 m3)
+0.0
+# GastoElecMenMax (en m3/seg)
+25
+# GastoElecDiaMax (en m3/seg)
+30
+# Modulacion porcentual de GastoElecDiaMax mensual en reserva (%)
+100 100 100 100 100 100 0 0 0 0 0 0
+# Descuenta caudales de derechos electricos del balance en Armerillo
+T
+# Gasto Riego Maximo [m3/seg]
+200
 # Caudal Maule Minimo para embalsa
 250 T F
-# Valor Riego servido Conv Maule & Res 105                                      
-1100 1100     
-# Costo Riego no servido Conv Maule & Res 105                                   
-1000 1000     
-# Porcentaje de riego mensuales Maule (segun mes en plpeta.dat)                 
-40 20 0 0 0 30 70 90 100 100 80 40 
-# Agnos iniciales de porcentajes de riego mensuales Maule manuales              
-1              
-# Porcentajes de riego mensuales Maule manuales (segun mes en plpeta.dat)       
-40 20 0 0 0 30 70 90 100 80 75 50 
+# Valor Riego servido Conv Maule & Res 105
+1100 1100
+# Costo Riego no servido Conv Maule & Res 105
+1000 1000
+# Porcentaje de riego mensuales Maule (segun mes en plpeta.dat)
+40 20 0 0 0 30 70 90 100 100 80 40
+# Agnos iniciales de porcentajes de riego mensuales Maule manuales
+1
+# Porcentajes de riego mensuales Maule manuales (segun mes en plpeta.dat)
+40 20 0 0 0 30 70 90 100 80 75 50
 # Ano desde donde se aplica modulacion automatica de caudal riego de Maule en reserva (0 -> desactiv
-0              
-# Factor de caudales futuros en disponibilidad de riego                                             
-1.0            
-# Modulacion automatica afecta tambien a la Res 105                             
-F        
-# Volumen acumulado de derechos de riego para terminar la temporada [10^3 m3]   
-314496  107136 0 0 0 2984256 2828736 2453760 1987200 1451520 915840 528768 
-# Dias acumulados para terminar la temporada de riego                           
-61 31 0 0 0 273 243 212 182 151 120 92 
-# Porcentaje Caudal de derechos entrantes electricos en Reserva Maule           
-20             
-# Porcentaje Caudal de derechos entrantes riego en Reserva Maule                
-80             
-# Caudales de riego mensuales Res 105 (segun mes en plpeta.dat)                 
-80 40 40 40 40 60 140 180 200 200 160 80 
-# Agnos iniciales de porcentajes de riego mensuales Caud Res 105 manuales       
-1              
-# Caud Res 105 de riego mensuales manuales (segun mes en plpeta.dat)            
-80 0 0 0 0 60 140 180 200 160 150 100 
-# Numero de retiros de riego      
-7              
-# Nombres de centrales de retiro                                                
-'RieCMNA'                     
-'RieCMNB'                     
-'RieMaitenes'                 
-'RieMauleSur'                 
-'RieMelado'                   
-'RieSur123SCDZ'               
-'RieMolinosOtros'             
-# Porcentajes de retiro                                                         
-12.66 14.7 10.49 11.97 12.65 34.27 3.26      
-# Holgura en retiro de riego                                                    
-F F F F T F F 
-# Bocatoma Canelon                
-'BCanelon'     
-# Costo Obra Civil Canelon, por m3/seg  
-10             
-# Indice de la Extraccion de Colbun con cota disp. 425 
-2              
-# Volumen Cota Disponibildad 425 (10^3 m3)  
-1047900        
-# Economías Invernada: uso en Reserva Ordinaria, son acumulables, Costo Almacenamiento              
-F F 0.1 
-#Penalizadores 
+0
+# Factor de caudales futuros en disponibilidad de riego
+1.0
+# Modulacion automatica afecta tambien a la Res 105
+F
+# Volumen acumulado de derechos de riego para terminar la temporada [10^3 m3]
+314496  107136 0 0 0 2984256 2828736 2453760 1987200 1451520 915840 528768
+# Dias acumulados para terminar la temporada de riego
+61 31 0 0 0 273 243 212 182 151 120 92
+# Porcentaje Caudal de derechos entrantes electricos en Reserva Maule
+20
+# Porcentaje Caudal de derechos entrantes riego en Reserva Maule
+80
+# Caudales de riego mensuales Res 105 (segun mes en plpeta.dat)
+80 40 40 40 40 60 140 180 200 200 160 80
+# Agnos iniciales de porcentajes de riego mensuales Caud Res 105 manuales
+1
+# Caud Res 105 de riego mensuales manuales (segun mes en plpeta.dat)
+80 0 0 0 0 60 140 180 200 160 150 100
+# Numero de retiros de riego
+7
+# Nombres de centrales de retiro
+'RieCMNA'
+'RieCMNB'
+'RieMaitenes'
+'RieMauleSur'
+'RieMelado'
+'RieSur123SCDZ'
+'RieMolinosOtros'
+# Porcentajes de retiro
+12.66 14.7 10.49 11.97 12.65 34.27 3.26
+# Holgura en retiro de riego
+F F F F T F F
+# Bocatoma Canelon
+'BCanelon'
+# Costo Obra Civil Canelon, por m3/seg
+10
+# Indice de la Extraccion de Colbun con cota disp. 425
+2
+# Volumen Cota Disponibildad 425 (10^3 m3)
+1047900
+# Economías Invernada: uso en Reserva Ordinaria, son acumulables, Costo Almacenamiento
+F F 0.1
+#Penalizadores
 1500 1000

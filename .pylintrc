@@ -49,4 +49,3 @@ max-public-methods=30
 [IMPORTS]
 # Allow wildcard imports
 allow-wildcard-with-all=no
-
