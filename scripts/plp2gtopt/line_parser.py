@@ -17,6 +17,7 @@ from typing import Any, Optional, List, Dict, Union
 
 from .base_parser import BaseParser
 
+
 class LineParser(BaseParser):
     """Parser for plpcnfli.dat format files containing line data.
 
@@ -94,37 +95,45 @@ class LineParser(BaseParser):
 
     def parse_line_name(self, name: str) -> tuple[str, str]:
         """Extract bus_a and bus_b from line name.
-        
+
         Args:
             name: Line name in format "BusA->BusB" or "BusA-BusB"
-            
+
         Returns:
             Tuple of (bus_a, bus_b)
-            
+
         Raises:
             ValueError: If name format is invalid or empty
         """
         if not name or not name.strip():
             raise ValueError("Line name cannot be empty or whitespace only")
-            
+
         # Only allow one type of separator in the name
         if "->" in name and "-" in name.replace("->", ""):
-            raise ValueError(f"Invalid line name format: {name}. Mixed separators not allowed")
-            
+            raise ValueError(
+                f"Invalid line name format: {name}. Mixed separators not allowed"
+            )
+
         if "->" in name:
             parts = name.split("->", 1)
         elif "-" in name:
             parts = name.split("-", 1)
         else:
-            raise ValueError(f"Invalid line name format: {name}. Must contain '->' or '-'")
-            
+            raise ValueError(
+                f"Invalid line name format: {name}. Must contain '->' or '-'"
+            )
+
         if len(parts) != 2:
-            raise ValueError(f"Invalid line name format: {name}. Must contain exactly two bus names")
-            
+            raise ValueError(
+                f"Invalid line name format: {name}. Must contain exactly two bus names"
+            )
+
         bus_a, bus_b = parts[0].strip(), parts[1].strip()
         if not bus_a or not bus_b:
-            raise ValueError(f"Invalid line name format: {name}. Bus names cannot be empty")
-            
+            raise ValueError(
+                f"Invalid line name format: {name}. Bus names cannot be empty"
+            )
+
         return bus_a, bus_b
 
     def _parse_line_voltage(self, name: str) -> float:
@@ -152,11 +161,17 @@ class LineParser(BaseParser):
 
     def get_lines_by_bus(self, bus_name: str) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus."""
-        return [line for line in self._data if bus_name in (line["bus_a"], line["bus_b"])]
+        return [
+            line for line in self._data if bus_name in (line["bus_a"], line["bus_b"])
+        ]
 
     def get_lines_by_bus_num(self, bus_num: int) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus number."""
-        return [line for line in self._data if bus_num in (line["bus_a_num"], line["bus_b_num"])]
+        return [
+            line
+            for line in self._data
+            if bus_num in (line["bus_a_num"], line["bus_b_num"])
+        ]
 
 
 def main(args: Optional[List[str]] = None) -> int:
