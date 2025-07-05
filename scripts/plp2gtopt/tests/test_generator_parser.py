@@ -11,7 +11,7 @@ Tests include:
 """
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List  # noqa: F401 (kept for potential future use)
 import pytest
 
 from plp2gtopt.generator_parser import GeneratorParser
@@ -43,17 +43,31 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     return file_path
 
 
-@pytest.fixture
-def empty_gen_file(tmp_path) -> Path:
-    """Create an empty generator test file."""
+@pytest.fixture(name="empty_gen_file")
+def empty_gen_file_fixture(tmp_path: Path) -> Path:
+    """Create an empty generator test file fixture.
+    
+    Args:
+        tmp_path: Pytest temporary path fixture
+        
+    Returns:
+        Path to temporary empty test file
+    """
     file_path = tmp_path / "empty_gen.dat"
     file_path.touch()
     return file_path
 
 
-@pytest.fixture
-def malformed_gen_file(tmp_path) -> Path:
-    """Create a malformed generator test file."""
+@pytest.fixture(name="malformed_gen_file")
+def malformed_gen_file_fixture(tmp_path: Path) -> Path:
+    """Create a malformed generator test file fixture.
+    
+    Args:
+        tmp_path: Pytest temporary path fixture
+        
+    Returns:
+        Path to temporary malformed test file
+    """
     file_path = tmp_path / "bad_gen.dat"
     content = """    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -159,7 +173,6 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
 
 def test_parse_malformed_file(malformed_gen_file: Path) -> None:
     """Test handling of malformed input file.
-    
     Verifies:
     - Proper ValueError/IndexError is raised
     - Error contains meaningful message
