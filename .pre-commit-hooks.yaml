@@ -1,0 +1,26 @@
+- id: gtopt-lint
+  name: GTOPT Lint
+  description: Run all GTOPT-specific linting checks
+  entry: ./scripts/lint.sh
+  language: system
+  types: [python, cpp, shell, yaml, markdown, cmake]
+  require_serial: true
+  verbose: true
+
+- id: gtopt-format
+  name: GTOPT Format
+  description: Run all GTOPT-specific formatting
+  entry: ./scripts/format.sh
+  language: system
+  types: [python, cpp, shell, yaml, markdown, cmake]
+  require_serial: true
+  verbose: true
+
+- id: gtopt-tests
+  name: GTOPT Tests
+  description: Run GTOPT unit tests
+  entry: ./scripts/run_tests.sh
+  language: system
+  pass_filenames: false
+  require_serial: true
+  verbose: true
