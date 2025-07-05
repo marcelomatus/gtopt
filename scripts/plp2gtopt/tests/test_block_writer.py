@@ -95,7 +95,7 @@ def test_write_empty_blocks():
     """Test handling of empty block list."""
     # Create parser with no blocks
     parser = BlockParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
+    parser.blocks = []  # Use public attribute
     parser.num_blocks = 0
 
     writer = BlockWriter(parser)

@@ -74,6 +74,8 @@ def convert_plp_case(
                 raise FileNotFoundError(f"{name} file not found: {filepath}")
 
             parser = parser_class(filepath)
+            if not hasattr(parser, 'parse'):
+                raise ValueError(f"Parser {parser_class.__name__} has no parse method")
             parser.parse()
             results[name] = getattr(parser, count_attr)
             print(f"Found {results[name]} {name}")

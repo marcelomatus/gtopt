@@ -79,7 +79,7 @@ def df_to_file(df, input_path, cname, fname, input_format, compression):
     input_file = input_dir / (fname + "." + input_format)
 
     types = {}
-    btype = np.int8 if fname == "active" else np.double
+    btype = np.int16 if fname == "active" else np.float64
     for c in df.columns:
         types[c] = btype
 
@@ -123,7 +123,7 @@ def df_to_str(df, skip_nulls=True):
 
     types = {}
     if "name" in df.columns:
-        types["name"] = np.str_
+        types["name"] = str
     for c in ["uid", "active"]:
         if c in df.columns:
             types[c] = np.integer

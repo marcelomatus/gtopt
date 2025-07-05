@@ -127,8 +127,8 @@ def test_write_empty_generators():
     """Test handling of empty generator list."""
     # Create parser with no generators
     parser = GeneratorParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
-    parser._num_generators = 0  # pylint: disable=protected-access
+    parser.generators = []  # Use public attribute
+    parser.num_generators = 0
 
     writer = GeneratorWriter(parser)
     json_generators = writer.to_json_array()
