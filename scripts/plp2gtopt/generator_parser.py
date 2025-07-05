@@ -127,8 +127,10 @@ class GeneratorParser:
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        required_fields = {'id', 'name', 'bus', 'p_min', 'p_max',
-                         'variable_cost', 'efficiency', 'is_battery'}
+        required_fields = {
+            'id', 'name', 'bus', 'p_min', 'p_max',
+            'variable_cost', 'efficiency', 'is_battery'
+        }
         missing = required_fields - gen.keys()
         if missing:
             raise ValueError(f"Generator {gen.get('id', 'unknown')} missing fields: {missing}")
