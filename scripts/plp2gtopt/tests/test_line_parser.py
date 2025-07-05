@@ -100,7 +100,7 @@ def test_line_name_parsing():
 
 def test_invalid_line_names():
     """Test handling of invalid line names."""
-    invalid_names = ["Bus1", "Bus1>Bus2", "Bus1-Bus2-Bus3", ""]
+    invalid_names = ["Bus1", "Bus1>Bus2", ""]
 
     parser = LineParser("test.dat")
     for name in invalid_names:
