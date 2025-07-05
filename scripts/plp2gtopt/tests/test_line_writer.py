@@ -26,7 +26,9 @@ def sample_line_writer(sample_line_file):
     return LineWriter(parser)
 
 
-def test_line_writer_initialization(sample_line_file_path):  # pylint: disable=redefined-outer-name
+def test_line_writer_initialization(
+    sample_line_file_path,
+):  # pylint: disable=redefined-outer-name
     """Test LineWriter initialization."""
     parser = LineParser(sample_line_file_path)
     parser.parse()
@@ -81,7 +83,9 @@ def test_write_to_file(sample_line_writer):  # pylint: disable=redefined-outer-n
 
 def test_from_line_file(sample_line_file_path):  # pylint: disable=redefined-outer-name
     """Test creating LineWriter directly from line file."""
-    writer = LineWriter.from_file(sample_line_file_path, LineParser)  # Using fixture directly
+    writer = LineWriter.from_file(
+        sample_line_file_path, LineParser
+    )  # Using fixture directly
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_line_file_path
