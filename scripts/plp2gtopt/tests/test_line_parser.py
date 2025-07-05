@@ -48,7 +48,7 @@ def test_parser_initialization():
 def test_parse_sample_file(sample_line_parser):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample line file."""
     parser = sample_line_parser
-    
+
     # Verify basic structure
     assert parser.get_num_lines() == 10
     lines = parser.get_lines()
@@ -56,11 +56,13 @@ def test_parse_sample_file(sample_line_parser):  # pylint: disable=redefined-out
     assert all(isinstance(line, dict) for line in lines)
 
 
-def test_line_data_structure(sample_line_parser):  # pylint: disable=redefined-outer-name
+def test_line_data_structure(
+    sample_line_parser,
+):  # pylint: disable=redefined-outer-name
     """Test line data structure validation."""
     line = sample_line_parser.get_line_by_name("Andes220->Oeste220")
     assert line is not None
-    
+
     required_fields = {
         "name": str,
         "bus_a": str,
@@ -74,9 +76,9 @@ def test_line_data_structure(sample_line_parser):  # pylint: disable=redefined-o
         "f_max_ba": float,
         "has_losses": bool,
         "num_sections": int,
-        "is_operational": bool
+        "is_operational": bool,
     }
-    
+
     for field, field_type in required_fields.items():
         assert field in line
         assert isinstance(line[field], field_type), f"Field {field} has wrong type"
@@ -89,7 +91,7 @@ def test_line_name_parsing():
         ("BusA-BusB", ("BusA", "BusB")),
         ("LongName->Short", ("LongName", "Short")),
     ]
-    
+
     for name, expected in test_cases:
         parser = LineParser("test.dat")
         result = parser._parse_line_name(name)
@@ -99,7 +101,7 @@ def test_line_name_parsing():
 def test_invalid_line_names():
     """Test handling of invalid line names."""
     invalid_names = ["Bus1", "Bus1>Bus2", "Bus1-Bus2-Bus3", ""]
-    
+
     parser = LineParser("test.dat")
     for name in invalid_names:
         with pytest.raises(ValueError, match="Invalid line name format"):
@@ -114,12 +116,14 @@ def test_get_lines_by_bus(sample_line_parser):  # pylint: disable=redefined-oute
     names = {line["name"] for line in lines}
     assert "Andes220->Oeste220" in names
     assert "Andes345->Andes220" in names
-    
+
     # Test non-existent bus
     assert len(sample_line_parser.get_lines_by_bus("NonExistentBus")) == 0
 
 
-def test_get_lines_by_bus_num(sample_line_parser):  # pylint: disable=redefined-outer-name
+def test_get_lines_by_bus_num(
+    sample_line_parser,
+):  # pylint: disable=redefined-outer-name
     """Test getting lines filtered by bus number."""
     # Test existing bus number
     lines = sample_line_parser.get_lines_by_bus_num(5)
@@ -128,7 +132,7 @@ def test_get_lines_by_bus_num(sample_line_parser):  # pylint: disable=redefined-
     assert "Antofag110->Desalant110" in names
     assert "Antofag110->LaNegra110" in names
     assert "Capricornio110->Antofag110" in names
-    
+
     # Test non-existent bus number
     assert len(sample_line_parser.get_lines_by_bus_num(999)) == 0
 
@@ -141,7 +145,7 @@ def test_voltage_extraction(sample_line_parser):  # pylint: disable=redefined-ou
         ("Andes345->Andes220", 345.0),
         ("Test66->Test66", 66.0),
     ]
-    
+
     for name, expected_voltage in test_cases:
         line = sample_line_parser.get_line_by_name(name)
         assert line["voltage"] == expected_voltage
