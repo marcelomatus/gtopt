@@ -161,14 +161,6 @@ def main(args: Optional[List[str]] = None) -> int:
     Example:
         $ python generator_parser.py input.dat
     """
-    """Command line entry point for generator file analysis.
-
-    Args:
-        args: Command line arguments (uses sys.argv if None)
-
-    Returns:
-        int: Exit status (0 for success)
-    """
     if args is None:
         args = sys.argv[1:]
 
