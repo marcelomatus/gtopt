@@ -45,7 +45,7 @@ class LineWriter:
                 "f_max_ba": line["f_max_ba"],
                 "voltage": line["voltage"],
                 "has_losses": line["has_losses"],
-                "is_operational": line["is_operational"]
+                "is_operational": line["is_operational"],
             }
             json_lines.append(json_line)
         return json_lines

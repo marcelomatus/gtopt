@@ -28,7 +28,7 @@ class GeneratorWriter:
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert generator data to JSON array format.
-        
+
         Returns:
             List of generator dictionaries in GTOPT JSON format
         """
@@ -41,8 +41,8 @@ class GeneratorWriter:
                 "gcost": generator["variable_cost"],
                 "capacity": generator["p_max"],
                 "expcap": None,  # Not in PLP format
-                "expmod": None,  # Not in PLP format 
-                "annual_capcost": None  # Not in PLP format
+                "expmod": None,  # Not in PLP format
+                "annual_capcost": None,  # Not in PLP format
             }
             json_generators.append(json_generator)
         return json_generators
