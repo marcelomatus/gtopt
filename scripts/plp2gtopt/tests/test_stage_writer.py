@@ -101,16 +101,16 @@ def test_write_empty_stages():
     """Test handling of empty stage list."""
     # Create parser with no stages
     parser = StageParser("dummy.dat")
-    # Create mock parser with empty data  
-    class MockBlockParser:
+    # Create mock parser with empty data
+    class MockStageParser:
         def __init__(self):
             self._data = []
+            self.num_stages = 0
         
-        def get_blocks(self):
+        def get_stages(self):
             return self._data
     
-    parser = MockBlockParser()
-    parser.num_stages = 0
+    parser = MockStageParser()
 
     writer = StageWriter(parser)
     json_stages = writer.to_json_array()
