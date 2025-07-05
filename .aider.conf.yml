@@ -11,6 +11,6 @@ lint-cmd:
   - "cmake: cmake-lint"
 
 pre-commit:
-  - "git ls-files | xargs pre-commit run --files"
+  - "pre-commit run --all-files"
 
 model: deepseek/deepseek-coder
