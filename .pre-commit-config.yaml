@@ -43,7 +43,7 @@ repos:
       - id: markdownlint
         args: [--config=.markdownlint.json]
 
-  - repo: https://github.com/cheshirekow/cmake-format-precommit
+  - repo: https://github.com/cheshirekow/cmake-format
     rev: v0.6.13
     hooks:
       - id: cmake-format
