@@ -33,7 +33,7 @@ def test_stage_writer_initialization(sample_stage_file):  # pylint: disable=rede
     writer = StageWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.stages) == parser.num_stages
+    assert len(writer.items) == parser.num_stages
 
 
 def test_to_json_array(sample_stage_writer):  # pylint: disable=redefined-outer-name
@@ -77,7 +77,7 @@ def test_from_stage_file(sample_stage_file):  # pylint: disable=redefined-outer-
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_stage_file
     assert writer.parser.num_stages > 0
-    assert len(writer.stages) == writer.parser.num_stages
+    assert len(writer.items) == writer.parser.num_stages
 
 
 def test_json_output_structure(

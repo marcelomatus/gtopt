@@ -33,7 +33,7 @@ def test_line_writer_initialization(sample_line_file):  # pylint: disable=redefi
     writer = LineWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.lines) == parser.num_lines
+    assert len(writer.items) == parser.num_lines
 
 
 def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-name
@@ -86,7 +86,7 @@ def test_from_line_file(sample_line_file):  # pylint: disable=redefined-outer-na
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_line_file
     assert writer.parser.num_lines > 0
-    assert len(writer.lines) == writer.parser.num_lines
+    assert len(writer.items) == writer.parser.num_lines
 
 
 def test_json_output_structure(

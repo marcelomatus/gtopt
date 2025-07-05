@@ -33,7 +33,7 @@ def test_bus_writer_initialization(sample_bus_file):  # pylint: disable=redefine
     writer = BusWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.buses) == parser.num_buses
+    assert len(writer.items) == parser.num_buses
 
 
 def test_to_json_array(sample_bus_writer):  # pylint: disable=redefined-outer-name
@@ -75,7 +75,7 @@ def test_from_bus_file(sample_bus_file):  # pylint: disable=redefined-outer-name
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_bus_file
     assert writer.parser.num_buses > 0
-    assert len(writer.buses) == writer.parser.num_buses
+    assert len(writer.items) == writer.parser.num_buses
 
 
 def test_json_output_structure(
