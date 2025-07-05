@@ -26,15 +26,13 @@ def sample_stage_writer(sample_stage_file):
     return StageWriter(parser)
 
 
-def test_stage_writer_initialization(
-    sample_stage_file,
-):  # pylint: disable=redefined-outer-name
+def test_stage_writer_initialization(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test StageWriter initialization."""
     parser = StageParser(sample_stage_file)
     parser.parse()
     writer = StageWriter(parser)
 
-    assert writer.stage_parser == parser
+    assert writer.parser == parser
     assert len(writer.stages) == parser.num_stages
 
 
@@ -74,12 +72,12 @@ def test_write_to_file(sample_stage_writer):  # pylint: disable=redefined-outer-
 
 def test_from_stage_file(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test creating StageWriter directly from stage file."""
-    writer = StageWriter.from_stage_file(sample_stage_file)
+    writer = StageWriter.from_file(sample_stage_file, StageParser)
 
     # Verify parser was initialized and parsed
-    assert writer.stage_parser.file_path == sample_stage_file
-    assert writer.stage_parser.num_stages > 0
-    assert len(writer.stages) == writer.stage_parser.num_stages
+    assert writer.parser.file_path == sample_stage_file
+    assert writer.parser.num_stages > 0
+    assert len(writer.stages) == writer.parser.num_stages
 
 
 def test_json_output_structure(
