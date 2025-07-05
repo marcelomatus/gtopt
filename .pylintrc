@@ -18,7 +18,9 @@ disable=
     too-many-public-methods,
     too-many-lines,
     too-many-nested-blocks,
-    too-complex
+    too-complex,
+    redefined-outer-name,
+    too-many-positional-arguments
 
 [FORMAT]
 max-line-length=120
