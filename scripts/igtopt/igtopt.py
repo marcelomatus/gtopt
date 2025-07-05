@@ -61,16 +61,16 @@ def split_in_columns(my_list):
     return "\n".join(result)
 
 
-description = """
+description = f"""
 converts an Excel file to the Fesopp input files.
-- All the sheets and columns with names that start with ".", such as ".calc", are ignored.
 
-- All the sheets with name that include "@", such as "demand@lmax", are saved
-  directly in the input directory.
+Key features:
+- Sheets/columns starting with "." (like ".calc") are ignored
+- Sheets containing "@" (like "demand@lmax") are saved directly to input directory
+- Basic expected sheets:
 
-the basic expected sheets are:\n%s""", split_in_columns(
-    expected_sheets
-)
+{split_in_columns(expected_sheets)}
+"""
 
 
 def df_to_file(df, input_path, cname, fname, input_format, compression):
