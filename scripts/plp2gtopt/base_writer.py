@@ -23,7 +23,6 @@ class BaseWriter(ABC):
     @abstractmethod
     def _get_items(self) -> List[Dict[str, Any]]:
         """Get items from parser - to be implemented by child classes"""
-        pass
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert data to JSON array format (to be implemented by subclasses)."""
