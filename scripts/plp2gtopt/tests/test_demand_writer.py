@@ -94,27 +94,29 @@ def test_json_output_structure(
     """Verify JSON output matches expected structure."""
     json_demands = sample_demand_writer.to_json_array()
 
-    # Check against example from system_c0.json
-    expected_fields = {
-        "uid",
-        "name",
-        "bus",
-        "lmax",
-        "capacity",
-        "expcap",
-        "expmod",
-        "annual_capcost",
+    # Expected structure from system_c0.json
+    REQUIRED_FIELDS = {
+        "uid": int,
+        "name": str,
+        "bus": str,
+        "lmax": str,
+        "capacity": float,
+        "expcap": type(None),
+        "expmod": type(None),
+        "annual_capcost": type(None),
     }
+
     for demand in json_demands:
-        assert set(demand.keys()) == expected_fields
-        assert isinstance(demand["uid"], int)
-        assert isinstance(demand["name"], str)
-        assert isinstance(demand["bus"], str)
-        assert isinstance(demand["lmax"], str)
-        assert isinstance(demand["capacity"], float)
-        assert demand["expcap"] is None
-        assert demand["expmod"] is None
-        assert demand["annual_capcost"] is None
+        # Check all required fields exist and have correct types
+        assert set(demand.keys()) == set(REQUIRED_FIELDS.keys())
+        for field, field_type in REQUIRED_FIELDS.items():
+            assert isinstance(demand[field], field_type), \
+                f"Field {field} should be {field_type}, got {type(demand[field])}"
+        
+        # Additional value checks
+        assert demand["uid"] > 0, "UID should be positive integer"
+        assert demand["name"].startswith("Bar"), "Demand name should start with 'Bar'"
+        assert demand["capacity"] >= 0, "Capacity should be non-negative"
 
 
 def test_write_empty_demands():
@@ -125,14 +127,25 @@ def test_write_empty_demands():
     parser.num_bars = 0
 
     writer = DemandWriter(parser)
+    
+    # Test empty array conversion
     json_demands = writer.to_json_array()
-    assert not json_demands
+    assert isinstance(json_demands, list)
+    assert len(json_demands) == 0
 
     # Test writing empty list
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:
         output_path = Path(tmp_file.name)
         writer.write_to_file(output_path)
 
+        # Verify file exists and is valid JSON
+        assert output_path.exists()
         with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            assert data == []
+            assert isinstance(data, list)
+            assert len(data) == 0
+        
+        # Verify file can be read again
+        with open(output_path, "r", encoding="utf-8") as f:
+            data2 = json.load(f)
+            assert data == data2
