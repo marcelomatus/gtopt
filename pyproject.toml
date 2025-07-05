@@ -23,10 +23,9 @@ dev = [
 
 [tool.setuptools]
 packages = ["plp2gtopt", "igtopt"]
-package-dir = {
-    "plp2gtopt": "scripts/plp2gtopt",
-    "igtopt": "scripts/igtopt"
-}
+[tool.setuptools.package-dir]
+plp2gtopt = "scripts/plp2gtopt"
+igtopt = "scripts/igtopt"
 include-package-data = true
 
 [tool.black]
