@@ -3,9 +3,8 @@
 
 """Pytest tests for generator_parser.py."""
 
-import pytest
 from pathlib import Path
-from typing import Dict, List
+import pytest
 
 from scripts.plp2gtopt.generator_parser import GeneratorParser
 
@@ -52,7 +51,6 @@ def test_parse_valid_file(valid_gen_file):
     """Test parsing a valid generator file."""
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
-    
     assert parser.get_num_generators() == 2
     generators = parser.get_generators()
     assert len(generators) == 2
@@ -84,7 +82,6 @@ def test_get_generators_by_bus(valid_gen_file):
     """Test getting generators by bus ID."""
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
-    
     bus1_gens = parser.get_generators_by_bus("1")
     assert len(bus1_gens) == 1
     assert bus1_gens[0]["id"] == "1"
@@ -92,7 +89,6 @@ def test_get_generators_by_bus(valid_gen_file):
     bus2_gens = parser.get_generators_by_bus("2")
     assert len(bus2_gens) == 1
     assert bus2_gens[0]["id"] == "2"
-    
     empty_gens = parser.get_generators_by_bus("999")
     assert len(empty_gens) == 0
 
