@@ -54,6 +54,9 @@ class LineParser(BaseParser):
                 if line and not line.startswith("#"):
                     lines.append(line)
 
+        if not lines:
+            raise ValueError("File is empty")
+
         idx = 0
         # First line contains number of lines and other config
         config_parts = lines[idx].split()
@@ -89,8 +92,18 @@ class LineParser(BaseParser):
             )
             idx += 1
 
-    def _parse_line_name(self, name: str) -> tuple[str, str]:
-        """Extract bus_a and bus_b from line name."""
+    def parse_line_name(self, name: str) -> tuple[str, str]:
+        """Extract bus_a and bus_b from line name.
+        
+        Args:
+            name: Line name in format "BusA->BusB" or "BusA-BusB"
+            
+        Returns:
+            Tuple of (bus_a, bus_b)
+            
+        Raises:
+            ValueError: If name format is invalid
+        """
         if "->" in name:
             bus_a, bus_b = name.split("->", 1)
         elif "-" in name:
