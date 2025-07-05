@@ -105,36 +105,35 @@ class LineParser(BaseParser):
         Raises:
             ValueError: If name format is invalid or empty
         """
+        # Check for empty/whitespace-only names
         if not name or not name.strip():
             raise ValueError("Line name cannot be empty or whitespace only")
 
-        # Only allow one type of separator in the name
-        if "->" in name and "-" in name.replace("->", ""):
-            raise ValueError(
-                f"Invalid line name format: {name}. Mixed separators not allowed"
-            )
+        name = name.strip()
+        
+        # Check for invalid standalone '>' character
+        if ">" in name and "->" not in name:
+            raise ValueError("Invalid line name format - '>' must be part of '->'")
 
-        if "->" in name:
-            parts = name.split("->", 1)
-        elif "-" in name:
-            parts = name.split("-", 1)
-        else:
-            raise ValueError(
-                f"Invalid line name format: {name}. Must contain '->' or '-'"
-            )
+        # Determine separator type
+        has_arrow = "->" in name
+        has_hyphen = "-" in name and not has_arrow
 
+        if not has_arrow and not has_hyphen:
+            raise ValueError("Line name must contain '->' or '-' separator")
+
+        # Split using the appropriate separator
+        separator = "->" if has_arrow else "-"
+        parts = [p.strip() for p in name.split(separator)]
+        
+        # Validate we have exactly two non-empty parts
         if len(parts) != 2:
-            raise ValueError(
-                f"Invalid line name format: {name}. Must contain exactly two bus names"
-            )
+            raise ValueError("Line name must contain exactly two bus names separated by '->' or '-'")
+        
+        if not all(parts):
+            raise ValueError("Both bus names must be non-empty")
 
-        bus_a, bus_b = parts[0].strip(), parts[1].strip()
-        if not bus_a or not bus_b:
-            raise ValueError(
-                f"Invalid line name format: {name}. Bus names cannot be empty"
-            )
-
-        return bus_a, bus_b
+        return parts[0], parts[1]
 
     def _parse_line_voltage(self, name: str) -> float:
         """Extract voltage from line name."""
