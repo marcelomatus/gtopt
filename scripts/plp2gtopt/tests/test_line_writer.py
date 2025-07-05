@@ -95,8 +95,17 @@ def test_json_output_structure(sample_line_writer):  # pylint: disable=redefined
     
     # Check against example from system_c0.json
     required_fields = {
-        "uid", "name", "bus_a", "bus_b", "r", "x",
-        "f_max_ab", "f_max_ba", "voltage", "has_losses", "is_operational"
+        "uid",
+        "name",
+        "bus_a",
+        "bus_b",
+        "r",
+        "x",
+        "f_max_ab",
+        "f_max_ba",
+        "voltage",
+        "has_losses",
+        "is_operational",
     }
     
     for line in json_lines:

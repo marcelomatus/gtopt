@@ -91,13 +91,18 @@ def test_from_generator_file(sample_generator_file):  # pylint: disable=redefine
 def test_json_output_structure(sample_generator_writer):  # pylint: disable=redefined-outer-name
     """Verify JSON output matches expected structure."""
     json_generators = sample_generator_writer.to_json_array()
-    
+
     # Check against example from system_c0.json
     expected_fields = {
-        "uid", "name", "bus", "gcost", "capacity", 
-        "expcap", "expmod", "annual_capcost"
+        "uid",
+        "name",
+        "bus",
+        "gcost",
+        "capacity",
+        "expcap",
+        "expmod",
+        "annual_capcost",
     }
-    
     for generator in json_generators:
         assert set(generator.keys()) == expected_fields
         assert isinstance(generator["uid"], str)
