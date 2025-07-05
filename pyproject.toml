@@ -23,10 +23,8 @@ dev = [
 
 [tool.setuptools]
 packages = ["plp2gtopt", "igtopt"]
-[tool.setuptools.package-dir]
-plp2gtopt = "scripts/plp2gtopt"
-igtopt = "scripts/igtopt"
-include-package-data = true
+package-dir = {plp2gtopt = "scripts/plp2gtopt", igtopt = "scripts/igtopt"}
+include-package-data = "true"
 
 [tool.black]
 line-length = 88
