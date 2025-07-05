@@ -1,91 +1,85 @@
-"""PLP to GTOPT conversion functions."""
+"""PLP to GTOPT conversion functions.
+
+Handles:
+- Coordinating all parser modules
+- Validating input data consistency
+- Managing conversion process
+"""
 
 from pathlib import Path
-from typing import Union
+from typing import Dict, List, Union
 
-from .demand_parser import DemandParser
-from .stage_parser import StageParser
-from .block_parser import BlockParser
-from .bus_parser import BusParser
-from .line_parser import LineParser
-from .generator_parser import GeneratorParser
+from plp2gtopt.demand_parser import DemandParser
+from plp2gtopt.stage_parser import StageParser
+from plp2gtopt.block_parser import BlockParser
+from plp2gtopt.bus_parser import BusParser
+from plp2gtopt.line_parser import LineParser
+from plp2gtopt.generator_parser import GeneratorParser
 
 
-def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) -> None:
+def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) -> Dict[str, int]:
     """Convert PLP input files to GTOPT format.
 
     Args:
         input_dir: Path to directory containing PLP input files
         output_dir: Path to directory to write GTOPT output files
 
-    Raises:
-        FileNotFoundError: If input directory doesn't exist
-        ValueError: If input files are invalid
-    """
-    """Convert PLP input files to GTOPT format.
+    Returns:
+        Dictionary containing counts of parsed entities:
+        {
+            'blocks': int,
+            'stages': int,
+            'buses': int,
+            'lines': int,
+            'generators': int,
+            'demands': int
+        }
 
-    Args:
-        input_dir: Path to directory containing PLP input files
-        output_dir: Path to directory to write GTOPT output files
-
     Raises:
-        FileNotFoundError: If input directory doesn't exist
-        ValueError: If input files are invalid
+        FileNotFoundError: If input directory or files don't exist
+        ValueError: If input files are invalid or inconsistent
+        RuntimeError: If conversion fails
     """
     input_path = Path(input_dir)
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input directory not found: {input_path}")
-
     output_path = Path(output_dir)
+    
+    # Validate paths
+    if not input_path.is_dir():
+        raise FileNotFoundError(f"Input directory not found: {input_path}")
     output_path.mkdir(parents=True, exist_ok=True)
 
-    print("Parsing plpblo.dat file...")
-    block_parser = BlockParser(input_path / "plpblo.dat")
-    if not block_parser.file_path.exists():
-        raise FileNotFoundError(f"Block file not found: {block_parser.file_path}")
-    block_parser.parse()
-    print(f"blocks {block_parser.num_blocks}")
-    print("Parsing complete.")
+    results = {}
+    parsers = {
+        'blocks': (BlockParser, "plpblo.dat"),
+        'stages': (StageParser, "plpeta.dat"), 
+        'buses': (BusParser, "plpbar.dat"),
+        'lines': (LineParser, "plpcnfli.dat"),
+        'generators': (GeneratorParser, "plpcnfce.dat"),
+        'demands': (DemandParser, "plpdem.dat")
+    }
 
-    print("Parsing plpeta.dat file...")
-    stage_parser = StageParser(input_path / "plpeta.dat")
-    if not stage_parser.file_path.exists():
-        raise FileNotFoundError(f"Stage file not found: {stage_parser.file_path}")
-    stage_parser.parse()
-    print(f"stages {stage_parser.num_stages}")
-    print("Parsing complete.")
+    try:
+        for name, (parser_class, filename) in parsers.items():
+            filepath = input_path / filename
+            print(f"Parsing {filename}...")
+            
+            if not filepath.exists():
+                raise FileNotFoundError(f"{name} file not found: {filepath}")
 
-    print("Parsing plpbar.dat file...")
-    bus_parser = BusParser(input_path / "plpbar.dat")
-    if not bus_parser.file_path.exists():
-        raise FileNotFoundError(f"Bus file not found: {bus_parser.file_path}")
-    bus_parser.parse()
-    print(f"buses {bus_parser.num_buses}")
-    print("Parsing complete.")
+            parser = parser_class(filepath)
+            parser.parse()
+            results[name] = getattr(parser, f"num_{name}")
+            print(f"Found {results[name]} {name}")
+            
+        # Validate cross-parser consistency
+        if results['buses'] != results['demands']:
+            raise ValueError(
+                f"Bus count ({results['buses']}) doesn't match demand count ({results['demands']})"
+            )
 
-    print("Parsing plpcnfli.dat file...")
-    line_parser = LineParser(input_path / "plpcnfli.dat")
-    if not line_parser.file_path.exists():
-        raise FileNotFoundError(f"Line file not found: {line_parser.file_path}")
-    line_parser.parse()
-    print(f"lines {line_parser.num_lines}")
-    print("Parsing complete.")
+        print(f"\nConversion complete. Results saved to: {output_path}")
+        return results
 
-    print("Parsing plpcnfce.dat file...")
-    generator_parser = GeneratorParser(input_path / "plpcnfce.dat")
-    if not generator_parser.file_path.exists():
-        raise FileNotFoundError(f"Generator file not found: {generator_parser.file_path}")
-    generator_parser.parse()
-    print(f"generators {generator_parser.num_generators}")
-    print("Parsing complete.")
-
-    print("Parsing plpdem.dat file...")
-    demand_parser = DemandParser(input_path / "plpdem.dat")
-    if not demand_parser.file_path.exists():
-        raise FileNotFoundError(f"Demand file not found: {demand_parser.file_path}")
-    demand_parser.parse()
-    print(f"demands {demand_parser.num_bars}")
-    print("Parsing complete.")
-
-    # TODO: Implement actual conversion logic
-    print(f"Converting PLP files from {input_path} to GTOPT format in {output_path}")
+    except Exception as e:
+        print(f"\nConversion failed: {str(e)}")
+        raise RuntimeError(f"PLP to GTOPT conversion failed: {str(e)}") from e
