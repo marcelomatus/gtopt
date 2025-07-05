@@ -67,7 +67,9 @@ class BlockParser:
             block_num = int(parts[0].lstrip("0") or 0)  # Convert "001" to 1
             stage = int(parts[1].lstrip("0") or 0)
             duration = float(parts[2].lstrip("0") or 0)
-            self.blocks.append({"number": block_num, "stage": stage, "duration": duration})
+            self.blocks.append(
+                {"number": block_num, "stage": stage, "duration": duration}
+            )
             idx += 1
 
     def get_blocks(self) -> List[Dict[str, Any]]:

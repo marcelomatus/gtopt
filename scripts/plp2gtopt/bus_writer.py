@@ -23,7 +23,7 @@ class BusWriter(BaseWriter):
         return [
             {
                 "uid": bus["number"],
-                "name": bus["name"], 
+                "name": bus["name"],
                 "voltage": bus["voltage"],
             }
             for bus in self.items

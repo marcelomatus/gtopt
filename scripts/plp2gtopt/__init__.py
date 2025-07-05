@@ -12,4 +12,11 @@ from .stage_parser import StageParser
 from .block_parser import BlockParser
 from .bus_parser import BusParser
 
-__all__ = ["convert_plp_case", "main", "DemandParser", "StageParser", "BlockParser", "BusParser"]
+__all__ = [
+    "convert_plp_case",
+    "main",
+    "DemandParser",
+    "StageParser",
+    "BlockParser",
+    "BusParser",
+]

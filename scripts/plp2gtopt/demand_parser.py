@@ -16,6 +16,7 @@ from typing import Any, Optional, List, Dict, Union
 
 from .base_parser import BaseParser
 
+
 class DemandParser(BaseParser):
     """Parser for plpdem.dat format files containing bus demand data."""
 

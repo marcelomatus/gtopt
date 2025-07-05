@@ -17,7 +17,9 @@ from plp2gtopt.line_parser import LineParser
 from plp2gtopt.generator_parser import GeneratorParser
 
 
-def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) -> Dict[str, int]:
+def convert_plp_case(
+    input_dir: Union[str, Path], output_dir: Union[str, Path]
+) -> Dict[str, int]:
     """Convert PLP input files to GTOPT format.
 
     Args:
@@ -42,7 +44,7 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
     """
     input_path = Path(input_dir)
     output_path = Path(output_dir)
-    
+
     # Validate paths
     if not input_path.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_path}")
@@ -50,19 +52,24 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
 
     results = {}
     parsers = [
-        ('blocks', BlockParser, "plpblo.dat", "num_blocks"),
-        ('stages', StageParser, "plpeta.dat", "num_stages"),
-        ('buses', BusParser, "plpbar.dat", "num_buses"),
-        ('lines', LineParser, "plpcnfli.dat", "num_lines"),
-        ('generators', GeneratorParser, "plpcnfce.dat", "num_generators"),
-        ('demands', DemandParser, "plpdem.dat", "num_bars")  # Note: DemandParser uses num_bars
+        ("blocks", BlockParser, "plpblo.dat", "num_blocks"),
+        ("stages", StageParser, "plpeta.dat", "num_stages"),
+        ("buses", BusParser, "plpbar.dat", "num_buses"),
+        ("lines", LineParser, "plpcnfli.dat", "num_lines"),
+        ("generators", GeneratorParser, "plpcnfce.dat", "num_generators"),
+        (
+            "demands",
+            DemandParser,
+            "plpdem.dat",
+            "num_bars",
+        ),  # Note: DemandParser uses num_bars
     ]
 
     try:
         for name, parser_class, filename, count_attr in parsers:
             filepath = input_path / filename
             print(f"Parsing {filename}...")
-            
+
             if not filepath.exists():
                 raise FileNotFoundError(f"{name} file not found: {filepath}")
 
@@ -70,9 +77,9 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
             parser.parse()
             results[name] = getattr(parser, count_attr)
             print(f"Found {results[name]} {name}")
-            
+
         # Validate cross-parser consistency
-        if results['buses'] != results['demands']:
+        if results["buses"] != results["demands"]:
             raise ValueError(
                 f"Bus count ({results['buses']}) doesn't match demand count ({results['demands']})"
             )

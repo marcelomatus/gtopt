@@ -26,7 +26,9 @@ def sample_bus_writer(sample_bus_file):
     return BusWriter(parser)
 
 
-def test_bus_writer_initialization(sample_bus_file):  # pylint: disable=redefined-outer-name
+def test_bus_writer_initialization(
+    sample_bus_file,
+):  # pylint: disable=redefined-outer-name
     """Test BusWriter initialization."""
     parser = BusParser(sample_bus_file)
     parser.parse()

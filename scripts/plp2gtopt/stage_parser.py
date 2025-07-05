@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .base_parser import BaseParser
 
+
 class StageParser(BaseParser):
     """Parser for plpeta.dat format files containing stage data."""
 
@@ -54,7 +55,11 @@ class StageParser(BaseParser):
             stage_num = int(parts[2])  # Etapa is the stage number
             duration = float(parts[4])  # NHoras is the duration
             # Calculate discount factor from FactTasa if present, default to 1.0
-            discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 and float(parts[5]) != 0 else 1.0
+            discount_factor = (
+                1.0 / float(parts[5])
+                if len(parts) > 5 and float(parts[5]) != 0
+                else 1.0
+            )
             idx += 1
 
             self._data.append(
