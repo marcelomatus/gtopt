@@ -23,7 +23,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def setUp(self) -> None:
         """Create temporary test files and test data.
-        
+
         Sets up:
         - valid_gen.dat: Properly formatted generator file
         - empty_gen.dat: Empty file
@@ -43,7 +43,9 @@ class TestGeneratorParser(unittest.TestCase):
             f.write("          PotMin PotMax VertMin VertMax\n")
             f.write("           010.0  100.0   000.0   000.0\n")
             f.write("          CosVar  Rendi  Barra Genera Vertim\n")
-            f.write("             5.0  1.000  1      0      0\n")  # Removed extra spaces in bus ID
+            f.write(
+                "             5.0  1.000  1      0      0\n"
+            )  # Removed extra spaces in bus ID
             f.write(
                 "    2 'TEST_GEN2'                                       1    F       F       F       F           F          0           0\n"
             )
@@ -71,7 +73,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def test_parse_valid_file(self) -> None:
         """Test parsing a valid generator file.
-        
+
         Verifies:
         - Correct number of generators parsed
         - All expected attributes are present
@@ -108,7 +110,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def test_get_generators_by_bus(self) -> None:
         """Test getting generators by bus ID.
-        
+
         Cases tested:
         - Existing bus with generators
         - Existing bus without generators
@@ -127,7 +129,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def test_parse_nonexistent_file(self) -> None:
         """Test parsing a non-existent file.
-        
+
         Verifies:
         - Proper FileNotFoundError is raised
         - Error message contains the missing file path
@@ -138,7 +140,7 @@ class TestGeneratorParser(unittest.TestCase):
 
     def test_parse_empty_file(self) -> None:
         """Test parsing edge cases.
-        
+
         Cases tested:
         - Empty file (should parse without error)
         - File with only comments
