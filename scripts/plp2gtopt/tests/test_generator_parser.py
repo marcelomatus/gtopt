@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Pytest tests for generator_parser.py."""
+"""Unit tests for the GeneratorParser class.
+
+Tests include:
+- Parsing valid generator files
+- Handling empty/malformed files
+- Generator data extraction
+- Bus-based generator queries
+"""
 
 from pathlib import Path
+from typing import Dict, List
 import pytest
 
 from plp2gtopt.generator_parser import GeneratorParser
 
 
-@pytest.fixture
-def valid_gen_file(tmp_path) -> Path:
-    """Create a valid generator test file."""
+@pytest.fixture(name="valid_gen_file")
+def valid_gen_file_fixture(tmp_path: Path) -> Path:
+    """Create a valid generator test file fixture.
+    
+    Args:
+        tmp_path: Pytest temporary path fixture
+        
+    Returns:
+        Path to temporary test file with valid generator data
+    """
     file_path = tmp_path / "valid_gen.dat"
     content = """# Test generator file
     1 'TEST_GEN1'                                       1    F       F       F       F           F          0           0
@@ -50,6 +65,11 @@ def malformed_gen_file(tmp_path) -> Path:
 def test_parse_valid_file(valid_gen_file: Path) -> None:
     """Test parsing a valid generator file.
     
+    Verifies:
+    - Correct number of generators parsed
+    - All generator fields are correctly extracted
+    - Data types are correct
+    
     Args:
         valid_gen_file: Path to valid generator test file
     """
@@ -82,8 +102,17 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen2["is_battery"] is False
 
 
-def test_get_generators_by_bus(valid_gen_file):
-    """Test getting generators by bus ID."""
+def test_get_generators_by_bus(valid_gen_file: Path) -> None:
+    """Test getting generators filtered by bus ID.
+    
+    Verifies:
+    - Correct filtering by bus ID
+    - Empty result for non-existent bus
+    - Return type is correct
+    
+    Args:
+        valid_gen_file: Path to valid generator test file
+    """
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     bus1_gens = parser.get_generators_by_bus("1")
@@ -97,22 +126,47 @@ def test_get_generators_by_bus(valid_gen_file):
     assert len(empty_gens) == 0
 
 
-def test_parse_nonexistent_file(tmp_path):
-    """Test parsing a non-existent file."""
+def test_parse_nonexistent_file(tmp_path: Path) -> None:
+    """Test handling of non-existent input file.
+    
+    Verifies:
+    - Proper FileNotFoundError is raised
+    - Error contains meaningful message
+    
+    Args:
+        tmp_path: Pytest temporary path fixture
+    """
     parser = GeneratorParser(tmp_path / "nonexistent.dat")
     with pytest.raises(FileNotFoundError):
         parser.parse()
 
 
-def test_parse_empty_file(empty_gen_file):
-    """Test parsing an empty file."""
+def test_parse_empty_file(empty_gen_file: Path) -> None:
+    """Test handling of empty input file.
+    
+    Verifies:
+    - Parser handles empty file gracefully
+    - Returns empty generator list
+    - Doesn't raise exceptions
+    
+    Args:
+        empty_gen_file: Path to empty test file
+    """
     parser = GeneratorParser(empty_gen_file)
     parser.parse()  # Should not raise for empty file
     assert parser.get_num_generators() == 0
 
 
-def test_parse_malformed_file(malformed_gen_file):
-    """Test parsing a malformed file."""
+def test_parse_malformed_file(malformed_gen_file: Path) -> None:
+    """Test handling of malformed input file.
+    
+    Verifies:
+    - Proper ValueError/IndexError is raised
+    - Error contains meaningful message
+    
+    Args:
+        malformed_gen_file: Path to malformed test file
+    """
     parser = GeneratorParser(malformed_gen_file)
     with pytest.raises((ValueError, IndexError)):
         parser.parse()
