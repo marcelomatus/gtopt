@@ -100,12 +100,23 @@ def test_line_name_parsing():
 
 def test_invalid_line_names():
     """Test handling of invalid line names."""
-    invalid_names = ["Bus1", "Bus1>Bus2", ""]
+    test_cases = [
+        ("Bus1", "must contain '->' or '-'"),
+        ("Bus1>Bus2", "Invalid line name format"),
+        ("", "cannot be empty"),
+        ("Bus1-Bus2-Bus3", "exactly two bus names"),
+        ("Bus1->", "cannot be empty"),
+        ("->Bus2", "cannot be empty"),
+        ("  ", "cannot be empty"),
+        ("Bus1->Bus2->Bus3", "exactly two bus names"),
+    ]
 
     parser = LineParser("test.dat")
-    for name in invalid_names:
-        with pytest.raises(ValueError):
-            parser.parse_line_name(name)  # Use public method
+    for name, expected_msg in test_cases:
+        with pytest.raises(ValueError) as excinfo:
+            parser.parse_line_name(name)
+        assert expected_msg in str(excinfo.value), \
+            f"Expected error message containing '{expected_msg}' for input '{name}'"
 
 
 def test_get_lines_by_bus(sample_line_parser):  # pylint: disable=redefined-outer-name
