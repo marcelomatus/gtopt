@@ -3,7 +3,7 @@
 lint-cmd:
   - "cpp: clang-tidy -p . --quiet"
   - "python: black --line-length 120"
-  - "python: mypy"
+  - "python: mypy --strict --show-error-codes --ignore-missing-imports --disallow-untyped-defs --disallow-incomplete-defs"
   - "python: flake8 --max-line-length=120 --ignore=E203,E266,E501,W503"
   - "python: pylint --output-format=text --score=no --fail-under=8.0"
   - "shell: shellcheck -x"
