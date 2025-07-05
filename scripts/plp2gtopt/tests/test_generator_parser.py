@@ -11,7 +11,6 @@ Tests include:
 """
 
 from pathlib import Path
-from typing import Dict, List  # noqa: F401 (kept for potential future use)
 import pytest
 
 from plp2gtopt.generator_parser import GeneratorParser
