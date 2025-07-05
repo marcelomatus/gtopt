@@ -7,7 +7,7 @@ Handles:
 """
 
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, Union
 
 from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.stage_parser import StageParser
