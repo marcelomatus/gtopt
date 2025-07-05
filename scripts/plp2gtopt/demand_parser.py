@@ -14,14 +14,10 @@ from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
 
 
-class DemandParser:
-    """Parser for plpdem.dat format files containing bus demand data.
+from .base_parser import BaseParser
 
-    Attributes:
-        file_path: Path to the demand file
-        demands: List of parsed demand entries
-        num_bars: Number of bars in the file
-    """
+class DemandParser(BaseParser):
+    """Parser for plpdem.dat format files containing bus demand data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with demand file path.
@@ -29,9 +25,9 @@ class DemandParser:
         Args:
             file_path: Path to plpdem.dat format file (str or Path)
         """
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.demands: List[Dict[str, Any]] = []
-        self.num_bars: int = 0
+        super().__init__(file_path)
+        self._data: List[Dict[str, Any]] = []
+        self._count: int = 0
 
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.

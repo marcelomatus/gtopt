@@ -15,14 +15,10 @@ from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
 
 
-class BusParser:
-    """Parser for plpbar.dat format files containing bus data.
+from .base_parser import BaseParser
 
-    Attributes:
-        file_path: Path to the bus file
-        buses: List of parsed bus entries
-        num_buses: Number of buses in the file
-    """
+class BusParser(BaseParser):
+    """Parser for plpbar.dat format files containing bus data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with bus file path.
@@ -30,9 +26,9 @@ class BusParser:
         Args:
             file_path: Path to plpbar.dat format file (str or Path)
         """
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.buses: List[Dict[str, Any]] = []
-        self.num_buses: int = 0
+        super().__init__(file_path)
+        self._data: List[Dict[str, Any]] = []
+        self._count: int = 0
 
     def parse(self) -> None:
         """Parse the bus file and populate the buses structure.
