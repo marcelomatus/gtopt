@@ -32,10 +32,8 @@ class LineParser(BaseParser):
         Args:
             file_path: Path to plpcnfli.dat format file (str or Path)
         """
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         super().__init__(file_path)
-        self._data: List[Dict[str, Any]] = []
-        self._count: int = 0
+        self.num_lines: int = 0
 
     def parse(self) -> None:
         """Parse the line file and populate the lines structure.
@@ -72,7 +70,7 @@ class LineParser(BaseParser):
             line_name = line_parts[0].strip("'")
             bus_a, bus_b = self._parse_line_name(line_name)
 
-            self.lines.append(
+            self._data.append(
                 {
                     "name": line_name,
                     "bus_a": bus_a,
@@ -111,7 +109,7 @@ class LineParser(BaseParser):
 
     def get_lines(self) -> List[Dict[str, Any]]:
         """Return the parsed lines structure."""
-        return self.lines
+        return self._data
 
     def get_num_lines(self) -> int:
         """Return the number of lines in the file."""
@@ -119,18 +117,18 @@ class LineParser(BaseParser):
 
     def get_line_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get line data for a specific line name."""
-        for line in self.lines:
+        for line in self._data:
             if line["name"] == name:
                 return line
         return None
 
     def get_lines_by_bus(self, bus_name: str) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus."""
-        return [line for line in self.lines if bus_name in (line["bus_a"], line["bus_b"])]
+        return [line for line in self._data if bus_name in (line["bus_a"], line["bus_b"])]
 
     def get_lines_by_bus_num(self, bus_num: int) -> List[Dict[str, Any]]:
         """Get all lines connected to a specific bus number."""
-        return [line for line in self.lines if bus_num in (line["bus_a_num"], line["bus_b_num"])]
+        return [line for line in self._data if bus_num in (line["bus_a_num"], line["bus_b_num"])]
 
 
 def main(args: Optional[List[str]] = None) -> int:
