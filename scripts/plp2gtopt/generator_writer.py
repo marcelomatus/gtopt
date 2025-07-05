@@ -22,7 +22,7 @@ class GeneratorWriter(BaseWriter):
         """Convert generator data to JSON array format."""
         return [
             {
-                "uid": int(gen["id"]),  # Convert string ID to integer
+                "uid": int(gen["id"]),  # Keep generator UIDs as integers
                 "name": gen["name"],
                 "bus": gen["bus"],
                 "gcost": gen["variable_cost"],
