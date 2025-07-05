@@ -113,7 +113,7 @@ def test_json_output_structure(
     }
     for generator in json_generators:
         assert set(generator.keys()) == expected_fields
-        assert isinstance(generator["uid"], str)
+        assert isinstance(generator["uid"], int)
         assert isinstance(generator["name"], str)
         assert isinstance(generator["bus"], str)
         assert isinstance(generator["gcost"], float)
