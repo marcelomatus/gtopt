@@ -133,8 +133,16 @@ def test_write_empty_lines():
     """Test handling of empty line list."""
     # Create parser with no lines
     parser = LineParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
-    parser.num_lines = 0
+    # Create mock parser with empty data
+    class MockLineParser:
+        def __init__(self):
+            self._data = []
+            self.num_lines = 0
+        
+        def get_lines(self):
+            return self._data
+    
+    parser = MockLineParser()
 
     writer = LineWriter(parser)
     json_lines = writer.to_json_array()
