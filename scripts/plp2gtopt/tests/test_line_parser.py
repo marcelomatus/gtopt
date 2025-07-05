@@ -115,8 +115,9 @@ def test_invalid_line_names():
     for name, expected_msg in test_cases:
         with pytest.raises(ValueError) as excinfo:
             parser.parse_line_name(name)
-        assert expected_msg in str(excinfo.value), \
-            f"Expected error message containing '{expected_msg}' for input '{name}'"
+        assert expected_msg in str(
+            excinfo.value
+        ), f"Expected error message containing '{expected_msg}' for input '{name}'"
 
 
 def test_get_lines_by_bus(sample_line_parser):  # pylint: disable=redefined-outer-name
