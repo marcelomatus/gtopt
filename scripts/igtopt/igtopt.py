@@ -68,7 +68,7 @@ converts an Excel file to the Fesopp input files.
 - All the sheets with name that include "@", such as "demand@lmax", are saved
   directly in the input directory.
 
-the basic expected sheets are:\n%s""" % split_in_columns(
+the basic expected sheets are:\n%s""", split_in_columns(
     expected_sheets
 )
 
@@ -107,11 +107,11 @@ def df_to_opts(df, options):
         for key, value in options.items():
             opts[key] = value
         return opts
-    else:
-        logging.error(
-            "'options' sheet requires both 'option' or 'value' columns, not found"
-        )
-        sys.exit(1)
+
+    logging.error(
+        "'options' sheet requires both 'option' or 'value' columns, not found"
+    )
+    sys.exit(1)
 
 
 def df_to_str(df, skip_nulls=True):
@@ -196,8 +196,8 @@ def main(args) -> int:
                 if not args.parse_unexpected_sheets:
                     logging.warning("skipping unexpected sheet %s", sheet_name)
                     continue
-                else:
-                    logging.warning("processing unexpected sheet %s", sheet_name)
+
+                logging.warning("processing unexpected sheet %s", sheet_name)
 
             if sheet_name == "options":
                 options = df_to_opts(df, options)
@@ -220,8 +220,8 @@ def main(args) -> int:
         # close the json_file
         if options:
             json_file.write(
-                ',"options":%s\n'
-                % json.dumps(options, indent=json_indent, separators=json_separators)
+                ',"options":%s\n',
+                json.dumps(options, indent=json_indent, separators=json_separators),
             )
 
         json_file.write("}\n")
@@ -229,7 +229,7 @@ def main(args) -> int:
         logging.info("Fesopp input file %s was successfully generated", str(json_path))
     else:
         logging.warning(
-            "no valid data was found, the file %s was not generated" % str(json_path)
+            "no valid data was found, the file %s was not generated", str(json_path)
         )
 
     return 0
