@@ -61,8 +61,8 @@ def convert_plp_case(
             "demands",
             DemandParser,
             "plpdem.dat",
-            "num_bars",
-        ),  # Note: DemandParser uses num_bars
+            "num_demands",
+        ),
     ]
 
     try:
