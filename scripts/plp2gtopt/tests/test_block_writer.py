@@ -70,12 +70,12 @@ def test_write_to_file(sample_block_writer):  # pylint: disable=redefined-outer-
 
 def test_from_block_file(sample_block_file):  # pylint: disable=redefined-outer-name
     """Test creating BlockWriter directly from block file."""
-    writer = BlockWriter.from_block_file(sample_block_file)
+    writer = BlockWriter.from_file(sample_block_file, BlockParser)
 
     # Verify parser was initialized and parsed
-    assert writer.block_parser.file_path == sample_block_file
-    assert writer.block_parser.num_blocks > 0
-    assert len(writer.blocks) == writer.block_parser.num_blocks
+    assert writer.parser.file_path == sample_block_file
+    assert writer.parser.num_blocks > 0
+    assert len(writer.blocks) == writer.parser.num_blocks
 
 
 def test_json_output_structure(
