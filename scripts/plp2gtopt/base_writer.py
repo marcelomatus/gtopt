@@ -1,13 +1,13 @@
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
 import json
+import sys
 
 T = TypeVar('T', bound='BaseWriter')
 P = TypeVar('P', bound='BaseParser')
 
 class BaseWriter:
     """Base class for all GTOPT JSON writers."""
-    
     def __init__(self, parser: P) -> None:
         """Initialize with a parser instance.
         
@@ -35,7 +35,7 @@ class BaseWriter:
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
-        except (IOError, json.JSONEncodeError) as e:
+        except (IOError, ValueError) as e:
             raise IOError(f"Failed to write JSON: {str(e)}") from e
 
     @classmethod
@@ -64,9 +64,6 @@ class BaseWriter:
             writer_class: Writer class to use
             parser_class: Parser class to use
         """
-        import sys
-        from pathlib import Path
-
         if len(sys.argv) != 3:
             print(f"Usage: {sys.argv[0]} <input.dat> <output.json>")
             sys.exit(1)
