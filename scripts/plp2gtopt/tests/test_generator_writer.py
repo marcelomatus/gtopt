@@ -33,7 +33,7 @@ def test_generator_writer_initialization(sample_generator_file):  # pylint: disa
     writer = GeneratorWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.generators) == parser.num_generators
+    assert len(writer.items) == parser.num_generators
 
 
 def test_to_json_array(sample_generator_writer):  # pylint: disable=redefined-outer-name
@@ -87,7 +87,7 @@ def test_from_generator_file(sample_generator_file):  # pylint: disable=redefine
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_generator_file
     assert writer.parser.num_generators > 0
-    assert len(writer.generators) == writer.parser.num_generators
+    assert len(writer.items) == writer.parser.num_generators
 
 
 def test_json_output_structure(

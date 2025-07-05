@@ -35,7 +35,7 @@ def test_block_writer_initialization(
     writer = BlockWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.blocks) == parser.num_blocks
+    assert len(writer.items) == parser.num_blocks
 
 
 def test_to_json_array(sample_block_writer):  # pylint: disable=redefined-outer-name
@@ -75,7 +75,7 @@ def test_from_block_file(sample_block_file):  # pylint: disable=redefined-outer-
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_block_file
     assert writer.parser.num_blocks > 0
-    assert len(writer.blocks) == writer.parser.num_blocks
+    assert len(writer.items) == writer.parser.num_blocks
 
 
 def test_json_output_structure(
