@@ -7,14 +7,10 @@ from typing import Any, List, Dict, Union
 from pathlib import Path
 
 
-class StageParser:
-    """Parser for plpeta.dat format files containing stage data.
+from .base_parser import BaseParser
 
-    Attributes:
-        file_path: Path to the stage file
-        stages: List of parsed stage entries
-        num_stages: Number of stages in the file
-    """
+class StageParser(BaseParser):
+    """Parser for plpeta.dat format files containing stage data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with stage file path.
@@ -22,9 +18,9 @@ class StageParser:
         Args:
             file_path: Path to plpeta.dat format file (str or Path)
         """
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.stages: List[Dict[str, Any]] = []
-        self.num_stages = 0
+        super().__init__(file_path)
+        self._data: List[Dict[str, Any]] = []
+        self._count = 0
 
     def parse(self) -> None:
         """Parse the stage file and populate the stages structure.
