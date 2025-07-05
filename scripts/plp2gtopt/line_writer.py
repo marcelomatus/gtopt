@@ -34,7 +34,7 @@ class LineWriter(BaseWriter):
                 "has_losses": line["has_losses"],
                 "is_operational": line["is_operational"],
             }
-            for line in self.lines
+            for line in self.items
         ]
 
 

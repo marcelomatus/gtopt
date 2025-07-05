@@ -26,7 +26,7 @@ class BusWriter(BaseWriter):
                 "name": bus["name"], 
                 "voltage": bus["voltage"],
             }
-            for bus in self.buses
+            for bus in self.items
         ]
 
 
