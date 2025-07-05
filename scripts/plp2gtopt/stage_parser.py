@@ -20,7 +20,8 @@ class StageParser(BaseParser):
         """
         super().__init__(file_path)
         self._data: List[Dict[str, Any]] = []
-        self._count = 0
+        self.stages: List[Dict[str, Any]] = self._data  # Alias for _data
+        self.num_stages: int = 0
 
     def parse(self) -> None:
         """Parse the stage file and populate the stages structure.
@@ -56,7 +57,7 @@ class StageParser(BaseParser):
             discount_factor = 1.0 / float(parts[5]) if len(parts) > 5 and float(parts[5]) != 0 else 1.0
             idx += 1
 
-            self.stages.append(
+            self._data.append(
                 {
                     "number": stage_num,
                     "duration": duration,
