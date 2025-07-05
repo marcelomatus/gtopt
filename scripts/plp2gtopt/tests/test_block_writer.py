@@ -34,7 +34,7 @@ def test_block_writer_initialization(
     parser.parse()
     writer = BlockWriter(parser)
 
-    assert writer.block_parser == parser
+    assert writer.parser == parser
     assert len(writer.blocks) == parser.num_blocks
 
 
