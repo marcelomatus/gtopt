@@ -32,7 +32,6 @@ class BaseParser(ABC):
     @abstractmethod
     def parse(self) -> None:
         """Parse the input file."""
-        pass
 
     def get_all(self) -> List[Dict[str, Any]]:
         """Return all parsed items."""

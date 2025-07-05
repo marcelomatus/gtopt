@@ -191,13 +191,13 @@ def main(args) -> int:
                 continue
 
             if sheet_name in expected_sheets:
-                logging.info("processing sheet %s" % sheet_name)
+                logging.info("processing sheet %s", sheet_name)
             else:
                 if not args.parse_unexpected_sheets:
-                    logging.warning("skipping unexpected sheet %s" % sheet_name)
+                    logging.warning("skipping unexpected sheet %s", sheet_name)
                     continue
                 else:
-                    logging.warning("processing unexpected sheet %s" % sheet_name)
+                    logging.warning("processing unexpected sheet %s", sheet_name)
 
             if sheet_name == "options":
                 options = df_to_opts(df, options)
@@ -226,7 +226,7 @@ def main(args) -> int:
 
         json_file.write("}\n")
         json_file.close()
-        logging.info("Fesopp input file %s was successfully generated" % str(json_path))
+        logging.info("Fesopp input file %s was successfully generated", str(json_path))
     else:
         logging.warning(
             "no valid data was found, the file %s was not generated" % str(json_path)
@@ -312,15 +312,15 @@ if __name__ == "__main__":
 
         if not args.json_file:
             args.json_file = pathlib.Path(args.filenames[0]).with_suffix(".json")
-            logging.info("using json_file %s" % args.json_file)
+            logging.info("using json_file %s", args.json_file)
 
         if not args.input_directory:
             args.input_directory = pathlib.Path(args.filenames[0]).stem
-            logging.info("using input_directory %s" % args.input_directory)
+            logging.info("using input_directory %s", args.input_directory)
 
         if not args.name:
             args.name = pathlib.Path(args.filenames[0]).stem
-            logging.info("using system name %s" % args.name)
+            logging.info("using system name %s", args.name)
 
         result = main(args)
     except (IOError, ValueError, argparse.ArgumentError) as e:
