@@ -104,8 +104,12 @@ class LineParser(BaseParser):
         Raises:
             ValueError: If name format is invalid or empty
         """
-        if not name:
-            raise ValueError("Line name cannot be empty")
+        if not name or not name.strip():
+            raise ValueError("Line name cannot be empty or whitespace only")
+            
+        # Only allow one type of separator in the name
+        if "->" in name and "-" in name.replace("->", ""):
+            raise ValueError(f"Invalid line name format: {name}. Mixed separators not allowed")
             
         if "->" in name:
             parts = name.split("->", 1)
@@ -114,10 +118,14 @@ class LineParser(BaseParser):
         else:
             raise ValueError(f"Invalid line name format: {name}. Must contain '->' or '-'")
             
-        if len(parts) != 2 or not all(parts):
+        if len(parts) != 2:
             raise ValueError(f"Invalid line name format: {name}. Must contain exactly two bus names")
             
-        return parts[0].strip(), parts[1].strip()
+        bus_a, bus_b = parts[0].strip(), parts[1].strip()
+        if not bus_a or not bus_b:
+            raise ValueError(f"Invalid line name format: {name}. Bus names cannot be empty")
+            
+        return bus_a, bus_b
 
     def _parse_line_voltage(self, name: str) -> float:
         """Extract voltage from line name."""
