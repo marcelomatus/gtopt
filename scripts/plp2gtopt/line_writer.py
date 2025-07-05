@@ -8,9 +8,10 @@ from pathlib import Path
 import json
 from .line_parser import LineParser
 
+
 class LineWriter:
     """Converts line parser data to JSON format used by GTOPT.
-    
+
     Handles:
     - Converting line data to JSON array format
     - Writing to output files
@@ -19,7 +20,7 @@ class LineWriter:
 
     def __init__(self, line_parser: LineParser):
         """Initialize with a LineParser instance.
-        
+
         Args:
             line_parser: LineParser containing parsed line data
         """
@@ -28,7 +29,7 @@ class LineWriter:
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert line data to JSON array format.
-        
+
         Returns:
             List of line dictionaries in GTOPT JSON format
         """
@@ -52,30 +53,30 @@ class LineWriter:
 
     def write_to_file(self, output_path: Path) -> None:
         """Write line data to JSON file.
-        
+
         Args:
             output_path: Path to output JSON file
-            
+
         Raises:
             IOError: If file writing fails
         """
         json_data = self.to_json_array()
         try:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
         except IOError as e:
             raise IOError(f"Failed to write line JSON: {str(e)}") from e
 
     @staticmethod
-    def from_line_file(line_file: Path) -> 'LineWriter':
+    def from_line_file(line_file: Path) -> "LineWriter":
         """Create LineWriter directly from line file.
-        
+
         Args:
             line_file: Path to plpcnfli.dat file
-            
+
         Returns:
             LineWriter instance
-            
+
         Raises:
             FileNotFoundError: If line file doesn't exist
         """
