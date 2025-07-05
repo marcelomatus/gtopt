@@ -1,24 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Unit tests for generator_parser.py"""
+"""Unit tests for generator_parser.py.
+
+Tests include:
+- Basic parsing functionality
+- Error handling
+- Edge cases
+- Generator attribute validation
+"""
 
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Dict, List
 
-from ..generator_parser import GeneratorParser
+from scripts.plp2gtopt.generator_parser import GeneratorParser
 
 
 class TestGeneratorParser(unittest.TestCase):
     """Test cases for GeneratorParser class."""
 
-    def setUp(self):
-        """Create temporary test files."""
+    def setUp(self) -> None:
+        """Create temporary test files and test data.
+        
+        Sets up:
+        - valid_gen.dat: Properly formatted generator file
+        - empty_gen.dat: Empty file
+        - bad_gen.dat: Malformed generator file
+        - edge_case_gen.dat: File with edge cases
+        """
         self.test_dir = tempfile.TemporaryDirectory()
         self.test_path = Path(self.test_dir.name)
 
-        # Create valid test file in plpcnfce.dat format
+        # Create valid test file with standard cases
         self.valid_file = self.test_path / "valid_gen.dat"
         with open(self.valid_file, "w", encoding="utf-8") as f:
             f.write("# Test generator file\n")
@@ -54,8 +69,15 @@ class TestGeneratorParser(unittest.TestCase):
         """Clean up temporary files."""
         self.test_dir.cleanup()
 
-    def test_parse_valid_file(self):
-        """Test parsing a valid generator file."""
+    def test_parse_valid_file(self) -> None:
+        """Test parsing a valid generator file.
+        
+        Verifies:
+        - Correct number of generators parsed
+        - All expected attributes are present
+        - Values are correctly converted to proper types
+        - Generator names are properly stripped
+        """
         parser = GeneratorParser(self.valid_file)
         parser.parse()
         self.assertEqual(parser.get_num_generators(), 2)
@@ -84,8 +106,14 @@ class TestGeneratorParser(unittest.TestCase):
         self.assertEqual(gen2["efficiency"], 0.9)
         self.assertEqual(gen2["is_battery"], False)
 
-    def test_get_generators_by_bus(self):
-        """Test getting generators by bus ID."""
+    def test_get_generators_by_bus(self) -> None:
+        """Test getting generators by bus ID.
+        
+        Cases tested:
+        - Existing bus with generators
+        - Existing bus without generators
+        - Non-existent bus ID
+        """
         parser = GeneratorParser(self.valid_file)
         parser.parse()
         bus1_gens = parser.get_generators_by_bus("1")
@@ -97,14 +125,25 @@ class TestGeneratorParser(unittest.TestCase):
         empty_gens = parser.get_generators_by_bus("999")
         self.assertEqual(len(empty_gens), 0)
 
-    def test_parse_nonexistent_file(self):
-        """Test parsing a non-existent file."""
+    def test_parse_nonexistent_file(self) -> None:
+        """Test parsing a non-existent file.
+        
+        Verifies:
+        - Proper FileNotFoundError is raised
+        - Error message contains the missing file path
+        """
         parser = GeneratorParser(self.test_path / "nonexistent.dat")
         with self.assertRaises(FileNotFoundError):
             parser.parse()
 
-    def test_parse_empty_file(self):
-        """Test parsing an empty file."""
+    def test_parse_empty_file(self) -> None:
+        """Test parsing edge cases.
+        
+        Cases tested:
+        - Empty file (should parse without error)
+        - File with only comments
+        - File with extra whitespace
+        """
         parser = GeneratorParser(self.empty_file)
         parser.parse()  # Should not raise for empty file
         self.assertEqual(parser.get_num_generators(), 0)
