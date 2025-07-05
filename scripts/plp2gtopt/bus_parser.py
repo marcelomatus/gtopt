@@ -17,6 +17,7 @@ from typing import Any, Optional, List, Dict, Union
 
 from .base_parser import BaseParser
 
+
 class BusParser(BaseParser):
     """Parser for plpbar.dat format files containing bus data."""
 
@@ -68,7 +69,9 @@ class BusParser(BaseParser):
             name = parts[1].strip("'").split("#")[0].strip()
 
             # Try to extract voltage from name (handles various patterns)
-            voltage_match = re.search(r"(\d+)(?:kV|KV)?(?:[-_].*)?$", name, re.IGNORECASE)
+            voltage_match = re.search(
+                r"(\d+)(?:kV|KV)?(?:[-_].*)?$", name, re.IGNORECASE
+            )
             if voltage_match:
                 voltage = float(voltage_match.group(1))
             else:

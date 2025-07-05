@@ -108,7 +108,9 @@ def df_to_opts(df, options):
             opts[key] = value
         return opts
     else:
-        logging.error("'options' sheet requires both 'option' or 'value' columns, not found")
+        logging.error(
+            "'options' sheet requires both 'option' or 'value' columns, not found"
+        )
         sys.exit(1)
 
 
@@ -217,20 +219,27 @@ def main(args) -> int:
     if json_file:
         # close the json_file
         if options:
-            json_file.write(',"options":%s\n' % json.dumps(options, indent=json_indent, separators=json_separators))
+            json_file.write(
+                ',"options":%s\n'
+                % json.dumps(options, indent=json_indent, separators=json_separators)
+            )
 
         json_file.write("}\n")
         json_file.close()
         logging.info("Fesopp input file %s was successfully generated" % str(json_path))
     else:
-        logging.warning("no valid data was found, the file %s was not generated" % str(json_path))
+        logging.warning(
+            "no valid data was found, the file %s was not generated" % str(json_path)
+        )
 
     return 0
 
 
 if __name__ == "__main__":
     try:
-        parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
+        parser = argparse.ArgumentParser(
+            description=description, formatter_class=argparse.RawTextHelpFormatter
+        )
         parser.add_argument(
             dest="filenames",
             nargs="+",
@@ -293,7 +302,9 @@ if __name__ == "__main__":
 
         args = parser.parse_args()
 
-        logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(message)s")
+        logging.basicConfig(
+            level=args.log_level, format="%(asctime)s %(levelname)s %(message)s"
+        )
 
         if args.pretty:
             json_indent = pretty_indent

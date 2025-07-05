@@ -26,7 +26,9 @@ def sample_stage_writer(sample_stage_file):
     return StageWriter(parser)
 
 
-def test_stage_writer_initialization(sample_stage_file):  # pylint: disable=redefined-outer-name
+def test_stage_writer_initialization(
+    sample_stage_file,
+):  # pylint: disable=redefined-outer-name
     """Test StageWriter initialization."""
     parser = StageParser(sample_stage_file)
     parser.parse()

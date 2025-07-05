@@ -4,14 +4,16 @@ from typing import Any, Dict, List, Type, TypeVar
 import json
 import sys
 
-T = TypeVar('T', bound='BaseWriter')
-P = TypeVar('P', bound='BaseParser')
+T = TypeVar("T", bound="BaseWriter")
+P = TypeVar("P", bound="BaseParser")
+
 
 class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
+
     def __init__(self, parser: P) -> None:
         """Initialize with a parser instance.
-        
+
         Args:
             parser: Parser containing parsed data
         """
@@ -29,10 +31,10 @@ class BaseWriter(ABC):
 
     def write_to_file(self, output_path: Path) -> None:
         """Write data to JSON file.
-        
+
         Args:
             output_path: Path to output JSON file
-            
+
         Raises:
             IOError: If file writing fails
             ValueError: If JSON conversion fails
@@ -47,14 +49,14 @@ class BaseWriter(ABC):
     @classmethod
     def from_file(cls: Type[T], input_file: Path, parser_class: Type[P]) -> T:
         """Create writer directly from input file.
-        
+
         Args:
             input_file: Path to input data file
             parser_class: Parser class to use
-            
+
         Returns:
             Writer instance
-            
+
         Raises:
             FileNotFoundError: If input file doesn't exist
         """
@@ -65,7 +67,7 @@ class BaseWriter(ABC):
     @staticmethod
     def main(writer_class: Type[T], parser_class: Type[P]) -> None:
         """Standard main method for CLI execution.
-        
+
         Args:
             writer_class: Writer class to use
             parser_class: Parser class to use
