@@ -22,7 +22,7 @@ class LineWriter(BaseWriter):
         """Convert line data to JSON array format."""
         return [
             {
-                "uid": line["name"],  # Keep name as string UID
+                "uid": str(line["name"]),  # Ensure uid is string
                 "name": line["name"],
                 "bus_a": line["bus_a"],
                 "bus_b": line["bus_b"],
