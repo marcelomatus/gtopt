@@ -41,7 +41,7 @@ def test_parser_initialization():
     test_path = "test.dat"
     parser = LineParser(test_path)
     assert parser.file_path == Path(test_path)
-    assert parser.get_lines() == []  # Use public method instead of accessing _data
+    assert not parser.get_lines()  # Use public method instead of accessing _data
     assert parser.num_lines == 0
 
 
