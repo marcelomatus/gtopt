@@ -101,7 +101,15 @@ def test_write_empty_stages():
     """Test handling of empty stage list."""
     # Create parser with no stages
     parser = StageParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
+    # Create mock parser with empty data  
+    class MockBlockParser:
+        def __init__(self):
+            self._data = []
+        
+        def get_blocks(self):
+            return self._data
+    
+    parser = MockBlockParser()
     parser.num_stages = 0
 
     writer = StageWriter(parser)
