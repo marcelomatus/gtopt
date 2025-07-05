@@ -27,7 +27,8 @@ class DemandParser(BaseParser):
         """
         super().__init__(file_path)
         self._data: List[Dict[str, Any]] = []
-        self._count: int = 0
+        self.demands: List[Dict[str, Any]] = self._data  # Alias for _data
+        self.num_bars: int = 0
 
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.
@@ -73,7 +74,7 @@ class DemandParser(BaseParser):
                 demands.append({"block": block, "demand": demand})
                 idx += 1
 
-            self.demands.append({"name": name, "demands": demands})
+            self._data.append({"name": name, "demands": demands})
 
     def get_demands(self) -> list[dict[str, Any]]:
         """Return the parsed demands structure."""
