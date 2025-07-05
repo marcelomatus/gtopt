@@ -31,11 +31,15 @@ class GeneratorParser:
 
         Raises:
             TypeError: If file_path is not str or Path
+            ValueError: If file_path is empty
         """
         if not isinstance(file_path, (str, Path)):
             raise TypeError(f"Expected str or Path, got {type(file_path).__name__}")
+        if not file_path:
+            raise ValueError("File path cannot be empty")
+            
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.generators: List[Dict[str, Any]] = []
+        self.generators: List[Dict[str, Union[str, float, bool]]] = []
 
     def parse(self) -> None:
         """Parse the generator file and populate the generators structure.
@@ -116,12 +120,37 @@ class GeneratorParser:
                 self._finalize_generator(current_gen)
 
     def _finalize_generator(self, gen: Dict[str, Any]) -> None:
-        """Validate and add a completed generator to the list."""
+        """Validate and add a completed generator to the list.
+        
+        Args:
+            gen: Generator dictionary to validate and add
+            
+        Raises:
+            ValueError: If required generator fields are missing/invalid
+        """
+        required_fields = {'id', 'name', 'bus', 'p_min', 'p_max', 
+                         'variable_cost', 'efficiency', 'is_battery'}
+        missing = required_fields - gen.keys()
+        if missing:
+            raise ValueError(f"Generator {gen.get('id', 'unknown')} missing fields: {missing}")
+            
         if gen["p_max"] > 0:  # Only add generators with positive capacity
             self.generators.append(gen)
 
-    def get_generators(self) -> List[Dict[str, Any]]:
-        """Return the parsed generators structure."""
+    def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
+        """Return the parsed generators structure.
+        
+        Returns:
+            List of generator dictionaries with these guaranteed keys:
+            - id (str): Generator identifier
+            - name (str): Generator name
+            - bus (str): Connected bus ID
+            - p_min (float): Minimum power output
+            - p_max (float): Maximum power output
+            - variable_cost (float): Cost per unit power
+            - efficiency (float): Conversion efficiency
+            - is_battery (bool): True if battery storage
+        """
         return self.generators
 
     def get_num_generators(self) -> int:
