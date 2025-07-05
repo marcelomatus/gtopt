@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 plp2gtopt = "plp2gtopt.main:main"
+igtopt = "igtopt.igtopt:main"
 
 [project.optional-dependencies]
 dev = [
@@ -21,8 +22,11 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["plp2gtopt"]
-package-dir = {"plp2gtopt" = "scripts/plp2gtopt"}
+packages = ["plp2gtopt", "igtopt"]
+package-dir = {
+    "plp2gtopt" = "scripts/plp2gtopt",
+    "igtopt" = "scripts/igtopt"
+}
 include-package-data = true
 
 [tool.black]
