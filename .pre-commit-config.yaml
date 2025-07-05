@@ -5,14 +5,14 @@ repos:
         name: GTOPT Lint
         entry: ./scripts/lint.sh
         language: system
-        types: [python, cpp, shell, yaml, markdown, cmake]
+        types: [python, c, sh, yaml, markdown]
         pass_filenames: false
         verbose: true
       - id: gtopt-format
         name: GTOPT Format
         entry: ./scripts/format.sh
         language: system
-        types: [python, cpp, shell, yaml, markdown, cmake]
+        types: [python, c, sh, yaml, markdown]
         pass_filenames: false
         verbose: true
       - id: gtopt-tests
