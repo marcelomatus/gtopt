@@ -11,10 +11,12 @@ from .bus_parser import BusParser
 class BusWriter(BaseWriter):
     """Converts bus parser data to JSON format used by GTOPT."""
 
+    def _get_items(self) -> List[Dict[str, Any]]:
+        return self.parser.get_buses()
+
     def __init__(self, bus_parser: BusParser):
         """Initialize with a BusParser instance."""
         super().__init__(bus_parser)
-        self.buses = bus_parser.get_buses()
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert bus data to JSON array format."""

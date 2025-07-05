@@ -11,10 +11,12 @@ from .line_parser import LineParser
 class LineWriter(BaseWriter):
     """Converts line parser data to JSON format used by GTOPT."""
 
+    def _get_items(self) -> List[Dict[str, Any]]:
+        return self.parser.get_lines()
+
     def __init__(self, line_parser: LineParser):
         """Initialize with a LineParser instance."""
         super().__init__(line_parser)
-        self.lines = line_parser.get_lines()
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert line data to JSON array format."""

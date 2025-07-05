@@ -11,10 +11,12 @@ from .stage_parser import StageParser
 class StageWriter(BaseWriter):
     """Converts stage parser data to JSON format used by GTOPT."""
 
+    def _get_items(self) -> List[Dict[str, Any]]:
+        return self.parser.get_stages()
+
     def __init__(self, stage_parser: StageParser):
         """Initialize with a StageParser instance."""
         super().__init__(stage_parser)
-        self.stages = stage_parser.get_stages()
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format."""

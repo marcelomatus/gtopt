@@ -11,10 +11,12 @@ from .generator_parser import GeneratorParser
 class GeneratorWriter(BaseWriter):
     """Converts generator parser data to JSON format used by GTOPT."""
 
+    def _get_items(self) -> List[Dict[str, Any]]:
+        return self.parser.get_generators()
+
     def __init__(self, generator_parser: GeneratorParser):
         """Initialize with a GeneratorParser instance."""
         super().__init__(generator_parser)
-        self.generators = generator_parser.get_generators()
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert generator data to JSON array format."""
