@@ -6,7 +6,7 @@
 from pathlib import Path
 import pytest
 
-from ..generator_parser import GeneratorParser
+from plp2gtopt.generator_parser import GeneratorParser
 
 
 @pytest.fixture

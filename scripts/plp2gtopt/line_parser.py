@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
 
 
-class LineParser:
+from .base_parser import BaseParser
+
+class LineParser(BaseParser):
     """Parser for plpcnfli.dat format files containing line data.
 
     Attributes:
@@ -31,8 +33,9 @@ class LineParser:
             file_path: Path to plpcnfli.dat format file (str or Path)
         """
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.lines: List[Dict[str, Any]] = []
-        self.num_lines: int = 0
+        super().__init__(file_path)
+        self._data: List[Dict[str, Any]] = []
+        self._count: int = 0
 
     def parse(self) -> None:
         """Parse the line file and populate the lines structure.

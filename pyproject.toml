@@ -60,5 +60,5 @@ disable = [
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["scripts/plp2gtopt/tests"]
-addopts = "-v"
-pythonpath = ["scripts"]
+addopts = "-v --import-mode=importlib"
+pythonpath = ["."]
