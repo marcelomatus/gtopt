@@ -8,9 +8,10 @@ from pathlib import Path
 import json
 from .block_parser import BlockParser
 
+
 class BlockWriter:
     """Converts block parser data to JSON format used by GTOPT.
-    
+
     Handles:
     - Converting block data to JSON format
     - Writing to output files
@@ -19,7 +20,7 @@ class BlockWriter:
 
     def __init__(self, block_parser: BlockParser):
         """Initialize with a BlockParser instance.
-        
+
         Args:
             block_parser: BlockParser containing parsed block data
         """
@@ -28,45 +29,42 @@ class BlockWriter:
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format.
-        
+
         Returns:
             List of block dictionaries in GTOPT JSON format
         """
         json_blocks = []
         for block in self.blocks:
-            json_block = {
-                "uid": block["number"],
-                "duration": block["duration"]
-            }
+            json_block = {"uid": block["number"], "duration": block["duration"]}
             json_blocks.append(json_block)
         return json_blocks
 
     def write_to_file(self, output_path: Path) -> None:
         """Write block data to JSON file.
-        
+
         Args:
             output_path: Path to output JSON file
-            
+
         Raises:
             IOError: If file writing fails
         """
         json_data = self.to_json_array()
         try:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
         except IOError as e:
             raise IOError(f"Failed to write block JSON: {str(e)}") from e
 
     @staticmethod
-    def from_block_file(block_file: Path) -> 'BlockWriter':
+    def from_block_file(block_file: Path) -> "BlockWriter":
         """Create BlockWriter directly from block file.
-        
+
         Args:
             block_file: Path to plpblo.dat file
-            
+
         Returns:
             BlockWriter instance
-            
+
         Raises:
             FileNotFoundError: If block file doesn't exist
         """
