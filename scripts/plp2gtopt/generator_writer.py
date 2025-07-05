@@ -31,7 +31,7 @@ class GeneratorWriter(BaseWriter):
                 "expmod": None,  # Not in PLP format
                 "annual_capcost": None,  # Not in PLP format
             }
-            for gen in self.generators
+            for gen in self.items
         ]
 
 

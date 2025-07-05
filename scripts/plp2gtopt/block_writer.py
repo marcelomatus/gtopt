@@ -22,7 +22,7 @@ class BlockWriter(BaseWriter):
         """Convert block data to JSON array format."""
         return [
             {"uid": block["number"], "duration": block["duration"]}
-            for block in self.blocks
+            for block in self.items
         ]
 
 

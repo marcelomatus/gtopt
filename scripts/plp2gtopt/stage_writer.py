@@ -27,7 +27,7 @@ class StageWriter(BaseWriter):
                 "count_block": 1,  # Each stage has exactly 1 block
                 "active": 1,  # All stages are active by default
             }
-            for stage in self.stages
+            for stage in self.items
         ]
 
 
