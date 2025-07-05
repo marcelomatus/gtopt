@@ -21,12 +21,12 @@ def sample_line_file():
 @pytest.fixture
 def sample_line_writer(sample_line_file):
     """Fixture providing initialized LineWriter with sample data."""
-    parser = LineParser(sample_line_file)
+    parser = LineParser(sample_line_file)  # Using fixture directly
     parser.parse()
     return LineWriter(parser)
 
 
-def test_line_writer_initialization(sample_line_file):
+def test_line_writer_initialization(sample_line_file):  # pylint: disable=redefined-outer-name
     """Test LineWriter initialization."""
     parser = LineParser(sample_line_file)
     parser.parse()
@@ -79,9 +79,9 @@ def test_write_to_file(sample_line_writer):  # pylint: disable=redefined-outer-n
             assert len(data) > 0
 
 
-def test_from_line_file(sample_line_file):
+def test_from_line_file(sample_line_file):  # pylint: disable=redefined-outer-name
     """Test creating LineWriter directly from line file."""
-    writer = LineWriter.from_file(sample_line_file, LineParser)
+    writer = LineWriter.from_file(sample_line_file, LineParser)  # Using fixture directly
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_line_file
