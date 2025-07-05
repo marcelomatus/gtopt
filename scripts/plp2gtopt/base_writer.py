@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
+from .base_parser import BaseParser
 import json
 import sys
 
