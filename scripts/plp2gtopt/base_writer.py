@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
 import json
@@ -15,7 +16,12 @@ class BaseWriter:
             parser: Parser containing parsed data
         """
         self.parser = parser
-        self.items = parser.get_items()  # Will be overridden by child classes
+        self.items = self._get_items()  # Implemented by child classes
+
+    @abstractmethod
+    def _get_items(self) -> List[Dict[str, Any]]:
+        """Get items from parser - to be implemented by child classes"""
+        pass
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert data to JSON array format (to be implemented by subclasses)."""

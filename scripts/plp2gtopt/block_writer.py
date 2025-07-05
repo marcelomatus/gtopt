@@ -11,10 +11,12 @@ from .block_parser import BlockParser
 class BlockWriter(BaseWriter):
     """Converts block parser data to JSON format used by GTOPT."""
 
+    def _get_items(self) -> List[Dict[str, Any]]:
+        return self.parser.get_blocks()
+
     def __init__(self, block_parser: BlockParser):
         """Initialize with a BlockParser instance."""
         super().__init__(block_parser)
-        self.blocks = block_parser.get_blocks()
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format."""
