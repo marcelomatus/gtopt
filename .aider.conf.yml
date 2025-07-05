@@ -10,7 +10,7 @@ lint-cmd:
   - "markdown: markdownlint -c .markdownlint.json"
   - "cmake: cmake-lint"
 
-pre-commit:
-  - "pre-commit run --all-files"
+#pre-commit:
+#  - "pre-commit run --all-files"
 
 model: deepseek/deepseek-coder

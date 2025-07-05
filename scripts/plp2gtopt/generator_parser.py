@@ -109,7 +109,9 @@ class GeneratorParser:
                             # Bus ID is in column 3 (0-based index 2) for "Barra"
                             current_gen["bus"] = parts[2]
                         except (ValueError, IndexError) as e:
-                            raise ValueError(f"Invalid generator data format at line: {next_line}") from e
+                            raise ValueError(
+                                f"Invalid generator data format at line: {next_line}"
+                            ) from e
 
                     # Check for battery in name
                     if "BESS" in current_gen["name"].upper():
@@ -120,27 +122,35 @@ class GeneratorParser:
 
     def _finalize_generator(self, gen: Dict[str, Any]) -> None:
         """Validate and add a completed generator to the list.
-        
+
         Args:
             gen: Generator dictionary to validate and add
-            
+
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
         required_fields = {
-            'id', 'name', 'bus', 'p_min', 'p_max',
-            'variable_cost', 'efficiency', 'is_battery'
+            "id",
+            "name",
+            "bus",
+            "p_min",
+            "p_max",
+            "variable_cost",
+            "efficiency",
+            "is_battery",
         }
         missing = required_fields - gen.keys()
         if missing:
-            raise ValueError(f"Generator {gen.get('id', 'unknown')} missing fields: {missing}")
-            
+            raise ValueError(
+                f"Generator {gen.get('id', 'unknown')} missing fields: {missing}"
+            )
+
         if gen["p_max"] > 0:  # Only add generators with positive capacity
             self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed generators structure.
-        
+
         Returns:
             List of generator dictionaries with these guaranteed keys:
             - id (str): Generator identifier
