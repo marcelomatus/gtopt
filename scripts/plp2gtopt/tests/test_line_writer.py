@@ -48,7 +48,7 @@ def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-n
 
     # Verify each line has required fields
     required_fields = {
-        "uid": int,
+        "uid": str,
         "name": str,
         "bus_a": str,
         "bus_b": str,
@@ -116,7 +116,7 @@ def test_json_output_structure(
 
     for line in json_lines:
         assert set(line.keys()) == required_fields
-        assert isinstance(line["uid"], int)
+        assert isinstance(line["uid"], str)
         assert isinstance(line["name"], str)
         assert isinstance(line["bus_a"], str)
         assert isinstance(line["bus_b"], str)
