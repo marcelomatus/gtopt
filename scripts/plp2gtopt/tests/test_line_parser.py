@@ -144,7 +144,7 @@ def test_voltage_extraction(sample_line_parser):  # pylint: disable=redefined-ou
     assert line1 is not None
     assert line1["voltage"] == 220.0
 
-    line2 = sample_line_parser.get_line_by_name("Antofag110->Desalant110") 
+    line2 = sample_line_parser.get_line_by_name("Antofag110->Desalant110")
     assert line2 is not None
     assert line2["voltage"] == 110.0
 
