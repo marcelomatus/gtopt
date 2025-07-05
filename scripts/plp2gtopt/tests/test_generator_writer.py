@@ -127,8 +127,24 @@ def test_write_empty_generators():
     """Test handling of empty generator list."""
     # Create parser with no generators
     parser = GeneratorParser("dummy.dat")
-    parser.generators = []  # Use public attribute
-    parser.num_generators = 0
+    # Create a mock parser with empty generators list
+    class MockGeneratorParser:
+        def __init__(self):
+            self._generators = []
+            self._num_generators = 0
+        
+        @property
+        def generators(self):
+            return self._generators
+        
+        @property
+        def num_generators(self):
+            return self._num_generators
+        
+        def get_generators(self):
+            return self._generators
+
+    parser = MockGeneratorParser()
 
     writer = GeneratorWriter(parser)
     json_generators = writer.to_json_array()
