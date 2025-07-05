@@ -102,15 +102,22 @@ class LineParser(BaseParser):
             Tuple of (bus_a, bus_b)
             
         Raises:
-            ValueError: If name format is invalid
+            ValueError: If name format is invalid or empty
         """
+        if not name:
+            raise ValueError("Line name cannot be empty")
+            
         if "->" in name:
-            bus_a, bus_b = name.split("->", 1)
+            parts = name.split("->", 1)
         elif "-" in name:
-            bus_a, bus_b = name.split("-", 1)
+            parts = name.split("-", 1)
         else:
-            raise ValueError(f"Invalid line name format: {name}")
-        return bus_a.strip(), bus_b.strip()
+            raise ValueError(f"Invalid line name format: {name}. Must contain '->' or '-'")
+            
+        if len(parts) != 2 or not all(parts):
+            raise ValueError(f"Invalid line name format: {name}. Must contain exactly two bus names")
+            
+        return parts[0].strip(), parts[1].strip()
 
     def _parse_line_voltage(self, name: str) -> float:
         """Extract voltage from line name."""
