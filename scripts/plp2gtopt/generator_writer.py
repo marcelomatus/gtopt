@@ -8,9 +8,10 @@ from pathlib import Path
 import json
 from .generator_parser import GeneratorParser
 
+
 class GeneratorWriter:
     """Converts generator parser data to JSON format used by GTOPT.
-    
+
     Handles:
     - Converting generator data to JSON array format
     - Writing to output files
@@ -19,7 +20,7 @@ class GeneratorWriter:
 
     def __init__(self, generator_parser: GeneratorParser):
         """Initialize with a GeneratorParser instance.
-        
+
         Args:
             generator_parser: GeneratorParser containing parsed generator data
         """
@@ -49,30 +50,30 @@ class GeneratorWriter:
 
     def write_to_file(self, output_path: Path) -> None:
         """Write generator data to JSON file.
-        
+
         Args:
             output_path: Path to output JSON file
-            
+
         Raises:
             IOError: If file writing fails
         """
         json_data = self.to_json_array()
         try:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
         except IOError as e:
             raise IOError(f"Failed to write generator JSON: {str(e)}") from e
 
     @staticmethod
-    def from_generator_file(generator_file: Path) -> 'GeneratorWriter':
+    def from_generator_file(generator_file: Path) -> "GeneratorWriter":
         """Create GeneratorWriter directly from generator file.
-        
+
         Args:
             generator_file: Path to plpcnfce.dat file
-            
+
         Returns:
             GeneratorWriter instance
-            
+
         Raises:
             FileNotFoundError: If generator file doesn't exist
         """

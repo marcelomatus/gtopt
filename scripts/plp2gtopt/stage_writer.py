@@ -8,9 +8,10 @@ from pathlib import Path
 import json
 from .stage_parser import StageParser
 
+
 class StageWriter:
     """Converts stage parser data to JSON format used by GTOPT.
-    
+
     Handles:
     - Converting stage data to JSON array format
     - Writing to output files
@@ -19,7 +20,7 @@ class StageWriter:
 
     def __init__(self, stage_parser: StageParser):
         """Initialize with a StageParser instance.
-        
+
         Args:
             stage_parser: StageParser containing parsed stage data
         """
@@ -28,7 +29,7 @@ class StageWriter:
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format.
-        
+
         Returns:
             List of stage dictionaries in GTOPT JSON format
         """
@@ -38,37 +39,37 @@ class StageWriter:
                 "uid": stage["number"],
                 "first_block": stage["number"] - 1,  # Convert to 0-based index
                 "count_block": 1,  # Each stage has exactly 1 block
-                "active": 1  # All stages are active by default
+                "active": 1,  # All stages are active by default
             }
             json_stages.append(json_stage)
         return json_stages
 
     def write_to_file(self, output_path: Path) -> None:
         """Write stage data to JSON file.
-        
+
         Args:
             output_path: Path to output JSON file
-            
+
         Raises:
             IOError: If file writing fails
         """
         json_data = self.to_json_array()
         try:
-            with open(output_path, 'w', encoding='utf-8') as f:
+            with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
         except IOError as e:
             raise IOError(f"Failed to write stage JSON: {str(e)}") from e
 
     @staticmethod
-    def from_stage_file(stage_file: Path) -> 'StageWriter':
+    def from_stage_file(stage_file: Path) -> "StageWriter":
         """Create StageWriter directly from stage file.
-        
+
         Args:
             stage_file: Path to plpeta.dat file
-            
+
         Returns:
             StageWriter instance
-            
+
         Raises:
             FileNotFoundError: If stage file doesn't exist
         """
