@@ -99,34 +99,33 @@ def test_json_output_structure(
     """Verify JSON output matches expected structure."""
     json_lines = sample_line_writer.to_json_array()
 
-    # Check against example from system_c0.json
-    required_fields = {
-        "uid",
-        "name",
-        "bus_a",
-        "bus_b",
-        "r",
-        "x",
-        "f_max_ab",
-        "f_max_ba",
-        "voltage",
-        "has_losses",
-        "is_operational",
+    # Expected structure from system_c0.json
+    REQUIRED_FIELDS = {
+        "uid": str,
+        "name": str, 
+        "bus_a": str,
+        "bus_b": str,
+        "r": float,
+        "x": float,
+        "f_max_ab": float,
+        "f_max_ba": float,
+        "voltage": float,
+        "has_losses": bool,
+        "is_operational": bool
     }
 
     for line in json_lines:
-        assert set(line.keys()) == required_fields
-        assert isinstance(line["uid"], str)  # UIDs should be strings for lines
-        assert isinstance(line["name"], str)
-        assert isinstance(line["bus_a"], str)
-        assert isinstance(line["bus_b"], str)
-        assert isinstance(line["r"], float)
-        assert isinstance(line["x"], float)
-        assert isinstance(line["f_max_ab"], float)
-        assert isinstance(line["f_max_ba"], float)
-        assert isinstance(line["voltage"], float)
-        assert isinstance(line["has_losses"], bool)
-        assert isinstance(line["is_operational"], bool)
+        # Check all required fields exist and have correct types
+        assert set(line.keys()) == set(REQUIRED_FIELDS.keys())
+        for field, field_type in REQUIRED_FIELDS.items():
+            assert isinstance(line[field], field_type), \
+                f"Field {field} should be {field_type}, got {type(line[field])}"
+        
+        # Additional value checks
+        assert line["r"] >= 0, "Resistance should be non-negative"
+        assert line["x"] >= 0, "Reactance should be non-negative"
+        assert line["f_max_ab"] >= 0, "Flow limit AB should be non-negative"
+        assert line["f_max_ba"] >= 0, "Flow limit BA should be non-negative"
 
 
 def test_write_empty_lines():
