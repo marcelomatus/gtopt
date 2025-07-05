@@ -47,8 +47,12 @@ def malformed_gen_file(tmp_path) -> Path:
     return file_path
 
 
-def test_parse_valid_file(valid_gen_file):
-    """Test parsing a valid generator file."""
+def test_parse_valid_file(valid_gen_file: Path) -> None:
+    """Test parsing a valid generator file.
+    
+    Args:
+        valid_gen_file: Path to valid generator test file
+    """
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     assert parser.get_num_generators() == 2
