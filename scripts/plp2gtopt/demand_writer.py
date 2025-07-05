@@ -22,7 +22,9 @@ class DemandWriter(BaseWriter):
         """Convert demand data to JSON array format."""
         return [
             {
-                "uid": int(demand["name"].replace("Bar", "")),  # Convert name to integer UID
+                "uid": int(
+                    demand["name"].replace("Bar", "")
+                ),  # Convert name to integer UID
                 "name": demand["name"],
                 "bus": demand["name"],  # Using name as bus ID
                 "lmax": "lmax",  # Default value from system_c0.json
