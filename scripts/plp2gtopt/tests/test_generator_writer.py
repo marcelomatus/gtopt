@@ -54,7 +54,7 @@ def test_to_json_array(sample_generator_writer):  # pylint: disable=redefined-ou
         assert "expcap" in generator
         assert "expmod" in generator
         assert "annual_capcost" in generator
-        assert isinstance(generator["uid"], str)
+        assert isinstance(generator["uid"], int)
         assert isinstance(generator["name"], str)
         assert isinstance(generator["bus"], str)
         assert isinstance(generator["gcost"], float)

@@ -7,7 +7,7 @@ import sys
 T = TypeVar('T', bound='BaseWriter')
 P = TypeVar('P', bound='BaseParser')
 
-class BaseWriter:
+class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
     def __init__(self, parser: P) -> None:
         """Initialize with a parser instance.
