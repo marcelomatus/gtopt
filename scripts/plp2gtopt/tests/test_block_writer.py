@@ -3,10 +3,10 @@
 
 """Unit tests for BlockWriter class."""
 
-from pathlib import Path
-import pytest
 import json
 import tempfile
+from pathlib import Path
+import pytest
 from ..block_writer import BlockWriter
 from ..block_parser import BlockParser
 from .conftest import get_example_file
@@ -26,7 +26,7 @@ def sample_block_writer(sample_block_file):
     return BlockWriter(parser)
 
 
-def test_block_writer_initialization(sample_block_file):
+def test_block_writer_initialization(sample_block_file):  # pylint: disable=redefined-outer-name
     """Test BlockWriter initialization."""
     parser = BlockParser(sample_block_file)
     parser.parse()
@@ -36,7 +36,7 @@ def test_block_writer_initialization(sample_block_file):
     assert len(writer.blocks) == parser.num_blocks
 
 
-def test_to_json_array(sample_block_writer):
+def test_to_json_array(sample_block_writer):  # pylint: disable=redefined-outer-name
     """Test conversion of blocks to JSON array format."""
     json_blocks = sample_block_writer.to_json_array()
     
@@ -52,7 +52,7 @@ def test_to_json_array(sample_block_writer):
         assert isinstance(block["duration"], (int, float))
 
 
-def test_write_to_file(sample_block_writer):
+def test_write_to_file(sample_block_writer):  # pylint: disable=redefined-outer-name
     """Test writing block data to JSON file."""
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:
         output_path = Path(tmp_file.name)
@@ -66,7 +66,7 @@ def test_write_to_file(sample_block_writer):
             assert len(data) > 0
 
 
-def test_from_block_file(sample_block_file):
+def test_from_block_file(sample_block_file):  # pylint: disable=redefined-outer-name
     """Test creating BlockWriter directly from block file."""
     writer = BlockWriter.from_block_file(sample_block_file)
     
@@ -76,7 +76,7 @@ def test_from_block_file(sample_block_file):
     assert len(writer.blocks) == writer.block_parser.num_blocks
 
 
-def test_json_output_structure(sample_block_writer):
+def test_json_output_structure(sample_block_writer):  # pylint: disable=redefined-outer-name
     """Verify JSON output matches expected structure."""
     json_blocks = sample_block_writer.to_json_array()
     
@@ -91,12 +91,12 @@ def test_write_empty_blocks():
     """Test handling of empty block list."""
     # Create parser with no blocks
     parser = BlockParser("dummy.dat")
-    parser._data = []
+    parser._data = []  # pylint: disable=protected-access
     parser.num_blocks = 0
     
     writer = BlockWriter(parser)
     json_blocks = writer.to_json_array()
-    assert json_blocks == []
+    assert not json_blocks
     
     # Test writing empty list
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:
