@@ -26,15 +26,13 @@ def sample_line_writer(sample_line_file):
     return LineWriter(parser)
 
 
-def test_line_writer_initialization(
-    sample_line_file,
-):  # pylint: disable=redefined-outer-name
+def test_line_writer_initialization(sample_line_file):  # pylint: disable=redefined-outer-name
     """Test LineWriter initialization."""
     parser = LineParser(sample_line_file)
     parser.parse()
     writer = LineWriter(parser)
 
-    assert writer.line_parser == parser
+    assert writer.parser == parser
     assert len(writer.lines) == parser.num_lines
 
 
@@ -83,12 +81,12 @@ def test_write_to_file(sample_line_writer):  # pylint: disable=redefined-outer-n
 
 def test_from_line_file(sample_line_file):  # pylint: disable=redefined-outer-name
     """Test creating LineWriter directly from line file."""
-    writer = LineWriter.from_line_file(sample_line_file)
+    writer = LineWriter.from_file(sample_line_file, LineParser)
 
     # Verify parser was initialized and parsed
-    assert writer.line_parser.file_path == sample_line_file
-    assert writer.line_parser.num_lines > 0
-    assert len(writer.lines) == writer.line_parser.num_lines
+    assert writer.parser.file_path == sample_line_file
+    assert writer.parser.num_lines > 0
+    assert len(writer.lines) == writer.parser.num_lines
 
 
 def test_json_output_structure(

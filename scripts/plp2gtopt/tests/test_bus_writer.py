@@ -26,15 +26,13 @@ def sample_bus_writer(sample_bus_file):
     return BusWriter(parser)
 
 
-def test_bus_writer_initialization(
-    sample_bus_file,
-):  # pylint: disable=redefined-outer-name
+def test_bus_writer_initialization(sample_bus_file):  # pylint: disable=redefined-outer-name
     """Test BusWriter initialization."""
     parser = BusParser(sample_bus_file)
     parser.parse()
     writer = BusWriter(parser)
 
-    assert writer.bus_parser == parser
+    assert writer.parser == parser
     assert len(writer.buses) == parser.num_buses
 
 
@@ -72,12 +70,12 @@ def test_write_to_file(sample_bus_writer):  # pylint: disable=redefined-outer-na
 
 def test_from_bus_file(sample_bus_file):  # pylint: disable=redefined-outer-name
     """Test creating BusWriter directly from bus file."""
-    writer = BusWriter.from_bus_file(sample_bus_file)
+    writer = BusWriter.from_file(sample_bus_file, BusParser)
 
     # Verify parser was initialized and parsed
-    assert writer.bus_parser.file_path == sample_bus_file
-    assert writer.bus_parser.num_buses > 0
-    assert len(writer.buses) == writer.bus_parser.num_buses
+    assert writer.parser.file_path == sample_bus_file
+    assert writer.parser.num_buses > 0
+    assert len(writer.buses) == writer.parser.num_buses
 
 
 def test_json_output_structure(

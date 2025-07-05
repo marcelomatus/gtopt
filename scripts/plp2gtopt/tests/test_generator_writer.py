@@ -26,15 +26,13 @@ def sample_generator_writer(sample_generator_file):
     return GeneratorWriter(parser)
 
 
-def test_generator_writer_initialization(
-    sample_generator_file,
-):  # pylint: disable=redefined-outer-name
+def test_generator_writer_initialization(sample_generator_file):  # pylint: disable=redefined-outer-name
     """Test GeneratorWriter initialization."""
     parser = GeneratorParser(sample_generator_file)
     parser.parse()
     writer = GeneratorWriter(parser)
 
-    assert writer.generator_parser == parser
+    assert writer.parser == parser
     assert len(writer.generators) == parser.num_generators
 
 
@@ -82,16 +80,14 @@ def test_write_to_file(sample_generator_writer):  # pylint: disable=redefined-ou
             assert len(data) > 0
 
 
-def test_from_generator_file(
-    sample_generator_file,
-):  # pylint: disable=redefined-outer-name
+def test_from_generator_file(sample_generator_file):  # pylint: disable=redefined-outer-name
     """Test creating GeneratorWriter directly from generator file."""
-    writer = GeneratorWriter.from_generator_file(sample_generator_file)
+    writer = GeneratorWriter.from_file(sample_generator_file, GeneratorParser)
 
     # Verify parser was initialized and parsed
-    assert writer.generator_parser.file_path == sample_generator_file
-    assert writer.generator_parser.num_generators > 0
-    assert len(writer.generators) == writer.generator_parser.num_generators
+    assert writer.parser.file_path == sample_generator_file
+    assert writer.parser.num_generators > 0
+    assert len(writer.generators) == writer.parser.num_generators
 
 
 def test_json_output_structure(
