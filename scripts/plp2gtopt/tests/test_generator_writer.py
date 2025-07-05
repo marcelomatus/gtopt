@@ -115,7 +115,7 @@ def test_write_empty_generators():
     # Create parser with no generators
     parser = GeneratorParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_generators = 0
+    parser._num_generators = 0  # Set internal attribute directly
     
     writer = GeneratorWriter(parser)
     json_generators = writer.to_json_array()
