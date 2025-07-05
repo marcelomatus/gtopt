@@ -49,17 +49,17 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
     output_path.mkdir(parents=True, exist_ok=True)
 
     results = {}
-    parsers = {
-        'blocks': (BlockParser, "plpblo.dat"),
-        'stages': (StageParser, "plpeta.dat"), 
-        'buses': (BusParser, "plpbar.dat"),
-        'lines': (LineParser, "plpcnfli.dat"),
-        'generators': (GeneratorParser, "plpcnfce.dat"),
-        'demands': (DemandParser, "plpdem.dat")
-    }
+    parsers = [
+        ('blocks', BlockParser, "plpblo.dat", "num_blocks"),
+        ('stages', StageParser, "plpeta.dat", "num_stages"),
+        ('buses', BusParser, "plpbar.dat", "num_buses"),
+        ('lines', LineParser, "plpcnfli.dat", "num_lines"),
+        ('generators', GeneratorParser, "plpcnfce.dat", "num_generators"),
+        ('demands', DemandParser, "plpdem.dat", "num_bars")  # Note: DemandParser uses num_bars
+    ]
 
     try:
-        for name, (parser_class, filename) in parsers.items():
+        for name, parser_class, filename, count_attr in parsers:
             filepath = input_path / filename
             print(f"Parsing {filename}...")
             
@@ -68,7 +68,7 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
 
             parser = parser_class(filepath)
             parser.parse()
-            results[name] = getattr(parser, f"num_{name}")
+            results[name] = getattr(parser, count_attr)
             print(f"Found {results[name]} {name}")
             
         # Validate cross-parser consistency
