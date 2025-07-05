@@ -78,7 +78,7 @@ def convert_plp_case(input_dir: Union[str, Path], output_dir: Union[str, Path]) 
             f"Generator file not found: {generator_parser.file_path}"
         )
     generator_parser.parse()
-    print(f"generators {len(generator_parser.get_generators())}")
+    print(f"generators {generator_parser.num_generators}")
     print("Parsing complete.")
 
     print("Parsing plpdem.dat file...")
