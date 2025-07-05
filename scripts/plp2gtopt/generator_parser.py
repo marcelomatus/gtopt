@@ -28,16 +28,27 @@ class GeneratorParser:
 
         Args:
             file_path: Path to plpcnfce.dat format file (str or Path)
+
+        Raises:
+            TypeError: If file_path is not str or Path
         """
+        if not isinstance(file_path, (str, Path)):
+            raise TypeError(f"Expected str or Path, got {type(file_path).__name__}")
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self.generators: List[Dict[str, Any]] = []
 
     def parse(self) -> None:
         """Parse the generator file and populate the generators structure.
 
+        The file format expected is:
+        - Each generator starts with an ID line
+        - Followed by power limits (PotMin/PotMax)
+        - Then cost and bus information (CosVar/Rendi/Barra)
+
         Raises:
             FileNotFoundError: If input file doesn't exist
             ValueError: If file format is invalid
+            IOError: If file cannot be read
         """
         if not self.file_path.exists():
             raise FileNotFoundError(f"Generator file not found: {self.file_path}")
@@ -123,11 +134,33 @@ class GeneratorParser:
         return len(self.generators)
 
     def get_generators_by_bus(self, bus_id: str) -> List[Dict[str, Any]]:
-        """Get all generators connected to a specific bus."""
+        """Get all generators connected to a specific bus.
+
+        Args:
+            bus_id: The bus ID to filter generators by
+
+        Returns:
+            List of generator dictionaries matching the bus ID
+
+        Example:
+            >>> parser.get_generators_by_bus("1")
+            [{'id': '1', 'name': 'GEN1', ...}]
+        """
         return [g for g in self.generators if g["bus"] == bus_id]
 
 
 def main(args: Optional[List[str]] = None) -> int:
+    """Command line entry point for generator file analysis.
+
+    Args:
+        args: Command line arguments (uses sys.argv if None)
+
+    Returns:
+        0 on success, 1 on failure
+
+    Example:
+        $ python generator_parser.py input.dat
+    """
     """Command line entry point for generator file analysis.
 
     Args:
