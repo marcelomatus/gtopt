@@ -78,12 +78,6 @@ def convert_plp_case(
             results[name] = getattr(parser, count_attr)
             print(f"Found {results[name]} {name}")
 
-        # Validate cross-parser consistency
-        if results["buses"] != results["demands"]:
-            raise ValueError(
-                f"Bus count ({results['buses']}) doesn't match demand count ({results['demands']})"
-            )
-
         print(f"\nConversion complete. Results saved to: {output_path}")
         return results
 
