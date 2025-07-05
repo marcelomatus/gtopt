@@ -92,7 +92,8 @@ class GeneratorParser:
                         try:
                             current_gen["variable_cost"] = float(parts[0])
                             current_gen["efficiency"] = float(parts[1])
-                            current_gen["bus"] = parts[3]  # Barra column
+                            # Bus ID is in column 3 (0-based index 2) for "Barra"
+                            current_gen["bus"] = parts[2]  
                         except (ValueError, IndexError) as e:
                             raise ValueError(
                                 f"Invalid generator data format at line: {next_line}"

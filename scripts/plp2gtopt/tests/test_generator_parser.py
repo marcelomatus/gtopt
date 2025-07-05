@@ -28,7 +28,7 @@ class TestGeneratorParser(unittest.TestCase):
             f.write("          PotMin PotMax VertMin VertMax\n")
             f.write("           010.0  100.0   000.0   000.0\n")
             f.write("          CosVar  Rendi  Barra Genera Vertim\n")
-            f.write("             5.0  1.000      1      0      0\n")
+            f.write("             5.0  1.000  1      0      0\n")  # Removed extra spaces in bus ID
             f.write(
                 "    2 'TEST_GEN2'                                       1    F       F       F       F           F          0           0\n"
             )
