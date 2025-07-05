@@ -71,7 +71,7 @@ class LineParser(BaseParser):
 
             # Parse line name (removing quotes)
             line_name = line_parts[0].strip("'")
-            bus_a, bus_b = self._parse_line_name(line_name)
+            bus_a, bus_b = self.parse_line_name(line_name)
 
             self._data.append(
                 {
