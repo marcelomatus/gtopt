@@ -1,13 +1,13 @@
 """Base parser class for PLP file parsers."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 from abc import ABC, abstractmethod
 
 
 class BaseParser(ABC):
     """Abstract base class for PLP file parsers.
-    
+
     Provides common functionality for all parsers:
     - File path handling
     - Basic validation
@@ -16,7 +16,7 @@ class BaseParser(ABC):
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with file path.
-        
+
         Args:
             file_path: Path to input file
         """

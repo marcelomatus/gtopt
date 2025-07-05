@@ -110,7 +110,7 @@ class LineParser(BaseParser):
             raise ValueError("Line name cannot be empty or whitespace only")
 
         name = name.strip()
-        
+
         # Check for invalid standalone '>' character
         if ">" in name and "->" not in name:
             raise ValueError("Invalid line name format - '>' must be part of '->'")
@@ -125,11 +125,13 @@ class LineParser(BaseParser):
         # Split using the appropriate separator
         separator = "->" if has_arrow else "-"
         parts = [p.strip() for p in name.split(separator)]
-        
+
         # Validate we have exactly two non-empty parts
         if len(parts) != 2:
-            raise ValueError("Line name must contain exactly two bus names separated by '->' or '-'")
-        
+            raise ValueError(
+                "Line name must contain exactly two bus names separated by '->' or '-'"
+            )
+
         if not all(parts):
             raise ValueError("Both bus names must be non-empty")
 
