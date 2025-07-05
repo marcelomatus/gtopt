@@ -145,7 +145,7 @@ def test_voltage_extraction(sample_line_parser):  # pylint: disable=redefined-ou
         ("Antofag110->Desalant110", 110.0),
         ("Andes345->Andes220", 345.0),
     ]
-    
+
     for name, expected_voltage in test_cases:
         line = sample_line_parser.get_line_by_name(name)
         if line is None:
