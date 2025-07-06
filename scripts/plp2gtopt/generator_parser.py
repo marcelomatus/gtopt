@@ -56,8 +56,11 @@ class GeneratorParser(BaseParser):
             raise ValueError("File is empty")
         current_gen: Dict[str, Any] = {}
 
-        self.num_centrales = None
         lines = self._read_non_empty_lines()
+        if not lines:
+            raise ValueError("File is empty")
+            
+        self.num_centrales = None
         idx = 0
         gen_idx = 0
         while idx < len(lines):
@@ -102,11 +105,12 @@ class GeneratorParser(BaseParser):
                     gen_idx += 1
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
-                    if gen_idx > self.num_centrales:
+                    # Only validate count if we have the header info
+                    if self.num_centrales is not None and gen_idx > self.num_centrales:
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
-                            "greater than num_centrales {self.num_centrales}"
+                            f"greater than num_centrales {self.num_centrales}"
                         )
 
                     if len(parts) >= 2:
