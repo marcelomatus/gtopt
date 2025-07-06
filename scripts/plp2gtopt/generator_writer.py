@@ -27,9 +27,10 @@ class GeneratorWriter(BaseWriter):
                 "bus": gen["bus"],
                 "gcost": gen["variable_cost"],
                 "capacity": gen["p_max"],
-                "expcap": None,  # Not in PLP format
-                "expmod": None,  # Not in PLP format
+                "expcap": gen.get("pot_tm0"),  # Initial power if available
+                "expmod": gen.get("afluent"),  # Inflow if available  
                 "annual_capcost": None,  # Not in PLP format
+                "is_battery": gen.get("is_battery", False),
             }
             for gen in self.items
         ]

@@ -157,8 +157,14 @@ class GeneratorParser(BaseParser):
                         f"Invalid generator data format at line {idx}: {str(e)}"
                     ) from e
 
-                # Check for battery in name
-                current_gen["is_battery"] = "BESS" in current_gen["name"].upper()
+                # Check for battery - either marked in name or has battery type
+                name_upper = current_gen["name"].upper()
+                current_gen["is_battery"] = (
+                    "BESS" in name_upper 
+                    or "BATTERY" in name_upper
+                    or "BATERIA" in name_upper
+                    or current_gen.get("type") == "bateria"
+                )
 
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)
@@ -230,7 +236,15 @@ class GeneratorParser(BaseParser):
 
         Returns:
             Generator type as string ("embalse", "serie", etc)
+
+        Raises:
+            ValueError: If generator index exceeds total declared generators
         """
+        if gen_idx > self.num_centrales:
+            raise ValueError(
+                f"Generator index {gen_idx} exceeds declared count {self.num_centrales}"
+            )
+
         # Ordered list of (type_name, count) tuples
         type_counts = [
             ("embalse", self.num_embalses),
@@ -244,7 +258,7 @@ class GeneratorParser(BaseParser):
         remaining_idx = gen_idx - 1  # Convert to 0-based index
 
         for type_name, type_count in type_counts:
-            if remaining_idx < type_count:
+            if type_count > 0 and remaining_idx < type_count:
                 return type_name
             remaining_idx -= type_count
 

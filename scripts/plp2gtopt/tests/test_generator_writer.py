@@ -110,6 +110,7 @@ def test_json_output_structure(
         "expcap",
         "expmod",
         "annual_capcost",
+        "is_battery",
     }
     for generator in json_generators:
         assert set(generator.keys()) == expected_fields
@@ -118,9 +119,15 @@ def test_json_output_structure(
         assert isinstance(generator["bus"], str)
         assert isinstance(generator["gcost"], float)
         assert isinstance(generator["capacity"], float)
-        assert generator["expcap"] is None
-        assert generator["expmod"] is None
+        assert isinstance(generator["is_battery"], bool)
+        
+        # Optional fields may be None or float
+        assert generator["expcap"] is None or isinstance(generator["expcap"], float)
+        assert generator["expmod"] is None or isinstance(generator["expmod"], float)
         assert generator["annual_capcost"] is None
+
+    # Verify at least one battery is properly marked
+    assert any(g["is_battery"] for g in json_generators)
 
 
 def test_write_empty_generators():
