@@ -35,18 +35,13 @@ class StageParser(BaseParser):
             ValueError: If file format is invalid
             IndexError: If file is empty or malformed
         """
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            # Skip initial comments and empty lines
-            lines = []
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
+        self.validate_file()
+        lines = self._read_non_empty_lines()
 
         idx = 0
         # Extract just the number part from first line (may have trailing metadata)
         first_line_parts = lines[idx].split()
-        self.num_stages = int(first_line_parts[0])
+        self.num_stages = self._parse_int(first_line_parts[0])
         idx += 1
 
         for _ in range(self.num_stages):

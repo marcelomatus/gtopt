@@ -82,18 +82,18 @@ class GeneratorParser(BaseParser):
                 }
             # Power limits line
             elif line.startswith("PotMin"):
-                    if not current_gen:
-                        continue
-                    # Get the next line for values
-                    if idx >= len(lines):
-                        raise ValueError("Unexpected end of file after generator header")
-                    parts = lines[idx].split()
-                    idx += 1
-                    current_gen["p_min"] = float(parts[0])
-                    current_gen["p_max"] = float(parts[1])
+                if not current_gen:
+                    continue
+                # Get the next line for values
+                if idx >= len(lines):
+                    raise ValueError("Unexpected end of file after generator header")
+                parts = lines[idx].split()
+                idx += 1
+                current_gen["p_min"] = self._parse_float(parts[0])
+                current_gen["p_max"] = self._parse_float(parts[1])
 
-                # Cost and bus line
-                elif line.startswith("CosVar"):
+            # Cost and bus line
+            elif line.startswith("CosVar"):
                     if not current_gen:
                         continue
                     # Get the next non-empty line for values

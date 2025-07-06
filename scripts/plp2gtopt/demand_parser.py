@@ -39,19 +39,11 @@ class DemandParser(BaseParser):
             ValueError: If file format is invalid
             IndexError: If file is empty or malformed
         """
-        if not self.file_path.exists():
-            raise FileNotFoundError(f"Demand file not found: {self.file_path}")
-
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            # Skip initial comments and empty lines
-            lines = []
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
+        self.validate_file()
+        lines = self._read_non_empty_lines()
 
         idx = 0
-        self.num_bars = int(lines[idx])
+        self.num_bars = self._parse_int(lines[idx])
         idx += 1
 
         for _ in range(self.num_bars):
