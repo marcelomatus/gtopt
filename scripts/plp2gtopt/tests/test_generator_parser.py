@@ -29,7 +29,7 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     file_path = tmp_path / "valid_gen.dat"
     content = """# Archivo de configuracion de las centrales (plpcnfce.dat)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
-     247            10           75       1        129         25
+     5            2           1       0        0         1
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
   F      F        F            F          00
 # Caracteristicas Centrales
