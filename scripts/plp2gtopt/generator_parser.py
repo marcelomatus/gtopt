@@ -75,14 +75,19 @@ class GeneratorParser(BaseParser):
                 if self.num_centrales is None:
                     # First line contains counts - handle test file format
                     if len(parts) >= 1 and parts[0].isdigit():
-                        # Test file doesn't have full header, just generator count
                         self.num_centrales = int(parts[0])
-                        self.num_embalses = 0
-                        self.num_series = 0
-                        self.num_pasadas = 0
-                        self.num_baterias = 0
-                        self.num_fallas = 0
-                        self.num_termicas = self.num_centrales
+                        self.num_embalses = int(parts[1])
+                        self.num_series = int(parts[2])
+                        self.num_pasadas = int(parts[4])
+                        self.num_baterias = int(parts[5])
+                        self.num_fallas = int(parts[3])
+                        self.num_termicas = self.num_centrales - (
+                            self.num_embalses
+                            + self.num_series
+                            + self.num_pasadas
+                            + self.num_baterias
+                            + self.num_fallas
+                        )
                     continue  # Skip header line
 
                 else:
@@ -160,7 +165,7 @@ class GeneratorParser(BaseParser):
                 # Check for battery - either marked in name or has battery type
                 name_upper = current_gen["name"].upper()
                 current_gen["is_battery"] = (
-                    "BESS" in name_upper 
+                    "BESS" in name_upper
                     or "BATTERY" in name_upper
                     or "BATERIA" in name_upper
                     or current_gen.get("type") == "bateria"
