@@ -146,8 +146,11 @@ class GeneratorParser(BaseParser):
                 f"Generator {gen.get('id', 'unknown')} missing fields: {missing}"
             )
 
-        if gen["p_max"] > 0:  # Only add generators with positive capacity
-            self.generators.append(gen)
+        # Only add generators with positive capacity that aren't duplicates
+        if gen["p_max"] > 0:
+            # Check if generator with same id and bus already exists
+            if not any(g["id"] == gen["id"] and g["bus"] == gen["bus"] for g in self.generators):
+                self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed generators structure.
@@ -181,13 +184,22 @@ class GeneratorParser(BaseParser):
             bus_id: The bus ID to filter generators by
 
         Returns:
-            List of generator dictionaries matching the bus ID
+            List of unique generator dictionaries matching the bus ID
+            (unique by id and bus combination)
 
         Example:
             >>> parser.get_generators_by_bus("1")
             [{'id': '1', 'name': 'GEN1', ...}]
         """
-        return [g for g in self.generators if g["bus"] == bus_id]
+        seen = set()
+        unique_gens = []
+        for g in self.generators:
+            if g["bus"] == bus_id:
+                key = (g["id"], g["bus"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_gens.append(g)
+        return unique_gens
 
 
 def main(args: Optional[List[str]] = None) -> int:
