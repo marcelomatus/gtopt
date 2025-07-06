@@ -43,16 +43,8 @@ class LineParser(BaseParser):
             ValueError: If file format is invalid
             IndexError: If file is empty or malformed
         """
-        if not self.file_path.exists():
-            raise FileNotFoundError(f"Line file not found: {self.file_path}")
-
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            # Skip initial comments and empty lines
-            lines = []
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
+        self.validate_file()
+        lines = self._read_non_empty_lines()
 
         if not lines:
             raise ValueError("File is empty")
@@ -60,7 +52,7 @@ class LineParser(BaseParser):
         idx = 0
         # First line contains number of lines and other config
         config_parts = lines[idx].split()
-        self.num_lines = int(config_parts[0])
+        self.num_lines = self._parse_int(config_parts[0])
         idx += 1
 
         for _ in range(self.num_lines):
