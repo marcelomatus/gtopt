@@ -103,7 +103,8 @@ def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-ou
     bus_data = parser.get_demand_by_name(first_bus)
     assert bus_data is not None
     assert bus_data["name"] == first_bus
-    assert len(bus_data["demands"]) > 0
+    assert len(bus_data["blocks"]) > 0
+    assert len(bus_data["values"]) > 0
 
     # Test another existing bus if available
     if len(demands) > 1:
@@ -111,7 +112,8 @@ def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-ou
         bus_data = parser.get_demand_by_name(second_bus)
         assert bus_data is not None
         assert bus_data["name"] == second_bus
-        assert len(bus_data["demands"]) > 0
+        assert len(bus_data["blocks"]) > 0
+        assert len(bus_data["values"]) > 0
 
     # Test non-existent bus
     missing = parser.get_demand_by_name("NonExistentBus")
