@@ -300,9 +300,8 @@ def _print_demand_stats(demands: List[Dict[str, Any]]) -> None:
     """Print formatted demand statistics."""
     bar_stats = []
     for demand in demands:
-        demand_list = demand["demands"]
-        count = len(demand_list)
-        avg = sum(d["demand"] for d in demand_list) / count if count > 0 else 0
+        count = len(demand["values"])
+        avg = np.mean(demand["values"]) if count > 0 else 0
         bar_stats.append({"name": demand["name"], "count": count, "avg": avg})
 
     bar_stats.sort(key=lambda x: x["avg"], reverse=True)
