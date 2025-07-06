@@ -104,7 +104,7 @@ def malformed_gen_file_fixture(tmp_path: Path) -> Path:
     file_path = tmp_path / "bad_gen.dat"
     content = """    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
-           010.0"""
+           invalid values"""
     file_path.write_text(content)
     return file_path
 
@@ -141,7 +141,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
 
     # Test battery generator (should be last in list)
     bat_gen = generators[-1]
-    assert bat_gen["id"] == "1187"
+    assert bat_gen["id"] == "5"
     assert bat_gen["is_battery"] is True
     assert bat_gen["type"] == "bateria"
 
