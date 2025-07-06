@@ -225,6 +225,27 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
         parser.parse()
 
 
+def test_parse_invalid_count(valid_gen_file: Path) -> None:
+    """Test handling of invalid generator count.
+    
+    Verifies:
+    - ValueError is raised when generator count exceeds declared number
+    
+    Args:
+        valid_gen_file: Path to valid test file (used for temp dir)
+    """
+    invalid_content = """1 0 0 0 0 0
+    999 'INVALID' 1 F F F F F 0 0
+    PotMin PotMax VertMin VertMax
+    0 0 0 0
+    CosVar Rendi Barra
+    0 1 0"""
+    invalid_file = valid_gen_file.parent / "invalid_gen.dat"
+    invalid_file.write_text(invalid_content)
+
+    with pytest.raises(ValueError):
+        GeneratorParser(invalid_file).parse()
+
 def test_parse_malformed_file(malformed_gen_file: Path) -> None:
     """Test handling of malformed input file.
     Verifies:
