@@ -3,7 +3,7 @@
 """Base class for all GTOPT JSON writers.
 
 This module defines the BaseWriter class, which serves as a foundation for creating
-GTOPT JSON writers. It provides methods for parsing data, converting it to JSON format,
+GTOPT JSON writers. It provides methods for converting data to JSON format,
 and writing it to files. Specific writers should inherit from this class and implement
 the required methods for their specific data formats.
 """
@@ -13,10 +13,9 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
-from .base_parser import BaseParser
 
 T = TypeVar("T", bound="BaseWriter")
-P = TypeVar("P", bound="BaseParser")
+P = TypeVar("P", bound="BaseParser")  # Generic type for parser classes
 
 
 class BaseWriter(ABC):
@@ -26,10 +25,10 @@ class BaseWriter(ABC):
         """Initialize with a parser instance.
 
         Args:
-            parser: Parser containing parsed data
+            parser: Parser containing parsed data to be written
         """
         self.parser = parser
-        self.items = self._get_items()  # Implemented by child classes
+        self.items = self._get_items()  # Will be implemented by child classes
 
     @abstractmethod
     def _get_items(self) -> List[Dict[str, Any]]:
