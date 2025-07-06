@@ -101,11 +101,10 @@ class GeneratorParser(BaseParser):
                             # First try parsing as float then convert to int
                             gen_id = int(float(parts[0]))
                             gen_idx += 1
+                            # Allow parsing even if generator count exceeds declared number
+                            # since some files may have incorrect counts
                             if gen_idx > self.num_centrales:
-                                raise ValueError(
-                                    f"Generator index {gen_idx} exceeds declared number "
-                                    f"of generators {self.num_centrales}"
-                                )
+                                self.num_centrales = gen_idx
 
                             current_gen = {
                                 "id": str(gen_id),
