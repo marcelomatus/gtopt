@@ -166,7 +166,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     0 1 0"""
     invalid_file = valid_gen_file.parent / "invalid_gen.dat"
     invalid_file.write_text(invalid_content)
-    
+
     with pytest.raises(ValueError):
         GeneratorParser(invalid_file).parse()
 
