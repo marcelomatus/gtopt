@@ -11,8 +11,9 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Optional, List, Dict, Union
+from typing import Any, Optional, List, Dict, Union, Tuple
 import numpy as np
+import numpy.typing as npt
 
 from .base_parser import BaseParser
 
@@ -28,7 +29,9 @@ class DemandParser(BaseParser):
         """
         super().__init__(file_path)
         self._data: List[Dict[str, Any]] = []
-        self.demands: List[Dict[str, Any]] = self._data  # Alias for _data
+        self.demand_blocks: npt.NDArray[np.int32] = np.array([], dtype=np.int32)
+        self.demand_values: npt.NDArray[np.float64] = np.array([], dtype=np.float64)
+        self.demand_indices: List[Tuple[int, int]] = []  # (start, end) indices per bus
         self.num_demands: int = 0
 
     def parse(self) -> None:
@@ -67,22 +70,120 @@ class DemandParser(BaseParser):
                 demands.append({"block": block, "demand": demand})
                 idx += 1
 
-            self._data.append({"number": dem_num, "name": name, "demands": demands})
+            start_idx = len(self.demand_blocks)
+            # Pre-allocate arrays for better performance with many buses
+            if len(self.demand_blocks) == 0:
+                self.demand_blocks = np.array([d["block"] for d in demands], dtype=np.int32)
+                self.demand_values = np.array([d["demand"] for d in demands], dtype=np.float64)
+            else:
+                blocks = np.array([d["block"] for d in demands], dtype=np.int32)
+                values = np.array([d["demand"] for d in demands], dtype=np.float64)
+                self.demand_blocks = np.concatenate((self.demand_blocks, blocks))
+                self.demand_values = np.concatenate((self.demand_values, values))
+            self.demand_indices.append((start_idx, len(self.demand_blocks)))
+            self._data.append({"number": dem_num, "name": name})
             dem_num += 1
 
-    def get_demands(self) -> list[dict[str, Any]]:
-        """Return the parsed demands structure."""
-        return self.demands
+    def get_demands(self) -> List[Dict[str, Union[int, str, npt.NDArray]]]:
+        """Return the parsed demands structure with numpy arrays.
+        
+        Returns:
+            List of dictionaries where each contains:
+            - number: int - Bus number
+            - name: str - Bus name
+            - blocks: NDArray[np.int32] - Block numbers
+            - values: NDArray[np.float64] - Demand values
+        """
+        demands = []
+        for i, data in enumerate(self._data):
+            start, end = self.demand_indices[i]
+            demands.append({
+                "number": data["number"],
+                "name": data["name"],
+                "blocks": self.demand_blocks[start:end],
+                "values": self.demand_values[start:end]
+            })
+        return demands
+
+    def get_demand_arrays(self) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
+        """Return the demand blocks and values as numpy arrays.
+        
+        Returns:
+            Tuple of (blocks_array, values_array) where:
+            - blocks_array: int32 array of block numbers
+            - values_array: float64 array of demand values
+        """
+        return self.demand_blocks, self.demand_values
+
+    def get_bus_demands(self, bus_idx: int) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
+        """Get demand blocks and values for a specific bus.
+        
+        Args:
+            bus_idx: Index of the bus (0-based)
+            
+        Returns:
+            Tuple of (blocks, values) arrays for the specified bus
+        """
+        start, end = self.demand_indices[bus_idx]
+        return self.demand_blocks[start:end], self.demand_values[start:end]
+
+    def get_total_demand_per_block(self) -> Dict[int, float]:
+        """Calculate total demand across all buses per block.
+        
+        Returns:
+            Dictionary mapping block numbers to total demand values
+        """
+        totals = {}
+        unique_blocks = np.unique(self.demand_blocks)
+        for block in unique_blocks:
+            mask = self.demand_blocks == block
+            totals[int(block)] = float(np.sum(self.demand_values[mask]))
+        return totals
+
+    def get_demand_stats(self) -> Dict[str, float]:
+        """Calculate basic statistics on demand values.
+        
+        Returns:
+            Dictionary with:
+            - min: Minimum demand value
+            - max: Maximum demand value  
+            - mean: Average demand value
+            - median: Median demand value
+            - std: Standard deviation
+        """
+        return {
+            "min": float(np.min(self.demand_values)),
+            "max": float(np.max(self.demand_values)),
+            "mean": float(np.mean(self.demand_values)),
+            "median": float(np.median(self.demand_values)), 
+            "std": float(np.std(self.demand_values))
+        }
 
     def get_num_bars(self) -> int:
         """Return the number of bars in the file."""
         return self.num_demands
 
-    def get_demand_by_name(self, name: str) -> dict[str, Any] | None:
-        """Get demand data for a specific bus name."""
-        for demand in self.demands:
-            if demand["name"] == name:
-                return demand
+    def get_demand_by_name(self, name: str) -> Optional[Dict[str, Union[int, str, npt.NDArray]]]:
+        """Get demand data for a specific bus name.
+        
+        Returns:
+            Dictionary with keys:
+            - number: Bus number
+            - name: Bus name  
+            - blocks: Block numbers array
+            - values: Demand values array
+            or None if not found
+        """
+        for i, data in enumerate(self._data):
+            if data["name"] == name:
+                start, end = self.demand_indices[i]
+                return {
+                    "number": data["number"],
+                    "name": data["name"],
+                    "blocks": self.demand_blocks[start:end],
+                    "values": self.demand_values[start:end]
+                }
+        return None
         return None
 
 
