@@ -88,8 +88,13 @@ class DemandParser(BaseParser):
             # Get number of demand entries
             if idx >= len(lines):
                 raise ValueError("Unexpected end of file while parsing block counts")
-            num_blocks = int(lines[idx])
-            idx += 1
+            try:
+                num_blocks = int(lines[idx].strip())
+                idx += 1
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid block count at line {idx+1}: {lines[idx]}"
+                ) from e
 
             # Record start index for this bus
             start_idx = array_pos
