@@ -29,13 +29,7 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     file_path = tmp_path / "valid_gen.dat"
     content = """# Archivo de configuracion de las centrales (plpcnfce.dat)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
-     6            2           1       0        0         1
-# Centrales de Embalse
-    1 'LMAULE'                                          1    F       F       F       F           F          0           0
-          PotMin PotMax VertMin VertMax
-           000.0  100.0   000.0   000.0
-          CosVar Rendi Barra
-             0.0  1.000      0
+     6            1           1         1          1            1
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
   F      F        F            F          00
 # Caracteristicas Centrales
@@ -44,8 +38,12 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     1 'LMAULE'                                          1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  100.0   000.0   000.0
-          CosVar Rendi Barra
-             0.0  1.000      0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
+          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
+             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  1.2934600  0.0000000  1.4534093  1.0E+9       T
+# Centrales Serie Hidraulica
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
     2 'LOS_CONDORES'                                    1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  150.0   000.0  9976.0
@@ -53,31 +51,43 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
              0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  6.000     93      3      3    0.0  0000.0
-# Centrales Serie Hidraulica
-                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
-    3 'B_LaMina'                                        1    F       F       F       F           F          0           0
-          PotMin PotMax VertMin VertMax
-           000.0  007.0   000.0  9975.0
-           Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0               Pot.
-          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
-             0.0  1.000      0      5      4    0.0  0020.8
 # Centrales Termicas o Embalses Equivalentes,FV, EO, CS
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
-  171 'DOS_VALLES_AMPL'                                 1    F       F       F       F           F          0           0
+   3 'DOS_VALLES_AMPL'                                 1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  001.6   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  1.000    167      0      0    0.0  0000.0
+# Centrales Pasada Puras
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   4 'LOS_MOLLES'                                      1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  018.0   000.0  9949.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     35      0      0    0.0  0001.8
 # Baterias
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
- 5 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
+  15 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  059.3   000.0   000.0
-          CosVar Rendi Barra
-             0.0  1.000     89"""
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000     89      0      0    0.0  0000.0
+# Fallas
+                                                 IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+ 1785 'FALLA_001_1'                                     1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+           406.0  1.000      1      0      0    0.0  0000.0
+"""
     file_path.write_text(content)
     return file_path
 
@@ -148,8 +158,8 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["type"] == "embalse"
 
     # Test battery generator (should be last in list)
-    bat_gen = generators[-1]
-    assert bat_gen["id"] == "5"
+    bat_gen = generators[4]
+    assert bat_gen["id"] == "15"
     assert bat_gen["is_battery"] is True
     assert bat_gen["type"] == "bateria"
 
@@ -172,8 +182,8 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
-    assert len(bus0_gens) == 3
-    assert {g["id"] for g in bus0_gens} == {"1", "3", "171"}
+    assert len(bus0_gens) == 1
+    assert {g["id"] for g in bus0_gens} == {"1"}
 
     bus93_gens = parser.get_generators_by_bus("93")
     assert len(bus93_gens) == 1

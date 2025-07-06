@@ -91,21 +91,28 @@ class GeneratorParser(BaseParser):
                             + self.num_baterias
                             + self.num_fallas
                         )
-                    continue  # Skip header line
+                    else:
+                        self.num_centrales = 0
 
+                    print(f"num_centrales {self.num_centrales}")
+                    continue  # Skip header line
                 else:
                     # Generator line format: number 'name' ...
                     # Handle generator header line with format: "number 'name' ..."
+                    gen_idx += 1
+                    # Allow parsing even if generator count exceeds declared number
+                    # since some files may have incorrect counts
+                    if gen_idx > self.num_centrales:
+                        print("line error ", line)
+                        raise ValueError(
+                            f"Number of generators {gen_idx} "
+                            "greater than num_centrales {self.num_centrales}"
+                        )
+
                     if len(parts) >= 2:
                         try:
                             # First try parsing as float then convert to int
                             gen_id = int(float(parts[0]))
-                            gen_idx += 1
-                            # Allow parsing even if generator count exceeds declared number
-                            # since some files may have incorrect counts
-                            if gen_idx > self.num_centrales:
-                                self.num_centrales = gen_idx
-
                             current_gen = {
                                 "id": str(gen_id),
                                 "number": gen_id,
@@ -117,20 +124,30 @@ class GeneratorParser(BaseParser):
                             raise ValueError(
                                 f"Invalid generator header at line {idx}: {str(e)}"
                             )
+                    continue  # Skip to next line
 
-            # Power limits line
+            elif line.startswith("Start"):
+                # Power limits line
+                idx += 1  # Skip to next line
+                if idx >= len(lines):
+                    raise ValueError("Unexpected end of file")
+                continue
             elif line.startswith("PotMin"):
                 if not current_gen:
                     continue
-                # Get the next line for values
+
                 if idx >= len(lines):
-                    raise ValueError("Unexpected end of file after generator header")
+                    raise ValueError("Unexpected end of file")
+                # Get the next line for values
                 parts = lines[idx].split()
+                if len(parts) < 2:
+                    raise ValueError(
+                        f"Invalid generator data at line {idx}: expected 4 values"
+                    )
+
                 idx += 1
                 current_gen["p_min"] = self._parse_float(parts[0])
                 current_gen["p_max"] = self._parse_float(parts[1])
-                current_gen["v_min"] = self._parse_float(parts[2])
-                current_gen["v_max"] = self._parse_float(parts[3])
 
             # Cost and bus line
             elif line.startswith("CosVar"):
@@ -189,19 +206,7 @@ class GeneratorParser(BaseParser):
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-
         # Set default values for missing required fields
-        defaults = {
-            "bus": "0",
-            "variable_cost": 0.0,
-            "efficiency": 1.0,
-            "p_min": 0.0,
-            "p_max": 0.0,
-        }
-
-        for field, default in defaults.items():
-            if field not in gen:
-                gen[field] = default
 
         # Only check for truly required fields
         required = {"number", "name", "type"}
