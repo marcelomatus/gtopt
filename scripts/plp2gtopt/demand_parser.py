@@ -140,15 +140,22 @@ class DemandParser(BaseParser):
             lines.clear()
             del lines
 
-    def get_demands(self) -> List[Dict[str, Union[int, str, npt.NDArray]]]:
+    def get_demands(self) -> List[Dict[str, Any]]:
         """Return the parsed demands structure with numpy arrays.
 
         Returns:
-            List of dictionaries where each contains:
-            - number: int - Bus number
-            - name: str - Bus name
-            - blocks: NDArray[np.int32] - Block numbers
-            - values: NDArray[np.float64] - Demand values
+            List of demand dictionaries with these keys:
+            - number (int): Bus number (1-based)
+            - name (str): Bus name 
+            - blocks (np.ndarray): Block numbers as int32 array
+            - values (np.ndarray): Demand values as float64 array
+
+        Example:
+            >>> demands = parser.get_demands()
+            >>> demands[0]["name"]
+            'Coronel066'
+            >>> demands[0]["blocks"].shape
+            (5,)
         """
         demands = []
         for i, data in enumerate(self._data):
