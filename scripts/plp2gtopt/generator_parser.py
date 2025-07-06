@@ -105,8 +105,10 @@ class GeneratorParser(BaseParser):
                     gen_idx += 1
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
-                    # Only validate count if we have the header info
-                    if self.num_centrales is not None and gen_idx > self.num_centrales:
+                    # Validate count if we have header info and it's not zero
+                    if (self.num_centrales is not None and 
+                        self.num_centrales > 0 and 
+                        gen_idx > self.num_centrales):
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
@@ -173,7 +175,7 @@ class GeneratorParser(BaseParser):
                 try:
                     current_gen["variable_cost"] = self._parse_float(parts[0])
                     current_gen["efficiency"] = self._parse_float(parts[1])
-                    current_gen["bus"] = str(int(parts[2]))  # Bus ID is column 3
+                    current_gen["bus"] = str(int(float(parts[2])))  # Bus ID is column 3
 
                     # Optional fields
                     if len(parts) > 3:
