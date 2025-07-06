@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
 """Parser for plpeta.dat format files containing stage data."""
+
+import sys
 
 from typing import Any, List, Dict, Union
 from pathlib import Path
@@ -47,7 +50,7 @@ class StageParser(BaseParser):
         idx += 1
 
         for _ in range(self.num_stages):
-            # Parse stage line with format: Ano Mes Etapa FDesh NHoras FactTasa TipoEtapa
+            # Parse stage line w/format: Ano Mes Etapa FDesh NHoras FactTasa TipoEtapa
             parts = lines[idx].split()
             if len(parts) < 6:
                 raise ValueError(f"Invalid stage entry at line {idx+1}")
@@ -87,10 +90,9 @@ class StageParser(BaseParser):
 
 
 if __name__ == "__main__":
-    import sys
 
     def main() -> None:
-        """Main function to run stage file analysis."""
+        """Run Main function for the stage parser."""
         if len(sys.argv) != 2:
             print(f"Usage: {sys.argv[0]} <plpeta.dat file>")
             sys.exit(1)
