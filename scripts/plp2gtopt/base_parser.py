@@ -43,3 +43,38 @@ class BaseParser(ABC):
             raise FileNotFoundError(f"File not found: {self.file_path}")
         if not self.file_path.is_file():
             raise ValueError(f"Path is not a file: {self.file_path}")
+
+    def _read_non_empty_lines(self) -> List[str]:
+        """Read file and return non-empty, non-comment lines.
+        
+        Returns:
+            List of stripped, non-empty lines that aren't comments
+        """
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            return [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
+
+    def _parse_int(self, value: str) -> int:
+        """Parse integer handling zero-padded strings.
+        
+        Args:
+            value: String to parse as int
+            
+        Returns:
+            Parsed integer value
+        """
+        return int(value.lstrip("0") or 0)
+
+    def _parse_float(self, value: str) -> float:
+        """Parse float handling zero-padded strings.
+        
+        Args:
+            value: String to parse as float
+            
+        Returns:
+            Parsed float value
+        """
+        return float(value.lstrip("0") or 0.0
