@@ -18,7 +18,7 @@ def test_demand_parser_initialization():
     test_path = "test.dat"
     parser = DemandParser(test_path)
     assert parser.file_path == Path(test_path)  # Compare Path objects
-    assert not parser.demands
+    assert not parser._data
     assert parser.num_demands == 0
 
 
@@ -33,8 +33,13 @@ def test_get_demands():
     """Test get_demands returns demands list."""
     parser = DemandParser("test.dat")
     test_demands = [{"test": "data"}]
-    parser.demands = test_demands
-    assert parser.get_demands() == test_demands
+    parser._data = [{"number": 1, "name": "test"}]
+    parser.demand_blocks = np.array([1], dtype=np.int32)
+    parser.demand_values = np.array([1.0], dtype=np.float64)
+    parser.demand_indices = [(0, 1)]
+    test_demands = parser.get_demands()
+    assert len(test_demands) == 1
+    assert test_demands[0]["name"] == "test"
 
 
 def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-outer-name
@@ -65,25 +70,26 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     # Verify first bar data
     bar1 = demands[0]
     assert bar1["name"] == "Coronel066"
-    assert len(bar1["demands"]) == 5
-    assert bar1["demands"][0]["block"] == 1  # First demand block is 3 in test data
-    assert bar1["demands"][0]["demand"] == 89.05
-    assert bar1["demands"][-1]["block"] == 5
-    assert bar1["demands"][-1]["demand"] == 82.63
+    assert len(bar1["blocks"]) == 5
+    assert bar1["blocks"][0] == 1  # First demand block is 3 in test data
+    assert bar1["values"][0] == 89.05
+    assert bar1["blocks"][-1] == 5
+    assert bar1["values"][-1] == 82.63
 
     # Verify second bar data
     bar2 = demands[1]
     assert bar2["name"] == "Condores220"
-    assert len(bar2["demands"]) == 4
-    assert bar2["demands"][0]["block"] == 1
-    assert bar2["demands"][0]["demand"] == 105.21
-    assert bar2["demands"][-1]["block"] == 4
-    assert bar2["demands"][-1]["demand"] == 93.05
+    assert len(bar2["blocks"]) == 4
+    assert bar2["blocks"][0] == 1
+    assert bar2["values"][0] == 105.21
+    assert bar2["blocks"][-1] == 4
+    assert bar2["values"][-1] == 93.05
 
     # Verify block numbers are sequential per bar
     for demand_bar in demands:
-        for i, demand in enumerate(demand_bar["demands"], 1):
-            assert demand["block"] == i
+        blocks = demand_bar["blocks"]
+        for i in range(len(blocks)):
+            assert blocks[i] == i + 1
 
 
 def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-outer-name
