@@ -22,15 +22,10 @@ class DemandWriter(BaseWriter):
         """Convert demand data to JSON array format."""
         return [
             {
-                "uid": hash(demand["name"])
-                & 0x7FFFFFFF,  # Generate stable positive integer UID from name
+                "uid": demand["number"],
                 "name": demand["name"],
-                "bus": demand["name"],  # Using name as bus ID
-                "lmax": "lmax",  # Default value from system_c0.json
-                "capacity": 0.0,  # Default value from system_c0.json
-                "expcap": None,  # Not in PLP format
-                "expmod": None,  # Not in PLP format
-                "annual_capcost": None,  # Not in PLP format
+                "bus": demand["name"],
+                "lmax": demand["demands"],
             }
             for demand in self.items
         ]
