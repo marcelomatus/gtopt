@@ -39,7 +39,7 @@ class GeneratorParser(BaseParser):
         # Initialize type counts to 0
         self.num_centrales = 0
         self.num_embalses = 0
-        self.num_series = 0 
+        self.num_series = 0
         self.num_fallas = 0
         self.num_pasadas = 0
         self.num_baterias = 0
@@ -67,7 +67,7 @@ class GeneratorParser(BaseParser):
         lines = self._read_non_empty_lines()
         if not lines:
             raise ValueError("File is empty")
-            
+
         idx = 0
         gen_idx = 0
         while idx < len(lines):
@@ -85,7 +85,9 @@ class GeneratorParser(BaseParser):
                     self._finalize_generator(current_gen)
 
                 parts = line.split()
-                if not hasattr(self, 'num_centrales') or self.num_centrales == 0:  # Check if counts need to be initialized
+                if (
+                    not hasattr(self, "num_centrales") or self.num_centrales == 0
+                ):  # Check if counts need to be initialized
                     # First line contains counts - handle test file format
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
@@ -121,9 +123,11 @@ class GeneratorParser(BaseParser):
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
                     # Validate count if we have header info and it's not the test file case
-                    if (hasattr(self, 'num_centrales') and 
-                        self.num_centrales != sys.maxsize and 
-                        gen_idx > self.num_centrales):
+                    if (
+                        hasattr(self, "num_centrales")
+                        and self.num_centrales != sys.maxsize
+                        and gen_idx > self.num_centrales
+                    ):
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
