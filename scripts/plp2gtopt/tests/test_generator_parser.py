@@ -328,3 +328,37 @@ def test_generator_type_detection(valid_generator_file):
     assert generators[0]["type"] == "embalse"
     # Third generator is battery
     assert generators[2]["type"] == "bateria"
+
+
+def test_real_plpcnfce_file():
+    """Test parsing of real plpcnfce.dat example file."""
+    test_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpcnfce.dat"
+    parser = GeneratorParser(test_file)
+    parser.parse()
+    
+    # Verify counts match header
+    assert parser.num_centrales == 247
+    assert parser.num_embalses == 10
+    assert parser.num_series == 75
+    assert parser.num_pasadas == 129
+    assert parser.num_baterias == 25
+    assert parser.num_fallas == 1
+    
+    generators = parser.get_generators()
+    assert len(generators) == 247
+    
+    # Spot check some known generators
+    lmaule = next(g for g in generators if g["name"] == "LMAULE")
+    assert lmaule["type"] == "embalse"
+    assert lmaule["bus"] == "0"
+    assert lmaule["p_max"] == 100.0
+    
+    alfalfal_bess = next(g for g in generators if g["name"] == "ALFALFAL_BESS")
+    assert alfalfal_bess["type"] == "bateria"
+    assert alfalfal_bess["is_battery"] is True
+    assert alfalfal_bess["p_max"] == 59.3
+    
+    # Verify all required fields exist for each generator
+    required_fields = {"id", "name", "bus", "p_min", "p_max", "variable_cost", "efficiency", "type"}
+    for gen in generators:
+        assert all(field in gen for field in required_fields)
