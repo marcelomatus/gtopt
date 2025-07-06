@@ -65,23 +65,23 @@ class GeneratorParser(BaseParser):
 
             # Generator header line
             if line[0].isdigit():
-                    if current_gen:
-                        self._finalize_generator(current_gen)
+                if current_gen:
+                    self._finalize_generator(current_gen)
 
-                    parts = line.split()
-                    current_gen = {
-                        "id": parts[0],
-                        "name": parts[1].strip("'"),
-                        "bus": "0",  # Default if not found
-                        "p_min": 0.0,
-                        "p_max": 0.0,
-                        "start_cost": 0.0,
-                        "variable_cost": 0.0,
-                        "efficiency": 1.0,
-                        "is_battery": False,
-                    }
-                # Power limits line
-                elif line.startswith("PotMin"):
+                parts = line.split()
+                current_gen = {
+                    "id": parts[0],
+                    "name": parts[1].strip("'"),
+                    "bus": "0",  # Default if not found
+                    "p_min": 0.0,
+                    "p_max": 0.0,
+                    "start_cost": 0.0,
+                    "variable_cost": 0.0,
+                    "efficiency": 1.0,
+                    "is_battery": False,
+                }
+            # Power limits line
+            elif line.startswith("PotMin"):
                     if not current_gen:
                         continue
                     # Get the next line for values
