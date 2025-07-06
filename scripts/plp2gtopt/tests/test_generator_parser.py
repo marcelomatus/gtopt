@@ -197,16 +197,15 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
     """Test handling of empty input file.
 
     Verifies:
-    - Parser handles empty file gracefully
-    - Returns empty generator list
-    - Doesn't raise exceptions
+    - Parser properly detects empty file
+    - Raises ValueError with appropriate message
 
     Args:
         empty_gen_file: Path to empty test file
     """
     parser = GeneratorParser(empty_gen_file)
-    parser.parse()  # Should not raise for empty file
-    assert parser.get_num_generators() == 0
+    with pytest.raises(ValueError, match="File is empty"):
+        parser.parse()
 
 
 def test_parse_malformed_file(malformed_gen_file: Path) -> None:
