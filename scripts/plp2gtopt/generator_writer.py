@@ -25,21 +25,18 @@ class GeneratorWriter(BaseWriter):
             generator = {
                 "uid": int(gen["id"]),
                 "name": gen["name"],
-                "bus": gen["bus"],
+                "bus": str(gen["bus"]),  # Ensure bus is string
                 "gcost": float(gen["variable_cost"]),
                 "capacity": float(gen["p_max"]),
                 "is_battery": bool(gen.get("is_battery", False)),
+                "expcap": float(gen["pot_tm0"]) if "pot_tm0" in gen else None,
+                "expmod": float(gen["afluent"]) if "afluent" in gen else None,
+                "annual_capcost": None,  # Always include as None
                 "type": gen.get("type", "unknown"),
                 "efficiency": float(gen.get("efficiency", 1.0)),
                 "pmin": float(gen.get("p_min", 0.0)),
             }
             
-            # Add optional fields if they exist
-            if "pot_tm0" in gen:
-                generator["expcap"] = float(gen["pot_tm0"])
-            if "afluent" in gen:
-                generator["expmod"] = float(gen["afluent"])
-                
             json_generators.append(generator)
             
         return json_generators
