@@ -99,7 +99,8 @@ class GeneratorParser(BaseParser):
                             f"Generator index {gen_idx} exceeds declared number"
                             "of generators {self.num_centrales}"
                         )
-                    types = [
+
+                    gen_types = [
                         {"embalse": self.num_embalses},
                         {"serie": self.num_series},
                         {"pasada": self.num_pasadas},
@@ -107,7 +108,8 @@ class GeneratorParser(BaseParser):
                         {"bateria": self.num_baterias},
                         {"fallas": self.num_fallas},
                     ]
-                    current_gen["type"] = types[0
+                    # Determine generator type based on gen_idx and the number of generators for each type, considering they appear in the same order
+                    current_gen["type"] = 
 
             # Power limits line
             elif line.startswith("PotMin"):
