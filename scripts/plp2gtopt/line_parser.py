@@ -67,7 +67,9 @@ class LineParser(BaseParser):
             # Parse line name (removing quotes)
             line_name = line_parts[0].strip("'")
             # Parse line name but don't use the bus names since we get them from the data columns
-            _bus_a, _bus_b = self.parse_line_name(line_name)  # pylint: disable=unused-variable
+            _bus_a, _bus_b = self.parse_line_name(
+                line_name
+            )  # pylint: disable=unused-variable
 
             self._data.append(
                 {

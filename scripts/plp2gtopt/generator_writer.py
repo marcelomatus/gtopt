@@ -36,9 +36,9 @@ class GeneratorWriter(BaseWriter):
                 "efficiency": float(gen.get("efficiency", 1.0)),
                 "pmin": float(gen.get("p_min", 0.0)),
             }
-            
+
             json_generators.append(generator)
-            
+
         return json_generators
 
 

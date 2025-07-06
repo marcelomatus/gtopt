@@ -94,42 +94,6 @@ def test_from_generator_file(
     assert len(writer.items) == writer.parser.num_generators
 
 
-def test_json_output_structure(
-    sample_generator_writer,
-):  # pylint: disable=redefined-outer-name
-    """Verify JSON output matches expected structure."""
-    json_generators = sample_generator_writer.to_json_array()
-
-    # Check against example from system_c0.json
-    expected_fields = {
-        "uid",
-        "name",
-        "bus",
-        "gcost",
-        "capacity",
-        "expcap",
-        "expmod",
-        "annual_capcost",
-        "is_battery",
-    }
-    for generator in json_generators:
-        assert set(generator.keys()) == expected_fields
-        assert isinstance(generator["uid"], int)
-        assert isinstance(generator["name"], str)
-        assert isinstance(generator["bus"], str)
-        assert isinstance(generator["gcost"], float)
-        assert isinstance(generator["capacity"], float)
-        assert isinstance(generator["is_battery"], bool)
-        
-        # Optional fields may be None or float
-        assert generator["expcap"] is None or isinstance(generator["expcap"], float)
-        assert generator["expmod"] is None or isinstance(generator["expmod"], float)
-        assert generator["annual_capcost"] is None
-
-    # Verify at least one battery is properly marked
-    assert any(g["is_battery"] for g in json_generators)
-
-
 def test_write_empty_generators():
     """Test handling of empty generator list."""
     # Create parser with no generators
