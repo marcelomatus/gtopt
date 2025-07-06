@@ -94,29 +94,29 @@ class GeneratorParser(BaseParser):
 
             # Cost and bus line
             elif line.startswith("CosVar"):
-                    if not current_gen:
-                        continue
-                    # Get the next non-empty line for values
-                    while idx < len(lines) and not lines[idx].strip():
-                        idx += 1
-                    if idx >= len(lines):
-                        raise ValueError("Unexpected end of file after CosVar header")
-                    parts = lines[idx].split()
+                if not current_gen:
+                    continue
+                # Get the next non-empty line for values
+                while idx < len(lines) and not lines[idx].strip():
                     idx += 1
-                    if len(parts) >= 5:  # Ensure we have all expected columns
-                        try:
-                            current_gen["variable_cost"] = float(parts[0])
-                            current_gen["efficiency"] = float(parts[1])
-                            # Bus ID is in column 3 (0-based index 2) for "Barra"
-                            current_gen["bus"] = parts[2]
-                        except (ValueError, IndexError) as e:
-                            raise ValueError(
-                                f"Invalid generator data format at line: {next_line}"
-                            ) from e
+                if idx >= len(lines):
+                    raise ValueError("Unexpected end of file after CosVar header")
+                parts = lines[idx].split()
+                idx += 1
+                if len(parts) >= 5:  # Ensure we have all expected columns
+                    try:
+                        current_gen["variable_cost"] = self._parse_float(parts[0])
+                        current_gen["efficiency"] = self._parse_float(parts[1])
+                        # Bus ID is in column 3 (0-based index 2) for "Barra"
+                        current_gen["bus"] = parts[2]
+                    except (ValueError, IndexError) as e:
+                        raise ValueError(
+                            f"Invalid generator data format at line: {idx+1}"
+                        ) from e
 
-                    # Check for battery in name
-                    if "BESS" in current_gen["name"].upper():
-                        current_gen["is_battery"] = True
+                # Check for battery in name
+                if "BESS" in current_gen["name"].upper():
+                    current_gen["is_battery"] = True
             # Add last generator
             if current_gen:
                 self._finalize_generator(current_gen)
