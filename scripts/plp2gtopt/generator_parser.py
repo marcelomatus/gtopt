@@ -95,23 +95,26 @@ class GeneratorParser(BaseParser):
 
                 else:
                     # Generator line format: number 'name' ...
-                    if len(parts) >= 2 and parts[0].isdigit():
-                        gen_idx += 1
-                        if gen_idx > self.num_centrales:
-                            raise ValueError(
-                                f"Generator index {gen_idx} exceeds declared number "
-                                f"of generators {self.num_centrales}"
-                            )
+                    # Handle generator header line with format: "number 'name' ..."
+                    if len(parts) >= 2:
+                        try:
+                            gen_id = int(parts[0])
+                            gen_idx += 1
+                            if gen_idx > self.num_centrales:
+                                raise ValueError(
+                                    f"Generator index {gen_idx} exceeds declared number "
+                                    f"of generators {self.num_centrales}"
+                                )
 
-                        current_gen = {
-                            "id": str(int(parts[0])),
-                            "number": int(parts[0]),
-                            "name": parts[1].strip("'"),
-                            "type": self._determine_generator_type(gen_idx),
-                            "is_battery": False,
-                        }
-                    else:
-                        raise ValueError(f"Invalid generator header at line {idx+1}")
+                            current_gen = {
+                                "id": str(gen_id),
+                                "number": gen_id,
+                                "name": parts[1].strip("'"),
+                                "type": self._determine_generator_type(gen_idx),
+                                "is_battery": False,
+                            }
+                        except (ValueError, IndexError) as e:
+                            raise ValueError(f"Invalid generator header at line {idx}: {str(e)}")
 
             # Power limits line
             elif line.startswith("PotMin"):
