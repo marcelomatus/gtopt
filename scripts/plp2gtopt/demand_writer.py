@@ -19,23 +19,29 @@ class DemandWriter(BaseWriter):
         super().__init__(demand_parser)
 
     def to_json_array(self) -> List[Dict[str, Any]]:
-        """Convert demand data to JSON array format."""
-        json_demands = []
-        for demand in self.items:
-            # Convert numpy arrays to lists for JSON serialization
-            blocks = demand["blocks"].tolist()
-            values = demand["values"].tolist()
+        """Convert demand data to JSON array format.
 
-            json_demands.append(
-                {
-                    "uid": demand["number"],
-                    "name": demand["name"],
-                    "bus": demand["name"],
-                    "blocks": blocks,
-                    "values": values,
-                }
-            )
-        return json_demands
+        Returns:
+            List of demand dictionaries with:
+            - uid (int): Bus number
+            - name (str): Bus name
+            - bus (str): Bus name (same as name)
+            - blocks (list[int]): Block numbers
+            - values (list[float]): Demand values
+
+        Note:
+            Converts numpy arrays to lists for JSON serialization
+        """
+        return [
+            {
+                "uid": demand["number"],
+                "name": demand["name"],
+                "bus": demand["name"],
+                "blocks": demand["blocks"].tolist(),
+                "values": demand["values"].tolist(),
+            }
+            for demand in self.items
+        ]
 
 
 if __name__ == "__main__":
