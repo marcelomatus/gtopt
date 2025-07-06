@@ -165,14 +165,8 @@ class GeneratorParser(BaseParser):
                         f"Invalid generator data format at line {idx}: {str(e)}"
                     ) from e
 
-                # Check for battery - either marked in name or has battery type
-                name_upper = current_gen["name"].upper()
-                current_gen["is_battery"] = (
-                    "BESS" in name_upper
-                    or "BATTERY" in name_upper
-                    or "BATERIA" in name_upper
-                    or current_gen.get("type") == "bateria"
-                )
+                # Check for battery - based on type only since name isn't reliable
+                current_gen["is_battery"] = current_gen.get("type") == "bateria"
 
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)

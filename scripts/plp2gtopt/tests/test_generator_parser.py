@@ -38,10 +38,8 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     1 'LMAULE'                                          1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  100.0   000.0   000.0
-           Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
-          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  1.2934600  0.0000000  1.4534093  1.0E+9       T
+          CosVar Rendi Barra
+             0.0  1.000      0
     2 'LOS_CONDORES'                                    1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  150.0   000.0  9976.0
@@ -143,10 +141,10 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["is_battery"] is False
     assert gen1["type"] == "embalse"
 
-    # Test battery generator
-    bat_gen = next(g for g in generators if g["is_battery"])
+    # Test battery generator (should be last in list)
+    bat_gen = generators[-1]
     assert bat_gen["id"] == "1187"
-    assert "BESS" in bat_gen["name"]
+    assert bat_gen["is_battery"] is True
     assert bat_gen["type"] == "bateria"
 
     # Test generator type determination
