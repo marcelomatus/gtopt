@@ -79,7 +79,7 @@ class GeneratorParser(BaseParser):
                         self.num_centrales = int(parts[0])
                         self.num_embalses = 0
                         self.num_series = 0
-                        self.num_pasadas = 0 
+                        self.num_pasadas = 0
                         self.num_baterias = 0
                         self.num_fallas = 0
                         self.num_termicas = self.num_centrales
@@ -130,20 +130,22 @@ class GeneratorParser(BaseParser):
                     raise ValueError("Unexpected end of file after CosVar header")
                 parts = lines[idx].split()
                 idx += 1
-                
+
                 # Ensure we have minimum required columns
                 if len(parts) < 3:
-                    raise ValueError(f"Invalid generator data at line {idx}: expected at least 3 values")
-                
+                    raise ValueError(
+                        f"Invalid generator data at line {idx}: expected at least 3 values"
+                    )
+
                 try:
                     current_gen["variable_cost"] = self._parse_float(parts[0])
                     current_gen["efficiency"] = self._parse_float(parts[1])
                     current_gen["bus"] = str(int(parts[2]))  # Bus ID is column 3
-                    
+
                     # Optional fields
                     if len(parts) > 3:
                         current_gen["ser_hid"] = int(parts[3])
-                    if len(parts) > 4:    
+                    if len(parts) > 4:
                         current_gen["ser_ver"] = int(parts[4])
                     if len(parts) > 5:
                         current_gen["pot_tm0"] = self._parse_float(parts[5])
@@ -157,7 +159,7 @@ class GeneratorParser(BaseParser):
 
                 # Check for battery in name
                 current_gen["is_battery"] = "BESS" in current_gen["name"].upper()
-                
+
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)
                 current_gen = {}  # Reset for next generator
