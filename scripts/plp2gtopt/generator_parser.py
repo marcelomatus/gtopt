@@ -54,15 +54,17 @@ class GeneratorParser(BaseParser):
         current_gen: Dict[str, Any] = {}
 
         lines = self._read_non_empty_lines()
-            for line in f:
-                line = line.strip()
+        idx = 0
+        while idx < len(lines):
+            line = lines[idx]
+            idx += 1
 
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
-                    continue
+            # Skip comments and empty lines (shouldn't be needed since _read_non_empty_lines() filters them)
+            if not line or line.startswith("#"):
+                continue
 
-                # Generator header line
-                if line[0].isdigit():
+            # Generator header line
+            if line[0].isdigit():
                     if current_gen:
                         self._finalize_generator(current_gen)
 
@@ -82,9 +84,11 @@ class GeneratorParser(BaseParser):
                 elif line.startswith("PotMin"):
                     if not current_gen:
                         continue
-                    # Skip the header line and read the next line for values
-                    next_line = next(f).strip()
-                    parts = next_line.split()
+                    # Get the next line for values
+                    if idx >= len(lines):
+                        raise ValueError("Unexpected end of file after generator header")
+                    parts = lines[idx].split()
+                    idx += 1
                     current_gen["p_min"] = float(parts[0])
                     current_gen["p_max"] = float(parts[1])
 
@@ -92,11 +96,13 @@ class GeneratorParser(BaseParser):
                 elif line.startswith("CosVar"):
                     if not current_gen:
                         continue
-                    # Skip the header line and read the next line for values
-                    next_line = next(f).strip()
-                    while not next_line:  # Skip empty lines
-                        next_line = next(f).strip()
-                    parts = next_line.split()
+                    # Get the next non-empty line for values
+                    while idx < len(lines) and not lines[idx].strip():
+                        idx += 1
+                    if idx >= len(lines):
+                        raise ValueError("Unexpected end of file after CosVar header")
+                    parts = lines[idx].split()
+                    idx += 1
                     if len(parts) >= 5:  # Ensure we have all expected columns
                         try:
                             current_gen["variable_cost"] = float(parts[0])
