@@ -29,7 +29,7 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     file_path = tmp_path / "valid_gen.dat"
     content = """# Archivo de configuracion de las centrales (plpcnfce.dat)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
-     5            2           1       0        0         1
+     6            2           1       0        0         1
 # Centrales de Embalse
     1 'LMAULE'                                          1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -131,9 +131,9 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     """
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
-    assert parser.get_num_generators() == 5
+    assert parser.get_num_generators() == 6
     generators = parser.get_generators()
-    assert len(generators) == 5
+    assert len(generators) == 6
 
     # Test first generator (hydro)
     gen1 = generators[0]
@@ -172,8 +172,8 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
-    assert len(bus0_gens) == 2
-    assert {g["id"] for g in bus0_gens} == {"1", "3"}
+    assert len(bus0_gens) == 3
+    assert {g["id"] for g in bus0_gens} == {"1", "3", "171"}
 
     bus93_gens = parser.get_generators_by_bus("93")
     assert len(bus93_gens) == 1
