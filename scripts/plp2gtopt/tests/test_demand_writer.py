@@ -51,7 +51,8 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
         "uid": int,
         "name": str,
         "bus": str,
-        "lmax": list,
+        "blocks": np.ndarray,
+        "values": np.ndarray,
     }
 
     for demand in json_demands:
@@ -97,16 +98,17 @@ def test_json_output_structure(
         "uid": int,
         "name": str,
         "bus": str,
-        "lmax": list,
+        "blocks": np.ndarray,
+        "values": np.ndarray,
     }
 
-    # Additional checks for lmax structure
+    # Additional checks for arrays
     for demand in json_demands:
-        assert isinstance(demand["lmax"], list)
-        for entry in demand["lmax"]:
-            assert isinstance(entry, dict)
-            assert "block" in entry and isinstance(entry["block"], int)
-            assert "demand" in entry and isinstance(entry["demand"], float)
+        assert isinstance(demand["blocks"], np.ndarray)
+        assert isinstance(demand["values"], np.ndarray)
+        assert len(demand["blocks"]) == len(demand["values"])
+        assert demand["blocks"].dtype == np.int32
+        assert demand["values"].dtype == np.float64
 
     for demand in json_demands:
         # Check all required fields exist and have correct types

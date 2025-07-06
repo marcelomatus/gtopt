@@ -30,19 +30,21 @@ def test_get_num_bars():
 
 
 def test_get_demands():
-    """Test get_demands returns demands list."""
+    """Test get_demands returns demands list with numpy arrays."""
     parser = DemandParser("test.dat")
-    test_demands = [{"test": "data"}]
-    # Use public methods to set test data
-    test_demands = [{"number": 1, "name": "test"}]
-    parser = DemandParser("test.dat")
-    parser._data = test_demands  # pylint: disable=protected-access
-    parser.demand_blocks = np.array([1], dtype=np.int32)
-    parser.demand_values = np.array([1.0], dtype=np.float64)
-    parser.demand_indices = [(0, 1)]
-    test_demands = parser.get_demands()
-    assert len(test_demands) == 1
-    assert test_demands[0]["name"] == "test"
+    # Setup test data with numpy arrays
+    parser._data = [{"number": 1, "name": "test"}]  # pylint: disable=protected-access
+    parser.demand_blocks = np.array([1, 2, 3], dtype=np.int32)
+    parser.demand_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    parser.demand_indices = [(0, 3)]
+    
+    demands = parser.get_demands()
+    assert len(demands) == 1
+    assert demands[0]["name"] == "test"
+    assert isinstance(demands[0]["blocks"], np.ndarray)
+    assert isinstance(demands[0]["values"], np.ndarray)
+    assert demands[0]["blocks"].tolist() == [1, 2, 3]
+    assert demands[0]["values"].tolist() == [1.0, 2.0, 3.0]
 
 
 def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-outer-name
