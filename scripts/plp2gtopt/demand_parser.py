@@ -120,10 +120,10 @@ class DemandParser(BaseParser):
                     array_pos += 1
                     idx += 1
 
-            # Record indices for this bus
-            self.demand_indices.append((start_idx, array_pos))
-            self._data.append({"number": bus_number, "name": name})
-            bus_number += 1
+                # Record indices for this bus
+                self.demand_indices.append((start_idx, array_pos))
+                self._data.append({"number": bus_number, "name": name})
+                bus_number += 1
         finally:
             # Explicitly clear the lines list to free memory
             lines.clear()
