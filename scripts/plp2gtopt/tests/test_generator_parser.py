@@ -27,32 +27,52 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
         Path to temporary test file with valid generator data
     """
     file_path = tmp_path / "valid_gen.dat"
-    content = """# Test generator file
+    content = """# Test generator file - plpcnfce.dat format
     1 'TEST_GEN1'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            010.0  100.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
              5.0  1.000  1      0      0
+          CustoFixo CustoInic CustoManut
+            1000.0    5000.0     200.0
+          RampaSub RampaDes
+             50.0      50.0
     2 'TEST_GEN2'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            020.0  200.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
             10.0  0.900      2      0      0
+          CustoFixo CustoInic CustoManut
+            1500.0    6000.0     250.0
+          RampaSub RampaDes
+             60.0      60.0
     3 'TEST_GEN3'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            030.0  300.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
             15.0  0.950      1      0      0
+          CustoFixo CustoInic CustoManut
+            2000.0    7000.0     300.0
+          RampaSub RampaDes
+             70.0      70.0
     4 'TEST_GEN4'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            040.0  400.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
             20.0  0.980      1      0      0
+          CustoFixo CustoInic CustoManut
+            2500.0    8000.0     350.0
+          RampaSub RampaDes
+             80.0      80.0
     5 'TEST_GEN5'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            050.0  500.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
-            25.0  0.990      2      0      0"""
+            25.0  0.990      2      0      0
+          CustoFixo CustoInic CustoManut
+            3000.0    9000.0     400.0
+          RampaSub RampaDes
+             90.0      90.0"""
     file_path.write_text(content)
     return file_path
 
