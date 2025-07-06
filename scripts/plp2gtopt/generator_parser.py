@@ -94,10 +94,11 @@ class GeneratorParser(BaseParser):
                             + self.num_baterias
                             + self.num_fallas
                         )
+                        print(f"num_centrales {self.num_centrales}")
                     else:
-                        self.num_centrales = 0
-
-                    print(f"num_centrales {self.num_centrales}")
+                        # If header line is invalid, assume we're parsing a test file
+                        # with implicit count and set num_centrales to max possible
+                        self.num_centrales = sys.maxsize
                     continue  # Skip header line
                 else:
                     # Generator line format: number 'name' ...
@@ -105,10 +106,8 @@ class GeneratorParser(BaseParser):
                     gen_idx += 1
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
-                    # Validate count if we have header info and it's not zero
-                    if (self.num_centrales is not None and 
-                        self.num_centrales > 0 and 
-                        gen_idx > self.num_centrales):
+                    # Validate count if we have header info
+                    if self.num_centrales is not None and gen_idx > self.num_centrales:
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
