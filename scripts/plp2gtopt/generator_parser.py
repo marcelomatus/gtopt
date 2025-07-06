@@ -36,6 +36,14 @@ class GeneratorParser(BaseParser):
         """
         super().__init__(file_path)
         self.generators: List[Dict[str, Union[str, float, bool]]] = self._data
+        # Initialize type counts to 0
+        self.num_centrales = 0
+        self.num_embalses = 0
+        self.num_series = 0 
+        self.num_fallas = 0
+        self.num_pasadas = 0
+        self.num_baterias = 0
+        self.num_termicas = 0
 
     def parse(self) -> None:  # pylint: disable
         """Parse the generator file and populate the generators structure.
@@ -78,7 +86,7 @@ class GeneratorParser(BaseParser):
                     self._finalize_generator(current_gen)
 
                 parts = line.split()
-                if self.num_centrales is None:
+                if self.num_centrales == 0:  # Check if counts need to be initialized
                     # First line contains counts - handle test file format
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
@@ -99,6 +107,13 @@ class GeneratorParser(BaseParser):
                         # If header line is invalid, assume we're parsing a test file
                         # with implicit count and set num_centrales to max possible
                         self.num_centrales = sys.maxsize
+                        # Set other counts to 0 to avoid validation issues
+                        self.num_embalses = 0
+                        self.num_series = 0
+                        self.num_fallas = 0
+                        self.num_pasadas = 0
+                        self.num_baterias = 0
+                        self.num_termicas = 0
                     continue  # Skip header line
                 else:
                     # Generator line format: number 'name' ...
@@ -106,8 +121,9 @@ class GeneratorParser(BaseParser):
                     gen_idx += 1
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
-                    # Validate count if we have header info
-                    if self.num_centrales is not None and gen_idx > self.num_centrales:
+                    # Validate count if we have header info and it's not the test file case
+                    if (self.num_centrales != sys.maxsize and 
+                        gen_idx > self.num_centrales):
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
