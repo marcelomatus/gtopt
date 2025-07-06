@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, List, Dict, Union, Optional
 
 
-class BlockParser:
+class BlockParser(BaseParser):
     """Parser for plpblo.dat format files containing block data.
 
     Attributes:
@@ -69,7 +69,7 @@ class BlockParser:
 
     def get_block_by_number(self, block_num: int) -> Optional[Dict[str, Any]]:
         """Get block data for a specific block number."""
-        for block in self.blocks:
+        for block in self._data:
             if block["number"] == block_num:
                 return block
         return None

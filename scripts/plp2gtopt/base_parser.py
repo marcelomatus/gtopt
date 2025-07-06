@@ -77,4 +77,4 @@ class BaseParser(ABC):
         Returns:
             Parsed float value
         """
-        return float(value.lstrip("0") or 0.0
+        return float(value.lstrip("0") or "0.0")
