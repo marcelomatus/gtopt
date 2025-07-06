@@ -88,8 +88,8 @@ def convert_plp_case(
             "stage_array": results["stage_array"],
         }
 
-        results["block_array"] = ""
-        results["stage_array"] = ""
+        del results["block_array"]
+        del results["stage_array"]
 
         return results
 
