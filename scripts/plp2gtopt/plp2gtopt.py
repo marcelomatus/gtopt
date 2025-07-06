@@ -6,6 +6,8 @@ Handles:
 - Managing conversion process
 """
 
+import json
+
 from pathlib import Path
 from typing import Dict, Union
 
@@ -57,6 +59,8 @@ def convert_plp_case(
         raise FileNotFoundError(f"Input directory not found: {input_path}")
     output_path.mkdir(parents=True, exist_ok=True)
 
+    output_file = output_path / "plp2gtopt.json"
+
     results = {}
     parsers = [
         ("block_array", BlockParser, BlockWriter, "plpblo.dat"),
@@ -83,24 +87,33 @@ def convert_plp_case(
 
         # defining simulation and system
 
-        simulation = {
-            "block_array": results["block_array"],
-            "stage_array": results["stage_array"],
+        options = {
+            "input_dir": input_path,
+            "output_dir": output_path,
         }
 
-        del results["block_array"]
-        del results["stage_array"]
+        # Create simulation dictionary with block and stage arrays
+        # and remove them from results to avoid duplication.
+        simulation = {}
+        for key in ["block_array", "stage_array"]:
+            if key in results:
+                simulation[key] = results[key]
+                del results[key]
 
+        # Create system dictionary with all remaining parsed data found in results.
+        system = results
 
-        system = {
-            "bus_array": results["bus_array"],
-            "line_array": results["line_array"],
-            "generator_array": results["generator_array"],
-            "demand_array": results["demand_array"],
+        planning = {
+            "options": options,
+            "simulation": simulation,
+            "system": system,
         }
 
+        # Write output to JSON file
+        with open(output_file, "w") as f:
+            json.dump(planning, f, indent=4)
 
-        return results
+        print(f"\nConversion successful! Output written to {output_file}")
 
     except Exception as e:
         print(f"\nConversion failed: {str(e)}")
