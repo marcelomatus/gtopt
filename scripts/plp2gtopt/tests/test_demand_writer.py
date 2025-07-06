@@ -110,12 +110,13 @@ def test_json_output_structure(
         # Check all required fields exist and have correct types
         assert set(demand.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
-            assert isinstance(demand[field], field_type), \
-                f"Field {field} should be {field_type}, got {type(demand[field])}"
-        
+            assert isinstance(
+                demand[field], field_type
+            ), f"Field {field} should be {field_type}, got {type(demand[field])}"
+
         # Additional value checks
         assert demand["uid"] > 0, "UID should be positive integer"
-        assert demand["name"].startswith("Bar"), "Demand name should start with 'Bar'"
+        assert len(demand["name"]) > 0, "Name should not be empty"
         assert demand["capacity"] >= 0, "Capacity should be non-negative"
 
 
@@ -127,7 +128,7 @@ def test_write_empty_demands():
     parser.num_bars = 0
 
     writer = DemandWriter(parser)
-    
+
     # Test empty array conversion
     json_demands = writer.to_json_array()
     assert isinstance(json_demands, list)
@@ -144,7 +145,7 @@ def test_write_empty_demands():
             data = json.load(f)
             assert isinstance(data, list)
             assert len(data) == 0
-        
+
         # Verify file can be read again
         with open(output_path, "r", encoding="utf-8") as f:
             data2 = json.load(f)

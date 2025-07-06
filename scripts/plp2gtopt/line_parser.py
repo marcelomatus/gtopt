@@ -9,7 +9,6 @@ Handles:
 - Line lookup by name or buses
 """
 
-import re
 import sys
 from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
@@ -111,39 +110,14 @@ class LineParser(BaseParser):
 
         name = name.strip()
 
-        # Check for invalid standalone '>' character
-        if ">" in name and "->" not in name:
-            raise ValueError("Invalid line name format - '>' must be part of '->'")
-
         # Determine separator type
         has_arrow = "->" in name
-        has_hyphen = "-" in name and not has_arrow
-
-        if not has_arrow and not has_hyphen:
-            raise ValueError("Line name must contain '->' or '-' separator")
 
         # Split using the appropriate separator
         separator = "->" if has_arrow else "-"
         parts = [p.strip() for p in name.split(separator)]
 
-        # Validate we have exactly two non-empty parts
-        if len(parts) != 2:
-            raise ValueError(
-                "Line name must contain exactly two bus names separated by '->' or '-'"
-            )
-
-        if not all(parts):
-            raise ValueError("Both bus names must be non-empty")
-
-        return parts[0], parts[1]
-
-    def _parse_line_voltage(self, name: str) -> float:
-        """Extract voltage from line name."""
-        # Look for voltage patterns like '220', '220kV', 'KV220' etc.
-        voltage_match = re.search(r"(\d+)(?:kV|KV)?", name, re.IGNORECASE)
-        if voltage_match:
-            return float(voltage_match.group(1))
-        return 0.0  # Default if no voltage found
+        return parts[0], parts[1] if len(parts) > 1 else ""
 
     def get_lines(self) -> List[Dict[str, Any]]:
         """Return the parsed lines structure."""

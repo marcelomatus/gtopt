@@ -9,12 +9,19 @@ Handles:
 from pathlib import Path
 from typing import Dict, Union
 
-from plp2gtopt.demand_parser import DemandParser
-from plp2gtopt.stage_parser import StageParser
 from plp2gtopt.block_parser import BlockParser
+from plp2gtopt.block_writer import BlockWriter
+from plp2gtopt.stage_parser import StageParser
+from plp2gtopt.stage_writer import StageWriter
+
 from plp2gtopt.bus_parser import BusParser
-from plp2gtopt.line_parser import LineParser
+from plp2gtopt.bus_writer import BusWriter
+from plp2gtopt.demand_parser import DemandParser
+from plp2gtopt.demand_writer import DemandWriter
 from plp2gtopt.generator_parser import GeneratorParser
+from plp2gtopt.generator_writer import GeneratorWriter
+from plp2gtopt.line_parser import LineParser
+from plp2gtopt.line_writer import LineWriter
 
 
 def convert_plp_case(
@@ -52,21 +59,16 @@ def convert_plp_case(
 
     results = {}
     parsers = [
-        ("blocks", BlockParser, "plpblo.dat", "num_blocks"),
-        ("stages", StageParser, "plpeta.dat", "num_stages"),
-        ("buses", BusParser, "plpbar.dat", "num_buses"),
-        ("lines", LineParser, "plpcnfli.dat", "num_lines"),
-        ("generators", GeneratorParser, "plpcnfce.dat", "num_generators"),
-        (
-            "demands",
-            DemandParser,
-            "plpdem.dat",
-            "num_demands",
-        ),
+        ("block_array", BlockParser, BlockWriter, "plpblo.dat"),
+        ("stage_array", StageParser, StageWriter, "plpeta.dat"),
+        ("bus_array", BusParser, BusWriter, "plpbar.dat"),
+        ("line_array", LineParser, LineWriter, "plpcnfli.dat"),
+        ("generator_array", GeneratorParser, GeneratorWriter, "plpcnfce.dat"),
+        ("demand_array", DemandParser, DemandWriter, "plpdem.dat"),
     ]
 
     try:
-        for name, parser_class, filename, count_attr in parsers:
+        for name, parser_class, writer_class, filename in parsers:
             filepath = input_path / filename
             print(f"Parsing {filename}...")
 
@@ -77,8 +79,9 @@ def convert_plp_case(
             if not hasattr(parser, "parse"):
                 raise ValueError(f"Parser {parser_class.__name__} has no parse method")
             parser.parse()
-            results[name] = getattr(parser, count_attr)
-            print(f"Found {results[name]} {name}")
+            writer = writer_class(parser)
+            results[name] = writer.to_json_array()
+            print(f"Found {name} {len(results[name])}")
 
         print(f"\nConversion complete. Results saved to: {output_path}")
         return results
