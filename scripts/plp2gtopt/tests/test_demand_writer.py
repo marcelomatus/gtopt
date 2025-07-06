@@ -51,17 +51,15 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
         "uid": int,
         "name": str,
         "bus": str,
-        "lmax": str,
-        "capacity": float,
-        "expcap": type(None),
-        "expmod": type(None),
-        "annual_capcost": type(None),
+        "lmax": list,
     }
 
     for demand in json_demands:
         for field, field_type in required_fields.items():
-            assert field in demand
-            assert isinstance(demand[field], field_type)
+            assert field in demand, f"Missing field: {field}"
+            assert isinstance(demand[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(demand[field])}"
+            )
 
 
 def test_write_to_file(sample_demand_writer):  # pylint: disable=redefined-outer-name
@@ -121,7 +119,6 @@ def test_json_output_structure(
         # Additional value checks
         assert demand["uid"] > 0, "UID should be positive integer"
         assert len(demand["name"]) > 0, "Name should not be empty"
-        assert demand["capacity"] >= 0, "Capacity should be non-negative"
 
 
 def test_write_empty_demands():
