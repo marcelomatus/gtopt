@@ -114,7 +114,9 @@ class GeneratorParser(BaseParser):
                                 "is_battery": False,
                             }
                         except (ValueError, IndexError) as e:
-                            raise ValueError(f"Invalid generator header at line {idx}: {str(e)}")
+                            raise ValueError(
+                                f"Invalid generator header at line {idx}: {str(e)}"
+                            )
 
             # Power limits line
             elif line.startswith("PotMin"):
@@ -187,16 +189,6 @@ class GeneratorParser(BaseParser):
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        required_fields = {
-            "number",
-            "name",
-            "bus",
-            "p_min",
-            "p_max",
-            "variable_cost",
-            "efficiency",
-            "type",
-        }
 
         # Set default values for missing required fields
         defaults = {
@@ -216,7 +208,8 @@ class GeneratorParser(BaseParser):
         missing = required - gen.keys()
         if missing:
             raise ValueError(
-                f"Generator {gen.get('id', 'unknown')} missing required fields: {missing}"
+                f"Generator {gen.get('id', 'unknown')}"
+                "missing required fields: {missing}"
             )
 
         self.generators.append(gen)
