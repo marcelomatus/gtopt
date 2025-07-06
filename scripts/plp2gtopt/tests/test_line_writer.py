@@ -48,17 +48,17 @@ def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-n
 
     # Verify each line has required fields
     required_fields = {
-        "uid": str,  # UID should be string for lines
+        "uid": int,
         "name": str,
-        "bus_a": str,
-        "bus_b": str,
-        "r": float,
-        "x": float,
-        "f_max_ab": float,
-        "f_max_ba": float,
+        "bus_a": int,
+        "bus_b": int,
+        "resistance": float,
+        "reactance": float,
+        "tmax": float,
+        "tmin": float,
         "voltage": float,
         "has_losses": bool,
-        "is_operational": bool,
+        "active": bool,
     }
 
     for line in json_lines:
@@ -101,17 +101,17 @@ def test_json_output_structure(
 
     # Expected structure from system_c0.json
     REQUIRED_FIELDS = {
-        "uid": str,
+        "uid": int,
         "name": str,
-        "bus_a": str,
-        "bus_b": str,
-        "r": float,
-        "x": float,
-        "f_max_ab": float,
-        "f_max_ba": float,
+        "bus_a": int,
+        "bus_b": int,
+        "resistance": float,
+        "reactance": float,
+        "tmax": float,
+        "tmin": float,
         "voltage": float,
         "has_losses": bool,
-        "is_operational": bool,
+        "active": bool,
     }
 
     for line in json_lines:
@@ -123,10 +123,10 @@ def test_json_output_structure(
             ), f"Field {field} should be {field_type}, got {type(line[field])}"
 
         # Additional value checks
-        assert line["r"] >= 0, "Resistance should be non-negative"
-        assert line["x"] >= 0, "Reactance should be non-negative"
-        assert line["f_max_ab"] >= 0, "Flow limit AB should be non-negative"
-        assert line["f_max_ba"] >= 0, "Flow limit BA should be non-negative"
+        assert line["resistance"] >= 0, "Resistance should be non-negative"
+        assert line["reactance"] >= 0, "Reactance should be non-negative"
+        assert line["tmax"] >= 0, "Flow limit AB should be non-negative"
+        assert line["tmin"] <= 0, "Flow limit BA should be negative"
 
 
 def test_write_empty_lines():

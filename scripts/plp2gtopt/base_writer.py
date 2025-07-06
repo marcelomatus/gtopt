@@ -13,15 +13,16 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
+from .base_parser import BaseParser
 
-T = TypeVar("T", bound="BaseWriter")
-P = TypeVar("P", bound="BaseParser")  # Generic type for parser classes
+WriterVar = TypeVar("WriterVar", bound="BaseWriter")
+ParserVar = TypeVar("ParserVar", bound=BaseParser.__name__)
 
 
 class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
 
-    def __init__(self, parser: P) -> None:
+    def __init__(self, parser: ParserVar) -> None:
         """Initialize with a parser instance.
 
         Args:
@@ -56,7 +57,9 @@ class BaseWriter(ABC):
             raise IOError(f"Failed to write JSON: {str(e)}") from e
 
     @classmethod
-    def from_file(cls: Type[T], input_file: Path, parser_class: Type[P]) -> T:
+    def from_file(
+        cls: Type[WriterVar], input_file: Path, parser_class: Type[ParserVar]
+    ) -> WriterVar:
         """Create writer directly from input file.
 
         Args:
@@ -74,7 +77,7 @@ class BaseWriter(ABC):
         return cls(parser)
 
     @staticmethod
-    def main(writer_class: Type[T], parser_class: Type[P]) -> None:
+    def main(writer_class: Type[WriterVar], parser_class: Type[ParserVar]) -> None:
         """Run main method for CLI execution.
 
         Args:

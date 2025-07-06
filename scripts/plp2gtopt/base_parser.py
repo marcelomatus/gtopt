@@ -46,7 +46,7 @@ class BaseParser(ABC):
 
     def _read_non_empty_lines(self) -> List[str]:
         """Read file and return non-empty, non-comment lines.
-        
+
         Returns:
             List of stripped, non-empty lines that aren't comments
         """
@@ -59,10 +59,10 @@ class BaseParser(ABC):
 
     def _parse_int(self, value: str) -> int:
         """Parse integer handling zero-padded strings.
-        
+
         Args:
             value: String to parse as int
-            
+
         Returns:
             Parsed integer value
         """
@@ -70,10 +70,10 @@ class BaseParser(ABC):
 
     def _parse_float(self, value: str) -> float:
         """Parse float handling zero-padded strings.
-        
+
         Args:
             value: String to parse as float
-            
+
         Returns:
             Parsed float value
         """

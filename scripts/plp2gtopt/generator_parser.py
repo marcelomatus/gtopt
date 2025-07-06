@@ -149,7 +149,9 @@ class GeneratorParser(BaseParser):
         # Only add generators with positive capacity that aren't duplicates
         if gen["p_max"] > 0:
             # Check if generator with same id and bus already exists
-            if not any(g["id"] == gen["id"] and g["bus"] == gen["bus"] for g in self.generators):
+            if not any(
+                g["id"] == gen["id"] and g["bus"] == gen["bus"] for g in self.generators
+            ):
                 self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:

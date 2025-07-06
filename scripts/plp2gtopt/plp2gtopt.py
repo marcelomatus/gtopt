@@ -85,11 +85,30 @@ def convert_plp_case(
             results[name] = writer.to_json_array()
             print(f"Found {name} {len(results[name])}")
 
-        # defining simulation and system
+        #
+        # Validate parsed data consistency
+        #
 
+        # Complete the stage data with block information
+        stages = results.get("stage_array", [])
+        blocks = results.get("block_array", [])
+        for stage in stages:
+            # find first block that matches stage number
+            stage_blocks = [
+                index
+                for index, block in enumerate(blocks)
+                if block["stage"] == stage["uid"]
+            ]
+
+            stage["first_block"] = stage_blocks[0] if stage_blocks else -1
+            stage["count_block"] = len(stage_blocks) if stage_blocks else -1
+
+        #
+        # Defining Planning Dictionary
+        #
         options = {
-            "input_dir": input_path,
-            "output_dir": output_path,
+            "input_dir": str(input_path),
+            "output_dir": str(output_path),
         }
 
         # Create simulation dictionary with block and stage arrays
@@ -114,6 +133,7 @@ def convert_plp_case(
             json.dump(planning, f, indent=4)
 
         print(f"\nConversion successful! Output written to {output_file}")
+        print(f"Total entities parsed: {len(results)}")
 
     except Exception as e:
         print(f"\nConversion failed: {str(e)}")

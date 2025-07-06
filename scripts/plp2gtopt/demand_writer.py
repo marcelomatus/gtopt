@@ -25,7 +25,7 @@ class DemandWriter(BaseWriter):
             # Convert numpy arrays to lists for JSON serialization
             blocks = demand["blocks"].tolist()
             values = demand["values"].tolist()
-            
+
             json_demands.append(
                 {
                     "uid": demand["number"],
