@@ -57,9 +57,9 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
     for demand in json_demands:
         for field, field_type in required_fields.items():
             assert field in demand, f"Missing field: {field}"
-            assert isinstance(demand[field], field_type), (
-                f"Field {field} should be {field_type}, got {type(demand[field])}"
-            )
+            assert isinstance(
+                demand[field], field_type
+            ), f"Field {field} should be {field_type}, got {type(demand[field])}"
 
 
 def test_write_to_file(sample_demand_writer):  # pylint: disable=redefined-outer-name
