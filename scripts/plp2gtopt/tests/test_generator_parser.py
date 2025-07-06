@@ -30,6 +30,12 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
     content = """# Archivo de configuracion de las centrales (plpcnfce.dat)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
      5            2           1       0        0         1
+# Centrales de Embalse
+    1 'LMAULE'                                          1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  100.0   000.0   000.0
+          CosVar Rendi Barra
+             0.0  1.000      0
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
   F      F        F            F          00
 # Caracteristicas Centrales
@@ -104,7 +110,9 @@ def malformed_gen_file_fixture(tmp_path: Path) -> Path:
     file_path = tmp_path / "bad_gen.dat"
     content = """    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
-           invalid values"""
+           invalid values
+          CosVar Rendi Barra
+             0.0  1.000      0"""
     file_path.write_text(content)
     return file_path
 

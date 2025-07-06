@@ -98,7 +98,8 @@ class GeneratorParser(BaseParser):
                     # Handle generator header line with format: "number 'name' ..."
                     if len(parts) >= 2:
                         try:
-                            gen_id = int(parts[0])
+                            # First try parsing as float then convert to int
+                            gen_id = int(float(parts[0]))
                             gen_idx += 1
                             if gen_idx > self.num_centrales:
                                 raise ValueError(
