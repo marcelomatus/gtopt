@@ -97,9 +97,11 @@ class GeneratorParser(BaseParser):
 
                     # Reset current generator for new entry
                     current_gen = {
+                        "id": str(int(parts[0])),  # Convert to string to match test
                         "number": int(parts[0]),
                         "name": parts[1].strip("'"),
                         "type": self._determine_generator_type(gen_idx),
+                        "is_battery": False,  # Initialize battery flag
                     }
 
             # Power limits line
@@ -132,7 +134,7 @@ class GeneratorParser(BaseParser):
                         current_gen["variable_cost"] = self._parse_float(parts[0])
                         current_gen["efficiency"] = self._parse_float(parts[1])
                         # Bus ID is in column 3 (0-based index 2) for "Barra"
-                        current_gen["bus"] = int(parts[2])
+                        current_gen["bus"] = str(int(parts[2]))  # Convert to string
                         current_gen["ser_hid"] = int(parts[3])
                         current_gen["ser_ver"] = int(parts[4])
                         current_gen["pot_tm0"] = self._parse_float(parts[5])
@@ -143,8 +145,7 @@ class GeneratorParser(BaseParser):
                         ) from e
 
                 # Check for battery in name
-                if "BESS" in current_gen["name"].upper():
-                    current_gen["is_battery"] = True
+                current_gen["is_battery"] = "BESS" in current_gen["name"].upper()
             # Add last generator
             if current_gen:
                 self._finalize_generator(current_gen)
@@ -236,7 +237,7 @@ class GeneratorParser(BaseParser):
 
         return "unknown"  # Fallback if no type matched
 
-    def get_generators_by_bus(self, bus_id: str) -> List[Dict[str, Any]]:
+    def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
 
         Args:
@@ -253,7 +254,7 @@ class GeneratorParser(BaseParser):
         seen = set()
         unique_gens = []
         for g in self.generators:
-            if g["bus"] == bus_id:
+            if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
                 key = (g["number"], g["bus"])
                 if key not in seen:
                     seen.add(key)
