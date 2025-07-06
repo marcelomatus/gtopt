@@ -12,6 +12,7 @@ Handles:
 import sys
 from pathlib import Path
 from typing import Any, List, Dict, Union, Optional
+from .base_parser import BaseParser
 
 
 class BlockParser(BaseParser):
