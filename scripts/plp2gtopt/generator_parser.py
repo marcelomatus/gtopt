@@ -73,7 +73,7 @@ class GeneratorParser(BaseParser):
 
                 parts = line.split()
                 if self.num_centrales is None:
-                    # First line contains counts, skip generator lines
+                    # First line contains counts
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
                         self.num_embalses = int(parts[1])
@@ -88,28 +88,28 @@ class GeneratorParser(BaseParser):
                             + self.num_pasadas
                             + self.num_baterias
                         )
-                    continue
+                    continue  # Skip to next line after header counts
 
                 else:
-                    gen_idx += 1
-                    if gen_idx > self.num_centrales:
-                        raise ValueError(
-                            f"Generator index {gen_idx} exceeds declared number"
-                            "of generators {self.num_centrales}"
-                        )
-
-                    # Reset current generator for new entry
                     # Generator line format: number 'name' ...
                     if len(parts) >= 2 and parts[0].isdigit():
+                        gen_idx += 1
+                        if gen_idx > self.num_centrales:
+                            raise ValueError(
+                                f"Generator index {gen_idx} exceeds declared number "
+                                f"of generators {self.num_centrales}"
+                            )
+
                         current_gen = {
-                            "id": str(int(parts[0])),  # Convert to string to match test
+                            "id": str(int(parts[0])),
                             "number": int(parts[0]),
                             "name": parts[1].strip("'"),
                             "type": self._determine_generator_type(gen_idx),
-                            "is_battery": False,  # Initialize battery flag
+                            "is_battery": False,
                         }
                     else:
-                        raise ValueError(f"Invalid generator header at line {idx+1}")
+                        # Skip non-generator lines (like empty lines or comments)
+                        continue
 
             # Power limits line
             elif line.startswith("PotMin"):
@@ -153,9 +153,9 @@ class GeneratorParser(BaseParser):
 
                 # Check for battery in name
                 current_gen["is_battery"] = "BESS" in current_gen["name"].upper()
-            # Add last generator
-            if current_gen:
-                self._finalize_generator(current_gen)
+        # Add last generator if exists
+        if current_gen:
+            self._finalize_generator(current_gen)
 
     def _finalize_generator(self, gen: Dict[str, Any]) -> None:
         """Validate and add a completed generator to the list.
