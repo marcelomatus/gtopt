@@ -68,7 +68,6 @@ class GeneratorParser(BaseParser):
         if not lines:
             raise ValueError("File is empty")
             
-        self.num_centrales = None
         idx = 0
         gen_idx = 0
         while idx < len(lines):
@@ -86,7 +85,7 @@ class GeneratorParser(BaseParser):
                     self._finalize_generator(current_gen)
 
                 parts = line.split()
-                if self.num_centrales == 0:  # Check if counts need to be initialized
+                if not hasattr(self, 'num_centrales') or self.num_centrales == 0:  # Check if counts need to be initialized
                     # First line contains counts - handle test file format
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
@@ -122,7 +121,8 @@ class GeneratorParser(BaseParser):
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
                     # Validate count if we have header info and it's not the test file case
-                    if (self.num_centrales != sys.maxsize and 
+                    if (hasattr(self, 'num_centrales') and 
+                        self.num_centrales != sys.maxsize and 
                         gen_idx > self.num_centrales):
                         print("line error ", line)
                         raise ValueError(
