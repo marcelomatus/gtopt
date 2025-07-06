@@ -35,16 +35,16 @@ def test_get_demands():
     # Setup test data
     test_blocks = np.array([1, 2, 3], dtype=np.int32)
     test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-    
+
     parser._data = [{"number": 1, "name": "test"}]  # pylint: disable=protected-access
     parser.demand_blocks = test_blocks
-    parser.demand_values = test_values 
+    parser.demand_values = test_values
     parser.demand_indices = [(0, 3)]
 
     demands = parser.get_demands()
     assert len(demands) == 1
     demand = demands[0]
-    
+
     # Verify structure and types
     assert demand["number"] == 1
     assert demand["name"] == "test"
@@ -52,7 +52,7 @@ def test_get_demands():
     assert isinstance(demand["values"], np.ndarray)
     assert demand["blocks"].dtype == np.int32
     assert demand["values"].dtype == np.float64
-    
+
     # Verify array contents
     np.testing.assert_array_equal(demand["blocks"], test_blocks)
     np.testing.assert_array_equal(demand["values"], test_values)
