@@ -30,21 +30,32 @@ def test_get_num_bars():
 
 
 def test_get_demands():
-    """Test get_demands returns demands list with numpy arrays."""
+    """Test get_demands returns properly structured demand data."""
     parser = DemandParser("test.dat")
-    # Setup test data with numpy arrays
+    # Setup test data
+    test_blocks = np.array([1, 2, 3], dtype=np.int32)
+    test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    
     parser._data = [{"number": 1, "name": "test"}]  # pylint: disable=protected-access
-    parser.demand_blocks = np.array([1, 2, 3], dtype=np.int32)
-    parser.demand_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+    parser.demand_blocks = test_blocks
+    parser.demand_values = test_values 
     parser.demand_indices = [(0, 3)]
 
     demands = parser.get_demands()
     assert len(demands) == 1
-    assert demands[0]["name"] == "test"
-    assert isinstance(demands[0]["blocks"], np.ndarray)
-    assert isinstance(demands[0]["values"], np.ndarray)
-    assert demands[0]["blocks"].tolist() == [1, 2, 3]
-    assert demands[0]["values"].tolist() == [1.0, 2.0, 3.0]
+    demand = demands[0]
+    
+    # Verify structure and types
+    assert demand["number"] == 1
+    assert demand["name"] == "test"
+    assert isinstance(demand["blocks"], np.ndarray)
+    assert isinstance(demand["values"], np.ndarray)
+    assert demand["blocks"].dtype == np.int32
+    assert demand["values"].dtype == np.float64
+    
+    # Verify array contents
+    np.testing.assert_array_equal(demand["blocks"], test_blocks)
+    np.testing.assert_array_equal(demand["values"], test_values)
 
 
 def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-outer-name
