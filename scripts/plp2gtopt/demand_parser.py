@@ -106,19 +106,19 @@ class DemandParser(BaseParser):
 
                 # Parse demand entries directly into arrays
                 for _ in range(num_blocks):
-                if idx >= len(lines):
-                    raise ValueError(
-                        "Unexpected end of file while parsing demand entries"
-                    )
+                    if idx >= len(lines):
+                        raise ValueError(
+                            "Unexpected end of file while parsing demand entries"
+                        )
 
-                parts = lines[idx].split()
-                if len(parts) < 3:
-                    raise ValueError(f"Invalid demand entry at line {idx+1}")
+                    parts = lines[idx].split()
+                    if len(parts) < 3:
+                        raise ValueError(f"Invalid demand entry at line {idx+1}")
 
-                self.demand_blocks[array_pos] = int(parts[1])  # Block number
-                self.demand_values[array_pos] = float(parts[2])  # Demand value
-                array_pos += 1
-                idx += 1
+                    self.demand_blocks[array_pos] = int(parts[1])  # Block number
+                    self.demand_values[array_pos] = float(parts[2])  # Demand value
+                    array_pos += 1
+                    idx += 1
 
             # Record indices for this bus
             self.demand_indices.append((start_idx, array_pos))
