@@ -13,9 +13,10 @@ Handles:
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+from .base_parser import BaseParser
 
 
-class GeneratorParser:
+class GeneratorParser(BaseParser):
     """Parser for plpcnfce.dat format files containing generator data.
 
     Attributes:
@@ -33,12 +34,8 @@ class GeneratorParser:
             TypeError: If file_path is not str or Path
             ValueError: If file_path is empty
         """
-        if not isinstance(file_path, (str, Path)):
-            raise TypeError(f"Expected str or Path, got {type(file_path).__name__}")
-        if not file_path:
-            raise ValueError("File path cannot be empty")
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.generators: List[Dict[str, Union[str, float, bool]]] = []
+        super().__init__(file_path)
+        self.generators: List[Dict[str, Union[str, float, bool]]] = self._data
 
     def parse(self) -> None:
         """Parse the generator file and populate the generators structure.
@@ -53,12 +50,10 @@ class GeneratorParser:
             ValueError: If file format is invalid
             IOError: If file cannot be read
         """
-        if not self.file_path.exists():
-            raise FileNotFoundError(f"Generator file not found: {self.file_path}")
-
+        self.validate_file()
         current_gen: Dict[str, Any] = {}
 
-        with open(self.file_path, "r", encoding="utf-8") as f:
+        lines = self._read_non_empty_lines()
             for line in f:
                 line = line.strip()
 
