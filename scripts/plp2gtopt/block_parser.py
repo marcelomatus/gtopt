@@ -29,8 +29,7 @@ class BlockParser:
         Args:
             file_path: Path to plpblo.dat format file (str or Path)
         """
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
-        self.blocks: List[Dict[str, Any]] = []
+        super().__init__(file_path)
         self.num_blocks = 0
 
     def parse(self) -> None:
@@ -41,40 +40,28 @@ class BlockParser:
             ValueError: If file format is invalid
             IndexError: If file is empty or malformed
         """
-        if not self.file_path.exists():
-            raise FileNotFoundError(f"Block file not found: {self.file_path}")
-
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            # Skip initial comments and empty lines
-            lines = []
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    lines.append(line)
+        self.validate_file()
+        lines = self._read_non_empty_lines()
 
         idx = 0
-        self.num_blocks = int(lines[idx])
+        self.num_blocks = self._parse_int(lines[idx])
         idx += 1
 
         for _ in range(self.num_blocks):
-            # Parse block line with format:
-            # block stage hours
             parts = lines[idx].split()
             if len(parts) < 3:
                 raise ValueError(f"Invalid block entry at line {idx+1}")
 
-            # Handle zero-padded numbers
-            block_num = int(parts[0].lstrip("0") or 0)  # Convert "001" to 1
-            stage_num = int(parts[1].lstrip("0") or 0)
-            duration = float(parts[2].lstrip("0") or 0)
-            self.blocks.append(
-                {"number": block_num, "stage": stage_num, "duration": duration}
-            )
+            self._data.append({
+                "number": self._parse_int(parts[0]),
+                "stage": self._parse_int(parts[1]),
+                "duration": self._parse_float(parts[2])
+            })
             idx += 1
 
     def get_blocks(self) -> List[Dict[str, Any]]:
         """Return the parsed blocks structure."""
-        return self.blocks
+        return self.get_all()
 
     def get_num_blocks(self) -> int:
         """Return the number of blocks in the file."""
