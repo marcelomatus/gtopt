@@ -92,11 +92,11 @@ def convert_plp_case(
         del results["stage_array"]
 
 
-        systema = {_
-                  "bus_array": results["bus_array"],
-                  "line_array": results["line_array"],
-                  "generator_array": results["generator_array"],
-                  "demand_array": results["demand_array"],
+        system = {
+            "bus_array": results["bus_array"],
+            "line_array": results["line_array"],
+            "generator_array": results["generator_array"],
+            "demand_array": results["demand_array"],
         }
 
 
