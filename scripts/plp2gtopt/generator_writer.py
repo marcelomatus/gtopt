@@ -20,20 +20,29 @@ class GeneratorWriter(BaseWriter):
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert generator data to JSON array format."""
-        return [
-            {
-                "uid": int(gen["id"]),  # Keep generator UIDs as integers
+        json_generators = []
+        for gen in self.items:
+            generator = {
+                "uid": int(gen["id"]),
                 "name": gen["name"],
                 "bus": gen["bus"],
-                "gcost": gen["variable_cost"],
-                "capacity": gen["p_max"],
-                "expcap": gen.get("pot_tm0"),  # Initial power if available
-                "expmod": gen.get("afluent"),  # Inflow if available  
-                "annual_capcost": None,  # Not in PLP format
-                "is_battery": gen.get("is_battery", False),
+                "gcost": float(gen["variable_cost"]),
+                "capacity": float(gen["p_max"]),
+                "is_battery": bool(gen.get("is_battery", False)),
+                "type": gen.get("type", "unknown"),
+                "efficiency": float(gen.get("efficiency", 1.0)),
+                "pmin": float(gen.get("p_min", 0.0)),
             }
-            for gen in self.items
-        ]
+            
+            # Add optional fields if they exist
+            if "pot_tm0" in gen:
+                generator["expcap"] = float(gen["pot_tm0"])
+            if "afluent" in gen:
+                generator["expmod"] = float(gen["afluent"])
+                
+            json_generators.append(generator)
+            
+        return json_generators
 
 
 if __name__ == "__main__":
