@@ -79,7 +79,7 @@ class GeneratorParser(BaseParser):
                     # First line contains counts - handle test file format
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
-                        self.num_embalses = int(parts[1]) 
+                        self.num_embalses = int(parts[1])
                         self.num_series = int(parts[2])
                         self.num_fallas = int(parts[3])
                         self.num_pasadas = int(parts[4])
@@ -194,26 +194,26 @@ class GeneratorParser(BaseParser):
             "number",
             "name",
             "bus",
-            "p_min", 
+            "p_min",
             "p_max",
             "variable_cost",
             "efficiency",
             "type",
         }
-        
+
         # Set default values for missing required fields
         defaults = {
             "bus": "0",
             "variable_cost": 0.0,
             "efficiency": 1.0,
             "p_min": 0.0,
-            "p_max": 0.0
+            "p_max": 0.0,
         }
-        
+
         for field, default in defaults.items():
             if field not in gen:
                 gen[field] = default
-                
+
         # Only check for truly required fields
         required = {"number", "name", "type"}
         missing = required - gen.keys()
