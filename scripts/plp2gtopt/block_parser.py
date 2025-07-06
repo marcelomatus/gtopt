@@ -32,6 +32,7 @@ class BlockParser(BaseParser):
         """
         super().__init__(file_path)
         self.num_blocks = 0
+        self.blocks: List[Dict[str, Any]] = self._data  # Alias for backward compatibility
 
     def parse(self) -> None:
         """Parse the block file and populate the blocks structure.
@@ -64,7 +65,7 @@ class BlockParser(BaseParser):
 
     def get_blocks(self) -> List[Dict[str, Any]]:
         """Return the parsed blocks structure."""
-        return self.blocks  # Use the alias that tests expect
+        return self._data  # Return the base class storage directly
 
     def get_num_blocks(self) -> int:
         """Return the number of blocks in the file."""

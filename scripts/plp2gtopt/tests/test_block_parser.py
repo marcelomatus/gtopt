@@ -16,7 +16,7 @@ def test_block_parser_initialization():
     """Test BlockParser initialization."""
     parser = BlockParser("test.dat")
     assert parser.file_path == Path("test.dat")
-    assert not parser.blocks  # Check empty list
+    assert not parser._data  # Check empty list through base class
     assert parser.num_blocks == 0
 
 
@@ -32,7 +32,7 @@ def test_get_blocks():
     parser = BlockParser("test.dat")
     test_blocks = [{"test": "data"}]
     parser._data = test_blocks  # Set data through base class
-    assert parser.get_blocks() == test_blocks  # Should return same via blocks alias
+    assert parser.get_blocks() == test_blocks  # Should return same data
 
 
 def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-outer-name
