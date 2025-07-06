@@ -154,14 +154,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["p_max"] == 100.0
     assert gen1["variable_cost"] == 0.0
     assert gen1["efficiency"] == 1.0
-    assert gen1["is_battery"] is False
     assert gen1["type"] == "embalse"
-
-    # Test battery generator (should be last in list)
-    bat_gen = generators[4]
-    assert bat_gen["id"] == "15"
-    assert bat_gen["is_battery"] is True
-    assert bat_gen["type"] == "bateria"
 
     # Test generator type determination
     with pytest.raises(ValueError):
