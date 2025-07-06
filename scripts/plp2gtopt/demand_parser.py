@@ -52,61 +52,63 @@ class DemandParser(BaseParser):
         idx = 0
         self.num_demands = self._parse_int(lines[idx])
         idx += 1
-        
+
         # First pass: count total demand entries to pre-allocate arrays
         total_demand_entries = 0
         count_idx = idx  # Temporary index for counting pass
-        
+
         for _ in range(self.num_demands):
             count_idx += 1  # Skip name line
             if count_idx >= len(lines):
                 raise ValueError("Unexpected end of file while counting demand entries")
-                
+
             num_blocks = int(lines[count_idx])
             total_demand_entries += num_blocks
             count_idx += num_blocks + 1  # Skip demand entries
-            
+
         if total_demand_entries == 0:
             raise ValueError("No demand entries found in file")
-            
+
         # Pre-allocate numpy arrays
         self.demand_blocks = np.empty(total_demand_entries, dtype=np.int32)
         self.demand_values = np.empty(total_demand_entries, dtype=np.float64)
-        
+
         # Second pass: parse data directly into arrays
         array_pos = 0  # Current position in pre-allocated arrays
         bus_number = 1  # 1-based bus numbering
-        
+
         for _ in range(self.num_demands):
             # Get bus name
             if idx >= len(lines):
                 raise ValueError("Unexpected end of file while parsing bus names")
             name = lines[idx].strip("'").split("#")[0].strip()
             idx += 1
-            
+
             # Get number of demand entries
             if idx >= len(lines):
                 raise ValueError("Unexpected end of file while parsing block counts")
             num_blocks = int(lines[idx])
             idx += 1
-            
+
             # Record start index for this bus
             start_idx = array_pos
-            
+
             # Parse demand entries directly into arrays
             for _ in range(num_blocks):
                 if idx >= len(lines):
-                    raise ValueError("Unexpected end of file while parsing demand entries")
-                    
+                    raise ValueError(
+                        "Unexpected end of file while parsing demand entries"
+                    )
+
                 parts = lines[idx].split()
                 if len(parts) < 3:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
-                
+
                 self.demand_blocks[array_pos] = int(parts[1])  # Block number
                 self.demand_values[array_pos] = float(parts[2])  # Demand value
                 array_pos += 1
                 idx += 1
-                
+
             # Record indices for this bus
             self.demand_indices.append((start_idx, array_pos))
             self._data.append({"number": bus_number, "name": name})
