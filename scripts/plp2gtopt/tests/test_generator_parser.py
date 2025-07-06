@@ -67,13 +67,11 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
              0.0  1.000    167      0      0    0.0  0000.0
 # Baterias
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
- 1187 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
+ 5 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
            000.0  059.3   000.0   000.0
-           Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0               Pot.
-          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
-             0.0  1.000     89      0      0    0.0  0000.0"""
+          CosVar Rendi Barra
+             0.0  1.000     89"""
     file_path.write_text(content)
     return file_path
 
