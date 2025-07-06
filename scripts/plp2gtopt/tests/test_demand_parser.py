@@ -18,7 +18,7 @@ def test_demand_parser_initialization():
     test_path = "test.dat"
     parser = DemandParser(test_path)
     assert parser.file_path == Path(test_path)  # Compare Path objects
-    assert not parser._data
+    assert not parser.get_demands()  # Use public method instead of accessing _data
     assert parser.num_demands == 0
 
 
@@ -33,7 +33,10 @@ def test_get_demands():
     """Test get_demands returns demands list."""
     parser = DemandParser("test.dat")
     test_demands = [{"test": "data"}]
-    parser._data = [{"number": 1, "name": "test"}]
+    # Use public methods to set test data
+    test_demands = [{"number": 1, "name": "test"}]
+    parser = DemandParser("test.dat")
+    parser._data = test_demands  # pylint: disable=protected-access
     parser.demand_blocks = np.array([1], dtype=np.int32)
     parser.demand_values = np.array([1.0], dtype=np.float64)
     parser.demand_indices = [(0, 1)]
@@ -88,8 +91,8 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     # Verify block numbers are sequential per bar
     for demand_bar in demands:
         blocks = demand_bar["blocks"]
-        for i in range(len(blocks)):
-            assert blocks[i] == i + 1
+        for i, block in enumerate(blocks, 1):
+            assert block == i
 
 
 def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-outer-name
