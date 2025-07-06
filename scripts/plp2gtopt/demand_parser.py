@@ -222,7 +222,6 @@ class DemandParser(BaseParser):
                     "values": self.demand_values[start:end],
                 }
         return None
-        return None
 
 
 def main(args: Optional[List[str]] = None) -> int:
