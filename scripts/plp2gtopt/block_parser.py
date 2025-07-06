@@ -32,7 +32,9 @@ class BlockParser(BaseParser):
         """
         super().__init__(file_path)
         self.num_blocks = 0
-        self.blocks: List[Dict[str, Any]] = self._data  # Alias for backward compatibility
+        self.blocks: List[Dict[str, Any]] = (
+            self._data
+        )  # Alias for backward compatibility
 
     def parse(self) -> None:
         """Parse the block file and populate the blocks structure.

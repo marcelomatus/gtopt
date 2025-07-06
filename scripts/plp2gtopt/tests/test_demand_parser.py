@@ -37,7 +37,7 @@ def test_get_demands():
     parser.demand_blocks = np.array([1, 2, 3], dtype=np.int32)
     parser.demand_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     parser.demand_indices = [(0, 3)]
-    
+
     demands = parser.get_demands()
     assert len(demands) == 1
     assert demands[0]["name"] == "test"

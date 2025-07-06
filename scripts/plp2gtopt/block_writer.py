@@ -21,7 +21,11 @@ class BlockWriter(BaseWriter):
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format."""
         return [
-            {"uid": block["number"], "duration": block["duration"]}
+            {
+                "uid": block["number"],
+                "duration": block["duration"],
+                "stage": block["stage"],
+            }
             for block in self.items
         ]
 

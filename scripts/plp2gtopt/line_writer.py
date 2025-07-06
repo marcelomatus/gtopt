@@ -22,17 +22,17 @@ class LineWriter(BaseWriter):
         """Convert line data to JSON array format."""
         return [
             {
-                "uid": str(line["name"]),  # Ensure uid is string
+                "uid": line["number"],
                 "name": line["name"],
+                "active": line["active"],
                 "bus_a": line["bus_a"],
                 "bus_b": line["bus_b"],
-                "r": line["r"],
-                "x": line["x"],
-                "f_max_ab": line["f_max_ab"],
-                "f_max_ba": line["f_max_ba"],
+                "resistance": line["resistance"],
+                "reactance": line["reactance"],
+                "tmax": line["tmax"],
+                "tmin": line["tmin"],
                 "voltage": line["voltage"],
                 "has_losses": line["has_losses"],
-                "is_operational": line["is_operational"],
             }
             for line in self.items
         ]

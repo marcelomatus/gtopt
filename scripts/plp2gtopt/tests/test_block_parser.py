@@ -34,7 +34,7 @@ def test_get_blocks():
     test_content = "1\n1 1 1.0"
     with open(parser.file_path, "w", encoding="utf-8") as f:
         f.write(test_content)
-    
+
     parser.parse()
     blocks = parser.get_blocks()
     assert len(blocks) == 1

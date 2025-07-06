@@ -7,7 +7,6 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-import numpy as np
 from ..demand_writer import DemandWriter
 from ..demand_parser import DemandParser
 from .conftest import get_example_file

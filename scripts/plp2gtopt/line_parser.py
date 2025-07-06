@@ -55,6 +55,7 @@ class LineParser(BaseParser):
         self.num_lines = self._parse_int(config_parts[0])
         idx += 1
 
+        line_num = 1
         for _ in range(self.num_lines):
             # Line format is:
             # 'Name' F.Max.A-B F.Max.B-A BusA BusB Voltage R(Ohm) X(ohm) Mod.Perd.
@@ -69,21 +70,21 @@ class LineParser(BaseParser):
 
             self._data.append(
                 {
+                    "number": line_num,
                     "name": line_name,
-                    "bus_a": bus_a,
-                    "bus_b": bus_b,
+                    "active": line_parts[10] == "T",  # Operational status
+                    "bus_a": int(line_parts[3]),  # Bus A number
+                    "bus_b": int(line_parts[4]),  # Bus B number
                     "voltage": float(line_parts[5]),
-                    "f_max_ab": float(line_parts[1]),  # Forward rating (MW)
-                    "f_max_ba": float(line_parts[2]),  # Reverse rating (MW)
-                    "bus_a_num": int(line_parts[3]),  # Bus A number
-                    "bus_b_num": int(line_parts[4]),  # Bus B number
-                    "r": float(line_parts[6]),  # Resistance (Ohm)
-                    "x": float(line_parts[7]),  # Reactance (Ohm)
+                    "resistance": float(line_parts[6]),  # Resistance (Ohm)
+                    "reactance": float(line_parts[7]),  # Reactance (Ohm)
+                    "tmax": float(line_parts[1]),  # Forward rating (MW)
+                    "tmin": -float(line_parts[2]),  # Reverse rating (MW)
                     "has_losses": line_parts[8] == "T",  # Loss modeling flag
                     "num_sections": int(line_parts[9]),  # Number of sections
-                    "is_operational": line_parts[10] == "T",  # Operational status
                 }
             )
+            line_num += 1
             idx += 1
 
     def parse_line_name(self, name: str) -> tuple[str, str]:

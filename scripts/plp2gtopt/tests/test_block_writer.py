@@ -86,7 +86,7 @@ def test_json_output_structure(
 
     # Check against example from system_c0.json
     for block in json_blocks:
-        assert set(block.keys()) == {"uid", "duration"}
+        assert set(block.keys()) == {"uid", "duration", "stage"}
         assert isinstance(block["uid"], int)
         assert isinstance(block["duration"], (int, float))
 
