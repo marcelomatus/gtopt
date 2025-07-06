@@ -86,7 +86,7 @@ def convert_plp_case(
             print(f"Found {name} {len(results[name])}")
 
         #
-        # Validate parsed data consistency
+        # Finish the Stage definition first_block and count_block
         #
 
         # Complete the stage data with block information
