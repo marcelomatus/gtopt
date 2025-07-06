@@ -141,9 +141,9 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     """
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
-    assert parser.get_num_generators() == 6
+    assert parser.get_num_generators() == 9
     generators = parser.get_generators()
-    assert len(generators) == 6
+    assert len(generators) == 9
 
     # Test first generator (hydro)
     gen1 = generators[0]
@@ -185,8 +185,8 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
-    assert len(bus0_gens) == 1
-    assert {g["id"] for g in bus0_gens} == {"1"}
+    assert len(bus0_gens) == 5
+    assert {g["id"] for g in bus0_gens} == {"1", "2", "3", "0", "171"}
 
     bus93_gens = parser.get_generators_by_bus("93")
     assert len(bus93_gens) == 1
