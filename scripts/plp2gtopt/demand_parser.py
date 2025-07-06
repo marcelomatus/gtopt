@@ -12,7 +12,7 @@ Handles:
 import sys
 from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
-
+import numpy as np
 
 from .base_parser import BaseParser
 
@@ -29,7 +29,7 @@ class DemandParser(BaseParser):
         super().__init__(file_path)
         self._data: List[Dict[str, Any]] = []
         self.demands: List[Dict[str, Any]] = self._data  # Alias for _data
-        self.num_bars: int = 0
+        self.num_demands: int = 0
 
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.
@@ -43,21 +43,21 @@ class DemandParser(BaseParser):
         lines = self._read_non_empty_lines()
 
         idx = 0
-        self.num_bars = self._parse_int(lines[idx])
+        self.num_demands = self._parse_int(lines[idx])
         idx += 1
-
-        for _ in range(self.num_bars):
+        dem_num = 1
+        for _ in range(self.num_demands):
             # Get bus name (removing quotes and any remaining comments)
             name = lines[idx].strip("'").split("#")[0].strip()
             idx += 1
 
             # Get number of demand entries
-            num_demands = int(lines[idx])
+            num_blocks = int(lines[idx])
             idx += 1
 
             # Read demand entries
             demands = []
-            for _ in range(num_demands):
+            for _ in range(num_blocks):
                 parts = lines[idx].split()
                 if len(parts) < 3:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
@@ -67,7 +67,8 @@ class DemandParser(BaseParser):
                 demands.append({"block": block, "demand": demand})
                 idx += 1
 
-            self._data.append({"name": name, "demands": demands})
+            self._data.append({"number": dem_num, "name": name, "demands": demands})
+            dem_num += 1
 
     def get_demands(self) -> list[dict[str, Any]]:
         """Return the parsed demands structure."""
@@ -75,7 +76,7 @@ class DemandParser(BaseParser):
 
     def get_num_bars(self) -> int:
         """Return the number of bars in the file."""
-        return self.num_bars
+        return self.num_demands
 
     def get_demand_by_name(self, name: str) -> dict[str, Any] | None:
         """Get demand data for a specific bus name."""
