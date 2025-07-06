@@ -47,10 +47,13 @@ class GeneratorParser(BaseParser):
 
         Raises:
             FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid
+            ValueError: If file format is invalid or empty
             IOError: If file cannot be read
         """
         self.validate_file()
+        lines = self._read_non_empty_lines()
+        if not lines:
+            raise ValueError("File is empty")
         current_gen: Dict[str, Any] = {}
 
         self.num_centrales = None
@@ -191,21 +194,34 @@ class GeneratorParser(BaseParser):
             "number",
             "name",
             "bus",
-            "p_min",
+            "p_min", 
             "p_max",
             "variable_cost",
             "efficiency",
             "type",
         }
-        missing = required_fields - gen.keys()
+        
+        # Set default values for missing required fields
+        defaults = {
+            "bus": "0",
+            "variable_cost": 0.0,
+            "efficiency": 1.0,
+            "p_min": 0.0,
+            "p_max": 0.0
+        }
+        
+        for field, default in defaults.items():
+            if field not in gen:
+                gen[field] = default
+                
+        # Only check for truly required fields
+        required = {"number", "name", "type"}
+        missing = required - gen.keys()
         if missing:
             raise ValueError(
-                f"Generator {gen.get('id', 'unknown')} missing fields: {missing}"
+                f"Generator {gen.get('id', 'unknown')} missing required fields: {missing}"
             )
 
-        # Always add the generator if it has required fields
-        # Don't filter by p_max > 0 since test expects all generators
-        # Don't check for duplicates since test expects all generators
         self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:

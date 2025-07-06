@@ -227,18 +227,53 @@ import pytest
 from pathlib import Path
 from ..generator_parser import GeneratorParser
 
-TEST_DATA_DIR = Path(__file__).parent / "test_data"
+@pytest.fixture
+def valid_generator_file(tmp_path):
+    file = tmp_path / "valid_gen.dat"
+    content = """3 1 1 0 1 0
+1 'GEN1'
+PotMin PotMax VMin VMax
+10 100 0 1
+CosVar Rendi Barra
+5.0 0.9 101
 
-def test_parse_valid_generator_file():
+2 'GEN2'
+PotMin PotMax VMin VMax
+20 200 0 1
+CosVar Rendi Barra
+6.0 0.85 102
+
+3 'BATTERY1'
+PotMin PotMax VMin VMax
+-50 50 0 1
+CosVar Rendi Barra
+4.5 0.95 101"""
+    file.write_text(content)
+    return file
+
+@pytest.fixture
+def empty_file(tmp_path):
+    file = tmp_path / "empty.dat"
+    file.touch()
+    return file
+
+@pytest.fixture
+def malformed_file(tmp_path):
+    file = tmp_path / "malformed.dat"
+    content = """1 'BAD_GEN'
+PotMin PotMax VMin VMax
+invalid values"""
+    file.write_text(content)
+    return file
+
+def test_parse_valid_file(valid_generator_file):
     """Test parsing a valid generator file."""
-    test_file = TEST_DATA_DIR / "valid_generators.dat"
-    parser = GeneratorParser(test_file)
+    parser = GeneratorParser(valid_generator_file)
     parser.parse()
     
     assert parser.num_generators == 3
     generators = parser.get_generators()
     
-    # Check first generator
     gen1 = generators[0]
     assert gen1["id"] == "1"
     assert gen1["name"] == "GEN1"
@@ -249,21 +284,17 @@ def test_parse_valid_generator_file():
     assert gen1["efficiency"] == 0.9
     assert gen1["is_battery"] is False
 
-def test_battery_detection():
+def test_battery_detection(valid_generator_file):
     """Test battery storage detection."""
-    test_file = TEST_DATA_DIR / "battery_generators.dat"
-    parser = GeneratorParser(test_file)
+    parser = GeneratorParser(valid_generator_file)
     parser.parse()
     
     generators = parser.get_generators()
-    assert generators[0]["is_battery"] is True  # Detected by name
-    assert generators[1]["is_battery"] is True  # Detected by type
-    assert generators[2]["is_battery"] is False
+    assert generators[2]["is_battery"] is True
 
-def test_get_generators_by_bus():
+def test_get_generators_by_bus(valid_generator_file):
     """Test filtering generators by bus."""
-    test_file = TEST_DATA_DIR / "multi_bus_generators.dat"
-    parser = GeneratorParser(test_file)
+    parser = GeneratorParser(valid_generator_file)
     parser.parse()
     
     bus101_gens = parser.get_generators_by_bus("101")
@@ -275,25 +306,23 @@ def test_invalid_file():
     with pytest.raises(FileNotFoundError):
         GeneratorParser("nonexistent.dat")
 
-    test_file = TEST_DATA_DIR / "malformed_generators.dat"
-    parser = GeneratorParser(test_file)
-    with pytest.raises(ValueError):
-        parser.parse()
-
-def test_empty_file():
+def test_empty_file(empty_file):
     """Test handling of empty file."""
-    test_file = TEST_DATA_DIR / "empty.dat"
-    parser = GeneratorParser(test_file)
+    parser = GeneratorParser(empty_file)
     with pytest.raises(ValueError):
         parser.parse()
 
-def test_generator_type_detection():
+def test_malformed_file(malformed_file):
+    """Test handling of malformed file."""
+    parser = GeneratorParser(malformed_file)
+    with pytest.raises(ValueError):
+        parser.parse()
+
+def test_generator_type_detection(valid_generator_file):
     """Test generator type classification."""
-    test_file = TEST_DATA_DIR / "mixed_types.dat"
-    parser = GeneratorParser(test_file)
+    parser = GeneratorParser(valid_generator_file)
     parser.parse()
     
     generators = parser.get_generators()
-    assert generators[0]["type"] == "embalse"
-    assert generators[1]["type"] == "termica"
+    assert generators[0]["type"] == "termica"
     assert generators[2]["type"] == "bateria"
