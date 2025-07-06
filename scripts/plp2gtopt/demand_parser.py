@@ -85,27 +85,27 @@ class DemandParser(BaseParser):
                 name = lines[idx].strip("'").split("#")[0].strip()
                 idx += 1
 
-            # Get number of demand entries
-            if idx >= len(lines):
-                raise ValueError("Unexpected end of file while parsing block counts")
+                # Get number of demand entries
+                if idx >= len(lines):
+                    raise ValueError("Unexpected end of file while parsing block counts")
             
-            # Skip any empty lines between bus name and block count
-            while idx < len(lines) and not lines[idx].strip():
-                idx += 1
-            
-            try:
-                num_blocks = int(lines[idx].strip().split()[0])  # Take first number only
-                idx += 1
-            except (ValueError, IndexError) as e:
-                raise ValueError(
-                    f"Invalid block count at line {idx+1}: {lines[idx]}"
-                ) from e
+                # Skip any empty lines between bus name and block count
+                while idx < len(lines) and not lines[idx].strip():
+                    idx += 1
+                
+                try:
+                    num_blocks = int(lines[idx].strip().split()[0])  # Take first number only
+                    idx += 1
+                except (ValueError, IndexError) as e:
+                    raise ValueError(
+                        f"Invalid block count at line {idx+1}: {lines[idx]}"
+                    ) from e
 
-            # Record start index for this bus
-            start_idx = array_pos
+                # Record start index for this bus
+                start_idx = array_pos
 
-            # Parse demand entries directly into arrays
-            for _ in range(num_blocks):
+                # Parse demand entries directly into arrays
+                for _ in range(num_blocks):
                 if idx >= len(lines):
                     raise ValueError(
                         "Unexpected end of file while parsing demand entries"
