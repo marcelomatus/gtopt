@@ -18,13 +18,13 @@ def test_demand_parser_initialization():
     parser = DemandParser(test_path)
     assert parser.file_path == Path(test_path)  # Compare Path objects
     assert not parser.demands
-    assert parser.num_bars == 0
+    assert parser.num_demands == 0
 
 
 def test_get_num_bars():
     """Test get_num_bars returns correct value."""
     parser = DemandParser("test.dat")
-    parser.num_bars = 5
+    parser.num_demands = 5
     assert parser.get_num_bars() == 5
 
 

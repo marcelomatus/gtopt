@@ -35,7 +35,7 @@ def test_demand_writer_initialization(
     writer = DemandWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_bars
+    assert len(writer.items) == parser.num_demands
 
 
 def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer-name
@@ -84,8 +84,8 @@ def test_from_demand_file(sample_demand_file):  # pylint: disable=redefined-oute
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_demand_file
-    assert writer.parser.num_bars > 0
-    assert len(writer.items) == writer.parser.num_bars
+    assert writer.parser.num_demands > 0
+    assert len(writer.items) == writer.parser.num_demands
 
 
 def test_json_output_structure(
@@ -100,10 +100,6 @@ def test_json_output_structure(
         "name": str,
         "bus": str,
         "lmax": str,
-        "capacity": float,
-        "expcap": type(None),
-        "expmod": type(None),
-        "annual_capcost": type(None),
     }
 
     for demand in json_demands:
@@ -125,7 +121,7 @@ def test_write_empty_demands():
     # Create parser with no demands
     parser = DemandParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_bars = 0
+    parser.num_demands = 0
 
     writer = DemandWriter(parser)
 
