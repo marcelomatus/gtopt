@@ -123,11 +123,7 @@ class GeneratorParser(BaseParser):
                     # Allow parsing even if generator count exceeds declared number
                     # since some files may have incorrect counts
                     # Validate count if we have header info and it's not the test file case
-                    if (
-                        hasattr(self, "num_centrales")
-                        and self.num_centrales != sys.maxsize
-                        and gen_idx > self.num_centrales
-                    ):
+                    if self.num_centrales != sys.maxsize and gen_idx > self.num_centrales:
                         print("line error ", line)
                         raise ValueError(
                             f"Number of generators {gen_idx} "
