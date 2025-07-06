@@ -37,7 +37,22 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
           PotMin PotMax VertMin VertMax
            020.0  200.0   000.0   000.0
           CosVar  Rendi  Barra Genera Vertim
-            10.0  0.900      2      0      0"""
+            10.0  0.900      2      0      0
+    3 'TEST_GEN3'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           030.0  300.0   000.0   000.0
+          CosVar  Rendi  Barra Genera Vertim
+            15.0  0.950      1      0      0
+    4 'TEST_GEN4'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           040.0  400.0   000.0   000.0
+          CosVar  Rendi  Barra Genera Vertim
+            20.0  0.980      1      0      0
+    5 'TEST_GEN5'                                       1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           050.0  500.0   000.0   000.0
+          CosVar  Rendi  Barra Genera Vertim
+            25.0  0.990      2      0      0"""
     file_path.write_text(content)
     return file_path
 
@@ -88,9 +103,9 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     """
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
-    assert parser.get_num_generators() == 2
+    assert parser.get_num_generators() == 5
     generators = parser.get_generators()
-    assert len(generators) == 2
+    assert len(generators) == 5
 
     # Test first generator
     gen1 = generators[0]
@@ -129,12 +144,12 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser = GeneratorParser(valid_gen_file)
     parser.parse()
     bus1_gens = parser.get_generators_by_bus("1")
-    assert len(bus1_gens) == 1
-    assert bus1_gens[0]["id"] == "1"
+    assert len(bus1_gens) == 3  # Now has 3 generators on bus 1
+    assert {g["id"] for g in bus1_gens} == {"1", "3", "4"}
 
     bus2_gens = parser.get_generators_by_bus("2")
-    assert len(bus2_gens) == 1
-    assert bus2_gens[0]["id"] == "2"
+    assert len(bus2_gens) == 2  # Now has 2 generators on bus 2
+    assert {g["id"] for g in bus2_gens} == {"2", "5"}
     empty_gens = parser.get_generators_by_bus("999")
     assert len(empty_gens) == 0
 
