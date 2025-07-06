@@ -64,7 +64,9 @@ class LineParser(BaseParser):
         idx += 1
 
         for _ in range(self.num_lines):
-            # Line format is: 'Name' F.Max.A-B F.Max.B-A BusA BusB Voltage R(Ohm) X(ohm) Mod.Perd. Num.Tramos Operativa
+            # Line format is:
+            # 'Name' F.Max.A-B F.Max.B-A BusA BusB Voltage R(Ohm) X(ohm) Mod.Perd.
+            # Num.Tramos Operativa
             line_parts = lines[idx].split()
             if len(line_parts) < 11:
                 raise ValueError(f"Invalid line entry at line {idx+1}")
