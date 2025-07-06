@@ -76,14 +76,21 @@ def convert_plp_case(
                 raise FileNotFoundError(f"{name} file not found: {filepath}")
 
             parser = parser_class(filepath)
-            if not hasattr(parser, "parse"):
-                raise ValueError(f"Parser {parser_class.__name__} has no parse method")
             parser.parse()
             writer = writer_class(parser)
             results[name] = writer.to_json_array()
             print(f"Found {name} {len(results[name])}")
 
-        print(f"\nConversion complete. Results saved to: {output_path}")
+        # defining simulation and system
+
+        simulation = {
+            "block_array": results["block_array"],
+            "stage_array": results["stage_array"],
+        }
+
+        results["block_array"] = ""
+        results["stage_array"] = ""
+
         return results
 
     except Exception as e:
