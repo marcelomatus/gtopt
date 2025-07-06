@@ -30,11 +30,17 @@ def test_get_num_blocks():
 def test_get_blocks():
     """Test get_blocks returns blocks list."""
     parser = BlockParser("test.dat")
-    # Test with actual parsed data rather than setting _data directly
-    test_blocks = [{"number": 1, "stage": 1, "duration": 1.0}]
-    parser.parse = lambda: parser._data.extend(test_blocks)  # Mock parse
+    # Create test file with known content
+    test_content = "1\n1 1 1.0"
+    with open(parser.file_path, "w", encoding="utf-8") as f:
+        f.write(test_content)
+    
     parser.parse()
-    assert parser.get_blocks() == test_blocks
+    blocks = parser.get_blocks()
+    assert len(blocks) == 1
+    assert blocks[0]["number"] == 1
+    assert blocks[0]["stage"] == 1
+    assert blocks[0]["duration"] == 1.0
 
 
 def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-outer-name
