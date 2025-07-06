@@ -88,11 +88,6 @@ class GeneratorParser(BaseParser):
                     )
 
                 else:
-                    # Reset current generator for new entry
-                    current_gen = {
-                        "number": int(parts[0]),
-                        "name": parts[1].strip("'"),
-                    }
                     gen_idx += 1
                     if gen_idx > self.num_centrales:
                         raise ValueError(
@@ -100,7 +95,12 @@ class GeneratorParser(BaseParser):
                             "of generators {self.num_centrales}"
                         )
 
-                    current_gen["type"] = self._determine_generator_type(gen_idx)
+                    # Reset current generator for new entry
+                    current_gen = {
+                        "number": int(parts[0]),
+                        "name": parts[1].strip("'"),
+                        "type": self._determine_generator_type(gen_idx),
+                    }
 
             # Power limits line
             elif line.startswith("PotMin"):
@@ -166,7 +166,7 @@ class GeneratorParser(BaseParser):
             "p_max",
             "variable_cost",
             "efficiency",
-            "is_battery",
+            "type",
         }
         missing = required_fields - gen.keys()
         if missing:
@@ -210,10 +210,10 @@ class GeneratorParser(BaseParser):
 
     def _determine_generator_type(self, gen_idx: int) -> str:
         """Determine generator type based on its index and type counts.
-        
+
         Args:
             gen_idx: 1-based generator index
-            
+
         Returns:
             Generator type as string ("embalse", "serie", etc)
         """
@@ -226,14 +226,14 @@ class GeneratorParser(BaseParser):
             ("bateria", self.num_baterias),
             ("fallas", self.num_fallas),
         ]
-        
+
         remaining_idx = gen_idx - 1  # Convert to 0-based index
-        
+
         for type_name, type_count in type_counts:
             if remaining_idx < type_count:
                 return type_name
             remaining_idx -= type_count
-            
+
         return "unknown"  # Fallback if no type matched
 
     def get_generators_by_bus(self, bus_id: str) -> List[Dict[str, Any]]:
