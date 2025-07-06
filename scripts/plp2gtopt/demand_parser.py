@@ -146,7 +146,7 @@ class DemandParser(BaseParser):
         Returns:
             List of demand dictionaries with these keys:
             - number (int): Bus number (1-based)
-            - name (str): Bus name 
+            - name (str): Bus name
             - blocks (np.ndarray): Block numbers as int32 array
             - values (np.ndarray): Demand values as float64 array
 
