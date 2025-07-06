@@ -23,16 +23,16 @@ class DemandWriter(BaseWriter):
         json_demands = []
         for demand in self.items:
             # Convert numpy arrays to lists for JSON serialization
-            blocks = demand["blocks"].tolist()
-            values = demand["values"].tolist()
-            demands = [{"block": b, "demand": v} for b, v in zip(blocks, values)]
-            
-            json_demands.append({
-                "uid": demand["number"],
-                "name": demand["name"], 
-                "bus": demand["name"],
-                "lmax": demands
-            })
+
+            json_demands.append(
+                {
+                    "uid": demand["number"],
+                    "name": demand["name"],
+                    "bus": demand["name"],
+                    "blocks": demand["blocks"],
+                    "values": demand["values"],
+                }
+            )
         return json_demands
 
 
