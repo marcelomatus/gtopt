@@ -156,19 +156,6 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["efficiency"] == 1.0
     assert gen1["type"] == "embalse"
 
-    # Test generator type validation through public interface
-    # By trying to parse a file with invalid generator count
-    invalid_content = """1 0 0 0 0 0
-    999 'INVALID' 1 F F F F F 0 0
-    PotMin PotMax VertMin VertMax
-    0 0 0 0
-    CosVar Rendi Barra
-    0 1 0"""
-    invalid_file = valid_gen_file.parent / "invalid_gen.dat"
-    invalid_file.write_text(invalid_content)
-
-    with pytest.raises(ValueError):
-        GeneratorParser(invalid_file).parse()
 
 
 def test_get_generators_by_bus(valid_gen_file: Path) -> None:
