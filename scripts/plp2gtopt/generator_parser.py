@@ -108,8 +108,17 @@ class GeneratorParser(BaseParser):
                         {"bateria": self.num_baterias},
                         {"fallas": self.num_fallas},
                     ]
-                    # Determine generator type based on gen_idx and the number of generators for each type, considering they appear in the same order
-                    current_gen["type"] = 
+                    # Determine generator type based on gen_idx and counts
+                    remaining_idx = gen_idx - 1  # Convert to 0-based index
+                    for type_info in gen_types:
+                        type_name = next(iter(type_info))
+                        type_count = type_info[type_name]
+                        if remaining_idx < type_count:
+                            current_gen["type"] = type_name
+                            break
+                        remaining_idx -= type_count
+                    else:
+                        current_gen["type"] = "unknown"  # Fallback if no type matched
 
             # Power limits line
             elif line.startswith("PotMin"):
