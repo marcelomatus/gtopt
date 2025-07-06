@@ -37,7 +37,7 @@ class GeneratorParser(BaseParser):
         super().__init__(file_path)
         self.generators: List[Dict[str, Union[str, float, bool]]] = self._data
 
-    def parse(self) -> None:
+    def parse(self) -> None:  # pylint: disable
         """Parse the generator file and populate the generators structure.
 
         The file format expected is:
@@ -53,13 +53,16 @@ class GeneratorParser(BaseParser):
         self.validate_file()
         current_gen: Dict[str, Any] = {}
 
+        self.num_centrales = None
         lines = self._read_non_empty_lines()
         idx = 0
+        gen_idx = 0
         while idx < len(lines):
             line = lines[idx]
             idx += 1
 
-            # Skip comments and empty lines (shouldn't be needed since _read_non_empty_lines() filters them)
+            # Skip comments and empty lines (shouldn't be needed
+            # since _read_non_empty_lines() filters them)
             if not line or line.startswith("#"):
                 continue
 
@@ -69,17 +72,34 @@ class GeneratorParser(BaseParser):
                     self._finalize_generator(current_gen)
 
                 parts = line.split()
-                current_gen = {
-                    "id": parts[0],
-                    "name": parts[1].strip("'"),
-                    "bus": "0",  # Default if not found
-                    "p_min": 0.0,
-                    "p_max": 0.0,
-                    "start_cost": 0.0,
-                    "variable_cost": 0.0,
-                    "efficiency": 1.0,
-                    "is_battery": False,
-                }
+                if self.num_centrales is None:
+                    self.num_centrales = int(parts[0])
+                    self.num_embalses = int(parts[1])
+                    self.num_series = int(parts[2])
+                    self.num_fallas = int(parts[3])
+                    self.num_pasadas = int(parts[4])
+                    self.num_baterias = int(parts[5])
+                else:
+                    # Reset current generator for new entry
+                    current_gen = {
+                        "number": int(parts[0]),
+                        "name": parts[1].strip("'"),
+                    }
+                    gen_idx += 1
+                    if gen_idx > self.num_centrales:
+                        raise ValueError(
+                            f"Generator index {gen_idx} exceeds declared number of generators {self.num_centrales}"
+                        )
+                    current_gen["type"] = (
+                        "embalse"
+                        if gen_idx <= self.num_embalses
+                        else (
+                            "series"
+                            if gen_idx <= self.num_embalses + self.num_series
+                            else "bateria"
+                        )
+                    )
+
             # Power limits line
             elif line.startswith("PotMin"):
                 if not current_gen:
@@ -91,6 +111,8 @@ class GeneratorParser(BaseParser):
                 idx += 1
                 current_gen["p_min"] = self._parse_float(parts[0])
                 current_gen["p_max"] = self._parse_float(parts[1])
+                current_gen["v_min"] = self._parse_float(parts[2])
+                current_gen["v_max"] = self._parse_float(parts[3])
 
             # Cost and bus line
             elif line.startswith("CosVar"):
@@ -108,7 +130,11 @@ class GeneratorParser(BaseParser):
                         current_gen["variable_cost"] = self._parse_float(parts[0])
                         current_gen["efficiency"] = self._parse_float(parts[1])
                         # Bus ID is in column 3 (0-based index 2) for "Barra"
-                        current_gen["bus"] = parts[2]
+                        current_gen["bus"] = int(parts[2])
+                        current_gen["ser_hid"] = int(parts[3])
+                        current_gen["ser_ver"] = int(parts[4])
+                        current_gen["pot_tm0"] = self._parse_float(parts[5])
+                        current_gen["afluent"] = self._parse_float(parts[6])
                     except (ValueError, IndexError) as e:
                         raise ValueError(
                             f"Invalid generator data format at line: {idx+1}"
@@ -131,7 +157,7 @@ class GeneratorParser(BaseParser):
             ValueError: If required generator fields are missing/invalid
         """
         required_fields = {
-            "id",
+            "number",
             "name",
             "bus",
             "p_min",
@@ -150,7 +176,8 @@ class GeneratorParser(BaseParser):
         if gen["p_max"] > 0:
             # Check if generator with same id and bus already exists
             if not any(
-                g["id"] == gen["id"] and g["bus"] == gen["bus"] for g in self.generators
+                g["number"] == gen["number"] and g["bus"] == gen["bus"]
+                for g in self.generators
             ):
                 self.generators.append(gen)
 
@@ -197,7 +224,7 @@ class GeneratorParser(BaseParser):
         unique_gens = []
         for g in self.generators:
             if g["bus"] == bus_id:
-                key = (g["id"], g["bus"])
+                key = (g["number"], g["bus"])
                 if key not in seen:
                     seen.add(key)
                     unique_gens.append(g)
