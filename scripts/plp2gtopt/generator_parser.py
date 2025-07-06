@@ -73,22 +73,22 @@ class GeneratorParser(BaseParser):
 
                 parts = line.split()
                 if self.num_centrales is None:
-                    # First line contains counts
+                    # First line contains counts - skip if not all digits
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
                         self.num_embalses = int(parts[1])
-                        self.num_series = int(parts[2])
+                        self.num_series = int(parts[2]) 
                         self.num_pasadas = int(parts[4])
                         self.num_baterias = int(parts[5])
                         self.num_fallas = int(parts[3])
                         self.num_termicas = self.num_centrales - (
                             self.num_embalses
-                            + self.num_series
+                            + self.num_series  
                             + self.num_fallas
                             + self.num_pasadas
                             + self.num_baterias
                         )
-                    continue  # Skip to next line after header counts
+                    continue
 
                 else:
                     # Generator line format: number 'name' ...
@@ -153,6 +153,10 @@ class GeneratorParser(BaseParser):
 
                 # Check for battery in name
                 current_gen["is_battery"] = "BESS" in current_gen["name"].upper()
+                
+                # Finalize and add the generator
+                self._finalize_generator(current_gen)
+                current_gen = {}  # Reset for next generator
         # Add last generator if exists
         if current_gen:
             self._finalize_generator(current_gen)
