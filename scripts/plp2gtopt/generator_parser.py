@@ -76,9 +76,17 @@ class GeneratorParser(BaseParser):
                     self.num_centrales = int(parts[0])
                     self.num_embalses = int(parts[1])
                     self.num_series = int(parts[2])
-                    self.num_fallas = int(parts[3])
                     self.num_pasadas = int(parts[4])
                     self.num_baterias = int(parts[5])
+                    self.num_fallas = int(parts[3])
+                    self.num_termicas = self.num_centrales - (
+                        self.num_embalses
+                        + self.num_series
+                        + self.num_fallas
+                        + self.num_pasadas
+                        + self.num_baterias
+                    )
+
                 else:
                     # Reset current generator for new entry
                     current_gen = {
@@ -88,17 +96,18 @@ class GeneratorParser(BaseParser):
                     gen_idx += 1
                     if gen_idx > self.num_centrales:
                         raise ValueError(
-                            f"Generator index {gen_idx} exceeds declared number of generators {self.num_centrales}"
+                            f"Generator index {gen_idx} exceeds declared number"
+                            "of generators {self.num_centrales}"
                         )
-                    current_gen["type"] = (
-                        "embalse"
-                        if gen_idx <= self.num_embalses
-                        else (
-                            "series"
-                            if gen_idx <= self.num_embalses + self.num_series
-                            else "bateria"
-                        )
-                    )
+                    types = [
+                        {"embalse": self.num_embalses},
+                        {"serie": self.num_series},
+                        {"pasada": self.num_pasadas},
+                        {"termica": self.num_termicas},
+                        {"bateria": self.num_baterias},
+                        {"fallas": self.num_fallas},
+                    ]
+                    current_gen["type"] = types[0
 
             # Power limits line
             elif line.startswith("PotMin"):
