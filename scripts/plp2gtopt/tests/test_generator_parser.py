@@ -310,7 +310,7 @@ def test_invalid_file(tmp_path):
 def test_empty_file(empty_file):
     """Test handling of empty file."""
     parser = GeneratorParser(empty_file)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="File is empty"):
         parser.parse()
 
 def test_malformed_file(malformed_file):
