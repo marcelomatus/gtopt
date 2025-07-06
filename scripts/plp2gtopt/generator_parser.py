@@ -118,7 +118,6 @@ class GeneratorParser(BaseParser):
                                 "number": gen_id,
                                 "name": parts[1].strip("'"),
                                 "type": self._determine_generator_type(gen_idx),
-                                "is_battery": False,
                             }
                         except (ValueError, IndexError) as e:
                             raise ValueError(
@@ -186,9 +185,6 @@ class GeneratorParser(BaseParser):
                     raise ValueError(
                         f"Invalid generator data format at line {idx}: {str(e)}"
                     ) from e
-
-                # Check for battery - based on type only since name isn't reliable
-                current_gen["is_battery"] = current_gen.get("type") == "bateria"
 
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)
