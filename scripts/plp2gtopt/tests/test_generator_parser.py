@@ -230,7 +230,7 @@ from ..generator_parser import GeneratorParser
 @pytest.fixture
 def valid_generator_file(tmp_path):
     file = tmp_path / "valid_gen.dat"
-    content = """3 1 1 0 1 0
+    content = """3 2 0 0 0 1  # 2 hydro, 0 series, 1 battery
 1 'GEN1'
 PotMin PotMax VMin VMax
 10 100 0 1
@@ -301,10 +301,11 @@ def test_get_generators_by_bus(valid_generator_file):
     assert len(bus101_gens) == 2
     assert all(g["bus"] == "101" for g in bus101_gens)
 
-def test_invalid_file():
+def test_invalid_file(tmp_path):
     """Test handling of invalid files."""
+    non_existent_file = tmp_path / "does_not_exist.dat"
     with pytest.raises(FileNotFoundError):
-        GeneratorParser("nonexistent.dat")
+        GeneratorParser(non_existent_file).parse()
 
 def test_empty_file(empty_file):
     """Test handling of empty file."""
@@ -324,5 +325,7 @@ def test_generator_type_detection(valid_generator_file):
     parser.parse()
     
     generators = parser.get_generators()
-    assert generators[0]["type"] == "termica"
+    # First generator in test file is hydro (embalse)
+    assert generators[0]["type"] == "embalse"
+    # Third generator is battery
     assert generators[2]["type"] == "bateria"
