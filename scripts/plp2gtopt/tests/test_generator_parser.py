@@ -120,6 +120,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     - Correct number of generators parsed
     - All generator fields are correctly extracted
     - Data types are correct
+    - Battery detection works
 
     Args:
         valid_gen_file: Path to valid generator test file
@@ -130,27 +131,27 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     generators = parser.get_generators()
     assert len(generators) == 5
 
-    # Test first generator
+    # Test first generator (hydro)
     gen1 = generators[0]
     assert gen1["id"] == "1"
-    assert gen1["name"] == "TEST_GEN1"
-    assert gen1["bus"] == "1"
-    assert gen1["p_min"] == 10.0
+    assert gen1["name"] == "LMAULE"
+    assert gen1["bus"] == "0"
+    assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
-    assert gen1["variable_cost"] == 5.0
+    assert gen1["variable_cost"] == 0.0
     assert gen1["efficiency"] == 1.0
     assert gen1["is_battery"] is False
+    assert gen1["type"] == "embalse"
 
-    # Test second generator
-    gen2 = generators[1]
-    assert gen2["id"] == "2"
-    assert gen2["name"] == "TEST_GEN2"
-    assert gen2["bus"] == "2"
-    assert gen2["p_min"] == 20.0
-    assert gen2["p_max"] == 200.0
-    assert gen2["variable_cost"] == 10.0
-    assert gen2["efficiency"] == 0.9
-    assert gen2["is_battery"] is False
+    # Test battery generator
+    bat_gen = next(g for g in generators if g["is_battery"])
+    assert bat_gen["id"] == "1187"
+    assert "BESS" in bat_gen["name"]
+    assert bat_gen["type"] == "bateria"
+
+    # Test generator type determination
+    with pytest.raises(ValueError):
+        parser._determine_generator_type(999)  # Invalid index
 
 
 def test_get_generators_by_bus(valid_gen_file: Path) -> None:
