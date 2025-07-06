@@ -31,8 +31,8 @@ def test_get_blocks():
     """Test get_blocks returns blocks list."""
     parser = BlockParser("test.dat")
     test_blocks = [{"test": "data"}]
-    parser.blocks = test_blocks
-    assert parser.get_blocks() == test_blocks
+    parser._data = test_blocks  # Set data through base class
+    assert parser.get_blocks() == test_blocks  # Should return same via blocks alias
 
 
 def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-outer-name

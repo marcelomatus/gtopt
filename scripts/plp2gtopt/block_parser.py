@@ -64,7 +64,7 @@ class BlockParser(BaseParser):
 
     def get_blocks(self) -> List[Dict[str, Any]]:
         """Return the parsed blocks structure."""
-        return self.get_all()
+        return self.blocks  # Use the alias that tests expect
 
     def get_num_blocks(self) -> int:
         """Return the number of blocks in the file."""
