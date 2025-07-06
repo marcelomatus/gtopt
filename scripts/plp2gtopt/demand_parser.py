@@ -73,8 +73,12 @@ class DemandParser(BaseParser):
             start_idx = len(self.demand_blocks)
             # Pre-allocate arrays for better performance with many buses
             if len(self.demand_blocks) == 0:
-                self.demand_blocks = np.array([d["block"] for d in demands], dtype=np.int32)
-                self.demand_values = np.array([d["demand"] for d in demands], dtype=np.float64)
+                self.demand_blocks = np.array(
+                    [d["block"] for d in demands], dtype=np.int32
+                )
+                self.demand_values = np.array(
+                    [d["demand"] for d in demands], dtype=np.float64
+                )
             else:
                 blocks = np.array([d["block"] for d in demands], dtype=np.int32)
                 values = np.array([d["demand"] for d in demands], dtype=np.float64)
@@ -86,7 +90,7 @@ class DemandParser(BaseParser):
 
     def get_demands(self) -> List[Dict[str, Union[int, str, npt.NDArray]]]:
         """Return the parsed demands structure with numpy arrays.
-        
+
         Returns:
             List of dictionaries where each contains:
             - number: int - Bus number
@@ -97,17 +101,21 @@ class DemandParser(BaseParser):
         demands = []
         for i, data in enumerate(self._data):
             start, end = self.demand_indices[i]
-            demands.append({
-                "number": data["number"],
-                "name": data["name"],
-                "blocks": self.demand_blocks[start:end],
-                "values": self.demand_values[start:end]
-            })
+            demands.append(
+                {
+                    "number": data["number"],
+                    "name": data["name"],
+                    "blocks": self.demand_blocks[start:end],
+                    "values": self.demand_values[start:end],
+                }
+            )
         return demands
 
-    def get_demand_arrays(self) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
+    def get_demand_arrays(
+        self,
+    ) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
         """Return the demand blocks and values as numpy arrays.
-        
+
         Returns:
             Tuple of (blocks_array, values_array) where:
             - blocks_array: int32 array of block numbers
@@ -115,12 +123,14 @@ class DemandParser(BaseParser):
         """
         return self.demand_blocks, self.demand_values
 
-    def get_bus_demands(self, bus_idx: int) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
+    def get_bus_demands(
+        self, bus_idx: int
+    ) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
         """Get demand blocks and values for a specific bus.
-        
+
         Args:
             bus_idx: Index of the bus (0-based)
-            
+
         Returns:
             Tuple of (blocks, values) arrays for the specified bus
         """
@@ -129,7 +139,7 @@ class DemandParser(BaseParser):
 
     def get_total_demand_per_block(self) -> Dict[int, float]:
         """Calculate total demand across all buses per block.
-        
+
         Returns:
             Dictionary mapping block numbers to total demand values
         """
@@ -142,11 +152,11 @@ class DemandParser(BaseParser):
 
     def get_demand_stats(self) -> Dict[str, float]:
         """Calculate basic statistics on demand values.
-        
+
         Returns:
             Dictionary with:
             - min: Minimum demand value
-            - max: Maximum demand value  
+            - max: Maximum demand value
             - mean: Average demand value
             - median: Median demand value
             - std: Standard deviation
@@ -155,21 +165,23 @@ class DemandParser(BaseParser):
             "min": float(np.min(self.demand_values)),
             "max": float(np.max(self.demand_values)),
             "mean": float(np.mean(self.demand_values)),
-            "median": float(np.median(self.demand_values)), 
-            "std": float(np.std(self.demand_values))
+            "median": float(np.median(self.demand_values)),
+            "std": float(np.std(self.demand_values)),
         }
 
     def get_num_bars(self) -> int:
         """Return the number of bars in the file."""
         return self.num_demands
 
-    def get_demand_by_name(self, name: str) -> Optional[Dict[str, Union[int, str, npt.NDArray]]]:
+    def get_demand_by_name(
+        self, name: str
+    ) -> Optional[Dict[str, Union[int, str, npt.NDArray]]]:
         """Get demand data for a specific bus name.
-        
+
         Returns:
             Dictionary with keys:
             - number: Bus number
-            - name: Bus name  
+            - name: Bus name
             - blocks: Block numbers array
             - values: Demand values array
             or None if not found
@@ -181,7 +193,7 @@ class DemandParser(BaseParser):
                     "number": data["number"],
                     "name": data["name"],
                     "blocks": self.demand_blocks[start:end],
-                    "values": self.demand_values[start:end]
+                    "values": self.demand_values[start:end],
                 }
         return None
         return None
