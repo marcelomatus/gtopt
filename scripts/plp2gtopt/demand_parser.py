@@ -37,6 +37,10 @@ class DemandParser(BaseParser):
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.
 
+        Uses a two-pass approach:
+        1. First pass counts total demand entries to properly size arrays
+        2. Second pass reads data directly into pre-allocated numpy arrays
+
         Raises:
             FileNotFoundError: If input file doesn't exist
             ValueError: If file format is invalid
@@ -48,45 +52,65 @@ class DemandParser(BaseParser):
         idx = 0
         self.num_demands = self._parse_int(lines[idx])
         idx += 1
-        dem_num = 1
+        
+        # First pass: count total demand entries to pre-allocate arrays
+        total_demand_entries = 0
+        count_idx = idx  # Temporary index for counting pass
+        
         for _ in range(self.num_demands):
-            # Get bus name (removing quotes and any remaining comments)
+            count_idx += 1  # Skip name line
+            if count_idx >= len(lines):
+                raise ValueError("Unexpected end of file while counting demand entries")
+                
+            num_blocks = int(lines[count_idx])
+            total_demand_entries += num_blocks
+            count_idx += num_blocks + 1  # Skip demand entries
+            
+        if total_demand_entries == 0:
+            raise ValueError("No demand entries found in file")
+            
+        # Pre-allocate numpy arrays
+        self.demand_blocks = np.empty(total_demand_entries, dtype=np.int32)
+        self.demand_values = np.empty(total_demand_entries, dtype=np.float64)
+        
+        # Second pass: parse data directly into arrays
+        array_pos = 0  # Current position in pre-allocated arrays
+        bus_number = 1  # 1-based bus numbering
+        
+        for _ in range(self.num_demands):
+            # Get bus name
+            if idx >= len(lines):
+                raise ValueError("Unexpected end of file while parsing bus names")
             name = lines[idx].strip("'").split("#")[0].strip()
             idx += 1
-
+            
             # Get number of demand entries
+            if idx >= len(lines):
+                raise ValueError("Unexpected end of file while parsing block counts")
             num_blocks = int(lines[idx])
             idx += 1
-
-            # Read demand entries
-            demands = []
+            
+            # Record start index for this bus
+            start_idx = array_pos
+            
+            # Parse demand entries directly into arrays
             for _ in range(num_blocks):
+                if idx >= len(lines):
+                    raise ValueError("Unexpected end of file while parsing demand entries")
+                    
                 parts = lines[idx].split()
                 if len(parts) < 3:
                     raise ValueError(f"Invalid demand entry at line {idx+1}")
-                # Format is: Mes Etapa Demanda
-                block = int(parts[1])  # Etapa is the block number
-                demand = float(parts[2])  # Demanda is the demand value
-                demands.append({"block": block, "demand": demand})
+                
+                self.demand_blocks[array_pos] = int(parts[1])  # Block number
+                self.demand_values[array_pos] = float(parts[2])  # Demand value
+                array_pos += 1
                 idx += 1
-
-            start_idx = len(self.demand_blocks)
-            # Pre-allocate arrays for better performance with many buses
-            if len(self.demand_blocks) == 0:
-                self.demand_blocks = np.array(
-                    [d["block"] for d in demands], dtype=np.int32
-                )
-                self.demand_values = np.array(
-                    [d["demand"] for d in demands], dtype=np.float64
-                )
-            else:
-                blocks = np.array([d["block"] for d in demands], dtype=np.int32)
-                values = np.array([d["demand"] for d in demands], dtype=np.float64)
-                self.demand_blocks = np.concatenate((self.demand_blocks, blocks))
-                self.demand_values = np.concatenate((self.demand_values, values))
-            self.demand_indices.append((start_idx, len(self.demand_blocks)))
-            self._data.append({"number": dem_num, "name": name})
-            dem_num += 1
+                
+            # Record indices for this bus
+            self.demand_indices.append((start_idx, array_pos))
+            self._data.append({"number": bus_number, "name": name})
+            bus_number += 1
 
     def get_demands(self) -> List[Dict[str, Union[int, str, npt.NDArray]]]:
         """Return the parsed demands structure with numpy arrays.
