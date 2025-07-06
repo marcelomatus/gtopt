@@ -110,7 +110,7 @@ def convert_plp_case(
         }
 
         # Write output to JSON file
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(planning, f, indent=4)
 
         print(f"\nConversion successful! Output written to {output_file}")
