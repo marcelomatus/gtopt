@@ -88,7 +88,7 @@ class GeneratorParser(BaseParser):
                             + self.num_pasadas
                             + self.num_baterias
                         )
-                    continue
+                    continue  # Skip header line
 
                 else:
                     # Generator line format: number 'name' ...
@@ -108,8 +108,7 @@ class GeneratorParser(BaseParser):
                             "is_battery": False,
                         }
                     else:
-                        # Skip non-generator lines (like empty lines or comments)
-                        continue
+                        raise ValueError(f"Invalid generator header at line {idx+1}")
 
             # Power limits line
             elif line.startswith("PotMin"):
