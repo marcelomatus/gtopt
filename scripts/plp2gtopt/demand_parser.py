@@ -77,7 +77,8 @@ class DemandParser(BaseParser):
         array_pos = 0  # Current position in pre-allocated arrays
         bus_number = 1  # 1-based bus numbering
 
-        for _ in range(self.num_demands):
+        try:
+            for _ in range(self.num_demands):
             # Get bus name
             if idx >= len(lines):
                 raise ValueError("Unexpected end of file while parsing bus names")
@@ -113,6 +114,10 @@ class DemandParser(BaseParser):
             self.demand_indices.append((start_idx, array_pos))
             self._data.append({"number": bus_number, "name": name})
             bus_number += 1
+        finally:
+            # Explicitly clear the lines list to free memory
+            lines.clear()
+            del lines
 
     def get_demands(self) -> List[Dict[str, Union[int, str, npt.NDArray]]]:
         """Return the parsed demands structure with numpy arrays.
