@@ -20,15 +20,20 @@ class DemandWriter(BaseWriter):
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert demand data to JSON array format."""
-        return [
-            {
+        json_demands = []
+        for demand in self.items:
+            # Convert numpy arrays to lists for JSON serialization
+            blocks = demand["blocks"].tolist()
+            values = demand["values"].tolist()
+            demands = [{"block": b, "demand": v} for b, v in zip(blocks, values)]
+            
+            json_demands.append({
                 "uid": demand["number"],
-                "name": demand["name"],
+                "name": demand["name"], 
                 "bus": demand["name"],
-                "lmax": demand["demands"],
-            }
-            for demand in self.items
-        ]
+                "lmax": demands
+            })
+        return json_demands
 
 
 if __name__ == "__main__":

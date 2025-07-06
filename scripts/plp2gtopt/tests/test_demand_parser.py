@@ -50,15 +50,16 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     for demand_bar in demands:
         assert isinstance(demand_bar["name"], str)
         assert demand_bar["name"] != ""
-        assert isinstance(demand_bar["demands"], list)
-        assert len(demand_bar["demands"]) > 0
+        assert isinstance(demand_bar["blocks"], np.ndarray)
+        assert isinstance(demand_bar["values"], np.ndarray)
+        assert len(demand_bar["blocks"]) > 0
+        assert len(demand_bar["blocks"]) == len(demand_bar["values"])
 
-        # Verify all demand entries
-        for demand in demand_bar["demands"]:
-            assert isinstance(demand["block"], int)
-            assert isinstance(demand["demand"], float)
-            assert demand["block"] > 0
-            assert demand["demand"] > 0
+        # Verify array types and values
+        assert demand_bar["blocks"].dtype == np.int32
+        assert demand_bar["values"].dtype == np.float64
+        assert np.all(demand_bar["blocks"] > 0)
+        assert np.all(demand_bar["values"] > 0)
 
     # Verify first bar data
     bar1 = demands[0]
