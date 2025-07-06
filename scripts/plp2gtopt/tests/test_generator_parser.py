@@ -210,9 +210,10 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
     with pytest.raises(ValueError, match="File is empty"):
         parser.parse()
 
+
 def test_parse_real_file() -> None:
     """Test parsing of real plpcnfce.dat file from test cases.
-    
+
     Verifies:
     - Can parse the real file without errors
     - Correct number of generators are found
@@ -221,7 +222,7 @@ def test_parse_real_file() -> None:
     test_file = Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat"
     parser = GeneratorParser(test_file)
     parser.parse()
-    
+
     # Verify expected counts from the file header
     assert parser.num_centrales == 247
     assert parser.num_embalses == 10
@@ -229,11 +230,11 @@ def test_parse_real_file() -> None:
     assert parser.num_fallas == 1
     assert parser.num_pasadas == 129
     assert parser.num_baterias == 25
-    
+
     # Verify some sample generators
     generators = parser.get_generators()
     assert len(generators) == 247
-    
+
     # Check first generator (hydro)
     gen1 = generators[0]
     assert gen1["id"] == "1"
@@ -241,7 +242,7 @@ def test_parse_real_file() -> None:
     assert gen1["bus"] == "0"
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
-    
+
     # Check a battery generator
     battery = next(g for g in generators if g["id"] == "1187")
     assert battery["name"] == "ALFALFAL_BESS"
