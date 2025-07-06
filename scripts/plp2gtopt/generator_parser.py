@@ -100,25 +100,7 @@ class GeneratorParser(BaseParser):
                             "of generators {self.num_centrales}"
                         )
 
-                    gen_types = [
-                        {"embalse": self.num_embalses},
-                        {"serie": self.num_series},
-                        {"pasada": self.num_pasadas},
-                        {"termica": self.num_termicas},
-                        {"bateria": self.num_baterias},
-                        {"fallas": self.num_fallas},
-                    ]
-                    # Determine generator type based on gen_idx and counts
-                    remaining_idx = gen_idx - 1  # Convert to 0-based index
-                    for type_info in gen_types:
-                        type_name = next(iter(type_info))
-                        type_count = type_info[type_name]
-                        if remaining_idx < type_count:
-                            current_gen["type"] = type_name
-                            break
-                        remaining_idx -= type_count
-                    else:
-                        current_gen["type"] = "unknown"  # Fallback if no type matched
+                    current_gen["type"] = self._determine_generator_type(gen_idx)
 
             # Power limits line
             elif line.startswith("PotMin"):
@@ -225,6 +207,34 @@ class GeneratorParser(BaseParser):
     def num_generators(self) -> int:
         """Return the number of generators (property version)."""
         return len(self.generators)
+
+    def _determine_generator_type(self, gen_idx: int) -> str:
+        """Determine generator type based on its index and type counts.
+        
+        Args:
+            gen_idx: 1-based generator index
+            
+        Returns:
+            Generator type as string ("embalse", "serie", etc)
+        """
+        # Ordered list of (type_name, count) tuples
+        type_counts = [
+            ("embalse", self.num_embalses),
+            ("serie", self.num_series),
+            ("pasada", self.num_pasadas),
+            ("termica", self.num_termicas),
+            ("bateria", self.num_baterias),
+            ("fallas", self.num_fallas),
+        ]
+        
+        remaining_idx = gen_idx - 1  # Convert to 0-based index
+        
+        for type_name, type_count in type_counts:
+            if remaining_idx < type_count:
+                return type_name
+            remaining_idx -= type_count
+            
+        return "unknown"  # Fallback if no type matched
 
     def get_generators_by_bus(self, bus_id: str) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
