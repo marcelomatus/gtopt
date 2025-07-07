@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 import numpy as np
-from ..costs_parser import CostsParser
+from ..costs_parser import CostParser
 from .conftest import get_example_file
 
 
@@ -16,7 +16,7 @@ def sample_costs_file():
 def test_costs_parser_initialization():
     """Test CostsParser initialization."""
     test_path = "test.dat"
-    parser = CostsParser(test_path)
+    parser = CostParser(test_path)
     assert parser.file_path == Path(test_path)
     assert not parser.get_costs()
     assert parser.num_generators == 0

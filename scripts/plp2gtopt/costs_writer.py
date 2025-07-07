@@ -8,13 +8,13 @@ from .base_writer import BaseWriter
 from .costs_parser import CostsParser
 
 
-class CostsWriter(BaseWriter):
+class CostWriter(BaseWriter):
     """Converts cost parser data to JSON format used by GTOPT."""
 
     def _get_items(self) -> List[Dict[str, Any]]:
         return self.parser.get_costs()
 
-    def __init__(self, costs_parser: CostsParser):
+    def __init__(self, cost_parser: CostParser):
         """Initialize with a CostsParser instance."""
         super().__init__(costs_parser)
 

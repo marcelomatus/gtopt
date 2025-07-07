@@ -12,7 +12,7 @@ import numpy.typing as npt
 from .base_parser import BaseParser
 
 
-class CostsParser(BaseParser):
+class CostParser(BaseParser):
     """Parser for plpcosce.dat format files containing generator cost data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
