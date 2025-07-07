@@ -82,7 +82,7 @@ class CostsParser(BaseParser):
                     if len(parts) < 2:
                         raise ValueError(f"Invalid cost entry at line {idx+1}")
 
-                    stages[i] = int(parts[0])  # Stage number
+                    stages[i] = int(parts[0])  # Stage number 
                     costs[i] = float(parts[1])  # Cost value
                     idx += 1
 
