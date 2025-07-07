@@ -237,15 +237,7 @@ class GeneratorParser(BaseParser):
         """Return the parsed generators structure.
 
         Returns:
-            List of generator dictionaries with these guaranteed keys:
-            - id (str): Generator identifier
-            - name (str): Generator name
-            - bus (str): Connected bus ID
-            - p_min (float): Minimum power output
-            - p_max (float): Maximum power output
-            - variable_cost (float): Cost per unit power
-            - efficiency (float): Conversion efficiency
-            - is_battery (bool): True if battery storage
+            List of generator dictionaries.
         """
         return self.generators
 
