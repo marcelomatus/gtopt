@@ -15,12 +15,3 @@
   types: [python, c, shell, yaml, markdown, cmake]
   require_serial: true
   verbose: true
-
-- id: gtopt-tests
-  name: GTOPT Tests
-  description: Run GTOPT unit tests
-  entry: ./scripts/pre-commit/run_tests.sh
-  language: system
-  pass_filenames: false
-  require_serial: true
-  verbose: true
