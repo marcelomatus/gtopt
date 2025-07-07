@@ -5,7 +5,7 @@
 
 from typing import Any, Dict, List
 from .base_writer import BaseWriter
-from .costs_parser import CostParser
+from .cost_parser import CostParser
 
 
 class CostWriter(BaseWriter):

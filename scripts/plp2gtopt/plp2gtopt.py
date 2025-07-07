@@ -24,8 +24,8 @@ from plp2gtopt.generator_parser import GeneratorParser
 from plp2gtopt.generator_writer import GeneratorWriter
 from plp2gtopt.line_parser import LineParser
 from plp2gtopt.line_writer import LineWriter
-from plp2gtopt.costs_parser import CostsParser
-from plp2gtopt.costs_writer import CostsWriter
+from plp2gtopt.cost_parser import CostParser
+from plp2gtopt.cost_writer import CostWriter
 
 
 def convert_plp_case(
@@ -71,7 +71,7 @@ def convert_plp_case(
         ("line_array", LineParser, LineWriter, "plpcnfli.dat"),
         ("generator_array", GeneratorParser, GeneratorWriter, "plpcnfce.dat"),
         ("demand_array", DemandParser, DemandWriter, "plpdem.dat"),
-        ("cost_array", CostsParser, CostsWriter, "plpcosce.dat"),
+        ("cost_array", CostParser, CostWriter, "plpcosce.dat"),
     ]
 
     try:

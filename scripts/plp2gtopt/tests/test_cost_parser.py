@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 import numpy as np
-from ..costs_parser import CostParser
+from ..cost_parser import CostParser
 from .conftest import get_example_file
 
 
