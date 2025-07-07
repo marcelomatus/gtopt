@@ -260,8 +260,6 @@ class GeneratorParser(BaseParser):
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        # Set default values for missing required fields
-
         # Only check for truly required fields
         required = {"number", "name", "type"}
         missing = required - gen.keys()
@@ -271,7 +269,13 @@ class GeneratorParser(BaseParser):
                 f"missing required fields: {', '.join(sorted(missing))}"
             )
 
-        self.generators.append(gen)
+        # Skip duplicates - check if we already have this generator number
+        existing = next(
+            (g for g in self.generators if g["number"] == gen["number"]),
+            None
+        )
+        if existing is None:
+            self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed generators structure.
@@ -340,14 +344,19 @@ class GeneratorParser(BaseParser):
             >>> parser.get_generators_by_bus("1")
             [{'id': '1', 'name': 'GEN1', ...}]
         """
+        # First get all generators for this bus
+        bus_gens = [
+            g for g in self.generators 
+            if str(g.get("bus", "")) == str(bus_id)
+        ]
+        
+        # Then deduplicate by generator number
         seen = set()
         unique_gens = []
-        for g in self.generators:
-            if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
-                key = (g["number"], g["bus"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_gens.append(g)
+        for g in bus_gens:
+            if g["number"] not in seen:
+                seen.add(g["number"])
+                unique_gens.append(g)
         return unique_gens
 
 
