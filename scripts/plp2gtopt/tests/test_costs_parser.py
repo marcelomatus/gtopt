@@ -24,14 +24,14 @@ def test_costs_parser_initialization():
 
 def test_get_num_generators():
     """Test get_num_generators returns correct value."""
-    parser = CostsParser("test.dat")
+    parser = CostParser("test.dat")
     parser.num_generators = 3
     assert parser.get_num_generators() == 3
 
 
 def test_get_costs():
     """Test get_costs returns properly structured cost data."""
-    parser = CostsParser("test.dat")
+    parser = CostParser("test.dat")
     # Setup test data
     test_stages = np.array([4, 5], dtype=np.int32)
     test_costs = np.array([157.9, 157.9], dtype=np.float64)
@@ -56,7 +56,7 @@ def test_get_costs():
 
 def test_parse_sample_file(sample_costs_file):
     """Test parsing of the sample cost file."""
-    parser = CostsParser(str(sample_costs_file))
+    parser = CostParser(str(sample_costs_file))
     parser.parse()
 
     # Verify basic structure
@@ -96,7 +96,7 @@ def test_parse_sample_file(sample_costs_file):
 
 def test_get_costs_by_name(sample_costs_file):
     """Test getting costs by generator name."""
-    parser = CostsParser(str(sample_costs_file))
+    parser = CostParser(str(sample_costs_file))
     parser.parse()
 
     # Test existing generator

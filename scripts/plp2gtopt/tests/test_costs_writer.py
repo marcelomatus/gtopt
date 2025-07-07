@@ -18,14 +18,14 @@ def sample_costs_file():
 @pytest.fixture
 def sample_costs_writer(sample_costs_file):
     """Fixture providing initialized CostsWriter with sample data."""
-    parser = CostsParser(sample_costs_file)
+    parser = CostParser(sample_costs_file)
     parser.parse()
-    return CostsWriter(parser)
+    return CostWriter(parser)
 
 
 def test_costs_writer_initialization(sample_costs_file):
     """Test CostsWriter initialization."""
-    parser = CostsParser(sample_costs_file)
+    parser = CostParser(sample_costs_file)
     parser.parse()
     writer = CostWriter(parser)
 
@@ -72,7 +72,7 @@ def test_write_to_file(sample_costs_writer):
 
 def test_from_costs_file(sample_costs_file):
     """Test creating CostsWriter directly from cost file."""
-    writer = CostsWriter.from_file(sample_costs_file, CostsParser)
+    writer = CostWriter.from_file(sample_costs_file, CostParser)
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_costs_file
@@ -110,11 +110,11 @@ def test_json_output_structure(sample_costs_writer):
 def test_write_empty_costs():
     """Test handling of empty cost list."""
     # Create parser with no costs
-    parser = CostsParser("dummy.dat")
+    parser = CostParser("dummy.dat")
     parser._data = []
     parser.num_generators = 0
 
-    writer = CostsWriter(parser)
+    writer = CostWriter(parser)
 
     # Test empty array conversion
     json_costs = writer.to_json_array()
