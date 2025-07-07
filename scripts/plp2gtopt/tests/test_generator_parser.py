@@ -148,7 +148,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
 
     # Test first generator (hydro)
     gen1 = generators[0]
-    assert gen1["id"] == "1"
+    assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
@@ -180,14 +180,14 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
     assert len(bus0_gens) == 1
-    assert {g["id"] for g in bus0_gens} == {"1"}  # LMAULE is on bus 0
+    assert {g["number"] for g in bus0_gens} == {1}  # LMAULE is on bus 0
 
     bus93_gens = parser.get_generators_by_bus("93")
     assert len(bus93_gens) == 1
-    assert bus93_gens[0]["id"] == "2"
+    assert bus93_gens[0]["number"] == 2
     bus1_gens = parser.get_generators_by_bus("1")
     assert len(bus1_gens) == 1
-    assert bus1_gens[0]["id"] == "1785"  # FALLA_001_1 is on bus 1
+    assert bus1_gens[0]["number"] == 1785  # FALLA_001_1 is on bus 1
 
     empty_gens = parser.get_generators_by_bus("999")
     assert len(empty_gens) == 0
@@ -256,14 +256,14 @@ def test_parse_real_file() -> None:
 
     # Check first generator (hydro)
     gen1 = generators[0]
-    assert gen1["id"] == "1"
+    assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
 
     # Check a battery generator
-    battery = next(g for g in generators if g["id"] == "1187")
+    battery = next(g for g in generators if g["number"] == 1187)
     assert battery["name"] == "ALFALFAL_BESS"
     assert battery["type"] == "bateria"
 
@@ -303,7 +303,7 @@ def test_parse_large_real_file() -> None:
 
     # Check first generator (hydro)
     gen1 = generators[0]
-    assert gen1["id"] == "1"
+    assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0

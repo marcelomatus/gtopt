@@ -184,10 +184,8 @@ class GeneratorParser(BaseParser):
 
         try:
             # First try parsing as float then convert to int
-            gen_id = int(float(parts[0]))
             return {
-                "id": str(gen_id),
-                "number": gen_id,
+                "number": int(parts[0]),
                 "name": parts[1].strip("'"),
                 "type": self._generator_type(gen_idx),
             }
