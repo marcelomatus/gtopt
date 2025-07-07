@@ -36,7 +36,8 @@ def test_get_costs():
     test_stages = np.array([4, 5], dtype=np.int32)
     test_costs = np.array([157.9, 157.9], dtype=np.float64)
 
-    parser._data = [{"name": "test", "stages": test_stages, "costs": test_costs}]
+    # Use public API to set test data
+    parser.parse_from_data([{"name": "test", "stages": test_stages, "costs": test_costs}])
 
     costs = parser.get_costs()
     assert len(costs) == 1
