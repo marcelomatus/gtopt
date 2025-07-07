@@ -205,12 +205,11 @@ class GeneratorParser(BaseParser):
         if len(parts) < 2:
             raise ValueError(f"Invalid power limits at line {idx}")
 
-        current_gen.update(
-            {
-                "p_min": self._parse_float(parts[0]),
-                "p_max": self._parse_float(parts[1]),
-            }
-        )
+        # Ensure power limits are set, default to 0 if missing/invalid
+        current_gen.update({
+            "p_min": self._parse_float(parts[0]) if len(parts) > 0 else 0.0,
+            "p_max": self._parse_float(parts[1]) if len(parts) > 1 else 0.0,
+        })
 
         if len(parts) > 2:
             current_gen["v_max"] = self._parse_float(parts[2])
@@ -250,18 +249,17 @@ class GeneratorParser(BaseParser):
             raise ValueError(f"Invalid cost/bus data at line {idx}")
 
         try:
-            current_gen.update(
-                {
-                    "variable_cost": self._parse_float(parts[0]),
-                    "efficiency": self._parse_float(parts[1]),
-                    "bus": str(int(parts[2])),  # Ensure bus is string type
-                    "number": int(current_gen["id"]),  # Ensure number matches id
-                    "ser_hid": int(parts[3]),
-                    "ser_ver": int(parts[4]),
-                    "pot_tm0": self._parse_float(parts[5]),
-                    "afluent": self._parse_float(parts[6]),
-                }
-            )
+            # Ensure all required fields are set with defaults if missing
+            current_gen.update({
+                "variable_cost": self._parse_float(parts[0]) if len(parts) > 0 else 0.0,
+                "efficiency": self._parse_float(parts[1]) if len(parts) > 1 else 1.0,
+                "bus": str(int(parts[2])) if len(parts) > 2 else str(current_gen.get("id", "0")),
+                "number": int(current_gen.get("id", 0)),
+                "ser_hid": int(parts[3]) if len(parts) > 3 else 0,
+                "ser_ver": int(parts[4]) if len(parts) > 4 else 0,
+                "pot_tm0": self._parse_float(parts[5]) if len(parts) > 5 else 0.0,
+                "afluent": self._parse_float(parts[6]) if len(parts) > 6 else 0.0,
+            })
 
             # Optional fields for embalses
             if len(parts) > 7:
@@ -291,15 +289,13 @@ class GeneratorParser(BaseParser):
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        # Ensure required fields exist
-        required = {"id", "name", "type", "bus", "p_min", "p_max"}
-        for field in required:
-            if field not in gen:
-                raise ValueError(f"Generator missing required field: {field}")
-
+        # Ensure required fields exist with defaults
+        gen.setdefault("p_min", 0.0)
+        gen.setdefault("p_max", 0.0)
+        
         # Ensure numeric fields are properly typed
-        gen["p_min"] = float(gen["p_min"])
-        gen["p_max"] = float(gen["p_max"])
+        gen["p_min"] = float(gen.get("p_min", 0.0))
+        gen["p_max"] = float(gen.get("p_max", 0.0))
         gen["bus"] = str(int(gen["bus"]))  # Ensure bus is string of integer
         if "number" not in gen:
             gen["number"] = int(gen["id"])
