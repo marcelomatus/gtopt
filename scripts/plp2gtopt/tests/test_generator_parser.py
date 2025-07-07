@@ -180,11 +180,15 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
     assert len(bus0_gens) == 1
-    assert {g["id"] for g in bus0_gens} == {"1"}
+    assert {g["id"] for g in bus0_gens} == {"1"}  # LMAULE is on bus 0
 
     bus93_gens = parser.get_generators_by_bus("93")
     assert len(bus93_gens) == 1
     assert bus93_gens[0]["id"] == "2"
+    bus1_gens = parser.get_generators_by_bus("1")
+    assert len(bus1_gens) == 1
+    assert bus1_gens[0]["id"] == "1785"  # FALLA_001_1 is on bus 1
+    
     empty_gens = parser.get_generators_by_bus("999")
     assert len(empty_gens) == 0
 
