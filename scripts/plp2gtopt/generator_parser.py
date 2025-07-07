@@ -75,7 +75,9 @@ class GeneratorParser(BaseParser):
                 continue
 
             if line[0].isdigit():
-                current_gen = self._parse_generator_header(line, idx, gen_idx + 1)  # Use 1-based index
+                current_gen = self._parse_generator_header(
+                    line, idx, gen_idx + 1
+                )  # Use 1-based index
                 if current_gen:  # Only increment if we got a valid generator
                     gen_idx += 1
                 continue
@@ -295,13 +297,13 @@ class GeneratorParser(BaseParser):
             if field not in gen:
                 raise ValueError(f"Generator missing required field: {field}")
 
-        # Ensure numeric fields are properly typed  
+        # Ensure numeric fields are properly typed
         gen["p_min"] = float(gen["p_min"])
         gen["p_max"] = float(gen["p_max"])
         gen["bus"] = str(int(gen["bus"]))  # Ensure bus is string of integer
         if "number" not in gen:
             gen["number"] = int(gen["id"])
-        
+
         self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
