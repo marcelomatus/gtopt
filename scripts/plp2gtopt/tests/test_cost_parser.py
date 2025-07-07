@@ -94,6 +94,31 @@ def test_parse_sample_file(sample_costs_file):
     assert gen2["costs"][0] == 67.2
 
 
+def test_real_file_parsing():
+    """Test parsing of the real plpcosce.dat file."""
+    real_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpcosce.dat"
+    parser = CostParser(str(real_file))
+    parser.parse()
+
+    # Verify basic structure
+    assert parser.get_num_generators() == 2
+    costs = parser.get_costs()
+    assert len(costs) == 2
+
+    # Verify first generator data
+    gen1 = costs[0]
+    assert gen1["name"] == "CMPC_PACIFICO_BL3"
+    assert len(gen1["stages"]) == 4
+    assert gen1["stages"][0] == 4
+    assert gen1["costs"][0] == pytest.approx(157.9)
+
+    # Verify second generator data
+    gen2 = costs[1]
+    assert gen2["name"] == "ANDINA"
+    assert len(gen2["stages"]) == 3
+    assert gen2["stages"][0] == 5
+    assert gen2["costs"][0] == pytest.approx(67.2)
+
 def test_get_costs_by_name(sample_costs_file):
     """Test getting costs by generator name."""
     parser = CostParser(str(sample_costs_file))
