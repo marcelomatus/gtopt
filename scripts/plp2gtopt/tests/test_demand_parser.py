@@ -36,12 +36,9 @@ def test_get_demands():
     test_blocks = np.array([1, 2, 3], dtype=np.int32)
     test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
 
-    parser._data = [{
-        "number": 1,
-        "name": "test",
-        "blocks": test_blocks,
-        "values": test_values
-    }]  # pylint: disable=protected-access
+    parser._data = [
+        {"number": 1, "name": "test", "blocks": test_blocks, "values": test_values}
+    ]  # pylint: disable=protected-access
 
     demands = parser.get_demands()
     assert len(demands) == 1

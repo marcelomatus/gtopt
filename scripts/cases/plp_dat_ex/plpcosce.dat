@@ -1,0 +1,20 @@
+# Archivo de precios de termicas (plpcosce.dat)
+# Numero de centrales termicas con cambio de costo variable
+ 2
+# Nombre de la central
+'CMPC_PACIFICO_BL3'
+# Numero de etapas
+    4
+# Mes   Etapa    CosVar
+   04     004     157.9
+   04     005     157.9
+   04     006     157.9
+   04     007     157.9
+# Nombre de la central
+'ANDINA'
+# Numero de etapas
+    3
+# Mes   Etapa    CosVar
+   04     005     067.2
+   04     006     053.0
+   04     007     053.0
