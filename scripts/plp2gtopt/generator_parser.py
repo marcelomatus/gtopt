@@ -12,7 +12,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from .base_parser import BaseParser
 
 
