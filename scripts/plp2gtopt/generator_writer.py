@@ -16,7 +16,13 @@ class GeneratorWriter(BaseWriter):
 
     def __init__(self, generator_parser: GeneratorParser):
         """Initialize with a GeneratorParser instance."""
+        if not hasattr(generator_parser, 'get_generators'):
+            raise ValueError("Parser must implement get_generators()")
         super().__init__(generator_parser)
+        # Ensure all generators have required fields
+        for gen in self.items:
+            gen.setdefault("p_max", gen.get("capacity", 0.0))
+            gen.setdefault("bus", gen["id"])
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert generator data to JSON array format."""
@@ -25,13 +31,13 @@ class GeneratorWriter(BaseWriter):
             generator = {
                 "uid": int(gen["id"]),
                 "name": gen["name"],
-                "bus": str(gen["bus"]),  # Ensure bus is string
-                "gcost": float(gen["variable_cost"]),
-                "capacity": float(gen["p_max"]),
-                "is_battery": bool(gen.get("is_battery", False)),
+                "bus": str(gen.get("bus", gen["id"])),  # Fallback to id if bus missing
+                "gcost": float(gen.get("variable_cost", 0.0)),
+                "capacity": float(gen.get("p_max", gen.get("capacity", 0.0))),
+                "is_battery": gen.get("type", "") == "bateria",
                 "expcap": float(gen["pot_tm0"]) if "pot_tm0" in gen else None,
                 "expmod": float(gen["afluent"]) if "afluent" in gen else None,
-                "annual_capcost": None,  # Always include as None
+                "annual_capcost": None,
                 "type": gen.get("type", "unknown"),
                 "efficiency": float(gen.get("efficiency", 1.0)),
                 "pmin": float(gen.get("p_min", 0.0)),
