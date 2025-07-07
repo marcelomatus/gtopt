@@ -75,15 +75,19 @@ class GeneratorParser(BaseParser):
                 continue
 
             if line[0].isdigit():
+                if current_gen:  # Finalize previous generator if exists
+                    self._finalize_generator(current_gen)
                 current_gen, gen_idx = self._parse_generator_header(
                     line, lines, idx, current_gen, gen_idx
                 )
             elif line.startswith("PotMin"):
-                current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
+                if current_gen:  # Only parse if we have an active generator
+                    current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
             elif line.startswith("CosVar"):
-                current_gen, idx = self._parse_cost_bus_info(lines, idx, current_gen)
-                self._finalize_generator(current_gen)
-                current_gen = {}
+                if current_gen:  # Only parse if we have an active generator
+                    current_gen, idx = self._parse_cost_bus_info(lines, idx, current_gen)
+                    self._finalize_generator(current_gen)
+                    current_gen = {}
 
         if current_gen:
             self._finalize_generator(current_gen)
