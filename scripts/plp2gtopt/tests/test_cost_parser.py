@@ -1,4 +1,4 @@
-"""Unit tests for CostsParser class."""
+"""Unit tests for CostParser class."""
 
 from pathlib import Path
 import pytest
@@ -14,7 +14,7 @@ def sample_costs_file():
 
 
 def test_costs_parser_initialization():
-    """Test CostsParser initialization."""
+    """Test CostParser initialization."""
     test_path = "test.dat"
     parser = CostParser(test_path)
     assert parser.file_path == Path(test_path)
