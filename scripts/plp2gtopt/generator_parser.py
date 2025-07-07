@@ -74,9 +74,7 @@ class GeneratorParser(BaseParser):
             line = lines[idx]
             idx += 1
 
-            # Skip comments and empty lines (shouldn't be needed
-            # since _read_non_empty_lines() filters them)
-            if not line or line.startswith("#"):
+            if self._should_skip_line(line):
                 continue
 
             # Generator header line
@@ -359,6 +357,17 @@ class GeneratorParser(BaseParser):
         if idx >= len(lines):
             raise ValueError("Unexpected end of file")
         return idx
+
+    def _should_skip_line(self, line: str) -> bool:
+        """Determine if a line should be skipped during parsing.
+        
+        Args:
+            line: Input line to check
+            
+        Returns:
+            True if line should be skipped (empty or comment), False otherwise
+        """
+        return not line or line.startswith("#")
 
     def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
