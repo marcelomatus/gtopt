@@ -135,6 +135,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     - All generator fields are correctly extracted
     - Data types are correct
     - Battery detection works
+    - Generator type detection works
 
     Args:
         valid_gen_file: Path to valid generator test file
@@ -155,6 +156,13 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["variable_cost"] == 0.0
     assert gen1["efficiency"] == 1.0
     assert gen1["type"] == "embalse"
+
+    # Test generator type detection
+    assert generators[1]["type"] == "serie"  # LOS_CONDORES
+    assert generators[2]["type"] == "termica"  # DOS_VALLES_AMPL
+    assert generators[3]["type"] == "pasada"  # LOS_MOLLES
+    assert generators[4]["type"] == "bateria"  # ALFALFAL_BESS
+    assert generators[5]["type"] == "fallas"  # FALLA_001_1
 
 
 def test_get_generators_by_bus(valid_gen_file: Path) -> None:
@@ -256,6 +264,7 @@ def test_parse_large_real_file() -> None:
     - Can parse the larger file without errors
     - Correct number of generators are found
     - Sample generator data is correct
+    - Generator type counts are consistent
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
     parser = GeneratorParser(test_file)
@@ -283,3 +292,21 @@ def test_parse_large_real_file() -> None:
     battery = next((g for g in generators if g["type"] == "bateria"), None)
     assert battery is not None
     assert float(battery["p_max"]) > 0.0
+
+    # Verify type counts match actual generators
+    type_counts = {
+        "embalse": 0,
+        "serie": 0,
+        "pasada": 0,
+        "termica": 0,
+        "bateria": 0,
+        "fallas": 0
+    }
+    for gen in generators:
+        type_counts[gen["type"]] += 1
+
+    assert type_counts["embalse"] == parser.num_embalses
+    assert type_counts["serie"] == parser.num_series
+    assert type_counts["pasada"] == parser.num_pasadas
+    assert type_counts["bateria"] == parser.num_baterias
+    assert type_counts["fallas"] == parser.num_fallas
