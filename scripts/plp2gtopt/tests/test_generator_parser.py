@@ -162,7 +162,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert generators[2]["type"] == "termica"  # DOS_VALLES_AMPL
     assert generators[3]["type"] == "pasada"  # LOS_MOLLES
     assert generators[4]["type"] == "bateria"  # ALFALFAL_BESS
-    assert generators[5]["type"] == "fallas"  # FALLA_001_1
+    assert generators[5]["type"] == "falla"  # FALLA_001_1
 
 
 def test_get_generators_by_bus(valid_gen_file: Path) -> None:
@@ -239,10 +239,6 @@ def test_parse_real_file() -> None:
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat"
 
-    parser = None
-    if parser is None:
-        return
-
     parser = GeneratorParser(test_file)
     parser.parse()
 
@@ -289,20 +285,17 @@ def test_parse_large_real_file() -> None:
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
 
-    if test_file:
-        return
-
-    # parser = GeneratorParser(test_file)
-    # parser.parse()
-    parser = None
-    if parser is None:
-        return
+    parser = GeneratorParser(test_file)
+    parser.parse()
 
     # Verify expected counts from the file header
-    assert parser.num_centrales > 200  # Should be more than test case
-    assert parser.num_embalses > 5
-    assert parser.num_series > 50
-    assert parser.num_baterias > 20
+    assert parser.num_centrales == 2732  # Should be more than test case
+    assert parser.num_embalses == 10
+    assert parser.num_series == 75
+    assert parser.num_pasadas == 129
+    assert parser.num_baterias == 25
+    assert parser.num_termicas == 1545
+    assert parser.num_fallas == 948
 
     # Verify some sample generators
     generators = parser.get_generators()
@@ -328,7 +321,7 @@ def test_parse_large_real_file() -> None:
         "pasada": 0,
         "termica": 0,
         "bateria": 0,
-        "fallas": 0,
+        "falla": 0,
     }
     for gen in generators:
         type_counts[gen["type"]] += 1
@@ -337,4 +330,4 @@ def test_parse_large_real_file() -> None:
     assert type_counts["serie"] == parser.num_series
     assert type_counts["pasada"] == parser.num_pasadas
     assert type_counts["bateria"] == parser.num_baterias
-    assert type_counts["fallas"] == parser.num_fallas
+    assert type_counts["falla"] == parser.num_fallas
