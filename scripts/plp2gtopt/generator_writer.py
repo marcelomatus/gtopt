@@ -16,7 +16,7 @@ class GeneratorWriter(BaseWriter):
 
     def __init__(self, generator_parser: GeneratorParser):
         """Initialize with a GeneratorParser instance."""
-        if not hasattr(generator_parser, 'get_generators'):
+        if not hasattr(generator_parser, "get_generators"):
             raise ValueError("Parser must implement get_generators()")
         super().__init__(generator_parser)
         # Ensure all generators have required fields
