@@ -33,11 +33,13 @@ def test_get_costs(tmp_path):
     """Test get_costs returns properly structured cost data."""
     # Create a temporary test file
     test_file = tmp_path / "test_cost.dat"
-    test_file.write_text("""1
+    test_file.write_text(
+        """1
 'test'
 2
 04 004 157.9
-04 005 157.9""")
+04 005 157.9"""
+    )
 
     parser = CostParser(str(test_file))
     parser.parse()
@@ -100,7 +102,9 @@ def test_parse_sample_file(sample_costs_file):
 
 def test_real_file_parsing():
     """Test parsing of the real plpcosce.dat file."""
-    real_file = Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpcosce.dat"
+    real_file = (
+        Path(__file__).parent.parent.parent / "cases" / "plp_dat_ex" / "plpcosce.dat"
+    )
     parser = CostParser(str(real_file))
     parser.parse()
 
@@ -122,6 +126,7 @@ def test_real_file_parsing():
     assert len(gen2["stages"]) == 3
     assert gen2["stages"][0] == 5
     assert gen2["costs"][0] == pytest.approx(67.2)
+
 
 def test_get_costs_by_name(sample_costs_file):
     """Test getting costs by generator name."""

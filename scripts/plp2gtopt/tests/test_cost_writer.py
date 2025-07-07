@@ -1,4 +1,4 @@
-"""Unit tests for CostsWriter class."""
+"""Unit tests for CostWriter class."""
 
 import json
 import tempfile
@@ -17,14 +17,14 @@ def sample_costs_file():
 
 @pytest.fixture
 def sample_costs_writer(sample_costs_file):
-    """Fixture providing initialized CostsWriter with sample data."""
+    """Fixture providing initialized CostWriter with sample data."""
     parser = CostParser(sample_costs_file)
     parser.parse()
     return CostWriter(parser)
 
 
 def test_costs_writer_initialization(sample_costs_file):
-    """Test CostsWriter initialization."""
+    """Test CostWriter initialization."""
     parser = CostParser(sample_costs_file)
     parser.parse()
     writer = CostWriter(parser)
@@ -71,7 +71,7 @@ def test_write_to_file(sample_costs_writer):
 
 
 def test_from_costs_file(sample_costs_file):
-    """Test creating CostsWriter directly from cost file."""
+    """Test creating CostWriter directly from cost file."""
     writer = CostWriter.from_file(sample_costs_file, CostParser)
 
     # Verify parser was initialized and parsed
