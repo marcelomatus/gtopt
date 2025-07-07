@@ -91,10 +91,6 @@ class CostsParser(BaseParser):
                     costs[i] = float(parts[2])  # Cost is third column
                     idx += 1
 
-                    stages[i] = int(parts[0])  # Stage number 
-                    costs[i] = float(parts[1])  # Cost value
-                    idx += 1
-
                 # Store complete data for this generator
                 self._data.append({
                     "name": name,
