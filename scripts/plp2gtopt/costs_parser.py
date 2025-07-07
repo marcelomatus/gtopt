@@ -168,7 +168,6 @@ class CostsParser(BaseParser):
         Returns:
             Dictionary with keys:
             - name: Generator name
-            - months: Month numbers array
             - stages: Stage numbers array
             - costs: Cost values array
             or None if not found
@@ -177,7 +176,6 @@ class CostsParser(BaseParser):
             if data["name"] == name:
                 return {
                     "name": data["name"],
-                    "months": data["months"],
                     "stages": data["stages"],
                     "costs": data["costs"]
                 }
