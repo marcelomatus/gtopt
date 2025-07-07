@@ -219,6 +219,10 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
         parser.parse()
 
 
+@pytest.mark.skipif(
+    not (Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat").exists(),
+    reason="Test case file not found"
+)
 def test_parse_real_file() -> None:
     """Test parsing of real plpcnfce.dat file from test cases.
 
@@ -257,6 +261,10 @@ def test_parse_real_file() -> None:
     assert battery["type"] == "bateria"
 
 
+@pytest.mark.skipif(
+    not (Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat").exists(),
+    reason="Large test case file not found"
+)
 def test_parse_large_real_file() -> None:
     """Test parsing of larger plpcnfce.dat file from 2-year case.
 
@@ -266,8 +274,6 @@ def test_parse_large_real_file() -> None:
     - Sample generator data is correct
     - Generator type counts are consistent
     """
-    return
-
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
     parser = GeneratorParser(test_file)
     parser.parse()
