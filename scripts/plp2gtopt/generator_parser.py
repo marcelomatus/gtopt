@@ -74,14 +74,8 @@ class GeneratorParser(BaseParser):
             line = lines[idx]
             idx += 1
 
-            if self._should_skip_line(line):
-                continue
-
             # Generator header line
             if line[0].isdigit():
-                if current_gen:
-                    self._finalize_generator(current_gen)
-
                 parts = line.split()
                 if self.num_centrales == 0:
                     self._parse_header(parts)
@@ -89,51 +83,15 @@ class GeneratorParser(BaseParser):
                     # Generator line format: number 'name' ...
                     gen_idx += 1
                     current_gen = self._parse_generator_header(parts, gen_idx)
-
-                continue  # Skip to next line
-
             elif line.startswith("Start"):
-                if not current_gen:
-                    continue
-                idx = self._skip_start_stop_section(lines, idx)
+                idx += 1  # Skip to next line
             elif line.startswith("PotMin"):
-                if not current_gen:
-                    continue
                 current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
-
-            # Cost and bus line
             elif line.startswith("CosVar"):
-                if not current_gen:
-                    continue
                 current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)
                 current_gen = {}  # Reset for next generator
-        # Add last generator if exists
-        if current_gen:
-            self._finalize_generator(current_gen)
-
-    def _finalize_generator(self, gen: Dict[str, Any]) -> None:
-        """Validate and add a completed generator to the list.
-
-        Args:
-            gen: Generator dictionary to validate and add
-
-        Raises:
-            ValueError: If required generator fields are missing/invalid
-        """
-        # Set default values for missing required fields
-
-        # Only check for truly required fields
-        required = {"number", "name", "type"}
-        missing = required - gen.keys()
-        if missing:
-            raise ValueError(
-                f"Generator {gen.get('id', 'unknown')}"
-                "missing required fields: {missing}"
-            )
-
-        self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed generators structure.
@@ -152,23 +110,32 @@ class GeneratorParser(BaseParser):
         """Return the number of generators (property version)."""
         return len(self.generators)
 
-    def _determine_generator_type(self, gen_idx: int) -> str:
-        """Determine generator type based on its index and type counts.
+    def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
+        """Get all generators connected to a specific bus.
 
         Args:
-            gen_idx: 1-based generator index
+            bus_id: The bus ID to filter generators by
 
         Returns:
-            Generator type as string ("embalse", "serie", etc)
+            List of unique generator dictionaries matching the bus ID
+            (unique by id and bus combination)
 
-        Raises:
-            ValueError: If generator index exceeds total declared generators
+        Example:
+            >>> parser.get_generators_by_bus("1")
+            [{'id': '1', 'name': 'GEN1', ...}]
         """
-        if gen_idx > self.num_centrales:
-            raise ValueError(
-                f"Generator index {gen_idx} exceeds declared count {self.num_centrales}"
-            )
+        seen = set()
+        unique_gens = []
+        for g in self.generators:
+            if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
+                key = (g["number"], g["bus"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_gens.append(g)
+        return unique_gens
 
+    def _generator_type(self, gen_idx: int) -> str:
+        """Determine generator type based on its index and type counts."""
         # Ordered list of (type_name, count) tuples
         type_counts = [
             ("embalse", self.num_embalses),
@@ -176,7 +143,7 @@ class GeneratorParser(BaseParser):
             ("termica", self.num_termicas),
             ("pasada", self.num_pasadas),
             ("bateria", self.num_baterias),
-            ("fallas", self.num_fallas),
+            ("falla", self.num_fallas),
         ]
 
         remaining_idx = gen_idx - 1  # Convert to 0-based index
@@ -189,22 +156,15 @@ class GeneratorParser(BaseParser):
         return "unknown"  # Fallback if no type matched
 
     def _parse_header(self, parts: List[str]) -> None:
-        """Parse the file header containing generator type counts.
-        
-        Args:
-            parts: Split line parts from the header line
-            
-        Raises:
-            ValueError: If header format is invalid
-        """
+        """Parse the file header containing generator type counts."""
         # First line contains counts - handle test file format
-        if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
+        if len(parts) >= 5 and all(p.isdigit() for p in parts):
             self.num_centrales = int(parts[0])
             self.num_embalses = int(parts[1])
             self.num_series = int(parts[2])
             self.num_fallas = int(parts[3])
             self.num_pasadas = int(parts[4])
-            self.num_baterias = int(parts[5])
+            self.num_baterias = int(parts[5]) if len(parts) > 5 else 0
             self.num_termicas = self.num_centrales - (
                 self.num_embalses
                 + self.num_series
@@ -218,20 +178,9 @@ class GeneratorParser(BaseParser):
             self.num_centrales = sys.maxsize
 
     def _parse_generator_header(self, parts: List[str], gen_idx: int) -> Dict[str, Any]:
-        """Parse a generator header line.
-        
-        Args:
-            parts: Split line parts from generator header
-            gen_idx: Current generator index (1-based)
-            
-        Returns:
-            Dictionary with initial generator data
-            
-        Raises:
-            ValueError: If generator header format is invalid
-        """
+        """Parse a generator header line."""
         if len(parts) < 2:
-            raise ValueError(f"Invalid generator header - expected at least 2 parts")
+            raise ValueError("Invalid generator header - expected at least 2 parts")
 
         try:
             # First try parsing as float then convert to int
@@ -240,33 +189,18 @@ class GeneratorParser(BaseParser):
                 "id": str(gen_id),
                 "number": gen_id,
                 "name": parts[1].strip("'"),
-                "type": self._determine_generator_type(gen_idx),
+                "type": self._generator_type(gen_idx),
             }
         except (ValueError, IndexError) as e:
-            raise ValueError(
-                f"Invalid generator header: {str(e)}"
-            ) from e
+            raise ValueError(f"Invalid generator header: {str(e)}") from e
 
-    def _parse_power_limits(self, 
-                          lines: List[str], 
-                          idx: int, 
-                          current_gen: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
-        """Parse the power limits section of a generator definition.
-        
-        Args:
-            lines: All lines from the input file
-            idx: Current line index
-            current_gen: Current generator being parsed
-            
-        Returns:
-            Tuple of (updated generator dict, new line index)
-            
-        Raises:
-            ValueError: If power limits format is invalid
-        """
+    def _parse_power_limits(
+        self, lines: List[str], idx: int, current_gen: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], int]:
+        """Parse the power limits section of a generator definition."""
         if idx >= len(lines):
             raise ValueError("Unexpected end of file")
-            
+
         # Get the next line for values
         parts = lines[idx].split()
         if len(parts) < 2:
@@ -279,41 +213,27 @@ class GeneratorParser(BaseParser):
         current_gen["p_max"] = self._parse_float(parts[1])
         if len(parts) > 2:
             current_gen["v_max"] = self._parse_float(parts[2])
-        if len(parts) > 3:
             current_gen["v_min"] = self._parse_float(parts[3])
-            
+
         return current_gen, idx
 
-    def _parse_cost_and_bus(self, 
-                          lines: List[str], 
-                          idx: int, 
-                          current_gen: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
-        """Parse the cost and bus information section of a generator definition.
-        
-        Args:
-            lines: All lines from the input file
-            idx: Current line index
-            current_gen: Current generator being parsed
-            
-        Returns:
-            Tuple of (updated generator dict, new line index)
-            
-        Raises:
-            ValueError: If cost/bus format is invalid
-        """
+    def _parse_cost_and_bus(
+        self, lines: List[str], idx: int, current_gen: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], int]:
+        """Parse the cost and bus information section of a generator definition."""
         # Get the next non-empty line for values
         while idx < len(lines) and not lines[idx].strip():
             idx += 1
         if idx >= len(lines):
             raise ValueError("Unexpected end of file after CosVar header")
-            
+
         parts = lines[idx].split()
         idx += 1
 
         # Ensure we have minimum required columns
-        if len(parts) < 3:
+        if len(parts) < 7:
             raise ValueError(
-                f"Invalid generator data at line {idx}: expected at least 3 values"
+                f"Invalid generator data at line {idx}: expected at least 7 values"
             )
 
         try:
@@ -340,58 +260,18 @@ class GeneratorParser(BaseParser):
 
         return current_gen, idx
 
-    def _skip_start_stop_section(self, lines: List[str], idx: int) -> int:
-        """Skip over the Start/Stop section of a generator definition.
-        
-        Args:
-            lines: All lines from the input file
-            idx: Current line index
-            
-        Returns:
-            New line index after skipping
-            
-        Raises:
-            ValueError: If unexpected end of file
-        """
-        idx += 1  # Skip to next line
-        if idx >= len(lines):
-            raise ValueError("Unexpected end of file")
-        return idx
+    def _finalize_generator(self, gen: Dict[str, Any]) -> None:
+        """Validate and add a completed generator to the list."""
+        # Only check for truly required fields
+        required = {"number", "name", "type"}
+        missing = required - gen.keys()
+        if missing:
+            raise ValueError(
+                f"Generator {gen.get('id', 'unknown')}"
+                "missing required fields: {missing}"
+            )
 
-    def _should_skip_line(self, line: str) -> bool:
-        """Determine if a line should be skipped during parsing.
-        
-        Args:
-            line: Input line to check
-            
-        Returns:
-            True if line should be skipped (empty or comment), False otherwise
-        """
-        return not line or line.startswith("#")
-
-    def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
-        """Get all generators connected to a specific bus.
-
-        Args:
-            bus_id: The bus ID to filter generators by
-
-        Returns:
-            List of unique generator dictionaries matching the bus ID
-            (unique by id and bus combination)
-
-        Example:
-            >>> parser.get_generators_by_bus("1")
-            [{'id': '1', 'name': 'GEN1', ...}]
-        """
-        seen = set()
-        unique_gens = []
-        for g in self.generators:
-            if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
-                key = (g["number"], g["bus"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_gens.append(g)
-        return unique_gens
+        self.generators.append(gen)
 
 
 def main(args: Optional[List[str]] = None) -> int:
