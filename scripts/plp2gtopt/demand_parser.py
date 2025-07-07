@@ -202,14 +202,13 @@ class DemandParser(BaseParser):
             - values: Demand values array
             or None if not found
         """
-        for i, data in enumerate(self._data):
+        for data in self._data:
             if data["name"] == name:
-                start, end = self.demand_indices[i]
                 return {
                     "number": data["number"],
                     "name": data["name"],
-                    "blocks": self.demand_blocks[start:end],
-                    "values": self.demand_values[start:end],
+                    "blocks": data["blocks"],
+                    "values": data["values"],
                 }
         return None
 
