@@ -44,13 +44,17 @@ class CostsParser(BaseParser):
             for _ in range(self.num_generators):
                 # Get generator name
                 if idx >= len(lines):
-                    raise ValueError("Unexpected end of file while parsing generator names")
+                    raise ValueError(
+                        "Unexpected end of file while parsing generator names"
+                    )
                 name = lines[idx].strip("'").split("#")[0].strip()
                 idx += 1
 
                 # Get number of cost entries
                 if idx >= len(lines):
-                    raise ValueError("Unexpected end of file while parsing stage counts")
+                    raise ValueError(
+                        "Unexpected end of file while parsing stage counts"
+                    )
 
                 # Skip empty lines between name and stage count
                 while idx < len(lines) and not lines[idx].strip():
@@ -65,7 +69,9 @@ class CostsParser(BaseParser):
                     ) from e
 
                 # Skip empty/comment lines until we find the cost entries
-                while idx < len(lines) and (not lines[idx].strip() or lines[idx].strip().startswith('#')):
+                while idx < len(lines) and (
+                    not lines[idx].strip() or lines[idx].strip().startswith("#")
+                ):
                     idx += 1
 
                 # Initialize numpy arrays for this generator
@@ -75,28 +81,32 @@ class CostsParser(BaseParser):
                 # Parse cost entries
                 for i in range(num_stages):
                     if idx >= len(lines):
-                        raise ValueError("Unexpected end of file while parsing cost entries")
+                        raise ValueError(
+                            "Unexpected end of file while parsing cost entries"
+                        )
 
                     # Skip empty/comment lines
-                    while idx < len(lines) and (not lines[idx].strip() or lines[idx].strip().startswith('#')):
+                    while idx < len(lines) and (
+                        not lines[idx].strip() or lines[idx].strip().startswith("#")
+                    ):
                         idx += 1
                     if idx >= len(lines):
-                        raise ValueError("Unexpected end of file while parsing cost entries")
+                        raise ValueError(
+                            "Unexpected end of file while parsing cost entries"
+                        )
 
                     parts = lines[idx].split()
                     if len(parts) < 3:  # Expecting month, stage, cost
-                        raise ValueError(f"Invalid cost entry at line {idx+1}: expected 3 values, got {len(parts)}")
-                    
+                        raise ValueError(
+                            f"Invalid cost entry at line {idx+1}: expected 3 values, got {len(parts)}"
+                        )
+
                     stages[i] = int(parts[1])  # Stage number is second column
                     costs[i] = float(parts[2])  # Cost is third column
                     idx += 1
 
                 # Store complete data for this generator
-                self._data.append({
-                    "name": name,
-                    "stages": stages,
-                    "costs": costs
-                })
+                self._data.append({"name": name, "stages": stages, "costs": costs})
         finally:
             lines.clear()
             del lines
@@ -106,7 +116,7 @@ class CostsParser(BaseParser):
 
         Returns:
             List of cost dictionaries with these keys:
-            - name (str): Generator name  
+            - name (str): Generator name
             - stages (np.ndarray): Stage numbers as int32 array
             - costs (np.ndarray): Cost values as float64 array
         """
@@ -181,7 +191,7 @@ class CostsParser(BaseParser):
                 return {
                     "name": data["name"],
                     "stages": data["stages"],
-                    "costs": data["costs"]
+                    "costs": data["costs"],
                 }
         return None
 
