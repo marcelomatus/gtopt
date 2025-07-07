@@ -5,7 +5,7 @@
 
 from typing import Any, Dict, List
 from .base_writer import BaseWriter
-from .costs_parser import CostsParser
+from .costs_parser import CostParser
 
 
 class CostWriter(BaseWriter):
@@ -15,8 +15,8 @@ class CostWriter(BaseWriter):
         return self.parser.get_costs()
 
     def __init__(self, cost_parser: CostParser):
-        """Initialize with a CostsParser instance."""
-        super().__init__(costs_parser)
+        """Initialize with a CostParser instance."""
+        super().__init__(cost_parser)
 
     def to_json_array(self) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format.
@@ -41,4 +41,4 @@ class CostWriter(BaseWriter):
 
 
 if __name__ == "__main__":
-    BaseWriter.main(CostsWriter, CostsParser)
+    BaseWriter.main(CostWriter, CostParser)
