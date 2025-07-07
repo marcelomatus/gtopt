@@ -102,7 +102,9 @@ def test_json_output_structure(sample_costs_writer):
         # Additional value checks
         assert len(cost["name"]) > 0, "Name should not be empty"
         assert len(cost["stages"]) > 0, "Should have at least one stage"
-        assert len(cost["stages"]) == len(cost["costs"]), "Stages and costs should match"
+        assert len(cost["stages"]) == len(
+            cost["costs"]
+        ), "Stages and costs should match"
 
 
 def test_write_empty_costs():
