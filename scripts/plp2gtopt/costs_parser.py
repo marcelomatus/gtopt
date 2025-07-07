@@ -70,7 +70,6 @@ class CostsParser(BaseParser):
                 idx += 1
 
                 # Initialize numpy arrays for this generator
-                months = np.empty(num_stages, dtype=np.int32)
                 stages = np.empty(num_stages, dtype=np.int32)
                 costs = np.empty(num_stages, dtype=np.float64)
 
@@ -80,18 +79,16 @@ class CostsParser(BaseParser):
                         raise ValueError("Unexpected end of file while parsing cost entries")
 
                     parts = lines[idx].split()
-                    if len(parts) < 3:
+                    if len(parts) < 2:
                         raise ValueError(f"Invalid cost entry at line {idx+1}")
 
-                    months[i] = int(parts[0])  # Month number
-                    stages[i] = int(parts[1])  # Stage number
-                    costs[i] = float(parts[2])  # Cost value
+                    stages[i] = int(parts[0])  # Stage number
+                    costs[i] = float(parts[1])  # Cost value
                     idx += 1
 
                 # Store complete data for this generator
                 self._data.append({
                     "name": name,
-                    "months": months,
                     "stages": stages,
                     "costs": costs
                 })
@@ -113,33 +110,31 @@ class CostsParser(BaseParser):
 
     def get_cost_arrays(
         self,
-    ) -> Tuple[List[npt.NDArray[np.int32]], List[npt.NDArray[np.int32]], List[npt.NDArray[np.float64]]]:
-        """Return lists of months, stages and costs arrays for all generators.
+    ) -> Tuple[List[npt.NDArray[np.int32]], List[npt.NDArray[np.float64]]]:
+        """Return lists of stages and costs arrays for all generators.
 
         Returns:
-            Tuple of (months_list, stages_list, costs_list) where:
-            - months_list: List of int32 arrays of month numbers
+            Tuple of (stages_list, costs_list) where:
             - stages_list: List of int32 arrays of stage numbers
             - costs_list: List of float64 arrays of cost values
         """
-        months = [d["months"] for d in self._data]
         stages = [d["stages"] for d in self._data]
         costs = [d["costs"] for d in self._data]
-        return months, stages, costs
+        return stages, costs
 
     def get_generator_costs(
         self, gen_idx: int
-    ) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.int32], npt.NDArray[np.float64]]:
+    ) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
         """Get cost data for a specific generator.
 
         Args:
             gen_idx: Index of the generator (0-based)
 
         Returns:
-            Tuple of (months, stages, costs) arrays for the specified generator
+            Tuple of (stages, costs) arrays for the specified generator
         """
         gen_data = self._data[gen_idx]
-        return gen_data["months"], gen_data["stages"], gen_data["costs"]
+        return gen_data["stages"], gen_data["costs"]
 
     def get_cost_stats(self) -> Dict[str, float]:
         """Calculate basic statistics on cost values.

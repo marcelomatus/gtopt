@@ -34,7 +34,6 @@ class CostsWriter(BaseWriter):
         return [
             {
                 "name": cost["name"],
-                "months": cost["months"].tolist(),
                 "stages": cost["stages"].tolist(),
                 "costs": cost["costs"].tolist(),
             }
