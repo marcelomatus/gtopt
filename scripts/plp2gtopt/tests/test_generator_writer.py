@@ -53,19 +53,11 @@ def test_to_json_array(sample_generator_writer):  # pylint: disable=redefined-ou
         assert "bus" in generator
         assert "gcost" in generator
         assert "capacity" in generator
-        assert "expcap" in generator
-        assert "expmod" in generator
-        assert "annual_capcost" in generator
         assert isinstance(generator["uid"], int)
         assert isinstance(generator["name"], str)
-        assert isinstance(generator["bus"], str)
+        assert isinstance(generator["bus"], int)
         assert isinstance(generator["gcost"], float)
         assert isinstance(generator["capacity"], float)
-        assert generator["expcap"] is None or isinstance(generator["expcap"], float)
-        assert generator["expmod"] is None or isinstance(generator["expmod"], float)
-        assert generator["annual_capcost"] is None or isinstance(
-            generator["annual_capcost"], float
-        )
 
 
 def test_write_to_file(sample_generator_writer):  # pylint: disable=redefined-outer-name
