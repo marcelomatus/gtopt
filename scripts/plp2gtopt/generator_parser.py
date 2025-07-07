@@ -202,10 +202,12 @@ class GeneratorParser(BaseParser):
         if len(parts) < 2:
             raise ValueError(f"Invalid power limits at line {idx}")
 
-        current_gen.update({
-            "p_min": self._parse_float(parts[0]),
-            "p_max": self._parse_float(parts[1]),
-        })
+        current_gen.update(
+            {
+                "p_min": self._parse_float(parts[0]),
+                "p_max": self._parse_float(parts[1]),
+            }
+        )
 
         if len(parts) > 2:
             current_gen["v_max"] = self._parse_float(parts[2])
@@ -245,25 +247,29 @@ class GeneratorParser(BaseParser):
             raise ValueError(f"Invalid cost/bus data at line {idx}")
 
         try:
-            current_gen.update({
-                "variable_cost": self._parse_float(parts[0]),
-                "efficiency": self._parse_float(parts[1]),
-                "bus": int(parts[2]),
-                "ser_hid": int(parts[3]),
-                "ser_ver": int(parts[4]),
-                "pot_tm0": self._parse_float(parts[5]),
-                "afluent": self._parse_float(parts[6]),
-            })
+            current_gen.update(
+                {
+                    "variable_cost": self._parse_float(parts[0]),
+                    "efficiency": self._parse_float(parts[1]),
+                    "bus": int(parts[2]),
+                    "ser_hid": int(parts[3]),
+                    "ser_ver": int(parts[4]),
+                    "pot_tm0": self._parse_float(parts[5]),
+                    "afluent": self._parse_float(parts[6]),
+                }
+            )
 
             # Optional fields for embalses
             if len(parts) > 7:
-                current_gen.update({
-                    "vol_ini": self._parse_float(parts[7]),
-                    "vol_fin": self._parse_float(parts[8]),
-                    "vol_min": self._parse_float(parts[9]),
-                    "vol_max": self._parse_float(parts[10]),
-                    "fact_esc": self._parse_float(parts[11]),
-                })
+                current_gen.update(
+                    {
+                        "vol_ini": self._parse_float(parts[7]),
+                        "vol_fin": self._parse_float(parts[8]),
+                        "vol_min": self._parse_float(parts[9]),
+                        "vol_max": self._parse_float(parts[10]),
+                        "fact_esc": self._parse_float(parts[11]),
+                    }
+                )
 
         except (ValueError, IndexError) as e:
             raise ValueError(
