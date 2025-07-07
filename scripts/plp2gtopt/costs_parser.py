@@ -64,10 +64,9 @@ class CostsParser(BaseParser):
                         f"Invalid stage count at line {idx+1}: {lines[idx]}"
                     ) from e
 
-                # Skip header line
-                if idx >= len(lines):
-                    raise ValueError("Unexpected end of file after stage count")
-                idx += 1
+                # Skip empty/comment lines until we find the cost entries
+                while idx < len(lines) and (not lines[idx].strip() or lines[idx].strip().startswith('#')):
+                    idx += 1
 
                 # Initialize numpy arrays for this generator
                 stages = np.empty(num_stages, dtype=np.int32)
@@ -78,9 +77,19 @@ class CostsParser(BaseParser):
                     if idx >= len(lines):
                         raise ValueError("Unexpected end of file while parsing cost entries")
 
+                    # Skip empty/comment lines
+                    while idx < len(lines) and (not lines[idx].strip() or lines[idx].strip().startswith('#')):
+                        idx += 1
+                    if idx >= len(lines):
+                        raise ValueError("Unexpected end of file while parsing cost entries")
+
                     parts = lines[idx].split()
-                    if len(parts) < 2:
-                        raise ValueError(f"Invalid cost entry at line {idx+1}")
+                    if len(parts) < 3:  # Expecting month, stage, cost
+                        raise ValueError(f"Invalid cost entry at line {idx+1}: expected 3 values, got {len(parts)}")
+                    
+                    stages[i] = int(parts[1])  # Stage number is second column
+                    costs[i] = float(parts[2])  # Cost is third column
+                    idx += 1
 
                     stages[i] = int(parts[0])  # Stage number 
                     costs[i] = float(parts[1])  # Cost value
