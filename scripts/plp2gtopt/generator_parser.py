@@ -85,9 +85,8 @@ class GeneratorParser(BaseParser):
                     self._finalize_generator(current_gen)
 
                 parts = line.split()
-                if (
-                    not hasattr(self, "num_centrales") or self.num_centrales == 0
-                ):  # Check if counts need to be initialized
+                if self.num_centrales == 0:
+                    # Check if counts need to be initialized
                     # First line contains counts - handle test file format
                     if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
                         self.num_centrales = int(parts[0])
@@ -103,34 +102,22 @@ class GeneratorParser(BaseParser):
                             + self.num_baterias
                             + self.num_fallas
                         )
-                        print(f"num_centrales {self.num_centrales}")
-                    # If header line is invalid, assume we're parsing a test file
-                    # with implicit count and set num_centrales to max possible
-                    self.num_centrales = sys.maxsize
-                    # Set other counts to 0 to avoid validation issues
-                    self.num_embalses = 0
-                    self.num_series = 0
-                    self.num_fallas = 0
-                    self.num_pasadas = 0
-                    self.num_baterias = 0
-                    self.num_termicas = 0
-                    continue  # Skip header line
+                    else:
+                        # If header line is invalid, assume we're parsing a test file
+                        # with implicit count and set num_centrales to max possible
+                        self.num_centrales = sys.maxsize
                 else:
                     # Generator line format: number 'name' ...
                     # Handle generator header line with format: "number 'name' ..."
                     gen_idx += 1
-                    # Allow parsing even if generator count exceeds declared number
-                    # since some files may have incorrect counts
-                    # Validate count if we have header info and it's not the test file case
+
                     if (
                         self.num_centrales != sys.maxsize
                         and gen_idx > self.num_centrales
                     ):
-                        print("line error ", line)
-                        raise ValueError(
-                            f"Number of generators {gen_idx} "
-                            f"greater than num_centrales {self.num_centrales}"
-                        )
+                        # if there are more generators than declared,
+                        # just ignore them and return
+                        return
 
                     if len(parts) >= 2:
                         try:
@@ -146,7 +133,8 @@ class GeneratorParser(BaseParser):
                             raise ValueError(
                                 f"Invalid generator header at line {idx}: {str(e)}"
                             ) from e
-                    continue  # Skip to next line
+
+                continue  # Skip to next line
 
             elif line.startswith("Start"):
                 # Power limits line
@@ -186,7 +174,8 @@ class GeneratorParser(BaseParser):
                 # Ensure we have minimum required columns
                 if len(parts) < 3:
                     raise ValueError(
-                        f"Invalid generator data at line {idx}: expected at least 3 values"
+                        f"Invalid generator data at line {idx}:"
+                        "expected at least 3 values"
                     )
 
                 try:

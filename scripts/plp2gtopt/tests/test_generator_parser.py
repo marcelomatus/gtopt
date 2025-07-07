@@ -248,9 +248,10 @@ def test_parse_real_file() -> None:
     assert battery["name"] == "ALFALFAL_BESS"
     assert battery["type"] == "bateria"
 
+
 def test_parse_large_real_file() -> None:
     """Test parsing of larger plpcnfce.dat file from 2-year case.
-    
+
     Verifies:
     - Can parse the larger file without errors
     - Correct number of generators are found
@@ -259,17 +260,17 @@ def test_parse_large_real_file() -> None:
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
     parser = GeneratorParser(test_file)
     parser.parse()
-    
+
     # Verify expected counts from the file header
     assert parser.num_centrales > 200  # Should be more than test case
     assert parser.num_embalses > 5
     assert parser.num_series > 50
     assert parser.num_baterias > 20
-    
+
     # Verify some sample generators
     generators = parser.get_generators()
     assert len(generators) == parser.num_centrales
-    
+
     # Check first generator (hydro)
     gen1 = generators[0]
     assert gen1["id"] == "1"
@@ -277,7 +278,7 @@ def test_parse_large_real_file() -> None:
     assert gen1["bus"] == "0"
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] > 0.0
-    
+
     # Check a battery generator exists
     battery = next((g for g in generators if g["type"] == "bateria"), None)
     assert battery is not None
