@@ -149,7 +149,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     gen1 = generators[0]
     assert gen1["id"] == "1"
     assert gen1["name"] == "LMAULE"
-    assert gen1["bus"] == "0"
+    assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
     assert gen1["variable_cost"] == 0.0
@@ -239,7 +239,7 @@ def test_parse_real_file() -> None:
     gen1 = generators[0]
     assert gen1["id"] == "1"
     assert gen1["name"] == "LMAULE"
-    assert gen1["bus"] == "0"
+    assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
 
@@ -275,7 +275,7 @@ def test_parse_large_real_file() -> None:
     gen1 = generators[0]
     assert gen1["id"] == "1"
     assert gen1["name"] == "LMAULE"
-    assert gen1["bus"] == "0"
+    assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] > 0.0
 

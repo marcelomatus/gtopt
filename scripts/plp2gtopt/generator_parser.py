@@ -158,6 +158,10 @@ class GeneratorParser(BaseParser):
                 idx += 1
                 current_gen["p_min"] = self._parse_float(parts[0])
                 current_gen["p_max"] = self._parse_float(parts[1])
+                if len(parts) > 2:
+                    current_gen["v_max"] = self._parse_float(parts[2])
+                if len(parts) > 3:
+                    current_gen["v_min"] = self._parse_float(parts[3])
 
             # Cost and bus line
             elif line.startswith("CosVar"):
@@ -181,17 +185,19 @@ class GeneratorParser(BaseParser):
                 try:
                     current_gen["variable_cost"] = self._parse_float(parts[0])
                     current_gen["efficiency"] = self._parse_float(parts[1])
-                    current_gen["bus"] = str(int(float(parts[2])))  # Bus ID is column 3
+                    current_gen["bus"] = int(parts[2])
+                    current_gen["ser_hid"] = int(parts[3])
+                    current_gen["ser_ver"] = int(parts[4])
+                    current_gen["pot_tm0"] = self._parse_float(parts[5])
+                    current_gen["afluent"] = self._parse_float(parts[6])
 
-                    # Optional fields
-                    if len(parts) > 3:
-                        current_gen["ser_hid"] = int(parts[3])
-                    if len(parts) > 4:
-                        current_gen["ser_ver"] = int(parts[4])
-                    if len(parts) > 5:
-                        current_gen["pot_tm0"] = self._parse_float(parts[5])
-                    if len(parts) > 6:
-                        current_gen["afluent"] = self._parse_float(parts[6])
+                    # Optional fields for embalses
+                    if len(parts) > 7:
+                        current_gen["vol_ini"] = self._parse_float(parts[7])
+                        current_gen["vol_fin"] = self._parse_float(parts[8])
+                        current_gen["vol_min"] = self._parse_float(parts[9])
+                        current_gen["vol_max"] = self._parse_float(parts[10])
+                        current_gen["fact_esc"] = self._parse_float(parts[11])
 
                 except (ValueError, IndexError) as e:
                     raise ValueError(
