@@ -116,7 +116,7 @@ def test_get_costs_by_name(sample_costs_file):
         gen_data = parser.get_costs_by_name(second_gen)
         assert gen_data is not None
         assert gen_data["name"] == second_gen
-        assert len(gen_data["months"]) > 0
+        assert len(gen_data["stages"]) > 0
         assert len(gen_data["costs"]) > 0
 
     # Test non-existent generator
