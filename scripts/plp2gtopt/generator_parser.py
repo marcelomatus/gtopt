@@ -12,7 +12,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 from .base_parser import BaseParser
 
 
@@ -253,7 +253,7 @@ class GeneratorParser(BaseParser):
                     "variable_cost": self._parse_float(parts[0]),
                     "efficiency": self._parse_float(parts[1]),
                     "bus": str(int(parts[2])),  # Ensure bus is string type
-                    "number": int(gen["id"]),  # Ensure number matches id
+                    "number": int(current_gen["id"]),  # Ensure number matches id
                     "ser_hid": int(parts[3]),
                     "ser_ver": int(parts[4]),
                     "pot_tm0": self._parse_float(parts[5]),
