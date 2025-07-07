@@ -86,45 +86,11 @@ class GeneratorParser(BaseParser):
 
                 parts = line.split()
                 if self.num_centrales == 0:
-                    # Check if counts need to be initialized
-                    # First line contains counts - handle test file format
-                    if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
-                        self.num_centrales = int(parts[0])
-                        self.num_embalses = int(parts[1])
-                        self.num_series = int(parts[2])
-                        self.num_fallas = int(parts[3])
-                        self.num_pasadas = int(parts[4])
-                        self.num_baterias = int(parts[5])
-                        self.num_termicas = self.num_centrales - (
-                            self.num_embalses
-                            + self.num_series
-                            + self.num_pasadas
-                            + self.num_baterias
-                            + self.num_fallas
-                        )
-                    else:
-                        # If header line is invalid, assume we're parsing a test file
-                        # with implicit count and set num_centrales to max possible
-                        self.num_centrales = sys.maxsize
+                    self._parse_header(parts)
                 else:
                     # Generator line format: number 'name' ...
-                    # Handle generator header line with format: "number 'name' ..."
                     gen_idx += 1
-
-                    if len(parts) >= 2:
-                        try:
-                            # First try parsing as float then convert to int
-                            gen_id = int(float(parts[0]))
-                            current_gen = {
-                                "id": str(gen_id),
-                                "number": gen_id,
-                                "name": parts[1].strip("'"),
-                                "type": self._determine_generator_type(gen_idx),
-                            }
-                        except (ValueError, IndexError) as e:
-                            raise ValueError(
-                                f"Invalid generator header at line {idx}: {str(e)}"
-                            ) from e
+                    current_gen = self._parse_generator_header(parts, gen_idx)
 
                 continue  # Skip to next line
 
@@ -277,6 +243,65 @@ class GeneratorParser(BaseParser):
             remaining_idx -= type_count
 
         return "unknown"  # Fallback if no type matched
+
+    def _parse_header(self, parts: List[str]) -> None:
+        """Parse the file header containing generator type counts.
+        
+        Args:
+            parts: Split line parts from the header line
+            
+        Raises:
+            ValueError: If header format is invalid
+        """
+        # First line contains counts - handle test file format
+        if len(parts) >= 6 and all(p.isdigit() for p in parts[:6]):
+            self.num_centrales = int(parts[0])
+            self.num_embalses = int(parts[1])
+            self.num_series = int(parts[2])
+            self.num_fallas = int(parts[3])
+            self.num_pasadas = int(parts[4])
+            self.num_baterias = int(parts[5])
+            self.num_termicas = self.num_centrales - (
+                self.num_embalses
+                + self.num_series
+                + self.num_pasadas
+                + self.num_baterias
+                + self.num_fallas
+            )
+        else:
+            # If header line is invalid, assume we're parsing a test file
+            # with implicit count and set num_centrales to max possible
+            self.num_centrales = sys.maxsize
+
+    def _parse_generator_header(self, parts: List[str], gen_idx: int) -> Dict[str, Any]:
+        """Parse a generator header line.
+        
+        Args:
+            parts: Split line parts from generator header
+            gen_idx: Current generator index (1-based)
+            
+        Returns:
+            Dictionary with initial generator data
+            
+        Raises:
+            ValueError: If generator header format is invalid
+        """
+        if len(parts) < 2:
+            raise ValueError(f"Invalid generator header - expected at least 2 parts")
+
+        try:
+            # First try parsing as float then convert to int
+            gen_id = int(float(parts[0]))
+            return {
+                "id": str(gen_id),
+                "number": gen_id,
+                "name": parts[1].strip("'"),
+                "type": self._determine_generator_type(gen_idx),
+            }
+        except (ValueError, IndexError) as e:
+            raise ValueError(
+                f"Invalid generator header: {str(e)}"
+            ) from e
 
     def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
