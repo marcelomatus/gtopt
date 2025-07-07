@@ -29,15 +29,18 @@ def test_get_num_generators():
     assert parser.get_num_generators() == 3
 
 
-def test_get_costs():
+def test_get_costs(tmp_path):
     """Test get_costs returns properly structured cost data."""
-    parser = CostParser("test.dat")
-    # Setup test data
-    test_stages = np.array([4, 5], dtype=np.int32)
-    test_costs = np.array([157.9, 157.9], dtype=np.float64)
+    # Create a temporary test file
+    test_file = tmp_path / "test_cost.dat"
+    test_file.write_text("""1
+'test'
+2
+04 004 157.9
+04 005 157.9""")
 
-    # Use public API to set test data
-    parser.parse_from_data([{"name": "test", "stages": test_stages, "costs": test_costs}])
+    parser = CostParser(str(test_file))
+    parser.parse()
 
     costs = parser.get_costs()
     assert len(costs) == 1
@@ -51,8 +54,8 @@ def test_get_costs():
     assert cost["costs"].dtype == np.float64
 
     # Verify array contents
-    np.testing.assert_array_equal(cost["stages"], test_stages)
-    np.testing.assert_array_equal(cost["costs"], test_costs)
+    np.testing.assert_array_equal(cost["stages"], [4, 5])
+    np.testing.assert_array_equal(cost["costs"], [157.9, 157.9])
 
 
 def test_parse_sample_file(sample_costs_file):
