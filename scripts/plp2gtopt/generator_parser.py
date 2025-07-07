@@ -109,43 +109,7 @@ class GeneratorParser(BaseParser):
             elif line.startswith("CosVar"):
                 if not current_gen:
                     continue
-                # Get the next non-empty line for values
-                while idx < len(lines) and not lines[idx].strip():
-                    idx += 1
-                if idx >= len(lines):
-                    raise ValueError("Unexpected end of file after CosVar header")
-                parts = lines[idx].split()
-                idx += 1
-
-                # Ensure we have minimum required columns
-                if len(parts) < 3:
-                    raise ValueError(
-                        f"Invalid generator data at line {idx}:"
-                        "expected at least 3 values"
-                    )
-
-                try:
-                    current_gen["variable_cost"] = self._parse_float(parts[0])
-                    current_gen["efficiency"] = self._parse_float(parts[1])
-                    current_gen["bus"] = int(parts[2])
-                    current_gen["ser_hid"] = int(parts[3])
-                    current_gen["ser_ver"] = int(parts[4])
-                    current_gen["pot_tm0"] = self._parse_float(parts[5])
-                    current_gen["afluent"] = self._parse_float(parts[6])
-
-                    # Optional fields for embalses
-                    if len(parts) > 7:
-                        current_gen["vol_ini"] = self._parse_float(parts[7])
-                        current_gen["vol_fin"] = self._parse_float(parts[8])
-                        current_gen["vol_min"] = self._parse_float(parts[9])
-                        current_gen["vol_max"] = self._parse_float(parts[10])
-                        current_gen["fact_esc"] = self._parse_float(parts[11])
-
-                except (ValueError, IndexError) as e:
-                    raise ValueError(
-                        f"Invalid generator data format at line {idx}: {str(e)}"
-                    ) from e
-
+                current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
                 # Finalize and add the generator
                 self._finalize_generator(current_gen)
                 current_gen = {}  # Reset for next generator
@@ -322,6 +286,62 @@ class GeneratorParser(BaseParser):
         if len(parts) > 3:
             current_gen["v_min"] = self._parse_float(parts[3])
             
+        return current_gen, idx
+
+    def _parse_cost_and_bus(self, 
+                          lines: List[str], 
+                          idx: int, 
+                          current_gen: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        """Parse the cost and bus information section of a generator definition.
+        
+        Args:
+            lines: All lines from the input file
+            idx: Current line index
+            current_gen: Current generator being parsed
+            
+        Returns:
+            Tuple of (updated generator dict, new line index)
+            
+        Raises:
+            ValueError: If cost/bus format is invalid
+        """
+        # Get the next non-empty line for values
+        while idx < len(lines) and not lines[idx].strip():
+            idx += 1
+        if idx >= len(lines):
+            raise ValueError("Unexpected end of file after CosVar header")
+            
+        parts = lines[idx].split()
+        idx += 1
+
+        # Ensure we have minimum required columns
+        if len(parts) < 3:
+            raise ValueError(
+                f"Invalid generator data at line {idx}: expected at least 3 values"
+            )
+
+        try:
+            current_gen["variable_cost"] = self._parse_float(parts[0])
+            current_gen["efficiency"] = self._parse_float(parts[1])
+            current_gen["bus"] = int(parts[2])
+            current_gen["ser_hid"] = int(parts[3])
+            current_gen["ser_ver"] = int(parts[4])
+            current_gen["pot_tm0"] = self._parse_float(parts[5])
+            current_gen["afluent"] = self._parse_float(parts[6])
+
+            # Optional fields for embalses
+            if len(parts) > 7:
+                current_gen["vol_ini"] = self._parse_float(parts[7])
+                current_gen["vol_fin"] = self._parse_float(parts[8])
+                current_gen["vol_min"] = self._parse_float(parts[9])
+                current_gen["vol_max"] = self._parse_float(parts[10])
+                current_gen["fact_esc"] = self._parse_float(parts[11])
+
+        except (ValueError, IndexError) as e:
+            raise ValueError(
+                f"Invalid generator data format at line {idx}: {str(e)}"
+            ) from e
+
         return current_gen, idx
 
     def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
