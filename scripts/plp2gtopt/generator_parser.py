@@ -76,7 +76,8 @@ class GeneratorParser(BaseParser):
 
             if line[0].isdigit():
                 current_gen = self._parse_generator_header(line, idx, gen_idx)
-                gen_idx += 1
+                if current_gen:  # Only increment if we got a valid generator
+                    gen_idx += 1
                 continue
 
             if line.startswith("Start"):
@@ -122,7 +123,7 @@ class GeneratorParser(BaseParser):
         if len(parts) < 2:
             raise ValueError(f"Invalid generator header at line {line_num}")
 
-        if self.num_centrales != sys.maxsize and gen_idx > self.num_centrales:
+        if self.num_centrales != sys.maxsize and gen_idx >= self.num_centrales:
             return {}
 
         try:
@@ -251,7 +252,7 @@ class GeneratorParser(BaseParser):
                 {
                     "variable_cost": self._parse_float(parts[0]),
                     "efficiency": self._parse_float(parts[1]),
-                    "bus": int(parts[2]),
+                    "bus": str(int(parts[2])),  # Ensure bus is string type
                     "ser_hid": int(parts[3]),
                     "ser_ver": int(parts[4]),
                     "pot_tm0": self._parse_float(parts[5]),
@@ -287,17 +288,17 @@ class GeneratorParser(BaseParser):
         Raises:
             ValueError: If required generator fields are missing/invalid
         """
-        # Set default values for missing required fields
+        # Ensure required fields exist
+        required = {"id", "name", "type", "bus", "p_min", "p_max"}
+        for field in required:
+            if field not in gen:
+                raise ValueError(f"Generator missing required field: {field}")
 
-        # Only check for truly required fields
-        required = {"number", "name", "type"}
-        missing = required - gen.keys()
-        if missing:
-            raise ValueError(
-                f"Generator {gen.get('id', 'unknown')}"
-                "missing required fields: {missing}"
-            )
-
+        # Ensure numeric fields are properly typed
+        gen["p_min"] = float(gen["p_min"])
+        gen["p_max"] = float(gen["p_max"])
+        gen["bus"] = str(gen["bus"])  # Ensure bus is string
+        
         self.generators.append(gen)
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
