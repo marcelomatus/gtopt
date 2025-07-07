@@ -24,8 +24,7 @@ class CostsWriter(BaseWriter):
         Returns:
             List of cost dictionaries with:
             - name (str): Generator name
-            - months (list[int]): Month numbers
-            - stages (list[int]): Stage numbers
+            - stages (list[int]): Stage numbers  
             - costs (list[float]): Cost values
 
         Note:

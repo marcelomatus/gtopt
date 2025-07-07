@@ -250,7 +250,7 @@ def main(args: Optional[List[str]] = None) -> int:
         print(f"Total bars: {parser.get_num_bars()}")
 
         demands = parser.get_demands()
-        total_entries = sum(len(d["demands"]) for d in demands)
+        total_entries = sum(len(d["values"]) for d in demands)
         print(f"Total demand entries: {total_entries}")
 
         _print_demand_stats(demands)

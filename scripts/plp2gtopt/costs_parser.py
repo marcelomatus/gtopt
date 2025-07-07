@@ -101,8 +101,7 @@ class CostsParser(BaseParser):
 
         Returns:
             List of cost dictionaries with these keys:
-            - name (str): Generator name
-            - months (np.ndarray): Month numbers as int32 array
+            - name (str): Generator name  
             - stages (np.ndarray): Stage numbers as int32 array
             - costs (np.ndarray): Cost values as float64 array
         """
