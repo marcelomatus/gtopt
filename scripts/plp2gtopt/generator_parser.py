@@ -75,7 +75,7 @@ class GeneratorParser(BaseParser):
                 continue
 
             if line[0].isdigit():
-                current_gen = self._parse_generator_header(line, idx, gen_idx)
+                current_gen = self._parse_generator_header(line, idx, gen_idx + 1)  # Use 1-based index
                 if current_gen:  # Only increment if we got a valid generator
                     gen_idx += 1
                 continue
@@ -123,7 +123,7 @@ class GeneratorParser(BaseParser):
         if len(parts) < 2:
             raise ValueError(f"Invalid generator header at line {line_num}")
 
-        if self.num_centrales != sys.maxsize and gen_idx >= self.num_centrales:
+        if self.num_centrales != sys.maxsize and gen_idx > self.num_centrales:
             return {}
 
         try:
@@ -253,6 +253,7 @@ class GeneratorParser(BaseParser):
                     "variable_cost": self._parse_float(parts[0]),
                     "efficiency": self._parse_float(parts[1]),
                     "bus": str(int(parts[2])),  # Ensure bus is string type
+                    "number": int(gen["id"]),  # Ensure number matches id
                     "ser_hid": int(parts[3]),
                     "ser_ver": int(parts[4]),
                     "pot_tm0": self._parse_float(parts[5]),
@@ -294,10 +295,12 @@ class GeneratorParser(BaseParser):
             if field not in gen:
                 raise ValueError(f"Generator missing required field: {field}")
 
-        # Ensure numeric fields are properly typed
+        # Ensure numeric fields are properly typed  
         gen["p_min"] = float(gen["p_min"])
         gen["p_max"] = float(gen["p_max"])
-        gen["bus"] = str(gen["bus"])  # Ensure bus is string
+        gen["bus"] = str(int(gen["bus"]))  # Ensure bus is string of integer
+        if "number" not in gen:
+            gen["number"] = int(gen["id"])
         
         self.generators.append(gen)
 
