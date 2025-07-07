@@ -33,12 +33,11 @@ def test_get_costs():
     """Test get_costs returns properly structured cost data."""
     parser = CostsParser("test.dat")
     # Setup test data
-    test_months = np.array([4, 4], dtype=np.int32)
     test_stages = np.array([4, 5], dtype=np.int32)
     test_costs = np.array([157.9, 157.9], dtype=np.float64)
 
     parser._data = [
-        {"name": "test", "months": test_months, "stages": test_stages, "costs": test_costs}
+        {"name": "test", "stages": test_stages, "costs": test_costs}
     ]
 
     costs = parser.get_costs()
@@ -47,15 +46,12 @@ def test_get_costs():
 
     # Verify structure and types
     assert cost["name"] == "test"
-    assert isinstance(cost["months"], np.ndarray)
     assert isinstance(cost["stages"], np.ndarray)
     assert isinstance(cost["costs"], np.ndarray)
-    assert cost["months"].dtype == np.int32
     assert cost["stages"].dtype == np.int32
     assert cost["costs"].dtype == np.float64
 
     # Verify array contents
-    np.testing.assert_array_equal(cost["months"], test_months)
     np.testing.assert_array_equal(cost["stages"], test_stages)
     np.testing.assert_array_equal(cost["costs"], test_costs)
 
@@ -74,34 +70,28 @@ def test_parse_sample_file(sample_costs_file):
     for gen_cost in costs:
         assert isinstance(gen_cost["name"], str)
         assert gen_cost["name"] != ""
-        assert isinstance(gen_cost["months"], np.ndarray)
         assert isinstance(gen_cost["stages"], np.ndarray)
         assert isinstance(gen_cost["costs"], np.ndarray)
-        assert len(gen_cost["months"]) > 0
-        assert len(gen_cost["months"]) == len(gen_cost["stages"])
-        assert len(gen_cost["months"]) == len(gen_cost["costs"])
+        assert len(gen_cost["stages"]) > 0
+        assert len(gen_cost["stages"]) == len(gen_cost["costs"])
 
         # Verify array types and values
-        assert gen_cost["months"].dtype == np.int32
         assert gen_cost["stages"].dtype == np.int32
         assert gen_cost["costs"].dtype == np.float64
-        assert np.all(gen_cost["months"] > 0)
         assert np.all(gen_cost["stages"] > 0)
         assert np.all(gen_cost["costs"] > 0)
 
     # Verify first generator data
     gen1 = costs[0]
     assert gen1["name"] == "CMPC_PACIFICO_BL3"
-    assert len(gen1["months"]) == 4
-    assert gen1["months"][0] == 4
+    assert len(gen1["stages"]) == 4
     assert gen1["stages"][0] == 4
     assert gen1["costs"][0] == 157.9
 
     # Verify second generator data
     gen2 = costs[1]
     assert gen2["name"] == "ANDINA"
-    assert len(gen2["months"]) == 3
-    assert gen2["months"][0] == 4
+    assert len(gen2["stages"]) == 3
     assert gen2["stages"][0] == 5
     assert gen2["costs"][0] == 67.2
 
@@ -117,7 +107,7 @@ def test_get_costs_by_name(sample_costs_file):
     gen_data = parser.get_costs_by_name(first_gen)
     assert gen_data is not None
     assert gen_data["name"] == first_gen
-    assert len(gen_data["months"]) > 0
+    assert len(gen_data["stages"]) > 0
     assert len(gen_data["costs"]) > 0
 
     # Test another existing generator if available
