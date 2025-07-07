@@ -95,11 +95,9 @@ class GeneratorParser(BaseParser):
                 continue  # Skip to next line
 
             elif line.startswith("Start"):
-                # Power limits line
-                idx += 1  # Skip to next line
-                if idx >= len(lines):
-                    raise ValueError("Unexpected end of file")
-                continue
+                if not current_gen:
+                    continue
+                idx = self._skip_start_stop_section(lines, idx)
             elif line.startswith("PotMin"):
                 if not current_gen:
                     continue
@@ -343,6 +341,24 @@ class GeneratorParser(BaseParser):
             ) from e
 
         return current_gen, idx
+
+    def _skip_start_stop_section(self, lines: List[str], idx: int) -> int:
+        """Skip over the Start/Stop section of a generator definition.
+        
+        Args:
+            lines: All lines from the input file
+            idx: Current line index
+            
+        Returns:
+            New line index after skipping
+            
+        Raises:
+            ValueError: If unexpected end of file
+        """
+        idx += 1  # Skip to next line
+        if idx >= len(lines):
+            raise ValueError("Unexpected end of file")
+        return idx
 
     def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
