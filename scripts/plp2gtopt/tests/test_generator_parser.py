@@ -300,7 +300,7 @@ def test_parse_large_real_file() -> None:
         "pasada": 0,
         "termica": 0,
         "bateria": 0,
-        "fallas": 0
+        "fallas": 0,
     }
     for gen in generators:
         type_counts[gen["type"]] += 1

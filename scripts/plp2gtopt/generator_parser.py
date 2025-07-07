@@ -45,7 +45,7 @@ class GeneratorParser(BaseParser):
         self.num_baterias = 0
         self.num_termicas = 0
 
-    def parse(self) -> None:  # pylint: disable
+    def parse(self) -> None:
         """Parse the generator file and populate the generators structure.
 
         The file format expected is:
@@ -217,20 +217,20 @@ class GeneratorParser(BaseParser):
         lines: List[str],
         idx: int,
         current_gen: Dict[str, Any],
-        gen_idx: int
+        gen_idx: int,
     ) -> Tuple[Dict[str, Any], int]:
         """Parse a generator header line and update counts if needed.
-        
+
         Args:
             line: Current line being parsed
             lines: All lines from the file
             idx: Current line index
             current_gen: Current generator being parsed
             gen_idx: Current generator index
-            
+
         Returns:
             Tuple of (new generator dict, updated generator index)
-            
+
         Raises:
             ValueError: If header line format is invalid
         """
@@ -238,7 +238,7 @@ class GeneratorParser(BaseParser):
             self._finalize_generator(current_gen)
 
         parts = line.split()
-        
+
         if self.num_centrales == 0:
             self._parse_header_counts(parts)
             return {}, gen_idx
@@ -256,9 +256,7 @@ class GeneratorParser(BaseParser):
                 "type": self._determine_generator_type(gen_idx),
             }, gen_idx
         except (ValueError, IndexError) as e:
-            raise ValueError(
-                f"Invalid generator header at line {idx}: {str(e)}"
-            ) from e
+            raise ValueError(f"Invalid generator header at line {idx}: {str(e)}") from e
 
     def _parse_header_counts(self, parts: List[str]) -> None:
         """Parse and set the generator type counts from header line."""
@@ -280,21 +278,18 @@ class GeneratorParser(BaseParser):
             self.num_centrales = sys.maxsize
 
     def _parse_power_limits(
-        self,
-        lines: List[str],
-        idx: int,
-        current_gen: Dict[str, Any]
+        self, lines: List[str], idx: int, current_gen: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], int]:
         """Parse power limits (PotMin/PotMax) section.
-        
+
         Args:
             lines: All lines from the file
             idx: Current line index (points to line after PotMin header)
             current_gen: Current generator being parsed
-            
+
         Returns:
             Tuple of (updated generator dict, new line index)
-            
+
         Raises:
             ValueError: If power limits data is missing or invalid
         """
@@ -307,12 +302,14 @@ class GeneratorParser(BaseParser):
                 f"Invalid generator data at line {idx}: expected at least 2 values"
             )
 
-        current_gen.update({
-            "p_min": self._parse_float(parts[0]),
-            "p_max": self._parse_float(parts[1]),
-            **({"v_max": self._parse_float(parts[2])} if len(parts) > 2 else {}),
-            **({"v_min": self._parse_float(parts[3])} if len(parts) > 3 else {}),
-        })
+        current_gen.update(
+            {
+                "p_min": self._parse_float(parts[0]),
+                "p_max": self._parse_float(parts[1]),
+                **({"v_max": self._parse_float(parts[2])} if len(parts) > 2 else {}),
+                **({"v_min": self._parse_float(parts[3])} if len(parts) > 3 else {}),
+            }
+        )
         return current_gen, idx + 1
 
     def _finalize_generator(self, gen: Dict[str, Any]) -> None:
