@@ -68,30 +68,34 @@ class GeneratorParser(BaseParser):
         if not lines:
             raise ValueError("File is empty")
 
-        idx = 0
-        gen_idx = 0
-        while idx < len(lines):
-            line = lines[idx]
-            idx += 1
+        try:
+            idx = 0
+            gen_idx = 0
+            while idx < len(lines):
+                line = lines[idx]
+                idx += 1
 
-            # Generator header line
-            if line[0].isdigit():
-                parts = line.split()
-                if self.num_centrales == 0:
-                    self._parse_header(parts)
-                else:
-                    # Generator line format: number 'name' ...
-                    gen_idx += 1
-                    current_gen = self._parse_generator_header(parts, gen_idx)
-            elif line.startswith("Start"):
-                idx += 1  # Skip to next line
-            elif line.startswith("PotMin"):
-                current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
-            elif line.startswith("CosVar"):
-                current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
-                # Finalize and add the generator
-                self._finalize_generator(current_gen)
-                current_gen = {}  # Reset for next generator
+                # Generator header line
+                if line[0].isdigit():
+                    parts = line.split()
+                    if self.num_centrales == 0:
+                        self._parse_header(parts)
+                    else:
+                        # Generator line format: number 'name' ...
+                        gen_idx += 1
+                        current_gen = self._parse_generator_header(parts, gen_idx)
+                elif line.startswith("Start"):
+                    idx += 1  # Skip to next line
+                elif line.startswith("PotMin"):
+                    current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
+                elif line.startswith("CosVar"):
+                    current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
+                    # Finalize and add the generator
+                    self._finalize_generator(current_gen)
+                    current_gen = {}  # Reset for next generator
+        finally:
+            lines.clear()
+            del lines
 
     def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed generators structure.
