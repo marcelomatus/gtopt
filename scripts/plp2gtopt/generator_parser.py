@@ -103,23 +103,7 @@ class GeneratorParser(BaseParser):
             elif line.startswith("PotMin"):
                 if not current_gen:
                     continue
-
-                if idx >= len(lines):
-                    raise ValueError("Unexpected end of file")
-                # Get the next line for values
-                parts = lines[idx].split()
-                if len(parts) < 2:
-                    raise ValueError(
-                        f"Invalid generator data at line {idx}: expected 4 values"
-                    )
-
-                idx += 1
-                current_gen["p_min"] = self._parse_float(parts[0])
-                current_gen["p_max"] = self._parse_float(parts[1])
-                if len(parts) > 2:
-                    current_gen["v_max"] = self._parse_float(parts[2])
-                if len(parts) > 3:
-                    current_gen["v_min"] = self._parse_float(parts[3])
+                current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
 
             # Cost and bus line
             elif line.startswith("CosVar"):
@@ -302,6 +286,43 @@ class GeneratorParser(BaseParser):
             raise ValueError(
                 f"Invalid generator header: {str(e)}"
             ) from e
+
+    def _parse_power_limits(self, 
+                          lines: List[str], 
+                          idx: int, 
+                          current_gen: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        """Parse the power limits section of a generator definition.
+        
+        Args:
+            lines: All lines from the input file
+            idx: Current line index
+            current_gen: Current generator being parsed
+            
+        Returns:
+            Tuple of (updated generator dict, new line index)
+            
+        Raises:
+            ValueError: If power limits format is invalid
+        """
+        if idx >= len(lines):
+            raise ValueError("Unexpected end of file")
+            
+        # Get the next line for values
+        parts = lines[idx].split()
+        if len(parts) < 2:
+            raise ValueError(
+                f"Invalid generator data at line {idx}: expected at least 2 values"
+            )
+
+        idx += 1
+        current_gen["p_min"] = self._parse_float(parts[0])
+        current_gen["p_max"] = self._parse_float(parts[1])
+        if len(parts) > 2:
+            current_gen["v_max"] = self._parse_float(parts[2])
+        if len(parts) > 3:
+            current_gen["v_min"] = self._parse_float(parts[3])
+            
+        return current_gen, idx
 
     def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
         """Get all generators connected to a specific bus.
