@@ -4,8 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-from ..costs_writer import CostsWriter
-from ..costs_parser import CostsParser
+from ..costs_writer import CostWriter
+from ..costs_parser import CostParser
 from .conftest import get_example_file
 
 
@@ -27,7 +27,7 @@ def test_costs_writer_initialization(sample_costs_file):
     """Test CostsWriter initialization."""
     parser = CostsParser(sample_costs_file)
     parser.parse()
-    writer = CostsWriter(parser)
+    writer = CostWriter(parser)
 
     assert writer.parser == parser
     assert len(writer.items) == parser.num_generators
