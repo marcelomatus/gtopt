@@ -217,7 +217,7 @@ def main(args: Optional[List[str]] = None) -> int:
         if not input_path.exists():
             raise FileNotFoundError(f"Cost file not found: {input_path}")
 
-        parser = CostsParser(str(input_path))
+        parser = CostParser(str(input_path))
         parser.parse()
 
         print(f"\nCost File Analysis: {parser.file_path.name}")

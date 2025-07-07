@@ -4,8 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-from ..costs_writer import CostWriter
-from ..costs_parser import CostParser
+from ..cost_writer import CostWriter
+from ..cost_parser import CostParser
 from .conftest import get_example_file
 
 
