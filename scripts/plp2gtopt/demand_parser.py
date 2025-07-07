@@ -28,18 +28,11 @@ class DemandParser(BaseParser):
             file_path: Path to plpdem.dat format file (str or Path)
         """
         super().__init__(file_path)
-        self._data: List[Dict[str, Any]] = []
-        self.demand_blocks: npt.NDArray[np.int32] = np.array([], dtype=np.int32)
-        self.demand_values: npt.NDArray[np.float64] = np.array([], dtype=np.float64)
-        self.demand_indices: List[Tuple[int, int]] = []  # (start, end) indices per bus
+        self._data: List[Dict[str, Any]] = []  # Will store complete demand data per bus
         self.num_demands: int = 0
 
     def parse(self) -> None:
         """Parse the demand file and populate the demands structure.
-
-        Uses a two-pass approach:
-        1. First pass counts total demand entries to properly size arrays
-        2. Second pass reads data directly into pre-allocated numpy arrays
 
         Raises:
             FileNotFoundError: If input file doesn't exist
@@ -60,28 +53,6 @@ class DemandParser(BaseParser):
         self.num_demands = self._parse_int(lines[idx])
         idx += 1
 
-        # First pass: count total demand entries to pre-allocate arrays
-        total_demand_entries = 0
-        count_idx = idx  # Temporary index for counting pass
-
-        for _ in range(self.num_demands):
-            count_idx += 1  # Skip name line
-            if count_idx >= len(lines):
-                raise ValueError("Unexpected end of file while counting demand entries")
-
-            num_blocks = int(lines[count_idx])
-            total_demand_entries += num_blocks
-            count_idx += num_blocks + 1  # Skip demand entries
-
-        if total_demand_entries == 0:
-            raise ValueError("No demand entries found in file")
-
-        # Pre-allocate numpy arrays
-        self.demand_blocks = np.empty(total_demand_entries, dtype=np.int32)
-        self.demand_values = np.empty(total_demand_entries, dtype=np.float64)
-
-        # Second pass: parse data directly into arrays
-        array_pos = 0  # Current position in pre-allocated arrays
         bus_number = 1  # 1-based bus numbering
 
         try:
@@ -94,49 +65,44 @@ class DemandParser(BaseParser):
 
                 # Get number of demand entries
                 if idx >= len(lines):
-                    raise ValueError(
-                        "Unexpected end of file while parsing block counts"
-                    )
+                    raise ValueError("Unexpected end of file while parsing block counts")
 
-                # Skip any empty lines between bus name and block count
+                # Skip empty lines between bus name and block count
                 while idx < len(lines) and not lines[idx].strip():
                     idx += 1
 
                 try:
-                    num_blocks = int(
-                        lines[idx].strip().split()[0]
-                    )  # Take first number only
+                    num_blocks = int(lines[idx].strip().split()[0])
                     idx += 1
                 except (ValueError, IndexError) as e:
-                    raise ValueError(
-                        f"Invalid block count at line {idx+1}: {lines[idx]}"
-                    ) from e
+                    raise ValueError(f"Invalid block count at line {idx+1}: {lines[idx]}") from e
 
-                # Record start index for this bus
-                start_idx = array_pos
+                # Initialize numpy arrays for this bus
+                blocks = np.empty(num_blocks, dtype=np.int32)
+                values = np.empty(num_blocks, dtype=np.float64)
 
-                # Parse demand entries directly into arrays
-                for _ in range(num_blocks):
+                # Parse demand entries
+                for i in range(num_blocks):
                     if idx >= len(lines):
-                        raise ValueError(
-                            "Unexpected end of file while parsing demand entries"
-                        )
+                        raise ValueError("Unexpected end of file while parsing demand entries")
 
                     parts = lines[idx].split()
                     if len(parts) < 3:
                         raise ValueError(f"Invalid demand entry at line {idx+1}")
 
-                    self.demand_blocks[array_pos] = int(parts[1])  # Block number
-                    self.demand_values[array_pos] = float(parts[2])  # Demand value
-                    array_pos += 1
+                    blocks[i] = int(parts[1])  # Block number
+                    values[i] = float(parts[2])  # Demand value
                     idx += 1
 
-                # Record indices for this bus
-                self.demand_indices.append((start_idx, array_pos))
-                self._data.append({"number": bus_number, "name": name})
+                # Store complete data for this bus
+                self._data.append({
+                    "number": bus_number,
+                    "name": name,
+                    "blocks": blocks,
+                    "values": values
+                })
                 bus_number += 1
         finally:
-            # Explicitly clear the lines list to free memory
             lines.clear()
             del lines
 
@@ -157,30 +123,21 @@ class DemandParser(BaseParser):
             >>> demands[0]["blocks"].shape
             (5,)
         """
-        demands = []
-        for i, data in enumerate(self._data):
-            start, end = self.demand_indices[i]
-            demands.append(
-                {
-                    "number": data["number"],
-                    "name": data["name"],
-                    "blocks": self.demand_blocks[start:end],
-                    "values": self.demand_values[start:end],
-                }
-            )
-        return demands
+        return self._data
 
     def get_demand_arrays(
         self,
-    ) -> Tuple[npt.NDArray[np.int32], npt.NDArray[np.float64]]:
-        """Return the demand blocks and values as numpy arrays.
+    ) -> Tuple[List[npt.NDArray[np.int32]], List[npt.NDArray[np.float64]]]:
+        """Return lists of blocks and values arrays for all buses.
 
         Returns:
-            Tuple of (blocks_array, values_array) where:
-            - blocks_array: int32 array of block numbers
-            - values_array: float64 array of demand values
+            Tuple of (blocks_list, values_list) where:
+            - blocks_list: List of int32 arrays of block numbers
+            - values_list: List of float64 arrays of demand values
         """
-        return self.demand_blocks, self.demand_values
+        blocks = [d["blocks"] for d in self._data]
+        values = [d["values"] for d in self._data]
+        return blocks, values
 
     def get_bus_demands(
         self, bus_idx: int
@@ -193,8 +150,8 @@ class DemandParser(BaseParser):
         Returns:
             Tuple of (blocks, values) arrays for the specified bus
         """
-        start, end = self.demand_indices[bus_idx]
-        return self.demand_blocks[start:end], self.demand_values[start:end]
+        bus_data = self._data[bus_idx]
+        return bus_data["blocks"], bus_data["values"]
 
     def get_total_demand_per_block(self) -> Dict[int, float]:
         """Calculate total demand across all buses per block.
@@ -203,10 +160,9 @@ class DemandParser(BaseParser):
             Dictionary mapping block numbers to total demand values
         """
         totals = {}
-        unique_blocks = np.unique(self.demand_blocks)
-        for block in unique_blocks:
-            mask = self.demand_blocks == block
-            totals[int(block)] = float(np.sum(self.demand_values[mask]))
+        for bus_data in self._data:
+            for block, value in zip(bus_data["blocks"], bus_data["values"]):
+                totals[block] = totals.get(block, 0.0) + value
         return totals
 
     def get_demand_stats(self) -> Dict[str, float]:
@@ -220,12 +176,13 @@ class DemandParser(BaseParser):
             - median: Median demand value
             - std: Standard deviation
         """
+        all_values = np.concatenate([d["values"] for d in self._data])
         return {
-            "min": float(np.min(self.demand_values)),
-            "max": float(np.max(self.demand_values)),
-            "mean": float(np.mean(self.demand_values)),
-            "median": float(np.median(self.demand_values)),
-            "std": float(np.std(self.demand_values)),
+            "min": float(np.min(all_values)),
+            "max": float(np.max(all_values)),
+            "mean": float(np.mean(all_values)),
+            "median": float(np.median(all_values)),
+            "std": float(np.std(all_values)),
         }
 
     def get_num_bars(self) -> int:
