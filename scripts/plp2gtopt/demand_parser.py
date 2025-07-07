@@ -65,7 +65,9 @@ class DemandParser(BaseParser):
 
                 # Get number of demand entries
                 if idx >= len(lines):
-                    raise ValueError("Unexpected end of file while parsing block counts")
+                    raise ValueError(
+                        "Unexpected end of file while parsing block counts"
+                    )
 
                 # Skip empty lines between bus name and block count
                 while idx < len(lines) and not lines[idx].strip():
@@ -75,7 +77,9 @@ class DemandParser(BaseParser):
                     num_blocks = int(lines[idx].strip().split()[0])
                     idx += 1
                 except (ValueError, IndexError) as e:
-                    raise ValueError(f"Invalid block count at line {idx+1}: {lines[idx]}") from e
+                    raise ValueError(
+                        f"Invalid block count at line {idx+1}: {lines[idx]}"
+                    ) from e
 
                 # Initialize numpy arrays for this bus
                 blocks = np.empty(num_blocks, dtype=np.int32)
@@ -84,7 +88,9 @@ class DemandParser(BaseParser):
                 # Parse demand entries
                 for i in range(num_blocks):
                     if idx >= len(lines):
-                        raise ValueError("Unexpected end of file while parsing demand entries")
+                        raise ValueError(
+                            "Unexpected end of file while parsing demand entries"
+                        )
 
                     parts = lines[idx].split()
                     if len(parts) < 3:
@@ -95,12 +101,14 @@ class DemandParser(BaseParser):
                     idx += 1
 
                 # Store complete data for this bus
-                self._data.append({
-                    "number": bus_number,
-                    "name": name,
-                    "blocks": blocks,
-                    "values": values
-                })
+                self._data.append(
+                    {
+                        "number": bus_number,
+                        "name": name,
+                        "blocks": blocks,
+                        "values": values,
+                    }
+                )
                 bus_number += 1
         finally:
             lines.clear()
