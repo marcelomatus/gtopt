@@ -267,6 +267,25 @@ def test_parse_real_file() -> None:
     assert battery["name"] == "ALFALFAL_BESS"
     assert battery["type"] == "bateria"
 
+    # Verify type counts match actual generators
+    type_counts = {
+        "embalse": 0,
+        "serie": 0,
+        "pasada": 0,
+        "termica": 0,
+        "bateria": 0,
+        "falla": 0,
+    }
+
+    for gen in generators:
+        type_counts[gen["type"]] += 1
+
+    assert type_counts["embalse"] == parser.num_embalses
+    assert type_counts["serie"] == parser.num_series
+    assert type_counts["pasada"] == parser.num_pasadas
+    assert type_counts["bateria"] == parser.num_baterias
+    assert type_counts["falla"] == parser.num_fallas
+
 
 @pytest.mark.skipif(
     not (
@@ -323,6 +342,7 @@ def test_parse_large_real_file() -> None:
         "bateria": 0,
         "falla": 0,
     }
+
     for gen in generators:
         type_counts[gen["type"]] += 1
 
