@@ -267,8 +267,8 @@ class GeneratorParser(BaseParser):
         missing = required - gen.keys()
         if missing:
             raise ValueError(
-                f"Generator {gen.get('id', 'unknown')}"
-                "missing required fields: {missing}"
+                f"Generator {gen.get('id', 'unknown')} "
+                f"missing required fields: {', '.join(sorted(missing))}"
             )
 
         self.generators.append(gen)
