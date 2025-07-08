@@ -14,7 +14,7 @@ class CentralWriter(BaseWriter):
     def _get_items(self) -> List[Dict[str, Any]]:
         return self.parser.get_generators()
 
-    def __init__(self, generator_parser: GeneratorParser):
+    def __init__(self, generator_parser: CentralParser):
         """Initialize with a GeneratorParser instance."""
         if not hasattr(generator_parser, "get_generators"):
             raise ValueError("Parser must implement get_generators()")
