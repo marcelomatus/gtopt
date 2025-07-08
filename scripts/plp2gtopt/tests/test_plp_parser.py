@@ -1,7 +1,6 @@
 """Tests for plp_parser.py module."""
 
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from plp2gtopt.plp_parser import PLPParser
@@ -12,12 +11,12 @@ def sample_input_dir(tmp_path):
     """Create sample input directory with empty PLP files."""
     files = [
         "plpblo.dat",
-        "plpeta.dat", 
+        "plpeta.dat",
         "plpbar.dat",
         "plpcnfli.dat",
         "plpcnfce.dat",
         "plpdem.dat",
-        "plpcosce.dat"
+        "plpcosce.dat",
     ]
     for f in files:
         (tmp_path / f).touch()
@@ -39,14 +38,18 @@ def test_plp_parser_init_invalid_dir(tmp_path):
 
 def test_parse_all_success(sample_input_dir):
     """Test parse_all with all required files present."""
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, \
-         patch("plp2gtopt.plp_parser.StageParser") as mock_stage, \
-         patch("plp2gtopt.plp_parser.BusParser") as mock_bus, \
-         patch("plp2gtopt.plp_parser.LineParser") as mock_line, \
-         patch("plp2gtopt.plp_parser.CentralParser") as mock_central, \
-         patch("plp2gtopt.plp_parser.DemandParser") as mock_demand, \
-         patch("plp2gtopt.plp_parser.CostParser") as mock_cost:
-        
+    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
+        "plp2gtopt.plp_parser.StageParser"
+    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
+        "plp2gtopt.plp_parser.LineParser"
+    ) as mock_line, patch(
+        "plp2gtopt.plp_parser.CentralParser"
+    ) as mock_central, patch(
+        "plp2gtopt.plp_parser.DemandParser"
+    ) as mock_demand, patch(
+        "plp2gtopt.plp_parser.CostParser"
+    ) as mock_cost:
+
         # Setup mock parsers
         mock_parser = MagicMock()
         mock_parser.parse.return_value = None
@@ -62,15 +65,22 @@ def test_parse_all_success(sample_input_dir):
         parser.parse_all()
 
         assert len(parser.parsed_data) == 7
-        for name in ["block_array", "stage_array", "bus_array", "line_array",
-                    "central_array", "demand_array", "cost_array"]:
+        for name in [
+            "block_array",
+            "stage_array",
+            "bus_array",
+            "line_array",
+            "central_array",
+            "demand_array",
+            "cost_array",
+        ]:
             assert name in parser.parsed_data
 
 
 def test_parse_all_missing_file(sample_input_dir):
     """Test parse_all when a required file is missing."""
     (sample_input_dir / "plpblo.dat").unlink()  # Delete block file
-    
+
     parser = PLPParser(sample_input_dir)
     with pytest.raises(FileNotFoundError):
         parser.parse_all()

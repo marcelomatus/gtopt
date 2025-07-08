@@ -34,25 +34,26 @@ class GTOptWriter:
     def to_json(self) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         self._process_stage_blocks()
-        # Convert parser data to JSON arrays
-        json_data = {}
-        for name, parser in self.parser.parsed_data.items():
-            # Skip writer class lookup in test environment
-            if name in ["block_array", "stage_array"]:
-                json_data[name] = parser.to_json_array()
-            else:
-                json_data[name] = [{"id": "mock"}]
+
         # Organize into planning structure
         options = {
             "input_dir": str(self.parser.input_path),
             "output_dir": str(self.output_path),
         }
+
+        # Convert parser data to JSON arrays
+        system = {}
+        for name, parser in self.parser.parsed_data.items():
+            system[name] = parser.to_json_array()
+
+        # simulation
         simulation = {}
         for key in ["block_array", "stage_array"]:
-            if key in json_data:
-                simulation[key] = json_data[key]
-                del json_data[key]
-        return {"options": options, "simulation": simulation, "system": json_data}
+            if key in system:
+                simulation[key] = system[key]
+                del system[key]
+
+        return {"options": options, "simulation": simulation, "system": system}
 
     def write(self, output_path: Union[str, Path]):
         """Write JSON output to file."""
