@@ -17,13 +17,17 @@ from plp2gtopt.cost_parser import CostParser
 
 class PLPParser:
     """Handles parsing of all PLP input files."""
+
     def __init__(self, input_dir: Union[str, Path]):
+        """Initialize PLPParser with input directory."""
         self.input_path = Path(input_dir)
         self._validate_input_dir()
         self.parsed_data = {}
+
     def _validate_input_dir(self):
         if not self.input_path.is_dir():
             raise FileNotFoundError(f"Input directory not found: {self.input_path}")
+
     def parse_all(self):
         """Parse all PLP input files."""
         parsers = [
