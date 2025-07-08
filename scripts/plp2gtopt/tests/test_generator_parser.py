@@ -13,7 +13,7 @@ Tests include:
 from pathlib import Path
 import pytest
 
-from plp2gtopt.generator_parser import GeneratorParser
+from plp2gtopt.generator_parser import CentralParser
 
 
 @pytest.fixture(name="valid_gen_file")
@@ -140,7 +140,7 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     Args:
         valid_gen_file: Path to valid generator test file
     """
-    parser = GeneratorParser(valid_gen_file)
+    parser = CentralParser(valid_gen_file)
     parser.parse()
     assert parser.get_num_generators() == 6
     generators = parser.get_generators()
