@@ -12,11 +12,13 @@ from plp2gtopt.gtopt_writer import GTOptWriter
 def mock_parser():
     """Create a mock PLPParser with sample data."""
     parser = MagicMock()
-    # Create mutable lists that can be modified by _process_stage_blocks
+    # Create mutable stage data that will be modified by _process_stage_blocks
     stage_data = [{"uid": 1, "name": "Stage 1"}, {"uid": 2, "name": "Stage 2"}]
     block_data = [{"uid": 1, "stage": 1}, {"uid": 2, "stage": 1}, {"uid": 3, "stage": 2}]
+    
+    # Create a mock that will return the actual lists (not copies)
     parser.parsed_data = {
-        "block_array": MagicMock(to_json_array=lambda: block_data),
+        "block_array": MagicMock(to_json_array=lambda: block_data.copy()),
         "stage_array": MagicMock(to_json_array=lambda: stage_data),
         "bus_array": MagicMock(to_json_array=lambda: [{"id": "Bus1"}]),
         "line_array": MagicMock(to_json_array=lambda: [{"id": "Line1"}]),
@@ -40,10 +42,16 @@ def test_process_stage_blocks(mock_parser):
     writer = GTOptWriter(mock_parser)
     # Test protected method access is ok for testing
     writer._process_stage_blocks()  # pylint: disable=protected-access
+    
+    # Get the modified stage data
     stages = mock_parser.parsed_data["stage_array"].to_json_array()
+    
+    # Verify the stage data was modified correctly
+    assert "first_block" in stages[0]
+    assert "count_block" in stages[0]
     assert stages[0]["first_block"] == 0
     assert stages[0]["count_block"] == 2
-    assert stages[1]["first_block"] == 2
+    assert stages[1]["first_block"] == 2 
     assert stages[1]["count_block"] == 1
 
 
