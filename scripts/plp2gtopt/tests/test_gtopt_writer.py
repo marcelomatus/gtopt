@@ -23,7 +23,7 @@ def mock_parser():
     # Create a mock that will return the actual lists (not copies)
     parser.parsed_data = {
         "block_array": MagicMock(to_json_array=lambda: block_data.copy()),
-        "stage_array": MagicMock(to_json_array=lambda: stage_data),
+        "stage_array": MagicMock(to_json_array=lambda: stage_data.copy()),
         "bus_array": MagicMock(to_json_array=lambda: [{"id": "Bus1"}]),
         "line_array": MagicMock(to_json_array=lambda: [{"id": "Line1"}]),
         "central_array": MagicMock(to_json_array=lambda: [{"id": "Gen1"}]),
@@ -98,7 +98,7 @@ def test_write_json_file(mock_parser, tmp_path):
             "plp2gtopt.cost_writer": MagicMock(),
         },
     ):
-        output_file = tmp_path / "output.json"
+        output_file = tmp_path / "plp2gtopt.json"  # Changed to match actual output filename
         writer = GTOptWriter(mock_parser)
         writer.write(tmp_path)
 
