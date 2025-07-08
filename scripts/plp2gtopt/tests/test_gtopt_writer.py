@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 
 from plp2gtopt.gtopt_writer import GTOptWriter
@@ -15,7 +15,6 @@ def mock_parser():
     # Create mutable lists that can be modified by _process_stage_blocks
     stage_data = [{"uid": 1, "name": "Stage 1"}, {"uid": 2, "name": "Stage 2"}]
     block_data = [{"uid": 1, "stage": 1}, {"uid": 2, "stage": 1}, {"uid": 3, "stage": 2}]
-    
     parser.parsed_data = {
         "block_array": MagicMock(to_json_array=lambda: block_data),
         "stage_array": MagicMock(to_json_array=lambda: stage_data),
@@ -63,7 +62,7 @@ def test_to_json(mock_parser, tmp_path):
 
         result = writer.to_json()
         assert "options" in result
-        assert "simulation" in result 
+        assert "simulation" in result
         assert "system" in result
         assert len(result["simulation"]["stage_array"]) == 2
         assert len(result["system"]["bus_array"]) == 1
@@ -71,7 +70,7 @@ def test_to_json(mock_parser, tmp_path):
 
 def test_write_json_file(mock_parser, tmp_path):
     """Test write creates valid JSON output file."""
-    with patch.dict('sys.modules',
+    with patch.dict('sys.modules', 
                    {'plp2gtopt.block_writer': MagicMock(),
                     'plp2gtopt.stage_writer': MagicMock(),
                     'plp2gtopt.bus_writer': MagicMock(),
