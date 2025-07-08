@@ -14,8 +14,12 @@ def mock_parser():
     parser = MagicMock()
     # Create mutable stage data that will be modified by _process_stage_blocks
     stage_data = [{"uid": 1, "name": "Stage 1"}, {"uid": 2, "name": "Stage 2"}]
-    block_data = [{"uid": 1, "stage": 1}, {"uid": 2, "stage": 1}, {"uid": 3, "stage": 2}]
-    
+    block_data = [
+        {"uid": 1, "stage": 1},
+        {"uid": 2, "stage": 1},
+        {"uid": 3, "stage": 2},
+    ]
+
     # Create a mock that will return the actual lists (not copies)
     parser.parsed_data = {
         "block_array": MagicMock(to_json_array=lambda: block_data.copy()),
@@ -24,7 +28,7 @@ def mock_parser():
         "line_array": MagicMock(to_json_array=lambda: [{"id": "Line1"}]),
         "central_array": MagicMock(to_json_array=lambda: [{"id": "Gen1"}]),
         "demand_array": MagicMock(to_json_array=lambda: [{"id": "Load1"}]),
-        "cost_array": MagicMock(to_json_array=lambda: [{"id": "Cost1"}])
+        "cost_array": MagicMock(to_json_array=lambda: [{"id": "Cost1"}]),
     }
     parser.input_path = Path("/input")
     return parser
@@ -42,29 +46,33 @@ def test_process_stage_blocks(mock_parser):
     writer = GTOptWriter(mock_parser)
     # Test protected method access is ok for testing
     writer._process_stage_blocks()  # pylint: disable=protected-access
-    
+
     # Get the modified stage data
     stages = mock_parser.parsed_data["stage_array"].to_json_array()
-    
+
     # Verify the stage data was modified correctly
     assert "first_block" in stages[0]
     assert "count_block" in stages[0]
     assert stages[0]["first_block"] == 0
     assert stages[0]["count_block"] == 2
-    assert stages[1]["first_block"] == 2 
+    assert stages[1]["first_block"] == 2
     assert stages[1]["count_block"] == 1
 
 
 def test_to_json(mock_parser, tmp_path):
     """Test to_json produces correct output structure."""
-    with patch.dict('sys.modules',
-                   {'plp2gtopt.block_writer': MagicMock(),
-                    'plp2gtopt.stage_writer': MagicMock(),
-                    'plp2gtopt.bus_writer': MagicMock(),
-                    'plp2gtopt.line_writer': MagicMock(),
-                    'plp2gtopt.central_writer': MagicMock(),
-                    'plp2gtopt.demand_writer': MagicMock(),
-                    'plp2gtopt.cost_writer': MagicMock()}):
+    with patch.dict(
+        "sys.modules",
+        {
+            "plp2gtopt.block_writer": MagicMock(),
+            "plp2gtopt.stage_writer": MagicMock(),
+            "plp2gtopt.bus_writer": MagicMock(),
+            "plp2gtopt.line_writer": MagicMock(),
+            "plp2gtopt.central_writer": MagicMock(),
+            "plp2gtopt.demand_writer": MagicMock(),
+            "plp2gtopt.cost_writer": MagicMock(),
+        },
+    ):
         writer = GTOptWriter(mock_parser)
         writer.output_path = tmp_path
 
@@ -78,20 +86,24 @@ def test_to_json(mock_parser, tmp_path):
 
 def test_write_json_file(mock_parser, tmp_path):
     """Test write creates valid JSON output file."""
-    with patch.dict('sys.modules',
-                   {'plp2gtopt.block_writer': MagicMock(),
-                    'plp2gtopt.stage_writer': MagicMock(),
-                    'plp2gtopt.bus_writer': MagicMock(),
-                    'plp2gtopt.line_writer': MagicMock(),
-                    'plp2gtopt.central_writer': MagicMock(),
-                    'plp2gtopt.demand_writer': MagicMock(),
-                    'plp2gtopt.cost_writer': MagicMock()}):
+    with patch.dict(
+        "sys.modules",
+        {
+            "plp2gtopt.block_writer": MagicMock(),
+            "plp2gtopt.stage_writer": MagicMock(),
+            "plp2gtopt.bus_writer": MagicMock(),
+            "plp2gtopt.line_writer": MagicMock(),
+            "plp2gtopt.central_writer": MagicMock(),
+            "plp2gtopt.demand_writer": MagicMock(),
+            "plp2gtopt.cost_writer": MagicMock(),
+        },
+    ):
         output_file = tmp_path / "output.json"
         writer = GTOptWriter(mock_parser)
         writer.write(tmp_path)
 
         assert output_file.exists()
-        with open(output_file, encoding='utf-8') as f:
+        with open(output_file, encoding="utf-8") as f:
             data = json.load(f)
             assert "options" in data
             assert "simulation" in data
