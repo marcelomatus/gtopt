@@ -7,8 +7,8 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-from ..generator_writer import GeneratorWriter
-from ..generator_parser import GeneratorParser
+from ..generator_writer import CentralWriter
+from ..generator_parser import CentralParser
 from .conftest import get_example_file
 
 
@@ -23,7 +23,7 @@ def sample_generator_writer(sample_generator_file):
     """Fixture providing initialized GeneratorWriter with sample data."""
     parser = GeneratorParser(sample_generator_file)
     parser.parse()
-    return GeneratorWriter(parser)
+    return CentralWriter(parser)
 
 
 def test_generator_writer_initialization(
@@ -32,7 +32,7 @@ def test_generator_writer_initialization(
     """Test GeneratorWriter initialization."""
     parser = GeneratorParser(sample_generator_file)
     parser.parse()
-    writer = GeneratorWriter(parser)
+    writer = CentralWriter(parser)
 
     assert writer.parser == parser
     assert len(writer.items) == parser.num_generators
@@ -78,7 +78,7 @@ def test_from_generator_file(
     sample_generator_file,
 ):  # pylint: disable=redefined-outer-name
     """Test creating GeneratorWriter directly from generator file."""
-    writer = GeneratorWriter.from_file(sample_generator_file, GeneratorParser)
+    writer = CentralWriter.from_file(sample_generator_file, CentralParser)
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_generator_file
@@ -110,7 +110,7 @@ def test_write_empty_generators():
 
     parser = MockGeneratorParser()
 
-    writer = GeneratorWriter(parser)
+    writer = CentralWriter(parser)
     json_generators = writer.to_json_array()
     assert not json_generators
 

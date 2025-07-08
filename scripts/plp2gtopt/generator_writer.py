@@ -8,7 +8,7 @@ from .base_writer import BaseWriter
 from .generator_parser import GeneratorParser
 
 
-class GeneratorWriter(BaseWriter):
+class CentralWriter(BaseWriter):
     """Converts generator parser data to JSON format used by GTOPT."""
 
     def _get_items(self) -> List[Dict[str, Any]]:

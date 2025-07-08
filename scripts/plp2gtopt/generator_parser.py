@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .base_parser import BaseParser
 
 
-class GeneratorParser(BaseParser):
+class CentralParser(BaseParser):
     """Parser for plpcnfce.dat format files containing generator data.
 
     Attributes:
