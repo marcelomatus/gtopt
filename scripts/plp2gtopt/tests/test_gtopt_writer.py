@@ -12,16 +12,13 @@ from plp2gtopt.gtopt_writer import GTOptWriter
 def mock_parser():
     """Create a mock PLPParser with sample data."""
     parser = MagicMock()
+    # Create mutable lists that can be modified by _process_stage_blocks
+    stage_data = [{"uid": 1, "name": "Stage 1"}, {"uid": 2, "name": "Stage 2"}]
+    block_data = [{"uid": 1, "stage": 1}, {"uid": 2, "stage": 1}, {"uid": 3, "stage": 2}]
+    
     parser.parsed_data = {
-        "block_array": MagicMock(to_json_array=lambda: [
-            {"uid": 1, "stage": 1},
-            {"uid": 2, "stage": 1},
-            {"uid": 3, "stage": 2}
-        ]),
-        "stage_array": MagicMock(to_json_array=lambda: [
-            {"uid": 1, "name": "Stage 1"},
-            {"uid": 2, "name": "Stage 2"}
-        ]),
+        "block_array": MagicMock(to_json_array=lambda: block_data),
+        "stage_array": MagicMock(to_json_array=lambda: stage_data),
         "bus_array": MagicMock(to_json_array=lambda: [{"id": "Bus1"}]),
         "line_array": MagicMock(to_json_array=lambda: [{"id": "Line1"}]),
         "central_array": MagicMock(to_json_array=lambda: [{"id": "Gen1"}]),
@@ -53,28 +50,44 @@ def test_process_stage_blocks(mock_parser):
 
 def test_to_json(mock_parser, tmp_path):
     """Test to_json produces correct output structure."""
-    writer = GTOptWriter(mock_parser)
-    writer.output_path = tmp_path
+    with patch.dict('sys.modules', 
+                   {'plp2gtopt.block_writer': MagicMock(),
+                    'plp2gtopt.stage_writer': MagicMock(),
+                    'plp2gtopt.bus_writer': MagicMock(),
+                    'plp2gtopt.line_writer': MagicMock(),
+                    'plp2gtopt.central_writer': MagicMock(),
+                    'plp2gtopt.demand_writer': MagicMock(),
+                    'plp2gtopt.cost_writer': MagicMock()}):
+        writer = GTOptWriter(mock_parser)
+        writer.output_path = tmp_path
 
-    result = writer.to_json()
-    assert "options" in result
-    assert "simulation" in result
-    assert "system" in result
-    assert len(result["simulation"]["stage_array"]) == 2
-    assert len(result["system"]["bus_array"]) == 1
+        result = writer.to_json()
+        assert "options" in result
+        assert "simulation" in result 
+        assert "system" in result
+        assert len(result["simulation"]["stage_array"]) == 2
+        assert len(result["system"]["bus_array"]) == 1
 
 
 def test_write_json_file(mock_parser, tmp_path):
     """Test write creates valid JSON output file."""
-    output_file = tmp_path / "output.json"
-    writer = GTOptWriter(mock_parser)
-    writer.write(tmp_path)
+    with patch.dict('sys.modules',
+                   {'plp2gtopt.block_writer': MagicMock(),
+                    'plp2gtopt.stage_writer': MagicMock(),
+                    'plp2gtopt.bus_writer': MagicMock(),
+                    'plp2gtopt.line_writer': MagicMock(),
+                    'plp2gtopt.central_writer': MagicMock(),
+                    'plp2gtopt.demand_writer': MagicMock(),
+                    'plp2gtopt.cost_writer': MagicMock()}):
+        output_file = tmp_path / "output.json"
+        writer = GTOptWriter(mock_parser)
+        writer.write(tmp_path)
 
-    assert output_file.exists()
-    with open(output_file, encoding='utf-8') as f:
-        data = json.load(f)
-        assert "options" in data
-        assert "simulation" in data
+        assert output_file.exists()
+        with open(output_file, encoding='utf-8') as f:
+            data = json.load(f)
+            assert "options" in data
+            assert "simulation" in data
 
 
 def test_write_empty_data(tmp_path):
