@@ -21,7 +21,7 @@ def sample_generator_file():
 @pytest.fixture
 def sample_generator_writer(sample_generator_file):
     """Fixture providing initialized GeneratorWriter with sample data."""
-    parser = GeneratorParser(sample_generator_file)
+    parser = CentralParser(sample_generator_file)
     parser.parse()
     return CentralWriter(parser)
 
@@ -30,7 +30,7 @@ def test_generator_writer_initialization(
     sample_generator_file,
 ):  # pylint: disable=redefined-outer-name
     """Test GeneratorWriter initialization."""
-    parser = GeneratorParser(sample_generator_file)
+    parser = CentralParser(sample_generator_file)
     parser.parse()
     writer = CentralWriter(parser)
 
@@ -89,7 +89,7 @@ def test_from_generator_file(
 def test_write_empty_generators():
     """Test handling of empty generator list."""
     # Create parser with no generators
-    parser = GeneratorParser("dummy.dat")
+    parser = CentralParser("dummy.dat")
 
     # Create a mock parser with empty generators list
     class MockGeneratorParser:

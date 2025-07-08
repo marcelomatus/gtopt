@@ -5,7 +5,7 @@
 
 from typing import Any, Dict, List
 from .base_writer import BaseWriter
-from .generator_parser import GeneratorParser
+from .generator_parser import CentralParser
 
 
 class CentralWriter(BaseWriter):
@@ -46,4 +46,4 @@ class CentralWriter(BaseWriter):
 
 
 if __name__ == "__main__":
-    BaseWriter.main(GeneratorWriter, GeneratorParser)
+    BaseWriter.main(CentralWriter, CentralParser)
