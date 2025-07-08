@@ -7,12 +7,17 @@ import json
 from pathlib import Path
 from typing import Dict, Union
 
+from .plp_parser import PLPParser
+
 
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
-    def __init__(self, parser: 'PLPParser'):
+
+    def __init__(self, parser: "PLPParser"):
+        """Initialize GTOptWriter with a PLPParser instance."""
         self.parser = parser
         self.output_path = None
+
     def _process_stage_blocks(self):
         """Calculate first_block and count_block for stages."""
         stages = self.parser.parsed_data.get("stage_array", [])
@@ -25,6 +30,7 @@ class GTOptWriter:
             ]
             stage["first_block"] = stage_blocks[0] if stage_blocks else -1
             stage["count_block"] = len(stage_blocks) if stage_blocks else -1
+
     def to_json(self) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         self._process_stage_blocks()
@@ -43,11 +49,8 @@ class GTOptWriter:
             if key in json_data:
                 simulation[key] = json_data[key]
                 del json_data[key]
-        return {
-            "options": options,
-            "simulation": simulation,
-            "system": json_data
-        }
+        return {"options": options, "simulation": simulation, "system": json_data}
+
     def write(self, output_path: Union[str, Path]):
         """Write JSON output to file."""
         self.output_path = Path(output_path)
