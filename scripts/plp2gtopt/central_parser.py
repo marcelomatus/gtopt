@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Parser for plpcnfce.dat format files containing generator data.
+"""Parser for plpcnfce.dat format files containing central data.
 
 Handles:
 - File parsing and validation
-- Generator data structure creation
-- Generator lookup by bus
+- Central data structure creation
+- Central lookup by bus
 - Battery storage identification
 """
 
@@ -17,15 +17,15 @@ from .base_parser import BaseParser
 
 
 class CentralParser(BaseParser):
-    """Parser for plpcnfce.dat format files containing generator data.
+    """Parser for plpcnfce.dat format files containing central data.
 
     Attributes:
-        file_path: Path to the generator file
-        generators: List of parsed generator entries
+        file_path: Path to the central file
+        centrals: List of parsed central entries
     """
 
     def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with generator file path.
+        """Initialize parser with central file path.
 
         Args:
             file_path: Path to plpcnfce.dat format file (str or Path)
@@ -35,7 +35,7 @@ class CentralParser(BaseParser):
             ValueError: If file_path is empty
         """
         super().__init__(file_path)
-        self.generators: List[Dict[str, Union[str, float, bool]]] = self._data
+        self.centrals: List[Dict[str, Union[str, float, bool]]] = self._data
         # Initialize type counts to 0
         self.num_centrales = 0
         self.num_embalses = 0
@@ -46,10 +46,10 @@ class CentralParser(BaseParser):
         self.num_termicas = 0
 
     def parse(self) -> None:  # pylint: disable
-        """Parse the generator file and populate the generators structure.
+        """Parse the central file and populate the centrals structure.
 
         The file format expected is:
-        - Each generator starts with an ID line
+        - Each central starts with an ID line
         - Followed by power limits (PotMin/PotMax)
         - Then cost and bus information (CosVar/Rendi/Barra)
 
@@ -75,62 +75,62 @@ class CentralParser(BaseParser):
                 line = lines[idx]
                 idx += 1
 
-                # Generator header line
+                # Central header line
                 if line[0].isdigit():
                     parts = line.split()
                     if self.num_centrales == 0:
                         self._parse_header(parts)
                     else:
-                        # Generator line format: number 'name' ...
+                        # Central line format: number 'name' ...
                         gen_idx += 1
-                        current_gen = self._parse_generator_header(parts, gen_idx)
+                        current_gen = self._parse_central_header(parts, gen_idx)
                 elif line.startswith("Start"):
                     idx += 1  # Skip to next line
                 elif line.startswith("PotMin"):
                     current_gen, idx = self._parse_power_limits(lines, idx, current_gen)
                 elif line.startswith("CosVar"):
                     current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
-                    # Finalize and add the generator
-                    self._finalize_generator(current_gen)
-                    current_gen = {}  # Reset for next generator
+                    # Finalize and add the central
+                    self._finalize_central(current_gen)
+                    current_gen = {}  # Reset for next central
         finally:
             lines.clear()
             del lines
 
-    def get_generators(self) -> List[Dict[str, Union[str, float, bool]]]:
-        """Return the parsed generators structure.
+    def get_centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
+        """Return the parsed centrals structure.
 
         Returns:
-            List of generator dictionaries.
+            List of central dictionaries.
         """
-        return self.generators
+        return self.centrals
 
-    def get_num_generators(self) -> int:
-        """Return the number of generators in the file."""
-        return len(self.generators)
+    def get_num_centrals(self) -> int:
+        """Return the number of centrals in the file."""
+        return len(self.centrals)
 
     @property
-    def num_generators(self) -> int:
-        """Return the number of generators (property version)."""
-        return len(self.generators)
+    def num_centrals(self) -> int:
+        """Return the number of centrals (property version)."""
+        return len(self.centrals)
 
-    def get_generators_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
-        """Get all generators connected to a specific bus.
+    def get_centrals_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
+        """Get all centrals connected to a specific bus.
 
         Args:
-            bus_id: The bus ID to filter generators by
+            bus_id: The bus ID to filter centrals by
 
         Returns:
-            List of unique generator dictionaries matching the bus ID
+            List of unique central dictionaries matching the bus ID
             (unique by id and bus combination)
 
         Example:
-            >>> parser.get_generators_by_bus("1")
+            >>> parser.get_centrals_by_bus("1")
             [{'id': '1', 'name': 'GEN1', ...}]
         """
         seen = set()
         unique_gens = []
-        for g in self.generators:
+        for g in self.centrals:
             if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
                 key = (g["number"], g["bus"])
                 if key not in seen:
@@ -138,8 +138,8 @@ class CentralParser(BaseParser):
                     unique_gens.append(g)
         return unique_gens
 
-    def _generator_type(self, gen_idx: int) -> str:
-        """Determine generator type based on its index and type counts."""
+    def _central_type(self, gen_idx: int) -> str:
+        """Determine central type based on its index and type counts."""
         # Ordered list of (type_name, count) tuples
         type_counts = [
             ("embalse", self.num_embalses),
@@ -160,7 +160,7 @@ class CentralParser(BaseParser):
         return "unknown"  # Fallback if no type matched
 
     def _parse_header(self, parts: List[str]) -> None:
-        """Parse the file header containing generator type counts."""
+        """Parse the file header containing central type counts."""
         # First line contains counts - handle test file format
         if len(parts) >= 5 and all(p.isdigit() for p in parts):
             self.num_centrales = int(parts[0])
@@ -181,25 +181,25 @@ class CentralParser(BaseParser):
             # with implicit count and set num_centrales to max possible
             self.num_centrales = sys.maxsize
 
-    def _parse_generator_header(self, parts: List[str], gen_idx: int) -> Dict[str, Any]:
-        """Parse a generator header line."""
+    def _parse_central_header(self, parts: List[str], gen_idx: int) -> Dict[str, Any]:
+        """Parse a central header line."""
         if len(parts) < 2:
-            raise ValueError("Invalid generator header - expected at least 2 parts")
+            raise ValueError("Invalid central header - expected at least 2 parts")
 
         try:
             # First try parsing as float then convert to int
             return {
                 "number": int(parts[0]),
                 "name": parts[1].strip("'"),
-                "type": self._generator_type(gen_idx),
+                "type": self._central_type(gen_idx),
             }
         except (ValueError, IndexError) as e:
-            raise ValueError(f"Invalid generator header: {str(e)}") from e
+            raise ValueError(f"Invalid central header: {str(e)}") from e
 
     def _parse_power_limits(
         self, lines: List[str], idx: int, current_gen: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], int]:
-        """Parse the power limits section of a generator definition."""
+        """Parse the power limits section of a central definition."""
         if idx >= len(lines):
             raise ValueError("Unexpected end of file")
 
@@ -207,7 +207,7 @@ class CentralParser(BaseParser):
         parts = lines[idx].split()
         if len(parts) < 2:
             raise ValueError(
-                f"Invalid generator data at line {idx}: expected at least 2 values"
+                f"Invalid central data at line {idx}: expected at least 2 values"
             )
 
         idx += 1
@@ -222,7 +222,7 @@ class CentralParser(BaseParser):
     def _parse_cost_and_bus(
         self, lines: List[str], idx: int, current_gen: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], int]:
-        """Parse the cost and bus information section of a generator definition."""
+        """Parse the cost and bus information section of a central definition."""
         # Get the next non-empty line for values
         while idx < len(lines) and not lines[idx].strip():
             idx += 1
@@ -235,7 +235,7 @@ class CentralParser(BaseParser):
         # Ensure we have minimum required columns
         if len(parts) < 7:
             raise ValueError(
-                f"Invalid generator data at line {idx}: expected at least 7 values"
+                f"Invalid central data at line {idx}: expected at least 7 values"
             )
 
         try:
@@ -257,27 +257,27 @@ class CentralParser(BaseParser):
 
         except (ValueError, IndexError) as e:
             raise ValueError(
-                f"Invalid generator data format at line {idx}: {str(e)}"
+                f"Invalid central data format at line {idx}: {str(e)}"
             ) from e
 
         return current_gen, idx
 
-    def _finalize_generator(self, gen: Dict[str, Any]) -> None:
-        """Validate and add a completed generator to the list."""
+    def _finalize_central(self, gen: Dict[str, Any]) -> None:
+        """Validate and add a completed central to the list."""
         # Only check for truly required fields
         required = {"number", "name", "type"}
         missing = required - gen.keys()
         if missing:
             raise ValueError(
-                f"Generator {gen.get('id', 'unknown')}"
+                f"Central {gen.get('id', 'unknown')}"
                 "missing required fields: {missing}"
             )
 
-        self.generators.append(gen)
+        self.centrals.append(gen)
 
 
 def main(args: Optional[List[str]] = None) -> int:
-    """Command line entry point for generator file analysis.
+    """Command line entry point for central file analysis.
 
     Args:
         args: Command line arguments (uses sys.argv if None)
@@ -286,7 +286,7 @@ def main(args: Optional[List[str]] = None) -> int:
         0 on success, 1 on failure
 
     Example:
-        $ python generator_parser.py input.dat
+        $ python central_parser.py input.dat
     """
     if args is None:
         args = sys.argv[1:]
@@ -298,18 +298,18 @@ def main(args: Optional[List[str]] = None) -> int:
     try:
         input_path = Path(args[0])
         if not input_path.exists():
-            raise FileNotFoundError(f"Generator file not found: {input_path}")
+            raise FileNotFoundError(f"Central file not found: {input_path}")
 
-        parser = GeneratorParser(str(input_path))
+        parser = CentralParser(str(input_path))
         parser.parse()
 
-        print(f"\nGenerator File Analysis: {parser.file_path.name}")
+        print(f"\nCentral File Analysis: {parser.file_path.name}")
         print("=" * 40)
-        print(f"Total generators: {parser.get_num_generators()}")
+        print(f"Total centrals: {parser.get_num_centrals()}")
 
-        generators = parser.get_generators()
-        for gen in generators:
-            print(f"\nGenerator: {gen['id']}")
+        centrals = parser.get_centrals()
+        for gen in centrals:
+            print(f"\nCentral: {gen['id']}")
             print(f"  Bus: {gen['bus']}")
             print(f"  Pmin: {gen['p_min']}")
             print(f"  Pmax: {gen['p_max']}")

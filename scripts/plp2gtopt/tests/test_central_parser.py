@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Unit tests for the GeneratorParser class.
+"""Unit tests for the CentralParser class.
 
 Tests include:
-- Parsing valid generator files
+- Parsing valid central files
 - Handling empty/malformed files
-- Generator data extraction
-- Bus-based generator queries
+- Central data extraction
+- Bus-based central queries
 """
 
 from pathlib import Path
 import pytest
 
-from plp2gtopt.generator_parser import CentralParser
+from plp2gtopt.central_parser import CentralParser
 
 
 @pytest.fixture(name="valid_gen_file")
 def valid_gen_file_fixture(tmp_path: Path) -> Path:
-    """Create a valid generator test file fixture.
+    """Create a valid central test file fixture.
 
     Args:
         tmp_path: Pytest temporary path fixture
 
     Returns:
-        Path to temporary test file with valid generator data
+        Path to temporary test file with valid central data
     """
     file_path = tmp_path / "valid_gen.dat"
     content = """# Archivo de configuracion de las centrales (plpcnfce.dat)
@@ -94,7 +94,7 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
 
 @pytest.fixture(name="empty_gen_file")
 def empty_gen_file_fixture(tmp_path: Path) -> Path:
-    """Create an empty generator test file fixture.
+    """Create an empty central test file fixture.
 
     Args:
         tmp_path: Pytest temporary path fixture
@@ -109,7 +109,7 @@ def empty_gen_file_fixture(tmp_path: Path) -> Path:
 
 @pytest.fixture(name="malformed_gen_file")
 def malformed_gen_file_fixture(tmp_path: Path) -> Path:
-    """Create a malformed generator test file fixture.
+    """Create a malformed central test file fixture.
 
     Args:
         tmp_path: Pytest temporary path fixture
@@ -128,26 +128,26 @@ def malformed_gen_file_fixture(tmp_path: Path) -> Path:
 
 
 def test_parse_valid_file(valid_gen_file: Path) -> None:
-    """Test parsing a valid generator file.
+    """Test parsing a valid central file.
 
     Verifies:
-    - Correct number of generators parsed
-    - All generator fields are correctly extracted
+    - Correct number of centrals parsed
+    - All central fields are correctly extracted
     - Data types are correct
     - Battery detection works
-    - Generator type detection works
+    - Central type detection works
 
     Args:
-        valid_gen_file: Path to valid generator test file
+        valid_gen_file: Path to valid central test file
     """
     parser = CentralParser(valid_gen_file)
     parser.parse()
-    assert parser.get_num_generators() == 6
-    generators = parser.get_generators()
-    assert len(generators) == 6
+    assert parser.get_num_centrals() == 6
+    centrals = parser.get_centrals()
+    assert len(centrals) == 6
 
-    # Test first generator (hydro)
-    gen1 = generators[0]
+    # Test first central (hydro)
+    gen1 = centrals[0]
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
@@ -157,16 +157,16 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["efficiency"] == 1.0
     assert gen1["type"] == "embalse"
 
-    # Test generator type detection
-    assert generators[1]["type"] == "serie"  # LOS_CONDORES
-    assert generators[2]["type"] == "termica"  # DOS_VALLES_AMPL
-    assert generators[3]["type"] == "pasada"  # LOS_MOLLES
-    assert generators[4]["type"] == "bateria"  # ALFALFAL_BESS
-    assert generators[5]["type"] == "falla"  # FALLA_001_1
+    # Test central type detection
+    assert centrals[1]["type"] == "serie"  # LOS_CONDORES
+    assert centrals[2]["type"] == "termica"  # DOS_VALLES_AMPL
+    assert centrals[3]["type"] == "pasada"  # LOS_MOLLES
+    assert centrals[4]["type"] == "bateria"  # ALFALFAL_BESS
+    assert centrals[5]["type"] == "falla"  # FALLA_001_1
 
 
-def test_get_generators_by_bus(valid_gen_file: Path) -> None:
-    """Test getting generators filtered by bus ID.
+def test_get_centrals_by_bus(valid_gen_file: Path) -> None:
+    """Test getting centrals filtered by bus ID.
 
     Verifies:
     - Correct filtering by bus ID
@@ -174,22 +174,22 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     - Return type is correct
 
     Args:
-        valid_gen_file: Path to valid generator test file
+        valid_gen_file: Path to valid central test file
     """
     parser = CentralParser(valid_gen_file)
     parser.parse()
-    bus0_gens = parser.get_generators_by_bus("0")
+    bus0_gens = parser.get_centrals_by_bus("0")
     assert len(bus0_gens) == 1
     assert {g["number"] for g in bus0_gens} == {1}  # LMAULE is on bus 0
 
-    bus93_gens = parser.get_generators_by_bus("93")
+    bus93_gens = parser.get_centrals_by_bus("93")
     assert len(bus93_gens) == 1
     assert bus93_gens[0]["number"] == 2
-    bus1_gens = parser.get_generators_by_bus("1")
+    bus1_gens = parser.get_centrals_by_bus("1")
     assert len(bus1_gens) == 1
     assert bus1_gens[0]["number"] == 1785  # FALLA_001_1 is on bus 1
 
-    empty_gens = parser.get_generators_by_bus("999")
+    empty_gens = parser.get_centrals_by_bus("999")
     assert len(empty_gens) == 0
 
 
@@ -234,8 +234,8 @@ def test_parse_real_file() -> None:
 
     Verifies:
     - Can parse the real file without errors
-    - Correct number of generators are found
-    - Sample generator data is correct
+    - Correct number of centrals are found
+    - Sample central data is correct
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat"
 
@@ -250,24 +250,24 @@ def test_parse_real_file() -> None:
     assert parser.num_pasadas == 129
     assert parser.num_baterias == 25
 
-    # Verify some sample generators
-    generators = parser.get_generators()
-    assert len(generators) == 247
+    # Verify some sample centrals
+    centrals = parser.get_centrals()
+    assert len(centrals) == 247
 
-    # Check first generator (hydro)
-    gen1 = generators[0]
+    # Check first central (hydro)
+    gen1 = centrals[0]
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] == 100.0
 
-    # Check a battery generator
-    battery = next(g for g in generators if g["number"] == 1187)
+    # Check a battery central
+    battery = next(g for g in centrals if g["number"] == 1187)
     assert battery["name"] == "ALFALFAL_BESS"
     assert battery["type"] == "bateria"
 
-    # Verify type counts match actual generators
+    # Verify type counts match actual centrals
     type_counts = {
         "embalse": 0,
         "serie": 0,
@@ -277,7 +277,7 @@ def test_parse_real_file() -> None:
         "falla": 0,
     }
 
-    for gen in generators:
+    for gen in centrals:
         type_counts[gen["type"]] += 1
 
     assert type_counts["embalse"] == parser.num_embalses
@@ -298,9 +298,9 @@ def test_parse_large_real_file() -> None:
 
     Verifies:
     - Can parse the larger file without errors
-    - Correct number of generators are found
-    - Sample generator data is correct
-    - Generator type counts are consistent
+    - Correct number of centrals are found
+    - Sample central data is correct
+    - Central type counts are consistent
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
 
@@ -316,24 +316,24 @@ def test_parse_large_real_file() -> None:
     assert parser.num_termicas == 1545
     assert parser.num_fallas == 948
 
-    # Verify some sample generators
-    generators = parser.get_generators()
-    assert len(generators) == parser.num_centrales
+    # Verify some sample centrals
+    centrals = parser.get_centrals()
+    assert len(centrals) == parser.num_centrales
 
-    # Check first generator (hydro)
-    gen1 = generators[0]
+    # Check first central (hydro)
+    gen1 = centrals[0]
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
     assert gen1["p_max"] > 0.0
 
-    # Check a battery generator exists
-    battery = next((g for g in generators if g["type"] == "bateria"), None)
+    # Check a battery central exists
+    battery = next((g for g in centrals if g["type"] == "bateria"), None)
     assert battery is not None
     assert float(battery["p_max"]) > 0.0
 
-    # Verify type counts match actual generators
+    # Verify type counts match actual centrals
     type_counts = {
         "embalse": 0,
         "serie": 0,
@@ -343,7 +343,7 @@ def test_parse_large_real_file() -> None:
         "falla": 0,
     }
 
-    for gen in generators:
+    for gen in centrals:
         type_counts[gen["type"]] += 1
 
     assert type_counts["embalse"] == parser.num_embalses
