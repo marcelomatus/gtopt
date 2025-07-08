@@ -49,7 +49,7 @@ def test_process_stage_blocks(mock_parser):
 
 def test_to_json(mock_parser, tmp_path):
     """Test to_json produces correct output structure."""
-    with patch.dict('sys.modules', 
+    with patch.dict('sys.modules',
                    {'plp2gtopt.block_writer': MagicMock(),
                     'plp2gtopt.stage_writer': MagicMock(),
                     'plp2gtopt.bus_writer': MagicMock(),
@@ -70,7 +70,7 @@ def test_to_json(mock_parser, tmp_path):
 
 def test_write_json_file(mock_parser, tmp_path):
     """Test write creates valid JSON output file."""
-    with patch.dict('sys.modules', 
+    with patch.dict('sys.modules',
                    {'plp2gtopt.block_writer': MagicMock(),
                     'plp2gtopt.stage_writer': MagicMock(),
                     'plp2gtopt.bus_writer': MagicMock(),
