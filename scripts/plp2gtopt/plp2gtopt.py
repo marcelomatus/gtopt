@@ -11,33 +11,23 @@ from pathlib import Path
 from typing import Dict, Union
 
 from plp2gtopt.block_parser import BlockParser
-from plp2gtopt.block_writer import BlockWriter
 from plp2gtopt.stage_parser import StageParser
-from plp2gtopt.stage_writer import StageWriter
 from plp2gtopt.bus_parser import BusParser
-from plp2gtopt.bus_writer import BusWriter
 from plp2gtopt.demand_parser import DemandParser
-from plp2gtopt.demand_writer import DemandWriter
 from plp2gtopt.central_parser import CentralParser
-from plp2gtopt.central_writer import CentralWriter
 from plp2gtopt.line_parser import LineParser
-from plp2gtopt.line_writer import LineWriter
 from plp2gtopt.cost_parser import CostParser
-from plp2gtopt.cost_writer import CostWriter
 
 
 class PLPParser:
     """Handles parsing of all PLP input files."""
-    
     def __init__(self, input_dir: Union[str, Path]):
         self.input_path = Path(input_dir)
         self._validate_input_dir()
         self.parsed_data = {}
-        
     def _validate_input_dir(self):
         if not self.input_path.is_dir():
             raise FileNotFoundError(f"Input directory not found: {self.input_path}")
-            
     def parse_all(self):
         """Parse all PLP input files."""
         parsers = [
@@ -65,6 +55,7 @@ class GTOptWriter:
     
     def __init__(self, parser: PLPParser):
         self.parser = parser
+        self.output_path = None
         
     def _process_stage_blocks(self):
         """Calculate first_block and count_block for stages."""
@@ -110,7 +101,8 @@ class GTOptWriter:
         
     def write(self, output_path: Union[str, Path]):
         """Write JSON output to file."""
-        output_path = Path(output_path)
+        self.output_path = Path(output_path)
+        output_path = self.output_path
         output_path.mkdir(parents=True, exist_ok=True)
         output_file = output_path / "plp2gtopt.json"
         
