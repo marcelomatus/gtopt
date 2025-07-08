@@ -20,10 +20,15 @@ def mock_parser():
         {"uid": 3, "stage": 2},
     ]
 
-    # Create a mock that will return the actual lists (not copies)
+    # Create a mock that allows modifying the stage data
+    stage_mock = MagicMock()
+    stage_mock.to_json_array.return_value = stage_data  # Return actual list that can be modified
+    block_mock = MagicMock()
+    block_mock.to_json_array.return_value = block_data.copy()  # Return copy for safety
+
     parser.parsed_data = {
-        "block_array": MagicMock(to_json_array=lambda: block_data.copy()),
-        "stage_array": MagicMock(to_json_array=lambda: stage_data.copy()),
+        "block_array": block_mock,
+        "stage_array": stage_mock,
         "bus_array": MagicMock(to_json_array=lambda: [{"id": "Bus1"}]),
         "line_array": MagicMock(to_json_array=lambda: [{"id": "Line1"}]),
         "central_array": MagicMock(to_json_array=lambda: [{"id": "Gen1"}]),
@@ -47,15 +52,18 @@ def test_process_stage_blocks(mock_parser):
     # Test protected method access is ok for testing
     writer._process_stage_blocks()  # pylint: disable=protected-access
 
-    # Get the modified stage data
-    stages = mock_parser.parsed_data["stage_array"].to_json_array()
+    # Get the modified stage data directly from the mock's return value
+    stages = mock_parser.parsed_data["stage_array"].to_json_array.return_value
 
     # Verify the stage data was modified correctly
-    assert "first_block" in stages[0]
-    assert "count_block" in stages[0]
+    assert len(stages) == 2
+    for stage in stages:
+        assert "first_block" in stage
+        assert "count_block" in stage
+    
     assert stages[0]["first_block"] == 0
     assert stages[0]["count_block"] == 2
-    assert stages[1]["first_block"] == 2
+    assert stages[1]["first_block"] == 2 
     assert stages[1]["count_block"] == 1
 
 
