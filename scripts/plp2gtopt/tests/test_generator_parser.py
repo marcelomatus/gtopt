@@ -176,7 +176,7 @@ def test_get_generators_by_bus(valid_gen_file: Path) -> None:
     Args:
         valid_gen_file: Path to valid generator test file
     """
-    parser = GeneratorParser(valid_gen_file)
+    parser = CentralParser(valid_gen_file)
     parser.parse()
     bus0_gens = parser.get_generators_by_bus("0")
     assert len(bus0_gens) == 1
@@ -203,7 +203,7 @@ def test_parse_nonexistent_file(tmp_path: Path) -> None:
     Args:
         tmp_path: Pytest temporary path fixture
     """
-    parser = GeneratorParser(tmp_path / "nonexistent.dat")
+    parser = CentralParser(tmp_path / "nonexistent.dat")
     with pytest.raises(FileNotFoundError):
         parser.parse()
 
@@ -218,7 +218,7 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
     Args:
         empty_gen_file: Path to empty test file
     """
-    parser = GeneratorParser(empty_gen_file)
+    parser = CentralParser(empty_gen_file)
     with pytest.raises(ValueError, match="File is empty"):
         parser.parse()
 
@@ -239,7 +239,7 @@ def test_parse_real_file() -> None:
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat"
 
-    parser = GeneratorParser(test_file)
+    parser = CentralParser(test_file)
     parser.parse()
 
     # Verify expected counts from the file header
@@ -304,7 +304,7 @@ def test_parse_large_real_file() -> None:
     """
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
 
-    parser = GeneratorParser(test_file)
+    parser = CentralParser(test_file)
     parser.parse()
 
     # Verify expected counts from the file header
