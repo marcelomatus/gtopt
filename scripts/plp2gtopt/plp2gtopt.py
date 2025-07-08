@@ -20,8 +20,8 @@ from plp2gtopt.bus_parser import BusParser
 from plp2gtopt.bus_writer import BusWriter
 from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.demand_writer import DemandWriter
-from plp2gtopt.generator_parser import CentralParser
-from plp2gtopt.generator_writer import CentralWriter
+from plp2gtopt.central_parser import CentralParser
+from plp2gtopt.central_writer import CentralWriter
 from plp2gtopt.line_parser import LineParser
 from plp2gtopt.line_writer import LineWriter
 from plp2gtopt.cost_parser import CostParser
@@ -44,7 +44,7 @@ def convert_plp_case(
             'stages': int,
             'buses': int,
             'lines': int,
-            'generators': int,
+            'centrals': int,
             'demands': int,
         }
 
@@ -69,7 +69,7 @@ def convert_plp_case(
         ("stage_array", StageParser, StageWriter, "plpeta.dat"),
         ("bus_array", BusParser, BusWriter, "plpbar.dat"),
         ("line_array", LineParser, LineWriter, "plpcnfli.dat"),
-        ("generator_array", CentralParser, CentralWriter, "plpcnfce.dat"),
+        ("central_array", CentralParser, CentralWriter, "plpcnfce.dat"),
         ("demand_array", DemandParser, DemandWriter, "plpdem.dat"),
         ("cost_array", CostParser, CostWriter, "plpcosce.dat"),
     ]

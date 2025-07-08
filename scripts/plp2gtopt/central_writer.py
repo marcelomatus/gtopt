@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Writer for converting generator data to JSON format."""
+"""Writer for converting central data to JSON format."""
 
 from typing import Any, Dict, List
 from .base_writer import BaseWriter
-from .generator_parser import CentralParser
+from .central_parser import CentralParser
 
 
 class CentralWriter(BaseWriter):
-    """Converts generator parser data to JSON format used by GTOPT."""
+    """Converts central parser data to JSON format used by GTOPT."""
 
     def _get_items(self) -> List[Dict[str, Any]]:
-        return self.parser.get_generators()
+        return self.parser.get_centrals()
 
-    def __init__(self, generator_parser: CentralParser):
-        """Initialize with a GeneratorParser instance."""
-        if not hasattr(generator_parser, "get_generators"):
-            raise ValueError("Parser must implement get_generators()")
-        super().__init__(generator_parser)
+    def __init__(self, central_parser: CentralParser):
+        """Initialize with a CentralParser instance."""
+        if not hasattr(central_parser, "get_centrals"):
+            raise ValueError("Parser must implement get_centrals()")
+        super().__init__(central_parser)
 
     def to_json_array(self) -> List[Dict[str, Any]]:
-        """Convert generator data to JSON array format."""
-        json_generators = []
+        """Convert central data to JSON array format."""
+        json_centrals = []
         for gen in self.items:
-            # Skip generators without a bus or with bus 0
+            # Skip centrals without a bus or with bus 0
             if gen["bus"] == 0:
                 continue
 
-            generator = {
+            central = {
                 "uid": gen["number"],
                 "name": gen["name"],
                 "bus": gen["bus"],
@@ -40,9 +40,9 @@ class CentralWriter(BaseWriter):
                 "type": gen.get("type", "unknown"),
             }
 
-            json_generators.append(generator)
+            json_centrals.append(central)
 
-        return json_generators
+        return json_centrals
 
 
 if __name__ == "__main__":
