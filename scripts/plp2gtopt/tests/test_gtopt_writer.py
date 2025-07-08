@@ -1,9 +1,9 @@
 """Tests for gtopt_writer.py module."""
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+import pytest
 
 from plp2gtopt.gtopt_writer import GTOptWriter
 
@@ -42,8 +42,8 @@ def test_gtopt_writer_init(mock_parser):
 def test_process_stage_blocks(mock_parser):
     """Test _process_stage_blocks updates stage blocks correctly."""
     writer = GTOptWriter(mock_parser)
-    writer._process_stage_blocks()
-    
+    # Test protected method access is ok for testing
+    writer._process_stage_blocks()  # pylint: disable=protected-access
     stages = mock_parser.parsed_data["stage_array"].to_json_array()
     assert stages[0]["first_block"] == 0
     assert stages[0]["count_block"] == 2
@@ -55,9 +55,8 @@ def test_to_json(mock_parser, tmp_path):
     """Test to_json produces correct output structure."""
     writer = GTOptWriter(mock_parser)
     writer.output_path = tmp_path
-    
+
     result = writer.to_json()
-    
     assert "options" in result
     assert "simulation" in result
     assert "system" in result
@@ -70,9 +69,9 @@ def test_write_json_file(mock_parser, tmp_path):
     output_file = tmp_path / "output.json"
     writer = GTOptWriter(mock_parser)
     writer.write(tmp_path)
-    
+
     assert output_file.exists()
-    with open(output_file) as f:
+    with open(output_file, encoding='utf-8') as f:
         data = json.load(f)
         assert "options" in data
         assert "simulation" in data
@@ -83,9 +82,8 @@ def test_write_empty_data(tmp_path):
     empty_parser = MagicMock()
     empty_parser.parsed_data = {}
     empty_parser.input_path = Path("/input")
-    
+
     writer = GTOptWriter(empty_parser)
     writer.write(tmp_path)
-    
     output_file = tmp_path / "plp2gtopt.json"
     assert output_file.exists()
