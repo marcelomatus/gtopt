@@ -19,6 +19,12 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
 
+find = lambda bus_name, buses: next(
+    (bus for bus in buses if bus.get("name") == bus_name), 
+    None
+)
+
+
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
 
