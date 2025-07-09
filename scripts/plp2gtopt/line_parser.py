@@ -80,12 +80,15 @@ class LineParser(BaseParser):
                     "bus_a": int(line_parts[3]),  # Bus A number
                     "bus_b": int(line_parts[4]),  # Bus B number
                     "voltage": float(line_parts[5]),
-                    "resistance": float(line_parts[6]),  # Resistance (Ohm)
-                    "reactance": float(line_parts[7]),  # Reactance (Ohm)
-                    "tmax": float(line_parts[1]),  # Forward rating (MW)
-                    "tmin": -float(line_parts[2]),  # Reverse rating (MW)
-                    "has_losses": line_parts[8] == "T",  # Loss modeling flag
+                    "r": float(line_parts[6]),  # Resistance (Ohm)
+                    "x": float(line_parts[7]),  # Reactance (Ohm)
+                    "fmax_ab": float(line_parts[1]),  # Forward rating (MW)
+                    "fmax_ba": float(line_parts[2]),  # Reverse rating (MW)
+                    "mod_perdidas": line_parts[8] == "T",  # Loss modeling flag
                     "num_sections": int(line_parts[9]),  # Number of sections
+                    "hvdc": (
+                        line_parts[11] == "T" if len(line_parts) > 11 else False
+                    ),  # HVDC line if more than 11 parts
                 }
             )
             line_num += 1
