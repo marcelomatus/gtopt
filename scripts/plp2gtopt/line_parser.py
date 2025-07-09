@@ -86,9 +86,7 @@ class LineParser(BaseParser):
                     "fmax_ba": float(line_parts[2]),  # Reverse rating (MW)
                     "mod_perdidas": line_parts[8] == "T",  # Loss modeling flag
                     "num_sections": int(line_parts[9]),  # Number of sections
-                    "hvdc": (
-                        line_parts[11] == "T" if len(line_parts) > 11 else False
-                    ),  # HVDC line if more than 11 parts
+                    **({"hvdc": line_parts[11] == "T"} if len(line_parts) > 11 else {}),  # HVDC line if more than 11 parts
                 }
             )
             line_num += 1
