@@ -111,6 +111,9 @@ def test_write_empty_stages():
         def get_stages(self):
             return self._data
 
+        def get_all(self):
+            return self._data
+
     parser = MockStageParser()
 
     writer = StageWriter(parser)

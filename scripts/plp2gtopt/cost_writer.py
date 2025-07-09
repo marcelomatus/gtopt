@@ -11,14 +11,11 @@ from .cost_parser import CostParser
 class CostWriter(BaseWriter):
     """Converts cost parser data to JSON format used by GTOPT."""
 
-    def _get_items(self) -> List[Dict[str, Any]]:
-        return self.parser.get_costs()
-
-    def __init__(self, cost_parser: CostParser):
+    def __init__(self, cost_parser: CostParser = None):
         """Initialize with a CostParser instance."""
         super().__init__(cost_parser)
 
-    def to_json_array(self) -> List[Dict[str, Any]]:
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format.
 
         Returns:
@@ -30,13 +27,15 @@ class CostWriter(BaseWriter):
         Note:
             Converts numpy arrays to lists for JSON serialization
         """
+        if items is None:
+            items = self.items
         return [
             {
                 "name": cost["name"],
                 "stages": cost["stages"].tolist(),
                 "costs": cost["costs"].tolist(),
             }
-            for cost in self.items
+            for cost in items
         ]
 
 

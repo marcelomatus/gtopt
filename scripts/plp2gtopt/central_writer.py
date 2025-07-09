@@ -11,19 +11,17 @@ from .central_parser import CentralParser
 class CentralWriter(BaseWriter):
     """Converts central parser data to JSON format used by GTOPT."""
 
-    def _get_items(self) -> List[Dict[str, Any]]:
-        return self.parser.get_centrals()
-
-    def __init__(self, central_parser: CentralParser):
+    def __init__(self, central_parser: CentralParser = None):
         """Initialize with a CentralParser instance."""
-        if not hasattr(central_parser, "get_centrals"):
-            raise ValueError("Parser must implement get_centrals()")
         super().__init__(central_parser)
 
-    def to_json_array(self) -> List[Dict[str, Any]]:
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert central data to JSON array format."""
+        if items is None:
+            items = self.items
+
         json_centrals = []
-        for gen in self.items:
+        for gen in items:
             # Skip centrals without a bus or with bus 0
             if gen["bus"] == 0:
                 continue

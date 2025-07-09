@@ -56,7 +56,7 @@ class DemandWriter(BaseWriter):
 
     def to_dataframe(self, items=None) -> pd.DataFrame:
         """Convert demand data to pandas DataFrame format.
-        
+
         Returns:
             DataFrame with:
             - Index: Block numbers (merged from all demands)
@@ -76,11 +76,10 @@ class DemandWriter(BaseWriter):
                 continue
 
             # Create Series for this demand
-            s = pd.Series(
-                data=demand["values"],
-                index=demand["blocks"],
-                name=demand["name"]
-            )
+            bus = demand.get("bus", demand["name"])
+            name = f"uid{bus}" if not isinstance(bus, str) else bus
+
+            s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
@@ -88,21 +87,19 @@ class DemandWriter(BaseWriter):
 
     def to_parquet(self, output_path: Union[str, Path], items=None) -> None:
         """Write demand data to Parquet file format.
-        
+
         Args:
             output_path: Path to write the Parquet file
             items: Optional list of demand items to convert (uses self.items if None)
         """
         df = self.to_dataframe(items)
-        
+
         # Convert index (blocks) to int16 and values to float64
-        df.index = df.index.astype('int16')
-        df = df.astype('float64')
-        
+        df.index = df.index.astype("int16")
+        df = df.astype("float64")
+
         df.to_parquet(
-            output_path,
-            engine='pyarrow',
-            index=True  # Ensure index is saved
+            output_path, engine="pyarrow", index=True  # Ensure index is saved
         )
 
 

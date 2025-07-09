@@ -60,7 +60,7 @@ class DemandParser(BaseParser):
                 # Get bus name
                 if idx >= len(lines):
                     raise ValueError("Unexpected end of file while parsing bus names")
-                name = lines[idx].strip("'").split("#")[0].strip()
+                name = lines[idx].strip("'").split()[0]
                 idx += 1
 
                 # Get number of demand entries

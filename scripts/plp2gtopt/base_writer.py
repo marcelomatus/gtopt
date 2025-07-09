@@ -10,7 +10,7 @@ the required methods for their specific data formats.
 
 import json
 import sys
-from abc import ABC, abstractmethod
+from abc import ABC
 from pathlib import Path
 from typing import Any, Dict, List, Type, TypeVar
 from .base_parser import BaseParser
@@ -22,20 +22,20 @@ ParserVar = TypeVar("ParserVar", bound=BaseParser.__name__)
 class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
 
-    def __init__(self, parser: ParserVar) -> None:
+    def get_items(self) -> List[Dict[str, Any]]:
+        """Get items from the parser."""
+        return self.items
+
+    def __init__(self, parser: ParserVar = None) -> None:
         """Initialize with a parser instance.
 
         Args:
             parser: Parser containing parsed data to be written
         """
         self.parser = parser
-        self.items = self._get_items()  # Will be implemented by child classes
+        self.items = self.parser.get_all() if self.parser is not None else None
 
-    @abstractmethod
-    def _get_items(self) -> List[Dict[str, Any]]:
-        """Get items from parser - to be implemented by child classes."""
-
-    def to_json_array(self) -> List[Dict[str, Any]]:
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert data to JSON array format (to be implemented by subclasses)."""
         raise NotImplementedError
 

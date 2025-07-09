@@ -57,8 +57,7 @@ def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-n
         "tmax": float,
         "tmin": float,
         "voltage": float,
-        "has_losses": bool,
-        "active": bool,
+        "active": int,
     }
 
     for line in json_lines:
@@ -110,8 +109,7 @@ def test_json_output_structure(
         "tmax": float,
         "tmin": float,
         "voltage": float,
-        "has_losses": bool,
-        "active": bool,
+        "active": int,
     }
 
     for line in json_lines:
@@ -141,6 +139,9 @@ def test_write_empty_lines():
             self.num_lines = 0
 
         def get_lines(self):
+            return self._data
+
+        def get_all(self):
             return self._data
 
     parser = MockLineParser()
