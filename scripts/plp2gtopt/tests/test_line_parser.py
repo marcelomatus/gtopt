@@ -70,31 +70,17 @@ def test_line_data_structure(
         "bus_a": int,
         "bus_b": int,
         "voltage": float,
-        "resistance": float,
-        "reactance": float,
-        "tmax": float,
-        "tmin": float,
-        "has_losses": bool,
+        "r": float,
+        "x": float,
+        "fmax_ab": float,
+        "fmax_ba": float,
+        "mod_perdidas": bool,
         "num_sections": int,
     }
 
     for field, field_type in required_fields.items():
         assert field in line
         assert isinstance(line[field], field_type), f"Field {field} has wrong type"
-
-
-def test_line_name_parsing():
-    """Test line name parsing logic."""
-    test_cases = [
-        ("Bus1->Bus2", ("Bus1", "Bus2")),
-        ("BusA-BusB", ("BusA", "BusB")),
-        ("LongName->Short", ("LongName", "Short")),
-    ]
-
-    for name, expected in test_cases:
-        parser = LineParser("test.dat")
-        result = parser.parse_line_name(name)
-        assert result == expected
 
 
 def test_parse_empty_file(empty_file):  # pylint: disable=redefined-outer-name

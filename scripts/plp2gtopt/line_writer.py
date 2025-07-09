@@ -11,30 +11,29 @@ from .line_parser import LineParser
 class LineWriter(BaseWriter):
     """Converts line parser data to JSON format used by GTOPT."""
 
-    def _get_items(self) -> List[Dict[str, Any]]:
-        return self.parser.get_lines()
-
-    def __init__(self, line_parser: LineParser):
+    def __init__(self, line_parser: LineParser = None):
         """Initialize with a LineParser instance."""
         super().__init__(line_parser)
 
-    def to_json_array(self) -> List[Dict[str, Any]]:
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert line data to JSON array format."""
+        if items is None:
+            items = self.items
         return [
             {
                 "uid": line["number"],
                 "name": line["name"],
-                "active": line["active"],
+                "active": int(line["active"]),
                 "bus_a": line["bus_a"],
                 "bus_b": line["bus_b"],
-                "resistance": line["resistance"],
-                "reactance": line["reactance"],
-                "tmax": line["tmax"],
-                "tmin": line["tmin"],
+                "resistance": line["r"],
+                "reactance": line["x"],
+                "tmax": line["fmax_ab"],
+                "tmin": -line["fmax_ba"],
                 "voltage": line["voltage"],
-                "has_losses": line["has_losses"],
+                **({"is_hvdc": 1} if "hdvc" in line else {}),
             }
-            for line in self.items
+            for line in items
         ]
 
 

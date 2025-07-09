@@ -31,6 +31,7 @@ class BusParser(BaseParser):
         self._data: List[Dict[str, Any]] = []
         self.buses: List[Dict[str, Any]] = self._data  # Alias for _data
         self.num_buses: int = 0
+        self.bus_num_map: Dict[str, int] = {}
 
     def parse(self) -> None:
         """Parse the bus file and populate the buses structure.
@@ -59,6 +60,7 @@ class BusParser(BaseParser):
 
             bus_num = int(parts[0])
             name = parts[1].strip("'").split("#")[0].strip()
+            self.bus_num_map[name] = bus_num
 
             # Try to extract voltage from name (handles various patterns)
             voltage_match = re.search(
@@ -84,6 +86,10 @@ class BusParser(BaseParser):
     def get_num_buses(self) -> int:
         """Return the number of buses in the file."""
         return self.num_buses
+
+    def get_bus_num(self, name: str) -> int:
+        """Get bus number by bus name."""
+        return self.bus_num_map.get(name, -1)
 
     def get_bus_by_name(self, name: str) -> dict[str, Any] | None:
         """Get bus data for a specific bus name."""

@@ -65,17 +65,10 @@ class LineParser(BaseParser):
                 raise ValueError(f"Invalid line entry at line {idx+1}")
 
             # Parse line name (removing quotes)
-            line_name = line_parts[0].strip("'")
-            # Parse line name but don't use the bus names since
-            # we get them from the data columns
-            _bus_a, _bus_b = self.parse_line_name(
-                line_name
-            )  # pylint: disable=unused-variable
-
             self._data.append(
                 {
                     "number": line_num,
-                    "name": line_name,
+                    "name": line_parts[0].strip("'"),
                     "active": line_parts[10] == "T",  # Operational status
                     "bus_a": int(line_parts[3]),  # Bus A number
                     "bus_b": int(line_parts[4]),  # Bus B number
@@ -86,38 +79,13 @@ class LineParser(BaseParser):
                     "fmax_ba": float(line_parts[2]),  # Reverse rating (MW)
                     "mod_perdidas": line_parts[8] == "T",  # Loss modeling flag
                     "num_sections": int(line_parts[9]),  # Number of sections
-                    **({"hvdc": line_parts[11] == "T"} if len(line_parts) > 11 else {}),  # HVDC line if more than 11 parts
+                    **(
+                        {"hvdc": line_parts[11] == "T"} if len(line_parts) > 11 else {}
+                    ),  # HVDC line if more than 11 parts
                 }
             )
             line_num += 1
             idx += 1
-
-    def parse_line_name(self, name: str) -> tuple[str, str]:
-        """Extract bus_a and bus_b from line name.
-
-        Args:
-            name: Line name in format "BusA->BusB" or "BusA-BusB"
-
-        Returns:
-            Tuple of (bus_a, bus_b)
-
-        Raises:
-            ValueError: If name format is invalid or empty
-        """
-        # Check for empty/whitespace-only names
-        if not name or not name.strip():
-            raise ValueError("Line name cannot be empty or whitespace only")
-
-        name = name.strip()
-
-        # Determine separator type
-        has_arrow = "->" in name
-
-        # Split using the appropriate separator
-        separator = "->" if has_arrow else "-"
-        parts = [p.strip() for p in name.split(separator)]
-
-        return parts[0], parts[1] if len(parts) > 1 else ""
 
     def get_lines(self) -> List[Dict[str, Any]]:
         """Return the parsed lines structure."""

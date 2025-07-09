@@ -108,6 +108,9 @@ def test_write_empty_centrals():
         def get_centrals(self):
             return self._centrals
 
+        def get_all(self):
+            return self._centrals
+
     parser = MockCentralParser()
 
     writer = CentralWriter(parser)

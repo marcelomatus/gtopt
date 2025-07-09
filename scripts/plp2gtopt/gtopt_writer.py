@@ -7,7 +7,7 @@ import json
 from typing import Optional, List, Dict
 
 from pathlib import Path
-from typing import Dict, Union
+from typing import Union
 
 from .plp_parser import PLPParser
 
@@ -18,16 +18,9 @@ from .central_writer import CentralWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
+
 def find_bus(bus_name: str, buses: List[Dict]) -> Optional[Dict]:
-    """Find a bus by name in the buses list.
-    
-    Args:
-        bus_name: Name of bus to find
-        buses: List of bus dictionaries to search
-        
-    Returns:
-        The matching bus dict or None if not found
-    """
+    """Find a bus by name in the buses list."""
     return next((bus for bus in buses if bus.get("name") == bus_name), None)
 
 
@@ -141,13 +134,15 @@ class GTOptWriter:
         if not demands:
             return
 
-        buses = self.parser.parsed_data.get("bus_array", []).get_buses()
-        for demand in demands.get_demands():
-            bus = find_bus(demand["bus"], buses)
+        buses = self.parser.parsed_data.get("bus_array", [])
+        if not buses:
+            return
 
-            demand["bus"] = bus["number"] if bus else 0
+        dems = demands.get_all()
+        for demand in dems:
+            demand["bus"] = buses.get_bus_num(demand["name"])
 
-        self.system["demand_array"] = DemandWriter(demands).to_json_array()
+        self.system["demand_array"] = DemandWriter().to_json_array(dems)
 
     def process_buses(self):
         """Process bus data to include block and stage information."""

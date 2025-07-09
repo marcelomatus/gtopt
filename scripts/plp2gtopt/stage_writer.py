@@ -11,23 +11,22 @@ from .stage_parser import StageParser
 class StageWriter(BaseWriter):
     """Converts stage parser data to JSON format used by GTOPT."""
 
-    def _get_items(self) -> List[Dict[str, Any]]:
-        return self.parser.get_stages()
-
-    def __init__(self, stage_parser: StageParser):
+    def __init__(self, stage_parser: StageParser = None):
         """Initialize with a StageParser instance."""
         super().__init__(stage_parser)
 
-    def to_json_array(self) -> List[Dict[str, Any]]:
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format."""
+        if items is None:
+            items = self.items
         return [
             {
                 "uid": stage["number"],
-                "first_block": stage["number"] - 1,  # Convert to 0-based index
-                "count_block": 1,  # Each stage has exactly 1 block
-                "active": 1,  # All stages are active by default
+                "first_block": stage.get("first_block", 0),
+                "count_block": stage.get("count_block", -1),
+                "active": 1,
             }
-            for stage in self.items
+            for stage in items
         ]
 
 

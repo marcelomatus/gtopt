@@ -46,7 +46,6 @@ def convert_plp_case(
         writer = GTOptWriter(parser)
         writer.write(output_dir)
         print(f"\nConversion successful! Output written to {output_dir}/plp2gtopt.json")
-        return {k: len(v) for k, v in parser.parsed_data.items()}
     except Exception as e:
         print(f"\nConversion failed: {str(e)}")
         raise RuntimeError(f"PLP to GTOPT conversion failed: {str(e)}") from e
