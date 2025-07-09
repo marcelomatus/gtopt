@@ -19,20 +19,6 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
 
-find_bus = lambda bus_name: str, buses: List[Dict] -> Optional[Dict]: (
-    """Find a bus by name in the buses list.
-    
-    Args:
-        bus_name: Name of bus to find
-        buses: List of bus dictionaries to search
-        
-    Returns:
-        The matching bus dict or None if not found
-    """
-    next((bus for bus in buses if bus.get("name") == bus_name), None)
-)
-
-
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
 
@@ -130,6 +116,10 @@ class GTOptWriter:
         self.process_central_termicas(ceng.get("termica", []))
         self.process_central_fallas(ceng.get("falla", []))
 
+    find_bus = lambda bus_name, buses: next(
+        (bus for bus in buses if bus.get("name") == bus_name), None
+    )
+
     def process_demands(self):
         """Process demand data to include block and stage information."""
         demands = self.parser.parsed_data.get("demand_array", [])
@@ -138,7 +128,8 @@ class GTOptWriter:
 
         buses = self.parser.parsed_data.get("bus_array", []).get_buses()
         for demand in demands.get_demands():
-            bus = find(demand["bus"], buses)
+            bus = find_bus(demand["bus"], buses)
+
             demand["bus"] = bus["number"] if bus else 0
 
         self.system["demand_array"] = DemandWriter(demands).to_json_array()
