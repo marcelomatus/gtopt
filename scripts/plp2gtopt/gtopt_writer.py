@@ -18,9 +18,17 @@ from .central_writer import CentralWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
-find_bus = lambda bus_name, buses: next(
-    (bus for bus in buses if bus.get("name") == bus_name), None
-)
+def find_bus(bus_name: str, buses: List[Dict]) -> Optional[Dict]:
+    """Find a bus by name in the buses list.
+    
+    Args:
+        bus_name: Name of bus to find
+        buses: List of bus dictionaries to search
+        
+    Returns:
+        The matching bus dict or None if not found
+    """
+    return next((bus for bus in buses if bus.get("name") == bus_name), None)
 
 
 class GTOptWriter:
