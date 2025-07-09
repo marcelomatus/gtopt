@@ -116,8 +116,15 @@ class GTOptWriter:
         self.process_central_termicas(ceng.get("termica", []))
         self.process_central_fallas(ceng.get("falla", []))
 
+    # Find a bus by name in the buses list
+    # Args:
+    #     bus_name: Name of bus to find  
+    #     buses: List of bus dictionaries to search
+    # Returns:
+    #     The matching bus dict or None if not found
     find_bus = lambda bus_name, buses: next(
-        (bus for bus in buses if bus.get("name") == bus_name), None
+        (bus for bus in buses if bus.get("name") == bus_name), 
+        None
     )
 
     def process_demands(self):
