@@ -4,6 +4,7 @@
 """Writer for converting demand data to JSON format."""
 
 from typing import Any, Dict, List
+import pandas as pd
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
 
@@ -51,6 +52,39 @@ class DemandWriter(BaseWriter):
             json_demands.append(dem)
 
         return json_demands
+
+    def to_dataframe(self, items=None) -> pd.DataFrame:
+        """Convert demand data to pandas DataFrame format.
+        
+        Returns:
+            DataFrame with:
+            - Index: Block numbers (merged from all demands)
+            - Columns: Demand values for each bus (column name = bus name)
+        """
+        if items is None:
+            items = self.items
+
+        # Create empty DataFrame to collect all demand series
+        df = pd.DataFrame()
+
+        for demand in items:
+            if demand.get("bus", -1) == 0:
+                continue
+
+            if len(demand["blocks"]) == 0 or len(demand["values"]) == 0:
+                continue
+
+            # Create Series for this demand
+            s = pd.Series(
+                data=demand["values"],
+                index=demand["blocks"],
+                name=demand["name"]
+            )
+            
+            # Add to DataFrame
+            df = pd.concat([df, s], axis=1)
+
+        return df
 
 
 if __name__ == "__main__":
