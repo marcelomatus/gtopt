@@ -86,6 +86,16 @@ class DemandWriter(BaseWriter):
 
         return df
 
+    def to_parquet(self, output_path: Union[str, Path], items=None) -> None:
+        """Write demand data to Parquet file format.
+        
+        Args:
+            output_path: Path to write the Parquet file
+            items: Optional list of demand items to convert (uses self.items if None)
+        """
+        df = self.to_dataframe(items)
+        df.to_parquet(output_path, engine='pyarrow')
+
 
 if __name__ == "__main__":
     BaseWriter.main(DemandWriter, DemandParser)
