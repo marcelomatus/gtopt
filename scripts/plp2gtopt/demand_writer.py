@@ -94,7 +94,16 @@ class DemandWriter(BaseWriter):
             items: Optional list of demand items to convert (uses self.items if None)
         """
         df = self.to_dataframe(items)
-        df.to_parquet(output_path, engine='pyarrow')
+        
+        # Convert index (blocks) to int16 and values to float64
+        df.index = df.index.astype('int16')
+        df = df.astype('float64')
+        
+        df.to_parquet(
+            output_path,
+            engine='pyarrow',
+            index=True  # Ensure index is saved
+        )
 
 
 if __name__ == "__main__":
