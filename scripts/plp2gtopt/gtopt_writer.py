@@ -18,6 +18,10 @@ from .central_writer import CentralWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
+find_bus = lambda bus_name, buses: next(
+    (bus for bus in buses if bus.get("name") == bus_name), None
+)
+
 
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
@@ -118,14 +122,10 @@ class GTOptWriter:
 
     # Find a bus by name in the buses list
     # Args:
-    #     bus_name: Name of bus to find  
+    #     bus_name: Name of bus to find  n
     #     buses: List of bus dictionaries to search
     # Returns:
     #     The matching bus dict or None if not found
-    find_bus = lambda bus_name, buses: next(
-        (bus for bus in buses if bus.get("name") == bus_name), 
-        None
-    )
 
     def process_demands(self):
         """Process demand data to include block and stage information."""
