@@ -6,20 +6,6 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 import json
 from typing import Optional, List, Dict
 
-def find(bus_name: str, buses: List[Dict]) -> Optional[Dict]:
-    """Find a bus by name in the buses list.
-    
-    Args:
-        bus_name: Name of bus to find
-        buses: List of bus dictionaries to search
-        
-    Returns:
-        The matching bus dict or None if not found
-    """
-    for bus in buses:
-        if bus.get("name") == bus_name:
-            return bus
-    return None
 from pathlib import Path
 from typing import Dict, Union
 
