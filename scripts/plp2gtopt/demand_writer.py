@@ -3,7 +3,8 @@
 
 """Writer for converting demand data to JSON format."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
+from pathlib import Path
 import pandas as pd
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
@@ -80,7 +81,6 @@ class DemandWriter(BaseWriter):
                 index=demand["blocks"],
                 name=demand["name"]
             )
-            
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
