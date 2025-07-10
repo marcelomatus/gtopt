@@ -18,11 +18,12 @@ class DemandWriter(BaseWriter):
         self,
         demand_parser: DemandParser = None,
         block_parser: BlockParser = None,
-        options=None,
+        options: Dict[str, Any] = None,
     ):
         """Initialize with a DemandParser instance."""
         super().__init__(demand_parser)
         self.block_parser = block_parser
+        self.options = options if options is not None else {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert demand data to JSON array format.
@@ -84,22 +85,19 @@ class DemandWriter(BaseWriter):
 
             # Create Series for this demand
             bus = demand.get("bus", demand["name"])
-            name = f"uid{bus}" if not isinstance(bus, str) else bus
+            name = f"uid:{bus}" if not isinstance(bus, str) else bus
 
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
         if self.block_parser is not None:
-            stages = np.empty(len(df.index), dtype=np.int32)
+            stages = np.empty(len(df.index), dtype=np.int16)
             for i in range(len(stages)):
                 block_num = int(df.index[i])
                 stages[i] = self.block_parser.get_stage_num(block_num)
             s = pd.Series(data=stages, index=df.index, name="stages")
             df = pd.concat([s, df], axis=1)
-
-        # Reset index to make it a column and rename to 'blocks'
-        df = df.reset_index().rename(columns={"index": "blocks"})
 
         # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
@@ -109,22 +107,29 @@ class DemandWriter(BaseWriter):
         df.index = df.index.astype("int16")
         # Ensure DataFrame has no duplicate columns
         df = df.loc[:, ~df.columns.duplicated()]
-        # Reset index to have blocks as a column
-        df.reset_index(inplace=True)
+        # Reset index to make it a column and rename to 'blocks'
+        df = df.reset_index().rename(columns={"index": "blocks"})
 
         return df
 
-    def to_parquet(self, output_path: Union[str, Path], items=None) -> None:
+    def to_parquet(self, output_file: Union[str, Path], items=None) -> None:
         """Write demand data to Parquet file format.
 
         Args:
             output_path: Path to write the Parquet file
             items: Optional list of demand items to convert (uses self.items if None)
         """
-        df = self.to_dataframe(items)
-        df.to_parquet(
-            output_path, engine="pyarrow", index=True  # Ensure index is saved
+        output_dir = (
+            self.options["output_dir"] / "Demand"
+            if "output_dir" in self.options
+            else Path("Demand")
         )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / output_file
+
+        df = self.to_dataframe(items)
+        df.to_parquet(output_file, engine="pyarrow", index=True)
 
 
 if __name__ == "__main__":
