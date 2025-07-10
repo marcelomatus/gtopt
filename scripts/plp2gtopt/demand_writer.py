@@ -129,7 +129,12 @@ class DemandWriter(BaseWriter):
         output_file = output_dir / output_file
 
         df = self.to_dataframe(items)
-        df.to_parquet(output_file, engine="pyarrow", index=True)
+        df.to_parquet(
+            output_file, 
+            engine="pyarrow", 
+            index=True,
+            compression='snappy'
+        )
 
 
 if __name__ == "__main__":
