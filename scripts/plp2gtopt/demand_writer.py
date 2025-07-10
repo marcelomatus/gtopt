@@ -90,7 +90,6 @@ class DemandWriter(BaseWriter):
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
-
         if self.block_parser is not None:
             stages = np.empty(len(df.index), dtype=np.int32)
             for i in range(len(stages)):
@@ -98,6 +97,9 @@ class DemandWriter(BaseWriter):
                 stages[i] = self.block_parser.get_stage_num(block_num)
             s = pd.Series(data=stages, index=df.index, name="stages")
             df = pd.concat([s, df], axis=1)
+
+        # Rename index column to 'block'
+        df.rename(columns={"index": "blocks"}, inplace=True)
 
         # Ensure index is sorted and unique
         df = df.sort_index().drop_duplicates()
