@@ -90,8 +90,6 @@ class DemandWriter(BaseWriter):
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
-        # Rename index column to 'block'
-        df.rename(columns={"index": "blocks"}, inplace=True)
 
         if self.block_parser is not None:
             stages = np.empty(len(df.index), dtype=np.int32)
