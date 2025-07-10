@@ -90,15 +90,11 @@ class DemandWriter(BaseWriter):
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
-        # Rename index column to 'block'
-        df.rename(columns={"index": "blocks"}, inplace=True)
-
         if self.block_parser is not None:
-            bs = df["blocks"]
-            stages = np.empty(len(bs), dtype=np.int32)
-            for i in len(stages):
-                stages[i] = self.block_parser.get_stage_num(bs[i])
-            s = pd.Series(data=stages, index=bs, name="stages")
+            stages = np.empty(len(df.index), dtype=np.int32)
+            for i in range(len(stages)):
+                stages[i] = self.block_parser.get_stage_num(df.index[i])
+            s = pd.Series(data=stages, index=df.index, name="stages")
             df = pd.concat([s, df], axis=1)
 
         # Ensure index is sorted and unique
