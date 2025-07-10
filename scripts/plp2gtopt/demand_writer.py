@@ -98,10 +98,10 @@ class DemandWriter(BaseWriter):
             s = pd.Series(data=stages, index=df.index, name="stages")
             df = pd.concat([s, df], axis=1)
 
-        # Rename index column to 'block'
-        df.rename(columns={"index": "blocks"}, inplace=True)
+        # Reset index to make it a column and rename to 'blocks'
+        df = df.reset_index().rename(columns={"index": "blocks"})
 
-        # Ensure index is sorted and unique
+        # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
         # Fill NaN values with 0.0
         df = df.fillna(0.0)
