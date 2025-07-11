@@ -101,9 +101,9 @@ class DemandWriter(BaseWriter):
 
         # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
-        # Reindex to ensure all blocks have values for all columns
-        all_blocks = df.index.unique()
-        df = df.reindex(all_blocks, fill_value=0.0)
+        # Fill NaN values with 0.0 for missing demands
+        df = df.fillna(0.0)
+
         # Convert index to int16 for memory efficiency
         df.index = df.index.astype("int16")
         # Ensure DataFrame has no duplicate columns
