@@ -6,16 +6,13 @@ Handles:
 - Managing conversion process
 """
 
-from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Any
 
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 
 
-def convert_plp_case(
-    input_dir: Union[str, Path], output_dir: Union[str, Path]
-) -> Dict[str, int]:
+def convert_plp_case(options: Dict[str, Any] = None) -> Dict[str, int]:
     """Convert PLP input files to GTOPT format.
 
     Args:
@@ -40,12 +37,12 @@ def convert_plp_case(
     """
     try:
         # Parse all files
-        parser = PLPParser(input_dir)
+        parser = PLPParser(options["input_dir"])
         parser.parse_all()
         # Convert to GTOPT format and write output
         writer = GTOptWriter(parser)
-        writer.write(output_dir)
-        print(f"\nConversion successful! Output written to {output_dir}/plp2gtopt.json")
+        writer.write(options)
+        print(f"\nConversion successful! Output written to {options['output_file']}")
     except Exception as e:
         print(f"\nConversion failed: {str(e)}")
         raise RuntimeError(f"PLP to GTOPT conversion failed: {str(e)}") from e

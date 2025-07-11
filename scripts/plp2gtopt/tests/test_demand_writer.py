@@ -51,8 +51,7 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
         "uid": int,
         "name": str,
         "bus": str,
-        "blocks": list,
-        "values": list,
+        "lmax": str | float,
     }
 
     for demand in json_demands:
@@ -98,17 +97,8 @@ def test_json_output_structure(
         "uid": int,
         "name": str,
         "bus": str,
-        "blocks": list,
-        "values": list,
+        "lmax": str | float,
     }
-
-    # Additional checks for lists
-    for demand in json_demands:
-        assert isinstance(demand["blocks"], list)
-        assert isinstance(demand["values"], list)
-        assert len(demand["blocks"]) == len(demand["values"])
-        assert all(isinstance(b, int) for b in demand["blocks"])
-        assert all(isinstance(v, float) for v in demand["values"])
 
     for demand in json_demands:
         # Check all required fields exist and have correct types

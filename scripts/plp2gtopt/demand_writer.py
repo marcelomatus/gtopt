@@ -51,7 +51,7 @@ class DemandWriter(BaseWriter):
                 continue
 
             dem = {
-                "uid": demand["number"],
+                "uid": demand.get("bus", demand["number"]),
                 "name": demand["name"],
                 "bus": demand.get("bus", demand["name"]),
                 "lmax": "lmax",
@@ -96,7 +96,7 @@ class DemandWriter(BaseWriter):
             for i in range(len(stages)):
                 block_num = int(df.index[i])
                 stages[i] = self.block_parser.get_stage_num(block_num)
-            s = pd.Series(data=stages, index=df.index, name="stages")
+            s = pd.Series(data=stages, index=df.index, name="stage")
             df = pd.concat([s, df], axis=1)
 
         # Ensure blocks are sorted and unique
@@ -107,8 +107,8 @@ class DemandWriter(BaseWriter):
         df.index = df.index.astype("int16")
         # Ensure DataFrame has no duplicate columns
         df = df.loc[:, ~df.columns.duplicated()]
-        # Reset index to make it a column and rename to 'blocks'
-        df = df.reset_index().rename(columns={"index": "blocks"})
+        # Reset index to make it a column and rename to 'block'
+        df = df.reset_index().rename(columns={"index": "block"})
 
         return df
 
@@ -129,12 +129,7 @@ class DemandWriter(BaseWriter):
         output_file = output_dir / output_file
 
         df = self.to_dataframe(items)
-        df.to_parquet(
-            output_file, 
-            engine="pyarrow", 
-            index=True,
-            compression='snappy'
-        )
+        df.to_parquet(output_file, index=True, engine="pyarrow", compression="snappy")
 
 
 if __name__ == "__main__":
