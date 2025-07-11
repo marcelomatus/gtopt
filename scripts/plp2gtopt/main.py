@@ -7,6 +7,7 @@ from .plp2gtopt import convert_plp_case
 
 
 def main():
+    """Parse arguments and initiate conversion."""
     parser = argparse.ArgumentParser(
         description="Convert PLP input files to GTOPT format"
     )
@@ -16,9 +17,13 @@ def main():
     parser.add_argument(
         "output_dir", type=Path, help="Directory to write GTOPT output files"
     )
+
+    parser.add_argument("output_file", type=Path, help="File to write the GTOPT output")
     args = parser.parse_args()
 
-    convert_plp_case(args.input_dir, args.output_dir)
+    options = {"input_dir": args.input_dir, "output_dir": args.output_dir}
+
+    convert_plp_case(options)
 
 
 if __name__ == "__main__":
