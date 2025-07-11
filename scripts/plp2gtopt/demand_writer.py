@@ -101,8 +101,8 @@ class DemandWriter(BaseWriter):
 
         # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
-        # Fill NaN values with 0.0 for missing demands
-        df = df.fillna(0.0)
+        # Fill NaN values with 0.0 for all missing demand data
+        df = df.fillna(0.0).astype(np.float32)
 
         # Convert index to int16 for memory efficiency
         df.index = df.index.astype("int16")
