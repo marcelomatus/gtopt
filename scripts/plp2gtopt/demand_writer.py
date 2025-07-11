@@ -101,8 +101,15 @@ class DemandWriter(BaseWriter):
 
         # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
-        # Fill NaN values with 0.0 for all missing demand data
-        df = df.fillna(0.0).astype(np.float32)
+        # Fill NaN values with column-specific defaults
+        fill_values = {
+            'stage': -1,  # Special value for missing stages
+            **{col: 0.0 for col in df.columns if col != 'stage'}  # 0.0 for demands
+        }
+        df = df.fillna(fill_values)
+        # Convert demand columns to float32
+        demand_cols = [col for col in df.columns if col != 'stage']
+        df[demand_cols] = df[demand_cols].astype(np.float32)
 
         # Convert index to int16 for memory efficiency
         df.index = df.index.astype("int16")
