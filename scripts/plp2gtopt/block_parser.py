@@ -36,6 +36,8 @@ class BlockParser(BaseParser):
             self._data
         )  # Alias for backward compatibility
 
+        self.stage_num_map: Dict[int, int] = {}
+
     def parse(self) -> None:
         """Parse the block file and populate the blocks structure.
 
@@ -51,18 +53,18 @@ class BlockParser(BaseParser):
         self.num_blocks = self._parse_int(lines[idx])
         idx += 1
 
-        for _ in range(self.num_blocks):
+        for b in range(self.num_blocks):
             parts = lines[idx].split()
             if len(parts) < 3:
                 raise ValueError(f"Invalid block entry at line {idx+1}")
 
-            self._data.append(
-                {
-                    "number": self._parse_int(parts[0]),
-                    "stage": self._parse_int(parts[1]),
-                    "duration": self._parse_float(parts[2]),
-                }
-            )
+            block = {
+                "number": self._parse_int(parts[0]),
+                "stage": self._parse_int(parts[1]),
+                "duration": self._parse_float(parts[2]),
+            }
+            self.stage_num_map[block["number"]] = block["stage"]
+            self._data.append(block)
             idx += 1
 
     def get_blocks(self) -> List[Dict[str, Any]]:
@@ -72,6 +74,10 @@ class BlockParser(BaseParser):
     def get_num_blocks(self) -> int:
         """Return the number of blocks in the file."""
         return self.num_blocks
+
+    def get_stage_num(self, block_num: int) -> int:
+        """Return the stage num for the block."""
+        return self.stage_num_map.get(block_num, -1)
 
     def get_block_by_number(self, block_num: int) -> Optional[Dict[str, Any]]:
         """Get block data for a specific block number."""

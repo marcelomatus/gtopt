@@ -1,13 +1,14 @@
+# -*- coding: utf-8 -*-
+
 """GTOPT output writer classes.
 
 Handles conversion of parsed PLP data to GTOPT JSON format.
 """
 
 import json
-from typing import Optional, List, Dict
+from typing import Dict
 
 from pathlib import Path
-from typing import Union
 
 from .plp_parser import PLPParser
 
@@ -19,28 +20,22 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
 
-def find_bus(bus_name: str, buses: List[Dict]) -> Optional[Dict]:
-    """Find a bus by name in the buses list."""
-    return next((bus for bus in buses if bus.get("name") == bus_name), None)
-
-
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
 
-    def __init__(self, parser: "PLPParser"):
+    def __init__(self, parser: PLPParser, options=None):
         """Initialize GTOptWriter with a PLPParser instance."""
         self.parser = parser
+        self.options = options
         self.output_path = None
 
-        self.options = {}
-        self.system = {}
-        self.simulation = {}
+        self.planning = {"options": {}, "system": {}, "simulation": {}}
 
-    def process_options(self):
+    def process_options(self, options):
         """Process options data to include input and output paths."""
-        self.options = {
-            "input_dir": str(self.parser.input_path),
-            "output_dir": str(self.output_path),
+        self.planning["options"] = {
+            "input_directory": str(options.get("output_dir", "")),
+            "output_directory": "results",
         }
 
     def process_stage_blocks(self):
@@ -56,8 +51,8 @@ class GTOptWriter:
             stage["first_block"] = stage_blocks[0] if stage_blocks else -1
             stage["count_block"] = len(stage_blocks) if stage_blocks else -1
 
-        self.simulation["block_array"] = BlockWriter().to_json_array(blocks)
-        self.simulation["stage_array"] = StageWriter().to_json_array(stages)
+        self.planning["simulation"]["block_array"] = BlockWriter().to_json_array(blocks)
+        self.planning["simulation"]["stage_array"] = StageWriter().to_json_array(stages)
 
     def process_central_embalses(self, embalses):
         """Process embalses to include block and stage information."""
@@ -88,7 +83,9 @@ class GTOptWriter:
         if not termicas:
             return
 
-        self.system["generator_array"] = CentralWriter().to_json_array(termicas)
+        self.planning["system"]["generator_array"] = CentralWriter().to_json_array(
+            termicas
+        )
         pass
 
     def process_central_fallas(self, fallas):
@@ -128,7 +125,7 @@ class GTOptWriter:
     # Returns:
     #     The matching bus dict or None if not found
 
-    def process_demands(self):
+    def process_demands(self, options):
         """Process demand data to include block and stage information."""
         demands = self.parser.parsed_data.get("demand_array", [])
         if not demands:
@@ -142,7 +139,10 @@ class GTOptWriter:
         for demand in dems:
             demand["bus"] = buses.get_bus_num(demand["name"])
 
-        self.system["demand_array"] = DemandWriter().to_json_array(dems)
+        blocks = self.parser.parsed_data.get("block_array", [])
+        self.planning["system"]["demand_array"] = DemandWriter(
+            demands, blocks, options
+        ).to_json_array()
 
     def process_buses(self):
         """Process bus data to include block and stage information."""
@@ -150,7 +150,7 @@ class GTOptWriter:
         if not buses:
             return
 
-        self.system["bus_array"] = BusWriter(buses).to_json_array()
+        self.planning["system"]["bus_array"] = BusWriter(buses).to_json_array()
 
     def process_lines(self):
         """Process line data to include block and stage information."""
@@ -158,30 +158,27 @@ class GTOptWriter:
         if not lines:
             return
 
-        self.system["line_array"] = LineWriter(lines).to_json_array()
+        self.planning["system"]["line_array"] = LineWriter(lines).to_json_array()
 
-    def to_json(self) -> Dict:
+    def to_json(self, options={}) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
-        self.process_options()
+        self.process_options(options)
         self.process_stage_blocks()
         self.process_buses()
         self.process_lines()
         self.process_central()
-        self.process_demands()
+        self.process_demands(options)
 
         # Organize into planning structure
 
-        return {
-            "options": self.options,
-            "simulation": self.simulation,
-            "system": self.system,
-        }
+        return self.planning
 
-    def write(self, output_path: Union[str, Path]):
+    def write(self, options={}):
         """Write JSON output to file."""
-        self.output_path = Path(output_path)
-        output_path = self.output_path
-        output_path.mkdir(parents=True, exist_ok=True)
-        output_file = output_path / "plp2gtopt.json"
+        self.output_dir = Path(options["output_dir"]) if options else Path("results")
+        output_dir = self.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = Path(options["output_file"]) if options else Path("gtopt.json")
+
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(self.to_json(), f, indent=4)
+            json.dump(self.to_json(options), f, indent=4)

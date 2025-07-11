@@ -53,7 +53,7 @@ using namespace gtopt;
       daw::json::options::PolicyCommentTypes::hash,
       daw::json::options::CheckedParseMode::yes,
       daw::json::options::ExcludeSpecialEscapes::yes,
-      daw::json::options::UseExactMappingsByDefault::yes>;
+      daw::json::options::UseExactMappingsByDefault::no>;
 
   const auto strict_parsing = !fast_parsing.value_or(false);
   if (!strict_parsing) {
