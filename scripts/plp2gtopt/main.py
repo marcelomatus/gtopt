@@ -12,14 +12,14 @@ def main():
         description="Convert PLP input files to GTOPT format"
     )
     parser.add_argument(
-        "input_dir", 
-        type=Path, 
+        "input_dir",
+        type=Path,
         help="Directory containing PLP input files",
         default=Path("input")
     )
     parser.add_argument(
-        "output_dir", 
-        type=Path, 
+        "output_dir",
+        type=Path,
         help="Directory to write GTOPT output files",
         default=Path("output")
     )
@@ -33,7 +33,7 @@ def main():
 
     options = {"input_dir": args.input_dir, "output_dir": args.output_dir}
 
-    convert_plp_case(options)
+    convert_plp_case(args.input_dir, args.output_dir)
 
 
 if __name__ == "__main__":
