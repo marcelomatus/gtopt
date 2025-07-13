@@ -112,9 +112,16 @@ class DemandParser(BaseParser):
         """Return the parsed demands structure with numpy arrays."""
         return self.demands
 
-    @property
+    @property 
     def num_demands(self) -> int:
-        """Return the number of bars in the file."""
+        """Return the number of demand entries in the file.
+        
+        This is a read-only property that dynamically calculates the length
+        of the demands list each time it's accessed.
+        
+        Returns:
+            int: Count of demand entries
+        """
         return len(self.demands)
 
     def get_demand_by_name(
