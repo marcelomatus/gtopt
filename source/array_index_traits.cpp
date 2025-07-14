@@ -133,9 +133,11 @@ namespace gtopt
       -> std::expected<ArrowTable, std::string>
   {
     if (format == "parquet") {
-      if (auto table = parquet_read_table(fpath); table) {
+      auto table = parquet_read_table(fpath);
+      if (table) {
         return table;
       }
+      SPDLOG_WARN(fmt::format("Error reading table from parquet: {}", table.error()));
       return csv_read_table(fpath);
     }
 

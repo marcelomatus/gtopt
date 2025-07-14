@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Union
 from abc import ABC, abstractmethod
+from typing import Optional
 
 
 class BaseParser(ABC):
@@ -22,12 +23,13 @@ class BaseParser(ABC):
         """
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self._data: List[Dict[str, Any]] = []
-        self._count: int = 0
+        self._index_map: Dict[str, int] = {}  # Maps central names to indices
 
-    @property
-    def count(self) -> int:
-        """Return number of parsed items."""
-        return self._count
+    def _append(self, item: Dict[str, Any]) -> None:
+        """Validate and add a completed central to the list."""
+        idx = len(self._data)
+        self._data.append(item)
+        self._index_map[item["name"]] = idx
 
     @abstractmethod
     def parse(self) -> None:
@@ -36,6 +38,10 @@ class BaseParser(ABC):
     def get_all(self) -> List[Dict[str, Any]]:
         """Return all parsed items."""
         return self._data
+
+    def get_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get itemg by name."""
+        return self._data[self._index_map[name]] if name in self._index_map else None
 
     def validate_file(self) -> None:
         """Validate input file exists and is readable."""
@@ -78,3 +84,10 @@ class BaseParser(ABC):
             Parsed float value
         """
         return float(value.lstrip("0") or "0.0")
+
+    def _next_idx(self, idx: int, lines) -> int:
+        """Advance to the next non-empty line."""
+        idx += 1
+        if idx < len(lines):
+            return idx
+        raise IndexError("No more non-empty lines available")

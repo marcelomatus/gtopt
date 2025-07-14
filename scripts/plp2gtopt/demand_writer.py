@@ -84,8 +84,8 @@ class DemandWriter(BaseWriter):
                 continue
 
             # Create Series for this demand
-            bus = demand.get("bus", demand["name"])
-            name = f"uid:{bus}" if not isinstance(bus, str) else bus
+            id = demand.get("bus", demand["name"])
+            name = f"uid:{id}" if not isinstance(id, str) else id
 
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             # Add to DataFrame
@@ -101,22 +101,24 @@ class DemandWriter(BaseWriter):
 
         # Ensure blocks are sorted and unique
         df = df.sort_index().drop_duplicates()
-        # Fill NaN values with column-specific defaults
-        fill_values = {
-            'stage': -1,  # Special value for missing stages
-            **{col: 0.0 for col in df.columns if col != 'stage'}  # 0.0 for demands
-        }
-        df = df.fillna(fill_values)
-        # Convert demand columns to float32
-        demand_cols = [col for col in df.columns if col != 'stage']
-        df[demand_cols] = df[demand_cols].astype(np.float32)
-
-        # Convert index to int16 for memory efficiency
-        df.index = df.index.astype("int16")
         # Ensure DataFrame has no duplicate columns
         df = df.loc[:, ~df.columns.duplicated()]
-        # Reset index to make it a column and rename to 'block'
+        # Convert demand columns to float64
+        demand_cols = [col for col in df.columns if col != "stage"]
+        df[demand_cols] = df[demand_cols].astype(np.float64)
+
+        # Convert index to block column
+        df.index = df.index.astype("int16")
         df = df.reset_index().rename(columns={"index": "block"})
+
+        # Fill missing values with column-specific defaults
+        fill_values = {
+            "stage": -1,  # Special value for missing stages
+            **{
+                col: 0.0 for col in df.columns if col != "stage" and col != "block"
+            },  # 0.0 for demands
+        }
+        df = df.fillna(fill_values)
 
         return df
 
@@ -137,8 +139,8 @@ class DemandWriter(BaseWriter):
         output_file = output_dir / output_file
 
         df = self.to_dataframe(items)
-        df.to_parquet(output_file, index=True, engine="pyarrow", compression="snappy")
+        if df.empty:
+            return
 
-
-if __name__ == "__main__":
-    BaseWriter.main(DemandWriter, DemandParser)
+        compression = self.options.get("compression", "zstd")
+        df.to_parquet(output_file, index=False, compression=compression)

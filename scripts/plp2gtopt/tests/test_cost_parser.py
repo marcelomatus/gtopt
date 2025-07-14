@@ -18,15 +18,8 @@ def test_costs_parser_initialization():
     test_path = "test.dat"
     parser = CostParser(test_path)
     assert parser.file_path == Path(test_path)
-    assert not parser.get_costs()
-    assert parser.num_generators == 0
-
-
-def test_get_num_generators():
-    """Test get_num_generators returns correct value."""
-    parser = CostParser("test.dat")
-    parser.num_generators = 3
-    assert parser.get_num_generators() == 3
+    assert not parser.costs
+    assert parser.num_costs == 0
 
 
 def test_get_costs(tmp_path):
@@ -44,7 +37,7 @@ def test_get_costs(tmp_path):
     parser = CostParser(str(test_file))
     parser.parse()
 
-    costs = parser.get_costs()
+    costs = parser.costs
     assert len(costs) == 1
     cost = costs[0]
 
@@ -66,38 +59,38 @@ def test_parse_sample_file(sample_costs_file):
     parser.parse()
 
     # Verify basic structure
-    assert parser.get_num_generators() == 2
-    costs = parser.get_costs()
+    assert parser.num_costs == 2
+    costs = parser.costs
     assert len(costs) == 2
 
     # Verify all generators have required fields
-    for gen_cost in costs:
-        assert isinstance(gen_cost["name"], str)
-        assert gen_cost["name"] != ""
-        assert isinstance(gen_cost["stages"], np.ndarray)
-        assert isinstance(gen_cost["costs"], np.ndarray)
-        assert len(gen_cost["stages"]) > 0
-        assert len(gen_cost["stages"]) == len(gen_cost["costs"])
+    for cen_cost in costs:
+        assert isinstance(cen_cost["name"], str)
+        assert cen_cost["name"] != ""
+        assert isinstance(cen_cost["stages"], np.ndarray)
+        assert isinstance(cen_cost["costs"], np.ndarray)
+        assert len(cen_cost["stages"]) > 0
+        assert len(cen_cost["stages"]) == len(cen_cost["costs"])
 
         # Verify array types and values
-        assert gen_cost["stages"].dtype == np.int32
-        assert gen_cost["costs"].dtype == np.float64
-        assert np.all(gen_cost["stages"] > 0)
-        assert np.all(gen_cost["costs"] > 0)
+        assert cen_cost["stages"].dtype == np.int32
+        assert cen_cost["costs"].dtype == np.float64
+        assert np.all(cen_cost["stages"] > 0)
+        assert np.all(cen_cost["costs"] > 0)
 
-    # Verify first generator data
-    gen1 = costs[0]
-    assert gen1["name"] == "CMPC_PACIFICO_BL3"
-    assert len(gen1["stages"]) == 4
-    assert gen1["stages"][0] == 4
-    assert gen1["costs"][0] == 157.9
+    # Verify first central data
+    cen1 = costs[0]
+    assert cen1["name"] == "CMPC_PACIFICO_BL3"
+    assert len(cen1["stages"]) == 4
+    assert cen1["stages"][0] == 4
+    assert cen1["costs"][0] == 157.9
 
-    # Verify second generator data
-    gen2 = costs[1]
-    assert gen2["name"] == "ANDINA"
-    assert len(gen2["stages"]) == 3
-    assert gen2["stages"][0] == 5
-    assert gen2["costs"][0] == 67.2
+    # Verify second central data
+    cen2 = costs[1]
+    assert cen2["name"] == "ANDINA"
+    assert len(cen2["stages"]) == 3
+    assert cen2["stages"][0] == 5
+    assert cen2["costs"][0] == 67.2
 
 
 def test_real_file_parsing():
@@ -109,48 +102,48 @@ def test_real_file_parsing():
     parser.parse()
 
     # Verify basic structure
-    assert parser.get_num_generators() == 2
-    costs = parser.get_costs()
+    assert parser.num_costs == 2
+    costs = parser.costs
     assert len(costs) == 2
 
-    # Verify first generator data
-    gen1 = costs[0]
-    assert gen1["name"] == "CMPC_PACIFICO_BL3"
-    assert len(gen1["stages"]) == 4
-    assert gen1["stages"][0] == 4
-    assert gen1["costs"][0] == pytest.approx(157.9)
+    # Verify first central data
+    cen1 = costs[0]
+    assert cen1["name"] == "CMPC_PACIFICO_BL3"
+    assert len(cen1["stages"]) == 4
+    assert cen1["stages"][0] == 4
+    assert cen1["costs"][0] == pytest.approx(157.9)
 
-    # Verify second generator data
-    gen2 = costs[1]
-    assert gen2["name"] == "ANDINA"
-    assert len(gen2["stages"]) == 3
-    assert gen2["stages"][0] == 5
-    assert gen2["costs"][0] == pytest.approx(67.2)
+    # Verify second central data
+    cen2 = costs[1]
+    assert cen2["name"] == "ANDINA"
+    assert len(cen2["stages"]) == 3
+    assert cen2["stages"][0] == 5
+    assert cen2["costs"][0] == pytest.approx(67.2)
 
 
 def test_get_costs_by_name(sample_costs_file):
-    """Test getting costs by generator name."""
+    """Test getting costs by central name."""
     parser = CostParser(str(sample_costs_file))
     parser.parse()
 
-    # Test existing generator
-    costs = parser.get_costs()
-    first_gen = costs[0]["name"]
-    gen_data = parser.get_costs_by_name(first_gen)
-    assert gen_data is not None
-    assert gen_data["name"] == first_gen
-    assert len(gen_data["stages"]) > 0
-    assert len(gen_data["costs"]) > 0
+    # Test existing central
+    costs = parser.costs
+    first_cen = costs[0]["name"]
+    cen_data = parser.get_cost_by_name(first_cen)
+    assert cen_data is not None
+    assert cen_data["name"] == first_cen
+    assert len(cen_data["stages"]) > 0
+    assert len(cen_data["costs"]) > 0
 
-    # Test another existing generator if available
+    # Test another existing central if available
     if len(costs) > 1:
-        second_gen = costs[1]["name"]
-        gen_data = parser.get_costs_by_name(second_gen)
-        assert gen_data is not None
-        assert gen_data["name"] == second_gen
-        assert len(gen_data["stages"]) > 0
-        assert len(gen_data["costs"]) > 0
+        second_cen = costs[1]["name"]
+        cen_data = parser.get_cost_by_name(second_cen)
+        assert cen_data is not None
+        assert cen_data["name"] == second_cen
+        assert len(cen_data["stages"]) > 0
+        assert len(cen_data["costs"]) > 0
 
-    # Test non-existent generator
-    missing = parser.get_costs_by_name("NonExistentGen")
+    # Test non-existent central
+    missing = parser.get_cost_by_name("NonExistentCen")
     assert missing is None

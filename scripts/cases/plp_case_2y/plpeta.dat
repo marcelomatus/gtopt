@@ -1,6 +1,6 @@
 # Archivo con la duracion de las etapas
 # Etapas
-      10   'H'
+      51   'H'
 # Ano  Mes  Etapa FDesh   NHoras    FactTasa    TipoEtapa
   001  003    001     F      168    1.000000    '10 Bloques'
   001  003    002     F      168    1.000000    '10 Bloques'
