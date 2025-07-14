@@ -30,7 +30,7 @@ def test_costs_writer_initialization(sample_costs_file):
     writer = CostWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_generators
+    assert len(writer.items) == parser.num_costs
 
 
 def test_to_json_array(sample_costs_writer):
@@ -76,8 +76,8 @@ def test_from_costs_file(sample_costs_file):
 
     # Verify parser was initialized and parsed
     assert writer.parser.file_path == sample_costs_file
-    assert writer.parser.num_generators > 0
-    assert len(writer.items) == writer.parser.num_generators
+    assert writer.parser.num_costs > 0
+    assert len(writer.items) == writer.parser.num_costs
 
 
 def test_json_output_structure(sample_costs_writer):

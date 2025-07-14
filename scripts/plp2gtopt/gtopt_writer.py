@@ -95,7 +95,7 @@ class GTOptWriter:
 
         pass
 
-    def process_central(self):
+    def process_central(self, options):
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
 
@@ -118,12 +118,11 @@ class GTOptWriter:
         self.process_central_termicas(ceng.get("termica", []))
         self.process_central_fallas(ceng.get("falla", []))
 
-    # Find a bus by name in the buses list
-    # Args:
-    #     bus_name: Name of bus to find  n
-    #     buses: List of bus dictionaries to search
-    # Returns:
-    #     The matching bus dict or None if not found
+        stages = self.parser.parsed_data.get("stage_array", None)
+        costs = self.parser.parsed_data.get("cost_array", None)
+        self.planning["system"]["generator_array"] = CentralWriter(
+            centrals, stages, costs, options
+        ).to_json_array()
 
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
@@ -166,7 +165,7 @@ class GTOptWriter:
         self.process_stage_blocks()
         self.process_buses()
         self.process_lines()
-        self.process_central()
+        self.process_central(options)
         self.process_demands(options)
 
         # Organize into planning structure

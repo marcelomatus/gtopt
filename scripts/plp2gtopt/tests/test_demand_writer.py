@@ -118,7 +118,6 @@ def test_write_empty_demands():
     # Create parser with no demands
     parser = DemandParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_demands = 0
 
     writer = DemandWriter(parser)
 

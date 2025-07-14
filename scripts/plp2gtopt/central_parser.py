@@ -71,6 +71,7 @@ class CentralParser(BaseParser):
         try:
             idx = 0
             gen_idx = 0
+
             while idx < len(lines):
                 line = lines[idx]
                 idx += 1
@@ -84,6 +85,7 @@ class CentralParser(BaseParser):
                         # Central line format: number 'name' ...
                         gen_idx += 1
                         current_gen = self._parse_central_header(parts, gen_idx)
+
                 elif line.startswith("Start"):
                     idx += 1  # Skip to next line
                 elif line.startswith("PotMin"):
@@ -96,6 +98,10 @@ class CentralParser(BaseParser):
         finally:
             lines.clear()
             del lines
+
+    def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get central data by name."""
+        return self.get_item_by_name(name)
 
     def get_centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
         """Return the parsed centrals structure.
@@ -241,9 +247,9 @@ class CentralParser(BaseParser):
         try:
             current_gen["variable_cost"] = self._parse_float(parts[0])
             current_gen["efficiency"] = self._parse_float(parts[1])
-            current_gen["bus"] = int(parts[2])
-            current_gen["ser_hid"] = int(parts[3])
-            current_gen["ser_ver"] = int(parts[4])
+            current_gen["bus"] = self._parse_int(parts[2])
+            current_gen["ser_hid"] = self._parse_int(parts[3])
+            current_gen["ser_ver"] = self._parse_int(parts[4])
             current_gen["pot_tm0"] = self._parse_float(parts[5])
             current_gen["afluent"] = self._parse_float(parts[6])
 
@@ -264,61 +270,4 @@ class CentralParser(BaseParser):
 
     def _finalize_central(self, gen: Dict[str, Any]) -> None:
         """Validate and add a completed central to the list."""
-        # Only check for truly required fields
-        required = {"number", "name", "type"}
-        missing = required - gen.keys()
-        if missing:
-            raise ValueError(
-                f"Central {gen.get('id', 'unknown')}"
-                "missing required fields: {missing}"
-            )
-
-        self.centrals.append(gen)
-
-
-def main(args: Optional[List[str]] = None) -> int:
-    """Command line entry point for central file analysis.
-
-    Args:
-        args: Command line arguments (uses sys.argv if None)
-
-    Returns:
-        0 on success, 1 on failure
-
-    Example:
-        $ python central_parser.py input.dat
-    """
-    if args is None:
-        args = sys.argv[1:]
-
-    if len(args) != 1:
-        print(f"Usage: {sys.argv[0]} <plpgen.dat file>", file=sys.stderr)
-        return 1
-
-    try:
-        input_path = Path(args[0])
-        if not input_path.exists():
-            raise FileNotFoundError(f"Central file not found: {input_path}")
-
-        parser = CentralParser(str(input_path))
-        parser.parse()
-
-        print(f"\nCentral File Analysis: {parser.file_path.name}")
-        print("=" * 40)
-        print(f"Total centrals: {parser.get_num_centrals()}")
-
-        centrals = parser.get_centrals()
-        for gen in centrals:
-            print(f"\nCentral: {gen['id']}")
-            print(f"  Bus: {gen['bus']}")
-            print(f"  Pmin: {gen['p_min']}")
-            print(f"  Pmax: {gen['p_max']}")
-
-        return 0
-    except (FileNotFoundError, ValueError, IndexError) as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        return self._append(gen)

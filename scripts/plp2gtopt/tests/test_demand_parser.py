@@ -18,15 +18,8 @@ def test_demand_parser_initialization():
     test_path = "test.dat"
     parser = DemandParser(test_path)
     assert parser.file_path == Path(test_path)  # Compare Path objects
-    assert not parser.get_demands()  # Use public method instead of accessing _data
+    assert not parser.demands
     assert parser.num_demands == 0
-
-
-def test_get_num_bars():
-    """Test get_num_bars returns correct value."""
-    parser = DemandParser("test.dat")
-    parser.num_demands = 5
-    assert parser.get_num_bars() == 5
 
 
 def test_get_demands():
@@ -39,8 +32,9 @@ def test_get_demands():
     parser._data = [
         {"number": 1, "name": "test", "blocks": test_blocks, "values": test_values}
     ]  # pylint: disable=protected-access
+    assert len(parser._data) == 1
 
-    demands = parser.get_demands()
+    demands = parser.demands
     assert len(demands) == 1
     demand = demands[0]
 
@@ -63,8 +57,8 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
     parser.parse()
 
     # Verify basic structure
-    assert parser.get_num_bars() == 2
-    demands = parser.get_demands()
+    assert parser.num_demands == 2
+    demands = parser.demands
     assert len(demands) == 2
 
     # Verify all bars have required fields
@@ -113,7 +107,7 @@ def test_get_demand_by_name(sample_demand_file):  # pylint: disable=redefined-ou
     parser.parse()
 
     # Test existing bus
-    demands = parser.get_demands()
+    demands = parser.demands
     first_bus = demands[0]["name"]
     bus_data = parser.get_demand_by_name(first_bus)
     assert bus_data is not None

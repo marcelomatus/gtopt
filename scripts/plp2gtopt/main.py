@@ -35,6 +35,7 @@ def main():
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
         "output_file": args.output_file,
+        "compression": "gzip",
     }
 
     convert_plp_case(options)
