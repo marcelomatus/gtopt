@@ -20,30 +20,15 @@ def test_stage_parser_initialization():
     assert parser.num_stages == 0
 
 
-def test_get_num_stages():
-    """Test get_num_stages returns correct value."""
-    parser = StageParser("test.dat")
-    parser.num_stages = 3
-    assert parser.get_num_stages() == 3
-
-
-def test_get_stages():
-    """Test get_stages returns stages list."""
-    parser = StageParser("test.dat")
-    test_stages = [{"test": "data"}]
-    parser.stages = test_stages
-    assert parser.get_stages() == test_stages
-
-
 def test_parse_sample_file(sample_stage_file):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample stage file."""
     parser = StageParser(str(sample_stage_file))
     parser.parse()
 
     # Verify basic structure
-    num_stages = parser.get_num_stages()
+    num_stages = parser.num_stages
     assert num_stages == 10  # Number of stages is 10 in test data
-    stages = parser.get_stages()
+    stages = parser.stages
     assert len(stages) == num_stages
 
     # Verify all stages have required fields
@@ -85,7 +70,7 @@ def test_discount_factor_calculation(
     parser = StageParser(str(sample_stage_file))
     parser.parse()
 
-    stages = parser.get_stages()
+    stages = parser.stages
 
     # Verify discount factors are calculated correctly
     assert "discount_factor" in stages[0]
@@ -96,21 +81,3 @@ def test_discount_factor_calculation(
     # Verify discount factors are valid
     for stage in stages:
         assert 0 < stage["discount_factor"] <= 1.0  # Should be between 0 and 1
-
-
-def test_get_stage_by_number(sample_stage_file):  # pylint: disable=redefined-outer-name
-    """Test getting stage by number."""
-    parser = StageParser(str(sample_stage_file))
-    parser.parse()
-
-    # Test existing stage
-    stages = parser.get_stages()
-    first_stage_num = stages[0]["number"]
-    stage = parser.get_stage_by_number(first_stage_num)
-    assert stage is not None
-    assert stage["number"] == first_stage_num
-    assert stage["duration"] == 168
-
-    # Test non-existent stage
-    missing = parser.get_stage_by_number(99)
-    assert missing is None

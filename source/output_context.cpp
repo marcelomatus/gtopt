@@ -294,6 +294,7 @@ void OutputContext::write() const
                           sol_kappa,
                           "status",
                           sol_status);
+  sol_file << '\n';
 }
 
 OutputContext::OutputContext(const SystemContext& psc,

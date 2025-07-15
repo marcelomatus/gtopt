@@ -76,9 +76,8 @@ class CentralParser(BaseParser):
                         self._parse_header(parts)
                     else:
                         # Central line format: number 'name' ...
-                        gen_idx += 1
                         current_gen = self._parse_central_header(parts, gen_idx)
-
+                        gen_idx += 1
                 elif line.startswith("Start"):
                     idx += 1  # Skip to next line
                 elif line.startswith("PotMin"):
@@ -98,7 +97,7 @@ class CentralParser(BaseParser):
 
     def _central_type(self, gen_idx: int) -> str:
         """Determine central type based on its index and type counts.
-        
+
         Note: This is marked protected but has test helper method test_central_type().
         """
         # Ordered list of (type_name, count) tuples
@@ -111,7 +110,7 @@ class CentralParser(BaseParser):
             ("falla", self.num_fallas),
         ]
 
-        remaining_idx = gen_idx - 1  # Convert to 0-based index
+        remaining_idx = gen_idx
 
         for type_name, type_count in type_counts:
             if type_count > 0 and remaining_idx < type_count:
@@ -150,14 +149,14 @@ class CentralParser(BaseParser):
         try:
             # First try parsing as float then convert to int
             return {
-                "number": int(parts[0]),
+                "number": self._parse_int(parts[0]),
                 "name": parts[1].strip("'"),
                 "type": self._central_type(gen_idx),
             }
         except (ValueError, IndexError) as e:
             raise ValueError(f"Invalid central header: {str(e)}") from e
 
-    def test_central_type(self, gen_idx: int) -> str:
+    def get_central_type(self, gen_idx: int) -> str:
         """Test helper method to expose central type determination."""
         return self._central_type(gen_idx)
 

@@ -99,7 +99,6 @@ def test_write_empty_buses():
     # Create parser with no buses
     parser = BusParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_buses = 0
 
     writer = BusWriter(parser)
     json_buses = writer.to_json_array()

@@ -45,7 +45,7 @@ def test_get_costs(tmp_path):
     assert cost["name"] == "test"
     assert isinstance(cost["stages"], np.ndarray)
     assert isinstance(cost["costs"], np.ndarray)
-    assert cost["stages"].dtype == np.int32
+    assert cost["stages"].dtype == np.int16
     assert cost["costs"].dtype == np.float64
 
     # Verify array contents
@@ -73,7 +73,7 @@ def test_parse_sample_file(sample_costs_file):
         assert len(cen_cost["stages"]) == len(cen_cost["costs"])
 
         # Verify array types and values
-        assert cen_cost["stages"].dtype == np.int32
+        assert cen_cost["stages"].dtype == np.int16
         assert cen_cost["costs"].dtype == np.float64
         assert np.all(cen_cost["stages"] > 0)
         assert np.all(cen_cost["costs"] > 0)

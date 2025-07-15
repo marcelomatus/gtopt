@@ -12,6 +12,8 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include <spdlog/spdlog.h>
+
 namespace
 {
 using namespace gtopt;
@@ -40,7 +42,12 @@ auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
 auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     -> const BusLP&
 {
-  return system().element(get_bus_index(id));
+  try{
+    return system().element(get_bus_index(id));
+  } catch (const std::out_of_range& e) {
+    SPDLOG_ERROR(fmt::format("Bus with ID {} not found: {}", id.uid(), e.what()));
+    throw;
+  }
 }
 
 }  // namespace gtopt

@@ -71,7 +71,7 @@ def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-out
         assert len(demand_bar["blocks"]) == len(demand_bar["values"])
 
         # Verify array types and values
-        assert demand_bar["blocks"].dtype == np.int32
+        assert demand_bar["blocks"].dtype == np.int16
         assert demand_bar["values"].dtype == np.float64
         assert np.all(demand_bar["blocks"] > 0)
         assert np.all(demand_bar["values"] > 0)

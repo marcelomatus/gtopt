@@ -103,7 +103,13 @@ constexpr void add_to_lp(auto& collections,
       return !use_single_bus ? e.add_to_lp(system_context, scenario, stage, lp)
                              : true;
     } else {
-      return e.add_to_lp(system_context, scenario, stage, lp);
+      try {
+        // For all other elements, just call their add_to_lp method
+        return e.add_to_lp(system_context, scenario, stage, lp);
+      } catch (const std::exception& ex) {
+        SPDLOG_ERROR(fmt::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
+        return false;
+      }
     }
   };
 

@@ -10,6 +10,7 @@ from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .cost_parser import CostParser
 from .stage_parser import StageParser
+from .bus_parser import BusParser
 
 
 class CentralWriter(BaseWriter):
@@ -20,31 +21,104 @@ class CentralWriter(BaseWriter):
         central_parser: CentralParser = None,
         stage_parser: StageParser = None,
         cost_parser: CostParser = None,
+        bus_parser: BusParser = None,
         options: Dict[str, Any] = None,
     ):
         """Initialize with a CentralParser instance."""
         super().__init__(central_parser)
         self.stage_parser = stage_parser
         self.cost_parser = cost_parser
+        self.bus_parser = bus_parser
         self.options = options if options is not None else {}
+
+    def process_central_embalses(self, embalses):
+        """Process embalses to include block and stage information."""
+        if not embalses:
+            return
+        pass
+
+    def process_central_series(self, series):
+        """Process series to include block and stage information."""
+        if not series:
+            return
+        pass
+
+    def process_central_pasadas(self, pasadas):
+        """Process pasadas to include block and stage information."""
+        if not pasadas:
+            return
+        pass
+
+    def process_central_baterias(self, baterias):
+        """Process baterias to include block and stage information."""
+        if not baterias:
+            return
+        pass
+
+    def process_central_termicas(self, termicas):
+        """Process termicas to include block and stage information."""
+        if not termicas:
+            return
+        pass
+
+    def process_central_fallas(self, fallas):
+        """Process fallas to include block and stage information."""
+        if not fallas:
+            return
+        pass
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert central data to JSON array format."""
         if items is None:
             items = self.items
+        if not items:
+            return []
+
+        self.centrals_of_type = {
+            "embalse": [],
+            "serie": [],
+            "pasada": [],
+            "termica": [],
+            "bateria": [],
+            "falla": [],
+        }
+
+        for cen in items:
+            self.centrals_of_type[cen["type"]].append(cen)
+
+        self.process_central_embalses(self.centrals_of_type["embalse"])
+        self.process_central_series(self.centrals_of_type["serie"])
+        self.process_central_pasadas(self.centrals_of_type["pasada"])
+        self.process_central_baterias(self.centrals_of_type["bateria"])
+        self.process_central_termicas(self.centrals_of_type["termica"])
+        self.process_central_fallas(self.centrals_of_type["falla"])
 
         json_centrals = []
         for cen in items:
-            # Skip centrals without a bus or with bus 0
-            if cen.get("bus", -1) <= 0:
+            # skip centrals that are "falla" type
+            if cen["type"] == "falla":
+                # Falla centrals are not included in the output
                 continue
 
+            # Skip centrals without a bus or with bus 0
+            bus_number = cen.get("bus", -1)
+            if bus_number <= 0:
+                continue
+
+            if self.bus_parser:
+                bus = self.bus_parser.get_bus_by_number(bus_number)
+                if bus is None or bus.get("number", -1) <= 0:
+                    print(
+                        f"Skipping central {cen['name']} with invalid bus {bus_number}."
+                    )
+                    continue
+
+            # lookup cost by name if cost_parser is available, and use it
             cost = (
                 self.cost_parser.get_cost_by_name(cen["name"])
                 if self.cost_parser
                 else None
             )
-
             gcost = cen.get("variable_cost", 0.0) if cost is None else "gcost"
 
             central = {

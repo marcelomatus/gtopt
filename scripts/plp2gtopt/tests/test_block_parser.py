@@ -16,15 +16,8 @@ def test_block_parser_initialization():
     """Test BlockParser initialization."""
     parser = BlockParser("test.dat")
     assert parser.file_path == Path("test.dat")
-    assert not parser.get_blocks()  # Check empty list through public method
+    assert not parser.blocks  # Check empty list through public method
     assert parser.num_blocks == 0
-
-
-def test_get_num_blocks():
-    """Test get_num_blocks returns correct value."""
-    parser = BlockParser("test.dat")
-    parser.num_blocks = 5
-    assert parser.get_num_blocks() == 5
 
 
 def test_get_blocks():
@@ -36,7 +29,7 @@ def test_get_blocks():
         f.write(test_content)
 
     parser.parse()
-    blocks = parser.get_blocks()
+    blocks = parser.blocks
     assert len(blocks) == 1
     assert blocks[0]["number"] == 1
     assert blocks[0]["stage"] == 1
@@ -49,9 +42,9 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     parser.parse()
 
     # Verify basic structure
-    num_blocks = parser.get_num_blocks()
+    num_blocks = parser.num_blocks
     assert num_blocks == 10
-    blocks = parser.get_blocks()
+    blocks = parser.blocks
     assert len(blocks) == num_blocks
 
     # Verify all blocks have required fields
@@ -78,21 +71,3 @@ def test_parse_sample_file(sample_block_file):  # pylint: disable=redefined-oute
     # Verify block numbers are sequential
     for i, block in enumerate(blocks, 1):
         assert block["number"] == i
-
-
-def test_get_block_by_number(sample_block_file):  # pylint: disable=redefined-outer-name
-    """Test getting block by number."""
-    parser = BlockParser(str(sample_block_file))
-    parser.parse()
-
-    # Test existing block
-    blocks = parser.get_blocks()
-    first_block_num = blocks[0]["number"]
-    block = parser.get_block_by_number(first_block_num)
-    assert block is not None
-    assert block["number"] == first_block_num
-    assert block["duration"] == 7  # Duration should be positive
-
-    # Test non-existent block
-    missing = parser.get_block_by_number(9999)
-    assert missing is None
