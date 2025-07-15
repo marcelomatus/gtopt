@@ -128,18 +128,7 @@ def malformed_gen_file_fixture(tmp_path: Path) -> Path:
 
 
 def test_parse_valid_file(valid_gen_file: Path) -> None:
-    """Test parsing a valid central file.
-
-    Verifies:
-    - Correct number of centrals parsed
-    - All central fields are correctly extracted
-    - Data types are correct
-    - Battery detection works
-    - Central type detection works
-
-    Args:
-        valid_gen_file: Path to valid central test file
-    """
+    """Test parsing a valid central file."""
     parser = CentralParser(valid_gen_file)
     parser.parse()
     assert parser.num_centrals == 6
@@ -166,30 +155,14 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
 
 
 def test_parse_nonexistent_file(tmp_path: Path) -> None:
-    """Test handling of non-existent input file.
-
-    Verifies:
-    - Proper FileNotFoundError is raised
-    - Error contains meaningful message
-
-    Args:
-        tmp_path: Pytest temporary path fixture
-    """
+    """Test handling of non-existent input file."""
     parser = CentralParser(tmp_path / "nonexistent.dat")
     with pytest.raises(FileNotFoundError):
         parser.parse()
 
 
 def test_parse_empty_file(empty_gen_file: Path) -> None:
-    """Test handling of empty input file.
-
-    Verifies:
-    - Parser properly detects empty file
-    - Raises ValueError with appropriate message
-
-    Args:
-        empty_gen_file: Path to empty test file
-    """
+    """Test handling of empty input file."""
     parser = CentralParser(empty_gen_file)
     with pytest.raises(ValueError, match="File is empty"):
         parser.parse()
@@ -202,13 +175,7 @@ def test_parse_empty_file(empty_gen_file: Path) -> None:
     reason="Test case file not found",
 )
 def test_parse_real_file() -> None:
-    """Test parsing of real plpcnfce.dat file from test cases.
-
-    Verifies:
-    - Can parse the real file without errors
-    - Correct number of centrals are found
-    - Sample central data is correct
-    """
+    """Test parsing of real plpcnfce.dat file from test cases."""
     test_file = Path(__file__).parent.parent.parent / "cases/plp_dat_ex/plpcnfce.dat"
 
     parser = CentralParser(test_file)
@@ -266,14 +233,7 @@ def test_parse_real_file() -> None:
     reason="Large test case file not found",
 )
 def test_parse_large_real_file() -> None:
-    """Test parsing of larger plpcnfce.dat file from 2-year case.
-
-    Verifies:
-    - Can parse the larger file without errors
-    - Correct number of centrals are found
-    - Sample central data is correct
-    - Central type counts are consistent
-    """
+    """Test parsing of larger plpcnfce.dat file from 2-year case."""
     test_file = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
 
     parser = CentralParser(test_file)
@@ -323,3 +283,84 @@ def test_parse_large_real_file() -> None:
     assert type_counts["pasada"] == parser.num_pasadas
     assert type_counts["bateria"] == parser.num_baterias
     assert type_counts["falla"] == parser.num_fallas
+def test_parse_malformed_file(malformed_gen_file: Path) -> None:
+    """Test handling of malformed central file."""
+    parser = CentralParser(malformed_gen_file)
+    with pytest.raises(ValueError):
+        parser.parse()
+
+def test_central_type_detection() -> None:
+    """Test central type detection logic."""
+    parser = CentralParser("dummy.dat")
+    
+    # Test type detection with mock counts
+    parser.num_embalses = 2
+    parser.num_series = 3
+    parser.num_termicas = 5
+    parser.num_pasadas = 1
+    parser.num_baterias = 2
+    parser.num_fallas = 1
+    
+    # Verify type detection for each range
+    assert parser._central_type(1) == "embalse"
+    assert parser._central_type(2) == "embalse"
+    assert parser._central_type(3) == "serie"
+    assert parser._central_type(6) == "serie"
+    assert parser._central_type(7) == "termica"
+    assert parser._central_type(12) == "termica" 
+    assert parser._central_type(13) == "pasada"
+    assert parser._central_type(14) == "bateria"
+    assert parser._central_type(15) == "bateria"
+    assert parser._central_type(16) == "falla"
+
+def test_parse_power_limits() -> None:
+    """Test parsing of power limits section."""
+    parser = CentralParser("dummy.dat")
+    test_lines = [
+        "PotMin PotMax VertMin VertMax",
+        "100.0 200.0 50.0 60.0"
+    ]
+    current_gen = {}
+    current_gen, _ = parser._parse_power_limits(test_lines, 0, current_gen)
+    
+    assert current_gen["p_min"] == 100.0
+    assert current_gen["p_max"] == 200.0
+    assert current_gen["v_min"] == 50.0
+    assert current_gen["v_max"] == 60.0
+
+def test_parse_cost_and_bus() -> None:
+    """Test parsing of cost and bus information."""
+    parser = CentralParser("dummy.dat")
+    test_lines = [
+        "CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen",
+        "10.5  0.95  123  1  2  0.0  1000.0"
+    ]
+    current_gen = {}
+    current_gen, _ = parser._parse_cost_and_bus(test_lines, 0, current_gen)
+    
+    assert current_gen["variable_cost"] == 10.5
+    assert current_gen["efficiency"] == 0.95
+    assert current_gen["bus"] == 123
+    assert current_gen["ser_hid"] == 1
+    assert current_gen["ser_ver"] == 2
+
+def test_get_central_by_name(valid_gen_file: Path) -> None:
+    """Test lookup of central by name."""
+    parser = CentralParser(valid_gen_file)
+    parser.parse()
+    
+    central = parser.get_central_by_name("LMAULE")
+    assert central is not None
+    assert central["name"] == "LMAULE"
+    
+    # Test non-existent central
+    assert parser.get_central_by_name("NON_EXISTENT") is None
+
+def test_central_properties(valid_gen_file: Path) -> None:
+    """Test central properties access."""
+    parser = CentralParser(valid_gen_file)
+    parser.parse()
+    
+    assert len(parser.centrals) == parser.num_centrals
+    assert isinstance(parser.centrals, list)
+    assert all(isinstance(c, dict) for c in parser.centrals)
