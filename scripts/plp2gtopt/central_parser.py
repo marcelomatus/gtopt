@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Parser for plpcnfce.dat format files containing central data.
@@ -35,7 +34,6 @@ class CentralParser(BaseParser):
             ValueError: If file_path is empty
         """
         super().__init__(file_path)
-        self.centrals: List[Dict[str, Union[str, float, bool]]] = self._data
         # Initialize type counts to 0
         self.num_centrales = 0
         self.num_embalses = 0
@@ -45,25 +43,19 @@ class CentralParser(BaseParser):
         self.num_baterias = 0
         self.num_termicas = 0
 
+    @property
+    def centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
+        """Return the parsed centrals structure."""
+        return self.get_all()
+
+    @property
+    def num_centrals(self) -> int:
+        """Return the number of centrals in the file."""
+        return len(self.centrals)
+
     def parse(self) -> None:  # pylint: disable
-        """Parse the central file and populate the centrals structure.
-
-        The file format expected is:
-        - Each central starts with an ID line
-        - Followed by power limits (PotMin/PotMax)
-        - Then cost and bus information (CosVar/Rendi/Barra)
-
-        Raises:
-            FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid or empty
-            IOError: If file cannot be read
-        """
+        """Parse the central file and populate the centrals structure."""
         self.validate_file()
-        lines = self._read_non_empty_lines()
-        if not lines:
-            raise ValueError("File is empty")
-        current_gen: Dict[str, Any] = {}
-
         lines = self._read_non_empty_lines()
         if not lines:
             raise ValueError("File is empty")
@@ -71,6 +63,7 @@ class CentralParser(BaseParser):
         try:
             idx = 0
             gen_idx = 0
+            current_gen = {}
 
             while idx < len(lines):
                 line = lines[idx]
@@ -93,7 +86,7 @@ class CentralParser(BaseParser):
                 elif line.startswith("CosVar"):
                     current_gen, idx = self._parse_cost_and_bus(lines, idx, current_gen)
                     # Finalize and add the central
-                    self._finalize_central(current_gen)
+                    self._append(current_gen)
                     current_gen = {}  # Reset for next central
         finally:
             lines.clear()
@@ -102,47 +95,6 @@ class CentralParser(BaseParser):
     def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get central data by name."""
         return self.get_item_by_name(name)
-
-    def get_centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
-        """Return the parsed centrals structure.
-
-        Returns:
-            List of central dictionaries.
-        """
-        return self.centrals
-
-    def get_num_centrals(self) -> int:
-        """Return the number of centrals in the file."""
-        return len(self.centrals)
-
-    @property
-    def num_centrals(self) -> int:
-        """Return the number of centrals (property version)."""
-        return len(self.centrals)
-
-    def get_centrals_by_bus(self, bus_id: Union[str, int]) -> List[Dict[str, Any]]:
-        """Get all centrals connected to a specific bus.
-
-        Args:
-            bus_id: The bus ID to filter centrals by
-
-        Returns:
-            List of unique central dictionaries matching the bus ID
-            (unique by id and bus combination)
-
-        Example:
-            >>> parser.get_centrals_by_bus("1")
-            [{'id': '1', 'name': 'GEN1', ...}]
-        """
-        seen = set()
-        unique_gens = []
-        for g in self.centrals:
-            if str(g["bus"]) == str(bus_id):  # Handle both string and int bus IDs
-                key = (g["number"], g["bus"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_gens.append(g)
-        return unique_gens
 
     def _central_type(self, gen_idx: int) -> str:
         """Determine central type based on its index and type counts."""
@@ -267,7 +219,3 @@ class CentralParser(BaseParser):
             ) from e
 
         return current_gen, idx
-
-    def _finalize_central(self, gen: Dict[str, Any]) -> None:
-        """Validate and add a completed central to the list."""
-        return self._append(gen)
