@@ -11,6 +11,7 @@ from .central_parser import CentralParser
 from .cost_parser import CostParser
 from .stage_parser import StageParser
 from .bus_parser import BusParser
+from .mance_parser import ManceParser
 
 
 class CentralWriter(BaseWriter):
@@ -22,6 +23,7 @@ class CentralWriter(BaseWriter):
         stage_parser: StageParser = None,
         cost_parser: CostParser = None,
         bus_parser: BusParser = None,
+        mance_parser: ManceParser = None,
         options: Dict[str, Any] = None,
     ):
         """Initialize with a CentralParser instance."""
@@ -29,6 +31,7 @@ class CentralWriter(BaseWriter):
         self.stage_parser = stage_parser
         self.cost_parser = cost_parser
         self.bus_parser = bus_parser
+        self.mance_parser = mance_parser
         self.options = options if options is not None else {}
 
     def process_central_embalses(self, embalses):
@@ -121,6 +124,15 @@ class CentralWriter(BaseWriter):
             )
             gcost = cen.get("variable_cost", 0.0) if cost is None else "gcost"
 
+            # lookup mance by name if cost_parser is available, and use it
+            mance = (
+                self.mance_parser.get_mance_by_name(cen["name"])
+                if self.mance_parser
+                else None
+            )
+            pmax = cen.get("p_max", 0.0) if mance is None else "pmax"
+            pmin = cen.get("p_min", 0.0) if mance is None else "pmin"
+
             central = {
                 "uid": cen["number"],
                 "name": cen["name"],
@@ -128,8 +140,8 @@ class CentralWriter(BaseWriter):
                 "gcost": gcost,
                 "capacity": float(cen.get("p_max", 0)),
                 "efficiency": float(cen.get("efficiency", 1.0)),
-                "pmax": float(cen.get("p_max", 0.0)),
-                "pmin": float(cen.get("p_min", 0.0)),
+                "pmax": pmax,
+                "pmin": pmin,
                 "type": cen.get("type", "unknown"),
             }
 
