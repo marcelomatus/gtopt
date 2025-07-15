@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Writer for converting stage data to JSON format."""
@@ -28,7 +27,3 @@ class StageWriter(BaseWriter):
             }
             for stage in items
         ]
-
-
-if __name__ == "__main__":
-    BaseWriter.main(StageWriter, StageParser)

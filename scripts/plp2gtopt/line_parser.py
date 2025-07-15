@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Parser for plpcnfli.dat format files containing transmission line data.
@@ -9,7 +8,7 @@ Handles:
 - Line lookup by name or buses
 """
 
-import sys
+
 from pathlib import Path
 from typing import Any, Optional, List, Dict, Union
 
@@ -115,55 +114,3 @@ class LineParser(BaseParser):
             for line in self._data
             if bus_num in (line["bus_a_num"], line["bus_b_num"])
         ]
-
-
-def main(args: Optional[List[str]] = None) -> int:
-    """Command line entry point for line file analysis.
-
-    Args:
-        args: Command line arguments (uses sys.argv if None)
-
-    Returns:
-        int: Exit status (0 for success)
-    """
-    if args is None:
-        args = sys.argv[1:]
-
-    if len(args) != 1:
-        print(f"Usage: {sys.argv[0]} <plpcnfli.dat file>", file=sys.stderr)
-        return 1
-
-    try:
-        input_path = Path(args[0])
-        if not input_path.exists():
-            raise FileNotFoundError(f"Line file not found: {input_path}")
-
-        parser = LineParser(str(input_path))
-        parser.parse()
-
-        print(f"\nLine File Analysis: {parser.file_path.name}")
-        print("=" * 40)
-        print(f"Total lines: {parser.get_num_lines()}")
-
-        lines = parser.get_lines()
-        for line in lines[:5]:  # Print first 5 lines as sample
-            print(f"\nLine: {line['name']}")
-            print(f"  Bus A: {line['bus_a']} (#{line['bus_a_num']})")
-            print(f"  Bus B: {line['bus_b']} (#{line['bus_b_num']})")
-            print(f"  Voltage: {line['voltage']} kV")
-            print(f"  R: {line['r']:.4f} ohm")
-            print(f"  X: {line['x']:.4f} ohm")
-            print(f"  Fwd Rating: {line['f_max_ab']} MW")
-            print(f"  Rev Rating: {line['f_max_ba']} MW")
-            print(f"  Losses Modeled: {'Yes' if line['has_losses'] else 'No'}")
-            print(f"  Sections: {line['num_sections']}")
-            print(f"  Operational: {'Yes' if line['is_operational'] else 'No'}")
-
-        return 0
-    except (FileNotFoundError, ValueError, IndexError) as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

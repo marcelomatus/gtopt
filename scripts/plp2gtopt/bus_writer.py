@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Writer for converting bus data to JSON format."""
@@ -27,7 +26,3 @@ class BusWriter(BaseWriter):
             }
             for bus in items
         ]
-
-
-if __name__ == "__main__":
-    BaseWriter.main(BusWriter, BusParser)
