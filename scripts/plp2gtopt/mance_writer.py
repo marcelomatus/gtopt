@@ -2,19 +2,32 @@
 
 """Writer for converting maintenance data to JSON format."""
 
-from typing import Union, Any, Dict, List
+import pandas as pd
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
-import pandas as pd
 
 
 class ManceWriter(BaseWriter):
     """Converts maintenance parser data to JSON format used by GTOPT."""
 
-    def __init__(self, mance_parser: ManceParser = None):
-        """Initialize with a ManceParser instance."""
+    def __init__(
+        self, 
+        mance_parser: Optional[ManceParser] = None,
+        central_parser=None,
+        options: Optional[Dict[str, Any]] = None
+    ):
+        """Initialize with a ManceParser instance.
+        
+        Args:
+            mance_parser: Parser for maintenance data
+            central_parser: Parser for central data (optional)
+            options: Dictionary of writer options (optional)
+        """
         super().__init__(mance_parser)
+        self.central_parser = central_parser
+        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format.
@@ -61,8 +74,8 @@ class ManceWriter(BaseWriter):
             if central is None:
                 continue
 
-            id = central.get("number", cname)
-            name = f"uid:{id}" if not isinstance(id, str) else id
+            central_id = central.get("number", cname)
+            name = f"uid:{central_id}" if not isinstance(central_id, str) else central_id
             defaults[name] = central.get(field, 0.0)
             s = pd.Series(data=mance[field], index=mance["blocks"], name=name)
             df = pd.concat([df, s], ignore_index=True)
@@ -72,7 +85,6 @@ class ManceWriter(BaseWriter):
         df = df.fillna(defaults)
         df = df.reset_index().rename(columns={"index": "block"})
         df["block"] = df["block"].astype("int16")
-        
         return df
 
     def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -121,12 +133,11 @@ class ManceWriter(BaseWriter):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         df_pmin, df_pmax = self.to_dataframe(items)
-        
         self._write_parquet_for_field(
             df_pmin,
             output_dir / output_files["pmin"]
         )
         self._write_parquet_for_field(
-            df_pmax, 
+            df_pmax,
             output_dir / output_files["pmax"]
         )
