@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 
 """Parser for plpeta.dat format files containing stage data."""
 
-import sys
 
 from typing import Any, List, Dict, Union
 from pathlib import Path
@@ -23,9 +21,6 @@ class StageParser(BaseParser):
             file_path: Path to plpeta.dat format file (str or Path)
         """
         super().__init__(file_path)
-        self._data: List[Dict[str, Any]] = []
-        self.stages: List[Dict[str, Any]] = self._data  # Alias for _data
-        self.num_stages: int = 0
 
     def parse(self) -> None:
         """Parse the stage file and populate the stages structure.
@@ -41,10 +36,10 @@ class StageParser(BaseParser):
         idx = 0
         # Extract just the number part from first line (may have trailing metadata)
         first_line_parts = lines[idx].split()
-        self.num_stages = self._parse_int(first_line_parts[0])
+        num_stages = self._parse_int(first_line_parts[0])
         idx += 1
 
-        for _ in range(self.num_stages):
+        for _ in range(num_stages):
             # Parse stage line w/format: Ano Mes Etapa FDesh NHoras FactTasa TipoEtapa
             parts = lines[idx].split()
             if len(parts) < 6:
@@ -59,57 +54,20 @@ class StageParser(BaseParser):
                 else 1.0
             )
             idx += 1
+            stage = {
+                "number": stage_num,
+                "duration": duration,
+                "discount_factor": discount_factor,
+            }
 
-            self._data.append(
-                {
-                    "number": stage_num,
-                    "duration": duration,
-                    "discount_factor": discount_factor,
-                }
-            )
+            self._append(stage)
 
-    def get_stages(self) -> List[Dict[str, Any]]:
+    @property
+    def stages(self) -> List[Dict[str, Any]]:
         """Return the parsed stages structure."""
-        return self.stages
+        return self.get_all()
 
-    def get_num_stages(self) -> int:
+    @property
+    def num_stages(self) -> int:
         """Return the number of stages in the file."""
-        return self.num_stages
-
-    def get_stage_by_number(self, stage_num: int) -> Dict[str, Any] | None:
-        """Get stage data for a specific stage number."""
-        for stage in self.stages:
-            if stage["number"] == stage_num:
-                return stage
-        return None
-
-
-if __name__ == "__main__":
-
-    def main() -> None:
-        """Run Main function for the stage parser."""
-        if len(sys.argv) != 2:
-            print(f"Usage: {sys.argv[0]} <plpeta.dat file>")
-            sys.exit(1)
-
-        file_path = Path(sys.argv[1])
-        if not file_path.exists():
-            print(f"Error: File '{file_path}' not found")
-            sys.exit(1)
-
-        parser = StageParser(file_path)
-        parser.parse()
-
-        print(f"\nStage File Analysis: {file_path.name}")
-        print("=" * 40)
-        print(f"Total stages: {parser.get_num_stages()}")
-
-        # Print all stages
-        print("\nStage Details:")
-        print("=" * 40)
-        for stage in parser.get_stages():
-            print(f"\nStage: {stage['number']}")
-            print(f"  Duration: {stage['duration']}")
-            print(f"  Discount Factor: {stage['discount_factor']}")
-
-    main()
+        return len(self.stages)

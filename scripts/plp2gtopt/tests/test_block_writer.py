@@ -95,8 +95,6 @@ def test_write_empty_blocks():
     """Test handling of empty block list."""
     # Create parser with no blocks
     parser = BlockParser("dummy.dat")
-    parser.blocks = []  # Use public attribute
-    parser.num_blocks = 0
 
     writer = BlockWriter(parser)
     json_blocks = writer.to_json_array()

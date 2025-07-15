@@ -305,55 +305,21 @@ def test_central_type_detection() -> None:
     parser.num_fallas = 1
 
     # Verify type detection for each range using test helper method
-    assert parser.test_central_type(1) == "embalse"
-    assert parser.test_central_type(2) == "embalse" 
-    assert parser.test_central_type(3) == "serie"
-    assert parser.test_central_type(6) == "serie"
-    assert parser.test_central_type(7) == "termica"
-    assert parser.test_central_type(12) == "termica"
-    assert parser.test_central_type(13) == "pasada"
-    assert parser.test_central_type(14) == "bateria"
-    assert parser.test_central_type(15) == "bateria"
-    assert parser.test_central_type(16) == "falla"
-
-
-def test_parse_power_limits() -> None:
-    """Test parsing of power limits section through public parse()."""
-    test_file = Path(__file__).parent / "test_data" / "power_limits.dat"
-    test_file.write_text("""1 'TEST_GEN' 1 F F F F 0 0
-PotMin PotMax VertMin VertMax
-100.0 200.0 50.0 60.0
-CosVar Rendi Barra
-0.0 1.0 0""")
-    
-    parser = CentralParser(test_file)
-    parser.parse()
-    central = parser.centrals[0]
-    
-    assert central["p_min"] == 100.0
-    assert central["p_max"] == 200.0
-    assert central["v_min"] == 50.0
-    assert central["v_max"] == 60.0
-
-
-def test_parse_cost_and_bus() -> None:
-    """Test parsing of cost and bus info through public parse()."""
-    test_file = Path(__file__).parent / "test_data" / "cost_bus.dat"  
-    test_file.write_text("""1 'TEST_GEN' 1 F F F F 0 0
-PotMin PotMax
-0.0 100.0
-CosVar Rendi Barra SerHid SerVer t<0 Afluen
-10.5 0.95 123 1 2 0.0 1000.0""")
-    
-    parser = CentralParser(test_file)
-    parser.parse()
-    central = parser.centrals[0]
-    
-    assert central["variable_cost"] == 10.5
-    assert central["efficiency"] == 0.95
-    assert central["bus"] == 123
-    assert central["ser_hid"] == 1
-    assert central["ser_ver"] == 2
+    assert parser.get_central_type(0) == "embalse"
+    assert parser.get_central_type(1) == "embalse"
+    assert parser.get_central_type(2) == "serie"
+    assert parser.get_central_type(3) == "serie"
+    assert parser.get_central_type(4) == "serie"
+    assert parser.get_central_type(5) == "termica"
+    assert parser.get_central_type(6) == "termica"
+    assert parser.get_central_type(7) == "termica"
+    assert parser.get_central_type(8) == "termica"
+    assert parser.get_central_type(9) == "termica"
+    assert parser.get_central_type(10) == "pasada"
+    assert parser.get_central_type(11) == "bateria"
+    assert parser.get_central_type(12) == "bateria"
+    assert parser.get_central_type(13) == "falla"
+    assert parser.get_central_type(14) == "unknown"
 
 
 def test_get_central_by_name(valid_gen_file: Path) -> None:

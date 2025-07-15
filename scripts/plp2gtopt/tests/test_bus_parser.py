@@ -20,30 +20,15 @@ def test_bus_parser_initialization():
     # assert parser.num_buses == 0
 
 
-def test_get_num_buses():
-    """Test get_num_buses returns correct value."""
-    parser = BusParser("test.dat")
-    parser.num_buses = 5
-    assert parser.get_num_buses() == 5
-
-
-def test_get_buses():
-    """Test get_buses returns buses list."""
-    parser = BusParser("test.dat")
-    test_buses = [{"test": "data"}]
-    parser.buses = test_buses
-    assert parser.get_buses() == test_buses
-
-
 def test_parse_sample_file(sample_bus_file):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample bus file."""
     parser = BusParser(str(sample_bus_file))
     parser.parse()
 
     # Verify basic structure
-    num_buses = parser.get_num_buses()
+    num_buses = parser.num_buses
     assert num_buses == 10
-    buses = parser.get_buses()
+    buses = parser.buses
     assert len(buses) == num_buses
 
     # Verify all buses have required fields
@@ -92,7 +77,7 @@ def test_get_bus_by_name(sample_bus_file):  # pylint: disable=redefined-outer-na
     parser.parse()
 
     # Test existing bus
-    buses = parser.get_buses()
+    buses = parser.buses
     first_bus_name = buses[0]["name"]
     bus = parser.get_bus_by_name(first_bus_name)
     assert bus is not None

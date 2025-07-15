@@ -95,7 +95,7 @@ class DemandWriter(BaseWriter):
             stages = np.empty(len(df.index), dtype=np.int16)
             for i in range(len(stages)):
                 block_num = int(df.index[i])
-                stages[i] = self.block_parser.get_stage_num(block_num)
+                stages[i] = self.block_parser.get_stage_number(block_num)
             s = pd.Series(data=stages, index=df.index, name="stage")
             df = pd.concat([s, df], axis=1)
 

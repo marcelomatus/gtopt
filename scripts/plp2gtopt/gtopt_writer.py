@@ -35,13 +35,21 @@ class GTOptWriter:
         """Process options data to include input and output paths."""
         self.planning["options"] = {
             "input_directory": str(options.get("output_dir", "")),
+            "input_format": "parquet",
             "output_directory": "results",
+            "output_format": "parquet",
+            "use_lp_names": True,
+            "use_single_bus": False,
+            "demand_fail_cost": 1000,
+            "scale_objective": 1000,
+            "use_kirchhoff": True,
+            "annual_discount_rate": 0.0,
         }
 
     def process_stage_blocks(self):
         """Calculate first_block and count_block for stages."""
-        stages = self.parser.parsed_data.get("stage_array", []).get_stages()
-        blocks = self.parser.parsed_data.get("block_array", []).get_blocks()
+        stages = self.parser.parsed_data.get("stage_array", []).stages
+        blocks = self.parser.parsed_data.get("block_array", []).blocks
         for stage in stages:
             stage_blocks = [
                 index
@@ -53,75 +61,22 @@ class GTOptWriter:
 
         self.planning["simulation"]["block_array"] = BlockWriter().to_json_array(blocks)
         self.planning["simulation"]["stage_array"] = StageWriter().to_json_array(stages)
-
-    def process_central_embalses(self, embalses):
-        """Process embalses to include block and stage information."""
-        if not embalses:
-            return
-        pass
-
-    def process_central_series(self, series):
-        """Process series to include block and stage information."""
-        if not series:
-            return
-        pass
-
-    def process_central_pasadas(self, pasadas):
-        """Process pasadas to include block and stage information."""
-        if not pasadas:
-            return
-        pass
-
-    def process_central_baterias(self, baterias):
-        """Process baterias to include block and stage information."""
-        if not baterias:
-            return
-        pass
-
-    def process_central_termicas(self, termicas):
-        """Process termicas to include block and stage information."""
-        if not termicas:
-            return
-
-        self.planning["system"]["generator_array"] = CentralWriter().to_json_array(
-            termicas
-        )
-        pass
-
-    def process_central_fallas(self, fallas):
-        """Process fallas to include block and stage information."""
-        if not fallas:
-            return
-
-        pass
+        self.planning["simulation"]["scenario_array"] = [
+            {
+                "uid": 1,
+                "probability_factor": 1.0,
+            }
+        ]
 
     def process_central(self, options):
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
 
-        ceng = {
-            "embalse": [],
-            "serie": [],
-            "pasada": [],
-            "termica": [],
-            "bateria": [],
-            "falla": [],
-        }
-
-        for cen in centrals.get_all():
-            ceng[cen["type"]].append(cen)
-
-        self.process_central_embalses(ceng.get("embalse", []))
-        self.process_central_series(ceng.get("serie", []))
-        self.process_central_pasadas(ceng.get("pasada", []))
-        self.process_central_baterias(ceng.get("bateria", []))
-        self.process_central_termicas(ceng.get("termica", []))
-        self.process_central_fallas(ceng.get("falla", []))
-
         stages = self.parser.parsed_data.get("stage_array", None)
         costs = self.parser.parsed_data.get("cost_array", None)
+        buses = self.parser.parsed_data.get("bus_array", None)
         self.planning["system"]["generator_array"] = CentralWriter(
-            centrals, stages, costs, options
+            centrals, stages, costs, buses, options
         ).to_json_array()
 
     def process_demands(self, options):
@@ -136,7 +91,7 @@ class GTOptWriter:
 
         dems = demands.get_all()
         for demand in dems:
-            demand["bus"] = buses.get_bus_num(demand["name"])
+            demand["bus"] = buses.get_bus_by_name(demand["name"])["number"]
 
         blocks = self.parser.parsed_data.get("block_array", [])
         self.planning["system"]["demand_array"] = DemandWriter(
@@ -169,6 +124,8 @@ class GTOptWriter:
         self.process_demands(options)
 
         # Organize into planning structure
+        self.planning["system"]["name"] = "plp2gtopt"
+        # self.planning["system"]["version"] = "1.0"
 
         return self.planning
 
