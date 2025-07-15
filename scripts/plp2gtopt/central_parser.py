@@ -97,7 +97,10 @@ class CentralParser(BaseParser):
         return self.get_item_by_name(name)
 
     def _central_type(self, gen_idx: int) -> str:
-        """Determine central type based on its index and type counts."""
+        """Determine central type based on its index and type counts.
+        
+        Note: This is marked protected but has test helper method test_central_type().
+        """
         # Ordered list of (type_name, count) tuples
         type_counts = [
             ("embalse", self.num_embalses),
@@ -153,6 +156,10 @@ class CentralParser(BaseParser):
             }
         except (ValueError, IndexError) as e:
             raise ValueError(f"Invalid central header: {str(e)}") from e
+
+    def test_central_type(self, gen_idx: int) -> str:
+        """Test helper method to expose central type determination."""
+        return self._central_type(gen_idx)
 
     def _parse_power_limits(
         self, lines: List[str], idx: int, current_gen: Dict[str, Any]
