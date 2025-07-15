@@ -130,8 +130,7 @@ class CentralWriter(BaseWriter):
                 if self.mance_parser
                 else None
             )
-            pmax = cen.get("p_max", 0.0) if mance is None else "pmax"
-            pmin = cen.get("p_min", 0.0) if mance is None else "pmin"
+            pmin, pmax = (cen.get("p_min", 0.0), cen.get("p_max", 0.0) if mance is None else ("pmin", "pmax")
 
             central = {
                 "uid": cen["number"],
