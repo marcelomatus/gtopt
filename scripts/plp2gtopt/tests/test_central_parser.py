@@ -318,33 +318,42 @@ def test_central_type_detection() -> None:
 
 
 def test_parse_power_limits() -> None:
-    """Test parsing of power limits section."""
-    parser = CentralParser("dummy.dat")
-    test_lines = ["PotMin PotMax VertMin VertMax", "100.0 200.0 50.0 60.0"]
-    current_gen = {}
-    current_gen, _ = parser._parse_power_limits(test_lines, 0, current_gen)
-
-    assert current_gen["p_min"] == 100.0
-    assert current_gen["p_max"] == 200.0
-    assert current_gen["v_min"] == 50.0
-    assert current_gen["v_max"] == 60.0
+    """Test parsing of power limits section through public parse()."""
+    test_file = Path(__file__).parent / "test_data" / "power_limits.dat"
+    test_file.write_text("""1 'TEST_GEN' 1 F F F F 0 0
+PotMin PotMax VertMin VertMax
+100.0 200.0 50.0 60.0
+CosVar Rendi Barra
+0.0 1.0 0""")
+    
+    parser = CentralParser(test_file)
+    parser.parse()
+    central = parser.centrals[0]
+    
+    assert central["p_min"] == 100.0
+    assert central["p_max"] == 200.0
+    assert central["v_min"] == 50.0
+    assert central["v_max"] == 60.0
 
 
 def test_parse_cost_and_bus() -> None:
-    """Test parsing of cost and bus information."""
-    parser = CentralParser("dummy.dat")
-    test_lines = [
-        "CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen",
-        "10.5  0.95  123  1  2  0.0  1000.0",
-    ]
-    current_gen = {}
-    current_gen, _ = parser._parse_cost_and_bus(test_lines, 0, current_gen)
-
-    assert current_gen["variable_cost"] == 10.5
-    assert current_gen["efficiency"] == 0.95
-    assert current_gen["bus"] == 123
-    assert current_gen["ser_hid"] == 1
-    assert current_gen["ser_ver"] == 2
+    """Test parsing of cost and bus info through public parse()."""
+    test_file = Path(__file__).parent / "test_data" / "cost_bus.dat"  
+    test_file.write_text("""1 'TEST_GEN' 1 F F F F 0 0
+PotMin PotMax
+0.0 100.0
+CosVar Rendi Barra SerHid SerVer t<0 Afluen
+10.5 0.95 123 1 2 0.0 1000.0""")
+    
+    parser = CentralParser(test_file)
+    parser.parse()
+    central = parser.centrals[0]
+    
+    assert central["variable_cost"] == 10.5
+    assert central["efficiency"] == 0.95
+    assert central["bus"] == 123
+    assert central["ser_hid"] == 1
+    assert central["ser_ver"] == 2
 
 
 def test_get_central_by_name(valid_gen_file: Path) -> None:
