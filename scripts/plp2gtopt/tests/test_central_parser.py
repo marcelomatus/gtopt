@@ -304,17 +304,17 @@ def test_central_type_detection() -> None:
     parser.num_baterias = 2
     parser.num_fallas = 1
 
-    # Verify type detection for each range
-    assert parser._central_type(1) == "embalse"
-    assert parser._central_type(2) == "embalse"
-    assert parser._central_type(3) == "serie"
-    assert parser._central_type(6) == "serie"
-    assert parser._central_type(7) == "termica"
-    assert parser._central_type(12) == "termica"
-    assert parser._central_type(13) == "pasada"
-    assert parser._central_type(14) == "bateria"
-    assert parser._central_type(15) == "bateria"
-    assert parser._central_type(16) == "falla"
+    # Verify type detection for each range using test helper method
+    assert parser.test_central_type(1) == "embalse"
+    assert parser.test_central_type(2) == "embalse" 
+    assert parser.test_central_type(3) == "serie"
+    assert parser.test_central_type(6) == "serie"
+    assert parser.test_central_type(7) == "termica"
+    assert parser.test_central_type(12) == "termica"
+    assert parser.test_central_type(13) == "pasada"
+    assert parser.test_central_type(14) == "bateria"
+    assert parser.test_central_type(15) == "bateria"
+    assert parser.test_central_type(16) == "falla"
 
 
 def test_parse_power_limits() -> None:
