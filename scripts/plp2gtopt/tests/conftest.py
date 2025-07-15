@@ -1,5 +1,6 @@
 """Shared pytest fixtures for plp2gtopt tests."""
 
+import pytest
 from pathlib import Path
 
 
