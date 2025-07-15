@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Writer for converting block data to JSON format."""
@@ -28,7 +27,3 @@ class BlockWriter(BaseWriter):
             }
             for block in items
         ]
-
-
-if __name__ == "__main__":
-    BaseWriter.main(BlockWriter, BlockParser)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """Parser for plpcosce.dat format files containing central cost data."""
