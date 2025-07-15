@@ -114,36 +114,39 @@ def test_json_output_structure(sample_mance_writer):
 
 
 def test_to_dataframe(sample_mance_writer):
-    """Test conversion to pandas DataFrame."""
-    df = sample_mance_writer.to_dataframe()
+    """Test conversion to pandas DataFrames."""
+    df_pmin, df_pmax = sample_mance_writer.to_dataframe()
 
     # Verify basic structure
-    assert isinstance(df, pd.DataFrame)
-    assert not df.empty
+    for df in (df_pmin, df_pmax):
+        assert isinstance(df, pd.DataFrame)
+        assert not df.empty
+        assert "block" in df.columns
+        assert df["block"].dtype == "int16"
 
-    # Verify required columns
-    expected_columns = {"month", "block"}
-    assert expected_columns.issubset(set(df.columns))
-
-    # Verify data types
-    assert df["month"].dtype == "int8"
-    assert df["block"].dtype == "int16"
-    for col in df.columns:
-        if "_p_" in col:
-            assert df[col].dtype == "float32"
+    # Verify pmin/pmax specific columns
+    assert any("p_min" in col.lower() for col in df_pmin.columns)
+    assert any("p_max" in col.lower() for col in df_pmax.columns)
 
 
 def test_to_parquet(sample_mance_writer):
     """Test writing to Parquet format."""
-    with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp_file:
-        output_path = Path(tmp_file.name)
-        sample_mance_writer.to_parquet(output_path)
+    with tempfile.NamedTemporaryFile(suffix="_pmin.parquet") as tmp_pmin, \
+         tempfile.NamedTemporaryFile(suffix="_pmax.parquet") as tmp_pmax:
+        
+        output_files = {
+            "pmin": Path(tmp_pmin.name),
+            "pmax": Path(tmp_pmax.name)
+        }
+        
+        sample_mance_writer.to_parquet(output_files)
 
-        # Verify file was created and contains valid data
-        assert output_path.exists()
-        df = pd.read_parquet(output_path)
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
+        # Verify files were created and contain valid data
+        for path in output_files.values():
+            assert path.exists()
+            df = pd.read_parquet(path)
+            assert isinstance(df, pd.DataFrame)
+            assert not df.empty
 
 
 def test_write_empty_mances():
