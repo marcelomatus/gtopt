@@ -7,7 +7,6 @@ from pathlib import Path
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
 import pandas as pd
-import numpy as np
 
 
 class ManceWriter(BaseWriter):
@@ -32,13 +31,12 @@ class ManceWriter(BaseWriter):
             items = self.items
         return [
             {
-                "name": maint["name"],
-                "months": maint["months"].tolist(),
-                "blocks": maint["blocks"].tolist(),
-                "p_min": maint["p_min"].tolist(),
-                "p_max": maint["p_max"].tolist(),
+                "name": mance["name"],
+                "blocks": mance["blocks"].tolist(),
+                "p_min": mance["p_min"].tolist(),
+                "p_max": mance["p_max"].tolist(),
             }
-            for maint in items
+            for mance in items
         ]
 
     def to_dataframe(self, items=None) -> pd.DataFrame:
@@ -52,38 +50,65 @@ class ManceWriter(BaseWriter):
         if items is None:
             items = self.items
 
-        df = pd.DataFrame()
+        df_pmin = pd.DataFrame()
+        df_pmax = pd.DataFrame()
 
-        for maint in items:
-            if len(maint["blocks"]) == 0:
+        default_pmin = {}
+        default_pmax = {}
+        for mance in items:
+            if len(mance["blocks"]) == 0:
                 continue
 
-            # Create DataFrame for this maintenance entry
-            temp_df = pd.DataFrame({
-                "month": maint["months"],
-                "block": maint["blocks"],
-                f"{maint['name']}_p_min": maint["p_min"],
-                f"{maint['name']}_p_max": maint["p_max"]
-            })
-            df = pd.concat([df, temp_df], ignore_index=True)
+            # check if mance has a valid central name
+            cname = mance.get("name", "")
+            central = self.central_parser.get_central_by_name(cname)
+            if central is None:
+                continue
 
-        # Fill missing values with 0 (no maintenance)
-        df = df.fillna(0)
+            # Create Series for the pmax and pmin
+            id = central.get("number", cname)
+            name = f"uid:{id}" if not isinstance(id, str) else id
+            default_pmin[name] = central.get("p_min", 0.0)
+            s_pmin = pd.Series(data=mance["p_min"], index=mance["blocks"], name=name)
+            default_pmax[name] = central.get("p_max", 0.0)
+            s_pmax = pd.Series(data=mance["p_max"], index=mance["blocks"], name=name)
+
+            # Add to DataFrames
+            df_pmin = pd.concat([df_pmin, s_pmin], ignore_index=True)
+            df_pmax = pd.concat([df_pmax, s_pmax], ignore_index=True)
+
+        # Ensure blocks are sorted and unique
+        df_pmin = df_pmin.sort_index().drop_duplicates()
+        df_pmax = df_pmax.sort_index().drop_duplicates()
+        # Fill missing values with column-specific defaults
+        df_pmin = df_pmin.fillna(default_pmin)
+        df_pmax = df_pmax.fillna(default_pmax)
         # Convert to efficient dtypes
-        df["month"] = df["month"].astype("int8")
-        df["block"] = df["block"].astype("int16")
-        for col in df.columns:
-            if "_p_" in col:
-                df[col] = df[col].astype("float32")
+        df_pmin = df_pmin.reset_index().rename(columns={"index": "block"})
+        df_pmin["block"] = df_pmin["block"].astype("int16")
+        df_pmax = df_pmax.reset_index().rename(columns={"index": "block"})
+        df_pmax["block"] = df_pmax["block"].astype("int16")
 
-        return df
+        return df_pmin, df_pmax
 
-    def to_parquet(self, output_file: Union[str, Path], items=None) -> None:
+    def to_parquet(self, output_files, items=None) -> None:
         """Write maintenance data to Parquet file format."""
-        df = self.to_dataframe(items)
-        df.to_parquet(
-            output_file,
-            index=False,
-            engine="pyarrow",
-            compression="snappy"
+        output_dir = (
+            self.options["output_dir"] / "Generator"
+            if "output_dir" in self.options
+            else Path("Generator")
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_file_pmin = output_dir / output_files["pmin"]
+        output_file_pmax = output_dir / output_files["pmax"]
+
+        compression = self.options.get("compression", "gzip")
+
+        df_pmin, df_pmax = self.to_dataframe(items)
+        df_pmin.to_parquet(
+            output_file_pmin, index=False, engine="pyarrow", compression=compression
+        )
+        df_pmax.to_parquet(
+            output_file_pmax, index=False, engine="pyarrow", compression=compression
         )
