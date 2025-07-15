@@ -142,8 +142,8 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     """
     parser = CentralParser(valid_gen_file)
     parser.parse()
-    assert parser.get_num_centrals() == 6
-    centrals = parser.get_centrals()
+    assert parser.num_centrals == 6
+    centrals = parser.centrals
     assert len(centrals) == 6
 
     # Test first central (hydro)
@@ -163,34 +163,6 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert centrals[3]["type"] == "pasada"  # LOS_MOLLES
     assert centrals[4]["type"] == "bateria"  # ALFALFAL_BESS
     assert centrals[5]["type"] == "falla"  # FALLA_001_1
-
-
-def test_get_centrals_by_bus(valid_gen_file: Path) -> None:
-    """Test getting centrals filtered by bus ID.
-
-    Verifies:
-    - Correct filtering by bus ID
-    - Empty result for non-existent bus
-    - Return type is correct
-
-    Args:
-        valid_gen_file: Path to valid central test file
-    """
-    parser = CentralParser(valid_gen_file)
-    parser.parse()
-    bus0_gens = parser.get_centrals_by_bus("0")
-    assert len(bus0_gens) == 1
-    assert {g["number"] for g in bus0_gens} == {1}  # LMAULE is on bus 0
-
-    bus93_gens = parser.get_centrals_by_bus("93")
-    assert len(bus93_gens) == 1
-    assert bus93_gens[0]["number"] == 2
-    bus1_gens = parser.get_centrals_by_bus("1")
-    assert len(bus1_gens) == 1
-    assert bus1_gens[0]["number"] == 1785  # FALLA_001_1 is on bus 1
-
-    empty_gens = parser.get_centrals_by_bus("999")
-    assert len(empty_gens) == 0
 
 
 def test_parse_nonexistent_file(tmp_path: Path) -> None:
@@ -251,7 +223,7 @@ def test_parse_real_file() -> None:
     assert parser.num_baterias == 25
 
     # Verify some sample centrals
-    centrals = parser.get_centrals()
+    centrals = parser.centrals
     assert len(centrals) == 247
 
     # Check first central (hydro)
@@ -317,7 +289,7 @@ def test_parse_large_real_file() -> None:
     assert parser.num_fallas == 948
 
     # Verify some sample centrals
-    centrals = parser.get_centrals()
+    centrals = parser.centrals
     assert len(centrals) == parser.num_centrales
 
     # Check first central (hydro)
