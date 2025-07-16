@@ -12,6 +12,8 @@ from .cost_parser import CostParser
 from .stage_parser import StageParser
 from .bus_parser import BusParser
 from .mance_parser import ManceParser
+from .cost_writer import CostWriter
+from .mance_writer import ManceWriter
 
 
 class CentralWriter(BaseWriter):
@@ -131,8 +133,10 @@ class CentralWriter(BaseWriter):
                 else None
             )
             pmin, pmax = (
-                (cen.get("p_min", 0.0), cen.get("p_max", 0.0)
-            ) if mance is None else ("pmin", "pmax")
+                (cen.get("p_min", 0.0), cen.get("p_max", 0.0))
+                if mance is None
+                else ("pmin", "pmax")
+            )
 
             central = {
                 "uid": cen["number"],
@@ -153,67 +157,18 @@ class CentralWriter(BaseWriter):
         return json_centrals
 
     def to_dataframe(self, cost_items=None) -> pd.DataFrame:
-        """Convert demand data to pandas DataFrame format.
+        """Convert demand data to pandas DataFrame format."""
+        cost_writer = CostWriter(
+            self.cost_parser, self.parser, self.stage_parser, self.options
+        )
+        df_gcost = cost_writer.to_dataframe()
 
-        Returns:
-            DataFrame with:
-            - Index: Block numbers (merged from all demands)
-            - Columns: Demand values for each bus (column name = bus name)
-        """
-        if cost_items is None:
-            cost_items = self.cost_parser.get_all() if self.cost_parser else []
+        mance_writer = ManceWriter(self.mance_parser, self.parser, self.options)
+        df_pmin, df_pmax = mance_writer.to_dataframe()
 
-        # Create empty DataFrame to collect all demand series
-        df = pd.DataFrame()
+        return df_gcost, df_pmin, df_pmax
 
-        if not cost_items:
-            return df
-
-        fill_values = {}
-        for cost in cost_items:
-            cname = cost.get("name", "")
-            central = self.parser.get_central_by_name(cname) if self.parser else None
-            if central is None:
-                continue
-
-            if len(cost["stages"]) == 0 or len(cost["costs"]) == 0:
-                continue
-
-            # Create Series for this cost
-            id = central.get("number", cname)
-            name = f"uid:{id}" if not isinstance(id, str) else id
-            fill_values[name] = float(central.get("variable_cost", 0.0))
-
-            s = pd.Series(data=cost["costs"], index=cost["stages"], name=name)
-            # Add to DataFrame
-            df = pd.concat([df, s], axis=1)
-
-        # Ensure blocks are sorted and unique
-        df = df.sort_index().drop_duplicates()
-        # Ensure DataFrame has no duplicate columns
-        df = df.loc[:, ~df.columns.duplicated()]
-        # Convert cost columns to float64
-        cost_cols = [col for col in df.columns if col != "stage"]
-        df[cost_cols] = df[cost_cols].astype(np.float64)
-
-        # Convert index to stage column
-        if self.stage_parser is not None:
-            stages = np.empty(self.stage_parser.num_stages, dtype=np.int16)
-            for i, s in enumerate(self.stage_parser.stages):
-                stages[i] = int(s["number"])
-            s = pd.Series(data=stages, index=stages, name="stage")
-            df = pd.concat([s, df], axis=1)
-        else:
-            # convert index to "stage" column
-            df = df.reset_index().rename(columns={"index": "stage"})
-            df["stage"] = df["stage"].astype("int16")
-
-        # Fill missing values with column-specific defaults
-        df = df.fillna(fill_values)
-
-        return df
-
-    def to_parquet(self, output_file: Union[str, Path], cost_items=None) -> None:
+    def to_parquet(self) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Generator"
@@ -222,11 +177,10 @@ class CentralWriter(BaseWriter):
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / output_file
 
-        df = self.to_dataframe(cost_items)
-        if df.empty:
-            return
+        df_gcost, df_pmin, df_pmax = self.to_dataframe()
 
         compression = self.options.get("compression", "zstd")
-        df.to_parquet(output_file, index=False, compression=compression)
+        df_gcost.to_parquet(output_dir / "gcost", index=False, compression=compression)
+        df_pmin.to_parquet(output_dir / "pmin", index=False, compression=compression)
+        df_pmax.to_parquet(output_dir / "pmax", index=False, compression=compression)
