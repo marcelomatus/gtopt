@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
+import numpy as np
 from .base_writer import BaseWriter
 from .cost_parser import CostParser
-from .central_parser import CentralParser 
+from .central_parser import CentralParser
 from .stage_parser import StageParser
 
 
@@ -18,7 +19,7 @@ class CostWriter(BaseWriter):
     def __init__(
         self,
         cost_parser: Optional[CostParser] = None,
-        central_parser: Optional[CentralParser] = None, 
+        central_parser: Optional[CentralParser] = None,
         stage_parser: Optional[StageParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -26,6 +27,7 @@ class CostWriter(BaseWriter):
         super().__init__(cost_parser)
         self.central_parser = central_parser
         self.stage_parser = stage_parser
+        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""
@@ -43,7 +45,7 @@ class CostWriter(BaseWriter):
     def to_dataframe(self, cost_items=None) -> pd.DataFrame:
         """Convert demand data to pandas DataFrame format."""
         if cost_items is None:
-            cost_items = self.get_all()
+            cost_items = self.items
 
         # Create empty DataFrame to collect all demand series
         df = pd.DataFrame()
