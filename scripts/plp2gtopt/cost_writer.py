@@ -21,7 +21,7 @@ class CostWriter(BaseWriter):
         cost_parser: Optional[CostParser] = None,
         central_parser: Optional[CentralParser] = None,
         stage_parser: Optional[StageParser] = None,
-        options: Optional[Dict[str, Any]] = None,
+        options: Optional[Dict[str, Any]] = None,  # noqa: ARG002
     ) -> None:
         """Initialize with a CostParser instance."""
         super().__init__(cost_parser)
