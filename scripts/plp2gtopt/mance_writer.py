@@ -23,7 +23,14 @@ class ManceWriter(BaseWriter):
         block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
-        """Initialize with a ManceParser instance."""
+        """Initialize with a ManceParser instance.
+        
+        Args:
+            mance_parser: Parser for maintenance data
+            central_parser: Parser for central data  
+            block_parser: Parser for block data
+            options: Dictionary of writer options
+        """
         super().__init__(mance_parser)
         self.central_parser = central_parser
         self.block_parser = block_parser
