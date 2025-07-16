@@ -1,9 +1,8 @@
 """Base parser class for PLP file parsers."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 from abc import ABC, abstractmethod
-from typing import Optional
 
 
 class BaseParser(ABC):

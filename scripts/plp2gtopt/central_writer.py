@@ -33,54 +33,11 @@ class CentralWriter(BaseWriter):
         """Initialize with a CentralParser instance."""
         super().__init__(central_parser)
         self.stage_parser = stage_parser
+        self.block_parser = block_parser
         self.cost_parser = cost_parser
         self.bus_parser = bus_parser
         self.mance_parser = mance_parser
         self.options = options if options is not None else {}
-
-    def process_central_embalses(self, embalses):
-        """Process embalses to include block and stage information."""
-        if not embalses:
-            return
-
-    def process_central_series(self, series):
-        """Process series to include block and stage information."""
-        if not series:
-            return
-
-    def process_central_pasadas(self, pasadas):
-        """Process pasadas to include block and stage information.
-        
-        Args:
-            pasadas: List of pasada central entries
-        """
-        if not pasadas:
-            return
-
-    def process_central_baterias(self, baterias):
-        """Process baterias to include block and stage information."""
-        if not baterias:
-            return
-        pass
-
-    def process_central_termicas(self, termicas):
-        """Process termicas to include block and stage information."""
-        if not termicas:
-            return
-        pass
-
-    def process_central_fallas(self, fallas):
-        """Process fallas to include block and stage information."""
-        if not fallas:
-            return
-        pass
-
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
-        """Convert central data to JSON array format."""
-        if items is None:
-            items = self.items
-        if not items:
-            return []
 
         self.centrals_of_type = {
             "embalse": [],
@@ -90,6 +47,31 @@ class CentralWriter(BaseWriter):
             "bateria": [],
             "falla": [],
         }
+
+    def process_central_embalses(self, embalses):
+        """Process embalses to include block and stage information."""
+
+    def process_central_series(self, series):
+        """Process series to include block and stage information."""
+
+    def process_central_pasadas(self, pasadas):
+        """Process pasadas to include block and stage information."""
+
+    def process_central_baterias(self, baterias):
+        """Process baterias to include block and stage information."""
+
+    def process_central_termicas(self, termicas):
+        """Process termicas to include block and stage information."""
+
+    def process_central_fallas(self, fallas):
+        """Process fallas to include block and stage information."""
+
+    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+        """Convert central data to JSON array format."""
+        if items is None:
+            items = self.items
+        if not items:
+            return []
 
         for cen in items:
             self.centrals_of_type[cen["type"]].append(cen)

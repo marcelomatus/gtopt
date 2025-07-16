@@ -46,7 +46,7 @@ class BlockParser(BaseParser):
         num_blocks = self._parse_int(lines[idx])
         idx += 1
 
-        for b in range(num_blocks):
+        for _ in range(num_blocks):
             parts = lines[idx].split()
             if len(parts) < 3:
                 raise ValueError(f"Invalid block entry at line {idx+1}")

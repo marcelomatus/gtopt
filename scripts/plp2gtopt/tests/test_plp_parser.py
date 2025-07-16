@@ -1,7 +1,8 @@
 """Tests for plp_parser.py module."""
 
-import pytest
 from unittest.mock import patch, MagicMock
+
+import pytest
 
 from plp2gtopt.plp_parser import PLPParser
 
@@ -17,6 +18,7 @@ def sample_input_dir(tmp_path):
         "plpcnfce.dat",
         "plpdem.dat",
         "plpcosce.dat",
+        "plpmance.dat",
     ]
     for f in files:
         (tmp_path / f).touch()
@@ -27,7 +29,7 @@ def test_plp_parser_init_valid_dir(sample_input_dir):
     """Test PLPParser initialization with valid input directory."""
     parser = PLPParser(sample_input_dir)
     assert parser.input_path == sample_input_dir
-    assert parser.parsed_data == {}
+    assert not parser.parsed_data
 
 
 def test_plp_parser_init_invalid_dir(tmp_path):
@@ -48,7 +50,9 @@ def test_parse_all_success(sample_input_dir):
         "plp2gtopt.plp_parser.DemandParser"
     ) as mock_demand, patch(
         "plp2gtopt.plp_parser.CostParser"
-    ) as mock_cost:
+    ) as mock_cost, patch(
+        "plp2gtopt.plp_parser.ManceParser"
+    ) as mock_mance:
 
         # Setup mock parsers
         mock_parser = MagicMock()
@@ -60,11 +64,12 @@ def test_parse_all_success(sample_input_dir):
         mock_central.return_value = mock_parser
         mock_demand.return_value = mock_parser
         mock_cost.return_value = mock_parser
+        mock_mance.return_value = mock_parser
 
         parser = PLPParser(sample_input_dir)
         parser.parse_all()
 
-        assert len(parser.parsed_data) == 7
+        assert len(parser.parsed_data) == 8
         for name in [
             "block_array",
             "stage_array",
@@ -73,6 +78,7 @@ def test_parse_all_success(sample_input_dir):
             "central_array",
             "demand_array",
             "cost_array",
+            "mance_array",
         ]:
             assert name in parser.parsed_data
 

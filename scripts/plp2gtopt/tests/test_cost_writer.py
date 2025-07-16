@@ -111,7 +111,7 @@ def test_write_empty_costs():
     """Test handling of empty cost list."""
     # Create parser with no costs
     parser = CostParser("dummy.dat")
-    parser._data = []
+    parser._data = []  # pylint: disable=protected-access
     parser.num_generators = 0
 
     writer = CostWriter(parser)

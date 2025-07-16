@@ -1,7 +1,7 @@
 """Shared pytest fixtures for plp2gtopt tests."""
 
-import pytest
 from pathlib import Path
+import pytest
 
 
 def get_example_file(filename: str) -> Path:
@@ -10,6 +10,8 @@ def get_example_file(filename: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"Example file not found: {path}")
     return path
+
+
 @pytest.fixture
 def valid_mance_file() -> Path:
     """Fixture providing path to valid test maintenance file."""
