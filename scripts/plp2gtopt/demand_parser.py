@@ -19,11 +19,7 @@ class DemandParser(BaseParser):
     """Parser for plpdem.dat format files containing bus demand data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with demand file path.
-
-        Args:
-            file_path: Path to plpdem.dat format file (str or Path)
-        """
+        """Initialize parser with demand file path."""
         super().__init__(file_path)
 
     @property
@@ -37,29 +33,18 @@ class DemandParser(BaseParser):
         return len(self.demands)
 
     def parse(self) -> None:
-        """Parse the demand file and populate the demands structure.
-
-        Raises:
-            FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid
-            IndexError: If file is empty or malformed
-
-        Example:
-            >>> parser = DemandParser("plpdem.dat")
-            >>> parser.parse()
-            >>> demands = parser.get_demands()
-            >>> len(demands)
-            2
-        """
+        """Parse the demand file and populate the demands structure."""
         self.validate_file()
 
         try:
             lines = self._read_non_empty_lines()
+            if not lines:
+                raise ValueError("The demand file is empty or malformed.")
 
             idx = self._next_idx(-1, lines)
             num_bars = self._parse_int(lines[idx])
 
-            for bus_number in range(1, num_bars + 1):
+            for dem_number in range(1, num_bars + 1):
                 # Get bus name
                 idx = self._next_idx(idx, lines)
                 name = lines[idx].strip("'").split()[0]
@@ -83,14 +68,13 @@ class DemandParser(BaseParser):
                     values[i] = self._parse_float(parts[2])  # Demand value
 
                 # Store complete data for this bus
-                self._append(
-                    {
-                        "number": bus_number,
-                        "name": name,
-                        "blocks": blocks,
-                        "values": values,
-                    }
-                )
+                demand = {
+                    "number": dem_number,
+                    "name": name,
+                    "blocks": blocks,
+                    "values": values,
+                }
+                self._append(demand)
 
         finally:
             lines.clear()
