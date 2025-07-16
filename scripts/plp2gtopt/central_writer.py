@@ -49,10 +49,13 @@ class CentralWriter(BaseWriter):
             return
 
     def process_central_pasadas(self, pasadas):
-        """Process pasadas to include block and stage information."""
+        """Process pasadas to include block and stage information.
+        
+        Args:
+            pasadas: List of pasada central entries
+        """
         if not pasadas:
             return
-        pass
 
     def process_central_baterias(self, baterias):
         """Process baterias to include block and stage information."""

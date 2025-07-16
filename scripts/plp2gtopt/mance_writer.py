@@ -2,11 +2,10 @@
 
 """Writer for converting maintenance data to JSON format."""
 
-import pandas as pd
-import numpy as np
 from pathlib import Path
-
 from typing import Any, Dict, List, Optional
+
+import pandas as pd
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
 from .central_parser import CentralParser
@@ -72,7 +71,7 @@ class ManceWriter(BaseWriter):
             s = s.loc[~s.index.duplicated(keep="last")]
             df = pd.concat([df, s], axis=1)
 
-        # Post-proce ssing
+        # Post-processing
         df = df.sort_index().drop_duplicates()
 
         # Convert index to block column
