@@ -12,7 +12,13 @@ from .base_parser import BaseParser
 
 
 class StageParser(BaseParser):
-    """Parser for plpeta.dat format files containing stage data."""
+    """Parser for plpeta.dat format files containing stage data.
+
+    Handles:
+    - File parsing and validation  
+    - Stage data structure creation
+    - Duration and discount factor calculation
+    """
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize parser with stage file path.

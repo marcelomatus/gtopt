@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 
-"""Parser for plpmance.dat format files containing maintenance data."""
+"""Parser for plpmance.dat format files containing maintenance data.
+
+Handles:
+- File parsing and validation
+- Maintenance data structure creation
+- Maintenance lookup by name
+"""
 
 from pathlib import Path
 from typing import Union, Dict, List

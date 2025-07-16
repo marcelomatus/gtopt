@@ -6,14 +6,14 @@ Handles parsing of all PLP input files into structured data.
 from pathlib import Path
 from typing import Union
 
-from plp2gtopt.block_parser import BlockParser
-from plp2gtopt.stage_parser import StageParser
-from plp2gtopt.bus_parser import BusParser
-from plp2gtopt.demand_parser import DemandParser
-from plp2gtopt.central_parser import CentralParser
-from plp2gtopt.line_parser import LineParser
-from plp2gtopt.cost_parser import CostParser
-from plp2gtopt.mance_parser import ManceParser
+from .block_parser import BlockParser
+from .bus_parser import BusParser
+from .central_parser import CentralParser
+from .cost_parser import CostParser 
+from .demand_parser import DemandParser
+from .line_parser import LineParser
+from .mance_parser import ManceParser
+from .stage_parser import StageParser
 
 
 class PLPParser:
