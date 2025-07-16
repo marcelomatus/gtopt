@@ -104,5 +104,14 @@ class ManceWriter(BaseWriter):
         """Write maintenance data to Parquet files for pmin and pmax."""
         df_pmin, df_pmax = self.to_dataframe(items)
 
-        self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
-        self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
+        try:
+            self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
+            self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
+        finally:
+            # Explicitly clear and delete DataFrames
+            if 'df_pmin' in locals():
+                df_pmin = None
+                del df_pmin
+            if 'df_pmax' in locals():
+                df_pmax = None
+                del df_pmax
