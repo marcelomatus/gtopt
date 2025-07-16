@@ -60,8 +60,8 @@ class ManceWriter(BaseWriter):
             name = f"uid:{id}" if not isinstance(id, str) else id
             fill_values[name] = float(central.get(field, 0.0))
 
-            # If the field value is the same as the fill value, skip
-            if fill_values[name] == mance[field]:
+            # Skip if all field values match the fill value
+            if np.all(mance[field] == fill_values[name]):
                 continue
 
             s = pd.Series(data=mance[field], index=mance["blocks"], name=name)
