@@ -14,6 +14,7 @@ from .bus_parser import BusParser
 from .mance_parser import ManceParser
 from .cost_writer import CostWriter
 from .mance_writer import ManceWriter
+from .block_parser import BlockParser
 
 
 class CentralWriter(BaseWriter):
@@ -23,6 +24,7 @@ class CentralWriter(BaseWriter):
         self,
         central_parser: Optional[CentralParser] = None,
         stage_parser: Optional[StageParser] = None,
+        block_parser: Optional[BlockParser] = None,
         cost_parser: Optional[CostParser] = None,
         bus_parser: Optional[BusParser] = None,
         mance_parser: Optional[ManceParser] = None,
@@ -164,9 +166,14 @@ class CentralWriter(BaseWriter):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         cost_writer = CostWriter(
-            self.cost_parser, self.parser, self.stage_parser, self.options
+            self.cost_parser,
+            self.parser,
+            self.stage_parser,
+            self.options,
         )
         cost_writer.to_parquet(output_dir)
 
-        mance_writer = ManceWriter(self.mance_parser, self.parser, self.options)
+        mance_writer = ManceWriter(
+            self.mance_parser, self.parser, self.block_parser, self.options
+        )
         mance_writer.to_parquet(output_dir)

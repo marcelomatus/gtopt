@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
 from .central_parser import CentralParser
+from .block_parser import BlockParser
 
 
 class ManceWriter(BaseWriter):
@@ -19,6 +20,7 @@ class ManceWriter(BaseWriter):
         self,
         mance_parser: Optional[ManceParser] = None,
         central_parser: Optional[CentralParser] = None,
+        block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a ManceParser instance."""
@@ -58,8 +60,8 @@ class ManceWriter(BaseWriter):
             if not central or central["type"] == "falla" or len(mance["blocks"]) == 0:
                 continue
 
-            central_id = central.get("number", cname)
-            name = f"uid:{central_id}" if not isinstance(central_id, str) else central_id
+            uid = central.get("number", cname)
+            name = f"uid:{uid}" if not isinstance(uid, str) else uid
             fill_values[name] = float(central.get(field, 0.0))
 
             # Skip if all field values match the fill value
@@ -72,7 +74,18 @@ class ManceWriter(BaseWriter):
 
         # Post-proce ssing
         df = df.sort_index().drop_duplicates()
-        df = df.reset_index().rename(columns={"index": "block"})
+
+        # Convert index to block column
+        if self.block_parser is not None:
+            blocks = np.empty(self.block_parser.num_blocks, dtype=np.int16)
+            for i, s in enumerate(self.block_parser.blocks):
+                blocks[i] = int(s["number"])
+            s = pd.Series(data=blocks, index=blocks, name="block")
+            df = pd.concat([s, df], axis=1)
+        else:
+            # convert index to "block" column
+            df = df.reset_index().rename(columns={"index": "block"})
+
         df = df.fillna(fill_values)
 
         return df
@@ -109,9 +122,9 @@ class ManceWriter(BaseWriter):
             self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
         finally:
             # Explicitly clear and delete DataFrames
-            if 'df_pmin' in locals():
+            if "df_pmin" in locals():
                 df_pmin = None
                 del df_pmin
-            if 'df_pmax' in locals():
+            if "df_pmax" in locals():
                 df_pmax = None
                 del df_pmax
