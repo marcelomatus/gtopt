@@ -31,7 +31,12 @@ def test_get_demands():
     test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
 
     # Use public methods to set test data
-    test_demand = {"number": 1, "name": "test", "blocks": test_blocks, "values": test_values}
+    test_demand = {
+        "number": 1,
+        "name": "test",
+        "blocks": test_blocks,
+        "values": test_values,
+    }
     # This assumes DemandParser has an add_test_data() method or similar
     # Alternatively, parse from a test file
     parser.parse_from_dicts([test_demand])

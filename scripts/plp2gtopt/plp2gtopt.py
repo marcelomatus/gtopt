@@ -45,6 +45,4 @@ def convert_plp_case(options: Dict[str, Any] = None) -> Dict[str, int]:
         print(f"\nConversion successful! Output written to {options['output_file']}")
     except Exception as e:
         print(f"\nConversion failed with error: {str(e)}")
-        raise RuntimeError(
-            f"PLP to GTOPT conversion failed. Details: {str(e)}"
-        ) from e
+        raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {str(e)}") from e

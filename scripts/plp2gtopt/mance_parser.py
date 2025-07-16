@@ -8,7 +8,6 @@ Handles:
 - Maintenance lookup by name
 """
 
-from pathlib import Path
 from typing import Union, Dict, List
 import numpy as np
 
@@ -17,10 +16,6 @@ from .base_parser import BaseParser
 
 class ManceParser(BaseParser):
     """Parser for plpmance.dat format files containing maintenance data."""
-
-    def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with maintenance file path."""
-        super().__init__(file_path)
 
     @property
     def mances(self) -> List[Dict]:

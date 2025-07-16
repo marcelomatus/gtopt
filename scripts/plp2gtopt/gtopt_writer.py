@@ -73,10 +73,12 @@ class GTOptWriter:
         centrals = self.parser.parsed_data.get("central_array", [])
 
         stages = self.parser.parsed_data.get("stage_array", None)
+        blocks = self.parser.parsed_data.get("block_array", None)
         costs = self.parser.parsed_data.get("cost_array", None)
         buses = self.parser.parsed_data.get("bus_array", None)
+        mances = self.parser.parsed_data.get("mance_array", None)
         self.planning["system"]["generator_array"] = CentralWriter(
-            centrals, stages, costs, buses, options
+            centrals, stages, blocks, costs, buses, mances, options
         ).to_json_array()
 
     def process_demands(self, options):
@@ -114,8 +116,11 @@ class GTOptWriter:
 
         self.planning["system"]["line_array"] = LineWriter(lines).to_json_array()
 
-    def to_json(self, options={}) -> Dict:
+    def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
+        if options is None:
+            options = {}
+
         self.process_options(options)
         self.process_stage_blocks()
         self.process_buses()
@@ -129,10 +134,12 @@ class GTOptWriter:
 
         return self.planning
 
-    def write(self, options={}):
+    def write(self, options=None):
         """Write JSON output to file."""
-        self.output_dir = Path(options["output_dir"]) if options else Path("results")
-        output_dir = self.output_dir
+        if options is None:
+            options = {}
+
+        output_dir = Path(options["output_dir"]) if options else Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = Path(options["output_file"]) if options else Path("gtopt.json")
 

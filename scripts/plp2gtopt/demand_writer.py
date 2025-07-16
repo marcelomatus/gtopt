@@ -5,10 +5,11 @@
 from typing import Any, Dict, List, Union
 from pathlib import Path
 import pandas as pd
+import numpy as np
+
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
 from .block_parser import BlockParser
-import numpy as np
 
 
 class DemandWriter(BaseWriter):
@@ -84,8 +85,8 @@ class DemandWriter(BaseWriter):
                 continue
 
             # Create Series for this demand
-            id = demand.get("bus", demand["name"])
-            name = f"uid:{id}" if not isinstance(id, str) else id
+            uid = demand.get("bus", demand["name"])
+            name = f"uid:{uid}" if not isinstance(uid, str) else uid
 
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             # Add to DataFrame
@@ -93,7 +94,7 @@ class DemandWriter(BaseWriter):
 
         if self.block_parser is not None:
             stages = np.empty(len(df.index), dtype=np.int16)
-            for i in range(len(stages)):
+            for i, s in enumerate(stages):
                 block_num = int(df.index[i])
                 stages[i] = self.block_parser.get_stage_number(block_num)
             s = pd.Series(data=stages, index=df.index, name="stage")
@@ -115,7 +116,7 @@ class DemandWriter(BaseWriter):
         fill_values = {
             "stage": -1,  # Special value for missing stages
             **{
-                col: 0.0 for col in df.columns if col != "stage" and col != "block"
+                col: 0.0 for col in df.columns if col not in ("stage", "block")
             },  # 0.0 for demands
         }
         df = df.fillna(fill_values)
@@ -123,12 +124,7 @@ class DemandWriter(BaseWriter):
         return df
 
     def to_parquet(self, output_file: Union[str, Path], items=None) -> None:
-        """Write demand data to Parquet file format.
-
-        Args:
-            output_path: Path to write the Parquet file
-            items: Optional list of demand items to convert (uses self.items if None)
-        """
+        """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Demand"
             if "output_dir" in self.options

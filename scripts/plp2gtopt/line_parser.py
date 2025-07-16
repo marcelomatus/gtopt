@@ -21,7 +21,7 @@ class LineParser(BaseParser):
 
     Attributes:
         file_path: Path to the line file
-        _data: List of parsed line entries  
+        _data: List of parsed line entries
         num_lines: Number of lines in the file
         _name_index_map: Dict mapping names to indices
         _number_index_map: Dict mapping numbers to indices

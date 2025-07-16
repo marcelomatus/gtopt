@@ -4,8 +4,7 @@
 """Parser for plpeta.dat format files containing stage data."""
 
 
-from typing import Any, List, Dict, Union
-from pathlib import Path
+from typing import Any, List, Dict
 
 
 from .base_parser import BaseParser
@@ -15,18 +14,10 @@ class StageParser(BaseParser):
     """Parser for plpeta.dat format files containing stage data.
 
     Handles:
-    - File parsing and validation  
+    - File parsing and validation
     - Stage data structure creation
     - Duration and discount factor calculation
     """
-
-    def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with stage file path.
-
-        Args:
-            file_path: Path to plpeta.dat format file (str or Path)
-        """
-        super().__init__(file_path)
 
     def parse(self) -> None:
         """Parse the stage file and populate the stages structure.

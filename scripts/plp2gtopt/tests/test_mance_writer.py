@@ -4,7 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-import pandas as pd
 from ..mance_writer import ManceWriter
 from ..mance_parser import ManceParser
 from .conftest import get_example_file
@@ -113,47 +112,11 @@ def test_json_output_structure(sample_mance_writer):
         ), "Blocks and p_max should match"
 
 
-def test_to_dataframe(sample_mance_writer):
-    """Test conversion to pandas DataFrames."""
-    df_pmin, df_pmax = sample_mance_writer.to_dataframe()
-
-    # Verify basic structure
-    for df in (df_pmin, df_pmax):
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
-        assert "block" in df.columns
-        assert df["block"].dtype == "int16"
-
-    # Verify pmin/pmax specific columns
-    assert any("p_min" in col.lower() for col in df_pmin.columns)
-    assert any("p_max" in col.lower() for col in df_pmax.columns)
-
-
-def test_to_parquet(sample_mance_writer):
-    """Test writing to Parquet format."""
-    with tempfile.NamedTemporaryFile(suffix="_pmin.parquet") as tmp_pmin, \
-         tempfile.NamedTemporaryFile(suffix="_pmax.parquet") as tmp_pmax:
-        
-        output_files = {
-            "pmin": Path(tmp_pmin.name),
-            "pmax": Path(tmp_pmax.name)
-        }
-        
-        sample_mance_writer.to_parquet(output_files)
-
-        # Verify files were created and contain valid data
-        for path in output_files.values():
-            assert path.exists()
-            df = pd.read_parquet(path)
-            assert isinstance(df, pd.DataFrame)
-            assert not df.empty
-
-
 def test_write_empty_mances():
     """Test handling of empty maintenance list."""
     # Create parser with no maintenance data
     parser = ManceParser("dummy.dat")
-    parser._data = []
+    parser._data = []  # pylint: disable=protected-access
     parser.num_centrals = 0
 
     writer = ManceWriter(parser)

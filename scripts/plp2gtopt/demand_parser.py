@@ -8,8 +8,6 @@ Handles:
 - Bus demand lookup
 """
 
-from pathlib import Path
-from typing import Union
 import numpy as np
 
 from .base_parser import BaseParser
@@ -17,7 +15,6 @@ from .base_parser import BaseParser
 
 class DemandParser(BaseParser):
     """Parser for plpdem.dat format files containing bus demand data."""
-
 
     @property
     def demands(self):
@@ -83,7 +80,7 @@ class DemandParser(BaseParser):
 
     def parse_from_dicts(self, demand_dicts: list) -> None:
         """Test helper method to populate parser with test data directly.
-        
+
         Args:
             demand_dicts: List of demand dictionaries with format:
                 {

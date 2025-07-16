@@ -166,7 +166,7 @@ def test_parse_empty_file(tmp_path):
     """Test handling of empty input file."""
     empty_file = tmp_path / "empty.dat"
     empty_file.touch()
-    
+
     parser = ManceParser(str(empty_file))
     with pytest.raises(ValueError):
         parser.parse()
@@ -176,7 +176,7 @@ def test_parse_malformed_file(tmp_path):
     """Test handling of malformed maintenance file."""
     bad_file = tmp_path / "bad.dat"
     bad_file.write_text("1\n'CENTRAL'\n2\n03 001 1 5.0")  # Missing p_max
-    
+
     parser = ManceParser(str(bad_file))
     with pytest.raises(ValueError):
         parser.parse()

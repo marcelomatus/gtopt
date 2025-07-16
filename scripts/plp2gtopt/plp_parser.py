@@ -9,7 +9,7 @@ from typing import Union
 from .block_parser import BlockParser
 from .bus_parser import BusParser
 from .central_parser import CentralParser
-from .cost_parser import CostParser 
+from .cost_parser import CostParser
 from .demand_parser import DemandParser
 from .line_parser import LineParser
 from .mance_parser import ManceParser
