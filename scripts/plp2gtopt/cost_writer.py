@@ -18,10 +18,11 @@ class CostWriter(BaseWriter):
 
     def __init__(
         self,
-        cost_parser: CostParser = None,
-        central_parser: CentralParser = None,
-        stage_parser: StageParser = None,
-    ):
+        cost_parser: Optional[CostParser] = None,
+        central_parser: Optional[CentralParser] = None, 
+        stage_parser: Optional[StageParser] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Initialize with a CostParser instance."""
         super().__init__(cost_parser)
         self.central_parser = central_parser
