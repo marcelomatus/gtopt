@@ -58,8 +58,8 @@ class ManceWriter(BaseWriter):
             if not central or central["type"] == "falla" or len(mance["blocks"]) == 0:
                 continue
 
-            id = central.get("number", cname)
-            name = f"uid:{id}" if not isinstance(id, str) else id
+            central_id = central.get("number", cname)
+            name = f"uid:{central_id}" if not isinstance(central_id, str) else central_id
             fill_values[name] = float(central.get(field, 0.0))
 
             # Skip if all field values match the fill value
