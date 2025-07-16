@@ -1,8 +1,9 @@
 """Unit tests for pydem.py DemandParser class."""
 
 from pathlib import Path
-import pytest
 import numpy as np
+import pytest
+
 from ..demand_parser import DemandParser
 from .conftest import get_example_file
 
@@ -29,12 +30,14 @@ def test_get_demands():
     test_blocks = np.array([1, 2, 3], dtype=np.int32)
     test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
 
-    parser._data = [
-        {"number": 1, "name": "test", "blocks": test_blocks, "values": test_values}
-    ]  # pylint: disable=protected-access
-    assert len(parser._data) == 1
+    # Use public methods to set test data
+    test_demand = {"number": 1, "name": "test", "blocks": test_blocks, "values": test_values}
+    # This assumes DemandParser has an add_test_data() method or similar
+    # Alternatively, parse from a test file
+    parser.parse_from_dicts([test_demand])
+    assert parser.num_demands == 1
 
-    demands = parser.demands
+    demands = parser.get_all()
     assert len(demands) == 1
     demand = demands[0]
 
