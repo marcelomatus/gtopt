@@ -24,10 +24,10 @@ class ManceWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a ManceParser instance.
-        
+
         Args:
             mance_parser: Parser for maintenance data
-            central_parser: Parser for central data  
+            central_parser: Parser for central data
             block_parser: Parser for block data
             options: Dictionary of writer options
         """
@@ -84,10 +84,10 @@ class ManceWriter(BaseWriter):
         df = df.sort_index().drop_duplicates()
 
         # Convert index to block column
-        if self.block_parser is not None:
+        if self.block_parser:
             blocks = np.empty(self.block_parser.num_blocks, dtype=np.int16)
-            for i, s in enumerate(self.block_parser.blocks):
-                blocks[i] = int(s["number"])
+            for i, b in enumerate(self.block_parser.blocks):
+                blocks[i] = int(b["number"])
             s = pd.Series(data=blocks, index=blocks, name="block")
             df = pd.concat([s, df], axis=1)
         else:
