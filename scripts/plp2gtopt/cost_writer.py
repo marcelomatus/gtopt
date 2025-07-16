@@ -2,15 +2,14 @@
 
 """Writer for converting generator cost data to JSON format."""
 
-from typing import Union
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
+import pandas as pd
+
 from .base_writer import BaseWriter
 from .cost_parser import CostParser
-from .central_parser import CentralParser
+from .central_parser import CentralParser 
 from .stage_parser import StageParser
-import pandas as pd
-import numpy as np
 
 
 class CostWriter(BaseWriter):
@@ -64,8 +63,8 @@ class CostWriter(BaseWriter):
                 continue
 
             # Create Series for this cost
-            id = central.get("number", cname)
-            name = f"uid:{id}" if not isinstance(id, str) else id
+            central_id = central.get("number", cname)
+            name = f"uid:{central_id}" if not isinstance(central_id, str) else central_id
             fill_values[name] = float(central.get("variable_cost", 0.0))
 
             # Add to DataFrame

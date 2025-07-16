@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """Writer for converting central data to JSON format."""
-import pandas as pd
-import numpy as np
+
 from pathlib import Path
-from typing import Union, Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
+import pandas as pd
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
@@ -40,7 +40,6 @@ class CentralWriter(BaseWriter):
         """Process embalses to include block and stage information."""
         if not embalses:
             return
-        pass
 
     def process_central_series(self, series):
         """Process series to include block and stage information."""
@@ -152,11 +151,11 @@ class CentralWriter(BaseWriter):
 
             json_centrals.append(central)
 
-        self.to_parquet("gcost.parquet")
+        self.to_parquet()
 
         return json_centrals
 
-    def to_dataframe(self, cost_items=None) -> pd.DataFrame:
+    def to_dataframe(self) -> pd.DataFrame:
         """Convert demand data to pandas DataFrame format."""
         cost_writer = CostWriter(
             self.cost_parser, self.parser, self.stage_parser, self.options
