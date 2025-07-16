@@ -18,9 +18,6 @@ from .base_parser import BaseParser
 class DemandParser(BaseParser):
     """Parser for plpdem.dat format files containing bus demand data."""
 
-    def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with demand file path."""
-        super().__init__(file_path)
 
     @property
     def demands(self):
