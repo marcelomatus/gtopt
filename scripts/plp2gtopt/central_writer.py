@@ -21,13 +21,13 @@ class CentralWriter(BaseWriter):
 
     def __init__(
         self,
-        central_parser: CentralParser = None,
-        stage_parser: StageParser = None,
-        cost_parser: CostParser = None,
-        bus_parser: BusParser = None,
-        mance_parser: ManceParser = None,
-        options: Dict[str, Any] = None,
-    ):
+        central_parser: Optional[CentralParser] = None,
+        stage_parser: Optional[StageParser] = None,
+        cost_parser: Optional[CostParser] = None,
+        bus_parser: Optional[BusParser] = None,
+        mance_parser: Optional[ManceParser] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Initialize with a CentralParser instance."""
         super().__init__(central_parser)
         self.stage_parser = stage_parser
