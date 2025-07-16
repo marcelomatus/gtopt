@@ -3,8 +3,8 @@
 """Writer for converting central data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-import pandas as pd
+from typing import Any, Dict, List, Optional
+
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
@@ -155,18 +155,6 @@ class CentralWriter(BaseWriter):
 
         return json_centrals
 
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert demand data to pandas DataFrame format."""
-        cost_writer = CostWriter(
-            self.cost_parser, self.parser, self.stage_parser, self.options
-        )
-        df_gcost = cost_writer.to_dataframe()
-
-        mance_writer = ManceWriter(self.mance_parser, self.parser, self.options)
-        df_pmin, df_pmax = mance_writer.to_dataframe()
-
-        return df_gcost, df_pmin, df_pmax
-
     def to_parquet(self) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
@@ -174,12 +162,12 @@ class CentralWriter(BaseWriter):
             if "output_dir" in self.options
             else Path("Generator")
         )
-
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        df_gcost, df_pmin, df_pmax = self.to_dataframe()
+        cost_writer = CostWriter(
+            self.cost_parser, self.parser, self.stage_parser, self.options
+        )
+        cost_writer.to_parquet(output_dir)
 
-        compression = self.options.get("compression", "zstd")
-        df_gcost.to_parquet(output_dir / "gcost", index=False, compression=compression)
-        df_pmin.to_parquet(output_dir / "pmin", index=False, compression=compression)
-        df_pmax.to_parquet(output_dir / "pmax", index=False, compression=compression)
+        mance_writer = ManceWriter(self.mance_parser, self.parser, self.options)
+        mance_writer.to_parquet(output_dir)
