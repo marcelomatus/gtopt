@@ -16,7 +16,7 @@ class ManceWriter(BaseWriter):
     def __init__(
         self,
         mance_parser: Optional[ManceParser] = None,
-        central_parser: CentralParser = None,
+        central_parser: Optional[CentralParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a ManceParser instance."""
