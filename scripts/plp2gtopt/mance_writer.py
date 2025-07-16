@@ -5,6 +5,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
