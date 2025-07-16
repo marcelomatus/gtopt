@@ -3,7 +3,9 @@
 """Writer for converting maintenance data to JSON format."""
 
 import pandas as pd
+import numpy as np
 from pathlib import Path
+
 from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
