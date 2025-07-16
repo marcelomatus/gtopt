@@ -45,7 +45,6 @@ class CentralWriter(BaseWriter):
         """Process series to include block and stage information."""
         if not series:
             return
-        pass
 
     def process_central_pasadas(self, pasadas):
         """Process pasadas to include block and stage information."""
@@ -151,11 +150,11 @@ class CentralWriter(BaseWriter):
 
             json_centrals.append(central)
 
-        self.to_parquet()
+        self._write_parquet_files()
 
         return json_centrals
 
-    def to_parquet(self) -> None:
+    def _write_parquet_files(self) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Generator"
