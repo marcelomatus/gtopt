@@ -41,30 +41,37 @@ class ManceWriter(BaseWriter):
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
         df = pd.DataFrame()
-        defaults = {}
 
+        if not items:
+            return df
+
+        fill_values = {}
         for mance in items:
-            if len(mance["blocks"]) == 0:
-                continue
-
             cname = mance.get("name", "")
             central = (
                 self.central_parser.get_central_by_name(cname)
                 if self.central_parser
                 else None
             )
+            if not central or central["type"] == "falla" or len(mance["blocks"]) == 0:
+                continue
 
-            id = central.get("number", cname) if central else mance.get("uid", cname)
+            id = central.get("number", cname)
             name = f"uid:{id}" if not isinstance(id, str) else id
-            defaults[name] = central.get(field, 0.0) if central else 0.0
-            s = pd.Series(data=mance[field], index=mance["blocks"], name=name)
-            df = pd.concat([df, s], ignore_index=True)
+            fill_values[name] = float(central.get(field, 0.0))
 
-        # Post-processing
+            # If the field value is the same as the fill value, skip
+            if fill_values[name] == mance[field]:
+                continue
+
+            s = pd.Series(data=mance[field], index=mance["blocks"], name=name)
+            s = s.loc[~s.index.duplicated(keep="last")]
+            df = pd.concat([df, s], axis=1)
+
+        # Post-proce ssing
         df = df.sort_index().drop_duplicates()
-        df = df.fillna(defaults)
-        df.index = df.index.astype("int16")
         df = df.reset_index().rename(columns={"index": "block"})
+        df = df.fillna(fill_values)
 
         return df
 
@@ -73,6 +80,9 @@ class ManceWriter(BaseWriter):
         if items is None:
             items = self.items
 
+        if not items:
+            return pd.DataFrame(), pd.DataFrame()
+
         df_pmin = self._create_dataframe_for_field("p_min", items)
         df_pmax = self._create_dataframe_for_field("p_max", items)
 
@@ -80,20 +90,17 @@ class ManceWriter(BaseWriter):
 
     def _write_parquet_for_field(self, df: pd.DataFrame, output_path: Path) -> None:
         """Write a single DataFrame to parquet format."""
+        if df.empty:
+            return
+
         compression = self.options.get("compression", "gzip")
         df.to_parquet(
             output_path, index=False, engine="pyarrow", compression=compression
         )
 
-    def to_parquet(self, output_files: dict, items=None) -> None:
+    def to_parquet(self, output_dir: Path, items=None) -> None:
         """Write maintenance data to Parquet files for pmin and pmax."""
-        output_dir = (
-            self.options["output_dir"] / "Generator"
-            if "output_dir" in self.options
-            else Path("Generator")
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         df_pmin, df_pmax = self.to_dataframe(items)
-        self._write_parquet_for_field(df_pmin, output_dir / output_files["pmin"])
-        self._write_parquet_for_field(df_pmax, output_dir / output_files["pmax"])
+
+        self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
+        self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
