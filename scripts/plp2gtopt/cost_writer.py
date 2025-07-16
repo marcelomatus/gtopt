@@ -3,7 +3,7 @@
 """Writer for converting generator cost data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 import pandas as pd
 
 import numpy as np
@@ -42,19 +42,19 @@ class CostWriter(BaseWriter):
             for cost in items
         ]
 
-    def to_dataframe(self, cost_items=None) -> pd.DataFrame:
+    def to_dataframe(self, items=None) -> pd.DataFrame:
         """Convert demand data to pandas DataFrame format."""
-        if cost_items is None:
-            cost_items = self.items
+        if items is None:
+            items = self.items
 
         # Create empty DataFrame to collect all demand series
         df = pd.DataFrame()
 
-        if not cost_items:
+        if not items:
             return df
 
         fill_values = {}
-        for cost in cost_items:
+        for cost in items:
             cname = cost.get("name", "")
             central = (
                 self.central_parser.get_central_by_name(cname)
@@ -64,9 +64,8 @@ class CostWriter(BaseWriter):
             if not central or len(cost["stages"]) == 0:
                 continue
 
-            # Create Series for this cost
-            central_id = central.get("number", cname)
-            name = f"uid:{central_id}" if not isinstance(central_id, str) else central_id
+            uid = central.get("number", cname)
+            name = f"uid:{uid}" if not isinstance(uid, str) else uid
             fill_values[name] = float(central.get("variable_cost", 0.0))
 
             # Add to DataFrame
@@ -93,20 +92,12 @@ class CostWriter(BaseWriter):
 
         return df
 
-    def to_parquet(self, output_file: Union[str, Path], cost_items=None) -> None:
+    def to_parquet(self, output_dir: Path, cost_items=None) -> None:
         """Write demand data to Parquet file format."""
-        output_dir = (
-            self.options["output_dir"] / "Generator"
-            if "output_dir" in self.options
-            else Path("Generator")
-        )
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / output_file
-
         df = self.to_dataframe(cost_items)
         if df.empty:
             return
 
+        output_file = output_dir / "gcost.parquet"
         compression = self.options.get("compression", "zstd")
         df.to_parquet(output_file, index=False, compression=compression)
