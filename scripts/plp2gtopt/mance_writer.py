@@ -25,6 +25,7 @@ class ManceWriter(BaseWriter):
         """Initialize with a ManceParser instance."""
         super().__init__(mance_parser)
         self.central_parser = central_parser
+        self.block_parser = block_parser
         self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
