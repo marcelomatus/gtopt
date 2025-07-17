@@ -218,7 +218,7 @@ def test_parse_real_file() -> None:
     }
 
     for gen in centrals:
-        type_counts[gen["type"]] += 1
+        type_counts[str(gen["type"])] += 1
 
     assert type_counts["embalse"] == parser.num_embalses
     assert type_counts["serie"] == parser.num_series
@@ -277,7 +277,7 @@ def test_parse_large_real_file() -> None:
     }
 
     for gen in centrals:
-        type_counts[gen["type"]] += 1
+        type_counts[str(gen["type"])] += 1
 
     assert type_counts["embalse"] == parser.num_embalses
     assert type_counts["serie"] == parser.num_series

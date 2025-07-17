@@ -90,6 +90,7 @@ def test_json_output_structure(
 
 def test_write_empty_stages():
     """Test handling of empty stage list."""
+
     # Create parser with no stages
     # Create mock parser with empty data
     class MockStageParser:
@@ -105,7 +106,7 @@ def test_write_empty_stages():
 
     mock_parser: typing.Any = MockStageParser()
 
-    writer = StageWriter(parser)
+    writer = StageWriter(mock_parser)
     json_stages = writer.to_json_array()
     assert not json_stages
 
