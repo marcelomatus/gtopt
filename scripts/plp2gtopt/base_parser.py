@@ -22,15 +22,31 @@ class BaseParser(ABC):
         self._number_index_map: Dict[int, int] = {}  # Maps number to indices
 
     def _append(self, item: Dict[str, Any]) -> int:
-        """Validate and add a completed central to the list."""
+        """Validate and add a completed item to the list."""
         idx = len(self._data)
         self._data.append(item)
         if "name" in item:
             self._name_index_map[item["name"]] = idx
         if "number" in item:
             self._number_index_map[item["number"]] = idx
-
         return idx
+
+    def _parse_array_line(self, line: str, expected_fields: int) -> List[Any]:
+        """Parse a line containing array data with field count validation."""
+        parts = line.split()
+        if len(parts) < expected_fields:
+            raise ValueError(
+                f"Expected {expected_fields} fields, got {len(parts)} in line: {line}"
+            )
+        return parts
+
+    def _parse_float_array(self, values: List[str]) -> List[float]:
+        """Convert string array to float array."""
+        return [self._parse_float(v) for v in values]
+
+    def _parse_int_array(self, values: List[str]) -> List[int]:
+        """Convert string array to int array."""
+        return [self._parse_int(v) for v in values]
 
     @abstractmethod
     def parse(self) -> None:
