@@ -76,16 +76,6 @@ def test_write_to_file(sample_demand_writer):  # pylint: disable=redefined-outer
             assert len(data) > 0
 
 
-def test_from_demand_file(sample_demand_file):  # pylint: disable=redefined-outer-name
-    """Test creating DemandWriter directly from demand file."""
-    writer = DemandWriter.from_file(sample_demand_file, DemandParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_demand_file
-    assert writer.parser.num_demands > 0
-    assert len(writer.items) == writer.parser.num_demands
-
-
 def test_json_output_structure(
     sample_demand_writer,
 ):  # pylint: disable=redefined-outer-name

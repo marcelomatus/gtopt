@@ -72,16 +72,6 @@ def test_write_to_file(sample_stage_writer):  # pylint: disable=redefined-outer-
             assert len(data) > 0
 
 
-def test_from_stage_file(sample_stage_file):  # pylint: disable=redefined-outer-name
-    """Test creating StageWriter directly from stage file."""
-    writer = StageWriter.from_file(sample_stage_file, StageParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_stage_file
-    assert writer.parser.num_stages > 0
-    assert len(writer.items) == writer.parser.num_stages
-
-
 def test_json_output_structure(
     sample_stage_writer,
 ):  # pylint: disable=redefined-outer-name

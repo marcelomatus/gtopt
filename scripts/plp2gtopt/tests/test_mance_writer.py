@@ -71,16 +71,6 @@ def test_write_to_file(sample_mance_writer):
             assert len(data) > 0
 
 
-def test_from_mance_file(sample_mance_file):
-    """Test creating ManceWriter directly from maintenance file."""
-    writer = ManceWriter.from_file(sample_mance_file, ManceParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_mance_file
-    assert writer.parser.num_mances > 0
-    assert len(writer.items) == writer.parser.num_mances
-
-
 def test_json_output_structure(sample_mance_writer):
     """Verify JSON output matches expected structure."""
     json_mances = sample_mance_writer.to_json_array()

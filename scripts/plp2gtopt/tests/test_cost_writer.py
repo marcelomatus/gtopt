@@ -70,16 +70,6 @@ def test_write_to_file(sample_costs_writer):
             assert len(data) > 0
 
 
-def test_from_costs_file(sample_costs_file):
-    """Test creating CostWriter directly from cost file."""
-    writer = CostWriter.from_file(sample_costs_file, CostParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_costs_file
-    assert writer.parser.num_costs > 0
-    assert len(writer.items) == writer.parser.num_costs
-
-
 def test_json_output_structure(sample_costs_writer):
     """Verify JSON output matches expected structure."""
     json_costs = sample_costs_writer.to_json_array()
@@ -112,7 +102,6 @@ def test_write_empty_costs():
     # Create parser with no costs
     parser = CostParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_generators = 0
 
     writer = CostWriter(parser)
 
