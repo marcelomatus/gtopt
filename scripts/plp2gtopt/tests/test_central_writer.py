@@ -3,6 +3,7 @@
 
 """Unit tests for CentralWriter class."""
 
+import typing
 import json
 import tempfile
 from pathlib import Path
