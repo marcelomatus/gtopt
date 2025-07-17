@@ -44,7 +44,7 @@ class BaseWriter(ABC):
         """Write data to JSON file."""
         json_data = self.to_json_array()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
