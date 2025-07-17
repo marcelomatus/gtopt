@@ -26,7 +26,7 @@ class BusParser(BaseParser):
             file_path: Path to plpbar.dat format file (str or Path)
         """
         super().__init__(file_path)
-        self.bus_num_map: Dict[str, int] = {}
+        self.bus_num_map: Dict[int, int] = {}
 
     @property
     def buses(self) -> List[Dict[str, Union[str, float, bool]]]:
@@ -81,7 +81,7 @@ class BusParser(BaseParser):
                 self._append({"number": bus_num, "name": name, "voltage": voltage})
                 self.bus_num_map[bus_num] = self.num_buses - 1
 
-    def get_bus_by_number(self, number: int) -> int:
+    def get_bus_by_number(self, number: int) -> dict[str, Any] | None:
         """Get bus by bus number."""
         return self.get_item_by_number(number)
 
