@@ -56,7 +56,7 @@ class BaseWriter(ABC):
             raise IOError(f"Failed to write JSON to {output_path}: {str(e)}") from e
 
     def _build_json_item(self, **fields) -> Dict[str, Any]:
-        """Helper to consistently build JSON output items."""
+        """Help to consistently build JSON output items."""
         return {k: v for k, v in fields.items() if v is not None}
 
     def _convert_index_to_column(
