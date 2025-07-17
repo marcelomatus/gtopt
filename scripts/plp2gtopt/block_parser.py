@@ -51,7 +51,7 @@ class BlockParser(BaseParser):
             if len(parts) < 3:
                 raise ValueError(f"Invalid block entry at line {idx+1}")
 
-            block = {
+            block: dict[str, Any] = {
                 "number": self._parse_int(parts[0]),
                 "stage": self._parse_int(parts[1]),
                 "duration": self._parse_float(parts[2]),

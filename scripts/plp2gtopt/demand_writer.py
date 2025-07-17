@@ -2,7 +2,7 @@
 
 """Writer for converting demand data to JSON format."""
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -17,9 +17,9 @@ class DemandWriter(BaseWriter):
 
     def __init__(
         self,
-        demand_parser: DemandParser = None,
-        block_parser: BlockParser = None,
-        options: Dict[str, Any] = None,
+        demand_parser: Optional[DemandParser] = None,
+        block_parser: Optional[BlockParser] = None,
+        options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a DemandParser instance."""
         super().__init__(demand_parser)

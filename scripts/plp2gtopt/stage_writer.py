@@ -2,7 +2,7 @@
 
 """Writer for converting stage data to JSON format."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .stage_parser import StageParser
 
@@ -10,7 +10,7 @@ from .stage_parser import StageParser
 class StageWriter(BaseWriter):
     """Converts stage parser data to JSON format used by GTOPT."""
 
-    def __init__(self, stage_parser: StageParser = None):
+    def __init__(self, stage_parser: Optional[StageParser] = None):
         """Initialize with a StageParser instance."""
         super().__init__(stage_parser)
 

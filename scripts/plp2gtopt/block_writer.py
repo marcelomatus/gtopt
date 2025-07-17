@@ -2,7 +2,7 @@
 
 """Writer for converting block data to JSON format."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .block_parser import BlockParser
 
@@ -10,7 +10,7 @@ from .block_parser import BlockParser
 class BlockWriter(BaseWriter):
     """Converts block parser data to JSON format used by GTOPT."""
 
-    def __init__(self, block_parser: BlockParser = None):
+    def __init__(self, block_parser: Optional[BlockParser] = None):
         """Initialize with a BlockParser instance."""
         super().__init__(block_parser)
 

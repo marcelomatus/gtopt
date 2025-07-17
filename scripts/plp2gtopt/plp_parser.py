@@ -4,7 +4,7 @@ Handles parsing of all PLP input files into structured data.
 """
 
 from pathlib import Path
-from typing import Union
+from typing import Any, Dict
 
 from .block_parser import BlockParser
 from .bus_parser import BusParser
@@ -19,11 +19,12 @@ from .stage_parser import StageParser
 class PLPParser:
     """Handles parsing of all PLP input files."""
 
-    def __init__(self, input_dir: Union[str, Path]):
+    def __init__(self, options: Dict[str, Any]):
         """Initialize PLPParser with input directory."""
-        self.input_path = Path(input_dir)
+        self.input_path: Path = Path(options.get("input_dir", ""))
+        self.parsed_data: dict[str, Any] = {}
+
         self._validate_input_dir()
-        self.parsed_data = {}
 
     def _validate_input_dir(self):
         if not self.input_path.is_dir():

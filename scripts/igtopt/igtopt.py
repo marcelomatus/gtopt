@@ -7,6 +7,7 @@ import pathlib
 import re
 import sys
 import warnings
+from typing import Any
 from itertools import zip_longest
 
 import numpy as np
@@ -115,13 +116,14 @@ def df_to_opts(df, options):
 
 
 def df_to_str(df, skip_nulls=True):
+    """Convert a DataFrame to a JSON string representation."""
     dropc = []
     for c in df.columns:
         if c[0] == ".":
             dropc.append(c)
     df.drop(columns=dropc, inplace=True)
 
-    types = {}
+    types: dict[str, Any] = {}
     if "name" in df.columns:
         types["name"] = str
     for c in ["uid", "active"]:
