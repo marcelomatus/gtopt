@@ -1,11 +1,11 @@
 """Common test utilities for plp2gtopt."""
 
-from typing import Any, Dict, Type, Tuple, Union
-import pytest
 from pathlib import Path
+from typing import Any, Dict, List, Type, Tuple, Union
+import pytest
 
 def validate_required_fields(
-    item: Dict[str, Any], 
+    item: Dict[str, Any],
     required_fields: Dict[str, Union[Type, Tuple[Type,...]]]
 ) -> None:
     """Validate that item contains required fields with correct types."""
