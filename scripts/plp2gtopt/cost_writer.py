@@ -42,48 +42,39 @@ class CostWriter(BaseWriter):
         ]
 
     def to_dataframe(self, items=None) -> pd.DataFrame:
-        """Convert demand data to pandas DataFrame format."""
+        """Convert cost data to pandas DataFrame format."""
         if items is None:
-            items = self.items
+            items = self.items or []
 
-        # Create empty DataFrame to collect all demand series
-        df = pd.DataFrame()
-
-        if not items:
-            return df
-
-        fill_values = {}
-        for cost in items:
+        def filter_fn(cost):
             cname = cost.get("name", "")
             central = (
                 self.central_parser.get_central_by_name(cname)
                 if self.central_parser
                 else None
             )
-            if not central or len(cost["stages"]) == 0:
-                continue
+            return not central or len(cost["stages"]) == 0
 
-            uid = central.get("number", cname)
-            name = f"uid:{uid}" if not isinstance(uid, str) else uid
-            fill_values[name] = float(central.get("variable_cost", 0.0))
+        fill_values = {}
+        if self.central_parser:
+            for cost in items:
+                cname = cost.get("name", "")
+                central = self.central_parser.get_central_by_name(cname)
+                if central:
+                    uid = central.get("number", cname)
+                    name = f"uid:{uid}" if not isinstance(uid, str) else uid
+                    fill_values[name] = float(central.get("variable_cost", 0.0))
 
-            # Add to DataFrame
-            s = pd.Series(data=cost["costs"], index=cost["stages"], name=name)
-            s = s.loc[~s.index.duplicated(keep="last")]
-            df = pd.concat([df, s], axis=1)
-
-        # Post-processing
-        df = df.sort_index().drop_duplicates()
-
-        # Convert index to stage column
-        df = self._convert_index_to_column(
-            df, index_name="stage", parser=self.stage_parser, item_key="number"
+        df = self._create_dataframe(
+            items=items,
+            value_field="costs",
+            index_field="stages",
+            parser=self.stage_parser,
+            index_name="stage",
+            filter_fn=filter_fn,
+            fill_values=fill_values
         )
         df["stage"] = df["stage"].astype("int16")
-
-        # Fill missing values with column-specific defaults
-        df = df.fillna(fill_values)
-
         return df
 
     def to_parquet(self, output_dir: Path, cost_items=None) -> None:

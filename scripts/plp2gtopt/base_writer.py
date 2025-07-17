@@ -59,6 +59,75 @@ class BaseWriter(ABC):
         """Help to consistently build JSON output items."""
         return {k: v for k, v in fields.items() if v is not None}
 
+    def _create_dataframe(
+        self,
+        items: List[Dict[str, Any]],
+        value_field: str,
+        index_field: str,
+        parser: Optional[Any] = None,
+        item_key: str = "number",
+        index_name: Optional[str] = None,
+        filter_fn: Optional[callable] = None,
+        fill_values: Optional[Dict[str, float]] = None,
+    ) -> pd.DataFrame:
+        """Create a DataFrame from items with common processing.
+
+        Args:
+            items: List of item dictionaries
+            value_field: Field name containing the values
+            index_field: Field name containing the index values
+            parser: Optional parser for index conversion
+            item_key: Key to extract from parser items
+            index_name: Name for the index column (defaults to index_field)
+            filter_fn: Optional filter function for items
+            fill_values: Optional dict of default fill values per column
+
+        Returns:
+            Processed DataFrame
+        """
+        df = pd.DataFrame()
+        if not items:
+            return df
+
+        index_name = index_name or index_field
+        fill_values = fill_values or {}
+
+        for item in items:
+            name = item.get("name", "")
+            if filter_fn and filter_fn(item):
+                continue
+
+            uid = item.get("number", name)
+            col_name = f"uid:{uid}" if not isinstance(uid, str) else uid
+            if col_name not in fill_values:
+                fill_values[col_name] = 0.0
+
+            # Skip if all values match the fill value
+            if np.all(item[value_field] == fill_values[col_name]):
+                continue
+
+            s = pd.Series(
+                data=item[value_field],
+                index=item[index_field],
+                name=col_name
+            )
+            s = s.loc[~s.index.duplicated(keep="last")]
+            df = pd.concat([df, s], axis=1)
+
+        # Post-processing
+        df = df.sort_index().drop_duplicates()
+
+        # Convert index to column
+        df = self._convert_index_to_column(
+            df,
+            index_name=index_name,
+            parser=parser,
+            item_key=item_key
+        )
+
+        # Fill missing values with column-specific defaults
+        return df.fillna(fill_values)
+
     def _convert_index_to_column(
         self,
         df: pd.DataFrame,

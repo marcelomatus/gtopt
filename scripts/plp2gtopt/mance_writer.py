@@ -52,46 +52,36 @@ class ManceWriter(BaseWriter):
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
-        df = pd.DataFrame()
-
-        if not items:
-            return df
-
-        fill_values = {}
-        for mance in items:
+        def filter_fn(mance):
             cname = mance.get("name", "")
             central = (
                 self.central_parser.get_central_by_name(cname)
                 if self.central_parser
                 else None
             )
-            if not central or central["type"] == "falla" or len(mance["blocks"]) == 0:
-                continue
+            return (not central or 
+                    central["type"] == "falla" or 
+                    len(mance["blocks"]) == 0)
 
-            uid = central.get("number", cname)
-            name = f"uid:{uid}" if not isinstance(uid, str) else uid
-            fill_values[name] = float(central.get(field, 0.0))
+        fill_values = {}
+        if self.central_parser:
+            for mance in items:
+                cname = mance.get("name", "")
+                central = self.central_parser.get_central_by_name(cname)
+                if central and central["type"] != "falla":
+                    uid = central.get("number", cname)
+                    name = f"uid:{uid}" if not isinstance(uid, str) else uid
+                    fill_values[name] = float(central.get(field, 0.0))
 
-            # Skip if all field values match the fill value
-            if np.all(mance[field] == fill_values[name]):
-                continue
-
-            s = pd.Series(data=mance[field], index=mance["blocks"], name=name)
-            s = s.loc[~s.index.duplicated(keep="last")]
-            df = pd.concat([df, s], axis=1)
-
-        # Post-processing
-        df = df.sort_index().drop_duplicates()
-
-        # Convert index to block column
-        df = self._convert_index_to_column(
-            df, index_name="block", parser=self.block_parser, item_key="number"
+        return self._create_dataframe(
+            items=items,
+            value_field=field,
+            index_field="blocks",
+            parser=self.block_parser,
+            index_name="block",
+            filter_fn=filter_fn,
+            fill_values=fill_values
         )
-
-        # Fill missing values with column-specific defaults
-        df = df.fillna(fill_values)
-
-        return df
 
     def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames for pmin and pmax."""
