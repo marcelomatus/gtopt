@@ -12,10 +12,12 @@ import json
 from abc import ABC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
-from .base_parser import BaseParser
+
+import numpy as np
+import pandas as pd
 
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
-ParserVar = TypeVar("ParserVar", bound="BaseParser")
+ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
 
 
 class BaseWriter(ABC):
