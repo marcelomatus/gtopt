@@ -132,7 +132,7 @@ def test_write_empty_lines():
         def get_all(self):
             return self._data
 
-    parser = MockLineParser()
+    parser: typing.Any = MockLineParser()
 
     writer = LineWriter(parser)
     json_lines = writer.to_json_array()

@@ -107,7 +107,7 @@ def test_write_empty_mances():
     # Create parser with no maintenance data
     parser = ManceParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
-    parser.num_centrals = 0
+    parser._num_centrals = 0  # type: ignore[attr-defined]
 
     writer = ManceWriter(parser)
 
