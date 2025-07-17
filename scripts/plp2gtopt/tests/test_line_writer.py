@@ -5,6 +5,7 @@
 
 import json
 import tempfile
+import typing
 from pathlib import Path
 import pytest
 from ..line_writer import LineWriter
