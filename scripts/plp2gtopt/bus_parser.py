@@ -85,6 +85,13 @@ class BusParser(BaseParser):
         """Get bus by bus number."""
         return self.get_item_by_number(number)
 
-    def get_bus_by_name(self, name: str) -> dict[str, Any] | None:
-        """Get bus by bus name."""
-        return self.get_item_by_name(name)
+    def get_bus_by_name(self, name: str | float | bool) -> dict[str, Any] | None:
+        """Get bus by bus name.
+        
+        Args:
+            name: Bus name (will be converted to string if not already)
+            
+        Returns:
+            Bus dictionary if found, None otherwise
+        """
+        return self.get_item_by_name(str(name))
