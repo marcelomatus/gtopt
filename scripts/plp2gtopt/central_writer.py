@@ -71,11 +71,11 @@ class CentralWriter(BaseWriter):
         """Get the central parser instance."""
         return typing.cast(CentralParser, self.parser)
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(self, items: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """Convert central data to JSON array format."""
         if items is None:
             items = self.items
-        if not items:
+        if items is None or not items:
             return []
 
         for cen in items:
