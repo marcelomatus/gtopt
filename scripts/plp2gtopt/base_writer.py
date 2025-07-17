@@ -35,14 +35,22 @@ class BaseWriter(ABC):
         self.items = self.parser.get_all() if self.parser else None
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
-        """Convert data to JSON array format (to be implemented by subclasses)."""
-        raise NotImplementedError
+        """Convert data to JSON array format."""
+        if items is None:
+            items = self.items or []
+        return items  # Default implementation, override in subclasses
 
     def write_to_file(self, output_path: Path) -> None:
         """Write data to JSON file."""
         json_data = self.to_json_array()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(json_data, f, indent=4, ensure_ascii=False)
         except (IOError, ValueError) as e:
-            raise IOError(f"Failed to write JSON: {str(e)}") from e
+            raise IOError(f"Failed to write JSON to {output_path}: {str(e)}") from e
+
+    def _build_json_item(self, **fields) -> Dict[str, Any]:
+        """Helper to consistently build JSON output items."""
+        return {k: v for k, v in fields.items() if v is not None}
