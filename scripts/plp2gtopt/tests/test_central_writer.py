@@ -99,7 +99,7 @@ def test_write_empty_centrals():
         def get_all(self):
             return self._centrals
 
-    parser = MockCentralParser()
+    parser: typing.Any = MockCentralParser()
 
     writer = CentralWriter(parser)
     json_centrals = writer.to_json_array()
