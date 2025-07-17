@@ -79,7 +79,8 @@ def test_get_bus_by_name(sample_bus_file):  # pylint: disable=redefined-outer-na
     # Test existing bus
     buses = parser.buses
     first_bus_name = buses[0]["name"]
-    bus = parser.get_bus_by_name(first_bus_name)
+    bus = parser.get_bus_by_name(str(first_bus_name))
+
     assert bus is not None
     assert bus["name"] == first_bus_name
 

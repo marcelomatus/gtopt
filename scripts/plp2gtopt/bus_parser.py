@@ -86,14 +86,7 @@ class BusParser(BaseParser):
         return self.get_item_by_number(number)
 
     def get_bus_by_name(self, name: str) -> dict[str, Any] | None:
-        """Get bus by bus name.
-
-        Args:
-            name: Bus name (must be string)
-
-        Returns:
-            Bus dictionary if found, None otherwise
-        """
+        """Get bus by bus name."""
         if not isinstance(name, str):
             raise TypeError("name must be str")
         return self.get_item_by_name(name)
