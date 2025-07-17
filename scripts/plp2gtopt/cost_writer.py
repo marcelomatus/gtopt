@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import pandas as pd
 
-import numpy as np
 from .base_writer import BaseWriter
 from .cost_parser import CostParser
 from .central_parser import CentralParser
@@ -28,7 +27,6 @@ class CostWriter(BaseWriter):
         self.central_parser = central_parser
         self.stage_parser = stage_parser
         self.options = options or {}
-
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""
@@ -71,9 +69,10 @@ class CostWriter(BaseWriter):
 
             # Add to DataFrame
             s = pd.Series(data=cost["costs"], index=cost["stages"], name=name)
+            s = s.loc[~s.index.duplicated(keep="last")]
             df = pd.concat([df, s], axis=1)
 
-        # Ensure blocks are sorted and unique
+        # Post-processing
         df = df.sort_index().drop_duplicates()
 
         # Convert index to stage column
