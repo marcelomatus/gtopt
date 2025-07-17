@@ -50,42 +50,6 @@ class ManceWriter(BaseWriter):
             for mance in items
         ]
 
-    def _convert_index_to_column(
-        self,
-        df: pd.DataFrame,
-        index_name: str,
-        parser: Optional[Any] = None,
-        num_items: Optional[int] = None,
-        items: Optional[List[Dict]] = None,
-        item_key: str = "number",
-    ) -> pd.DataFrame:
-        """Convert DataFrame index to a named column using parser data if available.
-
-        Args:
-            df: Input DataFrame
-            index_name: Name for the new column (e.g. "block" or "stage")
-            parser: Optional parser object containing items data
-            num_items: Number of items if parser is available
-            items: List of item dictionaries if parser is available
-            item_key: Key to extract from item dictionaries
-
-        Returns:
-            DataFrame with index converted to column
-        """
-        if parser and hasattr(parser, f"num_{index_name}s"):
-            num_items = getattr(parser, f"num_{index_name}s")
-            items = getattr(parser, f"{index_name}s")
-
-        if parser and num_items and items:
-            index_values = np.empty(num_items, dtype=np.int16)
-            for i, item in enumerate(items):
-                index_values[i] = int(item[item_key])
-            s = pd.Series(data=index_values, index=index_values, name=index_name)
-            df = pd.concat([s, df], axis=1)
-        else:
-            df = df.reset_index().rename(columns={"index": index_name})
-
-        return df
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
