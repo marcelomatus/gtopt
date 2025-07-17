@@ -104,7 +104,7 @@ def test_write_empty_stages():
         def get_all(self):
             return self._data
 
-    parser = MockStageParser()
+    parser: typing.Any = MockStageParser()
 
     writer = StageWriter(parser)
     json_stages = writer.to_json_array()
