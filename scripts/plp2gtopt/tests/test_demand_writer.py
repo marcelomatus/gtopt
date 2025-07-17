@@ -47,15 +47,15 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
     assert len(json_demands) > 0
 
     # Verify each demand has required fields
-    required_fields = {
-        "uid": int,
-        "name": str,
-        "bus": str,
-        "lmax": str | float,
-    }
+    required_fields = [
+        ("uid", int),
+        ("name", str),
+        ("bus", str),
+        ("lmax", (str, float)),  # Use tuple for multiple allowed types
+    ]
 
     for demand in json_demands:
-        for field, field_type in required_fields.items():
+        for field, field_type in required_fields:
             assert field in demand, f"Missing field: {field}"
             assert isinstance(
                 demand[field], field_type
@@ -83,17 +83,17 @@ def test_json_output_structure(
     json_demands = sample_demand_writer.to_json_array()
 
     # Expected structure from system_c0.json
-    REQUIRED_FIELDS = {
-        "uid": int,
-        "name": str,
-        "bus": str,
-        "lmax": str | float,
-    }
+    REQUIRED_FIELDS = [
+        ("uid", int),
+        ("name", str),
+        ("bus", str),
+        ("lmax", (str, float)),
+    ]
 
     for demand in json_demands:
         # Check all required fields exist and have correct types
-        assert set(demand.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(demand.keys()) == {field for field, _ in REQUIRED_FIELDS}
+        for field, field_type in REQUIRED_FIELDS:
             assert isinstance(
                 demand[field], field_type
             ), f"Field {field} should be {field_type}, got {type(demand[field])}"
