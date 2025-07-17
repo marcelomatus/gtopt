@@ -4,7 +4,7 @@
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+import typing
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
@@ -39,7 +39,7 @@ class CentralWriter(BaseWriter):
         self.mance_parser = mance_parser
         self.options = options if options is not None else {}
 
-        self.centrals_of_type = {
+        self.centrals_of_type: Dict[str, List[Any]] = {
             "embalse": [],
             "serie": [],
             "pasada": [],
@@ -65,6 +65,11 @@ class CentralWriter(BaseWriter):
 
     def process_central_fallas(self, fallas):
         """Process fallas to include block and stage information."""
+
+    @property
+    def central_parser(self) -> CentralParser:
+        """Get the central parser instance."""
+        return typing.cast(CentralParser, self.parser)
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert central data to JSON array format."""
@@ -152,13 +157,13 @@ class CentralWriter(BaseWriter):
 
         cost_writer = CostWriter(
             self.cost_parser,
-            self.parser,
+            self.central_parser,
             self.stage_parser,
             self.options,
         )
         cost_writer.to_parquet(output_dir)
 
         mance_writer = ManceWriter(
-            self.mance_parser, self.parser, self.block_parser, self.options
+            self.mance_parser, self.central_parser, self.block_parser, self.options
         )
         mance_writer.to_parquet(output_dir)
