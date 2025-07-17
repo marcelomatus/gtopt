@@ -27,7 +27,7 @@ def sample_input_dir(tmp_path):
 
 def test_plp_parser_init_valid_dir(sample_input_dir):
     """Test PLPParser initialization with valid input directory."""
-    parser = PLPParser(sample_input_dir)
+    parser = PLPParser({"input_dir": sample_input_dir})
     assert parser.input_path == sample_input_dir
     assert not parser.parsed_data
 
@@ -35,7 +35,7 @@ def test_plp_parser_init_valid_dir(sample_input_dir):
 def test_plp_parser_init_invalid_dir(tmp_path):
     """Test PLPParser initialization with invalid input directory."""
     with pytest.raises(FileNotFoundError):
-        PLPParser(tmp_path / "nonexistent")
+        PLPParser({"input_dir": tmp_path / "nonexistent"})
 
 
 def test_parse_all_success(sample_input_dir):
@@ -66,7 +66,7 @@ def test_parse_all_success(sample_input_dir):
         mock_cost.return_value = mock_parser
         mock_mance.return_value = mock_parser
 
-        parser = PLPParser(sample_input_dir)
+        parser = PLPParser({"input_dir": sample_input_dir})
         parser.parse_all()
 
         assert len(parser.parsed_data) == 8
@@ -87,6 +87,6 @@ def test_parse_all_missing_file(sample_input_dir):
     """Test parse_all when a required file is missing."""
     (sample_input_dir / "plpblo.dat").unlink()  # Delete block file
 
-    parser = PLPParser(sample_input_dir)
+    parser = PLPParser({"input_dir": sample_input_dir})
     with pytest.raises(FileNotFoundError):
         parser.parse_all()

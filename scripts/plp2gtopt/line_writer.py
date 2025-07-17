@@ -2,7 +2,7 @@
 
 """Writer for converting line data to JSON format."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base_writer import BaseWriter
 from .line_parser import LineParser
 
@@ -10,7 +10,7 @@ from .line_parser import LineParser
 class LineWriter(BaseWriter):
     """Converts line parser data to JSON format used by GTOPT."""
 
-    def __init__(self, line_parser: LineParser = None):
+    def __init__(self, line_parser: Optional[LineParser] = None):
         """Initialize with a LineParser instance."""
         super().__init__(line_parser)
 

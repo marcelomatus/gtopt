@@ -19,9 +19,9 @@ class BaseParser(ABC):
         self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
         self._data: List[Dict[str, Any]] = []
         self._name_index_map: Dict[str, int] = {}  # Maps names to indices
-        self._number_index_map: Dict[str, int] = {}  # Maps number to indices
+        self._number_index_map: Dict[int, int] = {}  # Maps number to indices
 
-    def _append(self, item: Dict[str, Any]) -> None:
+    def _append(self, item: Dict[str, Any]) -> int:
         """Validate and add a completed central to the list."""
         idx = len(self._data)
         self._data.append(item)

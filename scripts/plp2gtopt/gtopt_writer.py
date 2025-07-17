@@ -6,7 +6,7 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 """
 
 import json
-from typing import Dict
+from typing import Dict, Any
 
 from pathlib import Path
 
@@ -29,7 +29,11 @@ class GTOptWriter:
         self.options = options
         self.output_path = None
 
-        self.planning = {"options": {}, "system": {}, "simulation": {}}
+        self.planning: Dict[str, Dict[str, Any]] = {
+            "options": {},
+            "system": {},
+            "simulation": {},
+        }
 
     def process_options(self, options):
         """Process options data to include input and output paths."""
