@@ -22,7 +22,7 @@ def validate_required_fields(
 
 def assert_json_output_structure(
     json_data: List[Dict[str, Any]],
-    required_fields: Dict[str, Union[Type, Tuple[Type,...]] 
+    required_fields: Dict[str, Union[Type, Tuple[Type,...]]]
 ) -> None:
     """Validate JSON output structure against required fields."""
     assert isinstance(json_data, list)
