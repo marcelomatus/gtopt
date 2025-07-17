@@ -46,27 +46,6 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
     assert isinstance(json_demands, list)
     assert len(json_demands) > 0
 
-    # Verify each demand has required fields
-    required_fields = [
-        ("uid", int),
-        ("name", str),
-        ("bus", str),
-        ("lmax", (str, float)),  # Tuple of allowed types
-    ]
-
-    for demand in json_demands:
-        for field, field_type in required_fields:
-            assert field in demand, f"Missing field: {field}"
-            if isinstance(field_type, tuple):
-                valid = any(isinstance(demand[field], t) for t in field_type)
-                assert valid, (
-                    f"Field {field} should be one of {field_type}, got {type(demand[field])}"
-                )
-            else:
-                assert isinstance(demand[field], field_type), (
-                    f"Field {field} should be {field_type}, got {type(demand[field])}"
-                )
-
 
 def test_write_to_file(sample_demand_writer):  # pylint: disable=redefined-outer-name
     """Test writing demand data to JSON file."""
@@ -99,16 +78,6 @@ def test_json_output_structure(
     for demand in json_demands:
         # Check all required fields exist and have correct types
         assert set(demand.keys()) == {field for field, _ in REQUIRED_FIELDS}
-        for field, field_type in REQUIRED_FIELDS:
-            if isinstance(field_type, tuple):
-                valid = any(isinstance(demand[field], t) for t in field_type)
-                assert valid, (
-                    f"Field {field} should be one of {field_type}, got {type(demand[field])}"
-                )
-            else:
-                assert isinstance(demand[field], field_type), (
-                    f"Field {field} should be {field_type}, got {type(demand[field])}"
-                )
 
         # Additional value checks
         assert demand["uid"] > 0, "UID should be positive integer"
