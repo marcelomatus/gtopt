@@ -54,3 +54,30 @@ class BaseWriter(ABC):
     def _build_json_item(self, **fields) -> Dict[str, Any]:
         """Helper to consistently build JSON output items."""
         return {k: v for k, v in fields.items() if v is not None}
+
+    def _convert_index_to_column(
+        self,
+        df: pd.DataFrame,
+        index_name: str,
+        parser: Optional[Any] = None,
+        item_key: str = "number"
+    ) -> pd.DataFrame:
+        """Convert DataFrame index to a named column using parser data if available.
+
+        Args:
+            df: Input DataFrame
+            index_name: Name for the new column (e.g. "block" or "stage")
+            parser: Optional parser object containing items data
+            item_key: Key to extract from item dictionaries
+
+        Returns:
+            DataFrame with index converted to column
+        """
+        if parser and hasattr(parser, f"num_{index_name}s"):
+            items = getattr(parser, f"{index_name}s")
+            if items:
+                index_values = np.array([int(item[item_key]) for item in items], dtype=np.int16)
+                s = pd.Series(data=index_values, index=index_values, name=index_name)
+                return pd.concat([s, df], axis=1)
+
+        return df.reset_index().rename(columns={"index": index_name})
