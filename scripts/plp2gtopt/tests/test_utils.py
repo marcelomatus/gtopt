@@ -6,7 +6,7 @@ from pathlib import Path
 
 def validate_required_fields(
     item: Dict[str, Any], 
-    required_fields: Dict[str, Union[Type, Tuple[Type,...]]
+    required_fields: Dict[str, Union[Type, Tuple[Type,...]]]
 ) -> None:
     """Validate that item contains required fields with correct types."""
     for field, field_type in required_fields.items():
