@@ -78,8 +78,6 @@ def test_write_to_file(sample_central_writer):  # pylint: disable=redefined-oute
 def test_write_empty_centrals():
     """Test handling of empty central list."""
     # Create parser with no centrals
-    parser = CentralParser("dummy.dat")
-
     # Create a mock parser with empty centrals list
     class MockCentralParser:
         def __init__(self):
@@ -100,7 +98,7 @@ def test_write_empty_centrals():
         def get_all(self):
             return self._centrals
 
-    parser: typing.Any = MockCentralParser()
+    mock_parser: typing.Any = MockCentralParser()
 
     writer = CentralWriter(parser)
     json_centrals = writer.to_json_array()

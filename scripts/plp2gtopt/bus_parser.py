@@ -85,13 +85,15 @@ class BusParser(BaseParser):
         """Get bus by bus number."""
         return self.get_item_by_number(number)
 
-    def get_bus_by_name(self, name: str | float | bool) -> dict[str, Any] | None:
+    def get_bus_by_name(self, name: str) -> dict[str, Any] | None:
         """Get bus by bus name.
 
         Args:
-            name: Bus name (will be converted to string if not already)
+            name: Bus name (must be string)
 
         Returns:
             Bus dictionary if found, None otherwise
         """
-        return self.get_item_by_name(str(name))
+        if not isinstance(name, str):
+            raise TypeError("name must be str")
+        return self.get_item_by_name(name)

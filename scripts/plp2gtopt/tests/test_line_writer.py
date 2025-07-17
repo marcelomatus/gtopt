@@ -119,8 +119,6 @@ def test_json_output_structure(
 def test_write_empty_lines():
     """Test handling of empty line list."""
     # Create parser with no lines
-    parser = LineParser("dummy.dat")
-
     # Create mock parser with empty data
     class MockLineParser:
         def __init__(self):
@@ -133,7 +131,7 @@ def test_write_empty_lines():
         def get_all(self):
             return self._data
 
-    parser: typing.Any = MockLineParser()
+    mock_parser: typing.Any = MockLineParser()
 
     writer = LineWriter(parser)
     json_lines = writer.to_json_array()
