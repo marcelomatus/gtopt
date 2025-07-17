@@ -29,6 +29,43 @@ class CostWriter(BaseWriter):
         self.stage_parser = stage_parser
         self.options = options or {}
 
+    def _convert_index_to_column(
+        self, 
+        df: pd.DataFrame, 
+        index_name: str,
+        parser: Optional[Any] = None,
+        num_items: Optional[int] = None,
+        items: Optional[List[Dict]] = None,
+        item_key: str = "number"
+    ) -> pd.DataFrame:
+        """Convert DataFrame index to a named column using parser data if available.
+        
+        Args:
+            df: Input DataFrame
+            index_name: Name for the new column (e.g. "block" or "stage")
+            parser: Optional parser object containing items data
+            num_items: Number of items if parser is available
+            items: List of item dictionaries if parser is available
+            item_key: Key to extract from item dictionaries
+            
+        Returns:
+            DataFrame with index converted to column
+        """
+        if parser and hasattr(parser, f"num_{index_name}s"):
+            num_items = getattr(parser, f"num_{index_name}s")
+            items = getattr(parser, f"{index_name}s")
+        
+        if parser and num_items and items:
+            index_values = np.empty(num_items, dtype=np.int16)
+            for i, item in enumerate(items):
+                index_values[i] = int(item[item_key])
+            s = pd.Series(data=index_values, index=index_values, name=index_name)
+            df = pd.concat([s, df], axis=1)
+        else:
+            df = df.reset_index().rename(columns={"index": index_name})
+        
+        return df
+
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""
         if items is None:
@@ -76,16 +113,13 @@ class CostWriter(BaseWriter):
         df = df.sort_index().drop_duplicates()
 
         # Convert index to stage column
-        if self.stage_parser is not None:
-            stages = np.empty(self.stage_parser.num_stages, dtype=np.int16)
-            for i, s in enumerate(self.stage_parser.stages):
-                stages[i] = int(s["number"])
-            s = pd.Series(data=stages, index=stages, name="stage")
-            df = pd.concat([s, df], axis=1)
-        else:
-            # convert index to "stage" column
-            df = df.reset_index().rename(columns={"index": "stage"})
-            df["stage"] = df["stage"].astype("int16")
+        df = self._convert_index_to_column(
+            df,
+            index_name="stage", 
+            parser=self.stage_parser,
+            item_key="number"
+        )
+        df["stage"] = df["stage"].astype("int16")
 
         # Fill missing values with column-specific defaults
         df = df.fillna(fill_values)
