@@ -30,16 +30,16 @@ class CostWriter(BaseWriter):
         self.options = options or {}
 
     def _convert_index_to_column(
-        self, 
-        df: pd.DataFrame, 
+        self,
+        df: pd.DataFrame,
         index_name: str,
         parser: Optional[Any] = None,
         num_items: Optional[int] = None,
         items: Optional[List[Dict]] = None,
-        item_key: str = "number"
+        item_key: str = "number",
     ) -> pd.DataFrame:
         """Convert DataFrame index to a named column using parser data if available.
-        
+
         Args:
             df: Input DataFrame
             index_name: Name for the new column (e.g. "block" or "stage")
@@ -47,14 +47,14 @@ class CostWriter(BaseWriter):
             num_items: Number of items if parser is available
             items: List of item dictionaries if parser is available
             item_key: Key to extract from item dictionaries
-            
+
         Returns:
             DataFrame with index converted to column
         """
         if parser and hasattr(parser, f"num_{index_name}s"):
             num_items = getattr(parser, f"num_{index_name}s")
             items = getattr(parser, f"{index_name}s")
-        
+
         if parser and num_items and items:
             index_values = np.empty(num_items, dtype=np.int16)
             for i, item in enumerate(items):
@@ -63,7 +63,7 @@ class CostWriter(BaseWriter):
             df = pd.concat([s, df], axis=1)
         else:
             df = df.reset_index().rename(columns={"index": index_name})
-        
+
         return df
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
@@ -114,10 +114,7 @@ class CostWriter(BaseWriter):
 
         # Convert index to stage column
         df = self._convert_index_to_column(
-            df,
-            index_name="stage", 
-            parser=self.stage_parser,
-            item_key="number"
+            df, index_name="stage", parser=self.stage_parser, item_key="number"
         )
         df["stage"] = df["stage"].astype("int16")
 
