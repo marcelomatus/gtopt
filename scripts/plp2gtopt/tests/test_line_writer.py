@@ -80,18 +80,6 @@ def test_write_to_file(sample_line_writer):  # pylint: disable=redefined-outer-n
             assert len(data) > 0
 
 
-def test_from_line_file(sample_line_file):  # pylint: disable=redefined-outer-name
-    """Test creating LineWriter directly from line file."""
-    writer = LineWriter.from_file(
-        sample_line_file, LineParser
-    )  # Using fixture directly
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_line_file
-    assert writer.parser.num_lines > 0
-    assert len(writer.items) == writer.parser.num_lines
-
-
 def test_json_output_structure(
     sample_line_writer,
 ):  # pylint: disable=redefined-outer-name

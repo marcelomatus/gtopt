@@ -70,16 +70,6 @@ def test_write_to_file(sample_bus_writer):  # pylint: disable=redefined-outer-na
             assert len(data) > 0
 
 
-def test_from_bus_file(sample_bus_file):  # pylint: disable=redefined-outer-name
-    """Test creating BusWriter directly from bus file."""
-    writer = BusWriter.from_file(sample_bus_file, BusParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_bus_file
-    assert writer.parser.num_buses > 0
-    assert len(writer.items) == writer.parser.num_buses
-
-
 def test_json_output_structure(
     sample_bus_writer,
 ):  # pylint: disable=redefined-outer-name

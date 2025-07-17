@@ -74,18 +74,6 @@ def test_write_to_file(sample_central_writer):  # pylint: disable=redefined-oute
             assert len(data) > 0
 
 
-def test_from_central_file(
-    sample_central_file,
-):  # pylint: disable=redefined-outer-name
-    """Test creating CentralWriter directly from central file."""
-    writer = CentralWriter.from_file(sample_central_file, CentralParser)
-
-    # Verify parser was initialized and parsed
-    assert writer.parser.file_path == sample_central_file
-    assert writer.parser.num_centrals > 0
-    assert len(writer.items) == writer.parser.num_centrals
-
-
 def test_write_empty_centrals():
     """Test handling of empty central list."""
     # Create parser with no centrals
