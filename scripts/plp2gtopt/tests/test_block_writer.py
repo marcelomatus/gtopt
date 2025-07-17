@@ -35,7 +35,7 @@ def test_block_writer_initialization(
     writer = BlockWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_blocks
+    assert writer.items is not None and len(writer.items) == parser.num_blocks
 
 
 def test_to_json_array(sample_block_writer):  # pylint: disable=redefined-outer-name

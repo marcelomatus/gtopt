@@ -35,7 +35,7 @@ def test_stage_writer_initialization(
     writer = StageWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_stages
+    assert writer.items is not None and len(writer.items) == parser.num_stages
 
 
 def test_to_json_array(sample_stage_writer):  # pylint: disable=redefined-outer-name
