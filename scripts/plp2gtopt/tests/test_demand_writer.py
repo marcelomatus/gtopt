@@ -58,13 +58,13 @@ def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer
         for field, field_type in required_fields.items():
             assert field in demand, f"Missing field: {field}"
             if isinstance(field_type, tuple):
-                assert any(isinstance(demand[field], t) for t in field_type), (
-                    f"Field {field} should be one of {field_type}, got {type(demand[field])}"
-                )
+                assert any(
+                    isinstance(demand[field], t) for t in field_type
+                ), f"Field {field} should be one of {field_type}, got {type(demand[field])}"
             else:
-                assert isinstance(demand[field], field_type), (
-                    f"Field {field} should be {field_type}, got {type(demand[field])}"
-                )
+                assert isinstance(
+                    demand[field], field_type
+                ), f"Field {field} should be {field_type}, got {type(demand[field])}"
 
 
 def test_write_to_file(sample_demand_writer):  # pylint: disable=redefined-outer-name
@@ -100,13 +100,13 @@ def test_json_output_structure(
         assert set(demand.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
             if isinstance(field_type, tuple):
-                assert any(isinstance(demand[field], t) for t in field_type), (
-                    f"Field {field} should be one of {field_type}, got {type(demand[field])}"
-                )
+                assert any(
+                    isinstance(demand[field], t) for t in field_type
+                ), f"Field {field} should be one of {field_type}, got {type(demand[field])}"
             else:
-                assert isinstance(demand[field], field_type), (
-                    f"Field {field} should be {field_type}, got {type(demand[field])}"
-                )
+                assert isinstance(
+                    demand[field], field_type
+                ), f"Field {field} should be {field_type}, got {type(demand[field])}"
 
         # Additional value checks
         assert demand["uid"] > 0, "UID should be positive integer"
