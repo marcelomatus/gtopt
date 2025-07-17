@@ -50,7 +50,6 @@ class ManceWriter(BaseWriter):
             for mance in items
         ]
 
-
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
         df = pd.DataFrame()
@@ -89,6 +88,7 @@ class ManceWriter(BaseWriter):
             df, index_name="block", parser=self.block_parser, item_key="number"
         )
 
+        # Fill missing values with column-specific defaults
         df = df.fillna(fill_values)
 
         return df

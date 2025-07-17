@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, TypeVar
 import numpy as np
 import pandas as pd
 
+from .base_parser import BaseParser
+
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
 ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
 
@@ -62,7 +64,7 @@ class BaseWriter(ABC):
         df: pd.DataFrame,
         index_name: str,
         parser: Optional[Any] = None,
-        item_key: str = "number"
+        item_key: str = "number",
     ) -> pd.DataFrame:
         """Convert DataFrame index to a named column using parser data if available.
 
@@ -78,7 +80,9 @@ class BaseWriter(ABC):
         if parser and hasattr(parser, f"num_{index_name}s"):
             items = getattr(parser, f"{index_name}s")
             if items:
-                index_values = np.array([int(item[item_key]) for item in items], dtype=np.int16)
+                index_values = np.array(
+                    [int(item[item_key]) for item in items], dtype=np.int16
+                )
                 s = pd.Series(data=index_values, index=index_values, name=index_name)
                 return pd.concat([s, df], axis=1)
 
