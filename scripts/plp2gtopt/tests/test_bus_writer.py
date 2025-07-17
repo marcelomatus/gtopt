@@ -35,7 +35,7 @@ def test_bus_writer_initialization(
     writer = BusWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_buses
+    assert writer.items is not None and len(writer.items) == parser.num_buses
 
 
 def test_to_json_array(sample_bus_writer):  # pylint: disable=redefined-outer-name

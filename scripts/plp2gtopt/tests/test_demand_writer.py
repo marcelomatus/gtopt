@@ -35,7 +35,7 @@ def test_demand_writer_initialization(
     writer = DemandWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_demands
+    assert writer.items is not None and len(writer.items) == parser.num_demands
 
 
 def test_to_json_array(sample_demand_writer):  # pylint: disable=redefined-outer-name

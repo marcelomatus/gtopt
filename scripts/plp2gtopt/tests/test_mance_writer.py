@@ -30,7 +30,7 @@ def test_mance_writer_initialization(sample_mance_file):
     writer = ManceWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_mances
+    assert writer.items is not None and len(writer.items) == parser.num_mances
 
 
 def test_to_json_array(sample_mance_writer):

@@ -35,7 +35,7 @@ def test_central_writer_initialization(
     writer = CentralWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_centrals
+    assert writer.items is not None and len(writer.items) == parser.num_centrals
 
 
 def test_to_json_array(sample_central_writer):  # pylint: disable=redefined-outer-name

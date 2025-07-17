@@ -30,7 +30,7 @@ def test_costs_writer_initialization(sample_costs_file):
     writer = CostWriter(parser)
 
     assert writer.parser == parser
-    assert len(writer.items) == parser.num_costs
+    assert writer.items is not None and len(writer.items) == parser.num_costs
 
 
 def test_to_json_array(sample_costs_writer):
