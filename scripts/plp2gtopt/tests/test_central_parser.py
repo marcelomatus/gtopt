@@ -10,6 +10,7 @@ Tests include:
 - Bus-based central queries
 """
 
+from typing import Dict, Any
 from pathlib import Path
 import pytest
 
@@ -207,7 +208,7 @@ def test_parse_real_file() -> None:
     assert battery["type"] == "bateria"
 
     # Verify type counts match actual centrals
-    type_counts = {
+    type_counts: Dict[str, int] = {
         "embalse": 0,
         "serie": 0,
         "pasada": 0,
@@ -258,7 +259,7 @@ def test_parse_large_real_file() -> None:
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
     assert gen1["p_min"] == 0.0
-    assert gen1["p_max"] > 0.0
+    assert float(gen1["p_max"]) > 0.0
 
     # Check a battery central exists
     battery = next((g for g in centrals if g["type"] == "bateria"), None)
@@ -266,7 +267,7 @@ def test_parse_large_real_file() -> None:
     assert float(battery["p_max"]) > 0.0
 
     # Verify type counts match actual centrals
-    type_counts = {
+    type_counts: Dict[str, Any] = {
         "embalse": 0,
         "serie": 0,
         "pasada": 0,
