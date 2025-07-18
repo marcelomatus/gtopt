@@ -40,6 +40,8 @@ class CostParser(BaseParser):
                 # Get number of cost entries
                 idx = self._next_idx(idx, lines)
                 num_stages = self._parse_int(lines[idx].strip().split()[0])
+                if num_stages <= 0:
+                    continue
 
                 # Initialize numpy arrays for this central
                 stages = np.empty(num_stages, dtype=np.int16)
@@ -56,6 +58,7 @@ class CostParser(BaseParser):
                     costs[i] = self._parse_float(parts[2])  # Cost value
 
                 # Store complete data for the central cost
+
                 cost = {"name": name, "stages": stages, "costs": costs}
                 self._append(cost)
 

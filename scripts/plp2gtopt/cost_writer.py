@@ -46,35 +46,16 @@ class CostWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        def filter_fn(cost):
-            cname = cost.get("name", "")
-            central = (
-                self.central_parser.get_central_by_name(cname)
-                if self.central_parser
-                else None
-            )
-            return not central or len(cost["stages"]) == 0
-
-        fill_values = {}
-        if self.central_parser:
-            for cost in items:
-                cname = cost.get("name", "")
-                central = self.central_parser.get_central_by_name(cname)
-                if central:
-                    uid = central.get("number", cname)
-                    name = f"uid:{uid}" if not isinstance(uid, str) else uid
-                    fill_values[name] = float(central.get("variable_cost", 0.0))
-
         df = self._create_dataframe(
             items=items,
+            central_parser=self.central_parser,
+            index_parser=self.stage_parser,
             value_field="costs",
             index_field="stages",
-            parser=self.stage_parser,
             index_name="stage",
-            filter_fn=filter_fn,
-            fill_values=fill_values
+            fill_field="variable_cost",
         )
-        df["stage"] = df["stage"].astype("int16")
+
         return df
 
     def to_parquet(self, output_dir: Path, cost_items=None) -> None:

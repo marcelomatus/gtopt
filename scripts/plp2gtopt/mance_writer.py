@@ -5,7 +5,6 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
@@ -52,36 +51,17 @@ class ManceWriter(BaseWriter):
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
-        def filter_fn(mance):
-            cname = mance.get("name", "")
-            central = (
-                self.central_parser.get_central_by_name(cname)
-                if self.central_parser
-                else None
-            )
-            return (not central or 
-                    central["type"] == "falla" or 
-                    len(mance["blocks"]) == 0)
-
-        fill_values = {}
-        if self.central_parser:
-            for mance in items:
-                cname = mance.get("name", "")
-                central = self.central_parser.get_central_by_name(cname)
-                if central and central["type"] != "falla":
-                    uid = central.get("number", cname)
-                    name = f"uid:{uid}" if not isinstance(uid, str) else uid
-                    fill_values[name] = float(central.get(field, 0.0))
-
-        return self._create_dataframe(
+        df = self._create_dataframe(
             items=items,
+            central_parser=self.central_parser,
+            index_parser=self.block_parser,
             value_field=field,
             index_field="blocks",
-            parser=self.block_parser,
             index_name="block",
-            filter_fn=filter_fn,
-            fill_values=fill_values
+            fill_field=field,
         )
+
+        return df
 
     def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames for pmin and pmax."""

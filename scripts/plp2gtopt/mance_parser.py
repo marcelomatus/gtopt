@@ -48,6 +48,8 @@ class ManceParser(BaseParser):
                 idx = self._next_idx(idx, lines)
                 parts = lines[idx].split()
                 num_blocks = self._parse_int(parts[0])
+                if num_blocks <= 0:
+                    continue
 
                 # Initialize numpy arrays
                 blocks = np.empty(num_blocks, dtype=np.int16)
