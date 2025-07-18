@@ -116,7 +116,7 @@ class CentralWriter(BaseWriter):
                 if self.cost_parser
                 else None
             )
-            gcost = cen.get("variable_cost", 0.0) if cost is None else "gcost"
+            gcost = cen.get("gcost", 0.0) if cost is None else "gcost"
 
             # lookup mance by name if cost_parser is available, and use it
             mance = (
@@ -125,7 +125,7 @@ class CentralWriter(BaseWriter):
                 else None
             )
             pmin, pmax = (
-                (cen.get("p_min", 0.0), cen.get("p_max", 0.0))
+                (cen.get("pmin", 0.0), cen.get("pmax", 0.0))
                 if mance is None
                 else ("pmin", "pmax")
             )
@@ -135,7 +135,7 @@ class CentralWriter(BaseWriter):
                 "name": cen["name"],
                 "bus": cen["bus"],
                 "gcost": gcost,
-                "capacity": float(cen.get("p_max", 0)),
+                "capacity": float(cen.get("pmax", 0)),
                 "efficiency": float(cen.get("efficiency", 1.0)),
                 "pmax": pmax,
                 "pmin": pmin,

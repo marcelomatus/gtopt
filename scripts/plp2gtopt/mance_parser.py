@@ -70,9 +70,9 @@ class ManceParser(BaseParser):
                 # Store complete data
                 mance = {
                     "name": name,
-                    "blocks": blocks,
-                    "p_min": p_min,
-                    "p_max": p_max,
+                    "block": blocks,
+                    "pmin": p_min,
+                    "pmax": p_max,
                 }
                 self._append(mance)
 

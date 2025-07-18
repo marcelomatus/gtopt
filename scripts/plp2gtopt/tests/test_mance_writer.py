@@ -44,9 +44,9 @@ def test_to_json_array(sample_mance_writer):
     # Verify each maintenance has required fields
     required_fields = {
         "name": str,
-        "blocks": list,
-        "p_min": list,
-        "p_max": list,
+        "block": list,
+        "pmin": list,
+        "pmax": list,
     }
 
     for mance in json_mances:
@@ -78,9 +78,9 @@ def test_json_output_structure(sample_mance_writer):
     # Expected structure
     REQUIRED_FIELDS = {
         "name": str,
-        "blocks": list,
-        "p_min": list,
-        "p_max": list,
+        "block": list,
+        "pmin": list,
+        "pmax": list,
     }
 
     for mance in json_mances:
@@ -93,12 +93,12 @@ def test_json_output_structure(sample_mance_writer):
 
         # Additional value checks
         assert len(mance["name"]) > 0, "Name should not be empty"
-        assert len(mance["blocks"]) > 0, "Should have at least one block"
-        assert len(mance["blocks"]) == len(
-            mance["p_min"]
+        assert len(mance["block"]) > 0, "Should have at least one block"
+        assert len(mance["block"]) == len(
+            mance["pmin"]
         ), "Blocks and p_min should match"
-        assert len(mance["blocks"]) == len(
-            mance["p_max"]
+        assert len(mance["block"]) == len(
+            mance["pmax"]
         ), "Blocks and p_max should match"
 
 

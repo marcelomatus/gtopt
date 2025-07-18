@@ -175,8 +175,8 @@ class CentralParser(BaseParser):
             )
 
         idx += 1
-        current_gen["p_min"] = self._parse_float(parts[0])
-        current_gen["p_max"] = self._parse_float(parts[1])
+        current_gen["pmin"] = self._parse_float(parts[0])
+        current_gen["pmax"] = self._parse_float(parts[1])
         if len(parts) > 2:
             current_gen["v_max"] = self._parse_float(parts[2])
             current_gen["v_min"] = self._parse_float(parts[3])
@@ -203,7 +203,7 @@ class CentralParser(BaseParser):
             )
 
         try:
-            current_gen["variable_cost"] = self._parse_float(parts[0])
+            current_gen["gcost"] = self._parse_float(parts[0])
             current_gen["efficiency"] = self._parse_float(parts[1])
             current_gen["bus"] = self._parse_int(parts[2])
             current_gen["ser_hid"] = self._parse_int(parts[3])

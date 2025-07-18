@@ -44,8 +44,8 @@ def test_to_json_array(sample_costs_writer):
     # Verify each cost has required fields
     required_fields = {
         "name": str,
-        "stages": list,
-        "costs": list,
+        "stage": list,
+        "cost": list,
     }
 
     for cost in json_costs:
@@ -77,8 +77,8 @@ def test_json_output_structure(sample_costs_writer):
     # Expected structure
     REQUIRED_FIELDS = {
         "name": str,
-        "stages": list,
-        "costs": list,
+        "stage": list,
+        "cost": list,
     }
 
     for cost in json_costs:
@@ -91,10 +91,8 @@ def test_json_output_structure(sample_costs_writer):
 
         # Additional value checks
         assert len(cost["name"]) > 0, "Name should not be empty"
-        assert len(cost["stages"]) > 0, "Should have at least one stage"
-        assert len(cost["stages"]) == len(
-            cost["costs"]
-        ), "Stages and costs should match"
+        assert len(cost["stage"]) > 0, "Should have at least one stage"
+        assert len(cost["stage"]) == len(cost["cost"]), "Stages and costs should match"
 
 
 def test_write_empty_costs():

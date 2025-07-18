@@ -43,14 +43,14 @@ def test_get_costs(tmp_path):
 
     # Verify structure and types
     assert cost["name"] == "test"
-    assert isinstance(cost["stages"], np.ndarray)
-    assert isinstance(cost["costs"], np.ndarray)
-    assert cost["stages"].dtype == np.int16
-    assert cost["costs"].dtype == np.float64
+    assert isinstance(cost["stage"], np.ndarray)
+    assert isinstance(cost["cost"], np.ndarray)
+    assert cost["stage"].dtype == np.int16
+    assert cost["cost"].dtype == np.float64
 
     # Verify array contents
-    np.testing.assert_array_equal(cost["stages"], [4, 5])
-    np.testing.assert_array_equal(cost["costs"], [157.9, 157.9])
+    np.testing.assert_array_equal(cost["stage"], [4, 5])
+    np.testing.assert_array_equal(cost["cost"], [157.9, 157.9])
 
 
 def test_parse_sample_file(sample_costs_file):
@@ -67,30 +67,30 @@ def test_parse_sample_file(sample_costs_file):
     for cen_cost in costs:
         assert isinstance(cen_cost["name"], str)
         assert cen_cost["name"] != ""
-        assert isinstance(cen_cost["stages"], np.ndarray)
-        assert isinstance(cen_cost["costs"], np.ndarray)
-        assert len(cen_cost["stages"]) > 0
-        assert len(cen_cost["stages"]) == len(cen_cost["costs"])
+        assert isinstance(cen_cost["stage"], np.ndarray)
+        assert isinstance(cen_cost["cost"], np.ndarray)
+        assert len(cen_cost["stage"]) > 0
+        assert len(cen_cost["stage"]) == len(cen_cost["cost"])
 
         # Verify array types and values
-        assert cen_cost["stages"].dtype == np.int16
-        assert cen_cost["costs"].dtype == np.float64
-        assert np.all(cen_cost["stages"] > 0)
-        assert np.all(cen_cost["costs"] > 0)
+        assert cen_cost["stage"].dtype == np.int16
+        assert cen_cost["cost"].dtype == np.float64
+        assert np.all(cen_cost["stage"] > 0)
+        assert np.all(cen_cost["cost"] > 0)
 
     # Verify first central data
     cen1 = costs[0]
     assert cen1["name"] == "CMPC_PACIFICO_BL3"
-    assert len(cen1["stages"]) == 4
-    assert cen1["stages"][0] == 4
-    assert cen1["costs"][0] == 157.9
+    assert len(cen1["stage"]) == 4
+    assert cen1["stage"][0] == 4
+    assert cen1["cost"][0] == 157.9
 
     # Verify second central data
     cen2 = costs[1]
     assert cen2["name"] == "ANDINA"
-    assert len(cen2["stages"]) == 3
-    assert cen2["stages"][0] == 5
-    assert cen2["costs"][0] == 67.2
+    assert len(cen2["stage"]) == 3
+    assert cen2["stage"][0] == 5
+    assert cen2["cost"][0] == 67.2
 
 
 def test_real_file_parsing():
@@ -109,16 +109,16 @@ def test_real_file_parsing():
     # Verify first central data
     cen1 = costs[0]
     assert cen1["name"] == "CMPC_PACIFICO_BL3"
-    assert len(cen1["stages"]) == 4
-    assert cen1["stages"][0] == 4
-    assert cen1["costs"][0] == pytest.approx(157.9)
+    assert len(cen1["stage"]) == 4
+    assert cen1["stage"][0] == 4
+    assert cen1["cost"][0] == pytest.approx(157.9)
 
     # Verify second central data
     cen2 = costs[1]
     assert cen2["name"] == "ANDINA"
-    assert len(cen2["stages"]) == 3
-    assert cen2["stages"][0] == 5
-    assert cen2["costs"][0] == pytest.approx(67.2)
+    assert len(cen2["stage"]) == 3
+    assert cen2["stage"][0] == 5
+    assert cen2["cost"][0] == pytest.approx(67.2)
 
 
 def test_get_costs_by_name(sample_costs_file):
@@ -132,8 +132,8 @@ def test_get_costs_by_name(sample_costs_file):
     cen_data = parser.get_cost_by_name(first_cen)
     assert cen_data is not None
     assert cen_data["name"] == first_cen
-    assert len(cen_data["stages"]) > 0
-    assert len(cen_data["costs"]) > 0
+    assert len(cen_data["stage"]) > 0
+    assert len(cen_data["cost"]) > 0
 
     # Test another existing central if available
     if len(costs) > 1:
@@ -141,8 +141,8 @@ def test_get_costs_by_name(sample_costs_file):
         cen_data = parser.get_cost_by_name(second_cen)
         assert cen_data is not None
         assert cen_data["name"] == second_cen
-        assert len(cen_data["stages"]) > 0
-        assert len(cen_data["costs"]) > 0
+        assert len(cen_data["stage"]) > 0
+        assert len(cen_data["cost"]) > 0
 
     # Test non-existent central
     missing = parser.get_cost_by_name("NonExistentCen")

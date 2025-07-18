@@ -42,9 +42,9 @@ class ManceWriter(BaseWriter):
         return [
             {
                 "name": mance["name"],
-                "blocks": mance["blocks"].tolist(),
-                "p_min": mance["p_min"].tolist(),
-                "p_max": mance["p_max"].tolist(),
+                "block": mance["block"].tolist(),
+                "pmin": mance["pmin"].tolist(),
+                "pmax": mance["pmax"].tolist(),
             }
             for mance in items
         ]
@@ -56,8 +56,7 @@ class ManceWriter(BaseWriter):
             central_parser=self.central_parser,
             index_parser=self.block_parser,
             value_field=field,
-            index_field="blocks",
-            index_name="block",
+            index_field="block",
             fill_field=field,
         )
 
@@ -71,8 +70,8 @@ class ManceWriter(BaseWriter):
         if not items:
             return pd.DataFrame(), pd.DataFrame()
 
-        df_pmin = self._create_dataframe_for_field("p_min", items)
-        df_pmax = self._create_dataframe_for_field("p_max", items)
+        df_pmin = self._create_dataframe_for_field("pmin", items)
+        df_pmax = self._create_dataframe_for_field("pmax", items)
 
         return df_pmin, df_pmax
 
