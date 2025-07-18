@@ -43,17 +43,17 @@ def test_get_mances(tmp_path):
 
     # Verify structure and types
     assert mance["name"] == "test"
-    assert isinstance(mance["blocks"], np.ndarray)
-    assert isinstance(mance["p_min"], np.ndarray)
-    assert isinstance(mance["p_max"], np.ndarray)
-    assert mance["blocks"].dtype == np.int16
-    assert mance["p_min"].dtype == np.float32
-    assert mance["p_max"].dtype == np.float32
+    assert isinstance(mance["block"], np.ndarray)
+    assert isinstance(mance["pmin"], np.ndarray)
+    assert isinstance(mance["pmax"], np.ndarray)
+    assert mance["block"].dtype == np.int16
+    assert mance["pmin"].dtype == np.float32
+    assert mance["pmax"].dtype == np.float32
 
     # Verify array contents
-    np.testing.assert_array_equal(mance["blocks"], [1, 2])
-    np.testing.assert_array_equal(mance["p_min"], [5.0, 5.0])
-    np.testing.assert_array_equal(mance["p_max"], [69.75, 69.75])
+    np.testing.assert_array_equal(mance["block"], [1, 2])
+    np.testing.assert_array_equal(mance["pmin"], [5.0, 5.0])
+    np.testing.assert_array_equal(mance["pmax"], [69.75, 69.75])
 
 
 def test_parse_sample_file(sample_mance_file):
@@ -70,36 +70,36 @@ def test_parse_sample_file(sample_mance_file):
     for maint in mances:
         assert isinstance(maint["name"], str)
         assert maint["name"] != ""
-        assert isinstance(maint["blocks"], np.ndarray)
-        assert isinstance(maint["p_min"], np.ndarray)
-        assert isinstance(maint["p_max"], np.ndarray)
-        assert len(maint["blocks"]) > 0
-        assert len(maint["blocks"]) == len(maint["p_min"])
-        assert len(maint["blocks"]) == len(maint["p_max"])
+        assert isinstance(maint["block"], np.ndarray)
+        assert isinstance(maint["pmin"], np.ndarray)
+        assert isinstance(maint["pmax"], np.ndarray)
+        assert len(maint["block"]) > 0
+        assert len(maint["block"]) == len(maint["pmin"])
+        assert len(maint["block"]) == len(maint["pmax"])
 
         # Verify array types and values
-        assert maint["blocks"].dtype == np.int16
-        assert maint["p_min"].dtype == np.float32
-        assert maint["p_max"].dtype == np.float32
-        assert np.all(maint["blocks"] > 0)
-        assert np.all(maint["p_min"] >= 0)
-        assert np.all(maint["p_max"] >= 0)
+        assert maint["block"].dtype == np.int16
+        assert maint["pmin"].dtype == np.float32
+        assert maint["pmax"].dtype == np.float32
+        assert np.all(maint["block"] > 0)
+        assert np.all(maint["pmin"] >= 0)
+        assert np.all(maint["pmax"] >= 0)
 
     # Verify first central data
     maint1 = mances[0]
     assert maint1["name"] == "ABANICO"
-    assert len(maint1["blocks"]) == 4
-    assert maint1["blocks"][0] == 1
-    assert maint1["p_min"][0] == 5.0
-    assert maint1["p_max"][0] == 69.75
+    assert len(maint1["block"]) == 4
+    assert maint1["block"][0] == 1
+    assert maint1["pmin"][0] == 5.0
+    assert maint1["pmax"][0] == 69.75
 
     # Verify second central data
     maint2 = mances[1]
     assert maint2["name"] == "ABASTIBLE_CONCON_FV"
-    assert len(maint2["blocks"]) == 2
-    assert maint2["blocks"][0] == 1
-    assert maint2["p_min"][0] == 0.0
-    assert maint2["p_max"][0] == 0.0
+    assert len(maint2["block"]) == 2
+    assert maint2["block"][0] == 1
+    assert maint2["pmin"][0] == 0.0
+    assert maint2["pmax"][0] == 0.0
 
 
 def test_real_file_parsing():
@@ -118,18 +118,18 @@ def test_real_file_parsing():
     # Verify first central data
     maint1 = mances[0]
     assert maint1["name"] == "ABANICO"
-    assert len(maint1["blocks"]) == 4
-    assert maint1["blocks"][0] == 1
-    assert maint1["p_min"][0] == pytest.approx(5.0)
-    assert maint1["p_max"][0] == pytest.approx(69.75)
+    assert len(maint1["block"]) == 4
+    assert maint1["block"][0] == 1
+    assert maint1["pmin"][0] == pytest.approx(5.0)
+    assert maint1["pmax"][0] == pytest.approx(69.75)
 
     # Verify second central data
     maint2 = mances[1]
     assert maint2["name"] == "ABASTIBLE_CONCON_FV"
-    assert len(maint2["blocks"]) == 2
-    assert maint2["blocks"][0] == 1
-    assert maint2["p_min"][0] == pytest.approx(0.0)
-    assert maint2["p_max"][0] == pytest.approx(0.0)
+    assert len(maint2["block"]) == 2
+    assert maint2["block"][0] == 1
+    assert maint2["pmin"][0] == pytest.approx(0.0)
+    assert maint2["pmax"][0] == pytest.approx(0.0)
 
 
 def test_get_mance_by_name(sample_mance_file):
@@ -143,9 +143,9 @@ def test_get_mance_by_name(sample_mance_file):
     cen_data = parser.get_mance_by_name(first_cen)
     assert cen_data is not None
     assert cen_data["name"] == first_cen
-    assert len(cen_data["blocks"]) > 0
-    assert len(cen_data["p_min"]) > 0
-    assert len(cen_data["p_max"]) > 0
+    assert len(cen_data["block"]) > 0
+    assert len(cen_data["pmin"]) > 0
+    assert len(cen_data["pmax"]) > 0
 
     # Test another existing central if available
     if len(mances) > 1:
@@ -153,9 +153,9 @@ def test_get_mance_by_name(sample_mance_file):
         cen_data = parser.get_mance_by_name(second_cen)
         assert cen_data is not None
         assert cen_data["name"] == second_cen
-        assert len(cen_data["blocks"]) > 0
-        assert len(cen_data["p_min"]) > 0
-        assert len(cen_data["p_max"]) > 0
+        assert len(cen_data["block"]) > 0
+        assert len(cen_data["pmin"]) > 0
+        assert len(cen_data["pmax"]) > 0
 
     # Test non-existent central
     missing = parser.get_mance_by_name("NonExistentCen")

@@ -141,9 +141,9 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
-    assert gen1["p_min"] == 0.0
-    assert gen1["p_max"] == 100.0
-    assert gen1["variable_cost"] == 0.0
+    assert gen1["pmin"] == 0.0
+    assert gen1["pmax"] == 100.0
+    assert gen1["gcost"] == 0.0
     assert gen1["efficiency"] == 1.0
     assert gen1["type"] == "embalse"
 
@@ -199,8 +199,8 @@ def test_parse_real_file() -> None:
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
-    assert gen1["p_min"] == 0.0
-    assert gen1["p_max"] == 100.0
+    assert gen1["pmin"] == 0.0
+    assert gen1["pmax"] == 100.0
 
     # Check a battery central
     battery = next(g for g in centrals if g["number"] == 1187)
@@ -258,13 +258,13 @@ def test_parse_large_real_file() -> None:
     assert gen1["number"] == 1
     assert gen1["name"] == "LMAULE"
     assert gen1["bus"] == 0
-    assert gen1["p_min"] == 0.0
-    assert float(gen1["p_max"]) > 0.0
+    assert gen1["pmin"] == 0.0
+    assert float(gen1["pmax"]) > 0.0
 
     # Check a battery central exists
     battery = next((g for g in centrals if g["type"] == "bateria"), None)
     assert battery is not None
-    assert float(battery["p_max"]) > 0.0
+    assert float(battery["pmax"]) > 0.0
 
     # Verify type counts match actual centrals
     type_counts: Dict[str, Any] = {

@@ -69,8 +69,8 @@ class BaseWriter(ABC):
         index_parser: BlockParser | StageParser | None,
         value_field: str,
         index_field: str,
-        index_name: str,
-        fill_field: str,
+        index_name: Optional[str] = None,
+        fill_field: Optional[str] = None,
         item_key: str = "number",
         skip_types=("falla"),
     ) -> pd.DataFrame:
@@ -79,9 +79,7 @@ class BaseWriter(ABC):
         if not items:
             return df
 
-        index_name = index_name or index_field
         fill_values = {}
-
         for item in items:
             name = item.get("name", "")
             central = (
@@ -113,6 +111,7 @@ class BaseWriter(ABC):
         df = df.loc[:, ~df.columns.duplicated()]
 
         # Convert index to column
+        index_name = index_name or index_field
         if index_parser and index_parser.items:
             index_values = np.array(
                 [int(item[item_key]) for item in index_parser.items], dtype=np.int16

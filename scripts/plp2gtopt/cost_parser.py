@@ -59,7 +59,7 @@ class CostParser(BaseParser):
 
                 # Store complete data for the central cost
 
-                cost = {"name": name, "stages": stages, "costs": costs}
+                cost = {"name": name, "stage": stages, "cost": costs}
                 self._append(cost)
 
         finally:

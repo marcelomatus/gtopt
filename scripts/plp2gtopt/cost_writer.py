@@ -35,8 +35,8 @@ class CostWriter(BaseWriter):
         return [
             {
                 "name": cost["name"],
-                "stages": cost["stages"].tolist(),
-                "costs": cost["costs"].tolist(),
+                "stage": cost["stage"].tolist(),
+                "cost": cost["cost"].tolist(),
             }
             for cost in items
         ]
@@ -50,10 +50,9 @@ class CostWriter(BaseWriter):
             items=items,
             central_parser=self.central_parser,
             index_parser=self.stage_parser,
-            value_field="costs",
-            index_field="stages",
-            index_name="stage",
-            fill_field="variable_cost",
+            value_field="cost",
+            index_field="stage",
+            fill_field="gcost",
         )
 
         return df
