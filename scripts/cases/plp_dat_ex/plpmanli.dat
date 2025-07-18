@@ -1,0 +1,22 @@
+# Archivo de mantenimientos de lineas (plpmanli.dat)
+# numero de lineas con matenimientos
+ 2
+# Nombre de la lineas
+'Antofag110->Desalant110'
+#   Numero de Bloques con mantenimiento
+   5
+#   NumeroBloque PotMaxAB   PotMaxBA     Operativa
+   001               0.0        0.0         F
+   002               0.0        0.0         F
+   003               0.0        0.0         F
+   004               0.0        0.0         F
+   005               0.0        0.0         F
+
+# Nombre de la lineas
+'Capricornio110->ElNegro110'
+#   Numero de Bloques con mantenimiento
+   3
+#   NumeroBloque PotMaxAB   PotMaxBA     Operativa
+   001               0.0        0.0         F
+   002               0.0        0.0         F
+   003               0.0        0.0         F
