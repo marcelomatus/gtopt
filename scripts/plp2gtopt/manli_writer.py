@@ -78,7 +78,7 @@ class ManliWriter(BaseWriter):
             
             compression = self.options.get("compression", "gzip")
             df_pmax_ab.to_parquet(
-                output_dir / "p_max_ab.parquet", 
+                output_dir / "p_max_ab.parquet",
                 index=False,
                 compression=compression
             )

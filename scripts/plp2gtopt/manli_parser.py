@@ -66,7 +66,7 @@ class ManliParser(BaseParser):
 
                     blocks[i] = self._parse_int(parts[0])  # Block number
                     p_max_ab[i] = self._parse_float(parts[1])  # Max flow AB
-                    p_max_ba[i] = self._parse_float(parts[2])  # Max flow BA  
+                    p_max_ba[i] = self._parse_float(parts[2])  # Max flow BA
                     operational[i] = parts[3] == "T"  # Operational status
 
                 # Store complete data
