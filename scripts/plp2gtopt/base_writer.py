@@ -17,6 +17,9 @@ import numpy as np
 import pandas as pd
 
 from .base_parser import BaseParser
+from .block_parser import BlockParser
+from .stage_parser import StageParser
+from .central_parser import CentralParser
 
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
 ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
@@ -62,97 +65,60 @@ class BaseWriter(ABC):
     def _create_dataframe(
         self,
         items: List[Dict[str, Any]],
+        central_parser: CentralParser | None,
+        index_parser: BlockParser | StageParser | None,
         value_field: str,
         index_field: str,
-        parser: Optional[Any] = None,
+        index_name: str,
+        fill_field: str,
         item_key: str = "number",
-        index_name: Optional[str] = None,
-        filter_fn: Optional[callable] = None,
-        fill_values: Optional[Dict[str, float]] = None,
+        skip_types=("falla"),
     ) -> pd.DataFrame:
-        """Create a DataFrame from items with common processing.
-
-        Args:
-            items: List of item dictionaries
-            value_field: Field name containing the values
-            index_field: Field name containing the index values
-            parser: Optional parser for index conversion
-            item_key: Key to extract from parser items
-            index_name: Name for the index column (defaults to index_field)
-            filter_fn: Optional filter function for items
-            fill_values: Optional dict of default fill values per column
-
-        Returns:
-            Processed DataFrame
-        """
+        """Create a DataFrame from items with common processing."""
         df = pd.DataFrame()
         if not items:
             return df
 
         index_name = index_name or index_field
-        fill_values = fill_values or {}
+        fill_values = {}
 
         for item in items:
             name = item.get("name", "")
-            if filter_fn and filter_fn(item):
+            central = (
+                central_parser.get_central_by_name(name) if central_parser else None
+            )
+            if not central or central["type"] in skip_types:
                 continue
 
-            uid = item.get("number", name)
-            col_name = f"uid:{uid}" if not isinstance(uid, str) else uid
-            if col_name not in fill_values:
-                fill_values[col_name] = 0.0
+            uid = int(central[item_key]) if item_key in central else name
+            col_name = f"uid:{uid}" if isinstance(uid, int) else uid
+
+            if fill_field and fill_field in central:
+                fill_values[col_name] = float(central[fill_field])
 
             # Skip if all values match the fill value
             if np.all(item[value_field] == fill_values[col_name]):
                 continue
 
             s = pd.Series(
-                data=item[value_field],
-                index=item[index_field],
-                name=col_name
+                data=item[value_field], index=item[index_field], name=col_name
             )
             s = s.loc[~s.index.duplicated(keep="last")]
             df = pd.concat([df, s], axis=1)
 
         # Post-processing
+        # drop duplicated rows
         df = df.sort_index().drop_duplicates()
+        # drop duplicated columns
+        df = df.loc[:, ~df.columns.duplicated()]
 
         # Convert index to column
-        df = self._convert_index_to_column(
-            df,
-            index_name=index_name,
-            parser=parser,
-            item_key=item_key
-        )
+        if index_parser and index_parser.items:
+            index_values = np.array(
+                [int(item[item_key]) for item in index_parser.items], dtype=np.int16
+            )
+            s = pd.Series(data=index_values, index=index_values, name=index_name)
+            df = pd.concat([s, df], axis=1)
 
         # Fill missing values with column-specific defaults
         return df.fillna(fill_values)
-
-    def _convert_index_to_column(
-        self,
-        df: pd.DataFrame,
-        index_name: str,
-        parser: Optional[Any] = None,
-        item_key: str = "number",
-    ) -> pd.DataFrame:
-        """Convert DataFrame index to a named column using parser data if available.
-
-        Args:
-            df: Input DataFrame
-            index_name: Name for the new column (e.g. "block" or "stage")
-            parser: Optional parser object containing items data
-            item_key: Key to extract from item dictionaries
-
-        Returns:
-            DataFrame with index converted to column
-        """
-        if parser and hasattr(parser, f"num_{index_name}s"):
-            items = getattr(parser, f"{index_name}s")
-            if items:
-                index_values = np.array(
-                    [int(item[item_key]) for item in items], dtype=np.int16
-                )
-                s = pd.Series(data=index_values, index=index_values, name=index_name)
-                return pd.concat([s, df], axis=1)
-
-        return df.reset_index().rename(columns={"index": index_name})

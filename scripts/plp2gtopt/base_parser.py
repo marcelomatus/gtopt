@@ -56,6 +56,16 @@ class BaseParser(ABC):
         """Return all parsed items."""
         return self._data
 
+    @property
+    def items(self) -> List[Dict[str, Any]]:
+        """Return the parsed blocks structure."""
+        return self.get_all()
+
+    @property
+    def num_items(self) -> int:
+        """Return the number of blocks in the file."""
+        return len(self.items)
+
     def get_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get itemg by name."""
         return (
@@ -96,9 +106,9 @@ class BaseParser(ABC):
         """Parse float handling zero-padded strings."""
         return float(value.lstrip("0") or "0.0")
 
-    def _next_idx(self, idx: int, lines) -> int:
+    def _next_idx(self, idx: int, lines=None) -> int:
         """Advance to the next non-empty line."""
         idx += 1
-        if idx < len(lines):
+        if lines is None or idx < len(lines):
             return idx
         raise IndexError("No more non-empty lines available")
