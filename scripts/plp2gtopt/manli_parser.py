@@ -61,7 +61,7 @@ class ManliParser(BaseParser):
                 for i in range(num_blocks):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
-                    if len(parts) < 5:
+                    if len(parts) < 4:
                         raise ValueError(f"Invalid maintenance entry at line {idx+1}")
 
                     blocks[i] = self._parse_int(parts[0])  # Block number

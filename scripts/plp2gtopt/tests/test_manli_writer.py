@@ -96,9 +96,15 @@ def test_json_output_structure(sample_manli_writer):
         # Additional value checks
         assert len(manli["name"]) > 0, "Name should not be empty"
         assert len(manli["block"]) > 0, "Should have at least one block"
-        assert len(manli["block"]) == len(manli["p_max_ab"]), "Blocks and p_max_ab should match"
-        assert len(manli["block"]) == len(manli["p_max_ba"]), "Blocks and p_max_ba should match"
-        assert len(manli["block"]) == len(manli["operational"]), "Blocks and operational should match"
+        assert len(manli["block"]) == len(
+            manli["p_max_ab"]
+        ), "Blocks and p_max_ab should match"
+        assert len(manli["block"]) == len(
+            manli["p_max_ba"]
+        ), "Blocks and p_max_ba should match"
+        assert len(manli["block"]) == len(
+            manli["operational"]
+        ), "Blocks and operational should match"
 
 
 def test_write_empty_manlis():

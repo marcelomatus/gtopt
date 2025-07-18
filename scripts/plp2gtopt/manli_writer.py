@@ -55,7 +55,9 @@ class ManliWriter(BaseWriter):
         )
         return df
 
-    def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def to_dataframe(
+        self, items=None
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames."""
         if items is None:
             items = self.items
@@ -75,22 +77,16 @@ class ManliWriter(BaseWriter):
 
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             compression = self.options.get("compression", "gzip")
             df_pmax_ab.to_parquet(
-                output_dir / "p_max_ab.parquet",
-                index=False,
-                compression=compression
+                output_dir / "p_max_ab.parquet", index=False, compression=compression
             )
             df_pmax_ba.to_parquet(
-                output_dir / "p_max_ba.parquet",
-                index=False,
-                compression=compression
+                output_dir / "p_max_ba.parquet", index=False, compression=compression
             )
             df_operational.to_parquet(
-                output_dir / "operational.parquet",
-                index=False,
-                compression=compression
+                output_dir / "operational.parquet", index=False, compression=compression
             )
         finally:
             # Clean up DataFrames
