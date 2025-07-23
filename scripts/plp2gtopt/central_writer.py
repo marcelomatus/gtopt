@@ -77,7 +77,7 @@ class CentralWriter(BaseWriter):
         """Convert central data to JSON array format."""
         if items is None:
             items = self.items
-        if items is None or not items:
+        if not items:
             return []
 
         for cen in items:
