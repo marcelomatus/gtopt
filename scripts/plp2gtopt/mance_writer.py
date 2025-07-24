@@ -53,7 +53,7 @@ class ManceWriter(BaseWriter):
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
         df = self._create_dataframe(
             items=items,
-            central_parser=self.central_parser,
+            unit_parser=self.central_parser,
             index_parser=self.block_parser,
             value_field=field,
             index_field="block",

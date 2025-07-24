@@ -53,8 +53,8 @@ class ManceParser(BaseParser):
 
                 # Initialize numpy arrays
                 blocks = np.empty(num_blocks, dtype=np.int16)
-                p_min = np.empty(num_blocks, dtype=np.float32)
-                p_max = np.empty(num_blocks, dtype=np.float32)
+                p_min = np.empty(num_blocks, dtype=np.float64)
+                p_max = np.empty(num_blocks, dtype=np.float64)
 
                 # Parse maintenance entries
                 for i in range(num_blocks):

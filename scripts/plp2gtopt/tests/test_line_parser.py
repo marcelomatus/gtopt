@@ -41,7 +41,7 @@ def test_parser_initialization():
     test_path = "test.dat"
     parser = LineParser(test_path)
     assert parser.file_path == Path(test_path)
-    assert not parser.get_lines()  # Use public method instead of accessing _data
+    assert not parser.lines  # Use public method instead of accessing _data
     assert parser.num_lines == 0
 
 
@@ -50,8 +50,8 @@ def test_parse_sample_file(sample_line_parser):  # pylint: disable=redefined-out
     parser = sample_line_parser
 
     # Verify basic structure
-    assert parser.get_num_lines() == 10
-    lines = parser.get_lines()
+    assert parser.num_lines == 10
+    lines = parser.lines
     assert len(lines) == 10
     assert all(isinstance(line, dict) for line in lines)
 
@@ -66,14 +66,14 @@ def test_line_data_structure(
     required_fields = {
         "number": int,
         "name": str,
-        "active": bool,
+        "operational": int,
         "bus_a": int,
         "bus_b": int,
         "voltage": float,
         "r": float,
         "x": float,
-        "fmax_ab": float,
-        "fmax_ba": float,
+        "tmax_ab": float,
+        "tmax_ba": float,
         "mod_perdidas": bool,
         "num_sections": int,
     }
@@ -99,7 +99,7 @@ def test_parse_nonexistent_file():
 
 def test_operational_status(sample_line_parser):  # pylint: disable=redefined-outer-name
     """Test operational status parsing."""
-    lines = sample_line_parser.get_lines()
+    lines = sample_line_parser.lines
     for line in lines:
-        assert "active" in line
-        assert isinstance(line["active"], bool)
+        assert "operational" in line
+        assert isinstance(line["operational"], int)

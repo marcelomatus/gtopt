@@ -45,18 +45,18 @@ def test_get_manlis(tmp_path):
     # Verify structure and types
     assert manli["name"] == "test_line"
     assert isinstance(manli["block"], np.ndarray)
-    assert isinstance(manli["p_max_ab"], np.ndarray)
-    assert isinstance(manli["p_max_ba"], np.ndarray)
+    assert isinstance(manli["tmax_ab"], np.ndarray)
+    assert isinstance(manli["tmax_ba"], np.ndarray)
     assert isinstance(manli["operational"], np.ndarray)
     assert manli["block"].dtype == np.int16
-    assert manli["p_max_ab"].dtype == np.float32
-    assert manli["p_max_ba"].dtype == np.float32
-    assert manli["operational"].dtype == bool
+    assert manli["tmax_ab"].dtype == np.float64
+    assert manli["tmax_ba"].dtype == np.float64
+    assert manli["operational"].dtype == np.int8
 
     # Verify array contents
     np.testing.assert_array_equal(manli["block"], [1, 2, 3])
-    np.testing.assert_array_equal(manli["p_max_ab"], [0.0, 0.0, 0.0])
-    np.testing.assert_array_equal(manli["p_max_ba"], [0.0, 0.0, 0.0])
+    np.testing.assert_array_equal(manli["tmax_ab"], [0.0, 0.0, 0.0])
+    np.testing.assert_array_equal(manli["tmax_ba"], [0.0, 0.0, 0.0])
     np.testing.assert_array_equal(manli["operational"], [False, False, False])
 
 
@@ -75,37 +75,37 @@ def test_parse_sample_file(sample_manli_file):
         assert isinstance(maint["name"], str)
         assert maint["name"] != ""
         assert isinstance(maint["block"], np.ndarray)
-        assert isinstance(maint["p_max_ab"], np.ndarray)
-        assert isinstance(maint["p_max_ba"], np.ndarray)
+        assert isinstance(maint["tmax_ab"], np.ndarray)
+        assert isinstance(maint["tmax_ba"], np.ndarray)
         assert isinstance(maint["operational"], np.ndarray)
         assert len(maint["block"]) > 0
-        assert len(maint["block"]) == len(maint["p_max_ab"])
-        assert len(maint["block"]) == len(maint["p_max_ba"])
+        assert len(maint["block"]) == len(maint["tmax_ab"])
+        assert len(maint["block"]) == len(maint["tmax_ba"])
         assert len(maint["block"]) == len(maint["operational"])
 
         # Verify array types and values
         assert maint["block"].dtype == np.int16
-        assert maint["p_max_ab"].dtype == np.float32
-        assert maint["p_max_ba"].dtype == np.float32
-        assert maint["operational"].dtype == bool
+        assert maint["tmax_ab"].dtype == np.float64
+        assert maint["tmax_ba"].dtype == np.float64
+        assert maint["operational"].dtype == np.int8
         assert np.all(maint["block"] > 0)
-        assert np.all(maint["p_max_ab"] >= 0)
-        assert np.all(maint["p_max_ba"] >= 0)
+        assert np.all(maint["tmax_ab"] >= 0)
+        assert np.all(maint["tmax_ba"] >= 0)
 
     # Verify first line data
     maint1 = manlis[0]
     assert maint1["name"] == "Antofag110->Desalant110"
     assert len(maint1["block"]) == 5
     assert maint1["block"][0] == 1
-    assert maint1["p_max_ab"][0] == 0.0
-    assert maint1["operational"][0] is np.False_
+    assert maint1["tmax_ab"][0] == 0.0
+    assert maint1["operational"][0] == 0
 
     # Verify second line data
     maint2 = manlis[1]
     assert maint2["name"] == "Capricornio110->ElNegro110"
     assert len(maint2["block"]) == 3
     assert maint2["block"][0] == 1
-    assert maint2["p_max_ab"][0] == 0.0
+    assert maint2["tmax_ab"][0] == 0.0
     # assert maint2["operational"][0] is False
 
 
@@ -121,7 +121,7 @@ def test_get_manli_by_name(sample_manli_file):
     assert line_data is not None
     assert line_data["name"] == first_line
     assert len(line_data["block"]) > 0
-    assert len(line_data["p_max_ab"]) > 0
+    assert len(line_data["tmax_ab"]) > 0
 
     # Test non-existent line
     missing = parser.get_manli_by_name("NonExistentLine")
@@ -141,7 +141,7 @@ def test_parse_empty_file(tmp_path):
 def test_parse_malformed_file(tmp_path):
     """Test handling of malformed maintenance file."""
     bad_file = tmp_path / "bad.dat"
-    bad_file.write_text("1\n'LINE'\n2\n001 0.0")  # Missing p_max_ba and operational
+    bad_file.write_text("1\n'LINE'\n2\n001 0.0")  # Missing tmax_ba and operational
 
     parser = ManliParser(str(bad_file))
     with pytest.raises(ValueError):

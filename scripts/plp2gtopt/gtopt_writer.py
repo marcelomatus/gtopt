@@ -112,13 +112,15 @@ class GTOptWriter:
 
         self.planning["system"]["bus_array"] = BusWriter(buses).to_json_array()
 
-    def process_lines(self):
+    def process_lines(self, options):
         """Process line data to include block and stage information."""
         lines = self.parser.parsed_data.get("line_array", [])
-        if not lines:
-            return
+        blocks = self.parser.parsed_data.get("block_array", None)
+        manlis = self.parser.parsed_data.get("manli_array", None)
 
-        self.planning["system"]["line_array"] = LineWriter(lines).to_json_array()
+        self.planning["system"]["line_array"] = LineWriter(
+            lines, blocks, manlis, options
+        ).to_json_array()
 
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
@@ -128,7 +130,7 @@ class GTOptWriter:
         self.process_options(options)
         self.process_stage_blocks()
         self.process_buses()
-        self.process_lines()
+        self.process_lines(options)
         self.process_central(options)
         self.process_demands(options)
 

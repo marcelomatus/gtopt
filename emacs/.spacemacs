@@ -732,8 +732,9 @@ This function is called at the very end of Spacemacs initialization."
    '(aidermacs-default-model "deepseek/deepseek-coder")
    '(lsp-pylsp-plugins-autopep8-enabled t)
    '(lsp-pylsp-plugins-black-enabled t)
-   '(lsp-pylsp-plugins-mypy-enabled t)
-   '(lsp-pylsp-plugins-ruff-enabled t)
+   '(lsp-pylsp-plugins-jedi-completion-fuzzy t)
+   '(lsp-pylsp-plugins-mypy-enabled nil)
+   '(lsp-pylsp-plugins-ruff-enabled nil)
    '(package-selected-packages
      '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
                 auto-highlight-symbol auto-yasnippet blacken browse-at-remote
