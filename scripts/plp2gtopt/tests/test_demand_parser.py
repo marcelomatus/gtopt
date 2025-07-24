@@ -23,42 +23,6 @@ def test_demand_parser_initialization():
     assert parser.num_demands == 0
 
 
-def test_get_demands():
-    """Test get_demands returns properly structured demand data."""
-    parser = DemandParser("test.dat")
-    # Setup test data
-    test_blocks = np.array([1, 2, 3], dtype=np.int32)
-    test_values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-
-    # Use public methods to set test data
-    test_demand = {
-        "number": 1,
-        "name": "test",
-        "blocks": test_blocks,
-        "values": test_values,
-    }
-    # This assumes DemandParser has an add_test_data() method or similar
-    # Alternatively, parse from a test file
-    parser.parse_from_dicts([test_demand])
-    assert parser.num_demands == 1
-
-    demands = parser.get_all()
-    assert len(demands) == 1
-    demand = demands[0]
-
-    # Verify structure and types
-    assert demand["number"] == 1
-    assert demand["name"] == "test"
-    assert isinstance(demand["blocks"], np.ndarray)
-    assert isinstance(demand["values"], np.ndarray)
-    assert demand["blocks"].dtype == np.int32
-    assert demand["values"].dtype == np.float64
-
-    # Verify array contents
-    np.testing.assert_array_equal(demand["blocks"], test_blocks)
-    np.testing.assert_array_equal(demand["values"], test_values)
-
-
 def test_parse_sample_file(sample_demand_file):  # pylint: disable=redefined-outer-name
     """Test parsing of the sample demand file."""
     parser = DemandParser(str(sample_demand_file))

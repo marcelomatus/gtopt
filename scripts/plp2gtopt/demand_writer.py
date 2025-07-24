@@ -27,19 +27,7 @@ class DemandWriter(BaseWriter):
         self.options = options if options is not None else {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
-        """Convert demand data to JSON array format.
-
-        Returns:
-            List of demand dictionaries with:
-            - uid (int): Bus number
-            - name (str): Bus name
-            - bus (str): Bus name (same as name)
-            - blocks (list[int]): Block numbers
-            - values (list[float]): Demand values
-
-        Note:
-            Converts numpy arrays to lists for JSON serialization
-        """
+        """Convert demand data to JSON array format."""
         if items is None:
             items = self.items
 

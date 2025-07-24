@@ -77,18 +77,3 @@ class DemandParser(BaseParser):
     def get_demand_by_name(self, name):
         """Get demand data for a specific bus name."""
         return self.get_item_by_name(name)
-
-    def parse_from_dicts(self, demand_dicts: list) -> None:
-        """Test helper method to populate parser with test data directly.
-
-        Args:
-            demand_dicts: List of demand dictionaries with format:
-                {
-                    "number": int,
-                    "name": str,
-                    "blocks": np.ndarray,
-                    "values": np.ndarray
-                }
-        """
-        for demand in demand_dicts:
-            self._append(demand)
