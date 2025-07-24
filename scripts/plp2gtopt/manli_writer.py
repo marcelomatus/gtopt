@@ -36,9 +36,9 @@ class ManliWriter(BaseWriter):
             {
                 "name": manli["name"],
                 "block": manli["block"].tolist(),
-                "p_max_ab": manli["p_max_ab"].tolist(),
-                "p_max_ba": manli["p_max_ba"].tolist(),
-                "operational": manli["operational"].tolist(),
+                "tmax_ab": manli["tmax_ab"].tolist(),
+                "tmax_ba": manli["tmax_ba"].tolist(),
+                "active": manli["operational"].tolist(),
             }
             for manli in items
         ]
@@ -47,7 +47,7 @@ class ManliWriter(BaseWriter):
         """Create a DataFrame for a specific maintenance field."""
         df = self._create_dataframe(
             items=items,
-            central_parser=None,  # Not needed for line maintenance
+            unit_parser=self.line_parser,
             index_parser=self.block_parser,
             value_field=field,
             index_field="block",
@@ -65,29 +65,29 @@ class ManliWriter(BaseWriter):
         if not items:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-        df_pmax_ab = self._create_dataframe_for_field("p_max_ab", items)
-        df_pmax_ba = self._create_dataframe_for_field("p_max_ba", items)
-        df_operational = self._create_dataframe_for_field("operational", items)
+        df_tmax_ab = self._create_dataframe_for_field("tmax_ab", items)
+        df_tmax_ba = self._create_dataframe_for_field("tmax_ba", items)
+        df_active = self._create_dataframe_for_field("operational", items)
 
-        return df_pmax_ab, df_pmax_ba, df_operational
+        return df_tmax_ab, df_tmax_ba, df_active
 
     def to_parquet(self, output_dir: Path, items=None) -> None:
         """Write maintenance data to Parquet files."""
-        df_pmax_ab, df_pmax_ba, df_operational = self.to_dataframe(items)
+        df_tmax_ab, df_tmax_ba, df_active = self.to_dataframe(items)
 
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             compression = self.options.get("compression", "gzip")
-            df_pmax_ab.to_parquet(
-                output_dir / "p_max_ab.parquet", index=False, compression=compression
+            df_tmax_ab.to_parquet(
+                output_dir / "tmax_ab.parquet", index=False, compression=compression
             )
-            df_pmax_ba.to_parquet(
-                output_dir / "p_max_ba.parquet", index=False, compression=compression
+            df_tmax_ba.to_parquet(
+                output_dir / "tmax_ba.parquet", index=False, compression=compression
             )
-            df_operational.to_parquet(
-                output_dir / "operational.parquet", index=False, compression=compression
+            df_active.to_parquet(
+                output_dir / "active.parquet", index=False, compression=compression
             )
         finally:
             # Clean up DataFrames
-            del df_pmax_ab, df_pmax_ba, df_operational
+            del df_tmax_ab, df_tmax_ba, df_active

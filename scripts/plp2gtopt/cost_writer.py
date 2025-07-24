@@ -48,7 +48,7 @@ class CostWriter(BaseWriter):
 
         df = self._create_dataframe(
             items=items,
-            central_parser=self.central_parser,
+            unit_parser=self.central_parser,
             index_parser=self.stage_parser,
             value_field="cost",
             index_field="stage",

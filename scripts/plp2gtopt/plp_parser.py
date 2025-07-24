@@ -13,6 +13,7 @@ from .cost_parser import CostParser
 from .demand_parser import DemandParser
 from .line_parser import LineParser
 from .mance_parser import ManceParser
+from .manli_parser import ManliParser
 from .stage_parser import StageParser
 
 
@@ -41,6 +42,7 @@ class PLPParser:
             ("demand_array", DemandParser, "plpdem.dat"),
             ("cost_array", CostParser, "plpcosce.dat"),
             ("mance_array", ManceParser, "plpmance.dat"),
+            ("manli_array", ManliParser, "plpmanli.dat"),
         ]
         for name, parser_class, filename in parsers:
             filepath = self.input_path / filename

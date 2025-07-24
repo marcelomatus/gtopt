@@ -100,14 +100,6 @@ class DemandWriter(BaseWriter):
             s = pd.Series(data=stages, index=df.index, name="stage")
             df = pd.concat([s, df], axis=1)
 
-        # Ensure blocks are sorted and unique
-        df = df.sort_index().drop_duplicates()
-        # Ensure DataFrame has no duplicate columns
-        df = df.loc[:, ~df.columns.duplicated()]
-        # Convert demand columns to float64
-        demand_cols = [col for col in df.columns if col != "stage"]
-        df[demand_cols] = df[demand_cols].astype(np.float64)
-
         # Convert index to block column
         df.index = df.index.astype("int16")
         df = df.reset_index().rename(columns={"index": "block"})

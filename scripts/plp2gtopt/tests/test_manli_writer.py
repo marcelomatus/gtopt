@@ -45,9 +45,9 @@ def test_to_json_array(sample_manli_writer):
     required_fields = {
         "name": str,
         "block": list,
-        "p_max_ab": list,
-        "p_max_ba": list,
-        "operational": list,
+        "tmax_ab": list,
+        "tmax_ba": list,
+        "active": list,
     }
 
     for manli in json_manlis:
@@ -80,9 +80,9 @@ def test_json_output_structure(sample_manli_writer):
     REQUIRED_FIELDS = {
         "name": str,
         "block": list,
-        "p_max_ab": list,
-        "p_max_ba": list,
-        "operational": list,
+        "tmax_ab": list,
+        "tmax_ba": list,
+        "active": list,
     }
 
     for manli in json_manlis:
@@ -97,14 +97,14 @@ def test_json_output_structure(sample_manli_writer):
         assert len(manli["name"]) > 0, "Name should not be empty"
         assert len(manli["block"]) > 0, "Should have at least one block"
         assert len(manli["block"]) == len(
-            manli["p_max_ab"]
-        ), "Blocks and p_max_ab should match"
+            manli["tmax_ab"]
+        ), "Blocks and tmax_ab should match"
         assert len(manli["block"]) == len(
-            manli["p_max_ba"]
-        ), "Blocks and p_max_ba should match"
+            manli["tmax_ba"]
+        ), "Blocks and tmax_ba should match"
         assert len(manli["block"]) == len(
-            manli["operational"]
-        ), "Blocks and operational should match"
+            manli["active"]
+        ), "Blocks and active should match"
 
 
 def test_write_empty_manlis():

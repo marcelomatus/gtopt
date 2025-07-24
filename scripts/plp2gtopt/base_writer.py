@@ -19,7 +19,6 @@ import pandas as pd
 from .base_parser import BaseParser
 from .block_parser import BlockParser
 from .stage_parser import StageParser
-from .central_parser import CentralParser
 
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
 ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
@@ -65,7 +64,7 @@ class BaseWriter(ABC):
     def _create_dataframe(
         self,
         items: List[Dict[str, Any]],
-        central_parser: CentralParser | None,
+        unit_parser: ParserVar | None,
         index_parser: BlockParser | StageParser | None,
         value_field: str,
         index_field: str,
@@ -82,42 +81,42 @@ class BaseWriter(ABC):
         fill_values = {}
         for item in items:
             name = item.get("name", "")
-            central = (
-                central_parser.get_central_by_name(name) if central_parser else None
-            )
-            if not central or central["type"] in skip_types:
+            unit = unit_parser.get_item_by_name(name) if unit_parser else None
+            if not unit or ("type" in unit and unit["type"] in skip_types):
                 continue
 
-            uid = int(central[item_key]) if item_key in central else name
+            uid = int(unit[item_key]) if item_key in unit else name
             col_name = f"uid:{uid}" if isinstance(uid, int) else uid
 
-            if fill_field and fill_field in central:
-                fill_values[col_name] = float(central[fill_field])
+            if fill_field and fill_field in unit:
+                fill_values[col_name] = unit[fill_field]
 
             # Skip if all values match the fill value
-            if np.all(item[value_field] == fill_values[col_name]):
+            values = item.get(value_field, [])
+            index = item.get(index_field, [])
+            if len(values) * len(index) == 0:
                 continue
 
-            s = pd.Series(
-                data=item[value_field], index=item[index_field], name=col_name
-            )
+            if np.all(values == fill_values[col_name]):
+                continue
+
+            s = pd.Series(data=values, index=index, name=col_name)
             s = s.loc[~s.index.duplicated(keep="last")]
             df = pd.concat([df, s], axis=1)
 
-        # Post-processing
-        # drop duplicated rows
-        df = df.sort_index().drop_duplicates()
-        # drop duplicated columns
-        df = df.loc[:, ~df.columns.duplicated()]
+        if df.empty:
+            return df
 
         # Convert index to column
         index_name = index_name or index_field
         if index_parser and index_parser.items:
             index_values = np.array(
-                [int(item[item_key]) for item in index_parser.items], dtype=np.int16
+                [item[item_key] for item in index_parser.items], dtype=np.int16
             )
             s = pd.Series(data=index_values, index=index_values, name=index_name)
             df = pd.concat([s, df], axis=1)
 
         # Fill missing values with column-specific defaults
-        return df.fillna(fill_values)
+        df = df.fillna(fill_values)
+
+        return df

@@ -80,8 +80,8 @@ class CentralWriter(BaseWriter):
         if not items:
             return []
 
-        for cen in items:
-            self.centrals_of_type[cen["type"]].append(cen)
+        for central in items:
+            self.centrals_of_type[central["type"]].append(central)
 
         self.process_central_embalses(self.centrals_of_type["embalse"])
         self.process_central_series(self.centrals_of_type["serie"])
@@ -91,14 +91,14 @@ class CentralWriter(BaseWriter):
         self.process_central_fallas(self.centrals_of_type["falla"])
 
         json_centrals = []
-        for cen in items:
+        for central in items:
             # skip centrals that are "falla" type
-            if cen["type"] == "falla":
+            if central["type"] == "falla":
                 # Falla centrals are not included in the output
                 continue
 
             # Skip centrals without a bus or with bus 0
-            bus_number = cen.get("bus", -1)
+            bus_number = central.get("bus", -1)
             if bus_number <= 0:
                 continue
 
@@ -106,43 +106,43 @@ class CentralWriter(BaseWriter):
                 bus = self.bus_parser.get_bus_by_number(bus_number)
                 if bus is None or bus.get("number", -1) <= 0:
                     print(
-                        f"Skipping central {cen['name']} with invalid bus {bus_number}."
+                        f"Skipping central {central['name']} with invalid bus {bus_number}."
                     )
                     continue
 
             # lookup cost by name if cost_parser is available, and use it
             cost = (
-                self.cost_parser.get_cost_by_name(cen["name"])
+                self.cost_parser.get_cost_by_name(central["name"])
                 if self.cost_parser
                 else None
             )
-            gcost = cen.get("gcost", 0.0) if cost is None else "gcost"
+            gcost = central.get("gcost", 0.0) if cost is None else "gcost"
 
             # lookup mance by name if cost_parser is available, and use it
             mance = (
-                self.mance_parser.get_mance_by_name(cen["name"])
+                self.mance_parser.get_mance_by_name(central["name"])
                 if self.mance_parser
                 else None
             )
             pmin, pmax = (
-                (cen.get("pmin", 0.0), cen.get("pmax", 0.0))
+                (central.get("pmin", 0.0), central.get("pmax", 0.0))
                 if mance is None
                 else ("pmin", "pmax")
             )
 
-            central = {
-                "uid": cen["number"],
-                "name": cen["name"],
-                "bus": cen["bus"],
-                "gcost": gcost,
-                "capacity": float(cen.get("pmax", 0)),
-                "efficiency": float(cen.get("efficiency", 1.0)),
-                "pmax": pmax,
-                "pmin": pmin,
-                "type": cen.get("type", "unknown"),
-            }
-
-            json_centrals.append(central)
+            json_centrals.append(
+                {
+                    "uid": central["number"],
+                    "name": central["name"],
+                    "bus": central["bus"],
+                    "gcost": gcost,
+                    "capacity": float(central.get("pmax", 0)),
+                    "efficiency": float(central.get("efficiency", 1.0)),
+                    "pmax": pmax,
+                    "pmin": pmin,
+                    "type": central.get("type", "unknown"),
+                }
+            )
 
         self._write_parquet_files()
 
