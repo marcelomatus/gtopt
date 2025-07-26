@@ -80,11 +80,14 @@ class DemandWriter(BaseWriter):
             # Add to DataFrame
             df = pd.concat([df, s], axis=1)
 
-        if self.block_parser is not None:
-            stages = np.empty(len(df.index), dtype=np.int16)
-            for i, s in enumerate(stages):
-                block_num = int(df.index[i])
-                stages[i] = self.block_parser.get_stage_number(block_num)
+        if self.block_parser:
+            stages = np.array(
+                [
+                    self.block_parser.get_stage_number(block_num)
+                    for block_num in df.index
+                ],
+                dtype=np.int16,
+            )
             s = pd.Series(data=stages, index=df.index, name="stage")
             df = pd.concat([s, df], axis=1)
 
