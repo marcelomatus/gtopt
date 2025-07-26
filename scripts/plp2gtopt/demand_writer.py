@@ -81,15 +81,9 @@ class DemandWriter(BaseWriter):
             df = pd.concat([df, s], axis=1)
 
         if self.block_parser:
-            stages = np.array(
-                [
-                    self.block_parser.get_stage_number(block_num)
-                    for block_num in df.index
-                ],
-                dtype=np.int16,
-            )
-            s = pd.Series(data=stages, index=df.index, name="stage")
-            df = pd.concat([s, df], axis=1)
+            df['stage'] = df.index.map(
+                lambda block_num: self.block_parser.get_stage_number(block_num)
+            ).astype('int16')
 
         # Convert index to block column
         df.index = df.index.astype("int16")
