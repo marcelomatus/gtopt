@@ -79,10 +79,10 @@ class AflceWriter(BaseWriter):
                 scenarios = np.full(
                     len(df.index), scenario.get("uid", -1), dtype=np.int16
                 )
-                stages = np.empty(len(df.index), dtype=np.int16)
-                for i, s in enumerate(stages):
-                    block_num = int(df.index[i])
-                    stages[i] = self.block_parser.get_stage_number(block_num)
+                stages = np.array([
+                    self.block_parser.get_stage_number(int(block_num))
+                    for block_num in df.index
+                ], dtype=np.int16)
                 s_stages = pd.Series(data=stages, index=df.index, name="stage")
                 s_scenarios = pd.Series(data=scenarios, index=df.index, name="scenario")
                 df = pd.concat([s_scenarios, s_stages, df], axis=1)
