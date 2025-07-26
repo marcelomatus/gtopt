@@ -58,6 +58,7 @@ class ManceWriter(BaseWriter):
             value_field=field,
             index_field="block",
             fill_field=field,
+            skip_types=("falla"),
         )
 
         return df

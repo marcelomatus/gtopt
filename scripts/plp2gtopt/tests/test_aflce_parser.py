@@ -30,7 +30,7 @@ def test_get_flows(tmp_path):
     # Create a temporary test file
     test_file = tmp_path / "test_aflce.dat"
     test_file.write_text(
-        """1
+        """1  2
 'test_central'
 2
 03 001 1.5 2.0
@@ -88,14 +88,14 @@ def test_parse_sample_file(sample_aflce_file):
     assert flow1["name"] == "LOS_MORROS"
     assert len(flow1["blocks"]) == 5
     assert flow1["blocks"][0] == 1
-    np.testing.assert_array_equal(flow1["flows"][0], [1.19]*5)
+    np.testing.assert_array_equal(flow1["flows"][0], [1.19] * 5)
 
     # Verify second central data
     flow2 = flows[1]
     assert flow2["name"] == "MAITENES"
     assert len(flow2["blocks"]) == 3
     assert flow2["blocks"][0] == 1
-    np.testing.assert_array_equal(flow2["flows"][0], [0.0]*5)
+    np.testing.assert_array_equal(flow2["flows"][0], [0.0] * 5)
 
 
 def test_get_flow_by_name(sample_aflce_file):

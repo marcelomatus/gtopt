@@ -1,5 +1,6 @@
 """Base parser class for PLP file parsers."""
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Union, Optional
 from abc import ABC, abstractmethod
@@ -105,6 +106,13 @@ class BaseParser(ABC):
     def _parse_float(self, value: str) -> float:
         """Parse float handling zero-padded strings."""
         return float(value.lstrip("0") or "0.0")
+
+    def _parse_name(self, line: str) -> str:
+        """Parse a name from a line, removing quotes."""
+        match = re.match(r"'([^']+)'", line)
+        if not match:
+            raise ValueError(f"Invalid name format in line {line}")
+        return match.group(1)
 
     def _next_idx(self, idx: int, lines=None) -> int:
         """Advance to the next non-empty line."""
