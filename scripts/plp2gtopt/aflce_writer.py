@@ -65,10 +65,14 @@ class AflceWriter(BaseWriter):
             return []
 
         num_hydrologies = items[0]["num_hydrologies"]
-        return [
-            self._create_dataframe_for_hydrology(i, items)
-            for i in range(num_hydrologies)
-        ]
+        dfs = []
+        for i in range(num_hydrologies):
+            df = self._create_dataframe_for_hydrology(i, items)
+            df['scenario'] = i + 1  # Add scenario column (1-based)
+            dfs.append(df)
+        
+        # Combine all DataFrames into one
+        return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
     def to_parquet(self, output_dir: Path, items=None) -> None:
         """Write flow data to Parquet files (one per hydrology)."""
