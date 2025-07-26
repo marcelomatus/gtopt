@@ -68,27 +68,22 @@ class AflceWriter(BaseWriter):
             return []
 
         dfs = []
-        num_hydrologies = items[0].get("num_hydrologies", -1)
-        for scenario in self.scenarios:
-            hydro_idx = scenario.get("hydrology", -1)
-            if hydro_idx < 0 or hydro_idx >= num_hydrologies:
+        for i, scenario in enumerate(self.scenarios):
+            hydro_idx = scenario.get("hydrology", i)
+            if hydro_idx < 0 or hydro_idx >= len(self.scenarios):
                 continue
             df = self._create_dataframe_for_hydrology(hydro_idx, items)
+            if df.empty:
+                continue
 
-            if self.block_parser is not None:
-                scenarios = np.full(
-                    len(df.index), scenario.get("uid", -1), dtype=np.int16
-                )
-                stages = np.array([
-                    self.block_parser.get_stage_number(int(block_num))
-                    for block_num in df.index
-                ], dtype=np.int16)
-                s_stages = pd.Series(data=stages, index=df.index, name="stage")
-                s_scenarios = pd.Series(data=scenarios, index=df.index, name="scenario")
-                df = pd.concat([s_scenarios, s_stages, df], axis=1)
+            df["scenario"] = np.full(
+                len(df.index), scenario.get("uid", -1), dtype=np.int16
+            )
+            if self.block_parser:
+                df["stage"] = df.index.map(
+                    lambda block_num: self.block_parser.get_stage_number(block_num)
+                ).astype("int16")
 
-            df["scenario"] = scenario.get("uid", -1)
-            df["scenario"] = df["scenario"].astype("int16")
             dfs.append(df)
 
         # Combine all DataFrames into one
