@@ -77,7 +77,7 @@ class AflceWriter(BaseWriter):
 
             if self.block_parser is not None:
                 stages = np.empty(len(df.index), dtype=np.int16)
-                scenarios = np.empty(len(df.index), dtype=np.int16)
+                scenarios = np.full(len(df.index), 3, dtype=np.int16)
                 for i, s in enumerate(stages):
                     block_num = int(df.index[i])
                     stages[i] = self.block_parser.get_stage_number(block_num)
