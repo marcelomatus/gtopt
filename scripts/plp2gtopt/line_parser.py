@@ -89,7 +89,6 @@ class LineParser(BaseParser):
                 idx += 1
         finally:
             lines.clear()
-            del lines
 
     @property
     def lines(self) -> List[Dict[str, Any]]:

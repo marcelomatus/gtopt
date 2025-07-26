@@ -64,7 +64,6 @@ class CostParser(BaseParser):
 
         finally:
             lines.clear()
-            del lines
 
     def get_cost_by_name(self, name: str):
         """Get cost data for a specific central name."""

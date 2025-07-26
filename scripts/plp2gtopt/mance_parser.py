@@ -78,7 +78,6 @@ class ManceParser(BaseParser):
 
         finally:
             lines.clear()
-            del lines
 
     def get_mance_by_name(self, name: str) -> Union[Dict, None]:
         """Get maintenance data for a specific central name."""
