@@ -5,6 +5,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import pandas as pd
+import numpy as np
 
 from .base_writer import BaseWriter
 from .aflce_parser import AflceParser
@@ -20,12 +21,14 @@ class AflceWriter(BaseWriter):
         aflce_parser: Optional[AflceParser] = None,
         central_parser: Optional[CentralParser] = None,
         block_parser: Optional[BlockParser] = None,
+        scenarios: Optional[List[Dict[str, Any]]] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with an AflceParser instance."""
         super().__init__(aflce_parser)
         self.central_parser = central_parser
         self.block_parser = block_parser
+        self.scenarios = scenarios or []
         self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
@@ -42,7 +45,7 @@ class AflceWriter(BaseWriter):
         ]
 
     def _create_dataframe_for_hydrology(
-        self, hydrology_idx: int, items: list
+        self, hydro_idx: int, items: list
     ) -> pd.DataFrame:
         """Create a DataFrame for a specific hydrology."""
         df = self._create_dataframe(
@@ -52,7 +55,7 @@ class AflceWriter(BaseWriter):
             value_field="flows",
             index_field="blocks",
             fill_field="afluent",
-            value_oper=lambda v: v[hydrology_idx],
+            value_oper=lambda v: v[hydro_idx],
         )
         return df
 
@@ -64,13 +67,29 @@ class AflceWriter(BaseWriter):
         if not items:
             return []
 
-        hydros = self.options.get("hydrologies", "0").split(",")
         dfs = []
-        for i in hydros:
-            df = self._create_dataframe_for_hydrology(i, items)
-            df["scenario"] = i
+        num_hydrologies = items[0].get("num_hydrologies", -1)
+        for scenario in self.scenarios:
+            hydro_idx = scenario.get("hydrology", -1)
+            if hydro_idx < 0 or hydro_idx >= num_hydrologies:
+                continue
+            df = self._create_dataframe_for_hydrology(hydro_idx, items)
+
+            if self.block_parser is not None:
+                stages = np.empty(len(df.index), dtype=np.int16)
+                scenarios = np.empty(len(df.index), dtype=np.int16)
+                for i, s in enumerate(stages):
+                    block_num = int(df.index[i])
+                    stages[i] = self.block_parser.get_stage_number(block_num)
+                    scenario[i] = scenario.get("uid", -1)
+                s_stages = pd.Series(data=stages, index=df.index, name="stage")
+                s_scenarios = pd.Series(data=scenarios, index=df.index, name="scenario")
+                df = pd.concat([s_scenarios, s_stages, df], axis=1)
+
+            df["scenario"] = scenario.get("uid", -1)
             df["scenario"] = df["scenario"].astype("int16")
             dfs.append(df)
+
         # Combine all DataFrames into one
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
