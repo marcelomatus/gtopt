@@ -64,13 +64,13 @@ class AflceWriter(BaseWriter):
         if not items:
             return []
 
-        num_hydrologies = items[0]["num_hydrologies"]
+        hydros = self.options.get("hydrologies", "0").split(",")
         dfs = []
-        for i in range(num_hydrologies):
+        for i in hydros:
             df = self._create_dataframe_for_hydrology(i, items)
-            df['scenario'] = i + 1  # Add scenario column (1-based)
+            df["scenario"] = i
+            df["scenario"] = df["scenario"].astype("int16")
             dfs.append(df)
-        
         # Combine all DataFrames into one
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 

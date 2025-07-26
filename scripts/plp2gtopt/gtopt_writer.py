@@ -65,12 +65,29 @@ class GTOptWriter:
 
         self.planning["simulation"]["block_array"] = BlockWriter().to_json_array(blocks)
         self.planning["simulation"]["stage_array"] = StageWriter().to_json_array(stages)
-        self.planning["simulation"]["scenario_array"] = [
-            {
-                "uid": 1,
-                "probability_factor": 1.0,
-            }
-        ]
+
+    def process_scenarios(self, options):
+        """Process scenario data to include block and stage information."""
+        hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
+        probability_factors = options.get("probability_factors", None)
+
+        if probability_factors is None or len(probability_factors) < len(hydrologies):
+            probability_factors = [1.0 / len(hydrologies)] * len(hydrologies)
+        else:
+            probability_factors = [
+                float(factor) for factor in probability_factors.split(",")
+            ]
+
+        scenarios = []
+        for i, factor in enumerate(hydrologies):
+            scenarios.append(
+                {
+                    "uid": 1,
+                    "probability_factor": probability_factors[i],
+                    "hydrology": hydrologies[i],
+                }
+            )
+        self.planning["system"]["scenario_array"] = scenarios
 
     def process_central(self, options):
         """Process central data to include block and stage information."""
@@ -84,6 +101,8 @@ class GTOptWriter:
         self.planning["system"]["generator_array"] = CentralWriter(
             centrals, stages, blocks, costs, buses, mances, options
         ).to_json_array()
+
+        # aflces = self.parser.parsed_data.get("aflce_array", None)
 
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
@@ -129,6 +148,7 @@ class GTOptWriter:
 
         self.process_options(options)
         self.process_stage_blocks()
+        self.process_scenarios(options)
         self.process_buses()
         self.process_lines(options)
         self.process_central(options)
