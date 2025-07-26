@@ -89,7 +89,6 @@ class CentralParser(BaseParser):
                     current_gen = {}  # Reset for next central
         finally:
             lines.clear()
-            del lines
 
     def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get central data by name."""

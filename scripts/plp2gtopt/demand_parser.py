@@ -72,7 +72,6 @@ class DemandParser(BaseParser):
 
         finally:
             lines.clear()
-            del lines
 
     def get_demand_by_name(self, name):
         """Get demand data for a specific bus name."""

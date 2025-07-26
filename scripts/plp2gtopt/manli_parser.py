@@ -82,7 +82,6 @@ class ManliParser(BaseParser):
 
         finally:
             lines.clear()
-            del lines
 
     def get_manli_by_name(self, name: str) -> Union[Dict, None]:
         """Get maintenance data for a specific line name."""
