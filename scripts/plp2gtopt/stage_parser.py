@@ -20,13 +20,7 @@ class StageParser(BaseParser):
     """
 
     def parse(self) -> None:
-        """Parse the stage file and populate the stages structure.
-
-        Raises:
-            FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid
-            IndexError: If file is empty or malformed
-        """
+        """Parse the stage file and populate the stages structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()
 
