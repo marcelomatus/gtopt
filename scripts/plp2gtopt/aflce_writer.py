@@ -41,7 +41,9 @@ class AflceWriter(BaseWriter):
             for flow in items
         ]
 
-    def _create_dataframe_for_hydrology(self, hydrology_idx: int, items: list) -> pd.DataFrame:
+    def _create_dataframe_for_hydrology(
+        self, hydrology_idx: int, items: list
+    ) -> pd.DataFrame:
         """Create a DataFrame for a specific hydrology."""
         df = self._create_dataframe(
             items=items,
@@ -75,7 +77,10 @@ class AflceWriter(BaseWriter):
             return
 
         output_dir.mkdir(parents=True, exist_ok=True)
+
         compression = self.options.get("compression", "gzip")
+        if compression not in ["gzip", "snappy", "brotli", "none"]:
+            raise ValueError(f"Unsupported compression format: {compression}")
 
         for i, df in enumerate(dfs, 1):
             if df.empty:
