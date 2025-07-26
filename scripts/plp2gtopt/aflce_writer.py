@@ -76,12 +76,13 @@ class AflceWriter(BaseWriter):
             df = self._create_dataframe_for_hydrology(hydro_idx, items)
 
             if self.block_parser is not None:
+                scenarios = np.full(
+                    len(df.index), scenario.get("uid", -1), dtype=np.int16
+                )
                 stages = np.empty(len(df.index), dtype=np.int16)
-                scenarios = np.full(len(df.index), 3, dtype=np.int16)
                 for i, s in enumerate(stages):
                     block_num = int(df.index[i])
                     stages[i] = self.block_parser.get_stage_number(block_num)
-                    scenario[i] = scenario.get("uid", -1)
                 s_stages = pd.Series(data=stages, index=df.index, name="stage")
                 s_scenarios = pd.Series(data=scenarios, index=df.index, name="scenario")
                 df = pd.concat([s_scenarios, s_stages, df], axis=1)
