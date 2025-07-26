@@ -76,9 +76,8 @@ class AflceWriter(BaseWriter):
             if df.empty:
                 continue
 
-            df["scenario"] = np.full(
-                len(df.index), scenario.get("uid", -1), dtype=np.int16
-            )
+            df["scenario"] = scenario.get("uid", -1)
+            df["scenario"] = df["scenario"].astype('int16')
             if self.block_parser:
                 df["stage"] = df.index.map(
                     lambda block_num: self.block_parser.get_stage_number(block_num)
