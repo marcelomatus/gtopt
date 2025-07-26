@@ -22,7 +22,6 @@ class AflceWriter(BaseWriter):
         block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
-        self.identity = lambda x: x
         """Initialize with an AflceParser instance."""
         super().__init__(aflce_parser)
         self.central_parser = central_parser
@@ -53,7 +52,7 @@ class AflceWriter(BaseWriter):
             value_field="flows",
             index_field="blocks",
             fill_field="afluent",
-            value_index=hydrology_idx,
+            value_oper=lambda v: v[hydrology_idx],
         )
         return df
 

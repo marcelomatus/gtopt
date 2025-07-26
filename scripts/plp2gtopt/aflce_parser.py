@@ -6,49 +6,29 @@ Handles:
 - Flow lookup by central name
 """
 
-from typing import Dict, List, Optional, TypedDict
+from typing import List, Optional, Dict, Any
 import numpy as np
-from numpy.typing import NDArray
+
 
 from .base_parser import BaseParser
-
-
-class FlowData(TypedDict):
-    """Type definition for flow data structure."""
-    name: str
-    blocks: NDArray[np.int16]
-    flows: NDArray[np.float64]
-    num_hydrologies: int
 
 
 class AflceParser(BaseParser):
     """Parser for plpaflce.dat format files containing hydro flow data."""
 
     @property
-    def flows(self) -> List[FlowData]:
-        """Get all flow entries.
-        
-        Returns:
-            List of flow data dictionaries containing:
-            - name: Central name
-            - blocks: Array of block numbers
-            - flows: 2D array of flow values (blocks x hydrologies)
-            - num_hydrologies: Number of hydrology scenarios
-        """
+    def flows(self) -> List[Dict[str, Any]]:
+        """Get all flow entries."""
         return self.get_all()
 
     @property
     def num_flows(self) -> int:
-        """Get the number of flow entries.
-        
-        Returns:
-            Count of flow entries in the file.
-        """
+        """Get the number of flow entries."""
         return len(self.flows)
 
     def parse(self) -> None:
         """Parse the flow file and populate the data structure.
-        
+
         Raises:
             ValueError: If file is empty, malformed or contains invalid data.
         """
@@ -94,7 +74,7 @@ class AflceParser(BaseParser):
                 for block_idx in range(num_blocks):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
-                    
+
                     if len(parts) < 2 + num_hydrologies:
                         raise ValueError(
                             f"Invalid flow entry at line {idx+1}: "
@@ -103,28 +83,23 @@ class AflceParser(BaseParser):
 
                     blocks[block_idx] = self._parse_int(parts[1])  # Block number
                     flows[block_idx] = [
-                        self._parse_float(v) for v in parts[2:2 + num_hydrologies]
+                        self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
                     ]
 
                 # Store complete data
-                self._append({
-                    "name": name,
-                    "blocks": blocks,
-                    "flows": flows,
-                    "num_hydrologies": num_hydrologies,
-                })
+                self._append(
+                    {
+                        "name": name,
+                        "blocks": blocks,
+                        "flows": flows,
+                        "num_hydrologies": num_hydrologies,
+                    }
+                )
 
         finally:
             # Clean up memory
             lines.clear()
 
-    def get_flow_by_name(self, name: str) -> Optional[FlowData]:
-        """Get flow data for a specific central name.
-        
-        Args:
-            name: Name of the central to look up
-            
-        Returns:
-            Flow data dictionary if found, None otherwise
-        """
+    def get_flow_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get flow data for a specific central name."""
         return self.get_item_by_name(name)

@@ -11,7 +11,7 @@ the required methods for their specific data formats.
 import json
 from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import Any, Dict, List, Optional, TypeVar, Callable
 
 import numpy as np
 import pandas as pd
@@ -71,7 +71,8 @@ class BaseWriter(ABC):
         index_name: Optional[str] = None,
         fill_field: Optional[str] = None,
         item_key: str = "number",
-        skip_types=("falla"),
+        skip_types=(),
+        value_oper: Callable = lambda x: x,
     ) -> pd.DataFrame:
         """Create a DataFrame from items with common processing."""
         df = pd.DataFrame()
@@ -92,7 +93,7 @@ class BaseWriter(ABC):
                 fill_values[col_name] = unit[fill_field]
 
             # Skip if all values match the fill value
-            values = item.get(value_field, [])
+            values = [value_oper(v) for v in item.get(value_field, [])]
             index = item.get(index_field, [])
             if len(values) * len(index) == 0:
                 continue
