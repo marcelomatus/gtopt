@@ -39,20 +39,27 @@ class AflceParser(BaseParser):
             idx = self._next_idx(-1, lines)
             # First line: num_centrals num_hydrologies
             parts = lines[idx].split()
+            if len(parts) < 2:
+                raise ValueError(f"Invalid header line at line {idx+1} {lines[idx]}")
             num_centrals = self._parse_int(parts[0])
-            num_hydrologies = self._parse_int(parts[-1])  # Last value is hydrologies
-            idx += 1
+            num_hydrologies = self._parse_int(parts[1])
+
+            if num_centrals <= 0 or num_hydrologies <= 0:
+                raise ValueError(
+                    "Invalid number of centrals or hydrologies: "
+                    f"{num_centrals}, {num_hydrologies}"
+                )
 
             for _ in range(num_centrals):
                 # Get central name
                 idx = self._next_idx(idx, lines)
-                name = lines[idx].strip("'")
-                idx += 1
+                name = self._parse_name(lines[idx])
 
                 # Get number of blocks
                 idx = self._next_idx(idx, lines)
                 num_blocks = self._parse_int(lines[idx])
-                idx += 1
+                if num_blocks <= 0:
+                    continue
 
                 # Initialize numpy arrays
                 blocks = np.empty(num_blocks, dtype=np.int16)
@@ -66,9 +73,9 @@ class AflceParser(BaseParser):
                         raise ValueError(f"Invalid flow entry at line {idx+1}")
 
                     blocks[i] = self._parse_int(parts[1])  # Block number
-                    flows[i] = [self._parse_float(v) for v in parts[2:2+num_hydrologies]]
-
-                    idx += 1
+                    flows[i] = [
+                        self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
+                    ]
 
                 # Store complete data
                 flow = {
