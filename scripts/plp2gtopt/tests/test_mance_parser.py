@@ -122,6 +122,11 @@ def test_real_file_parsing():
     assert maint1["block"][0] == 1
     assert maint1["pmin"][0] == pytest.approx(5.0)
     assert maint1["pmax"][0] == pytest.approx(69.75)
+    
+    # Verify all blocks for ABANICO
+    assert maint1["block"].tolist() == [1, 2, 3, 4]
+    assert maint1["pmin"].tolist() == [5.0, 5.0, 5.0, 5.0] 
+    assert maint1["pmax"].tolist() == [69.75, 69.75, 69.75, 69.75]
 
     # Verify second central data
     maint2 = mances[1]
@@ -130,6 +135,59 @@ def test_real_file_parsing():
     assert maint2["block"][0] == 1
     assert maint2["pmin"][0] == pytest.approx(0.0)
     assert maint2["pmax"][0] == pytest.approx(0.0)
+    
+    # Verify all blocks for ABASTIBLE_CONCON_FV
+    assert maint2["block"].tolist() == [1, 2]
+    assert maint2["pmin"].tolist() == [0.0, 0.0]
+    assert maint2["pmax"].tolist() == [0.0, 0.0]
+
+def test_parse_with_whitespace_variations(tmp_path):
+    """Test parsing handles different whitespace formats."""
+    test_file = tmp_path / "test_mance.dat"
+    test_file.write_text("""2
+'CENTRAL1'
+4                 01
+03      001        1     5.00    69.75
+03      002        1     5.00    69.75
+03      003        1     5.00    69.75
+03      004        1     5.00    69.75
+'CENTRAL2'
+2                 01
+03      001        1     0.00     0.00
+03      002        1     0.00     0.00""")
+
+    parser = ManceParser(str(test_file))
+    parser.parse()
+    
+    assert parser.num_mances == 2
+    assert len(parser.mances[0]["block"]) == 4
+    assert len(parser.mances[1]["block"]) == 2
+
+def test_parse_with_comments(tmp_path):
+    """Test parsing handles commented lines."""
+    test_file = tmp_path / "test_mance.dat"
+    test_file.write_text("""# Header comment
+2
+# Central comment
+'CENTRAL1'
+# Block count comment
+4                 01
+# Data comment
+03      001        1     5.00    69.75
+03      002        1     5.00    69.75
+03      003        1     5.00    69.75
+03      004        1     5.00    69.75
+'CENTRAL2'
+2                 01
+03      001        1     0.00     0.00
+03      002        1     0.00     0.00""")
+
+    parser = ManceParser(str(test_file))
+    parser.parse()
+    
+    assert parser.num_mances == 2
+    assert parser.mances[0]["name"] == "CENTRAL1"
+    assert parser.mances[1]["name"] == "CENTRAL2"
 
 
 def test_get_mance_by_name(sample_mance_file):
