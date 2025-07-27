@@ -111,7 +111,7 @@ class BaseWriter(ABC):
 
             values = item.get(value_field, [])
             index = item.get(index_field, [])
-            if not values or not index:
+            if len(values) <= 0 or len(index) <= 0:
                 continue
 
             processed_values = [value_oper(v) for v in values]

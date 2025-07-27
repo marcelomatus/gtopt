@@ -5,7 +5,6 @@
 from typing import Any, Dict, List, Union, Optional
 from pathlib import Path
 import pandas as pd
-import numpy as np
 
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
@@ -81,9 +80,9 @@ class DemandWriter(BaseWriter):
             df = pd.concat([df, s], axis=1)
 
         if self.block_parser:
-            df['stage'] = df.index.map(
+            df["stage"] = df.index.map(
                 lambda block_num: self.block_parser.get_stage_number(block_num)
-            ).astype('int16')
+            ).astype("int16")
 
         # Convert index to block column
         df.index = df.index.astype("int16")
