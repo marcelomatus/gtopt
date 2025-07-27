@@ -168,6 +168,10 @@ def test_to_dataframe_with_empty_parser():
 
 def test_to_dataframe_with_missing_blocks(sample_mance_writer):
     """Test DataFrame creation when some blocks are missing."""
+    # Get original number of rows
+    orig_df_pmin, _ = sample_mance_writer.to_dataframe()
+    orig_row_count = len(orig_df_pmin)
+
     # Remove some block data from the first maintenance entry
     sample_mance_writer.items[0]["block"] = np.array([], dtype=np.int16)
     sample_mance_writer.items[0]["pmin"] = np.array([], dtype=np.float64)
@@ -175,11 +179,11 @@ def test_to_dataframe_with_missing_blocks(sample_mance_writer):
 
     df_pmin, df_pmax = sample_mance_writer.to_dataframe()
 
-    # Should still create DataFrames but with fewer rows
+    # Should still create DataFrames but with fewer rows than original
     assert not df_pmin.empty
     assert not df_pmax.empty
-    assert len(df_pmin) < len(sample_mance_writer.items[1]["block"])
-    assert len(df_pmax) < len(sample_mance_writer.items[1]["block"])
+    assert len(df_pmin) < orig_row_count
+    assert len(df_pmax) < orig_row_count
 
 
 def test_to_parquet(tmp_path, sample_mance_writer):
