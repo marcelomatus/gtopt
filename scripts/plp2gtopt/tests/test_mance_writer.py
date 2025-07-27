@@ -4,8 +4,12 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
+import pandas as pd
+import numpy as np
 from ..mance_writer import ManceWriter
 from ..mance_parser import ManceParser
+from ..central_parser import CentralParser
+from ..block_parser import BlockParser
 from .conftest import get_example_file
 
 
@@ -127,3 +131,81 @@ def test_write_empty_mances():
             data = json.load(f)
             assert isinstance(data, list)
             assert len(data) == 0
+
+def test_to_dataframe_with_valid_data(sample_mance_writer):
+    """Test DataFrame creation with valid maintenance data."""
+    df_pmin, df_pmax = sample_mance_writer.to_dataframe()
+    
+    assert isinstance(df_pmin, pd.DataFrame)
+    assert isinstance(df_pmax, pd.DataFrame)
+    assert not df_pmin.empty
+    assert not df_pmax.empty
+    
+    # Check DataFrame structure
+    assert "block" in df_pmin.columns
+    assert "pmin" in df_pmin.columns
+    assert "block" in df_pmax.columns 
+    assert "pmax" in df_pmax.columns
+    
+    # Verify data types
+    assert df_pmin["block"].dtype == np.int16
+    assert df_pmin["pmin"].dtype == np.float64
+    assert df_pmax["block"].dtype == np.int16
+    assert df_pmax["pmax"].dtype == np.float64
+
+def test_to_dataframe_with_empty_parser():
+    """Test DataFrame creation with empty parser."""
+    parser = ManceParser("dummy.dat")
+    parser._data = []
+    writer = ManceWriter(parser)
+    
+    df_pmin, df_pmax = writer.to_dataframe()
+    
+    assert df_pmin.empty
+    assert df_pmax.empty
+
+def test_to_dataframe_with_missing_blocks(sample_mance_writer):
+    """Test DataFrame creation when some blocks are missing."""
+    # Remove some block data from the first maintenance entry
+    sample_mance_writer.items[0]["block"] = np.array([], dtype=np.int16)
+    sample_mance_writer.items[0]["pmin"] = np.array([], dtype=np.float64)
+    sample_mance_writer.items[0]["pmax"] = np.array([], dtype=np.float64)
+    
+    df_pmin, df_pmax = sample_mance_writer.to_dataframe()
+    
+    # Should still create DataFrames but with fewer rows
+    assert not df_pmin.empty
+    assert not df_pmax.empty
+    assert len(df_pmin) < len(sample_mance_writer.items[1]["block"])
+    assert len(df_pmax) < len(sample_mance_writer.items[1]["block"])
+
+def test_to_parquet(tmp_path, sample_mance_writer):
+    """Test writing maintenance data to Parquet files."""
+    output_dir = tmp_path / "output"
+    sample_mance_writer.to_parquet(output_dir)
+    
+    # Verify files were created
+    assert (output_dir / "pmin.parquet").exists()
+    assert (output_dir / "pmax.parquet").exists()
+    
+    # Verify files can be read back
+    df_pmin = pd.read_parquet(output_dir / "pmin.parquet")
+    df_pmax = pd.read_parquet(output_dir / "pmax.parquet")
+    
+    assert not df_pmin.empty
+    assert not df_pmax.empty
+
+def test_to_dataframe_with_block_parser(sample_mance_file):
+    """Test DataFrame creation with block parser."""
+    mance_parser = ManceParser(sample_mance_file)
+    mance_parser.parse()
+    
+    # Create mock block parser
+    block_parser = BlockParser("dummy.dat")
+    block_parser._data = [{"number": 1, "stage": 1, "duration": 1.0}]
+    
+    writer = ManceWriter(mance_parser, block_parser=block_parser)
+    df_pmin, df_pmax = writer.to_dataframe()
+    
+    assert "stage" in df_pmin.columns
+    assert "stage" in df_pmax.columns
