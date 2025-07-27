@@ -98,7 +98,9 @@ class BaseWriter(ABC):
             if len(values) * len(index) == 0:
                 continue
 
-            if np.allclose(values, fill_values[col_name], rtol=1e-5, atol=1e-8):
+            if col_name in fill_values and np.allclose(
+                values, fill_values[col_name], rtol=1e-8, atol=1e-11
+            ):
                 continue
 
             s = pd.Series(data=values, index=index, name=col_name)
