@@ -5,7 +5,6 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import pandas as pd
-import numpy as np
 
 from .base_writer import BaseWriter
 from .aflce_parser import AflceParser
