@@ -78,7 +78,7 @@ class AflceWriter(BaseWriter):
             df["scenario"] = scenario.get("uid", -1)
             df["scenario"] = df["scenario"].astype("int16")
             if self.block_parser:
-                df["stage"] = df.index.map(self.blocky_parser.get_stage_number).astype(
+                df["stage"] = df.index.map(self.block_parser.get_stage_number).astype(
                     "int16"
                 )
 

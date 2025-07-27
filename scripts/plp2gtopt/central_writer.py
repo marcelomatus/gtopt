@@ -39,33 +39,6 @@ class CentralWriter(BaseWriter):
         self.mance_parser = mance_parser
         self.options = options if options is not None else {}
 
-        self.centrals_of_type: Dict[str, List[Any]] = {
-            "embalse": [],
-            "serie": [],
-            "pasada": [],
-            "termica": [],
-            "bateria": [],
-            "falla": [],
-        }
-
-    def process_central_embalses(self, embalses):
-        """Process embalses to include block and stage information."""
-
-    def process_central_series(self, series):
-        """Process series to include block and stage information."""
-
-    def process_central_pasadas(self, pasadas):
-        """Process pasadas to include block and stage information."""
-
-    def process_central_baterias(self, baterias):
-        """Process baterias to include block and stage information."""
-
-    def process_central_termicas(self, termicas):
-        """Process termicas to include block and stage information."""
-
-    def process_central_fallas(self, fallas):
-        """Process fallas to include block and stage information."""
-
     @property
     def central_parser(self) -> CentralParser:
         """Get the central parser instance."""
@@ -79,16 +52,6 @@ class CentralWriter(BaseWriter):
             items = self.items
         if not items:
             return []
-
-        for central in items:
-            self.centrals_of_type[central["type"]].append(central)
-
-        self.process_central_embalses(self.centrals_of_type["embalse"])
-        self.process_central_series(self.centrals_of_type["serie"])
-        self.process_central_pasadas(self.centrals_of_type["pasada"])
-        self.process_central_baterias(self.centrals_of_type["bateria"])
-        self.process_central_termicas(self.centrals_of_type["termica"])
-        self.process_central_fallas(self.centrals_of_type["falla"])
 
         json_centrals = []
         for central in items:
@@ -104,15 +67,16 @@ class CentralWriter(BaseWriter):
 
             if self.bus_parser:
                 bus = self.bus_parser.get_bus_by_number(bus_number)
-                if bus is None or bus.get("number", -1) <= 0:
+                if bus is None or bus.get("number", -1) != bus_number:
                     print(
                         f"Skipping central {central['name']} with invalid bus {bus_number}."
                     )
                     continue
 
+            central_name = central["name"]
             # lookup cost by name if cost_parser is available, and use it
             cost = (
-                self.cost_parser.get_cost_by_name(central["name"])
+                self.cost_parser.get_cost_by_name(central_name)
                 if self.cost_parser
                 else None
             )
@@ -120,7 +84,7 @@ class CentralWriter(BaseWriter):
 
             # lookup mance by name if cost_parser is available, and use it
             mance = (
-                self.mance_parser.get_mance_by_name(central["name"])
+                self.mance_parser.get_mance_by_name(central_name)
                 if self.mance_parser
                 else None
             )
@@ -133,8 +97,8 @@ class CentralWriter(BaseWriter):
             json_centrals.append(
                 {
                     "uid": central["number"],
-                    "name": central["name"],
-                    "bus": central["bus"],
+                    "name": central_name,
+                    "bus": bus_number,
                     "gcost": gcost,
                     "capacity": float(central.get("pmax", 0)),
                     "efficiency": float(central.get("efficiency", 1.0)),

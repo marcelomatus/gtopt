@@ -5,7 +5,6 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
@@ -60,17 +59,15 @@ class ManceWriter(BaseWriter):
         for mance in items:
             if len(mance["block"]) == 0:
                 continue
-                
+
             for block, val in zip(mance["block"], mance[field]):
-                row = {
-                    "name": mance["name"],
-                    "block": block,
-                    field: val
-                }
+                row = {"name": mance["name"], "block": block, field: val}
                 # Add stage if block parser is available
                 if self.block_parser:
-                    block_data = next((b for b in self.block_parser.blocks 
-                                    if b["number"] == block), None)
+                    block_data = next(
+                        (b for b in self.block_parser.blocks if b["number"] == block),
+                        None,
+                    )
                     if block_data:
                         row["stage"] = block_data["stage"]
                 data.append(row)
@@ -93,11 +90,6 @@ class ManceWriter(BaseWriter):
             df_pmin = self._create_dataframe_for_field("pmin", items)
             df_pmax = self._create_dataframe_for_field("pmax", items)
 
-            # Ensure consistent dtypes
-            if not df_pmin.empty:
-                df_pmin = df_pmin.astype({col: np.float64 for col in df_pmin.columns if col != 'block'})
-            if not df_pmax.empty:
-                df_pmax = df_pmax.astype({col: np.float64 for col in df_pmax.columns if col != 'block'})
             return df_pmin, df_pmax
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e

@@ -89,7 +89,7 @@ class GTOptWriter:
             )
         self.planning["system"]["scenario_array"] = scenarios
 
-    def process_central(self, options):
+    def process_centrals(self, options):
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
 
@@ -151,7 +151,7 @@ class GTOptWriter:
         self.process_scenarios(options)
         self.process_buses()
         self.process_lines(options)
-        self.process_central(options)
+        self.process_centrals(options)
         self.process_demands(options)
 
         # Organize into planning structure

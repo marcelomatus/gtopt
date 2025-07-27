@@ -42,6 +42,7 @@ class CentralParser(BaseParser):
         self.num_pasadas = 0
         self.num_baterias = 0
         self.num_termicas = 0
+        self.centrals_of_type: Dict[str, List[Any]] = {}
 
     @property
     def centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
@@ -89,6 +90,12 @@ class CentralParser(BaseParser):
                     current_gen = {}  # Reset for next central
         finally:
             lines.clear()
+
+        for central in self.centrals:
+            central_type = str(central["type"])
+            if central_type not in self.centrals_of_type:
+                self.centrals_of_type[central_type] = []
+            self.centrals_of_type[central_type].append(central)
 
     def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get central data by name."""
