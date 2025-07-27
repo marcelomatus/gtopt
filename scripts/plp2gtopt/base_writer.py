@@ -120,8 +120,7 @@ class BaseWriter(ABC):
             ):
                 continue
 
-            s = pd.Series(data=values, index=index, name=col_name)
-            s = s.loc[~s.index.duplicated(keep="last")]
+            s = pd.Series(data=values, index=index, name=col_name).drop_duplicates(keep='last')
             df = pd.concat([df, s], axis=1)
 
         if df.empty:
