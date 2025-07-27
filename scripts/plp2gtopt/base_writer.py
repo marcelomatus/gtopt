@@ -95,7 +95,7 @@ class BaseWriter(ABC):
             return pd.DataFrame()
 
         # Process items into a dictionary of {col_name: (index, values)}
-        df = pd.DataFrame()
+        series = []
         fill_values = {}
         for item in items:
             name = item.get("name", "")
@@ -120,11 +120,14 @@ class BaseWriter(ABC):
             ):
                 continue
 
-            s = pd.Series(data=values, index=index, name=col_name).drop_duplicates(keep='last')
-            df = pd.concat([df, s], axis=1)
+            s = pd.Series(data=values, index=index, name=col_name)
+            s = s.loc[~s.index.duplicated(keep="last")]
+            series.append(s)
 
-        if df.empty:
-            return df
+        if not series:
+            return pd.DataFrame()
+
+        df = pd.concat(series, axis=1)
 
         # Convert index to column
         index_name = index_name or index_field
