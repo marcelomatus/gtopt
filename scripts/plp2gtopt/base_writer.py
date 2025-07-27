@@ -126,13 +126,13 @@ class BaseWriter(ABC):
         if not data_dict:
             return pd.DataFrame()
 
-        # Create DataFrame directly from dictionary
-        df = pd.DataFrame(
-            {
-                k: pd.Series(v[1], index=v[0], dtype="float64")
-                for k, v in data_dict.items()
-            }
-        )
+        # Create individual DataFrames and concatenate
+        dfs = []
+        for k, v in data_dict.items():
+            s = pd.Series(v[1], index=v[0], dtype="float64")
+            dfs.append(pd.DataFrame({k: s}))
+        
+        df = pd.concat(dfs, axis=1) if dfs else pd.DataFrame()
 
         # Drop duplicates and fill missing values
         df = df[~df.index.duplicated(keep="last")]
