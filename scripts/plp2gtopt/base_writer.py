@@ -18,6 +18,7 @@ import pandas as pd
 
 from .block_parser import BlockParser
 from .stage_parser import StageParser
+from .base_parser import BaseParser
 
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
 ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
@@ -111,7 +112,7 @@ class BaseWriter(ABC):
 
             values = item.get(value_field, [])
             index = item.get(index_field, [])
-            if not values or not index:
+            if not len(values) or not len(index):
                 continue
 
             processed_values = [value_oper(v) for v in values]
@@ -135,7 +136,6 @@ class BaseWriter(ABC):
 
         # Drop duplicates and fill missing values
         df = df[~df.index.duplicated(keep="last")]
-        df = df.fillna(fill_values)
 
         # Add index column if needed
         if index_parser and index_parser.items:
@@ -144,5 +144,7 @@ class BaseWriter(ABC):
                 [item[item_key] for item in index_parser.items], dtype=np.int16
             )
             df[index_name] = pd.Series(index_values, index=index_values)
+
+        df = df.fillna(fill_values)
 
         return df
