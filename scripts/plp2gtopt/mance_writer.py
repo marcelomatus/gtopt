@@ -5,6 +5,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 from .base_writer import BaseWriter
 from .mance_parser import ManceParser
@@ -74,13 +75,12 @@ class ManceWriter(BaseWriter):
         try:
             df_pmin = self._create_dataframe_for_field("pmin", items)
             df_pmax = self._create_dataframe_for_field("pmax", items)
-            
+
             # Ensure consistent dtypes
             if not df_pmin.empty:
                 df_pmin = df_pmin.astype({col: np.float64 for col in df_pmin.columns if col != 'block'})
-            if not df_pmax.empty: 
+            if not df_pmax.empty:
                 df_pmax = df_pmax.astype({col: np.float64 for col in df_pmax.columns if col != 'block'})
-                
             return df_pmin, df_pmax
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
@@ -102,7 +102,6 @@ class ManceWriter(BaseWriter):
         try:
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
-            
             if not df_pmin.empty:
                 self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
             if not df_pmax.empty:
