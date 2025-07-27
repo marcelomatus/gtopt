@@ -74,12 +74,28 @@ class BaseWriter(ABC):
         skip_types=(),
         value_oper: Callable = lambda x: x,
     ) -> pd.DataFrame:
-        """Create a DataFrame from items with common processing."""
+        """Create a DataFrame from items with common processing.
+        
+        Args:
+            items: List of dictionaries containing the data
+            unit_parser: Parser for unit information
+            index_parser: Parser for index information
+            value_field: Field name containing the values
+            index_field: Field name containing the indices
+            index_name: Optional name for the index column
+            fill_field: Field name containing fill values
+            item_key: Key to use for item identification
+            skip_types: Types to skip during processing
+            value_oper: Function to apply to values
+            
+        Returns:
+            DataFrame with processed data
+        """
         if not items:
             return pd.DataFrame()
 
-        # Pre-allocate data structures
-        series_list = []
+        # Process items into a dictionary of {col_name: (index, values)}
+        data_dict = {}
         fill_values = {}
 
         for item in items:
@@ -94,44 +110,38 @@ class BaseWriter(ABC):
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
 
-            # Process values
             values = item.get(value_field, [])
             index = item.get(index_field, [])
             if not values or not index:
                 continue
 
-            # Apply value operation and check against fill value
             processed_values = [value_oper(v) for v in values]
             if col_name in fill_values and np.allclose(
                 processed_values, fill_values[col_name], rtol=1e-8, atol=1e-11
             ):
                 continue
 
-            # Create and deduplicate series
-            s = pd.Series(
-                data=processed_values,
-                index=index,
-                name=col_name,
-                dtype='float64'
-            ).drop_duplicates(keep='last')
-            series_list.append(s)
+            data_dict[col_name] = (index, processed_values)
 
-        if not series_list:
+        if not data_dict:
             return pd.DataFrame()
 
-        # Concatenate all series at once
-        df = pd.concat(series_list, axis=1)
+        # Create DataFrame directly from dictionary
+        df = pd.DataFrame(
+            {k: pd.Series(v[1], index=v[0], dtype='float64') 
+             for k, v in data_dict.items()}
+        )
 
-        # Convert index to column
-        index_name = index_name or index_field
+        # Drop duplicates and fill missing values
+        df = df[~df.index.duplicated(keep='last')]
+        df = df.fillna(fill_values)
+
+        # Add index column if needed
         if index_parser and index_parser.items:
+            index_name = index_name or index_field
             index_values = np.array(
                 [item[item_key] for item in index_parser.items], dtype=np.int16
             )
-            s = pd.Series(data=index_values, index=index_values, name=index_name)
-            df = pd.concat([s, df], axis=1)
-
-        # Fill missing values with column-specific defaults
-        df = df.fillna(fill_values)
+            df[index_name] = pd.Series(index_values, index=index_values)
 
         return df
