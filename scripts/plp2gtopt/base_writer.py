@@ -75,7 +75,7 @@ class BaseWriter(ABC):
         value_oper: Callable = lambda x: x,
     ) -> pd.DataFrame:
         """Create a DataFrame from items with common processing.
-        
+
         Args:
             items: List of dictionaries containing the data
             unit_parser: Parser for unit information
@@ -87,7 +87,7 @@ class BaseWriter(ABC):
             item_key: Key to use for item identification
             skip_types: Types to skip during processing
             value_oper: Function to apply to values
-            
+
         Returns:
             DataFrame with processed data
         """
@@ -128,12 +128,14 @@ class BaseWriter(ABC):
 
         # Create DataFrame directly from dictionary
         df = pd.DataFrame(
-            {k: pd.Series(v[1], index=v[0], dtype='float64') 
-             for k, v in data_dict.items()}
+            {
+                k: pd.Series(v[1], index=v[0], dtype="float64")
+                for k, v in data_dict.items()
+            }
         )
 
         # Drop duplicates and fill missing values
-        df = df[~df.index.duplicated(keep='last')]
+        df = df[~df.index.duplicated(keep="last")]
         df = df.fillna(fill_values)
 
         # Add index column if needed
