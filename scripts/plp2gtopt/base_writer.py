@@ -75,11 +75,13 @@ class BaseWriter(ABC):
         value_oper: Callable = lambda x: x,
     ) -> pd.DataFrame:
         """Create a DataFrame from items with common processing."""
-        df = pd.DataFrame()
         if not items:
-            return df
+            return pd.DataFrame()
 
+        # Pre-allocate data structures
+        series_list = []
         fill_values = {}
+
         for item in items:
             name = item.get("name", "")
             unit = unit_parser.get_item_by_name(name) if unit_parser else None
@@ -92,23 +94,33 @@ class BaseWriter(ABC):
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
 
-            # Skip if all values match the fill value
-            values = [value_oper(v) for v in item.get(value_field, [])]
+            # Process values
+            values = item.get(value_field, [])
             index = item.get(index_field, [])
-            if len(values) * len(index) == 0:
+            if not values or not index:
                 continue
 
+            # Apply value operation and check against fill value
+            processed_values = [value_oper(v) for v in values]
             if col_name in fill_values and np.allclose(
-                values, fill_values[col_name], rtol=1e-8, atol=1e-11
+                processed_values, fill_values[col_name], rtol=1e-8, atol=1e-11
             ):
                 continue
 
-            s = pd.Series(data=values, index=index, name=col_name)
-            s = s.loc[~s.index.duplicated(keep="last")]
-            df = pd.concat([df, s], axis=1)
+            # Create and deduplicate series
+            s = pd.Series(
+                data=processed_values,
+                index=index,
+                name=col_name,
+                dtype='float64'
+            ).drop_duplicates(keep='last')
+            series_list.append(s)
 
-        if df.empty:
-            return df
+        if not series_list:
+            return pd.DataFrame()
+
+        # Concatenate all series at once
+        df = pd.concat(series_list, axis=1)
 
         # Convert index to column
         index_name = index_name or index_field
