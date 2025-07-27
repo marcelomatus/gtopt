@@ -52,16 +52,33 @@ class ManceWriter(BaseWriter):
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
-        df = self._create_dataframe(
-            items=items,
-            unit_parser=self.central_parser,
-            index_parser=self.block_parser,
-            value_field=field,
-            index_field="block",
-            fill_field=field,
-            skip_types=("falla"),
-        )
+        if not items:
+            return pd.DataFrame()
 
+        # Create list of dicts with block and field values
+        data = []
+        for mance in items:
+            if len(mance["block"]) == 0:
+                continue
+                
+            for block, val in zip(mance["block"], mance[field]):
+                row = {
+                    "name": mance["name"],
+                    "block": block,
+                    field: val
+                }
+                # Add stage if block parser is available
+                if self.block_parser:
+                    block_data = next((b for b in self.block_parser.blocks 
+                                    if b["number"] == block), None)
+                    if block_data:
+                        row["stage"] = block_data["stage"]
+                data.append(row)
+
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(data)
         return df
 
     def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
