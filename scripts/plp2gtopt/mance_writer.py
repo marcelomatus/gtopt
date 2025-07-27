@@ -66,15 +66,24 @@ class ManceWriter(BaseWriter):
     def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames for pmin and pmax."""
         if items is None:
-            items = self.items
+            items = self.items or []
 
         if not items:
             return pd.DataFrame(), pd.DataFrame()
 
-        df_pmin = self._create_dataframe_for_field("pmin", items)
-        df_pmax = self._create_dataframe_for_field("pmax", items)
-
-        return df_pmin, df_pmax
+        try:
+            df_pmin = self._create_dataframe_for_field("pmin", items)
+            df_pmax = self._create_dataframe_for_field("pmax", items)
+            
+            # Ensure consistent dtypes
+            if not df_pmin.empty:
+                df_pmin = df_pmin.astype({col: np.float64 for col in df_pmin.columns if col != 'block'})
+            if not df_pmax.empty: 
+                df_pmax = df_pmax.astype({col: np.float64 for col in df_pmax.columns if col != 'block'})
+                
+            return df_pmin, df_pmax
+        except Exception as e:
+            raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
     def _write_parquet_for_field(self, df: pd.DataFrame, output_path: Path) -> None:
         """Write a single DataFrame to parquet format."""
@@ -91,8 +100,15 @@ class ManceWriter(BaseWriter):
         df_pmin, df_pmax = self.to_dataframe(items)
 
         try:
-            self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
-            self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
+            # Ensure output directory exists
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            if not df_pmin.empty:
+                self._write_parquet_for_field(df_pmin, output_dir / "pmin.parquet")
+            if not df_pmax.empty:
+                self._write_parquet_for_field(df_pmax, output_dir / "pmax.parquet")
+        except Exception as e:
+            raise IOError(f"Failed to write Parquet files: {str(e)}") from e
         finally:
             # Explicitly clear and delete DataFrames
             if "df_pmin" in locals():
