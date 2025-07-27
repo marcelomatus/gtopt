@@ -95,9 +95,8 @@ class BaseWriter(ABC):
             return pd.DataFrame()
 
         # Process items into a dictionary of {col_name: (index, values)}
-        data_dict = {}
+        df = pd.DataFrame()
         fill_values = {}
-
         for item in items:
             name = item.get("name", "")
             unit = unit_parser.get_item_by_name(name) if unit_parser else None
@@ -121,30 +120,23 @@ class BaseWriter(ABC):
             ):
                 continue
 
-            data_dict[col_name] = (index, processed_values)
+            s = pd.Series(data=values, index=index, name=col_name)
+            s = s.loc[~s.index.duplicated(keep="last")]
+            df = pd.concat([df, s], axis=1)
 
-        if not data_dict:
-            return pd.DataFrame()
+        if df.empty:
+            return df
 
-        # Create individual DataFrames and concatenate
-        dfs = []
-        for k, v in data_dict.items():
-            s = pd.Series(v[1], index=v[0], dtype="float64")
-            dfs.append(pd.DataFrame({k: s}))
-        
-        df = pd.concat(dfs, axis=1) if dfs else pd.DataFrame()
-
-        # Drop duplicates and fill missing values
-        df = df[~df.index.duplicated(keep="last")]
-
-        # Add index column if needed
+        # Convert index to column
+        index_name = index_name or index_field
         if index_parser and index_parser.items:
-            index_name = index_name or index_field
             index_values = np.array(
                 [item[item_key] for item in index_parser.items], dtype=np.int16
             )
-            df[index_name] = pd.Series(index_values, index=index_values)
+            s = pd.Series(data=index_values, index=index_values, name=index_name)
+            df = pd.concat([s, df], axis=1)
 
+        # Fill missing values with column-specific defaults
         df = df.fillna(fill_values)
 
         return df
