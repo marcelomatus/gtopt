@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional, TypeVar, Callable
 import numpy as np
 import pandas as pd
 
-from .base_parser import BaseParser
 from .block_parser import BlockParser
 from .stage_parser import StageParser
 
