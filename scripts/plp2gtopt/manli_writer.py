@@ -78,7 +78,7 @@ class ManliWriter(BaseWriter):
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            compression = self.options.get("compression", "gzip")
+            compression = self.get_compression()
             df_tmax_ab.to_parquet(
                 output_dir / "tmax_ab.parquet", index=False, compression=compression
             )
