@@ -87,16 +87,31 @@ class AflceWriter(BaseWriter):
         # Combine all DataFrames into one
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
+    # Supported compression formats for Parquet files
+    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none"]
+
+    def _get_compression(self) -> str:
+        """Get and validate compression option from writer options."""
+        compression = self.options.get("compression", "gzip")
+        return compression if compression in self.VALID_COMPRESSION else "gzip"
+
     def to_parquet(self, output_dir: Path, items=None) -> None:
-        """Write flow data to Parquet files (one per hydrology)."""
+        """Write flow data to Parquet files (one per hydrology).
+        
+        Args:
+            output_dir: Directory to write Parquet files to
+            items: Optional list of items to write (uses self.items if None)
+        """
         df = self.to_dataframe(items)
-        if not df:
+        if df.empty:
             return
 
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / "afluent.parquet"
 
-        compression = self.options.get("compression", "gzip")
-        if compression not in ["gzip", "snappy", "brotli", "none"]:
-            compression = "gzip"
-        df.to_parquet(output_file, index=False, compression=compression)
+        df.to_parquet(
+            output_file,
+            index=False,
+            compression=self._get_compression(),
+            engine="pyarrow"
+        )
