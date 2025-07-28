@@ -103,7 +103,7 @@ class AflceWriter(BaseWriter):
 
         df.to_parquet(
             output_file,
-            index=False,
-            engine="pyarrow",
+            index=False,  # Don't write row indices to file
+            engine="pyarrow",  # Use PyArrow engine for better performance and features
             compression=self.get_compression(),
         )
