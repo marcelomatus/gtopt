@@ -89,18 +89,14 @@ class AflceWriter(BaseWriter):
 
     def to_parquet(self, output_dir: Path, items=None) -> None:
         """Write flow data to Parquet files (one per hydrology)."""
-        dfs = self.to_dataframe(items)
-        if not dfs:
+        df = self.to_dataframe(items)
+        if not df:
             return
 
         output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / "afluent.parquet"
 
         compression = self.options.get("compression", "gzip")
         if compression not in ["gzip", "snappy", "brotli", "none"]:
-            raise ValueError(f"Unsupported compression format: {compression}")
-
-        for i, df in enumerate(dfs, 1):
-            if df.empty:
-                continue
-            output_file = output_dir / f"afluent_h{i}.parquet"
-            df.to_parquet(output_file, index=False, compression=compression)
+            compression = "gzip"
+        df.to_parquet(output_file, index=False, compression=compression)
