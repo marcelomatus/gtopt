@@ -61,9 +61,10 @@ class DemandWriter(BaseWriter):
         if items is None:
             items = self.items
 
-        # Create empty DataFrame to collect all demand series
-        df = pd.DataFrame()
+        if not items:
+            return pd.DataFrame()
 
+        series = []
         for demand in items:
             if demand.get("bus", -1) == 0:
                 continue
@@ -76,8 +77,11 @@ class DemandWriter(BaseWriter):
             name = f"uid:{uid}" if not isinstance(uid, str) else uid
 
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
+            s = s.iloc[~s.index.duplicated(keep="last")]
             # Add to DataFrame
-            df = pd.concat([df, s], axis=1)
+            series.append(s)
+
+        df = pd.concat(series, axis=1)
 
         if self.block_parser:
             df["stage"] = df.index.map(
@@ -114,5 +118,8 @@ class DemandWriter(BaseWriter):
         if df.empty:
             return
 
-        compression = self.options.get("compression", "zstd")
-        df.to_parquet(output_file, index=False, compression=compression)
+        df.to_parquet(
+            output_file,
+            index=False,
+            compression=self.get_compression(),
+        )

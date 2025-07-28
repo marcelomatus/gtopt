@@ -58,7 +58,7 @@ class AflceWriter(BaseWriter):
         )
         return df
 
-    def to_dataframe(self, items=None) -> List[pd.DataFrame]:
+    def to_dataframe(self, items=None) -> pd.DataFrame:
         """Convert flow data to pandas DataFrames (one per hydrology)."""
         if items is None:
             items = self.items
@@ -88,12 +88,7 @@ class AflceWriter(BaseWriter):
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
     def to_parquet(self, output_dir: Path, items=None) -> None:
-        """Write flow data to Parquet files (one per hydrology).
-
-        Args:
-            output_dir: Directory to write Parquet files to
-            items: Optional list of items to write (uses self.items if None)
-        """
+        """Write flow data to Parquet files (one per hydrology)."""
         df = self.to_dataframe(items)
         if df.empty:
             return
@@ -104,6 +99,5 @@ class AflceWriter(BaseWriter):
         df.to_parquet(
             output_file,
             index=False,  # Don't write row indices to file
-            engine="pyarrow",  # Use PyArrow engine for better performance and features
             compression=self.get_compression(),
         )

@@ -95,8 +95,8 @@ class BaseWriter(ABC):
             return pd.DataFrame()
 
         # Process items into a dictionary of {col_name: (index, values)}
-        series = []
         fill_values = {}
+        series = []
         for item in items:
             name = item.get("name", "")
             unit = unit_parser.get_item_by_name(name) if unit_parser else None
@@ -109,14 +109,14 @@ class BaseWriter(ABC):
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
 
-            values = item.get(value_field, [])
+            # Skip if all values match the fill value
+            values = [value_oper(v) for v in item.get(value_field, [])]
             index = item.get(index_field, [])
-            if len(values) <= 0 or len(index) <= 0:
+            if len(values) * len(index) == 0:
                 continue
 
-            processed_values = [value_oper(v) for v in values]
             if col_name in fill_values and np.allclose(
-                processed_values, fill_values[col_name], rtol=1e-8, atol=1e-11
+                values, fill_values[col_name], rtol=1e-8, atol=1e-11
             ):
                 continue
 
@@ -142,3 +142,14 @@ class BaseWriter(ABC):
         df = df.fillna(fill_values)
 
         return df
+
+    # Supported compression formats for Parquet files
+    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none"]
+
+    def get_compression(self, options: Optional[Dict[str, Any]] = None) -> str:
+        """Get and validate compression option from writer options."""
+        if options is None:
+            options = self.options if hasattr(self, "options") else {}
+
+        compression = options.get("compression", "gzip") if options else "gzip"
+        return compression if compression in self.VALID_COMPRESSION else "gzip"

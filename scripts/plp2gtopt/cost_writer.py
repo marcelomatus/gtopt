@@ -64,5 +64,9 @@ class CostWriter(BaseWriter):
             return
 
         output_file = output_dir / "gcost.parquet"
-        compression = self.options.get("compression", "zstd")
-        df.to_parquet(output_file, index=False, compression=compression)
+
+        df.to_parquet(
+            output_file,
+            index=False,
+            compression=self.get_compression(),
+        )
