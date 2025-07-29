@@ -3,7 +3,7 @@
 """Writer for converting maintenance data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from .base_writer import BaseWriter
@@ -63,8 +63,9 @@ class ManceWriter(BaseWriter):
 
         return df
 
-    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None
-                   ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def to_dataframe(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames for pmin and pmax."""
         if items is None:
             items = self.items or []

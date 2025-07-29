@@ -50,7 +50,9 @@ class DemandWriter(BaseWriter):
         self.to_parquet("lmax.parquet", items=items)
         return json_demands
 
-    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None) -> pd.DataFrame:
+    def to_dataframe(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> pd.DataFrame:
         """Convert demand data to pandas DataFrame format.
 
         Returns:

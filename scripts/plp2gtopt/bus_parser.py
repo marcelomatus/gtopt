@@ -21,10 +21,10 @@ class BusParser(BaseParser):
 
     def __init__(self, file_path: Union[str, Path]) -> None:
         """Initialize the bus parser.
-        
+
         Args:
             file_path: Path to the bus data file (plpbar.dat)
-            
+
         Raises:
             TypeError: If file_path is not str or Path
             ValueError: If file_path is empty
