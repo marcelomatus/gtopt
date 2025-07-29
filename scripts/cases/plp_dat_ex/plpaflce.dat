@@ -1,0 +1,33 @@
+# Archivo de caudales por etapa
+# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)
+  3                                         5
+# Nombre de la central
+'LOS_MORROS'
+#   Numero de bloques con caudales
+5
+# Mes   Bloque    Caudal
+  003     001    1.19    1.19    1.19    1.19    1.19  
+  003     002    1.19    1.19    1.19    1.19    1.19  
+  003     003    1.19    1.19    1.19    1.19    1.19  
+  003     004    1.19    1.19    1.19    1.19    1.19  
+  003     005    1.19    1.19    1.19    1.19    1.19  
+# Nombre de la central
+'MAITENES'
+#   Numero de bloques con caudales
+3
+# Mes   Bloque    Caudal
+  003     001    0.00    0.00    0.00    0.00    0.00  
+  003     002    0.00    0.00    0.00    0.00    0.00  
+  003     003    0.00    0.00    0.00    0.00    0.00  
+# Nombre de la central
+'PUNTILLA'
+#   Numero de bloques con caudales
+7
+# Mes   Bloque    Caudal
+  003     001   14.88   14.88   14.88   14.88   14.88  
+  003     002   14.88   14.88   14.88   14.88   14.88  
+  003     003   14.88   14.88   14.88   14.88   14.88  
+  003     004   14.88   14.88   14.88   14.88   14.88  
+  003     005   14.88   14.88   14.88   14.88   14.88  
+  003     006   14.88   14.88   14.88   14.88   14.88  
+  003     007   14.88   14.88   14.88   14.88   14.88  
