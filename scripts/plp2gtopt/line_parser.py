@@ -32,7 +32,6 @@ class LineParser(BaseParser):
         Args:
             file_path: Path to plpcnfli.dat format file (str or Path)
         """
-        super().__init__(file_path)
 
     def parse(self) -> None:
         """Parse the line file and populate the lines structure.
