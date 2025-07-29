@@ -44,7 +44,7 @@ class ManceParser(BaseParser):
                 idx = self._next_idx(idx, lines)
                 name = lines[idx].strip("'")
 
-                # Get number of blocks and intervals
+                # Get number of blocks and intervals  
                 idx = self._next_idx(idx, lines)
                 parts = lines[idx].split()
                 num_blocks = self._parse_int(parts[0])
