@@ -110,8 +110,8 @@ class CentralParser(BaseParser):
         type_counts = [
             ("embalse", self.num_embalses),
             ("serie", self.num_series),
-            ("termica", self.num_termicas),
             ("pasada", self.num_pasadas),
+            ("termica", self.num_termicas),
             ("bateria", self.num_baterias),
             ("falla", self.num_fallas),
         ]
