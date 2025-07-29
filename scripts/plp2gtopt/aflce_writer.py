@@ -47,25 +47,16 @@ class AflceWriter(BaseWriter):
         self, hydro_idx: int, items: list
     ) -> pd.DataFrame:
         """Create a DataFrame for a specific hydrology."""
-        # Create all columns at once in a dict then build DataFrame
-        data = {
-            "afluent": [
-                flow["flows"][hydro_idx] 
-                for flow in items
-            ],
-            "blocks": [flow["blocks"] for flow in items]
-        }
-        
-        df = pd.DataFrame(data)
-        
-        if self.block_parser:
-            stages = df["blocks"].map(self.block_parser.get_stage_number)
-            df = pd.concat([
-                df,
-                pd.DataFrame({"stage": stages}, index=df.index)
-            ], axis=1)
-            
-        return df.copy()  # Returns defragmented DataFrame
+        df = self._create_dataframe(
+            items=items,
+            unit_parser=self.central_parser,
+            index_parser=self.block_parser,
+            value_field="flows",
+            index_field="blocks",
+            fill_field="afluent",
+            value_oper=lambda v: v[hydro_idx],
+        )
+        return df
 
     def to_dataframe(self, items=None) -> pd.DataFrame:
         """Convert flow data to pandas DataFrames (one per hydrology)."""
@@ -79,35 +70,44 @@ class AflceWriter(BaseWriter):
         scenario_data = []
         for i, scenario in enumerate(self.scenarios):
             hydro_idx = scenario.get("hydrology", i)
-            if 0 <= hydro_idx < len(self.scenarios):
-                df = self._create_dataframe_for_hydrology(hydro_idx, items)
-                if not df.empty:
-                    scenario_data.append({
-                        "df": df,
-                        "uid": scenario.get("uid", -1),
-                        "stage": df["blocks"].map(self.block_parser.get_stage_number) 
-                                if self.block_parser else None
-                    })
+            if hydro_idx < 0 or hydro_idx >= len(self.scenarios):
+                continue
+
+            df = self._create_dataframe_for_hydrology(hydro_idx, items)
+            if df.empty:
+                continue
+
+            scenario_data.append(
+                {
+                    "df": df,
+                    "uid": scenario.get("uid", -1),
+                    "stage": (
+                        df["blocks"].map(self.block_parser.get_stage_number)
+                        if self.block_parser
+                        else None
+                    ),
+                }
+            )
 
         if not scenario_data:
             return pd.DataFrame()
 
         # Concatenate all at once
         dfs = [
-            pd.concat([
-                data["df"],
-                pd.DataFrame({
-                    "scenario": data["uid"],
-                    "stage": data["stage"]
-                }, index=data["df"].index)
-            ], axis=1)
+            pd.concat(
+                [
+                    pd.DataFrame(
+                        {"scenario": data["uid"], "stage": data["stage"]},
+                        index=data["df"].index,
+                    ).astype({"scenario": "int16", "stage": "int16"}),
+                    data["df"],
+                ],
+                axis=1,
+            )
             for data in scenario_data
         ]
-        
-        return pd.concat(dfs, ignore_index=True).astype({
-            "scenario": "int16",
-            "stage": "int16"
-        })
+
+        return pd.concat(dfs, ignore_index=True)
 
     def to_parquet(self, output_dir: Path, items=None) -> None:
         """Write flow data to Parquet files (one per hydrology)."""

@@ -16,6 +16,8 @@ from .block_writer import BlockWriter
 from .stage_writer import StageWriter
 from .bus_writer import BusWriter
 from .central_writer import CentralWriter
+
+from .generator_profile_writer import GeneratorProfileWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 
@@ -87,19 +89,41 @@ class GTOptWriter:
                     "hydrology": hydrologies[i],
                 }
             )
-        self.planning["system"]["scenario_array"] = scenarios
+        self.planning["simulation"]["scenario_array"] = scenarios
+
+    def process_generator_profiles(self, options):
+        """Process generator profile data to include block and stage information."""
+        centrals = self.parser.parsed_data.get("central_array", [])
+        blocks = self.parser.parsed_data.get("block_array", None)
+        buses = self.parser.parsed_data.get("bus_array", None)
+        aflces = self.parser.parsed_data.get("aflce_array", [])
+        scenarios = self.planning["simulation"]["scenario_array"]
+
+        self.planning["system"]["generator_profile_array"] = GeneratorProfileWriter(
+            centrals,
+            blocks,
+            buses,
+            aflces,
+            scenarios,
+            options,
+        ).to_json_array()
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
-
         stages = self.parser.parsed_data.get("stage_array", None)
         blocks = self.parser.parsed_data.get("block_array", None)
         costs = self.parser.parsed_data.get("cost_array", None)
         buses = self.parser.parsed_data.get("bus_array", None)
         mances = self.parser.parsed_data.get("mance_array", None)
         self.planning["system"]["generator_array"] = CentralWriter(
-            centrals, stages, blocks, costs, buses, mances, options
+            centrals,
+            stages,
+            blocks,
+            costs,
+            buses,
+            mances,
+            options,
         ).to_json_array()
 
         # aflces = self.parser.parsed_data.get("aflce_array", None)
@@ -153,6 +177,7 @@ class GTOptWriter:
         self.process_lines(options)
         self.process_centrals(options)
         self.process_demands(options)
+        self.process_generator_profiles(options)
 
         # Organize into planning structure
         self.planning["system"]["name"] = "plp2gtopt"
