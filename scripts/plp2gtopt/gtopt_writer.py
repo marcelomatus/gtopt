@@ -81,7 +81,7 @@ class GTOptWriter:
             ]
 
         scenarios = []
-        for factor, hydro_idx in zip(hydrologies, probability_factors):
+        for hydro_idx, factor in zip(hydrologies, probability_factors):
             scenarios.append(
                 {
                     "uid": 1,
