@@ -16,9 +16,8 @@ from typing import Any, Dict, List, Optional, TypeVar, Callable
 import numpy as np
 import pandas as pd
 
-from .block_parser import BlockParser
+from .block_parser import BlockParser 
 from .stage_parser import StageParser
-from .base_parser import BaseParser
 
 WriterVar = TypeVar("WriterVar", bound="BaseWriter")
 ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
