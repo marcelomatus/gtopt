@@ -58,7 +58,19 @@ class AflceWriter(BaseWriter):
         )
         return df
 
-    def to_dataframe(self, items=None) -> pd.DataFrame:
+    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None) -> pd.DataFrame:
+        """Convert flow data to pandas DataFrame.
+        
+        Args:
+            items: Optional list of flow items to convert. Uses self.items if None.
+            
+        Returns:
+            DataFrame containing flow data with columns:
+            - block: Block numbers
+            - scenario: Scenario IDs  
+            - stage: Stage numbers
+            - afluent: Flow values
+        """
         """Convert flow data to pandas DataFrames (one per hydrology)."""
         if items is None:
             items = self.items

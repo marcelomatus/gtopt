@@ -63,7 +63,8 @@ class ManceWriter(BaseWriter):
 
         return df
 
-    def to_dataframe(self, items=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None
+                   ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames for pmin and pmax."""
         if items is None:
             items = self.items or []
