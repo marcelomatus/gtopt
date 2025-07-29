@@ -45,7 +45,7 @@ class GeneratorProfileWriter(BaseWriter):
         """Convert central data to JSON array format."""
         if items is None:
             items = (
-                self.central_parser.centrals_of_type.get("pasada", [])
+                self.central_parser.centrals_of_type["pasada"]
                 if self.central_parser
                 else []
             )
@@ -54,6 +54,10 @@ class GeneratorProfileWriter(BaseWriter):
 
         json_profiles = []
         for central in items:
+            if central["type"] != "pasada":
+                # Only process centrals of type "pasada"
+                continue
+
             # Skip centrals without a bus or with bus 0
             bus_number = central.get("bus", -1)
             if bus_number <= 0:

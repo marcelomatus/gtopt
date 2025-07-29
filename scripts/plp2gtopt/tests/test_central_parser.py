@@ -52,15 +52,6 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
              0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  6.000     93      3      3    0.0  0000.0
-# Centrales Termicas o Embalses Equivalentes,FV, EO, CS
-                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
-   3 'DOS_VALLES_AMPL'                                 1    F       F       F       F           F          0           0
-          PotMin PotMax VertMin VertMax
-           000.0  001.6   000.0   000.0
-           Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0               Pot.
-          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
-             0.0  1.000    167      0      0    0.0  0000.0
 # Centrales Pasada Puras
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    4 'LOS_MOLLES'                                      1    F       F       F       F           F          0           0
@@ -70,6 +61,15 @@ def valid_gen_file_fixture(tmp_path: Path) -> Path:
              0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  1.000     35      0      0    0.0  0001.8
+# Centrales Termicas o Embalses Equivalentes,FV, EO, CS
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
+   3 'DOS_VALLES_AMPL'                                 1    F       F       F       F           F          0           0
+          PotMin PotMax VertMin VertMax
+           000.0  001.6   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0               Pot.
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000    167      0      0    0.0  0000.0
 # Baterias
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
   15 'ALFALFAL_BESS'                                   1    F       F       F       F           F          0           0
@@ -149,8 +149,8 @@ def test_parse_valid_file(valid_gen_file: Path) -> None:
 
     # Test central type detection
     assert centrals[1]["type"] == "serie"  # LOS_CONDORES
-    assert centrals[2]["type"] == "termica"  # DOS_VALLES_AMPL
-    assert centrals[3]["type"] == "pasada"  # LOS_MOLLES
+    assert centrals[2]["type"] == "pasada"  # LOS_MOLLES
+    assert centrals[3]["type"] == "termica"  # DOS_VALLES_AMPL
     assert centrals[4]["type"] == "bateria"  # ALFALFAL_BESS
     assert centrals[5]["type"] == "falla"  # FALLA_001_1
 
@@ -225,6 +225,15 @@ def test_parse_real_file() -> None:
     assert type_counts["pasada"] == parser.num_pasadas
     assert type_counts["bateria"] == parser.num_baterias
     assert type_counts["falla"] == parser.num_fallas
+
+    los_molles = next(g for g in centrals if g["name"] == "LOS_MOLLES")
+    assert los_molles["type"] == "pasada"
+    assert los_molles["pmax"] == 18.0
+    assert los_molles["pmin"] == 0.0
+    assert los_molles["bus"] == 35
+
+    cen_by_name = parser.get_central_by_name("LOS_MOLLES")
+    assert cen_by_name == los_molles
 
 
 @pytest.mark.skipif(
@@ -311,12 +320,12 @@ def test_central_type_detection() -> None:
     assert parser.get_central_type(2) == "serie"
     assert parser.get_central_type(3) == "serie"
     assert parser.get_central_type(4) == "serie"
-    assert parser.get_central_type(5) == "termica"
+    assert parser.get_central_type(5) == "pasada"
     assert parser.get_central_type(6) == "termica"
     assert parser.get_central_type(7) == "termica"
     assert parser.get_central_type(8) == "termica"
     assert parser.get_central_type(9) == "termica"
-    assert parser.get_central_type(10) == "pasada"
+    assert parser.get_central_type(10) == "termica"
     assert parser.get_central_type(11) == "bateria"
     assert parser.get_central_type(12) == "bateria"
     assert parser.get_central_type(13) == "falla"
