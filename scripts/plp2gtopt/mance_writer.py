@@ -82,6 +82,12 @@ class ManceWriter(BaseWriter):
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
     def _write_parquet_for_field(self, df: pd.DataFrame, output_path: Path) -> None:
+        """Write a single DataFrame field to parquet format.
+        
+        Args:
+            df: DataFrame containing the field data
+            output_path: Path to write the parquet file to
+        """
         """Write a single DataFrame to parquet format."""
         if df.empty:
             return

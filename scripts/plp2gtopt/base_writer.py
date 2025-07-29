@@ -27,7 +27,7 @@ ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
 class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
 
-    def get_items(self) -> List[Dict[str, Any]] | None:
+    def get_items(self) -> Optional[List[Dict[str, Any]]]:
         """Get items from the parser."""
         return self.items
 
