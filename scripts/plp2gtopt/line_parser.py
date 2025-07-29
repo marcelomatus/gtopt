@@ -8,10 +8,7 @@ Handles:
 - Line lookup by name or buses
 """
 
-
-from pathlib import Path
-from typing import Any, Optional, List, Dict, Union
-
+from typing import Any, Optional, List, Dict
 from .base_parser import BaseParser
 
 
@@ -25,13 +22,6 @@ class LineParser(BaseParser):
         _name_index_map: Dict mapping names to indices
         _number_index_map: Dict mapping numbers to indices
     """
-
-    def __init__(self, file_path: Union[str, Path]) -> None:
-        """Initialize parser with line file path.
-
-        Args:
-            file_path: Path to plpcnfli.dat format file (str or Path)
-        """
 
     def parse(self) -> None:
         """Parse the line file and populate the lines structure.
