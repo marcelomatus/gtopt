@@ -69,10 +69,10 @@ class BaseParser(ABC):
 
     def get_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get item by name.
-        
+
         Args:
             name: Name of item to retrieve
-            
+
         Returns:
             The item dictionary if found, None otherwise
         """
