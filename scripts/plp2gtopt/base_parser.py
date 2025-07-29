@@ -68,7 +68,14 @@ class BaseParser(ABC):
         return len(self.items)
 
     def get_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get itemg by name."""
+        """Get item by name.
+        
+        Args:
+            name: Name of item to retrieve
+            
+        Returns:
+            The item dictionary if found, None otherwise
+        """
         return (
             self._data[self._name_index_map[name]]
             if name in self._name_index_map

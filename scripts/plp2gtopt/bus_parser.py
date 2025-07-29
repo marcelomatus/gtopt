@@ -81,7 +81,7 @@ class BusParser(BaseParser):
                 self._append({"number": bus_num, "name": name, "voltage": voltage})
                 self.bus_num_map[bus_num] = self.num_buses - 1
 
-    def get_bus_by_number(self, number: int) -> dict[str, Any] | None:
+    def get_bus_by_number(self, number: int) -> Optional[Dict[str, Any]]:
         """Get bus by bus number."""
         return self.get_item_by_number(number)
 
