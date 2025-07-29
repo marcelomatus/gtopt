@@ -20,6 +20,15 @@ class BusParser(BaseParser):
     """Parser for plpbar.dat format files containing bus data."""
 
     def __init__(self, file_path: Union[str, Path]) -> None:
+        """Initialize the bus parser.
+        
+        Args:
+            file_path: Path to the bus data file (plpbar.dat)
+            
+        Raises:
+            TypeError: If file_path is not str or Path
+            ValueError: If file_path is empty
+        """
         """Initialize parser with bus file path.
 
         Args:
