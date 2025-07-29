@@ -57,7 +57,7 @@ class BlockParser(BaseParser):
                 "duration": self._parse_float(parts[2]),
             }
             self._append(block)
-            self.stage_number_map[block["number"]] = block["stage"]
+            self.stage_number_map[int(block["number"])] = int(block["stage"])
             idx += 1
 
     @property
@@ -72,4 +72,8 @@ class BlockParser(BaseParser):
 
     def get_stage_number(self, block_num: int) -> int:
         """Return the stage num for the block."""
-        return self.stage_number_map.get(block_num, -1)
+        return self.stage_number_map.get(int(block_num), -1)
+
+    def get_stage_numbers(self, block_nums) -> List[int]:
+        """Return the stage num for the block."""
+        return [self.stage_number_map.get(block_num, -1) for block_num in block_nums]
