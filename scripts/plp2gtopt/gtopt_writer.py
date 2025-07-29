@@ -85,7 +85,7 @@ class GTOptWriter:
             scenarios.append(
                 {
                     "uid": 1,
-                    "probability_factor": probability_factors[i],
+                    "probability_factor": factor,
                     "hydrology": hydrologies[i],
                 }
             )
