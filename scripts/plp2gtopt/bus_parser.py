@@ -10,7 +10,7 @@ Handles:
 
 import re
 from pathlib import Path
-from typing import Any, List, Dict, Union
+from typing import Any, List, Dict, Union, Optional
 
 
 from .base_parser import BaseParser
@@ -85,7 +85,7 @@ class BusParser(BaseParser):
         """Get bus by bus number."""
         return self.get_item_by_number(number)
 
-    def get_bus_by_name(self, name: str) -> dict[str, Any] | None:
+    def get_bus_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get bus by bus name."""
         if not isinstance(name, str):
             raise TypeError("name must be str")

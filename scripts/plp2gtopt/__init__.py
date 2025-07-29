@@ -5,7 +5,7 @@ This package provides utilities to convert PLP input files to GTOPT format.
 Modules:
     plp2gtopt: Main conversion functions
     base_parser: Base parser class
-    base_writer: Base writer class 
+    base_writer: Base writer class
     Various parser/writer implementations for specific file types
 """
 
