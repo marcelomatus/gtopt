@@ -41,7 +41,7 @@ class CostWriter(BaseWriter):
             for cost in items
         ]
 
-    def to_dataframe(self, items=None) -> pd.DataFrame:
+    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None) -> pd.DataFrame:
         """Convert cost data to pandas DataFrame format."""
         if items is None:
             items = self.items or []
