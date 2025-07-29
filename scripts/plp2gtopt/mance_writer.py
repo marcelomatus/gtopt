@@ -92,6 +92,15 @@ class ManceWriter(BaseWriter):
             IOError: If writing to file fails
         """
         """Write a single DataFrame field to parquet format.
+        
+        Args:
+            df: DataFrame containing the field data
+            output_path: Path to write the parquet file to
+            
+        Raises:
+            IOError: If writing to file fails
+        """
+        """Write a single DataFrame field to parquet format.
 
         Args:
             df: DataFrame containing the field data
