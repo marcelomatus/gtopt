@@ -81,12 +81,12 @@ class GTOptWriter:
             ]
 
         scenarios = []
-        for i, factor in enumerate(hydrologies):
+        for factor, hydro_idx in zip(hydrologies, probability_factors):
             scenarios.append(
                 {
                     "uid": 1,
                     "probability_factor": factor,
-                    "hydrology": hydrologies[i],
+                    "hydrology": hydro_idx,
                 }
             )
         self.planning["simulation"]["scenario_array"] = scenarios
