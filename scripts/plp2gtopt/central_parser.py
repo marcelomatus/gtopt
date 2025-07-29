@@ -54,7 +54,7 @@ class CentralParser(BaseParser):
         """Return the number of centrals in the file."""
         return len(self.centrals)
 
-    def parse(self) -> None:  # pylint: disable=too-many-branches
+    def parse(self) -> None:  # pylint: disable=too-many-branches,too-many-statements
         """Parse the central file and populate the centrals structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()
