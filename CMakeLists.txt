@@ -177,3 +177,8 @@ packageProject(
   COMPATIBILITY SameMajorVersion
   DEPENDENCIES "range-v3 0.12.0; spdlog 1.12.0; fmt 9.1.0; strong_type 15; daw 3.30.2"
 )
+add_test(
+  NAME test_json_line
+  COMMAND $<TARGET_FILE:gtopt_test> -tc="Line*"
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
