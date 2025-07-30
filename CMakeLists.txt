@@ -93,7 +93,6 @@ file(GLOB_RECURSE headers CONFIGURE_DEPENDS
 )
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/test/source/[a-zA-Z]*.cpp"
 )
 
 # ---- Create library ----
@@ -177,14 +176,4 @@ packageProject(
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
   DEPENDENCIES "range-v3 0.12.0; spdlog 1.12.0; fmt 9.1.0; strong_type 15; daw 3.30.2"
-)
-# Add test executable
-add_executable(gtopt_test ${sources})
-target_link_libraries(gtopt_test PRIVATE ${PROJECT_NAME} doctest::doctest)
-
-# Add tests
-add_test(
-  NAME test_json_waterway
-  COMMAND $<TARGET_FILE:gtopt_test> -tc="Waterway*"
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
