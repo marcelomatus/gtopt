@@ -33,7 +33,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
     SPDLOG_WARN("No blocks found for stage {} when adding junction {}", 
-                static_cast<int>(stage.uid().value()), static_cast<int>(uid().value()));
+                static_cast<int>(stage.uid()), static_cast<int>(uid()));
     return false;
   }
 
@@ -45,7 +45,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
   const bool add_drain_col = drain();
   SPDLOG_DEBUG("{} drain columns for junction {}", 
-               add_drain_col ? "Adding" : "Skipping", static_cast<int>(uid().value()));
+               add_drain_col ? "Adding" : "Skipping", static_cast<int>(uid()));
 
   try {
     for (auto&& block : blocks) {
@@ -75,7 +75,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     return true;
   } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to LP: {}", static_cast<int>(uid().value()), e.what());
+    SPDLOG_ERROR("Failed to add junction {} to LP: {}", static_cast<int>(uid()), e.what());
     return false;
   }
 }
@@ -92,7 +92,7 @@ bool JunctionLP::add_to_output(OutputContext& out) const
 
     return true;
   } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to output: {}", static_cast<int>(uid().value()), e.what());
+    SPDLOG_ERROR("Failed to add junction {} to output: {}", static_cast<int>(uid()), e.what());
     return false;
   }
 }
