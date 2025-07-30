@@ -25,15 +25,11 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 {
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
-    SPDLOG_TRACE("Skipping inactive junction {} for stage {}", 
-                static_cast<int>(uid().value()), static_cast<int>(stage.uid().value()));
     return true;
   }
 
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
-    SPDLOG_WARN("No blocks found for stage {} when adding junction {}", 
-                static_cast<int>(stage.uid()), static_cast<int>(uid()));
     return false;
   }
 
@@ -44,57 +40,45 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   dcols.reserve(blocks.size());
 
   const bool add_drain_col = drain();
-  SPDLOG_DEBUG("{} drain columns for junction {}", 
-               add_drain_col ? "Adding" : "Skipping", static_cast<int>(uid()));
 
-  try {
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      
-      // Create balance row for this block
-      auto brow = SparseRow {
-        .name = sc.lp_label(scenario, stage, block, class_name(), "bal", uid())
-      };
+  for (auto&& block : blocks) {
+    const auto buid = block.uid();
 
-      // Add drain column if needed
-      if (add_drain_col) {
-        const auto dcol = lp.add_col({
-          .name = sc.lp_label(scenario, stage, block, class_name(), "drain", uid())
-        });
-        dcols[buid] = dcol;
-        brow[dcol] = -1.0;  // Drain coefficient
-      }
+    // Create balance row for this block
+    auto brow =
+        SparseRow {.name = sc.lp_label(
+                       scenario, stage, block, class_name(), "bal", uid())};
 
-      brows[buid] = lp.add_row(std::move(brow));
+    // Add drain column if needed
+    if (add_drain_col) {
+      const auto dcol = lp.add_col(
+          {.name = sc.lp_label(
+               scenario, stage, block, class_name(), "drain", uid())});
+      dcols[buid] = dcol;
+      brow[dcol] = -1.0;  // Drain coefficient
     }
 
-    // Store indices for this scenario and stage
-    const auto st_key = std::pair{scenario.uid(), stage.uid()};
-    drain_cols[st_key] = std::move(dcols);
-    balance_rows[st_key] = std::move(brows);
-
-    return true;
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to LP: {}", static_cast<int>(uid()), e.what());
-    return false;
+    brows[buid] = lp.add_row(std::move(brow));
   }
+
+  // Store indices for this scenario and stage
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  drain_cols[st_key] = std::move(dcols);
+  balance_rows[st_key] = std::move(brows);
+
+  return true;
 }
 
 bool JunctionLP::add_to_output(OutputContext& out) const
 {
-  try {
-    const auto pid = id();
-    
-    // Add all solution components to output context
-    out.add_col_sol(class_name(), "drain", pid, drain_cols);
-    out.add_col_cost(class_name(), "drain", pid, drain_cols); 
-    out.add_row_dual(class_name(), "balance", pid, balance_rows);
+  const auto pid = id();
 
-    return true;
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to output: {}", static_cast<int>(uid()), e.what());
-    return false;
-  }
+  // Add all solution components to output context
+  out.add_col_sol(class_name(), "drain", pid, drain_cols);
+  out.add_col_cost(class_name(), "drain", pid, drain_cols);
+  out.add_row_dual(class_name(), "balance", pid, balance_rows);
+
+  return true;
 }
 
 }  // namespace gtopt

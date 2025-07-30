@@ -23,12 +23,8 @@ Checks: "*,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -constexpr_local_var_non_literal_type,\
   -boost-use-ranges,\
-  -misc-non-private-member-variables-in-classes"
-
-# Explicitly exclude Python and CMake files
-HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'
-Exclude: '.*\.(py|pyc|pyo|toml|cmake|txt)$'
-  misc-const-correctness, \
+  -misc-non-private-member-variables-in-classes,\
+  misc-const-correctness,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
@@ -67,6 +63,11 @@ Exclude: '.*\.(py|pyc|pyo|toml|cmake|txt)$'
 #  -constexpr_local_var_non_literal_type,\
 #  -boost-use-ranges,\
   -misc-non-private-member-variables-in-classes"
+
+
+# HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'
+# Explicitly exclude Python and CMake files
+# Exclude: '.*\.(py|pyc|pyo|toml|cmake|txt)$'
 
 WarningsAsErrors: ''
 CheckOptions:

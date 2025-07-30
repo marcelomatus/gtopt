@@ -45,7 +45,8 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  constexpr static std::string_view ClassName = "Junction"; ///< Class identifier
+  constexpr static std::string_view ClassName =
+      "Junction";  ///< Class identifier
 
   /**
    * @brief Construct a JunctionLP from input data
@@ -71,19 +72,16 @@ public:
     return junction().drain.value_or(false);
   }
 
-  /// @copydoc drain()
-  [[nodiscard]] constexpr auto is_drain() const noexcept
-  {
-    return junction().drain.value_or(false);
-  }
-
   /**
    * @brief Add junction constraints to the linear program
    * @param sc System context containing model parameters
    * @param lp Linear program to modify
    * @return true if successful, false otherwise
    */
-  bool add_to_lp(const SystemContext& sc, LinearProblem& lp);
+  bool add_to_lp(const SystemContext& sc,
+                 const ScenarioLP& scenario,
+                 const StageLP& stage,
+                 LinearProblem& lp);
 
   /**
    * @brief Add junction results to output context
@@ -105,8 +103,8 @@ public:
   }
 
 private:
-  STBIndexHolder<RowIndex> balance_rows; ///< Balance constraint row indices
-  STBIndexHolder<ColIndex> drain_cols;   ///< Drain variable column indices
+  STBIndexHolder<RowIndex> balance_rows;  ///< Balance constraint row indices
+  STBIndexHolder<ColIndex> drain_cols;  ///< Drain variable column indices
 };
 
 }  // namespace gtopt

@@ -767,11 +767,10 @@ This function is called at the very end of Spacemacs initialization."
                 restart-emacs shell-pop smeargle smex space-doc spaceline
                 spacemacs-purpose-popwin spacemacs-whitespace-cleanup sphinx-doc
                 string-edit-at-point string-inflection symbol-overlay symon
-                term-cursor terminal-here toml-mode treemacs-icons-dired
-                treemacs-magit treemacs-persp treemacs-projectile undo-fu
-                undo-fu-session unfill vi-tilde-fringe volatile-highlights vundo
-                web-beautify wgrep which-key winum writeroom-mode ws-butler
-                yaml-mode yasnippet-snippets)))
+                term-cursor terminal-here toml-mode undo-fu undo-fu-session unfill
+                vi-tilde-fringe volatile-highlights vundo web-beautify wgrep
+                which-key winum writeroom-mode ws-butler yaml-mode
+                yasnippet-snippets)))
   (custom-set-faces
    ;; custom-set-faces was added by Custom.
    ;; If you edit it by hand, you could mess it up, so be careful.
