@@ -14,7 +14,6 @@
  */
 
 #include <algorithm>
-#include <cstdlib>
 
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
@@ -107,7 +106,8 @@ constexpr void add_to_lp(auto& collections,
         // For all other elements, just call their add_to_lp method
         return e.add_to_lp(system_context, scenario, stage, lp);
       } catch (const std::exception& ex) {
-        SPDLOG_ERROR(fmt::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
+        SPDLOG_ERROR(
+            fmt::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
         return false;
       }
     }
@@ -162,11 +162,12 @@ constexpr auto create_collections(const auto& system_context, const auto& sys)
   std::get<Collection<ReserveProvisionLP>>(colls) =
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
 
-#ifdef GTOPT_EXTRA
   std::get<Collection<JunctionLP>>(colls) =
-      make_collection<JunctionLP>(ic, sys.junctions);
+      make_collection<JunctionLP>(ic, sys.junction_array);
   std::get<Collection<WaterwayLP>>(colls) =
-      make_collection<WaterwayLP>(ic, sys.waterways);
+      make_collection<WaterwayLP>(ic, sys.waterway_array);
+
+#ifdef GTOPT_EXTRA
   std::get<Collection<InflowLP>>(colls) =
       make_collection<InflowLP>(ic, sys.inflows);
   std::get<Collection<OutflowLP>>(colls) =

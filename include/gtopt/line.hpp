@@ -26,24 +26,22 @@ struct Line
   Name name {};  ///< Line name
   OptActive active {};  ///< Line active status
 
-  SingleId bus_a {};  ///< From-bus ID
-  SingleId bus_b {};  ///< To-bus ID
-  [[no_unique_address]] OptTRealFieldSched voltage {};  ///< Line voltage level
-  [[no_unique_address]] OptTRealFieldSched resistance {};  ///< Line resistance
-  [[no_unique_address]] OptTRealFieldSched reactance {};  ///< Line reactance
-  [[no_unique_address]] OptTRealFieldSched lossfactor {};  ///< Line loss factor
-  [[no_unique_address]] OptTBRealFieldSched tmin {};  ///< Minimum power flow
-  [[no_unique_address]] OptTBRealFieldSched tmax {};  ///< Maximum power flow
-  [[no_unique_address]] OptTRealFieldSched tcost {};  ///< Transmission cost
+  SingleId bus_a {unknown_uid};  ///< From-bus ID
+  SingleId bus_b {unknown_uid};  ///< To-bus ID
+  OptTRealFieldSched voltage {};  ///< Line voltage level
+  OptTRealFieldSched resistance {};  ///< Line resistance
+  OptTRealFieldSched reactance {};  ///< Line reactance
+  OptTRealFieldSched lossfactor {};  ///< Line loss factor
+  OptTBRealFieldSched tmax_ba {};  ///< Minimum power flow
+  OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow
+  OptTRealFieldSched tcost {};  ///< Transmission cost
 
-  [[no_unique_address]] OptTRealFieldSched capacity {};  ///< Installed capacity
-  [[no_unique_address]] OptTRealFieldSched expcap {};  ///< Expansion capacity
-  [[no_unique_address]] OptTRealFieldSched expmod {};  ///< Expansion module
-  [[no_unique_address]] OptTRealFieldSched capmax {};  ///< Maximum capacity
-  [[no_unique_address]] OptTRealFieldSched
-      annual_capcost {};  ///< Capacity cost
-  [[no_unique_address]] OptTRealFieldSched
-      annual_derating {};  /// Derating factor
+  OptTRealFieldSched capacity {};  ///< Installed capacity
+  OptTRealFieldSched expcap {};  ///< Expansion capacity
+  OptTRealFieldSched expmod {};  ///< Expansion module
+  OptTRealFieldSched capmax {};  ///< Maximum capacity
+  OptTRealFieldSched annual_capcost {};  ///< Capacity cost
+  OptTRealFieldSched annual_derating {};  /// Derating factor
 };
 
 }  // namespace gtopt

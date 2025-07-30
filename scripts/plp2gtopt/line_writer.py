@@ -49,14 +49,14 @@ class LineWriter(BaseWriter):
                 if self.manli_parser
                 else None
             )
-            tmin, tmax, active = (
+            tmax_ba, tmax_ab, active = (
                 (
                     line.get("p_max_ba", 0.0),
                     line.get("p_max_ab", 0.0),
                     line.get("operational", 1),
                 )
                 if not manli
-                else ("tmin", "tmax", "active")
+                else ("tmax_ba", "tmax_ab", "active")
             )
 
             json_lines.append(
@@ -68,8 +68,8 @@ class LineWriter(BaseWriter):
                     "bus_b": line["bus_b"],
                     "resistance": line["r"],
                     "reactance": line["x"],
-                    "tmax": tmax,
-                    "tmin": tmin,
+                    "tmax_ab": tmax_ab,
+                    "tmax_ba": tmax_ba,
                     "voltage": line["voltage"],
                     **({"is_hvdc": 1} if "hdvc" in line else {}),
                 }

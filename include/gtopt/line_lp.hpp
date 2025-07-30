@@ -26,11 +26,22 @@ public:
 
   using CapacityBase = CapacityObjectLP<Line>;
 
-  [[nodiscard]] constexpr auto&& line() { return object(); }
-  [[nodiscard]] constexpr auto&& line() const { return object(); }
+  [[nodiscard]]
+  constexpr auto&& line(this auto&& self) noexcept
+  {
+    return self.object();
+  }
 
-  [[nodiscard]] auto bus_a() const { return BusLPSId {line().bus_a}; }
-  [[nodiscard]] auto bus_b() const { return BusLPSId {line().bus_b}; }
+  [[nodiscard]]
+  auto bus_a() const noexcept
+  {
+    return BusLPSId {line().bus_a};
+  }
+  [[nodiscard]]
+  auto bus_b() const noexcept
+  {
+    return BusLPSId {line().bus_b};
+  }
 
   explicit LineLP(const InputContext& ic, Line pline);
 
@@ -42,8 +53,8 @@ public:
   bool add_to_output(OutputContext& out) const;
 
 private:
-  OptTBRealSched tmin;
-  OptTBRealSched tmax;
+  OptTBRealSched tmax_ba;
+  OptTBRealSched tmax_ab;
   OptTRealSched tcost;
   OptTRealSched lossfactor;
   OptTRealSched reactance;

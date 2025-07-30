@@ -41,9 +41,9 @@ public:
   }
 
   [[nodiscard]]
-  constexpr auto bus(this auto const& self) noexcept
+  constexpr auto bus() const noexcept
   {
-    return BusLPSId {self.generator().bus};
+    return BusLPSId {generator().bus};
   }
 
   [[nodiscard]]

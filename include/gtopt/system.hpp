@@ -17,10 +17,12 @@
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/waterway.hpp>
 
 namespace gtopt
 {
@@ -46,6 +48,9 @@ struct System
 
   Array<ReserveZone> reserve_zone_array {};
   Array<ReserveProvision> reserve_provision_array {};
+
+  Array<Junction> junction_array {};
+  Array<Waterway> waterway_array {};
 
   /**
    * @brief Merges another system into this one
@@ -83,6 +88,9 @@ struct System
     gtopt::merge(reserve_zone_array, std::forward<T>(sys).reserve_zone_array);
     gtopt::merge(reserve_provision_array,
                  std::forward<T>(sys).reserve_provision_array);
+
+    gtopt::merge(junction_array, std::forward<T>(sys).junction_array);
+    gtopt::merge(waterway_array, std::forward<T>(sys).waterway_array);
 
     return *this;
   }

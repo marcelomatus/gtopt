@@ -61,9 +61,9 @@ public:
 
   /// @return Reference to the underlying junction data
   [[nodiscard]]
-  constexpr auto&& junction() const noexcept
+  constexpr auto&& junction(this auto&& self) noexcept
   {
-    return ObjectLP<Junction>::object();
+    return self.object();
   }
 
   /// @return Whether this junction has drain effects enabled
@@ -96,15 +96,18 @@ public:
    * @param stage Stage identifier
    * @return Const reference to the balance constraint rows
    */
-  [[nodiscard]] auto&& balance_rows_at(const ScenarioUid scenario,
-                                       const StageUid stage) const
+  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
+                                            const StageLP& stage) const
   {
-    return balance_rows.at({scenario, stage});
+    return balance_rows.at({scenario.uid(), stage.uid()});
   }
 
 private:
   STBIndexHolder<RowIndex> balance_rows;  ///< Balance constraint row indices
   STBIndexHolder<ColIndex> drain_cols;  ///< Drain variable column indices
 };
+
+using JunctionLPId = ObjectId<class JunctionLP>;
+using JunctionLPSId = ObjectSingleId<class JunctionLP>;
 
 }  // namespace gtopt
