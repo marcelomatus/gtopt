@@ -37,7 +37,6 @@ set(CPM_USE_LOCAL_PACKAGES ON)
 # Or make it fallback to download if not in cache
 set(CPM_DOWNLOAD_ALL ON)
 
-
 set(CPPCHECK_ARGS
   "--check-level=exhaustive"
   "--suppress=returnDanglingLifetime"
@@ -181,7 +180,7 @@ packageProject(
   COMPATIBILITY SameMajorVersion
   DEPENDENCIES
     "range-v3 0.12.0"
-    "spdlog 1.12.0" 
+    "spdlog 1.12.0"
     "fmt 9.1.0"
     "strong_type 15"
     "daw 3.30.2"
