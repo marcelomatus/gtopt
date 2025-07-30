@@ -185,3 +185,22 @@ packageProject(
     "strong_type 15"
     "daw 3.30.2"
 )
+# Add test executable
+add_executable(gtopt_test 
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/source/json/test_json_line.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/source/json/test_json_bus.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/source/json/test_json_junction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/source/json/test_json_waterway.cpp
+)
+target_link_libraries(gtopt_test PRIVATE 
+  ${PROJECT_NAME} 
+  doctest::doctest
+  daw::daw-json-link
+)
+
+# Add tests
+add_test(
+  NAME test_json_line
+  COMMAND $<TARGET_FILE:gtopt_test> -tc="Line*"
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
