@@ -45,7 +45,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
   const bool add_drain_col = drain();
   SPDLOG_DEBUG("{} drain columns for junction {}", 
-               add_drain_col ? "Adding" : "Skipping", uid());
+               add_drain_col ? "Adding" : "Skipping", static_cast<int>(uid().value()));
 
   try {
     for (auto&& block : blocks) {
