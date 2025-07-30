@@ -174,13 +174,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // save all rows and cols
-  return emplace_bholder(scenario, stage, capacityp_rows, std::move(cprows))
-             .second
-      && emplace_bholder(scenario, stage, capacityn_rows, std::move(cnrows))
-             .second
-      && emplace_bholder(scenario, stage, flowp_cols, std::move(fpcols)).second
-      && emplace_bholder(scenario, stage, flown_cols, std::move(fncols)).second;
+  // storing the indices for this scenario and stage
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  capacityp_rows[st_key] = std::move(cprows);
+  capacityn_rows[st_key] = std::move(cnrows);
+  flowp_cols[st_key] = std::move(fpcols);
+  flown_cols[st_key] = std::move(fncols);
+
+  return true;
 }
 
 bool LineLP::add_to_output(OutputContext& out) const

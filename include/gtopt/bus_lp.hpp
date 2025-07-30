@@ -40,7 +40,7 @@ public:
   {
   }
 
-  [[nodiscard("returns reference to underlying Bus object")]]
+  [[nodiscard]]
   constexpr auto&& bus() const noexcept
   {
     return ObjectLP<Bus>::object();

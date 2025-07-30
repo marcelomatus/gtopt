@@ -67,8 +67,10 @@ bool BusLP::add_to_lp(const SystemContext& sc,
         lp.add_row({.name = lp_label(sc, scenario, stage, block, "bal")});
   }
 
-  return emplace_bholder(scenario, stage, balance_rows, std::move(brows))
-      .second;
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  balance_rows[st_key] = std::move(brows);
+
+  return true;
 }
 
 bool BusLP::add_to_output(OutputContext& out) const
