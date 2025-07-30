@@ -31,7 +31,8 @@ TEST_CASE("Junction JSON with drain")
 
   REQUIRE(junction.uid == 5);
   REQUIRE(junction.name == "CRUCERO");
-  REQUIRE(junction.drain.value_or(false) == true);
+  REQUIRE(junction.drain.has_value());
+  REQUIRE(junction.drain.value() == true);
 }
 
 TEST_CASE("Junction JSON array parsing")
@@ -55,7 +56,8 @@ TEST_CASE("Junction JSON array parsing")
 
   REQUIRE(junctions[1].uid == 10);
   REQUIRE(junctions[1].name == "PTOMONTT");
-  REQUIRE(junctions[1].drain.value_or(true) == false);
+  REQUIRE(junctions[1].drain.has_value());
+  REQUIRE(junctions[1].drain.value() == false);
 }
 
 TEST_CASE("Junction JSON with active schedule")
@@ -91,5 +93,6 @@ TEST_CASE("Junction JSON roundtrip serialization")
 
   REQUIRE(roundtrip.uid == 7);
   REQUIRE(roundtrip.name == "ROUNDTRIP");
-  REQUIRE(roundtrip.drain.value_or(false) == true);
+  REQUIRE(roundtrip.drain.has_value());
+  REQUIRE(roundtrip.drain.value() == true);
 }
