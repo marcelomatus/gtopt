@@ -25,14 +25,15 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 {
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
-    SPDLOG_TRACE("Skipping inactive junction {} for stage {}", uid(), stage.uid());
+    SPDLOG_TRACE("Skipping inactive junction {} for stage {}", 
+                static_cast<int>(uid().value()), static_cast<int>(stage.uid().value()));
     return true;
   }
 
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
     SPDLOG_WARN("No blocks found for stage {} when adding junction {}", 
-                stage.uid(), uid());
+                static_cast<int>(stage.uid().value()), static_cast<int>(uid().value()));
     return false;
   }
 
@@ -74,7 +75,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     return true;
   } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to LP: {}", uid(), e.what());
+    SPDLOG_ERROR("Failed to add junction {} to LP: {}", static_cast<int>(uid().value()), e.what());
     return false;
   }
 }
@@ -91,7 +92,7 @@ bool JunctionLP::add_to_output(OutputContext& out) const
 
     return true;
   } catch (const std::exception& e) {
-    SPDLOG_ERROR("Failed to add junction {} to output: {}", uid(), e.what());
+    SPDLOG_ERROR("Failed to add junction {} to output: {}", static_cast<int>(uid().value()), e.what());
     return false;
   }
 }
