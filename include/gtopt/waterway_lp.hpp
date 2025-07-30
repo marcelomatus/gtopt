@@ -1,0 +1,61 @@
+/**
+ * @file      waterway_lp.hpp
+ * @brief     Header of
+ * @date      Wed Jul 30 11:48:26 2025
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module
+ */
+
+#pragma once
+
+#include <gtopt/junction_lp.hpp>
+#include <gtopt/waterway.hpp>
+
+namespace gtopt
+{
+class WaterwayLP : public ObjectLP<Waterway>
+{
+public:
+  constexpr static std::string_view ClassName = "Waterway";
+
+  explicit WaterwayLP(const InputContext& ic, Waterway pwaterway);
+
+  [[nodiscard]]
+  constexpr auto&& waterway(this auto&& self) noexcept
+  {
+    return self.object();
+  }
+
+  [[nodiscard]] auto junction_a() const noexcept
+  {
+    return JunctionLPSId {waterway().junction_a};
+  }
+  [[nodiscard]] auto junction_b() const noexcept
+  {
+    return JunctionLPSId {waterway().junction_b};
+  }
+
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+
+  [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
+                                    const StageLP& stage) const
+  {
+    return flow_cols.at({scenario.uid(), stage.uid()});
+  }
+
+private:
+  OptTBRealSched fmin;
+  OptTBRealSched fmax;
+  OptTRealSched capacity;
+  OptTRealSched lossfactor;
+
+  STBIndexHolder<ColIndex> flow_cols;
+};
+
+}  // namespace gtopt

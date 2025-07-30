@@ -41,7 +41,7 @@ public:
   }
 
   [[nodiscard]]
-  constexpr auto&& bus() const noexcept
+  constexpr const auto& bus() const noexcept
   {
     return ObjectLP<Bus>::object();
   }
@@ -78,7 +78,7 @@ public:
 
   [[nodiscard]]
   constexpr const auto& balance_rows_at(const ScenarioLP& scenario,
-                                        const StageLP& stage) const noexcept
+                                        const StageLP& stage) const
   {
     return balance_rows.at({scenario.uid(), stage.uid()});
   }

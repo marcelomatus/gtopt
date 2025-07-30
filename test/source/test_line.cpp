@@ -14,14 +14,14 @@ TEST_CASE("Line construction and default values")
   CHECK(line.uid == Uid {unknown_uid});
   CHECK(line.name == Name {});
   CHECK_FALSE(line.active.has_value());
-  CHECK(line.bus_a == SingleId {});
-  CHECK(line.bus_b == SingleId {});
+  CHECK(line.bus_a == SingleId {unknown_uid});
+  CHECK(line.bus_b == SingleId {unknown_uid});
   CHECK_FALSE(line.voltage.has_value());
   CHECK_FALSE(line.resistance.has_value());
   CHECK_FALSE(line.reactance.has_value());
   CHECK_FALSE(line.lossfactor.has_value());
-  CHECK_FALSE(line.tmin.has_value());
-  CHECK_FALSE(line.tmax.has_value());
+  CHECK_FALSE(line.tmax_ba.has_value());
+  CHECK_FALSE(line.tmax_ab.has_value());
   CHECK_FALSE(line.tcost.has_value());
   CHECK_FALSE(line.capacity.has_value());
   CHECK_FALSE(line.expcap.has_value());
@@ -47,8 +47,8 @@ TEST_CASE("Line attribute assignment")
   line.resistance = 0.01;
   line.reactance = 0.1;
   line.lossfactor = 0.02;
-  line.tmin = -100.0;
-  line.tmax = 100.0;
+  line.tmax_ba = -100.0;
+  line.tmax_ab = 100.0;
   line.tcost = 0.5;
 
   // Assign capacity parameters
@@ -71,8 +71,8 @@ TEST_CASE("Line attribute assignment")
   CHECK(std::get_if<Real>(&line.resistance.value()) != nullptr);
   CHECK(std::get_if<Real>(&line.reactance.value()) != nullptr);
   CHECK(std::get_if<Real>(&line.lossfactor.value()) != nullptr);
-  CHECK(std::get_if<Real>(&line.tmin.value()) != nullptr);
-  CHECK(std::get_if<Real>(&line.tmax.value()) != nullptr);
+  CHECK(std::get_if<Real>(&line.tmax_ba.value()) != nullptr);
+  CHECK(std::get_if<Real>(&line.tmax_ab.value()) != nullptr);
   CHECK(std::get_if<Real>(&line.tcost.value()) != nullptr);
 
   // Check actual values using std::get_if
@@ -80,8 +80,8 @@ TEST_CASE("Line attribute assignment")
   CHECK(*std::get_if<Real>(&line.resistance.value()) == 0.01);
   CHECK(*std::get_if<Real>(&line.reactance.value()) == 0.1);
   CHECK(*std::get_if<Real>(&line.lossfactor.value()) == 0.02);
-  CHECK(*std::get_if<Real>(&line.tmin.value()) == -100.0);
-  CHECK(*std::get_if<Real>(&line.tmax.value()) == 100.0);
+  CHECK(*std::get_if<Real>(&line.tmax_ba.value()) == -100.0);
+  CHECK(*std::get_if<Real>(&line.tmax_ab.value()) == 100.0);
   CHECK(*std::get_if<Real>(&line.tcost.value()) == 0.5);
 
   // Capacity-related checks
@@ -101,19 +101,19 @@ TEST_CASE("Line time-block schedules")
   line.reactance = 0.1;  // Add valid reactance for validation
 
   // Create simple scalar flow limits
-  line.tmin = -100.0;
-  line.tmax = 100.0;
+  line.tmax_ba = -100.0;
+  line.tmax_ab = 100.0;
 
   // Verify values were properly assigned
-  REQUIRE(line.tmin.has_value());
-  REQUIRE(line.tmax.has_value());
+  REQUIRE(line.tmax_ba.has_value());
+  REQUIRE(line.tmax_ab.has_value());
 
-  auto* tmin_real_ptr = std::get_if<Real>(&line.tmin.value());
-  auto* tmax_real_ptr = std::get_if<Real>(&line.tmax.value());
+  auto* tmax_ba_real_ptr = std::get_if<Real>(&line.tmax_ba.value());
+  auto* tmax_ab_real_ptr = std::get_if<Real>(&line.tmax_ab.value());
 
-  REQUIRE(tmin_real_ptr != nullptr);
-  REQUIRE(tmax_real_ptr != nullptr);
+  REQUIRE(tmax_ba_real_ptr != nullptr);
+  REQUIRE(tmax_ab_real_ptr != nullptr);
 
-  CHECK(*tmin_real_ptr == -100.0);
-  CHECK(*tmax_real_ptr == 100.0);
+  CHECK(*tmax_ba_real_ptr == -100.0);
+  CHECK(*tmax_ab_real_ptr == 100.0);
 }

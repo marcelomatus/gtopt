@@ -22,6 +22,7 @@
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
@@ -35,6 +36,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
 {
@@ -71,6 +73,9 @@ static_assert(AddToLP<BatteryLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
+
+static_assert(AddToLP<JunctionLP>);
+static_assert(AddToLP<WaterwayLP>);
 
 /**
  * @class SystemLP
@@ -130,7 +135,9 @@ public:
                                    Collection<BatteryLP>,
                                    Collection<ConverterLP>,
                                    Collection<ReserveZoneLP>,
-                                   Collection<ReserveProvisionLP>>;
+                                   Collection<ReserveProvisionLP>,
+                                   Collection<JunctionLP>,
+                                   Collection<WaterwayLP>>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept

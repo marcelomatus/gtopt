@@ -1,7 +1,7 @@
 /**
  * @file      waterway.hpp
  * @brief     Header for waterway components in power systems
- * @date      Wed Jul 30 11:40:33 2025  
+ * @date      Wed Jul 30 11:40:33 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
@@ -23,7 +23,7 @@ namespace gtopt
 {
 
 /**
- * @struct Waterway  
+ * @struct Waterway
  * @brief Represents a waterway connection between two junctions
  *
  * @details This structure defines a transmission path with:
@@ -39,17 +39,17 @@ namespace gtopt
 struct Waterway
 {
   Uid uid {unknown_uid};  ///< Unique identifier for database references
-  Name name {};           ///< Human-readable waterway name
-  OptActive active {};    ///< Activation status (whether waterway is modeled)
+  Name name {};  ///< Human-readable waterway name
+  OptActive active {};  ///< Activation status (whether waterway is modeled)
 
-  SingleId junction_a {}; ///< Upstream junction identifier
-  SingleId junction_b {}; ///< Downstream junction identifier
+  SingleId junction_a {unknown_uid};  ///< Upstream junction identifier
+  SingleId junction_b {unknown_uid};  ///< Downstream junction identifier
 
-  OptTRealFieldSched capacity {};    ///< Maximum flow capacity
-  OptTRealFieldSched lossfactor {};  ///< Energy loss coefficient (fraction per unit flow)
+  OptTRealFieldSched capacity {};  ///< Maximum flow capacity
+  OptTRealFieldSched lossfactor {0.0};  ///< Loss coefficient (per unit flow)
 
-  OptTBRealFieldSched fmin {}; ///< Minimum required flow (may be negative for bidirectional)
-  OptTBRealFieldSched fmax {}; ///< Maximum allowed flow
+  OptTBRealFieldSched fmin {0.0};  ///< Minimum required flow
+  OptTBRealFieldSched fmax {};  ///< Maximum allowed flow
 };
 
 }  // namespace gtopt

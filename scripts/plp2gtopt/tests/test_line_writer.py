@@ -55,8 +55,8 @@ def test_to_json_array(sample_line_writer):  # pylint: disable=redefined-outer-n
         "bus_b": int,
         "resistance": float,
         "reactance": float,
-        "tmax": float,
-        "tmin": float,
+        "tmax_ab": float,
+        "tmax_ba": float,
         "voltage": float,
         "active": int,
     }
@@ -95,8 +95,8 @@ def test_json_output_structure(
         "bus_b": int,
         "resistance": float,
         "reactance": float,
-        "tmax": float,
-        "tmin": float,
+        "tmax_ab": float,
+        "tmax_ba": float,
         "voltage": float,
         "active": int,
     }
@@ -112,8 +112,8 @@ def test_json_output_structure(
         # Additional value checks
         assert line["resistance"] >= 0, "Resistance should be non-negative"
         assert line["reactance"] >= 0, "Reactance should be non-negative"
-        assert line["tmax"] >= 0, "Flow limit AB should be non-negative"
-        assert line["tmin"] <= 0, "Flow limit BA should be negative"
+        assert line["tmax_ab"] >= 0, "Flow limit AB should be non-negative"
+        assert line["tmax_ba"] <= 0, "Flow limit BA should be negative"
 
 
 def test_write_empty_lines():
