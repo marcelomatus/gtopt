@@ -101,8 +101,8 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   gtopt::Waterway original;
   original.uid = 7;
   original.name = "ROUNDTRIP";
-  original.junction_a = gtopt::SingleId(1);
-  original.junction_b = gtopt::SingleId(2);
+  original.junction_a = gtopt::SingleId(gtopt::Uid(1));
+  original.junction_b = gtopt::SingleId(gtopt::Uid(2));
   original.capacity = 100.0;
 
   auto json = daw::json::to_json(original);
