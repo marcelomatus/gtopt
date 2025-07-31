@@ -1,11 +1,15 @@
 /**
  * @file      flow_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of FlowLP methods
  * @date      Wed Jul 30 15:56:46 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Contains implementation of:
+ * - FlowLP construction and initialization
+ * - Adding flow variables to LP problems
+ * - Managing flow constraints in junctions
+ * - Output generation for flow solutions
  */
 
 #include <gtopt/flow_lp.hpp>
