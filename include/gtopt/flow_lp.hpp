@@ -23,16 +23,24 @@ public:
 
   explicit FlowLP(const InputContext& ic, Flow pflow);
 
-  [[nodiscard]]
-  constexpr auto&& flow(this auto&& self) noexcept
+  [[nodiscard]] constexpr auto&& flow(this auto&& self) noexcept
   {
     return self.object();
   }
 
-  [[nodiscard]]
-  auto junction() const noexcept
+  [[nodiscard]] constexpr auto junction() const noexcept
   {
-    return JunctionLPSId {flow().junction};
+    return JunctionLPSId{flow().junction};
+  }
+
+  [[nodiscard]] constexpr bool is_input() const noexcept 
+  {
+    return flow().is_input();
+  }
+
+  [[nodiscard]] constexpr bool is_output() const noexcept
+  {
+    return flow().is_output();
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
