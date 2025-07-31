@@ -56,9 +56,8 @@ public:
    * @param ic Input context for parameter processing
    * @param pbattery Battery object to convert to LP representation
    */
-  template<typename BatteryT>
-  explicit BatteryLP(const InputContext& ic, BatteryT&& pbattery)
-      : StorageBase(ic, ClassName, std::forward<BatteryT>(pbattery))
+  explicit BatteryLP(const InputContext& ic, Battery pbattery)
+      : StorageBase(ic, ClassName, std::move(pbattery))
   {
   }
 
@@ -93,8 +92,7 @@ public:
   }
 
 private:
-  STBIndexHolder<ColIndex>
-      flow_cols;  ///< Holds flow variables by scenario and stage
+  STBIndexHolder<ColIndex> flow_cols;  ///< Holds flow variables
 };
 
 }  // namespace gtopt

@@ -61,6 +61,14 @@ public:
   {
   }
 
+  template<typename OT>
+  explicit constexpr ObjectLP([[maybe_unused]] const InputContext& ic,
+                              [[maybe_unused]] const std::string_view ClassName,
+                              OT&& object) noexcept
+      : ObjectLP(std::forward<OT>(object))
+  {
+  }
+
   /**
    * @brief Sets the object's identifier
    * @param uid Unique identifier

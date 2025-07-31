@@ -22,6 +22,7 @@
 #include <gtopt/line.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
+#include <gtopt/reservoir.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 
@@ -53,6 +54,7 @@ struct System
   Array<Junction> junction_array {};
   Array<Waterway> waterway_array {};
   Array<Flow> flow_array {};
+  Array<Reservoir> reservoir_array {};
 
   /**
    * @brief Merges another system into this one
@@ -94,6 +96,7 @@ struct System
     gtopt::merge(junction_array, std::forward<T>(sys).junction_array);
     gtopt::merge(waterway_array, std::forward<T>(sys).waterway_array);
     gtopt::merge(flow_array, std::forward<T>(sys).flow_array);
+    gtopt::merge(reservoir_array, std::forward<T>(sys).reservoir_array);
 
     return *this;
   }
