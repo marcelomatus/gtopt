@@ -31,6 +31,7 @@
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/reservoir_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -78,6 +79,7 @@ static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
 static_assert(AddToLP<FlowLP>);
+static_assert(AddToLP<ReservoirLP>);
 
 /**
  * @class SystemLP
@@ -140,7 +142,8 @@ public:
                                    Collection<ReserveProvisionLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
-                                   Collection<FlowLP>>;
+                                   Collection<FlowLP>,
+                                   Collection<ReservoirLP>>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
