@@ -26,16 +26,13 @@
 namespace gtopt
 {
 
-// TODO(marcelo): swap the parameter order in BusLP constructor: first
-// should be the object, like Bus, then the InoutContext if needed.
-
 class BusLP : public ObjectLP<Bus>
 {
 public:
   constexpr static std::string_view ClassName = "Bus";
 
   [[nodiscard]]
-  explicit BusLP([[maybe_unused]] const InputContext& ic, Bus pbus) noexcept
+  explicit BusLP(Bus pbus, [[maybe_unused]] const InputContext& ic) noexcept
       : ObjectLP<Bus>(std::move(pbus))
   {
   }

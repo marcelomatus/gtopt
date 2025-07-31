@@ -56,8 +56,8 @@ public:
    * @param ic Input context for parameter processing
    * @param pbattery Battery object to convert to LP representation
    */
-  explicit BatteryLP(const InputContext& ic, Battery pbattery)
-      : StorageBase(ic, ClassName, std::move(pbattery))
+  explicit BatteryLP(Battery pbattery, const InputContext& ic)
+      : StorageBase(std::move(pbattery), ic, ClassName)
   {
   }
 

@@ -18,8 +18,8 @@
 namespace gtopt
 {
 
-ReservoirLP::ReservoirLP(const InputContext& ic, Reservoir preservoir)
-    : StorageBase(ic, ClassName, std::move(preservoir))
+ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
+    : StorageBase(std::move(preservoir), ic, ClassName)
     , capacity(ic, ClassName, id(), std::move(reservoir().capacity))
 {
 }

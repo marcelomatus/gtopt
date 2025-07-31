@@ -53,8 +53,8 @@ public:
    * @param ic Input context providing system-wide parameters
    * @param pjunction Junction data to model
    */
-  explicit JunctionLP([[maybe_unused]] const InputContext& ic,
-                      Junction pjunction)
+  explicit JunctionLP(Junction pjunction,
+                      [[maybe_unused]] const InputContext& ic)
       : ObjectLP<Junction>(std::move(pjunction))
   {
   }

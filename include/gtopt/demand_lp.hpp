@@ -16,7 +16,7 @@ public:
   using CapacityBase = CapacityObjectLP<Demand>;
 
   [[nodiscard]]
-  explicit DemandLP(const InputContext& ic, Demand pdemand);
+  explicit DemandLP(Demand pdemand, const InputContext& ic);
 
   [[nodiscard]]
   constexpr auto&& demand() const noexcept

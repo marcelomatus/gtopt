@@ -25,8 +25,8 @@ public:
 
   using Base = ObjectLP<ReserveProvision>;
 
-  explicit ReserveProvisionLP(const InputContext& ic,
-                              ReserveProvision preserve_provision);
+  explicit ReserveProvisionLP(ReserveProvision preserve_provision,
+                              const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& reserve_provision() { return object(); }
   [[nodiscard]] constexpr auto&& reserve_provision() const { return object(); }

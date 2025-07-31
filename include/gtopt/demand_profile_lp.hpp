@@ -20,7 +20,7 @@ class DemandProfileLP : public ObjectLP<DemandProfile>
 public:
   constexpr static std::string_view ClassName = "DemandProfile";
 
-  explicit DemandProfileLP(InputContext& ic, DemandProfile pdemand_profile);
+  explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
 
   [[nodiscard]] constexpr auto&& demand_profile() { return object(); }
   [[nodiscard]] constexpr auto&& demand_profile() const { return object(); }

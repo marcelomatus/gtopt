@@ -20,7 +20,7 @@ class WaterwayLP : public ObjectLP<Waterway>
 public:
   constexpr static std::string_view ClassName = "Waterway";
 
-  explicit WaterwayLP(const InputContext& ic, Waterway pwaterway);
+  explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
 
   [[nodiscard]]
   constexpr auto&& waterway(this auto&& self) noexcept

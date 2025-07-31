@@ -43,7 +43,7 @@ public:
     return BusLPSId {line().bus_b};
   }
 
-  explicit LineLP(const InputContext& ic, Line pline);
+  explicit LineLP(Line pline, const InputContext& ic);
 
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,

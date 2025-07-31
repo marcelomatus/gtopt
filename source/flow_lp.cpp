@@ -22,7 +22,7 @@
 namespace gtopt
 {
 
-FlowLP::FlowLP(const InputContext& ic, Flow pflow)
+FlowLP::FlowLP(Flow pflow, const InputContext& ic)
     : ObjectLP<Flow>(std::move(pflow))
     , discharge(ic, ClassName, id(), std::move(flow().discharge))
 {

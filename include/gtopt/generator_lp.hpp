@@ -32,7 +32,7 @@ public:
   using CapacityBase = CapacityObjectLP<Generator>;
 
   [[nodiscard]]
-  explicit GeneratorLP(const InputContext& ic, Generator generator);
+  explicit GeneratorLP(Generator generator, const InputContext& ic);
 
   [[nodiscard]]
   constexpr const auto& generator() const noexcept
