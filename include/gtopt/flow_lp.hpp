@@ -1,11 +1,14 @@
 /**
- * @file      flow_lp.hpp
- * @brief     Header of
+ * @file      flow_lp.hpp  
+ * @brief     Linear programming representation of network flows
  * @date      Wed Jul 30 15:54:03 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Implements the FlowLP class which provides methods to:
+ * - Represent flows in linear programming problems
+ * - Manage flow variables and constraints
+ * - Interface with junctions and other network components
  */
 
 #pragma once
