@@ -73,7 +73,7 @@ ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
 {
 }
 
-ReserveZoneLP::ReserveZoneLP(const InputContext& ic, ReserveZone preserve_zone)
+ReserveZoneLP::ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic)
     : Base(std::move(preserve_zone))
     , ur(ic,
          ClassName,

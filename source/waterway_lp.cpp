@@ -18,7 +18,7 @@
 namespace gtopt
 {
 
-WaterwayLP::WaterwayLP(const InputContext& ic, Waterway pwaterway)
+WaterwayLP::WaterwayLP(Waterway pwaterway, const InputContext& ic)
     : ObjectLP<Waterway>(std::move(pwaterway))
     , fmin(ic, ClassName, id(), std::move(waterway().fmin))
     , fmax(ic, ClassName, id(), std::move(waterway().fmax))

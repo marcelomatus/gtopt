@@ -50,7 +50,7 @@ constexpr auto make_collection(InputContext& input_context,
   return Collection<Out> {
       input
       | ranges::views::transform(
-          [&](auto element) { return Out {input_context, std::move(element)}; })
+          [&](auto element) { return Out {std::move(element), input_context}; })
       | ranges::to<std::vector<Out>>()};
 }
 

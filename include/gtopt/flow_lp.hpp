@@ -24,7 +24,7 @@ class FlowLP : public ObjectLP<Flow>
 public:
   constexpr static std::string_view ClassName = "Flow";
 
-  explicit FlowLP(const InputContext& ic, Flow pflow);
+  explicit FlowLP(Flow pflow, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& flow(this auto&& self) noexcept
   {

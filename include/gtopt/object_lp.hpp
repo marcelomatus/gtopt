@@ -62,9 +62,10 @@ public:
   }
 
   template<typename OT>
-  explicit constexpr ObjectLP([[maybe_unused]] const InputContext& ic,
-                              [[maybe_unused]] const std::string_view ClassName,
-                              OT&& object) noexcept
+  explicit constexpr ObjectLP(
+      OT&& object,
+      [[maybe_unused]] const InputContext& ic,
+      [[maybe_unused]] const std::string_view ClassName) noexcept
       : ObjectLP(std::forward<OT>(object))
   {
   }

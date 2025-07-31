@@ -18,8 +18,8 @@
 
 namespace gtopt
 {
-GeneratorProfileLP::GeneratorProfileLP(InputContext& ic,
-                                       GeneratorProfile pgenerator_profile)
+GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
+                                       InputContext& ic)
     : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
     , scost(ic, ClassName, id(), std::move(generator_profile().scost))
     , profile(ic, ClassName, id(), std::move(generator_profile().profile))

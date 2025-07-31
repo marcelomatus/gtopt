@@ -32,10 +32,10 @@ public:
   constexpr auto&& storage() const { return object(); }
 
   template<typename ObjectT>
-  explicit StorageLP(const InputContext& ic,
-                     const std::string_view ClassName,
-                     ObjectT&& pstorage)
-      : Object(ic, ClassName, std::forward<ObjectT>(pstorage))
+  explicit StorageLP(ObjectT&& pstorage,
+                     const InputContext& ic,
+                     const std::string_view ClassName)
+      : Object(std::forward<ObjectT>(pstorage), ic, ClassName)
       , vmin(ic, ClassName, id(), std::move(storage().vmin))
       , vmax(ic, ClassName, id(), std::move(storage().vmax))
       , vcost(ic, ClassName, id(), std::move(storage().vcost))

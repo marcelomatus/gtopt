@@ -239,9 +239,9 @@ struct CapacityObjectLP
    * - Annual derating factors
    */
   template<typename ObjectT>
-  constexpr explicit CapacityObjectLP(const InputContext& ic,
-                                      std::string_view ClassName,
-                                      ObjectT&& pobject) noexcept
+  constexpr explicit CapacityObjectLP(ObjectT&& pobject,
+                                      const InputContext& ic,
+                                      std::string_view ClassName) noexcept
       : ObjectLP<Object>(std::forward<ObjectT>(pobject))
       , CapacityObjectBase(ic,
                            ClassName,

@@ -26,7 +26,7 @@ public:
 
   using StorageBase = StorageLP<ObjectLP<Reservoir>>;
 
-  explicit ReservoirLP(const InputContext& ic, Reservoir preservoir);
+  explicit ReservoirLP(Reservoir preservoir, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& reservoir(this auto&& self) noexcept
   {

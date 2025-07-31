@@ -31,7 +31,7 @@ public:
   [[nodiscard]] constexpr auto&& converter() { return object(); }
   [[nodiscard]] constexpr auto&& converter() const { return object(); }
 
-  explicit ConverterLP(InputContext& ic, Converter pconverter);
+  explicit ConverterLP(Converter pconverter, InputContext& ic);
 
   [[nodiscard]] auto battery() const
   {

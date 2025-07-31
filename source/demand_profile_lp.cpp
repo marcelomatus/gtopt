@@ -18,8 +18,8 @@
 namespace gtopt
 {
 
-DemandProfileLP::DemandProfileLP(InputContext& ic,
-                                 DemandProfile pdemand_profile)
+DemandProfileLP::DemandProfileLP(DemandProfile pdemand_profile,
+                                 InputContext& ic)
     : ObjectLP<DemandProfile>(std::move(pdemand_profile))
     , scost(ic, ClassName, id(), std::move(demand_profile().scost))
     , profile(ic, ClassName, id(), std::move(demand_profile().profile))

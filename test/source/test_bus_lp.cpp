@@ -68,7 +68,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     // Create a bus with defaults
     Bus bus(1, "bus_1");
-    const BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(std::move(bus), ic);
 
     // With default options (use_kirchhoff=true, use_single_bus=false)
     // needs_kirchhoff should be true
@@ -96,7 +96,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     const InputContext ic(sc);
 
     Bus bus(1, "bus_1");
-    const BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(std::move(bus), ic);
 
     // With single bus mode, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -123,7 +123,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     const InputContext ic(sc);
 
     Bus bus(1, "bus_1");
-    const BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(std::move(bus), ic);
 
     // With kirchhoff disabled in options, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -152,7 +152,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     Bus bus(1, "bus_1");
     bus.voltage = 1.0;
-    const BusLP bus_lp(ic, std::move(bus));
+    const BusLP bus_lp(std::move(bus), ic);
 
     // With voltage below threshold, needs_kirchhoff should be false
     CHECK(bus_lp.needs_kirchhoff(sc) == false);
@@ -180,7 +180,7 @@ TEST_CASE("BusLP add_to_lp method")
   LinearProblem lp;
 
   Bus bus(1, "bus_1");
-  BusLP bus_lp(ic, std::move(bus));
+  BusLP bus_lp(std::move(bus), ic);
 
   // Add to LP should succeed
   const StageLP stage {};

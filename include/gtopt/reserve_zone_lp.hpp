@@ -26,7 +26,7 @@ public:
 
   using Base = ObjectLP<ReserveZone>;
 
-  explicit ReserveZoneLP(const InputContext& ic, ReserveZone preserve_zone);
+  explicit ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic);
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& reserve_zone(this Self& self)

@@ -79,8 +79,8 @@ public:
                                        .name = objori.name,
                                        .active = objori.active};
                     return self.add_element(
-                        Element {std::forward<Self>(self),
-                                 objele.set_attrs(std::move(attrs))});
+                        Element {objele.set_attrs(std::move(attrs)),
+                                 std::forward<Self>(self)});
                   }},
         element_var);
   }

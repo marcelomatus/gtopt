@@ -21,8 +21,8 @@ class GeneratorProfileLP : public ObjectLP<GeneratorProfile>
 public:
   constexpr static std::string_view ClassName = "GeneratorProfile";
 
-  explicit GeneratorProfileLP(InputContext& ic,
-                              GeneratorProfile pgenerator_profile);
+  explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
+                              InputContext& ic);
 
   [[nodiscard]] constexpr auto&& generator_profile() { return object(); }
   [[nodiscard]] constexpr auto&& generator_profile() const { return object(); }
