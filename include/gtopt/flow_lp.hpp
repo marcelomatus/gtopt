@@ -1,5 +1,5 @@
 /**
- * @file      flow_lp.hpp  
+ * @file      flow_lp.hpp
  * @brief     Linear programming representation of network flows
  * @date      Wed Jul 30 15:54:03 2025
  * @author    marcelo
@@ -33,17 +33,12 @@ public:
 
   [[nodiscard]] constexpr auto junction() const noexcept
   {
-    return JunctionLPSId{flow().junction};
+    return JunctionLPSId {flow().junction};
   }
 
-  [[nodiscard]] constexpr bool is_input() const noexcept 
+  [[nodiscard]] constexpr bool is_input() const noexcept
   {
     return flow().is_input();
-  }
-
-  [[nodiscard]] constexpr bool is_output() const noexcept
-  {
-    return flow().is_output();
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,

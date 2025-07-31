@@ -20,7 +20,7 @@ namespace gtopt
 
 /**
  * Represents a directed flow between components in an optimization network.
- * 
+ *
  * Each flow has:
  * - Unique identifier and name
  * - Direction (input/output)
@@ -29,21 +29,21 @@ namespace gtopt
  */
 struct Flow
 {
-  Uid uid {};                     ///< Unique identifier for the flow
-  Name name {};                   ///< Human-readable name
-  OptActive active {};            ///< Activation status
+  Uid uid {};  ///< Unique identifier for the flow
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status
 
   /// Flow direction: 1 for input, -1 for output
   Int direction {1};
 
-  SingleId junction {};           ///< Connected junction identifier
-  STBRealFieldSched discharge {}; ///< Discharge schedule by scenario/time/block
+  SingleId junction {};  ///< Connected junction identifier
+  STBRealFieldSched discharge {};  ///< Discharge schedule
 
   /// @returns true if flow is directed into the junction
-  [[nodiscard]] constexpr bool is_input() const noexcept { return direction > 0; }
-  
-  /// @returns true if flow is directed out of the junction  
-  [[nodiscard]] constexpr bool is_output() const noexcept { return direction < 0; }
+  [[nodiscard]] constexpr bool is_input() const noexcept
+  {
+    return direction > 0;
+  }
 };
 
 }  // namespace gtopt
