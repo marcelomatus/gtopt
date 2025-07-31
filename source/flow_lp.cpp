@@ -64,7 +64,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
 
     // adding flow to the junction balances
     auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[fcol] = flow().is_input() ? 1 : -1;
+    brow[fcol] = is_input() ? 1 : -1;
   }
 
   // storing the indices for this scenario and stage
