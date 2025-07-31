@@ -1,6 +1,6 @@
 /**
  * @file      json_flow.hpp
- * @brief     JSON serialization for Flow objects  
+ * @brief     JSON serialization for Flow objects
  * @date      Wed Jul 30 21:56:08 2025
  * @author    marcelo
  * @copyright BSD-3-Clause

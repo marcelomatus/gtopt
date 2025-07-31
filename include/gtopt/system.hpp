@@ -15,6 +15,7 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
+#include <gtopt/flow.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/junction.hpp>
@@ -51,6 +52,7 @@ struct System
 
   Array<Junction> junction_array {};
   Array<Waterway> waterway_array {};
+  Array<Flow> flow_array {};
 
   /**
    * @brief Merges another system into this one
@@ -91,6 +93,7 @@ struct System
 
     gtopt::merge(junction_array, std::forward<T>(sys).junction_array);
     gtopt::merge(waterway_array, std::forward<T>(sys).waterway_array);
+    gtopt::merge(flow_array, std::forward<T>(sys).flow_array);
 
     return *this;
   }
