@@ -91,10 +91,12 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  return emplace_bholder(scenario, stage, spillover_cols, std::move(scols))
-             .second
-      && emplace_bholder(scenario, stage, spillover_rows, std::move(srows))
-             .second;
+  // storing the indices for this scenario and stage
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  spillover_cols[st_key] = std::move(scols);
+  spillover_rows[st_key] = std::move(srows);
+
+  return true;
 }
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
@@ -102,6 +104,7 @@ bool GeneratorProfileLP::add_to_output(OutputContext& out) const
   constexpr std::string_view cname = ClassName;
 
   out.add_col_sol(cname, "spillover", id(), spillover_cols);
+  out.add_col_cost(cname, "spillover", id(), spillover_cols);
   out.add_row_dual(cname, "spillover", id(), spillover_rows);
 
   return true;

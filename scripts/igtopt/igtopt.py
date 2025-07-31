@@ -32,7 +32,7 @@ expected_sheets = [
     "reserve_provision_array",
     "junction_array",
     "waterway_array",
-    "inflow_array",
+    "flow_array",
     "outflow_array",
     "reservoir_array",
     "filtration_array",

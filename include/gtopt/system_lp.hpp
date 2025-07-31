@@ -20,6 +20,7 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
+#include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/junction_lp.hpp>
@@ -76,6 +77,7 @@ static_assert(AddToLP<ReserveProvisionLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
+static_assert(AddToLP<FlowLP>);
 
 /**
  * @class SystemLP
@@ -137,7 +139,8 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<JunctionLP>,
-                                   Collection<WaterwayLP>>;
+                                   Collection<WaterwayLP>,
+                                   Collection<FlowLP>>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept

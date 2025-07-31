@@ -53,7 +53,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
-
   // adding the minimum energy constraint
   auto emin_row = [&](const auto& stage_emin,
                       const auto& stage_ecost) -> std::optional<SparseRow>
@@ -80,8 +79,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
 
   BIndexHolder<ColIndex> lcols;
-  lcols.reserve(blocks.size());
   BIndexHolder<RowIndex> crows;
+  lcols.reserve(blocks.size());
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {

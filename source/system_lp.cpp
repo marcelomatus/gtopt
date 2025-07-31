@@ -166,12 +166,10 @@ constexpr auto create_collections(const auto& system_context, const auto& sys)
       make_collection<JunctionLP>(ic, sys.junction_array);
   std::get<Collection<WaterwayLP>>(colls) =
       make_collection<WaterwayLP>(ic, sys.waterway_array);
+  std::get<Collection<FlowLP>>(colls) =
+      make_collection<FlowLP>(ic, sys.flow_array);
 
 #ifdef GTOPT_EXTRA
-  std::get<Collection<InflowLP>>(colls) =
-      make_collection<InflowLP>(ic, sys.inflows);
-  std::get<Collection<OutflowLP>>(colls) =
-      make_collection<OutflowLP>(ic, sys.outflows);
   std::get<Collection<ReservoirLP>>(colls) =
       make_collection<ReservoirLP>(ic, sys.reservoirs);
   std::get<Collection<FiltrationLP>>(colls) =
