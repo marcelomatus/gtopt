@@ -22,10 +22,14 @@ struct Flow
   Name name {};
   OptActive active {};
 
-  Int direction {1};  // Indicates if it is an input(1) or output(-1) flow
+  /// Flow direction: 1 for input, -1 for output
+  Int direction {1};
 
   SingleId junction {};
   STBRealFieldSched discharge {};
+
+  [[nodiscard]] constexpr bool is_input() const noexcept { return direction > 0; }
+  [[nodiscard]] constexpr bool is_output() const noexcept { return direction < 0; }
 };
 
 }  // namespace gtopt
