@@ -1,11 +1,11 @@
 /**
  * @file      filtration_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of FiltrationLP methods
  * @date      Thu Jul 31 23:33:04 2025
- * @author    marcelo
+ * @author    marcelo  
  * @copyright BSD-3-Clause
  *
- * This module
+ * Implements the linear programming formulation for filtration systems.
  */
 
 #include <gtopt/filtration_lp.hpp>

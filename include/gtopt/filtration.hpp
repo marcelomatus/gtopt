@@ -1,11 +1,12 @@
 /**
- * @file      filtration.hpp
- * @brief     Header of
+ * @file      filtration.hpp  
+ * @brief     Filtration system model definition
  * @date      Thu Jul 31 23:22:44 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Defines the Filtration class representing a water filtration system in 
+ * hydrological modeling.
  */
 
 #pragma once
@@ -16,16 +17,29 @@
 namespace gtopt
 {
 
+/**
+ * @brief Water filtration system model
+ *
+ * Represents a filtration system with connections to waterways and reservoirs,
+ * including physical properties like slope and constant.
+ */
 struct Filtration
 {
-  Uid uid {unknown_uid};
-  Name name {};
-  OptActive active {};
+  Uid uid {unknown_uid};            ///< Unique identifier
+  Name name {};                     ///< Human-readable name  
+  OptActive active {};              ///< Operational status
 
-  SingleId waterway {unknown_uid};
-  SingleId reservoir {unknown_uid};
-  Real slope {};
-  Real constant {};
+  SingleId waterway {unknown_uid};  ///< Connected waterway identifier
+  SingleId reservoir {unknown_uid}; ///< Connected reservoir identifier
+  Real slope {};                    ///< Slope coefficient
+  Real constant {};                 ///< Constant term
+
+  /// Default constructor
+  constexpr Filtration() noexcept = default;
+
+  /// Parameterized constructor
+  constexpr Filtration(Uid uid, Name name) noexcept 
+    : uid(uid), name(std::move(name)) {}
 };
 
 }  // namespace gtopt
