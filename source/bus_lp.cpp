@@ -7,10 +7,13 @@
 namespace gtopt
 {
 
-auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
+[[nodiscard]] 
+auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool 
 {
-  return !sc.options().use_single_bus() && sc.options().use_kirchhoff()
-      && bus().needs_kirchhoff(sc.options().kirchhoff_threshold());
+  const auto& opts = sc.options();
+  return !opts.use_single_bus() 
+      && opts.use_kirchhoff()
+      && bus().needs_kirchhoff(opts.kirchhoff_threshold());
 }
 
 auto BusLP::lazy_add_theta(const SystemContext& sc,
