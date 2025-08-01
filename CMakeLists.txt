@@ -24,9 +24,9 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
 endif()
 
 # ---- Add dependencies via CPM ----
-# see https://github.com/TheLartians/CPM.cmake for more info
-# Set cache directory (default is ${CMAKE_BINARY_DIR}/cmake)
-# set(CPM_SOURCE_CACHE "${CMAKE_BINARY_DIR}/.cpm_cache")
+# see https://github.com/TheLartians/CPM.cmake for more info Set cache directory
+# (default is ${CMAKE_BINARY_DIR}/cmake) set(CPM_SOURCE_CACHE
+# "${CMAKE_BINARY_DIR}/.cpm_cache")
 
 # You can also set a global cache location for all projects
 set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/cpm")
@@ -37,18 +37,15 @@ set(CPM_USE_LOCAL_PACKAGES ON)
 # Or make it fallback to download if not in cache
 set(CPM_DOWNLOAD_ALL ON)
 
-set(CPPCHECK_ARGS
-  "--check-level=exhaustive"
-  "--suppress=returnDanglingLifetime"
-  "--suppress=internalAstError"
+set(CPPCHECK_ARGS "--check-level=exhaustive" "--suppress=returnDanglingLifetime"
+                  "--suppress=internalAstError"
 )
-#set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
+# set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 
 set(USE_CCACHE YES)
 
 include(cmake/CPM.cmake)
 include(cmake/tools.cmake)
-
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
@@ -92,10 +89,10 @@ CPMAddPackage(
 # detect new files automatically. Keep that in mind when changing files, or
 # explicitly mention them here.
 file(GLOB_RECURSE headers CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/include/[a-zA-Z]*.hpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/[a-zA-Z]*.hpp"
 )
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
 # ---- Create library ----
@@ -103,7 +100,6 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
 # Note: for header-only libraries change all PUBLIC flags to INTERFACE and create an
 # interface target: add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME} ${headers} ${sources})
-
 
 # Set experimental flag to enable `import std` support from CMake. This must be
 # enabled before C++ language support.
@@ -178,10 +174,6 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES
-    "range-v3 0.12.0"
-    "spdlog 1.12.0"
-    "fmt 9.1.0"
-    "strong_type 15"
-    "daw 3.30.2"
+  DEPENDENCIES "range-v3 0.12.0" "spdlog 1.12.0" "fmt 9.1.0" "strong_type 15"
+               "daw 3.30.2"
 )

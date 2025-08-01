@@ -16,8 +16,10 @@ option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 cmake_policy(SET CMP0167 NEW)
-set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError")
-#set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
+set(CPPCHECK_ARGS
+    "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
+)
+# set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
 set(USE_CCACHE YES)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

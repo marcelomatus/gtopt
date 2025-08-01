@@ -23,8 +23,6 @@ GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
     : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
     , scost(ic, ClassName, id(), std::move(generator_profile().scost))
     , profile(ic, ClassName, id(), std::move(generator_profile().profile))
-    , generator_index(
-          ic.make_element_index<GeneratorLP>(generator_profile(), generator()))
 {
 }
 
@@ -39,7 +37,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generator_lp = sc.element(generator_index);
+  auto&& generator_lp = sc.element<GeneratorLP>(this->generator());
   if (!generator_lp.is_active(stage)) {
     return true;
   }

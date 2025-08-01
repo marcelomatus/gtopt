@@ -7,12 +7,11 @@
 namespace gtopt
 {
 
-[[nodiscard]] 
-auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool 
+[[nodiscard]]
+auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
 {
   const auto& opts = sc.options();
-  return !opts.use_single_bus() 
-      && opts.use_kirchhoff()
+  return !opts.use_single_bus() && opts.use_kirchhoff()
       && bus().needs_kirchhoff(opts.kirchhoff_threshold());
 }
 

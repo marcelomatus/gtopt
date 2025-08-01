@@ -101,7 +101,4 @@ struct Generator
   }
 };
 
-using GeneratorVar = std::variant<Uid, Name, GeneratorAttrs>;
-using OptGeneratorVar = std::optional<GeneratorVar>;
-
 }  // namespace gtopt

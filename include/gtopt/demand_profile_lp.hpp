@@ -22,10 +22,15 @@ public:
 
   explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& demand_profile() { return object(); }
-  [[nodiscard]] constexpr auto&& demand_profile() const { return object(); }
+  [[nodiscard]] constexpr auto&& demand_profile(this auto&& self)
+  {
+    return self.object();
+  }
 
-  [[nodiscard]] auto&& demand() const { return demand_profile().demand; }
+  [[nodiscard]] constexpr auto demand() const noexcept
+  {
+    return DemandLPSId {demand_profile().demand};
+  }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
@@ -40,8 +45,6 @@ private:
 
   STBIndexHolder<ColIndex> spillover_cols;
   STBIndexHolder<RowIndex> spillover_rows;
-
-  ElementIndex<DemandLP> demand_index;
 };
 
 }  // namespace gtopt

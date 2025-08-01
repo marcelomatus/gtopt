@@ -24,12 +24,14 @@ public:
   explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
                               InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& generator_profile() { return object(); }
-  [[nodiscard]] constexpr auto&& generator_profile() const { return object(); }
-
-  [[nodiscard]] auto&& generator() const
+  [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
   {
-    return generator_profile().generator;
+    return self.object();
+  }
+
+  [[nodiscard]] constexpr auto generator() const noexcept
+  {
+    return GeneratorLPSId {generator_profile().generator};
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
@@ -45,8 +47,6 @@ private:
 
   STBIndexHolder<ColIndex> spillover_cols;
   STBIndexHolder<RowIndex> spillover_rows;
-
-  ElementIndex<GeneratorLP> generator_index;
 };
 
 }  // namespace gtopt

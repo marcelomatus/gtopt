@@ -21,7 +21,7 @@ struct DemandProfile
   Name name {};
   OptActive active {};
 
-  DemandVar demand {};
+  SingleId demand {};
   STBRealFieldSched profile {};
   OptTRealFieldSched scost {};
 };

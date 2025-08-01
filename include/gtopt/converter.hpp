@@ -14,28 +14,8 @@ struct Converter
   OptActive active {};
 
   SingleId battery {};
-
-  /**
-   * You must specify a 'bus_generator' or a 'generator'. If you specify the
-   *  bus_generator, an auxiliary generator will be created using the same
-   *  converter uid and name.
-   */
-  OptSingleId bus_generator {};
-  OptGeneratorVar generator {};
-
-  /**
-   * You must specify a 'bus_demand' or a 'demand'. If you specify the
-   *  bus_demand, an auxiliary demand will be created using the same
-   *  converter uid and name.
-   */
-  OptSingleId bus_demand {};
-  OptDemandVar demand {};
-
-  /**
-   * The lossfactor will be used in both auxiliary generator and demand created
-   * when you use define the bus_generator and bus_demand
-   */
-  OptTRealFieldSched lossfactor {};
+  SingleId generator {};
+  SingleId demand {};
 
   OptTRealFieldSched conversion_rate {};
 

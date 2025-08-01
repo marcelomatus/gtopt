@@ -28,8 +28,10 @@ public:
 
   using CapacityBase = CapacityObjectLP<Converter>;
 
-  [[nodiscard]] constexpr auto&& converter() { return object(); }
-  [[nodiscard]] constexpr auto&& converter() const { return object(); }
+  [[nodiscard]] constexpr auto&& converter(this auto&& self)
+  {
+    return self.object();
+  }
 
   explicit ConverterLP(Converter pconverter, InputContext& ic);
 
@@ -40,56 +42,10 @@ public:
 
   [[nodiscard]] auto generator() const
   {
-    if (auto&& bus_gen = converter().bus_generator) {
-      if (converter().generator) {
-        const auto msg = fmt::format(
-            "in converter {} can't define both bus_generator and generator "
-            "fields",
-            uid());
-        SPDLOG_CRITICAL(msg);
-        throw std::runtime_error(msg);
-      }
-
-      return GeneratorVar {GeneratorAttrs {.bus = bus_gen.value(),
-                                           .lossfactor = converter().lossfactor,
-                                           .gcost = 0.0}};
-    }
-
-    if (auto&& gen = converter().generator) {
-      return gen.value();
-    }
-
-    const auto msg =
-        fmt::format("in converter {} missing bus or generator", uid());
-    SPDLOG_CRITICAL(msg);
-    throw std::runtime_error(msg);
+    return GeneratorLPSId {converter().generator};
   }
 
-  [[nodiscard]] auto demand() const
-  {
-    if (auto&& bus_dem = converter().bus_demand) {
-      if (converter().demand) {
-        const auto msg = fmt::format(
-            "in converter {} can't define both bus_demand and demand "
-            "fields",
-            uid());
-        SPDLOG_CRITICAL(msg);
-        throw std::runtime_error(msg);
-      }
-      return DemandVar {DemandAttrs {.bus = bus_dem.value(),
-                                     .lossfactor = converter().lossfactor,
-                                     .fcost = 0.0}};
-    }
-
-    if (auto&& dem = converter().demand) {
-      return dem.value();
-    }
-
-    const auto msg =
-        fmt::format("in converter {} missing bus or demand", uid());
-    SPDLOG_CRITICAL(msg);
-    throw std::runtime_error(msg);
-  }
+  [[nodiscard]] auto demand() const { return DemandLPSId {converter().demand}; }
 
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,
@@ -103,10 +59,6 @@ private:
 
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;
-
-  ElementIndex<GeneratorLP> generator_index;
-  ElementIndex<DemandLP> demand_index;
-  ElementIndex<BatteryLP> battery_index;
 };
 
 }  // namespace gtopt

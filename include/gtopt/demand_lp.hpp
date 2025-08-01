@@ -59,4 +59,7 @@ private:
   GSTIndexHolder<RowIndex> emin_rows;
 };
 
+using DemandLPId = ObjectId<DemandLP>;
+using DemandLPSId = ObjectSingleId<DemandLP>;
+
 }  // namespace gtopt

@@ -14,7 +14,7 @@ struct json_data_contract<DemandProfile>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
-      json_variant<"demand", DemandVar, jvtl_DemandVar>,
+      json_variant<"demand", SingleId>,
       json_variant<"profile", STBRealFieldSched, jvtl_STBRealFieldSched>,
       json_variant_null<"scost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
 

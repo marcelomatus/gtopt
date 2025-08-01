@@ -88,10 +88,4 @@ struct json_data_contract<Generator>
   }
 };
 
-using gtopt::GeneratorVar;
-using gtopt::OptGeneratorVar;
-
-using jvtl_GeneratorVar =
-    json_variant_type_list<Uid, Name, json_class_no_name<GeneratorAttrs>>;
-
 }  // namespace daw::json

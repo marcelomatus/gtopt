@@ -1,7 +1,7 @@
 /**
- * @file      generator_profile.hpp
+ * @file      turbine.hpp
  * @brief     Header of
- * @date      Tue Apr  1 21:20:35 2025
+ * @date      Thu Jul 31 01:50:54 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
@@ -10,20 +10,24 @@
 
 #pragma once
 
+#include <gtopt/field_sched.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/single_id.hpp>
 
 namespace gtopt
 {
 
-struct GeneratorProfile
+struct Turbine
 {
-  Uid uid {unknown_uid};
+  Uid uid {};
   Name name {};
   OptActive active {};
 
+  SingleId waterway {};
   SingleId generator {};
-  STBRealFieldSched profile {};
-  OptTRealFieldSched scost {};
+
+  OptTRealFieldSched conversion_rate {};
+  OptTRealFieldSched capacity {};
 };
 
 }  // namespace gtopt
