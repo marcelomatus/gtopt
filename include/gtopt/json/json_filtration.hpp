@@ -18,8 +18,8 @@ struct json_data_contract<Filtration>
                        json_variant_null<"active", OptActive, jvtl_Active>,
                        json_variant<"waterway", SingleId>,
                        json_variant<"reservoir", SingleId>,
-                       json_number<"slope", Real, std::optional<double>>,
-                       json_number<"constant", Real, std::optional<double>>>;
+                       json_number_null<"slope", Real>,
+                       json_number_null<"constant", Real>>;
 
   static constexpr auto to_json_data(Filtration const& filtration)
   {
