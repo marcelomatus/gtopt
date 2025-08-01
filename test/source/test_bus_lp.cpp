@@ -47,29 +47,16 @@ TEST_CASE("BusLP construction and basic properties")
 
     Bus bus(1, "bus_1");
     bus.voltage = 220.0;
-    BusLP bus_lp(std::move(bus), ic);
+    bus.reference_theta = 0.0;
+    bus.use_kirchhoff = true;
+
+    const BusLP bus_lp(std::move(bus), ic);
 
     CHECK(bus_lp.uid() == 1);
     CHECK(bus_lp.voltage() == 220.0);
-    CHECK(bus_lp.use_kirchhoff());
+    CHECK(bus_lp.reference_theta().value() == 0.0);
+    CHECK(bus_lp.use_kirchhoff() == true);
   }
-  InputContext ic(sc);
-
-  // Create a bus
-  Bus bus(1, "bus_1");
-  bus.voltage = 220.0;
-  bus.reference_theta = 0.0;
-  bus.use_kirchhoff = true;
-
-  // Create the BusLP object
-  BusLP bus_lp(ic, std::move(bus));
-
-  // Check basic accessors
-  CHECK(bus_lp.uid() == 1);
-  CHECK(bus_lp.voltage() == 220.0);
-  CHECK(bus_lp.reference_theta().value() == 0.0);
-  CHECK(bus_lp.use_kirchhoff() == true);
-#endif
 }
 
 TEST_CASE("BusLP needs_kirchhoff method")
