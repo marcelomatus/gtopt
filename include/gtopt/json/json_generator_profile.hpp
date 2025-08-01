@@ -1,6 +1,5 @@
 #pragma once
 
-#include <daw/json/daw_json_link.h>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/json/json_generator.hpp>
 
@@ -15,7 +14,7 @@ struct json_data_contract<GeneratorProfile>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
-      json_variant<"generator", GeneratorVar, jvtl_GeneratorVar>,
+      json_variant<"generator", SingleId>,
       json_variant<"profile", STBRealFieldSched, jvtl_STBRealFieldSched>,
       json_variant_null<"scost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
 

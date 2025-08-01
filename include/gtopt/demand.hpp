@@ -94,17 +94,4 @@ struct Demand
     return *this;
   }
 };
-
-/**
- * @typedef DemandVar
- * @brief Variant type that can hold a demand identifier or attributes
- */
-using DemandVar = std::variant<Uid, Name, DemandAttrs>;
-
-/**
- * @typedef OptDemandVar
- * @brief Optional variant for demand-related data
- */
-using OptDemandVar = std::optional<DemandVar>;
-
 }  // namespace gtopt

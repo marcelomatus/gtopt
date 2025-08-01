@@ -50,12 +50,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto has_loss = stage_lossfactor > 0.0;
 
   BIndexHolder<ColIndex> fpcols;
-  fpcols.reserve(blocks.size());
   BIndexHolder<RowIndex> cprows;
-  cprows.reserve(blocks.size());
   BIndexHolder<ColIndex> fncols;
-  fncols.reserve(blocks.size());
   BIndexHolder<RowIndex> cnrows;
+  fpcols.reserve(blocks.size());
+  cprows.reserve(blocks.size());
+  fncols.reserve(blocks.size());
   cnrows.reserve(blocks.size());
 
   for (const auto& block : blocks) {

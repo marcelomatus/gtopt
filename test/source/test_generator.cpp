@@ -51,21 +51,3 @@ TEST_CASE("Generator construction and attributes")
   CHECK(std::get<IntBool>(gen.active.value()) == 1);
   CHECK(std::get<Uid>(gen.bus) == 5);
 }
-
-TEST_CASE("GeneratorVar variant usage")
-{
-  GeneratorVar var_uid = Uid {123};
-  GeneratorVar var_name = Name {"Gen1"};
-  GeneratorAttrs attrs;
-  attrs.bus = Uid {42};
-  GeneratorVar var_attrs = attrs;
-
-  // Check variant access
-  CHECK(std::holds_alternative<Uid>(var_uid));
-  CHECK(std::holds_alternative<Name>(var_name));
-  CHECK(std::holds_alternative<GeneratorAttrs>(var_attrs));
-
-  CHECK(std::get<Uid>(var_uid) == 123);
-  CHECK(std::get<Name>(var_name) == "Gen1");
-  CHECK(std::get<Uid>(std::get<GeneratorAttrs>(var_attrs).bus) == 42);
-}

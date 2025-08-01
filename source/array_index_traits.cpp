@@ -137,7 +137,8 @@ namespace gtopt
       if (table) {
         return table;
       }
-      SPDLOG_WARN(fmt::format("Error reading table from parquet: {}", table.error()));
+      SPDLOG_WARN(
+          fmt::format("Error reading table from parquet: {}", table.error()));
       return csv_read_table(fpath);
     }
 

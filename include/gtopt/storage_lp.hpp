@@ -49,10 +49,10 @@ public:
     return vfin_cols.at({scenario.uid(), stage.uid()});
   }
 
-  constexpr auto vini_col_at(const ScenarioUid scenario,
-                             const StageUid stage) const
+  constexpr auto vini_col_at(const ScenarioLP& scenario,
+                             const StageLP& stage) const
   {
-    return vini_cols.at({scenario, stage});
+    return vini_cols.at({scenario.uid(), stage.uid()});
   }
 
   template<typename SystemContextT>
@@ -137,15 +137,17 @@ public:
       prev_vc = vc;
     }
 
-    return (crows.empty()
-            || emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
-                   .second)
-        && emplace_value(scenario, stage, vini_cols, vicol).second
-        && emplace_value(scenario, stage, vfin_cols, prev_vc).second
-        && emplace_bholder(scenario, stage, volumen_rows, std::move(vrows))
-               .second
-        && emplace_bholder(scenario, stage, volumen_cols, std::move(vcols))
-               .second;
+    // storing the indices for this scenario and stage
+    const auto st_key = std::pair {scenario.uid(), stage.uid()};
+    vini_cols[st_key] = vicol;
+    vfin_cols[st_key] = prev_vc;
+    volumen_rows[st_key] = std::move(vrows);
+    volumen_cols[st_key] = std::move(vcols);
+    if (!crows.empty()) {
+      capacity_rows[st_key] = std::move(crows);
+    }
+
+    return true;
   }
 
   template<typename OutputContext>

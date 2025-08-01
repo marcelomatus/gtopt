@@ -61,4 +61,4 @@ struct Battery
       annual_derating {};  ///< Annual derating factor (degradation rate)
 };
 
-} // namespace gtopt
+}  // namespace gtopt

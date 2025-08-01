@@ -15,6 +15,7 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
+#include <gtopt/filtration.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
@@ -23,6 +24,7 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/reservoir.hpp>
+#include <gtopt/turbine.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 
@@ -55,6 +57,8 @@ struct System
   Array<Waterway> waterway_array {};
   Array<Flow> flow_array {};
   Array<Reservoir> reservoir_array {};
+  Array<Filtration> filtration_array {};
+  Array<Turbine> turbine_array {};
 
   /**
    * @brief Merges another system into this one
@@ -97,6 +101,8 @@ struct System
     gtopt::merge(waterway_array, std::forward<T>(sys).waterway_array);
     gtopt::merge(flow_array, std::forward<T>(sys).flow_array);
     gtopt::merge(reservoir_array, std::forward<T>(sys).reservoir_array);
+    gtopt::merge(filtration_array, std::forward<T>(sys).filtration_array);
+    gtopt::merge(turbine_array, std::forward<T>(sys).turbine_array);
 
     return *this;
   }

@@ -15,6 +15,7 @@
 
 namespace gtopt
 {
+
 class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
@@ -22,17 +23,16 @@ public:
 
   explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
 
-  [[nodiscard]]
-  constexpr auto&& waterway(this auto&& self) noexcept
+  [[nodiscard]] constexpr auto&& waterway(this auto&& self) noexcept
   {
     return self.object();
   }
 
-  [[nodiscard]] auto junction_a() const noexcept
+  [[nodiscard]] constexpr auto junction_a() const noexcept
   {
     return JunctionLPSId {waterway().junction_a};
   }
-  [[nodiscard]] auto junction_b() const noexcept
+  [[nodiscard]] constexpr auto junction_b() const noexcept
   {
     return JunctionLPSId {waterway().junction_b};
   }
@@ -41,10 +41,11 @@ public:
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp);
+
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
-                                    const StageLP& stage) const
+  [[nodiscard]] constexpr auto&& flow_cols_at(const ScenarioLP& scenario,
+                                              const StageLP& stage) const
   {
     return flow_cols.at({scenario.uid(), stage.uid()});
   }
@@ -57,5 +58,8 @@ private:
 
   STBIndexHolder<ColIndex> flow_cols;
 };
+
+using WaterwayLPId = ObjectId<class WaterwayLP>;
+using WaterwayLPSId = ObjectSingleId<class WaterwayLP>;
 
 }  // namespace gtopt

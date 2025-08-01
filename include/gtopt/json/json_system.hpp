@@ -17,11 +17,17 @@
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
+#include <gtopt/json/json_filtration.hpp>
+#include <gtopt/json/json_flow.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
+#include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
+#include <gtopt/json/json_reservoir.hpp>
+#include <gtopt/json/json_turbine.hpp>
+#include <gtopt/json/json_waterway.hpp>
 #include <gtopt/system.hpp>
 
 namespace daw::json
@@ -50,7 +56,13 @@ struct json_data_contract<System>
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
                       Array<ReserveProvision>,
-                      ReserveProvision> >;
+                      ReserveProvision>,
+      json_array_null<"junction_array", Array<Junction>, Junction>,
+      json_array_null<"waterway_array", Array<Waterway>, Waterway>,
+      json_array_null<"flow_array", Array<Flow>, Flow>,
+      json_array_null<"reservoir_array", Array<Reservoir>, Reservoir>,
+      json_array_null<"filtration_array", Array<Filtration>, Filtration>,
+      json_array_null<"turbine_array", Array<Turbine>, Turbine>>;
 
   [[nodiscard]] constexpr static auto to_json_data(System const& system)
   {
@@ -65,7 +77,13 @@ struct json_data_contract<System>
                                  system.battery_array,
                                  system.converter_array,
                                  system.reserve_zone_array,
-                                 system.reserve_provision_array);
+                                 system.reserve_provision_array,
+                                 system.junction_array,
+                                 system.waterway_array,
+                                 system.flow_array,
+                                 system.reservoir_array,
+                                 system.filtration_array,
+                                 system.turbine_array);
   }
 };
 }  // namespace daw::json

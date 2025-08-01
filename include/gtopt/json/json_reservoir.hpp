@@ -1,13 +1,13 @@
 #pragma once
 
 #include <daw/json/daw_json_link.h>
-
-#include "daw_json_capacity.hpp"
-#include "reservoir.hpp"
+#include <gtopt/json/json_field_sched.hpp>
+#include <gtopt/json/json_single_id.hpp>
+#include <gtopt/reservoir.hpp>
 
 namespace daw::json
 {
-using fesop::Reservoir;
+using gtopt::Reservoir;
 
 template<>
 struct json_data_contract<Reservoir>

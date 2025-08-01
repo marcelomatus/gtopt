@@ -24,10 +24,6 @@ ConverterLP::ConverterLP(Converter pconverter, InputContext& ic)
     : CapacityBase(std::move(pconverter), ic, ClassName)
     , conversion_rate(
           ic, ClassName, id(), std::move(converter().conversion_rate))
-    , generator_index(
-          ic.make_element_index<GeneratorLP>(converter(), generator()))
-    , demand_index(ic.make_element_index<DemandLP>(converter(), demand()))
-    , battery_index(ic.element_index(battery()))
 {
 }
 
@@ -53,18 +49,18 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  auto&& generator = sc.element(generator_index);
+  auto&& generator = sc.element<GeneratorLP>(this->generator());
   auto&& gen_cols = generator.generation_cols_at(scenario, stage);
 
-  auto&& demand = sc.element(demand_index);
+  auto&& demand = sc.element<DemandLP>(this->demand());
   auto&& load_cols = demand.load_cols_at(scenario, stage);
 
-  auto&& battery = sc.element(battery_index);
+  auto&& battery = sc.element<BatteryLP>(this->battery());
   auto&& flow_cols = battery.flow_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
-  rrows.reserve(blocks.size());
   BIndexHolder<RowIndex> crows;
+  rrows.reserve(blocks.size());
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {
@@ -97,10 +93,12 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  return emplace_bholder(scenario, stage, capacity_rows, std::move(crows))
-             .second
-      && emplace_bholder(scenario, stage, conversion_rows, std::move(rrows))
-             .second;
+  // storing the indices for this scenario and stage
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  capacity_rows[st_key] = std::move(crows);
+  conversion_rows[st_key] = std::move(rrows);
+
+  return true;
 }
 
 bool ConverterLP::add_to_output(OutputContext& out) const

@@ -16,8 +16,10 @@ option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 cmake_policy(SET CMP0167 NEW)
-set(CPPCHECK_ARGS "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError")
-#set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
+set(CPPCHECK_ARGS
+    "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
+)
+# set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
 set(USE_CCACHE YES)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -47,8 +49,6 @@ add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
-
-
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)

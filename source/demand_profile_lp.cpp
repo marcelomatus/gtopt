@@ -23,7 +23,6 @@ DemandProfileLP::DemandProfileLP(DemandProfile pdemand_profile,
     : ObjectLP<DemandProfile>(std::move(pdemand_profile))
     , scost(ic, ClassName, id(), std::move(demand_profile().scost))
     , profile(ic, ClassName, id(), std::move(demand_profile().profile))
-    , demand_index(ic.make_element_index<DemandLP>(demand_profile(), demand()))
 {
 }
 
@@ -38,7 +37,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& demand_lp = sc.element(demand_index);
+  auto&& demand_lp = sc.element<DemandLP>(this->demand());
   if (!demand_lp.is_active(stage)) {
     return true;
   }

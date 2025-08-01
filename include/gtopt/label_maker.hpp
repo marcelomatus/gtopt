@@ -5,9 +5,10 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * The LabelMaker class provides functionality to generate labels for linear programming (LP)
- * variables based on various context objects (like stages, scenarios, blocks) and options.
- * It conditionally creates labels only when the use_lp_names option is enabled.
+ * The LabelMaker class provides functionality to generate labels for linear
+ * programming (LP) variables based on various context objects (like stages,
+ * scenarios, blocks) and options. It conditionally creates labels only when the
+ * use_lp_names option is enabled.
  */
 
 #pragma once

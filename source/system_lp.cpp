@@ -170,12 +170,12 @@ constexpr auto create_collections(const auto& system_context, const auto& sys)
       make_collection<FlowLP>(ic, sys.flow_array);
   std::get<Collection<ReservoirLP>>(colls) =
       make_collection<ReservoirLP>(ic, sys.reservoir_array);
+  std::get<Collection<FiltrationLP>>(colls) =
+      make_collection<FiltrationLP>(ic, sys.filtration_array);
+  std::get<Collection<TurbineLP>>(colls) =
+      make_collection<TurbineLP>(ic, sys.turbine_array);
 
 #ifdef GTOPT_EXTRA
-  std::get<Collection<FiltrationLP>>(colls) =
-      make_collection<FiltrationLP>(ic, sys.filtrations);
-  std::get<Collection<TurbineLP>>(colls) =
-      make_collection<TurbineLP>(ic, sys.turbines);
   std::get<Collection<EmissionZoneLP>>(colls) =
       make_collection<EmissionZoneLP>(ic, sys.emission_zones);
   std::get<Collection<GeneratorEmissionLP>>(colls) =

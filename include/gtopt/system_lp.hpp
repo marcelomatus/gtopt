@@ -20,6 +20,7 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
+#include <gtopt/filtration_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
@@ -38,6 +39,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/turbine_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -80,6 +82,8 @@ static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
 static_assert(AddToLP<FlowLP>);
 static_assert(AddToLP<ReservoirLP>);
+static_assert(AddToLP<FiltrationLP>);
+static_assert(AddToLP<TurbineLP>);
 
 /**
  * @class SystemLP
@@ -143,7 +147,9 @@ public:
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,
-                                   Collection<ReservoirLP>>;
+                                   Collection<ReservoirLP>,
+                                   Collection<FiltrationLP>,
+                                   Collection<TurbineLP>>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
