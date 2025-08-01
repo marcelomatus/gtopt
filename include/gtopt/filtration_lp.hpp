@@ -33,9 +33,9 @@ public:
   /// @param pfiltration The filtration system to wrap
   /// @param ic Input context for LP construction
   [[nodiscard]]
-  explicit constexpr FiltrationLP(Filtration pfiltration, 
+  explicit constexpr FiltrationLP(const Filtration& pfiltration,
                                 InputContext& ic) noexcept
-      : ObjectLP<Filtration>(std::move(pfiltration), ic)
+      : ObjectLP<Filtration>(pfiltration, ic, ClassName)
   {}
 
   [[nodiscard]] constexpr auto&& filtration(this auto&& self) noexcept
