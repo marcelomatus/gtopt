@@ -9,49 +9,43 @@ TEST_CASE("Turbine daw json test 1")
   std::string_view json_data = R"({
     "uid":5,
     "name":"TURBINE_A",
-    "reservoir":10,
-    "power":100.0,
-    "efficiency":0.85
+    "capacity":100.0,
+    "head":50.0
   })";
 
   gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
 
   REQUIRE(turbine.uid == 5);
   REQUIRE(turbine.name == "TURBINE_A");
-  REQUIRE(turbine.reservoir == 10);
-  REQUIRE(turbine.power == 100.0);
-  REQUIRE(turbine.efficiency == 0.85);
+  REQUIRE(turbine.capacity == 100.0);
+  REQUIRE(turbine.head == 50.0);
 }
 
 TEST_CASE("Turbine daw json test 2")
 {
   std::string_view json_data = R"({
     "uid":5,
-    "name":"TURBINE_A",
-    "reservoir":10
+    "name":"TURBINE_A"
   })";
 
   gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
 
   REQUIRE(turbine.uid == 5);
   REQUIRE(turbine.name == "TURBINE_A");
-  REQUIRE(turbine.reservoir == 10);
-  REQUIRE(turbine.power == 0.0); // default value
-  REQUIRE(turbine.efficiency == 0.0); // default value
+  REQUIRE(turbine.capacity == 0.0); // default value
+  REQUIRE(turbine.head == 0.0); // default value
 }
 
 TEST_CASE("Turbine array json test")
 {
   std::string_view json_data = R"([{
     "uid":5,
-    "name":"TURBINE_A",
-    "reservoir":10
+    "name":"TURBINE_A"
   },{
     "uid":15,
     "name":"TURBINE_B",
-    "reservoir":20,
-    "power":200.0,
-    "efficiency":0.9
+    "capacity":200.0,
+    "head":75.0
   }])";
 
   std::vector<gtopt::Turbine> turbines =
@@ -59,13 +53,13 @@ TEST_CASE("Turbine array json test")
 
   REQUIRE(turbines[0].uid == 5);
   REQUIRE(turbines[0].name == "TURBINE_A");
-  REQUIRE(turbines[0].reservoir == 10);
+  REQUIRE(turbines[0].capacity == 0.0);
+  REQUIRE(turbines[0].head == 0.0);
 
   REQUIRE(turbines[1].uid == 15);
   REQUIRE(turbines[1].name == "TURBINE_B");
-  REQUIRE(turbines[1].reservoir == 20);
-  REQUIRE(turbines[1].power == 200.0);
-  REQUIRE(turbines[1].efficiency == 0.9);
+  REQUIRE(turbines[1].capacity == 200.0);
+  REQUIRE(turbines[1].head == 75.0);
 }
 
 TEST_CASE("Turbine with active property serialization")
@@ -114,8 +108,8 @@ TEST_CASE("Turbine with empty optional fields")
     "uid":5,
     "name":"TURBINE_A",
     "active":null,
-    "power":null,
-    "efficiency":null
+    "capacity":null,
+    "head":null
   })";
 
   Turbine turbine = daw::json::from_json<Turbine>(json_data);
@@ -123,6 +117,6 @@ TEST_CASE("Turbine with empty optional fields")
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");
   CHECK(turbine.active.has_value() == false);
-  CHECK(turbine.power == 0.0); // null defaults to 0.0
-  CHECK(turbine.efficiency == 0.0); // null defaults to 0.0
+  CHECK(turbine.capacity == 0.0); // null defaults to 0.0
+  CHECK(turbine.head == 0.0); // null defaults to 0.0
 }
