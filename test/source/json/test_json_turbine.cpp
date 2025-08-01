@@ -17,8 +17,10 @@ TEST_CASE("Turbine daw json test 1")
 
   REQUIRE(turbine.uid == 5);
   REQUIRE(turbine.name == "TURBINE_A");
-  REQUIRE(turbine.capacity == 100.0);
-  REQUIRE(turbine.head == 50.0);
+  REQUIRE(turbine.capacity.has_value());
+  REQUIRE(std::get<double>(turbine.capacity.value()) == 100.0);
+  REQUIRE(turbine.head.has_value());
+  REQUIRE(std::get<double>(turbine.head.value()) == 50.0);
 }
 
 TEST_CASE("Turbine daw json test 2")
@@ -32,8 +34,8 @@ TEST_CASE("Turbine daw json test 2")
 
   REQUIRE(turbine.uid == 5);
   REQUIRE(turbine.name == "TURBINE_A");
-  REQUIRE(turbine.capacity == 0.0); // default value
-  REQUIRE(turbine.head == 0.0); // default value
+  REQUIRE(!turbine.capacity.has_value());
+  REQUIRE(!turbine.head.has_value());
 }
 
 TEST_CASE("Turbine array json test")
@@ -53,13 +55,15 @@ TEST_CASE("Turbine array json test")
 
   REQUIRE(turbines[0].uid == 5);
   REQUIRE(turbines[0].name == "TURBINE_A");
-  REQUIRE(turbines[0].capacity == 0.0);
-  REQUIRE(turbines[0].head == 0.0);
+  REQUIRE(!turbines[0].capacity.has_value());
+  REQUIRE(!turbines[0].head.has_value());
 
   REQUIRE(turbines[1].uid == 15);
   REQUIRE(turbines[1].name == "TURBINE_B");
-  REQUIRE(turbines[1].capacity == 200.0);
-  REQUIRE(turbines[1].head == 75.0);
+  REQUIRE(turbines[1].capacity.has_value());
+  REQUIRE(std::get<double>(turbines[1].capacity.value()) == 200.0);
+  REQUIRE(turbines[1].head.has_value());
+  REQUIRE(std::get<double>(turbines[1].head.value()) == 75.0);
 }
 
 TEST_CASE("Turbine with active property serialization")
@@ -116,7 +120,7 @@ TEST_CASE("Turbine with empty optional fields")
 
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");
-  CHECK(turbine.active.has_value() == false);
-  CHECK(turbine.capacity == 0.0); // null defaults to 0.0
-  CHECK(turbine.head == 0.0); // null defaults to 0.0
+  CHECK(!turbine.active.has_value());
+  CHECK(!turbine.capacity.has_value());
+  CHECK(!turbine.head.has_value());
 }
