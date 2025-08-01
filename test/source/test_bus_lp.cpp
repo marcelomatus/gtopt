@@ -54,8 +54,10 @@ TEST_CASE("BusLP construction and basic properties")
 
     CHECK(bus_lp.uid() == 1);
     CHECK(bus_lp.voltage() == 220.0);
+    REQUIRE(bus_lp.reference_theta().has_value());
     CHECK(bus_lp.reference_theta().value() == 0.0);
-    CHECK(bus_lp.use_kirchhoff() == true);
+    REQUIRE(bus_lp.use_kirchhoff().has_value());
+    CHECK(bus_lp.use_kirchhoff().value() == true);
   }
 }
 
