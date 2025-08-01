@@ -11,7 +11,7 @@
 
 using namespace gtopt;
 
-TEST_CASE("BusLP construction and basic properties") 
+TEST_CASE("BusLP construction and basic properties")
 {
   SUBCASE("Default construction")
   {
@@ -20,15 +20,15 @@ TEST_CASE("BusLP construction and basic properties")
     CHECK(bus.name.empty());
     CHECK(!bus.voltage.has_value());
     CHECK(!bus.reference_theta.has_value());
-    CHECK(bus.use_kirchhoff.value_or(false));
+    CHECK(!bus.use_kirchhoff.has_value());
   }
 
-  SUBCASE("Parameterized construction") 
+  SUBCASE("Parameterized construction")
   {
     Bus bus(1, "bus_1");
     CHECK(bus.uid == 1);
     CHECK(bus.name == "bus_1");
-    CHECK(bus.use_kirchhoff.value_or(false));
+    CHECK(!bus.use_kirchhoff.has_value());
   }
 
   SUBCASE("LP wrapper construction")
