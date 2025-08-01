@@ -24,12 +24,19 @@ namespace gtopt
  */
 struct Bus
 {
-  Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};  ///< Human-readable name
-  OptActive active {};  ///< Operational status
-  OptReal voltage {};  ///< Voltage magnitude (KV)
-  OptReal reference_theta {};  ///< Voltage angle reference (radians)
-  OptBool use_kirchhoff {};  ///< Flag for Kirchhoff's law application
+  Uid uid {unknown_uid};            ///< Unique identifier
+  Name name {};                     ///< Human-readable name
+  OptActive active {};              ///< Operational status
+  OptReal voltage {};               ///< Voltage magnitude (KV)
+  OptReal reference_theta {};       ///< Voltage angle reference (radians)
+  OptBool use_kirchhoff {true};     ///< Flag for Kirchhoff's law application
+
+  /// Default constructor
+  constexpr Bus() noexcept = default;
+
+  /// Parameterized constructor
+  constexpr Bus(Uid uid, Name name) noexcept 
+    : uid(uid), name(std::move(name)) {}
 
   /**
    * @brief Determines if Kirchhoff's law should be applied

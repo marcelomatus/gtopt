@@ -11,23 +11,48 @@
 
 using namespace gtopt;
 
-TEST_CASE("BusLP construction and basic properties")
+TEST_CASE("BusLP construction and basic properties") 
 {
-  // Create minimal input context
-  const OptionsLP options({});
-  const Simulation simu = {
-      .block_array = {{.uid = Uid {1}, .duration = 1}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}},
-  };
+  SUBCASE("Default construction")
+  {
+    Bus bus;
+    CHECK(bus.uid == unknown_uid);
+    CHECK(bus.name.empty());
+    CHECK(!bus.voltage.has_value());
+    CHECK(!bus.reference_theta.has_value());
+    CHECK(bus.use_kirchhoff.value_or(false));
+  }
 
-  SimulationLP simulation(simu, options);
+  SUBCASE("Parameterized construction") 
+  {
+    Bus bus(1, "bus_1");
+    CHECK(bus.uid == 1);
+    CHECK(bus.name == "bus_1");
+    CHECK(bus.use_kirchhoff.value_or(false));
+  }
 
-  const System sys;
-  SystemLP system(sys, simulation);
+  SUBCASE("LP wrapper construction")
+  {
+    const OptionsLP options({});
+    const Simulation simu = {
+        .block_array = {{.uid = Uid {1}, .duration = 1}},
+        .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+        .scenario_array = {{.uid = Uid {0}}},
+    };
 
-  const SystemContext sc(simulation, system);
-#ifdef NONE
+    SimulationLP simulation(simu, options);
+    SystemLP system({}, simulation);
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
+
+    Bus bus(1, "bus_1");
+    bus.voltage = 220.0;
+    BusLP bus_lp(std::move(bus), ic);
+
+    CHECK(bus_lp.uid() == 1);
+    CHECK(bus_lp.voltage() == 220.0);
+    CHECK(bus_lp.use_kirchhoff());
+  }
   InputContext ic(sc);
 
   // Create a bus

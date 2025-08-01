@@ -31,11 +31,14 @@ class BusLP : public ObjectLP<Bus>
 public:
   constexpr static std::string_view ClassName = "Bus";
 
+  /// Constructs a BusLP from a Bus and input context
+  /// @param pbus The bus to wrap
+  /// @param ic Input context for LP construction
   [[nodiscard]]
-  explicit BusLP(Bus pbus, [[maybe_unused]] const InputContext& ic) noexcept
-      : ObjectLP<Bus>(std::move(pbus))
-  {
-  }
+  explicit constexpr BusLP(Bus pbus, 
+                         [[maybe_unused]] const InputContext& ic) noexcept
+      : ObjectLP<Bus>(std::move(pbus)) 
+  {}
 
   [[nodiscard]]
   constexpr const auto& bus() const noexcept
