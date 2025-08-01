@@ -18,8 +18,8 @@
 namespace gtopt
 {
 
-FiltrationLP::FiltrationLP(Filtration pfiltration, InputContext& ic)
-    : ObjectLP<Filtration>(std::move(pfiltration), ic, ClassName)
+FiltrationLP::FiltrationLP(const Filtration& pfiltration, InputContext& ic) noexcept
+    : ObjectLP<Filtration>(pfiltration, ic, ClassName)
 {
 }
 
