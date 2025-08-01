@@ -18,18 +18,18 @@ struct json_data_contract<Filtration>
                        json_variant_null<"active", OptActive, jvtl_Active>,
                        json_variant<"waterway", SingleId>,
                        json_variant<"reservoir", SingleId>,
-                       json_number<"slope", Real>,
-                       json_number<"constant", Real>>;
+                       json_number<"slope", Real, std::optional<double>>,
+                       json_number<"constant", Real, std::optional<double>>>;
 
-  constexpr static auto to_json_data(Filtration const& filtration)
+  static constexpr auto to_json_data(Filtration const& filtration)
   {
     return std::forward_as_tuple(filtration.uid,
-                                 filtration.name,
-                                 filtration.active,
-                                 filtration.waterway,
-                                 filtration.reservoir,
-                                 filtration.slope,
-                                 filtration.constant);
+                                filtration.name,
+                                filtration.active,
+                                filtration.waterway,
+                                filtration.reservoir,
+                                filtration.slope,
+                                filtration.constant);
   }
 };
 }  // namespace daw::json
