@@ -2,7 +2,7 @@
  * @file      filtration_lp.cpp
  * @brief     Implementation of FiltrationLP methods
  * @date      Thu Jul 31 23:33:04 2025
- * @author    marcelo  
+ * @author    marcelo
  * @copyright BSD-3-Clause
  *
  * Implements the linear programming formulation for filtration systems.
@@ -17,12 +17,6 @@
 
 namespace gtopt
 {
-
-FiltrationLP::FiltrationLP(const Filtration& pfiltration, InputContext& ic) noexcept
-    : ObjectLP<Filtration>(pfiltration, ic, ClassName)
-{
-}
-
 bool FiltrationLP::add_to_lp(const SystemContext& sc,
                              const ScenarioLP& scenario,
                              const StageLP& stage,

@@ -1,18 +1,18 @@
 /**
  * @file      filtration_lp.hpp
  * @brief     Linear Programming representation of a Filtration system
- * @date      Thu Jul 31 01:49:05 2025  
+ * @date      Thu Jul 31 01:49:05 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * The FiltrationLP class provides a linear programming (LP) compatible 
+ * The FiltrationLP class provides a linear programming (LP) compatible
  * representation of a Filtration system for optimization problems.
  */
 
 #pragma once
 
 #include <gtopt/filtration.hpp>
-#include <gtopt/reservoir_lp.hpp> 
+#include <gtopt/reservoir_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -33,10 +33,11 @@ public:
   /// @param pfiltration The filtration system to wrap
   /// @param ic Input context for LP construction
   [[nodiscard]]
-  explicit constexpr FiltrationLP(const Filtration& pfiltration,
-                                InputContext& ic) noexcept
-      : ObjectLP<Filtration>(pfiltration, ic, ClassName)
-  {}
+  explicit constexpr FiltrationLP(Filtration pfiltration,
+                                  [[maybe_unused]] InputContext& ic) noexcept
+      : ObjectLP<Filtration>(std::move(pfiltration))
+  {
+  }
 
   [[nodiscard]] constexpr auto&& filtration(this auto&& self) noexcept
   {
