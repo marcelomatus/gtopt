@@ -13,15 +13,29 @@ TEST_CASE("Reservoir basic fields deserialization")
     "uid":123,
     "name":"TestReservoir",
     "active":true,
-    "junction":456
+    "junction":456,
+    "capacity":null,
+    "annual_loss":null,
+    "vmin":null,
+    "vmax":null,
+    "vcost":null,
+    "vini":null,
+    "vfin":null
   })";
 
   Reservoir res = daw::json::from_json<Reservoir>(json_data);
 
   REQUIRE(res.uid == 123);
   REQUIRE(res.name == "TestReservoir");
-  REQUIRE(res.active == true);
+  REQUIRE(res.active.value() == true);
   REQUIRE(std::get<Uid>(res.junction) == 456);
+  REQUIRE_FALSE(res.capacity.has_value());
+  REQUIRE_FALSE(res.annual_loss.has_value());
+  REQUIRE_FALSE(res.vmin.has_value());
+  REQUIRE_FALSE(res.vmax.has_value());
+  REQUIRE_FALSE(res.vcost.has_value());
+  REQUIRE_FALSE(res.vini.has_value());
+  REQUIRE_FALSE(res.vfin.has_value());
 }
 
 TEST_CASE("Reservoir optional fields deserialization")
@@ -92,18 +106,32 @@ TEST_CASE("Reservoir roundtrip serialization")
                       .vfin = OptReal {600.0}};
 
   auto json = daw::json::to_json(original);
+  
+  // Verify JSON contains expected fields
+  REQUIRE(json.find("\"uid\":123") != std::string::npos);
+  REQUIRE(json.find("\"name\":\"TestReservoir\"") != std::string::npos);
+  REQUIRE(json.find("\"active\":true") != std::string::npos);
+  REQUIRE(json.find("\"capacity\":1.0") != std::string::npos);
+
   Reservoir roundtrip = daw::json::from_json<Reservoir>(json);
 
   REQUIRE(roundtrip.uid == original.uid);
   REQUIRE(roundtrip.name == original.name);
-  REQUIRE(roundtrip.active == original.active);
-  REQUIRE(roundtrip.junction == original.junction);
+  REQUIRE(roundtrip.active.value() == original.active.value());
+  REQUIRE(std::get<Uid>(roundtrip.junction) == std::get<Uid>(original.junction));
+  REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(roundtrip.capacity.value() == original.capacity.value());
+  REQUIRE(roundtrip.annual_loss.has_value());
   REQUIRE(roundtrip.annual_loss.value() == original.annual_loss.value());
+  REQUIRE(roundtrip.vmin.has_value());
   REQUIRE(roundtrip.vmin.value() == original.vmin.value());
+  REQUIRE(roundtrip.vmax.has_value());
   REQUIRE(roundtrip.vmax.value() == original.vmax.value());
+  REQUIRE(roundtrip.vcost.has_value());
   REQUIRE(roundtrip.vcost.value() == original.vcost.value());
+  REQUIRE(roundtrip.vini.has_value());
   REQUIRE(roundtrip.vini.value() == original.vini.value());
+  REQUIRE(roundtrip.vfin.has_value());
   REQUIRE(roundtrip.vfin.value() == original.vfin.value());
 }
 
@@ -119,7 +147,12 @@ TEST_CASE("Reservoir with empty optional fields")
 
   REQUIRE(res.uid == 123);
   REQUIRE(res.name == "TestReservoir");
-  REQUIRE(res.active.has_value() == false);
-  REQUIRE(res.capacity.has_value() == false);
-  REQUIRE(res.vmax.has_value() == false);
+  REQUIRE_FALSE(res.active.has_value());
+  REQUIRE_FALSE(res.capacity.has_value());
+  REQUIRE_FALSE(res.annual_loss.has_value());
+  REQUIRE_FALSE(res.vmin.has_value());
+  REQUIRE_FALSE(res.vmax.has_value());
+  REQUIRE_FALSE(res.vcost.has_value());
+  REQUIRE_FALSE(res.vini.has_value());
+  REQUIRE_FALSE(res.vfin.has_value());
 }
