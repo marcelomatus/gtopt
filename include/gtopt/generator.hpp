@@ -48,24 +48,17 @@ struct Generator
 
   SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
 
-  [[no_unique_address]] OptTBRealFieldSched
-      pmin {};  ///< Minimum active power output schedule
-  [[no_unique_address]] OptTBRealFieldSched
-      pmax {};  ///< Maximum active power output schedule
-  [[no_unique_address]] OptTRealFieldSched
-      lossfactor {};  ///< Loss factor for the generator
-  [[no_unique_address]] OptTRealFieldSched gcost {};  ///< Generation cost
+  OptTBRealFieldSched pmin {};  ///< Minimum active power output schedule
+  OptTBRealFieldSched pmax {};  ///< Maximum active power output schedule
+  OptTRealFieldSched lossfactor {};  ///< Loss factor for the generator
+  OptTRealFieldSched gcost {};  ///< Generation cost
 
-  [[no_unique_address]] OptTRealFieldSched capacity {};  ///< Installed capacity
-  [[no_unique_address]] OptTRealFieldSched expcap {};  ///< Expansion capacity
-  [[no_unique_address]] OptTRealFieldSched
-      expmod {};  ///< Expansion module size
-  [[no_unique_address]] OptTRealFieldSched
-      capmax {};  ///< Maximum capacity limit
-  [[no_unique_address]] OptTRealFieldSched
-      annual_capcost {};  ///< Annual capacity cost
-  [[no_unique_address]] OptTRealFieldSched
-      annual_derating {};  ///< Annual derating factor
+  OptTRealFieldSched capacity {};  ///< Installed capacity
+  OptTRealFieldSched expcap {};  ///< Expansion capacity
+  OptTRealFieldSched expmod {};  ///< Expansion module size
+  OptTRealFieldSched capmax {};  ///< Maximum capacity limit
+  OptTRealFieldSched annual_capcost {};  ///< Annual capacity cost
+  OptTRealFieldSched annual_derating {};  ///< Annual derating factor
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object
