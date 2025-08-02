@@ -72,7 +72,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& bus = sc.element<BusLP>(this->bus());
+  const auto& bus = sc.element<BusLP>(this->bus_sid());
   if (!bus.is_active(stage)) [[unlikely]] {
     return true;
   }

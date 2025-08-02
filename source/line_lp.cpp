@@ -29,12 +29,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  if (bus_a() == bus_b()) {
+  if (bus_a_sid() == bus_b_sid()) {
     return true;
   }
 
-  const auto& bus_a_lp = sc.element<BusLP>(bus_a());
-  const auto& bus_b_lp = sc.element<BusLP>(bus_b());
+  const auto& bus_a_lp = sc.element<BusLP>(bus_a_sid());
+  const auto& bus_b_lp = sc.element<BusLP>(bus_b_sid());
   if (!bus_a_lp.is_active(stage) || !bus_b_lp.is_active(stage)) {
     return true;
   }

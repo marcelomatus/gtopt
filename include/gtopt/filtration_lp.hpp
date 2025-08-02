@@ -44,11 +44,11 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto reservoir() const noexcept
+  [[nodiscard]] constexpr auto reservoir_sid() const noexcept
   {
     return ReservoirLPSId {filtration().reservoir};
   }
-  [[nodiscard]] constexpr auto waterway() const noexcept
+  [[nodiscard]] constexpr auto waterway_sid() const noexcept
   {
     return WaterwayLPSId {filtration().waterway};
   }

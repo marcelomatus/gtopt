@@ -31,7 +31,7 @@ public:
   [[nodiscard]] constexpr auto&& reserve_provision() { return object(); }
   [[nodiscard]] constexpr auto&& reserve_provision() const { return object(); }
 
-  [[nodiscard]] auto generator() const
+  [[nodiscard]] auto generator_sid() const
   {
     return GeneratorLPSId {reserve_provision().generator};
   }

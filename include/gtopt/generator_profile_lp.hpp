@@ -29,7 +29,7 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto generator() const noexcept
+  [[nodiscard]] constexpr auto generator_sid() const noexcept
   {
     return GeneratorLPSId {generator_profile().generator};
   }

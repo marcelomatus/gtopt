@@ -41,7 +41,7 @@ public:
   }
 
   [[nodiscard]]
-  constexpr auto bus() const noexcept
+  constexpr auto bus_sid() const noexcept
   {
     return BusLPSId {generator().bus};
   }

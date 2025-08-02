@@ -49,13 +49,13 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  auto&& generator = sc.element<GeneratorLP>(this->generator());
+  auto&& generator = sc.element<GeneratorLP>(generator_sid());
   auto&& gen_cols = generator.generation_cols_at(scenario, stage);
 
-  auto&& demand = sc.element<DemandLP>(this->demand());
+  auto&& demand = sc.element<DemandLP>(demand_sid());
   auto&& load_cols = demand.load_cols_at(scenario, stage);
 
-  auto&& battery = sc.element<BatteryLP>(this->battery());
+  auto&& battery = sc.element<BatteryLP>(battery_sid());
   auto&& flow_cols = battery.flow_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
