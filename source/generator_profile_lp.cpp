@@ -37,17 +37,17 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generator_lp = sc.element<GeneratorLP>(this->generator_sid());
-  if (!generator_lp.is_active(stage)) {
+  auto&& generator = sc.element<GeneratorLP>(generator_sid());
+  if (!generator.is_active(stage)) {
     return true;
   }
 
-  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+  auto&& generation_cols = generator.generation_cols_at(scenario, stage);
 
   const auto [stage_capacity, capacity_col] =
-      generator_lp.capacity_and_col(stage, lp);
+      generator.capacity_and_col(stage, lp);
 
-  if (!capacity_col && !generator_lp.generator().capacity) {
+  if (!capacity_col && !generator.generator().capacity) {
     SPDLOG_WARN(
         "GeneratorProfile requires that Generator defines capacity or "
         "expansion");

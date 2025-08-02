@@ -28,8 +28,8 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto& waterway = sc.element<WaterwayLP>(this->waterway_sid());
-  const auto& reservoir = sc.element<ReservoirLP>(this->reservoir_sid());
+  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
+  const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
 
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
   const auto vini_col = reservoir.vini_col_at(scenario, stage);

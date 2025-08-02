@@ -24,7 +24,7 @@ std::string LinearInterface::get_prob_name() const
 
 void LinearInterface::set_log_file(const std::string& plog_file)
 {
-  this->log_file = plog_file;
+  log_file = plog_file;
 }
 
 void LinearInterface::close_log_handler()

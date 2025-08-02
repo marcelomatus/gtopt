@@ -37,17 +37,17 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& demand_lp = sc.element<DemandLP>(this->demand_sid());
-  if (!demand_lp.is_active(stage)) {
+  auto&& demand = sc.element<DemandLP>(demand_sid());
+  if (!demand.is_active(stage)) {
     return true;
   }
 
-  auto&& load_cols = demand_lp.load_cols_at(scenario, stage);
+  auto&& load_cols = demand.load_cols_at(scenario, stage);
 
   const auto [stage_capacity, capacity_col] =
-      demand_lp.capacity_and_col(stage, lp);
+      demand.capacity_and_col(stage, lp);
 
-  if (!capacity_col && !demand_lp.demand().capacity) {
+  if (!capacity_col && !demand.demand().capacity) {
     SPDLOG_WARN("requires that Demand defines capacity or expansion");
     return false;
   }

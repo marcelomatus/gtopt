@@ -52,10 +52,10 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  const auto& generator = sc.element<GeneratorLP>(this->generator_sid());
+  const auto& generator = sc.element<GeneratorLP>(generator_sid());
   const auto& gen_cols = generator.generation_cols_at(scenario, stage);
 
-  const auto& waterway = sc.element<WaterwayLP>(this->waterway_sid());
+  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
