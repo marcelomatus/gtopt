@@ -1,11 +1,13 @@
 /**
  * @file      reservoir_lp.cpp
- * @brief     Header of
- * @date      Wed Jul 30 23:22:30 2025
+ * @brief     Implementation of ReservoirLP class
+ * @date      Wed Jul 30 23:22:30 2025  
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the ReservoirLP class which provides the linear
+ * programming representation of water reservoirs, including their storage
+ * constraints and relationships with other system components.
  */
 
 #include <gtopt/linear_problem.hpp>
@@ -24,10 +26,24 @@ ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
 {
 }
 
+/**
+ * @brief Adds reservoir constraints to the linear problem
+ * 
+ * @param sc System context containing component relationships
+ * @param scenario Current scenario being processed
+ * @param stage Current stage being processed
+ * @param lp Linear problem to add constraints to
+ * @return true if successful, false on error
+ *
+ * Adds constraints for:
+ * - Water extraction from reservoir
+ * - Storage capacity limits
+ * - Connection to junction balance equations
+ */
 bool ReservoirLP::add_to_lp(const SystemContext& sc,
-                            const ScenarioLP& scenario,
-                            const StageLP& stage,
-                            LinearProblem& lp)
+                           const ScenarioLP& scenario,
+                           const StageLP& stage,
+                           LinearProblem& lp) noexcept
 {
   constexpr std::string_view cname = ClassName;
 
@@ -74,7 +90,18 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
   return true;
 }
 
-bool ReservoirLP::add_to_output(OutputContext& out) const
+/**
+ * @brief Adds reservoir solution variables to the output context
+ * 
+ * @param out Output context to write results to
+ * @return true if successful, false on error
+ *
+ * Outputs the solution values for:
+ * - Water extraction flows
+ * - Storage variables
+ * - Associated costs
+ */
+bool ReservoirLP::add_to_output(OutputContext& out) const noexcept
 {
   constexpr std::string_view cname = ClassName;
 
