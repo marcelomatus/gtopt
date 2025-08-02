@@ -18,9 +18,9 @@
 
 namespace gtopt
 {
-GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
-                                       InputContext& ic)
-    : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
+GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile&& pgenerator_profile,
+                                      InputContext& ic)
+    : ObjectLP<GeneratorProfile>(std::forward<GeneratorProfile>(pgenerator_profile))
     , scost(ic, ClassName, id(), std::move(generator_profile().scost))
     , profile(ic, ClassName, id(), std::move(generator_profile().profile))
 {
@@ -31,7 +31,8 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  constexpr std::string_view cname = "gprof";
+  using namespace std::string_view_literals;
+  constexpr auto cname = "gprof"sv;
 
   if (!is_active(stage)) {
     return true;
