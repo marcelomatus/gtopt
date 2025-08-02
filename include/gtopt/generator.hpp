@@ -21,7 +21,8 @@ namespace gtopt
  */
 struct GeneratorAttrs
 {
-  SingleId bus {};  ///< Bus ID where the generator is connected
+  SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
+
   OptTBRealFieldSched pmin {};  ///< Minimum active power output schedule
   OptTBRealFieldSched pmax {};  ///< Maximum active power output schedule
   OptTRealFieldSched lossfactor {};  ///< Loss factor for the generator
@@ -45,7 +46,7 @@ struct Generator
   Name name {};  ///< Generator name
   OptActive active {};  ///< Generator active status
 
-  SingleId bus {};  ///< Bus ID where the generator is connected
+  SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
 
   [[no_unique_address]] OptTBRealFieldSched
       pmin {};  ///< Minimum active power output schedule

@@ -30,7 +30,7 @@ public:
 
   [[nodiscard]] constexpr auto&& converter(this auto&& self)
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   explicit ConverterLP(Converter pconverter, InputContext& ic);

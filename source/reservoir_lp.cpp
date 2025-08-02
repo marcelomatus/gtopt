@@ -1,7 +1,7 @@
 /**
  * @file      reservoir_lp.cpp
  * @brief     Implementation of ReservoirLP class
- * @date      Wed Jul 30 23:22:30 2025  
+ * @date      Wed Jul 30 23:22:30 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
@@ -28,7 +28,7 @@ ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
 
 /**
  * @brief Adds reservoir constraints to the linear problem
- * 
+ *
  * @param sc System context containing component relationships
  * @param scenario Current scenario being processed
  * @param stage Current stage being processed
@@ -41,9 +41,9 @@ ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
  * - Connection to junction balance equations
  */
 bool ReservoirLP::add_to_lp(const SystemContext& sc,
-                           const ScenarioLP& scenario,
-                           const StageLP& stage,
-                           LinearProblem& lp) noexcept
+                            const ScenarioLP& scenario,
+                            const StageLP& stage,
+                            LinearProblem& lp)
 {
   constexpr std::string_view cname = ClassName;
 
@@ -92,7 +92,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
 
 /**
  * @brief Adds reservoir solution variables to the output context
- * 
+ *
  * @param out Output context to write results to
  * @return true if successful, false on error
  *
@@ -101,7 +101,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
  * - Storage variables
  * - Associated costs
  */
-bool ReservoirLP::add_to_output(OutputContext& out) const noexcept
+bool ReservoirLP::add_to_output(OutputContext& out) const
 {
   constexpr std::string_view cname = ClassName;
 

@@ -21,7 +21,7 @@ struct ReserveProvision
   Name name {};
   OptActive active {};
 
-  SingleId generator {};
+  SingleId generator {unknown_uid};
   String reserve_zones {};
   OptTBRealFieldSched urmax {};
   OptTBRealFieldSched drmax {};

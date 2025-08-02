@@ -37,17 +37,9 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     }
   }
 
-  constexpr bool EmptyOk = true;
-  const auto [iter, inserted] =
-      emplace_bholder(scenario, stage, theta_cols, std::move(tblocks), EmptyOk);
-
-  if (inserted) [[likely]] {
-    return iter->second;
-  }
-
-  const auto* const msg = "can't insert a new theta index holder";
-  SPDLOG_CRITICAL(msg);
-  throw std::runtime_error(msg);
+  // Store the theta columns for this scenario and stage
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  return theta_cols[st_key] = std::move(tblocks);
 }
 
 bool BusLP::add_to_lp(const SystemContext& sc,

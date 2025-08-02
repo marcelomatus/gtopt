@@ -31,8 +31,8 @@ struct Filtration
 
   SingleId waterway {unknown_uid};  ///< Connected waterway identifier
   SingleId reservoir {unknown_uid};  ///< Connected reservoir identifier
-  Real slope {};  ///< Slope coefficient
-  Real constant {};  ///< Constant term
+  Real slope {0.0};  ///< Slope coefficient
+  Real constant {0.0};  ///< Constant term
 };
 
 }  // namespace gtopt

@@ -9,8 +9,10 @@ TEST_CASE("Turbine daw json test 1")
   std::string_view json_data = R"({
     "uid":5,
     "name":"TURBINE_A",
+    "waterway":10,
+    "generator":20,
     "capacity":100.0,
-    "head":50.0
+    "conversion_rate":50.0
   })";
 
   gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
@@ -19,15 +21,17 @@ TEST_CASE("Turbine daw json test 1")
   REQUIRE(turbine.name == "TURBINE_A");
   REQUIRE(turbine.capacity.has_value());
   REQUIRE(std::get<double>(turbine.capacity.value()) == 100.0);
-  REQUIRE(turbine.head.has_value());
-  REQUIRE(std::get<double>(turbine.head.value()) == 50.0);
+  REQUIRE(turbine.conversion_rate.has_value());
+  REQUIRE(std::get<double>(turbine.conversion_rate.value()) == 50.0);
 }
 
 TEST_CASE("Turbine daw json test 2")
 {
   std::string_view json_data = R"({
     "uid":5,
-    "name":"TURBINE_A"
+    "name":"TURBINE_A",
+    "waterway":10,
+    "generator":20
   })";
 
   gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
@@ -35,19 +39,23 @@ TEST_CASE("Turbine daw json test 2")
   REQUIRE(turbine.uid == 5);
   REQUIRE(turbine.name == "TURBINE_A");
   REQUIRE(!turbine.capacity.has_value());
-  REQUIRE(!turbine.head.has_value());
+  REQUIRE(!turbine.conversion_rate.has_value());
 }
 
 TEST_CASE("Turbine array json test")
 {
   std::string_view json_data = R"([{
     "uid":5,
-    "name":"TURBINE_A"
+    "name":"TURBINE_A",
+    "waterway":10,
+    "generator":20
   },{
     "uid":15,
     "name":"TURBINE_B",
     "capacity":200.0,
-    "head":75.0
+    "conversion_rate":75.0,
+    "waterway":30,
+    "generator":40
   }])";
 
   std::vector<gtopt::Turbine> turbines =
@@ -56,14 +64,14 @@ TEST_CASE("Turbine array json test")
   REQUIRE(turbines[0].uid == 5);
   REQUIRE(turbines[0].name == "TURBINE_A");
   REQUIRE(!turbines[0].capacity.has_value());
-  REQUIRE(!turbines[0].head.has_value());
+  REQUIRE(!turbines[0].conversion_rate.has_value());
 
   REQUIRE(turbines[1].uid == 15);
   REQUIRE(turbines[1].name == "TURBINE_B");
   REQUIRE(turbines[1].capacity.has_value());
   REQUIRE(std::get<double>(turbines[1].capacity.value()) == 200.0);
-  REQUIRE(turbines[1].head.has_value());
-  REQUIRE(std::get<double>(turbines[1].head.value()) == 75.0);
+  REQUIRE(turbines[1].conversion_rate.has_value());
+  REQUIRE(std::get<double>(turbines[1].conversion_rate.value()) == 75.0);
 }
 
 TEST_CASE("Turbine with active property serialization")
@@ -89,13 +97,14 @@ TEST_CASE("Turbine with active property serialization")
     Turbine turbine;
     turbine.uid = 1;
     turbine.name = "test_turbine";
-    turbine.active = std::vector<IntBool>{True, False, True, False};
+    turbine.active = std::vector<IntBool> {True, False, True, False};
 
     auto json = daw::json::to_json(turbine);
     Turbine roundtrip = daw::json::from_json<Turbine>(json);
 
     REQUIRE(roundtrip.active.has_value());
-    const auto& active = std::get<std::vector<IntBool>>(roundtrip.active.value());
+    const auto& active =
+        std::get<std::vector<IntBool>>(roundtrip.active.value());
     REQUIRE(active.size() == 4);
     CHECK(active[0] == True);
     CHECK(active[1] == False);
@@ -113,7 +122,9 @@ TEST_CASE("Turbine with empty optional fields")
     "name":"TURBINE_A",
     "active":null,
     "capacity":null,
-    "head":null
+    "waterway":10,
+    "generator":20,
+    "conversion_rate":null
   })";
 
   Turbine turbine = daw::json::from_json<Turbine>(json_data);
@@ -122,5 +133,5 @@ TEST_CASE("Turbine with empty optional fields")
   CHECK(turbine.name == "TURBINE_A");
   CHECK(!turbine.active.has_value());
   CHECK(!turbine.capacity.has_value());
-  CHECK(!turbine.head.has_value());
+  CHECK(!turbine.conversion_rate.has_value());
 }

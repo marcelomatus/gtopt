@@ -26,7 +26,7 @@ namespace gtopt
  */
 struct DemandAttrs
 {
-  SingleId bus {};  ///< Bus ID where the demand is connected
+  SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum load schedule
   OptTRealFieldSched lossfactor {};  ///< Loss factor schedule
   OptTRealFieldSched fcost {};  ///< Fixed cost schedule
@@ -54,7 +54,7 @@ struct Demand
   Name name {};  ///< Descriptive name
   OptActive active {};  ///< Activation status
 
-  SingleId bus {};  ///< Bus ID where the demand is connected
+  SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum load schedule
   OptTRealFieldSched lossfactor {};  ///< Loss factor schedule
   OptTRealFieldSched fcost {};  ///< Fixed cost schedule

@@ -75,7 +75,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Store flow variable indices for later use
-  return emplace_bholder(scenario, stage, flow_cols, std::move(fcols)).second;
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  flow_cols[st_key] = std::move(fcols);
+
+  return true;
 }
 
 /**

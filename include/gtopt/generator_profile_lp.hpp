@@ -26,7 +26,7 @@ public:
 
   [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]] constexpr auto generator() const noexcept
