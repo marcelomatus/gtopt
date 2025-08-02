@@ -31,8 +31,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  using namespace std::string_view_literals;
-  constexpr auto cname = "gprof"sv;
+  constexpr ::std::string_view cname = "gprof";
 
   if (!is_active(stage)) {
     return true;
