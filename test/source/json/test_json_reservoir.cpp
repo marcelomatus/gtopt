@@ -9,7 +9,7 @@
  * of Reservoir objects.
  */
 
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 #include <gtopt/reservoir.hpp>
 #include <gtopt/json/json.hpp>
 #include <nlohmann/json.hpp>
@@ -38,9 +38,11 @@ protected:
         };
     }
 
+private:
     Reservoir test_reservoir;
 };
 
+namespace {
 TEST_F(TestJsonReservoir, SerializeBasicFields)
 {
     nlohmann::json j = test_reservoir;
@@ -108,6 +110,7 @@ TEST_F(TestJsonReservoir, DeserializeOptionalFields)
 }
 
 TEST_F(TestJsonReservoir, SerializeDeserializeRoundTrip)
+} // namespace
 {
     nlohmann::json j = test_reservoir;
     Reservoir r = j;
