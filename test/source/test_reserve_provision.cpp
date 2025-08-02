@@ -16,7 +16,7 @@ TEST_CASE("ReserveProvision construction and default values")
   CHECK_FALSE(reserve_provision.active.has_value());
 
   // Check default values for references
-  CHECK(reserve_provision.generator == SingleId {});
+  CHECK(reserve_provision.generator == SingleId {unknown_uid});
   CHECK(reserve_provision.reserve_zones == String {});
 
   // Check default values for provision limits

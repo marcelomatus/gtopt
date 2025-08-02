@@ -24,7 +24,7 @@ public:
 
   [[nodiscard]] constexpr auto&& demand_profile(this auto&& self)
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]] constexpr auto demand() const noexcept

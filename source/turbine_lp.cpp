@@ -5,9 +5,9 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module implements the TurbineLP class which provides the linear programming
- * representation of hydroelectric turbines, including their constraints and
- * relationships with other system components.
+ * This module implements the TurbineLP class which provides the linear
+ * programming representation of hydroelectric turbines, including their
+ * constraints and relationships with other system components.
  */
 
 #include <gtopt/linear_problem.hpp>
@@ -27,10 +27,10 @@ TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
 
 /**
  * @brief Adds turbine constraints to the linear problem
- * 
+ *
  * @param sc System context containing component relationships
  * @param scenario Current scenario being processed
- * @param stage Current stage being processed 
+ * @param stage Current stage being processed
  * @param lp Linear problem to add constraints to
  * @return true if successful, false on error
  *
@@ -40,7 +40,7 @@ TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
 bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const ScenarioLP& scenario,
                           const StageLP& stage,
-                          LinearProblem& lp) noexcept
+                          LinearProblem& lp)
 {
   constexpr std::string_view cname = ClassName;
   if (!is_active(stage)) {
@@ -84,14 +84,14 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
 
 /**
  * @brief Adds turbine dual variables to the output context
- * 
+ *
  * @param out Output context to write results to
  * @return true if successful, false on error
  *
  * Outputs the dual variables associated with the turbine's conversion
  * rate constraints for sensitivity analysis.
  */
-bool TurbineLP::add_to_output(OutputContext& out) const noexcept
+bool TurbineLP::add_to_output(OutputContext& out) const
 {
   constexpr std::string_view cname = ClassName;
 

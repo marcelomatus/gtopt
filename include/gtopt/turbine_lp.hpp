@@ -22,8 +22,8 @@ namespace gtopt
 /**
  * @brief Linear programming representation of a hydroelectric turbine
  *
- * This class extends ObjectLP to provide LP-specific functionality for turbines,
- * including:
+ * This class extends ObjectLP to provide LP-specific functionality for
+ * turbines, including:
  * - Conversion rate constraints between water flow and power generation
  * - Relationships with connected waterways and generators
  * - Output of dual variables for sensitivity analysis
@@ -31,7 +31,8 @@ namespace gtopt
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  constexpr static std::string_view ClassName = "Turbine"; ///< Class name for logging
+  constexpr static std::string_view ClassName =
+      "Turbine";  ///< Class name for logging
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context
@@ -58,9 +59,9 @@ public:
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
-                               LinearProblem& lp) noexcept;
+                               LinearProblem& lp);
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const noexcept;
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:
   OptTRealSched conversion_rate;

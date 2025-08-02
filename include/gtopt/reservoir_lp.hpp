@@ -1,13 +1,14 @@
 /**
- * @file      reservoir_lp.hpp  
- * @brief     Defines the ReservoirLP class for linear programming representation
+ * @file      reservoir_lp.hpp
+ * @brief     Defines the ReservoirLP class for linear programming
+ * representation
  * @date      Wed Jul 30 23:15:21 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the ReservoirLP class which provides the linear programming
- * representation of water reservoirs, including their storage constraints and
- * relationships with junctions and waterways.
+ * This module defines the ReservoirLP class which provides the linear
+ * programming representation of water reservoirs, including their storage
+ * constraints and relationships with junctions and waterways.
  */
 
 #pragma once
@@ -24,8 +25,8 @@ using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 /**
  * @brief Linear programming representation of a water reservoir
  *
- * This class extends StorageLP to provide LP-specific functionality for reservoirs,
- * including:
+ * This class extends StorageLP to provide LP-specific functionality for
+ * reservoirs, including:
  * - Storage capacity constraints
  * - Water extraction constraints
  * - Relationships with connected junctions
@@ -46,15 +47,15 @@ public:
 
   [[nodiscard]] constexpr auto junction() const noexcept
   {
-    return JunctionLPSId{reservoir().junction};
+    return JunctionLPSId {reservoir().junction};
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
-                               LinearProblem& lp) noexcept;
+                               LinearProblem& lp);
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const noexcept;
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:
   OptTRealSched capacity;

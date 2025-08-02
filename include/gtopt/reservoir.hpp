@@ -31,7 +31,7 @@ struct Reservoir
   Name name {};
   OptActive active {};
 
-  SingleId junction {};
+  SingleId junction {unknown_uid};
   OptTRealFieldSched capacity {};
 
   OptTRealFieldSched annual_loss {};

@@ -5,9 +5,9 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the Turbine structure which represents a hydroelectric 
- * turbine component in the system. A turbine converts water flow into electrical
- * energy through an associated generator.
+ * This module defines the Turbine structure which represents a hydroelectric
+ * turbine component in the system. A turbine converts water flow into
+ * electrical energy through an associated generator.
  */
 
 #pragma once
@@ -28,15 +28,16 @@ namespace gtopt
  */
 struct Turbine
 {
-  Uid uid {unknown_uid};          ///< Unique identifier for the turbine
-  Name name {};                   ///< Human-readable name
-  OptActive active {};            ///< Activation status of the turbine
+  Uid uid {unknown_uid};  ///< Unique identifier for the turbine
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status of the turbine
 
-  SingleId waterway {unknown_uid}; ///< ID of connected waterway
-  SingleId generator {unknown_uid}; ///< ID of connected generator
+  SingleId waterway {unknown_uid};  ///< ID of connected waterway
+  SingleId generator {unknown_uid};  ///< ID of connected generator
 
-  OptTRealFieldSched conversion_rate {}; ///< Water-to-power conversion rate schedule
-  OptTRealFieldSched capacity {};        ///< Maximum power capacity schedule
+  OptTRealFieldSched
+      conversion_rate {};  ///< Water-to-power conversion rate schedule
+  OptTRealFieldSched capacity {};  ///< Maximum power capacity schedule
 };
 
 }  // namespace gtopt

@@ -29,14 +29,14 @@ namespace gtopt
  */
 struct Flow
 {
-  Uid uid {};  ///< Unique identifier for the flow
+  Uid uid {unknown_uid};  ///< Unique identifier for the flow
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
 
   /// Flow direction: 1 for input, -1 for output
   Int direction {1};
 
-  SingleId junction {};  ///< Connected junction identifier
+  SingleId junction {unknown_uid};  ///< Connected junction identifier
   STBRealFieldSched discharge {};  ///< Discharge schedule
 
   /// @returns true if flow is directed into the junction

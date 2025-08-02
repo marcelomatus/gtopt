@@ -13,9 +13,9 @@ struct Converter
   Name name {};
   OptActive active {};
 
-  SingleId battery {};
-  SingleId generator {};
-  SingleId demand {};
+  SingleId battery {unknown_uid};
+  SingleId generator {unknown_uid};
+  SingleId demand {unknown_uid};
 
   OptTRealFieldSched conversion_rate {};
 

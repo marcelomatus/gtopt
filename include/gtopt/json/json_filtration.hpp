@@ -24,12 +24,12 @@ struct json_data_contract<Filtration>
   static constexpr auto to_json_data(Filtration const& filtration)
   {
     return std::forward_as_tuple(filtration.uid,
-                                filtration.name,
-                                filtration.active,
-                                filtration.waterway,
-                                filtration.reservoir,
-                                filtration.slope,
-                                filtration.constant);
+                                 filtration.name,
+                                 filtration.active,
+                                 filtration.waterway,
+                                 filtration.reservoir,
+                                 filtration.slope,
+                                 filtration.constant);
   }
 };
 }  // namespace daw::json

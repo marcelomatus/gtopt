@@ -29,7 +29,7 @@ public:
   [[nodiscard]]
   constexpr auto&& line(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]]

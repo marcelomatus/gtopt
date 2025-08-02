@@ -28,7 +28,7 @@ public:
 
   [[nodiscard]] constexpr auto&& flow(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]] constexpr auto junction() const noexcept

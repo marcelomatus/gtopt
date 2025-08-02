@@ -110,23 +110,15 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     capacost_row[prev_capacost_col.value()] = -1;
   }
 
+  // Store the indices for this scenario and stage
+  capainst_cols[stage_uid] = capainst_col;
+  capacost_cols[stage_uid] = capacost_col;
+
   const auto dcap = prev_stage_capacity - stage_capacity;
+  capainst_rows[stage_uid] = lp.add_row(std::move(capainst_row.equal(dcap)));
+  capacost_rows[stage_uid] = lp.add_row(std::move(capacost_row.equal(0.0)));
 
-  const bool capainst_success =
-      capainst_cols.emplace(stage_uid, capainst_col).second;
-  const bool capacost_success =
-      capacost_cols.emplace(stage_uid, capacost_col).second;
-  const bool capainst_row_success =
-      capainst_rows
-          .emplace(stage_uid, lp.add_row(std::move(capainst_row.equal(dcap))))
-          .second;
-  const bool capacost_row_success =
-      capacost_rows
-          .emplace(stage_uid, lp.add_row(std::move(capacost_row.equal(0.0))))
-          .second;
-
-  return capainst_success && capacost_success && capainst_row_success
-      && capacost_row_success;
+  return true;
 }
 
 bool CapacityObjectBase::add_to_output(OutputContext& out) const
