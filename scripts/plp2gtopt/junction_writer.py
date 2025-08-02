@@ -43,17 +43,16 @@ class JunctionWriter(BaseWriter):
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Convert central data to JSON array format."""
+        central_parser = cast(CentralParser, self.parser)
         if items is None:
             items = (
-                self.parser.centrals_of_type.get("embalse", [])
-                + self.parser.centrals_of_type.get("serie", [])
-                if self.parser
+                central_parser.centrals_of_type.get("embalse", [])
+                + central_parser.centrals_of_type.get("serie", [])
+                if central_parser
                 else []
             )
         if not items:
             return [], []
-
-        central_parser = cast(CentralParser, self.parser)
 
         json_junctions: List[Dict[str, Any]] = []
         json_waterways: List[Dict[str, Any]] = []
@@ -74,9 +73,7 @@ class JunctionWriter(BaseWriter):
             if wway_ver:
                 json_waterways.append(wway_ver)
 
-            drain: int = 0
-            if wway_hid is None or wway_ver is None:
-                drain = 1
+            drain = 1 if wway_hid is None or wway_ver is None else 0
 
             junction: Dict[str, Any] = {
                 "uid": central_number,
