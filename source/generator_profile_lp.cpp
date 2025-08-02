@@ -1,11 +1,15 @@
 /**
  * @file      generator_profile_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of generator profile LP operations
  * @date      Tue Apr  1 22:03:50 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Implements the core LP operations for generator profiles including:
+ * - Construction from input context
+ * - Adding profile constraints to LP problem
+ * - Managing spillover variables and constraints
+ * - Output solution processing
  */
 
 #include <gtopt/generator_profile_lp.hpp>

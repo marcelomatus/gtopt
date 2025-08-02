@@ -1,11 +1,15 @@
 /**
  * @file      generator_profile_lp.hpp
- * @brief     Header of
+ * @brief     Linear programming representation of generator profiles
  * @date      Tue Apr  1 22:01:16 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * Defines the GeneratorProfileLP class which:
+ * - Wraps GeneratorProfile for LP problem formulation
+ * - Manages spillover variables and constraints
+ * - Handles integration with the optimization problem
+ * - Provides output generation capabilities
  */
 
 #pragma once
@@ -16,9 +20,18 @@
 namespace gtopt
 {
 
+/**
+ * @brief Linear programming representation of a generator profile
+ * 
+ * Handles the LP formulation of generator profile constraints including:
+ * - Spillover variable management
+ * - Profile constraint generation
+ * - Solution output processing
+ */
 class GeneratorProfileLP : public ObjectLP<GeneratorProfile>
 {
 public:
+  /// Class name constant used for labeling LP elements
   constexpr static std::string_view ClassName = "GeneratorProfile";
 
   explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
