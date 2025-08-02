@@ -42,7 +42,7 @@ public:
 
   [[nodiscard]] constexpr auto&& turbine(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]] constexpr auto waterway() const noexcept
@@ -58,9 +58,9 @@ public:
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
-                               LinearProblem& lp);
+                               LinearProblem& lp) noexcept;
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+  [[nodiscard]] bool add_to_output(OutputContext& out) const noexcept;
 
 private:
   OptTRealSched conversion_rate;

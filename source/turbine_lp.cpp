@@ -40,7 +40,7 @@ TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
 bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const ScenarioLP& scenario,
                           const StageLP& stage,
-                          LinearProblem& lp)
+                          LinearProblem& lp) noexcept
 {
   constexpr std::string_view cname = ClassName;
   if (!is_active(stage)) {
@@ -91,7 +91,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
  * Outputs the dual variables associated with the turbine's conversion
  * rate constraints for sensitivity analysis.
  */
-bool TurbineLP::add_to_output(OutputContext& out) const
+bool TurbineLP::add_to_output(OutputContext& out) const noexcept
 {
   constexpr std::string_view cname = ClassName;
 
