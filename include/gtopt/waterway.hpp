@@ -49,7 +49,7 @@ struct Waterway
   OptTRealFieldSched lossfactor {0.0};  ///< Loss coefficient (per unit flow)
 
   OptTBRealFieldSched fmin {0.0};  ///< Minimum required flow
-  OptTBRealFieldSched fmax {300000};  ///< Maximum allowed flow
+  OptTBRealFieldSched fmax {300'000.0};  ///< Maximum allowed flow
 };
 
 }  // namespace gtopt
