@@ -10,7 +10,7 @@ Handles:
 
 import re
 from pathlib import Path
-from typing import Any, List, Dict, Union, Optional
+from typing import Any, Dict, List, Optional
 
 
 from .base_parser import BaseParser
@@ -19,7 +19,7 @@ from .base_parser import BaseParser
 class BusParser(BaseParser):
     """Parser for plpbar.dat format files containing bus data."""
 
-    def __init__(self, file_path: Union[str, Path]) -> None:
+    def __init__(self, file_path: str | Path) -> None:
         """Initialize the bus parser.
 
         Args:
@@ -38,7 +38,7 @@ class BusParser(BaseParser):
         self.bus_num_map: Dict[int, int] = {}
 
     @property
-    def buses(self) -> List[Dict[str, Union[str, float, bool]]]:
+    def buses(self) -> List[Dict[str, str | float | bool]]:
         """Return the parsed buses structure."""
         return self.get_all()
 

@@ -8,7 +8,7 @@ Handles:
 - Maintenance lookup by line name
 """
 
-from typing import Union, Dict, List
+from typing import Dict, List
 import numpy as np
 
 from .base_parser import BaseParser
@@ -83,6 +83,6 @@ class ManliParser(BaseParser):
         finally:
             lines.clear()
 
-    def get_manli_by_name(self, name: str) -> Union[Dict, None]:
+    def get_manli_by_name(self, name: str) -> Dict | None:
         """Get maintenance data for a specific line name."""
         return self.get_item_by_name(name)

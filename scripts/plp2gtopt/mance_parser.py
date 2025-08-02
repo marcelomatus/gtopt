@@ -8,7 +8,7 @@ Handles:
 - Maintenance lookup by name
 """
 
-from typing import Union, Dict, List
+from typing import Dict, List
 import numpy as np
 
 from .base_parser import BaseParser
@@ -79,6 +79,6 @@ class ManceParser(BaseParser):
         finally:
             lines.clear()
 
-    def get_mance_by_name(self, name: str) -> Union[Dict, None]:
+    def get_mance_by_name(self, name: str) -> Dict | None:
         """Get maintenance data for a specific central name."""
         return self.get_item_by_name(name)

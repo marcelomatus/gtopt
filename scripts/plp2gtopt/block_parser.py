@@ -9,7 +9,7 @@ Handles:
 """
 
 from pathlib import Path
-from typing import Any, List, Dict, Union
+from typing import Any, Dict, List
 from .base_parser import BaseParser
 
 
@@ -22,7 +22,7 @@ class BlockParser(BaseParser):
         num_blocks: Number of blocks in the file
     """
 
-    def __init__(self, file_path: Union[str, Path]) -> None:
+    def __init__(self, file_path: str | Path) -> None:
         """Initialize parser with block file path.
 
         Args:
@@ -32,13 +32,7 @@ class BlockParser(BaseParser):
         self.stage_number_map: Dict[int, int] = {}
 
     def parse(self) -> None:
-        """Parse the block file and populate the blocks structure.
-
-        Raises:
-            FileNotFoundError: If input file doesn't exist
-            ValueError: If file format is invalid
-            IndexError: If file is empty or malformed
-        """
+        """Parse the block file and populate the blocks structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()
 
