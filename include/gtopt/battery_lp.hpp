@@ -42,13 +42,11 @@ public:
    * @brief Access the underlying battery object (non-const)
    * @return Reference to the battery object
    */
-  [[nodiscard]] constexpr auto&& battery() { return object(); }
-
-  /**
-   * @brief Access the underlying battery object (const)
-   * @return Const reference to the battery object
-   */
-  [[nodiscard]] constexpr auto&& battery() const { return object(); }
+  [[nodiscard]] constexpr auto&& battery(this auto&& self) noexcept
+  {
+    // Forward the object() call with same value category as self
+    return std::forward_like<decltype(self)>(self.object());
+  }
 
   /**
    * @brief Constructs a BatteryLP from a Battery object
@@ -83,8 +81,8 @@ public:
    * @brief Gets the flow variables for a specific scenario and stage
    * @return Reference to the flow variables
    */
-  [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
-                                    const StageLP& stage) const
+  [[nodiscard]] constexpr auto&& flow_cols_at(const ScenarioLP& scenario,
+                                              const StageLP& stage) const
   {
     return flow_cols.at({scenario.uid(), stage.uid()});
   }

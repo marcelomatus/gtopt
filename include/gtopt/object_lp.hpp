@@ -109,10 +109,10 @@ public:
    * @param self Reference to this object
    * @return Reference to the wrapped object
    */
-  template<typename Self>
-  [[nodiscard]] constexpr auto&& object(this Self&& self) noexcept
+
+  [[nodiscard]] constexpr auto&& object(this auto&& self) noexcept
   {
-    return std::forward_like<Self>(self.m_object_);
+    return std::forward_like<decltype(self)>(self.m_object_);
   }
 };
 

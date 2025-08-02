@@ -28,10 +28,13 @@ public:
   explicit ReserveProvisionLP(ReserveProvision preserve_provision,
                               const InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& reserve_provision() { return object(); }
-  [[nodiscard]] constexpr auto&& reserve_provision() const { return object(); }
+  [[nodiscard]] constexpr auto&& reserve_provision(this auto&& self) noexcept
+  {
+    // Forward the object() call with same value category as self
+    return std::forward_like<decltype(self)>(self.object());
+  }
 
-  [[nodiscard]] auto generator_sid() const
+  [[nodiscard]] constexpr auto generator_sid() const noexcept
   {
     return GeneratorLPSId {reserve_provision().generator};
   }
