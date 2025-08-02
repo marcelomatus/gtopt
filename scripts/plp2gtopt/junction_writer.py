@@ -61,13 +61,13 @@ class JunctionWriter(BaseWriter):
             central_name: str = central["name"]
             central_number: int = central["number"]
 
-            wway_hid: Optional[Dict[str, Any]] = self.create_waterway(
+            wway_hid = self.create_waterway(
                 central_name, central_number, central.get("ser_hid", 0)
             )
             if wway_hid:
                 json_waterways.append(wway_hid)
 
-            wway_ver: Optional[Dict[str, Any]] = self.create_waterway(
+            wway_ver = self.create_waterway(
                 central_name, central_number, central.get("ser_ver", 0)
             )
             if wway_ver:
