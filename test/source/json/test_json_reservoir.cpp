@@ -7,7 +7,7 @@
 
 using namespace gtopt;
 
-TEST_CASE("Reservoir basic fields deserialization") 
+TEST_CASE("Reservoir basic fields deserialization")
 {
   std::string_view json_data = R"({
     "uid":123,
@@ -42,7 +42,7 @@ TEST_CASE("Reservoir optional fields deserialization")
   REQUIRE(res.capacity.value() == 1.0);
   REQUIRE(res.annual_loss.value() == 0.05);
   REQUIRE(res.vmin.value() == 100.0);
-  REQUIRE(res.vmax.value() == 1000.0); 
+  REQUIRE(res.vmax.value() == 1000.0);
   REQUIRE(res.vcost.value() == 5.0);
   REQUIRE(res.vini.value() == 500.0);
   REQUIRE(res.vfin.value() == 600.0);
@@ -62,7 +62,7 @@ TEST_CASE("Reservoir array deserialization")
     "vmax":1000.0
   }])";
 
-  std::vector<Reservoir> reservoirs = 
+  std::vector<Reservoir> reservoirs =
       daw::json::from_json_array<Reservoir>(json_data);
 
   REQUIRE(reservoirs.size() == 2);
@@ -79,19 +79,17 @@ TEST_CASE("Reservoir array deserialization")
 
 TEST_CASE("Reservoir roundtrip serialization")
 {
-  Reservoir original {
-    .uid = Uid{123},
-    .name = "TestReservoir",
-    .active = true,
-    .junction = SingleId{Uid{456}},
-    .capacity = OptTRealFieldSched{1.0},
-    .annual_loss = OptTRealFieldSched{0.05},
-    .vmin = OptTRealFieldSched{100.0},
-    .vmax = OptTRealFieldSched{1000.0},
-    .vcost = OptTRealFieldSched{5.0},
-    .vini = OptReal{500.0},
-    .vfin = OptReal{600.0}
-  };
+  Reservoir original {.uid = Uid {123},
+                      .name = "TestReservoir",
+                      .active = true,
+                      .junction = SingleId {Uid {456}},
+                      .capacity = OptTRealFieldSched {1.0},
+                      .annual_loss = OptTRealFieldSched {0.05},
+                      .vmin = OptTRealFieldSched {100.0},
+                      .vmax = OptTRealFieldSched {1000.0},
+                      .vcost = OptTRealFieldSched {5.0},
+                      .vini = OptReal {500.0},
+                      .vfin = OptReal {600.0}};
 
   auto json = daw::json::to_json(original);
   Reservoir roundtrip = daw::json::from_json<Reservoir>(json);
