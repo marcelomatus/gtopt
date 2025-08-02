@@ -26,21 +26,20 @@ public:
 
   using CapacityBase = CapacityObjectLP<Line>;
 
-  [[nodiscard]]
-  constexpr auto&& line(this auto&& self) noexcept
-  {
-    return std::forward<decltype(self)>(self).object();
+  [[nodiscard]] constexpr auto&& line(this auto&& self) noexcept {
+    return std::forward_like<decltype(self)>(self.object());
   }
 
-  [[nodiscard]]
-  auto bus_a_sid() const noexcept
-  {
-    return BusLPSId {line().bus_a};
+  [[nodiscard]] constexpr auto bus_a_sid() const noexcept -> BusLPSId {
+    return BusLPSId{line().bus_a};
   }
-  [[nodiscard]]
-  auto bus_b_sid() const noexcept
-  {
-    return BusLPSId {line().bus_b};
+
+  [[nodiscard]] constexpr auto bus_b_sid() const noexcept -> BusLPSId {
+    return BusLPSId{line().bus_b};
+  }
+
+  [[nodiscard]] constexpr bool is_loop() const noexcept {
+    return bus_a_sid() == bus_b_sid();
   }
 
   explicit LineLP(Line pline, const InputContext& ic);

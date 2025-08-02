@@ -22,12 +22,22 @@ namespace gtopt
  */
 struct Line
 {
+  constexpr Line() = default;
+  
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Line name
   OptActive active {};  ///< Line active status
 
   SingleId bus_a {unknown_uid};  ///< From-bus ID
   SingleId bus_b {unknown_uid};  ///< To-bus ID
+
+  [[nodiscard]] constexpr bool is_valid() const noexcept {
+    return uid != unknown_uid && 
+           bus_a != unknown_uid && 
+           bus_b != unknown_uid;
+  }
+
+  [[assume(is_valid())]] constexpr void validate() const noexcept {}
   OptTRealFieldSched voltage {};  ///< Line voltage level
   OptTRealFieldSched resistance {};  ///< Line resistance
   OptTRealFieldSched reactance {};  ///< Line reactance
