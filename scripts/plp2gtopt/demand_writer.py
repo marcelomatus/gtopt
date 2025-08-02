@@ -2,7 +2,7 @@
 
 """Writer for converting demand data to JSON format."""
 
-from typing import Any, Dict, List, Union, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 import pandas as pd
 
@@ -105,7 +105,7 @@ class DemandWriter(BaseWriter):
 
         return df
 
-    def to_parquet(self, output_file: Union[str, Path], items=None) -> None:
+    def to_parquet(self, output_file: str | Path, items=None) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Demand"

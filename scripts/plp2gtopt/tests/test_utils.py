@@ -1,12 +1,12 @@
 """Common test utilities for plp2gtopt."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Type, Tuple, Union
+from typing import Any, Dict, List, Tuple, Type, Union
 import pytest
 
 
 def validate_required_fields(
-    item: Dict[str, Any], required_fields: Dict[str, Union[Type, Tuple[Type, ...]]]
+    item: Dict[str, Any], required_fields: Dict[str, Type | Tuple[Type, ...]]
 ) -> None:
     """Validate that item contains required fields with correct types."""
     for field, field_type in required_fields.items():
@@ -22,8 +22,7 @@ def validate_required_fields(
 
 
 def assert_json_output_structure(
-    json_data: List[Dict[str, Any]],
-    required_fields: Dict[str, Union[Type, Tuple[Type, ...]]],
+    json_data: List[Dict[str, Any]], required_fields: Dict[str, Type | Tuple[Type, ...]]
 ) -> None:
     """Validate JSON output structure against required fields."""
     assert isinstance(json_data, list)

@@ -11,7 +11,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 from .base_parser import BaseParser
 
 
@@ -23,7 +23,7 @@ class CentralParser(BaseParser):
         centrals: List of parsed central entries
     """
 
-    def __init__(self, file_path: Union[str, Path]) -> None:
+    def __init__(self, file_path: str | Path) -> None:
         """Initialize parser with central file path.
 
         Args:
@@ -45,7 +45,7 @@ class CentralParser(BaseParser):
         self.centrals_of_type: Dict[str, List[Any]] = {}
 
     @property
-    def centrals(self) -> List[Dict[str, Union[str, float, bool]]]:
+    def centrals(self) -> List[Dict[str, str | float | bool]]:
         """Return the parsed centrals structure."""
         return self.get_all()
 
@@ -97,7 +97,7 @@ class CentralParser(BaseParser):
                 self.centrals_of_type[central_type] = []
             self.centrals_of_type[central_type].append(central)
 
-    def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_central_by_name(self, name: str) -> Dict[str, Any] | None:
         """Get central data by name."""
         return self.get_item_by_name(name)
 

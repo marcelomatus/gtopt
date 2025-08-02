@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Union, Optional
+from typing import Any, Dict, List, Optional
 from abc import ABC, abstractmethod
 
 
@@ -15,9 +15,9 @@ class BaseParser(ABC):
     - Common interface
     """
 
-    def __init__(self, file_path: Union[str, Path]) -> None:
+    def __init__(self, file_path: str | Path) -> None:
         """Initialize parser with file path."""
-        self.file_path = Path(file_path) if isinstance(file_path, str) else file_path
+        self.file_path = Path(file_path)
         self._data: List[Dict[str, Any]] = []
         self._name_index_map: Dict[str, int] = {}  # Maps names to indices
         self._number_index_map: Dict[int, int] = {}  # Maps number to indices
@@ -100,11 +100,7 @@ class BaseParser(ABC):
     def _read_non_empty_lines(self) -> List[str]:
         """Read file and return non-empty, non-comment lines."""
         with open(self.file_path, "r", encoding="utf-8") as f:
-            return [
-                line.strip()
-                for line in f
-                if line.strip() and not line.strip().startswith("#")
-            ]
+            return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
     def _parse_int(self, value: str) -> int:
         """Parse integer handling zero-padded strings."""
