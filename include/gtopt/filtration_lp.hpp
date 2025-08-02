@@ -41,7 +41,7 @@ public:
 
   [[nodiscard]] constexpr auto&& filtration(this auto&& self) noexcept
   {
-    return std::forward<decltype(self)>(self).object();
+    return std::forward_like<decltype(self)>(self.object());
   }
 
   [[nodiscard]] constexpr auto reservoir_sid() const noexcept

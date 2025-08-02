@@ -24,13 +24,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        LinearProblem& lp)
 {
   constexpr std::string_view cname = ClassName;
+  if (is_loop()) {
+    return true;
+  }
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
-  }
-
-  if (bus_a_sid() == bus_b_sid()) {
-    return true;
   }
 
   const auto& bus_a_lp = sc.element<BusLP>(bus_a_sid());
