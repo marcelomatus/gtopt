@@ -86,8 +86,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   BIndexHolder<ColIndex> gcols;
-  gcols.reserve(blocks.size());
   BIndexHolder<RowIndex> crows;
+  gcols.reserve(blocks.size());
   crows.reserve(blocks.size());
 
   for (auto&& block : blocks) {
@@ -125,11 +125,13 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // Store generation and capacity rows for output
+  const auto st_key = std::pair {scenario.uid(), stage.uid()};
   if (!gcols.empty()) {
-    generation_cols[{scenario.uid(), stage.uid()}] = std::move(gcols);
+    generation_cols[st_key] = std::move(gcols);
   }
   if (!crows.empty()) {
-    capacity_rows[{scenario.uid(), stage.uid()}] = std::move(crows);
+    capacity_rows[st_key] = std::move(crows);
   }
 
   return true;

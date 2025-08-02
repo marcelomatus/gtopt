@@ -24,6 +24,7 @@ Checks: "*,\
   -constexpr_local_var_non_literal_type,\
   -boost-use-ranges,\
   -misc-non-private-member-variables-in-classes,\
+  -misc-confusable-identifiers,\
   misc-const-correctness,\
   bugprone-*, \
   hicpp-*, \
