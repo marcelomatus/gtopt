@@ -2,8 +2,9 @@
 
 """Writer for converting central data to JSON format."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 import typing
+
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
@@ -19,70 +20,69 @@ class JunctionWriter(BaseWriter):
     ) -> None:
         """Initialize with a CentralParser instance."""
         super().__init__(central_parser)
-        self.options = options if options is not None else {}
+        self.options: Dict[str, Any] = options if options is not None else {}
 
-        self.num_waterways = 0
+        self.num_waterways: int = 0
 
-    @property
-    def central_parser(self) -> CentralParser:
-        """Get the central parser instance."""
-        return typing.cast(CentralParser, self.parser)
-
-    def json_waterway(self, central_name, junction_a, junction_b):
-        """Add waterway."""
-        if junction_a == 0 or junction_b == 0:
+    def create_waterway(
+        self, central_name: str, central_number: int, junction: int
+    ) -> Optional[Dict[str, Any]]:
+        """Create a waterway dictionary if the junction is valid."""
+        if junction == 0:
             return None
 
         self.num_waterways += 1
         return {
             "uid": self.num_waterways,
-            "name": f"{central_name}_{junction_a}_{junction_b}",
-            "junction_a": junction_a,
-            "junction_b": junction_b,
+            "name": f"{central_name}_{central_number}_{junction}",
+            "junction_a": central_number,
+            "junction_b": junction,
         }
 
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Convert central data to JSON array format."""
         if items is None:
             items = (
-                self.central_parser.centrals_of_type["embalse"]
-                + self.central_parser.centrals_of_type["serie"]
-                if self.central_parser
+                self.parser.centrals_of_type.get("embalse", [])
+                + self.parser.centrals_of_type.get("serie", [])
+                if self.parser
                 else []
             )
         if not items:
-            return []
+            return [], []
 
-        json_junctions = []
-        json_waterways = []
+        central_parser = cast(CentralParser, self.parser)
+
+        json_junctions: List[Dict[str, Any]] = []
+        json_waterways: List[Dict[str, Any]] = []
+
         for central in items:
-            if central["type"] != "serie" or central["type"] != "embalse":
-                continue
+            central_name: str = central["name"]
+            central_number: int = central["number"]
 
-            central_name = central["name"]
-            central_number = central["number"]
-
-            wway_hid = self.json_waterway(
-                central_name, central_number, central["ser_hid"]
+            wway_hid: Optional[Dict[str, Any]] = self.create_waterway(
+                central_name, central_number, central.get("ser_hid", 0)
             )
             if wway_hid:
                 json_waterways.append(wway_hid)
 
-            wway_ver = self.json_waterway(
-                central_name, central_number, central["ser_ver"]
+            wway_ver: Optional[Dict[str, Any]] = self.create_waterway(
+                central_name, central_number, central.get("ser_ver", 0)
             )
             if wway_ver:
                 json_waterways.append(wway_ver)
 
-            drain = wway_hid is None or wway_ver is None
+            drain: int = 0
+            if wway_hid is None or wway_ver is None:
+                drain = 1
 
-            junction = {
+            junction: Dict[str, Any] = {
                 "uid": central_number,
                 "name": central_name,
-                "drain": int(drain),
+                "drain": drain,
             }
             json_junctions.append(junction)
 
-        return (json_junctions, json_waterways)
+        return json_junctions, json_waterways
