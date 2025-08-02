@@ -42,7 +42,7 @@ public:
     return bus_a_sid() == bus_b_sid();
   }
 
-  constexpr explicit LineLP(Line pline, const InputContext& ic);
+  explicit LineLP(Line pline, const InputContext& ic);
 
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,
