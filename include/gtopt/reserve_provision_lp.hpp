@@ -42,7 +42,6 @@ public:
                                LinearProblem& lp);
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-private:
   struct Provision
   {
     Provision(const InputContext& ic,
@@ -57,11 +56,14 @@ private:
     OptTRealSched cost;
     OptTRealSched capacity_factor;
     OptTRealSched provision_factor;
-    GSTBIndexHolder<ColIndex> provision_cols;
-    GSTBIndexHolder<RowIndex> provision_rows;
-    GSTBIndexHolder<RowIndex> capacity_rows;
-  } up, dp;
+    STBIndexHolder<ColIndex> provision_cols;
+    STBIndexHolder<RowIndex> provision_rows;
+    STBIndexHolder<RowIndex> capacity_rows;
+  };
 
+private:
+  Provision up;
+  Provision dp;
   ElementIndex<GeneratorLP> generator_index;
   std::vector<ElementIndex<ReserveZoneLP>> reserve_zone_indexes;
 };

@@ -81,8 +81,6 @@ public:
 
   /**
    * @brief Gets the flow variables for a specific scenario and stage
-   * @param scenary_index Scenario index
-   * @param stage_index Stage index
    * @return Reference to the flow variables
    */
   [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
