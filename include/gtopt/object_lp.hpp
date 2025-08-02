@@ -112,7 +112,7 @@ public:
   template<typename Self>
   [[nodiscard]] constexpr auto&& object(this Self&& self) noexcept
   {
-    return std::forward<Self>(self).m_object_;
+    return std::forward_like<Self>(self.m_object_);
   }
 };
 
