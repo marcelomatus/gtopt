@@ -28,24 +28,24 @@ public:
 
   using CapacityBase = CapacityObjectLP<Converter>;
 
-  [[nodiscard]] constexpr auto&& converter(this auto&& self)
+  [[nodiscard]] constexpr auto&& converter(this auto&& self) noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }
 
   explicit ConverterLP(Converter pconverter, InputContext& ic);
 
-  [[nodiscard]] auto battery_sid() const
+  [[nodiscard]] constexpr auto battery_sid() const noexcept
   {
     return BatteryLPSId {converter().battery};
   }
 
-  [[nodiscard]] auto generator_sid() const
+  [[nodiscard]] constexpr auto generator_sid() const noexcept
   {
     return GeneratorLPSId {converter().generator};
   }
 
-  [[nodiscard]] auto demand_sid() const
+  [[nodiscard]] constexpr auto demand_sid() const noexcept
   {
     return DemandLPSId {converter().demand};
   }

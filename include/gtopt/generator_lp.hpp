@@ -34,10 +34,10 @@ public:
   [[nodiscard]]
   explicit GeneratorLP(Generator generator, const InputContext& ic);
 
-  [[nodiscard]]
-  constexpr const auto& generator() const noexcept
+  [[nodiscard]] constexpr auto&& generator(this auto&& self) noexcept
   {
-    return object();
+    // Forward the object() call with same value category as self
+    return std::forward_like<decltype(self)>(self.object());
   }
 
   [[nodiscard]]
