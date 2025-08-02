@@ -33,11 +33,13 @@ struct Line
 
   [[nodiscard]] constexpr bool is_valid() const noexcept {
     return uid != unknown_uid && 
-           bus_a != unknown_uid && 
-           bus_b != unknown_uid;
+           std::holds_alternative<Uid>(bus_a) && std::get<Uid>(bus_a) != unknown_uid &&
+           std::holds_alternative<Uid>(bus_b) && std::get<Uid>(bus_b) != unknown_uid;
   }
 
-  [[assume(is_valid())]] constexpr void validate() const noexcept {}
+  constexpr void validate() const noexcept {
+    assert(is_valid());
+  }
   OptTRealFieldSched voltage {};  ///< Line voltage level
   OptTRealFieldSched resistance {};  ///< Line resistance
   OptTRealFieldSched reactance {};  ///< Line reactance
