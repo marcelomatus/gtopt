@@ -28,25 +28,31 @@ public:
 
   /**
    * @brief Returns the underlying Line object with proper forwarding semantics
-   * @tparam Self Deduced type of the calling object (const/non-const, lvalue/rvalue)
+   * @tparam Self Deduced type of the calling object (const/non-const,
+   * lvalue/rvalue)
    * @param self The calling object (implicit)
-   * @return Reference to the Line object with same value category and const-ness as self
+   * @return Reference to the Line object with same value category and
+   * const-ness as self
    */
-  [[nodiscard]] constexpr auto&& line(this auto&& self) noexcept {
+  [[nodiscard]] constexpr auto&& line(this auto&& self) noexcept
+  {
     // Forward the object() call with same value category as self
     return std::forward_like<decltype(self)>(self.object());
   }
 
-  [[nodiscard]] constexpr auto bus_a_sid() const noexcept -> BusLPSId {
-    return BusLPSId{line().bus_a};
+  [[nodiscard]] constexpr auto bus_a_sid() const noexcept -> BusLPSId
+  {
+    return BusLPSId {line().bus_a};
   }
 
-  [[nodiscard]] constexpr auto bus_b_sid() const noexcept -> BusLPSId {
-    return BusLPSId{line().bus_b};
+  [[nodiscard]] constexpr auto bus_b_sid() const noexcept -> BusLPSId
+  {
+    return BusLPSId {line().bus_b};
   }
 
-  [[nodiscard]] constexpr bool is_loop() const noexcept {
-    return bus_a_sid() == bus_b_sid();
+  [[nodiscard]] constexpr bool is_loop() const noexcept
+  {
+    return line().bus_a == line().bus_b;
   }
 
   explicit LineLP(Line pline, const InputContext& ic);
