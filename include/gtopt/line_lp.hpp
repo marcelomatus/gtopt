@@ -26,7 +26,14 @@ public:
 
   using CapacityBase = CapacityObjectLP<Line>;
 
+  /**
+   * @brief Returns the underlying Line object with proper forwarding semantics
+   * @tparam Self Deduced type of the calling object (const/non-const, lvalue/rvalue)
+   * @param self The calling object (implicit)
+   * @return Reference to the Line object with same value category and const-ness as self
+   */
   [[nodiscard]] constexpr auto&& line(this auto&& self) noexcept {
+    // Forward the object() call with same value category as self
     return std::forward_like<decltype(self)>(self.object());
   }
 
