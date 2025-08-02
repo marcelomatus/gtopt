@@ -20,6 +20,7 @@ from .central_writer import CentralWriter
 from .generator_profile_writer import GeneratorProfileWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
+from .junction_writer import JunctionWriter
 
 
 class GTOptWriter:
@@ -107,6 +108,17 @@ class GTOptWriter:
             scenarios,
             options,
         ).to_json_array()
+
+    def process_junctions(self, options):
+        """Process generator profile data to include block and stage information."""
+        centrals = self.parser.parsed_data.get("central_array", [])
+        json_junctions, json_waterways = JunctionWriter(
+            centrals,
+            options,
+        ).to_json_array()
+
+        self.planning["system"]["junction_array"] = json_junctions
+        self.planning["system"]["waterway_array"] = json_waterways
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""

@@ -98,18 +98,18 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
     // Create generation variable for this time block
-    const auto gc = lp.add_col(
+    const auto gcol = lp.add_col(
         {.name =
              sc.lp_label(scenario, stage, block, class_name(), "gen", uid()),
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
-    gcols[buid] = gc;
+    gcols[buid] = gcol;
 
     // Add generator output to the bus power balance equation
     // Factor (1-lossfactor) accounts for generator losses
     auto& brow = lp.row_at(balance_row);
-    brow[gc] = 1 - stage_lossfactor;
+    brow[gcol] = 1 - stage_lossfactor;
 
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
@@ -119,7 +119,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                          scenario, stage, block, class_name(), "cap", uid())}
               .greater_equal(0);
       crow[*capacity_col] = 1;
-      crow[gc] = -1;
+      crow[gcol] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
     }
