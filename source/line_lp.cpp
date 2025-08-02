@@ -7,7 +7,7 @@
 namespace gtopt
 {
 
-constexpr LineLP::LineLP(Line pline, const InputContext& ic)
+LineLP::LineLP(Line pline, const InputContext& ic)
     : CapacityBase(std::move(pline), ic, ClassName)
     , tmax_ba(ic, ClassName, id(), std::move(line().tmax_ba))
     , tmax_ab(ic, ClassName, id(), std::move(line().tmax_ab))
