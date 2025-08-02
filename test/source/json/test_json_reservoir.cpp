@@ -4,6 +4,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reservoir.hpp>
 #include <gtopt/reservoir.hpp>
+#include <gtopt/field_sched.hpp>
+#include <gtopt/object.hpp>
 
 using namespace gtopt;
 
@@ -27,6 +29,7 @@ TEST_CASE("Reservoir basic fields deserialization")
 
   REQUIRE(res.uid == 123);
   REQUIRE(res.name == "TestReservoir");
+  REQUIRE(res.active.has_value());
   REQUIRE(res.active.value() == true);
   REQUIRE(std::get<Uid>(res.junction) == 456);
   REQUIRE_FALSE(res.capacity.has_value());
@@ -118,7 +121,7 @@ TEST_CASE("Reservoir roundtrip serialization")
   REQUIRE(roundtrip.uid == original.uid);
   REQUIRE(roundtrip.name == original.name);
   REQUIRE(roundtrip.active.value() == original.active.value());
-  REQUIRE(std::get<Uid>(roundtrip.junction) == std::get<Uid>(original.junction));
+  REQUIRE(std::get<Uid>(roundtrip.junction) == std::get<Uid>(original.junction);
   REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(roundtrip.capacity.value() == original.capacity.value());
   REQUIRE(roundtrip.annual_loss.has_value());
