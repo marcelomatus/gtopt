@@ -19,10 +19,10 @@ namespace gtopt
 class GeneratorProfileLP : public ObjectLP<GeneratorProfile>
 {
 public:
-  constexpr static std::string_view ClassName = "GeneratorProfile";
+  constexpr static std::string_view ClassName = "GeneratorProfile"sv;
 
-  explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
-                              InputContext& ic);
+  explicit GeneratorProfileLP(GeneratorProfile&& pgenerator_profile,
+                             InputContext& ic);
 
   [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
   {

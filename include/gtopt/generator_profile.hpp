@@ -24,6 +24,28 @@ struct GeneratorProfile
   SingleId generator {unknown_uid};
   STBRealFieldSched profile {};
   OptTRealFieldSched scost {};
+
+  // Structured binding support
+  template<std::size_t I>
+  [[nodiscard]] constexpr auto get() const noexcept {
+    if constexpr (I == 0) return uid;
+    else if constexpr (I == 1) return name;
+    else if constexpr (I == 2) return active;
+    else if constexpr (I == 3) return generator;
+    else if constexpr (I == 4) return profile;
+    else if constexpr (I == 5) return scost;
+  }
 };
+
+// Enable structured bindings
+namespace std {
+  template<>
+  struct tuple_size<gtopt::GeneratorProfile> : integral_constant<size_t, 6> {};
+
+  template<size_t I>
+  struct tuple_element<I, gtopt::GeneratorProfile> {
+    using type = decltype(declval<gtopt::GeneratorProfile>().get<I>());
+  };
+}
 
 }  // namespace gtopt
