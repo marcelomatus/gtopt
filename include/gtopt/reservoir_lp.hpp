@@ -30,7 +30,7 @@ public:
 
   [[nodiscard]] constexpr auto&& reservoir(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward<decltype(self)>(self).object();
   }
 
   [[nodiscard]] auto junction() { return JunctionLPSId {reservoir().junction}; }
