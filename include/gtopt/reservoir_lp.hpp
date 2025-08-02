@@ -1,11 +1,13 @@
 /**
- * @file      reservoir_lp.hpp
- * @brief     Header of
+ * @file      reservoir_lp.hpp  
+ * @brief     Defines the ReservoirLP class for linear programming representation
  * @date      Wed Jul 30 23:15:21 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the ReservoirLP class which provides the linear programming
+ * representation of water reservoirs, including their storage constraints and
+ * relationships with junctions and waterways.
  */
 
 #pragma once
@@ -19,6 +21,15 @@ namespace gtopt
 using ReservoirLPId = ObjectId<class ReservoirLP>;
 using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 
+/**
+ * @brief Linear programming representation of a water reservoir
+ *
+ * This class extends StorageLP to provide LP-specific functionality for reservoirs,
+ * including:
+ * - Storage capacity constraints
+ * - Water extraction constraints
+ * - Relationships with connected junctions
+ */
 class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
@@ -29,6 +40,14 @@ public:
   explicit ReservoirLP(Reservoir preservoir, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& reservoir(this auto&& self) noexcept
+  {
+    return std::forward<decltype(self)>(self).object();
+  }
+
+  [[nodiscard]] constexpr auto junction() const noexcept
+  {
+    return JunctionLPSId{reservoir().junction};
+  }
   {
     return std::forward<decltype(self)>(self).object();
   }
