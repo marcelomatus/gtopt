@@ -48,18 +48,18 @@ public:
   {
     return JunctionLPSId{reservoir().junction};
   }
+
+  [[nodiscard]] constexpr auto&& reservoir(this auto&& self) noexcept
   {
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] auto junction() { return JunctionLPSId {reservoir().junction}; }
-
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
-                               LinearProblem& lp);
+                               LinearProblem& lp) noexcept;
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+  [[nodiscard]] bool add_to_output(OutputContext& out) const noexcept;
 
 private:
   OptTRealSched capacity;
