@@ -19,12 +19,12 @@ namespace gtopt
 
 struct Turbine
 {
-  Uid uid {};
+  Uid uid {unknown_uid};
   Name name {};
   OptActive active {};
 
-  SingleId waterway {};
-  SingleId generator {};
+  SingleId waterway {unknown_uid};
+  SingleId generator {unknown_uid};
 
   OptTRealFieldSched conversion_rate {};
   OptTRealFieldSched capacity {};
