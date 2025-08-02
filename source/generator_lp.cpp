@@ -125,13 +125,11 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
-
   if (!gcols.empty()) {
-    generation_cols[st_key] = std::move(gcols);
+    generation_cols[{scenario.uid(), stage.uid()}] = std::move(gcols);
   }
   if (!crows.empty()) {
-    capacity_rows[st_key] = std::move(crows);
+    capacity_rows[{scenario.uid(), stage.uid()}] = std::move(crows);
   }
 
   return true;
