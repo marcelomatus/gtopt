@@ -75,23 +75,23 @@ struct Demand
    * @param attrs The attribute object to transfer values from
    * @return Reference to the updated demand object
    */
-  auto& set_attrs(auto&& attrs)
+  auto& set_attrs(this auto&& self, auto&& attrs)
   {
-    bus = std::exchange(attrs.bus, {});
-    lmax = std::exchange(attrs.lmax, {});
-    lossfactor = std::exchange(attrs.lossfactor, {});
-    fcost = std::exchange(attrs.fcost, {});
-    emin = std::exchange(attrs.emin, {});
-    ecost = std::exchange(attrs.ecost, {});
+    self.bus = std::exchange(attrs.bus, {});
+    self.lmax = std::exchange(attrs.lmax, {});
+    self.lossfactor = std::exchange(attrs.lossfactor, {});
+    self.fcost = std::exchange(attrs.fcost, {});
+    self.emin = std::exchange(attrs.emin, {});
+    self.ecost = std::exchange(attrs.ecost, {});
 
-    capacity = std::exchange(attrs.capacity, {});
-    expcap = std::exchange(attrs.expcap, {});
-    expmod = std::exchange(attrs.expmod, {});
-    capmax = std::exchange(attrs.capmax, {});
-    annual_capcost = std::exchange(attrs.annual_capcost, {});
-    annual_derating = std::exchange(attrs.annual_derating, {});
+    self.capacity = std::exchange(attrs.capacity, {});
+    self.expcap = std::exchange(attrs.expcap, {});
+    self.expmod = std::exchange(attrs.expmod, {});
+    self.capmax = std::exchange(attrs.capmax, {});
+    self.annual_capcost = std::exchange(attrs.annual_capcost, {});
+    self.annual_derating = std::exchange(attrs.annual_derating, {});
 
-    return *this;
+    return self;
   }
 };
 }  // namespace gtopt
