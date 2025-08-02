@@ -113,16 +113,16 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
-    if (capacity_col) {
+    capacity_col.transform([&](auto cap_col) {
       auto crow =
           SparseRow {.name = sc.lp_label(
                          scenario, stage, block, class_name(), "cap", uid())}
               .greater_equal(0);
-      crow[*capacity_col] = 1;
+      crow[cap_col] = 1;
       crow[gc] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
-    }
+    });
   }
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
