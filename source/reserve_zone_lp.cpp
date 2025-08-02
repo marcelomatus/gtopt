@@ -10,7 +10,8 @@ namespace
 {
 using namespace gtopt;
 
-constexpr bool add_requirement(const SystemContext& sc,
+constexpr bool add_requirement(const std::string_view cname,
+                               const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp,
@@ -19,24 +20,24 @@ constexpr bool add_requirement(const SystemContext& sc,
                                auto& rr,
                                const auto rname)
 {
-  constexpr std::string_view cname = "rzone";
-
-  const auto stage_index = stage.index();
-  const auto scenario_index = scenario.index();
-
-  using STBKey = GSTBIndexHolder<ColIndex>::key_type;
+  using STKey = STBIndexHolder<ColIndex>::key_type;
   if (!(rr.req.has_value())) {
     return true;
   }
 
   const auto stage_rcost = sc.reserve_fail_cost(stage, rr.cost);
 
+  BIndexHolder<ColIndex> rr_cols;
+  BIndexHolder<RowIndex> rr_rows;
+  rr_cols.reserve(blocks.size());
+  rr_rows.reserve(blocks.size());
+
   for (const auto& block : blocks) {
+    const auto buid = block.uid();
     const auto block_rreq = rr.req.optval(stage.uid(), block.uid());
     if (!block_rreq) {
       continue;
     }
-    const STBKey stb_k {scenario_index, stage_index, block.index()};
 
     const auto name = sc.lp_label(scenario, stage, block, cname, rname, uid);
     const auto rcol = stage_rcost
@@ -49,12 +50,17 @@ constexpr bool add_requirement(const SystemContext& sc,
                       .lowb = block_rreq.value(),
                       .uppb = block_rreq.value(),
                       .cost = 0.0});
-    rr.requirement_cols[stb_k] = rcol;
+    rr_cols[buid] = rcol;
 
     SparseRow rr_row {.name = std::move(name)};
     rr_row[rcol] = -1;
-    rr.requirement_rows[stb_k] = lp.add_row(std::move(rr_row.greater_equal(0)));
+    rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
   }
+
+  // storing the indices for this scenario and stage
+  const STKey st_key {scenario.uid(), stage.uid()};
+  rr.requirement_cols[st_key] = std::move(rr_cols);
+  rr.requirement_rows[st_key] = std::move(rr_rows);
 
   return true;
 }
@@ -99,8 +105,10 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  return add_requirement(sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
-      && add_requirement(sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+  return add_requirement(
+             ClassName, sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
+      && add_requirement(
+             ClassName, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
 }
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const

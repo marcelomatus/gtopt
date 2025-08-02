@@ -32,7 +32,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  constexpr std::string_view cname = "conv";
+  constexpr std::string_view cname = ClassName;
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;

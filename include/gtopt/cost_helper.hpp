@@ -125,16 +125,12 @@ public:
    *
    * Formula: cost * probability * discount * duration / scale_objective
    *
-   * @param scenario_index Scenario index for probability factor
-   * @param stage_index Stage index for discount factor
-   * @param block Block containing duration
-   * @param cost Energy cost in $/MWh
    * @return Total energy cost coefficient for LP formulation
    */
   [[nodiscard]] constexpr double block_ecost(const ScenarioLP& scenario,
                                              const StageLP& stage,
                                              const BlockLP& block,
-                                             double cost) const noexcept
+                                             const double cost) const noexcept
   {
     return cost * cost_factor(scenario, stage, block);
   }
@@ -151,15 +147,12 @@ public:
    *
    * Formula: cost * probability * discount * duration / scale_objective
    *
-   * @param scenario_index Scenario index for probability factor
-   * @param stage_index Stage index for discount factor and duration
-   * @param cost Energy cost in $/MWh
    * @return Total energy cost coefficient for LP formulation
    */
   [[nodiscard]] constexpr double scenario_stage_ecost(
       const ScenarioLP& scenario,
       const StageLP& stage,
-      double cost) const noexcept
+      const double cost) const noexcept
   {
     return cost * cost_factor(scenario, stage);
   }
@@ -175,10 +168,6 @@ public:
    * - Objective scaling
    *
    * Formula: cost * probability * discount * duration / scale_objective
-   *
-   * @param stage_index Stage index for discount factor and duration
-   * @param cost Energy cost in $/MWh
-   * @param probability_factor Probability weight (default 1.0)
    * @return Total energy cost coefficient for LP formulation
    */
 
