@@ -73,7 +73,7 @@ class JunctionWriter(BaseWriter):
             if wway_ver:
                 json_waterways.append(wway_ver)
 
-            drain = 1 if wway_hid is None or wway_ver is None else 0
+            drain = not (wway_hid and wway_ver)
 
             junction: Dict[str, Any] = {
                 "uid": central_number,
