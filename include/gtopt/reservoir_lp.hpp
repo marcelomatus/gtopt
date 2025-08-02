@@ -45,7 +45,7 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto junction() const noexcept
+  [[nodiscard]] constexpr auto junction_sid() const noexcept
   {
     return JunctionLPSId {reservoir().junction};
   }

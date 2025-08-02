@@ -35,17 +35,20 @@ public:
 
   explicit ConverterLP(Converter pconverter, InputContext& ic);
 
-  [[nodiscard]] auto battery() const
+  [[nodiscard]] auto battery_sid() const
   {
     return BatteryLPSId {converter().battery};
   }
 
-  [[nodiscard]] auto generator() const
+  [[nodiscard]] auto generator_sid() const
   {
     return GeneratorLPSId {converter().generator};
   }
 
-  [[nodiscard]] auto demand() const { return DemandLPSId {converter().demand}; }
+  [[nodiscard]] auto demand_sid() const
+  {
+    return DemandLPSId {converter().demand};
+  }
 
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,

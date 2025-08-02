@@ -38,18 +38,18 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  if (junction_a() == junction_b()) {
+  if (junction_a_sid() == junction_b_sid()) {
     return true;
   }
 
-  const auto& junction_a_lp = sc.element<JunctionLP>(junction_a());
-  const auto& junction_b_lp = sc.element<JunctionLP>(junction_b());
-  if (!junction_a_lp.is_active(stage) || !junction_b_lp.is_active(stage)) {
+  const auto& junction_a = sc.element<JunctionLP>(junction_a_sid());
+  const auto& junction_b = sc.element<JunctionLP>(junction_b_sid());
+  if (!junction_a.is_active(stage) || !junction_b.is_active(stage)) {
     return true;
   }
 
-  const auto& balance_rows_a = junction_a_lp.balance_rows_at(scenario, stage);
-  const auto& balance_rows_b = junction_b_lp.balance_rows_at(scenario, stage);
+  const auto& balance_rows_a = junction_a.balance_rows_at(scenario, stage);
+  const auto& balance_rows_b = junction_b.balance_rows_at(scenario, stage);
 
   const auto stage_capacity = capacity.at(stage.uid()).value_or(CoinDblMax);
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);

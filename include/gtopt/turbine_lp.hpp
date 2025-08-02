@@ -46,12 +46,12 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto waterway() const noexcept
+  [[nodiscard]] constexpr auto waterway_sid() const noexcept
   {
     return WaterwayLPSId {turbine().waterway};
   }
 
-  [[nodiscard]] constexpr auto generator() const noexcept
+  [[nodiscard]] constexpr auto generator_sid() const noexcept
   {
     return GeneratorLPSId {turbine().generator};
   }

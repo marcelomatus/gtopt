@@ -37,7 +37,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto& junction = sc.element<JunctionLP>(this->junction());
+  const auto& junction = sc.element<JunctionLP>(junction_sid());
   if (!junction.is_active(stage)) {
     return true;
   }

@@ -37,7 +37,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& demand_lp = sc.element<DemandLP>(this->demand());
+  auto&& demand_lp = sc.element<DemandLP>(this->demand_sid());
   if (!demand_lp.is_active(stage)) {
     return true;
   }

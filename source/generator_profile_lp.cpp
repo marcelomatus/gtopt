@@ -37,7 +37,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generator_lp = sc.element<GeneratorLP>(this->generator());
+  auto&& generator_lp = sc.element<GeneratorLP>(this->generator_sid());
   if (!generator_lp.is_active(stage)) {
     return true;
   }

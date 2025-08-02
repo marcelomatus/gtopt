@@ -165,7 +165,7 @@ ReserveProvisionLP::ReserveProvisionLP(ReserveProvision preserve_provision,
          std::move(reserve_provision().drcost),
          std::move(reserve_provision().dr_capacity_factor),
          std::move(reserve_provision().dr_provision_factor))
-    , generator_index(ic.element_index(generator()))
+    , generator_index(ic.element_index(generator_sid()))
     , reserve_zone_indexes(
           make_rzone_indexes(ic, reserve_provision().reserve_zones))
 {

@@ -33,12 +33,12 @@ public:
   }
 
   [[nodiscard]]
-  auto bus_a() const noexcept
+  auto bus_a_sid() const noexcept
   {
     return BusLPSId {line().bus_a};
   }
   [[nodiscard]]
-  auto bus_b() const noexcept
+  auto bus_b_sid() const noexcept
   {
     return BusLPSId {line().bus_b};
   }

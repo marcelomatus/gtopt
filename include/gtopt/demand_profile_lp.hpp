@@ -27,7 +27,7 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto demand() const noexcept
+  [[nodiscard]] constexpr auto demand_sid() const noexcept
   {
     return DemandLPSId {demand_profile().demand};
   }

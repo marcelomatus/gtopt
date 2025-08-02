@@ -28,11 +28,11 @@ public:
     return std::forward<decltype(self)>(self).object();
   }
 
-  [[nodiscard]] constexpr auto junction_a() const noexcept
+  [[nodiscard]] constexpr auto junction_a_sid() const noexcept
   {
     return JunctionLPSId {waterway().junction_a};
   }
-  [[nodiscard]] constexpr auto junction_b() const noexcept
+  [[nodiscard]] constexpr auto junction_b_sid() const noexcept
   {
     return JunctionLPSId {waterway().junction_b};
   }
