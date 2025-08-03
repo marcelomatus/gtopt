@@ -102,13 +102,19 @@ def test_json_output_structure(sample_mance_writer):
         ), "Blocks and p_max should match"
 
 
+class MockEmptyManceParser:
+    """Mock parser that returns empty data."""
+
+    @property
+    def items(self) -> list:
+        """Return an empty list of items."""
+        return []
+
+
 def test_write_empty_mances():
     """Test handling of empty maintenance list."""
     # Create parser with no maintenance data
-    parser = ManceParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
-    parser._num_centrals = 0  # type: ignore[attr-defined]
-
+    parser = MockEmptyManceParser()
     writer = ManceWriter(parser)
 
     # Test empty array conversion
@@ -131,8 +137,7 @@ def test_write_empty_mances():
 
 def test_to_dataframe_with_empty_parser():
     """Test DataFrame creation with empty parser."""
-    parser = ManceParser("dummy.dat")
-    parser._data = []
+    parser = MockEmptyManceParser()
     writer = ManceWriter(parser)
 
     df_pmin, df_pmax = writer.to_dataframe()

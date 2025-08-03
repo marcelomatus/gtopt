@@ -95,12 +95,19 @@ def test_json_output_structure(sample_extrac_writer):
         assert len(extrac["downstream"]) > 0, "Downstream should not be empty"
 
 
+class MockEmptyExtracParser:
+    """Mock parser that returns empty data."""
+
+    @property
+    def items(self) -> list:
+        """Return an empty list of items."""
+        return []
+
+
 def test_write_empty_extracs():
     """Test handling of empty extraction list."""
     # Create parser with no extraction data
-    parser = ExtracParser("dummy.dat")
-    parser._data = []  # pylint: disable=protected-access
-
+    parser = MockEmptyExtracParser()
     writer = ExtracWriter(parser)
 
     # Test empty array conversion
@@ -123,8 +130,7 @@ def test_write_empty_extracs():
 
 def test_to_dataframe_with_empty_parser():
     """Test DataFrame creation with empty parser."""
-    parser = ExtracParser("dummy.dat")
-    parser._data = []
+    parser = MockEmptyExtracParser()
     writer = ExtracWriter(parser)
 
     df = writer.to_dataframe()

@@ -82,31 +82,12 @@ class ManceWriter(BaseWriter):
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
     def _write_parquet_for_field(self, df: pd.DataFrame, output_path: Path) -> None:
-        """Write a single DataFrame field to parquet format.
-
-        Args:
-            df: DataFrame containing the field data
-            output_path: Path to write the parquet file to
-
-        Raises:
-            IOError: If writing to file fails
-        """
-        """Write a single DataFrame field to parquet format.
-        
-        Args:
-            df: DataFrame containing the field data
-            output_path: Path to write the parquet file to
-            
-        Raises:
-            IOError: If writing to file fails
-        """
-        """Write a single DataFrame field to parquet format.
+        """Write a single DataFrame to parquet format.
 
         Args:
             df: DataFrame containing the field data
             output_path: Path to write the parquet file to
         """
-        """Write a single DataFrame to parquet format."""
         if df.empty:
             return
 
@@ -132,8 +113,6 @@ class ManceWriter(BaseWriter):
         finally:
             # Explicitly clear and delete DataFrames
             if "df_pmin" in locals():
-                df_pmin = None
                 del df_pmin
             if "df_pmax" in locals():
-                df_pmax = None
                 del df_pmax

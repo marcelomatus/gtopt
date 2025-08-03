@@ -8,7 +8,7 @@ Handles:
 - Maintenance lookup by name
 """
 
-from typing import Dict, List
+from typing import Any, Dict, List
 import numpy as np
 
 from .base_parser import BaseParser
@@ -18,7 +18,7 @@ class ManceParser(BaseParser):
     """Parser for plpmance.dat format files containing maintenance data."""
 
     @property
-    def mances(self) -> List[Dict]:
+    def mances(self) -> List[Dict[str, Any]]:
         """Return the maintenance entries."""
         return self.get_all()
 
@@ -31,6 +31,7 @@ class ManceParser(BaseParser):
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 
+        lines = []
         try:
             lines = self._read_non_empty_lines()
             if not lines:
@@ -79,6 +80,6 @@ class ManceParser(BaseParser):
         finally:
             lines.clear()
 
-    def get_mance_by_name(self, name: str) -> Dict | None:
+    def get_mance_by_name(self, name: str) -> Dict[str, Any] | None:
         """Get maintenance data for a specific central name."""
         return self.get_item_by_name(name)
