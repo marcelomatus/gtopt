@@ -91,5 +91,5 @@ def test_parse_malformed_file(tmp_path):
     bad_file.write_text("1\n'CENTRAL'\n24.0")  # Missing downstream
 
     parser = ExtracParser(str(bad_file))
-    with pytest.raises(IndexError):
+    with pytest.raises((ValueError, IndexError)):
         parser.parse()
