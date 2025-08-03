@@ -10,8 +10,7 @@ Converts central plant data into:
 - Turbines (energy conversion points)
 """
 
-from typing import Any, Dict, List, Optional, cast
-from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, cast, TypedDict
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
@@ -19,35 +18,24 @@ from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
 
 
-# class Waterway(TypedDict):
-#     """Represents a waterway connection between junctions in the hydro system."""
-
-#     uid: int
-#     name: str
-#     junction_a: int
-#     junction_b: int
-#     capacity: Optional[float]
-
-# class HydroSystemOutput(TypedDict):
-#     """Output structure for hydro system JSON format."""
-
-#     junction_array: List[Dict[str, Any]]
-#     waterway_array: List[Waterway]
-#     flow_array: List[Dict[str, Any]]
-#     reservoir_array: List[Dict[str, Any]]
-#     turbine_array: List[Dict[str, Any]]
-
-
-Waterway = Dict[str, Any]
-HydroSystemOutput = Dict[str, Any]
-
-
-@dataclass
-class HydroElement:
-    """Base class for hydro system elements."""
+class Waterway(TypedDict, total=False):
+    """Represents a waterway connection between junctions in the hydro system."""
 
     uid: int
     name: str
+    junction_a: int
+    junction_b: int
+    capacity: float
+
+
+class HydroSystemOutput(TypedDict):
+    """Output structure for hydro system JSON format."""
+
+    junction_array: List[Dict[str, Any]]
+    waterway_array: List[Waterway]
+    flow_array: List[Dict[str, Any]]
+    reservoir_array: List[Dict[str, Any]]
+    turbine_array: List[Dict[str, Any]]
 
 
 class JunctionWriter(BaseWriter):
@@ -224,20 +212,23 @@ class JunctionWriter(BaseWriter):
         central_parser: CentralParser,
     ) -> None:
         """Process extraction plants into waterways."""
-        items = self.extrac_parser.extracs if self.extrac_parser else []
-        for extraction in items:
-            upstream_id = extraction["number"]
+        if not self.extrac_parser:
+            return
+        for extraction in self.extrac_parser.extracs:
             upstream_name = extraction["name"]
-            downstream_name = extraction["downstream"]
+            upstream_central = central_parser.get_central_by_name(upstream_name)
+            if not upstream_central:
+                continue
 
-            downstream = central_parser.get_central_by_name(downstream_name)
-            if not downstream:
+            downstream_name = extraction["downstream"]
+            downstream_central = central_parser.get_central_by_name(downstream_name)
+            if not downstream_central:
                 continue  # Skip invalid downstream
 
             waterway = self._create_waterway(
                 upstream_name,
-                upstream_id,
-                downstream["number"],
+                upstream_central["number"],
+                downstream_central["number"],
                 extraction.get("max_extrac"),
             )
             if waterway:
