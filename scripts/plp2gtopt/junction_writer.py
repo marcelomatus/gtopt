@@ -140,7 +140,7 @@ class JunctionWriter(BaseWriter):
         if central_parser:
             self._process_reservoirs(system, central_parser)
 
-        return [system]
+        return [cast(Dict[str, Any], system)]
 
     def _process_plant(
         self,
