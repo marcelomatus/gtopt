@@ -49,11 +49,12 @@ class MockExtracParser(ExtracParser):
         return self._mock_data
 
 
-class MockAflceParser:
+class MockAflceParser(AflceParser):
     """Mock AflceParser for testing."""
 
     def __init__(self, aflces: List[Dict[str, Any]]):
         """Initialize with a list of aflce data."""
+        super().__init__("dummy.dat")
         self._aflces = aflces
 
     def get_item_by_name(self, name: str) -> Optional[Dict[str, Any]]:
