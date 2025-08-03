@@ -40,7 +40,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  const auto& bus_lp = sc.element<BusLP>(bus());
+  const auto& bus_lp = sc.element<BusLP>(bus_sid());
   if (!bus_lp.is_active(stage)) [[unlikely]] {
     return true;
   }

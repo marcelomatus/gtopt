@@ -18,14 +18,13 @@ public:
   [[nodiscard]]
   explicit DemandLP(Demand pdemand, const InputContext& ic);
 
-  [[nodiscard]]
-  constexpr const auto& demand() const noexcept
+  [[nodiscard]] constexpr auto&& demand(this auto&& self) noexcept
   {
-    return object();
+    return std::forward_like<decltype(self)>(self.object());
   }
 
   [[nodiscard]]
-  constexpr auto bus() const noexcept
+  constexpr auto bus_sid() const noexcept
   {
     return ObjectSingleId<BusLP> {demand().bus};
   }
@@ -41,7 +40,7 @@ public:
 
   [[nodiscard]]
   constexpr const auto& load_cols_at(const ScenarioLP& scenario,
-                                const StageLP& stage) const noexcept
+                                     const StageLP& stage) const noexcept
   {
     return load_cols.at({scenario.uid(), stage.uid()});
   }

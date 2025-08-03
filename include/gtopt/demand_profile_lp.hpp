@@ -22,7 +22,7 @@ public:
 
   explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
 
-  [[nodiscard]] constexpr const auto& demand_profile(this const auto& self) const
+  [[nodiscard]] constexpr auto&& demand_profile(this auto&& self) noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }
