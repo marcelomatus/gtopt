@@ -112,7 +112,7 @@ public:
 
   [[nodiscard]] constexpr auto&& object(this auto&& self) noexcept
   {
-    return self.m_object_;
+    return std::forward_like<decltype(self)>(self.m_object_);
   }
 };
 

@@ -34,9 +34,9 @@ public:
   [[nodiscard]]
   explicit GeneratorLP(Generator generator, const InputContext& ic);
 
-  [[nodiscard]] constexpr const auto& generator(this const auto& self) const noexcept
+  [[nodiscard]] constexpr auto&& generator(this auto&& self) noexcept
   {
-    return self.object();
+    return std::forward_like<decltype(self)>(self.object());
   }
 
   [[nodiscard]]

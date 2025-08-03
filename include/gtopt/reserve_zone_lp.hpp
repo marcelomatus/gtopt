@@ -28,10 +28,9 @@ public:
 
   explicit ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic);
 
-  template<typename Self>
-  [[nodiscard]] constexpr const auto& reserve_zone(this const Self& self) const
+  [[nodiscard]] constexpr auto&& reserve_zone(this auto&& self) noexcept
   {
-    return std::forward<Self>(self).object();
+    return std::forward_like<decltype(self)>(self.object());
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,

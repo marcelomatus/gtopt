@@ -61,7 +61,7 @@ public:
 
   /// @return Reference to the underlying junction data
   [[nodiscard]]
-  constexpr const auto& junction(this const auto& self) const noexcept
+  constexpr auto&& junction(this auto&& self) noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }
