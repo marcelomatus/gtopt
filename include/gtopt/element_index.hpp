@@ -28,7 +28,7 @@ struct ElementIndex : StrongIndexType<Element>
   using Base = StrongIndexType<Element>;
   using Base::Base;
 
-  constexpr static auto Unknown = std::string::npos;
+  constexpr static auto Unknown = unknown_index;
 
   ElementIndex()
       : Base(Unknown)

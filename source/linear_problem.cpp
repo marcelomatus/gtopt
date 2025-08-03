@@ -49,24 +49,13 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     }
 
     const auto eps = opts.eps;
-    if (eps < 0) [[unlikely]] {
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
-        for (const auto& [j, v] : row.cmap) {
+    for (const auto& [i, row] : std::views::enumerate(rows)) {
+      for (const auto& [j, v] : row.cmap) {
+        if (eps < 0 || std::abs(v) > eps) [[likely]] {
           A[j].emplace(std::piecewise_construct,
                        std::forward_as_tuple(i),
                        std::forward_as_tuple(v));
           ++nnzero;
-        }
-      }
-    } else [[likely]] {
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
-        for (const auto& [j, v] : row.cmap) {
-          if (std::abs(v) > eps) [[likely]] {
-            A[j].emplace(std::piecewise_construct,
-                         std::forward_as_tuple(i),
-                         std::forward_as_tuple(v));
-            ++nnzero;
-          }
         }
       }
     }

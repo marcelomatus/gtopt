@@ -108,8 +108,8 @@ TEST_CASE("daw json gtopt basic types 2")
      "f1": 3.5,
      "f2": [1,2,3,4],
      "f3": "f1",
-     "f4": 3.5
-     "f5": "f1",
+     "f4": 3.5,
+     "f5": "f1"
     })";
 
   //

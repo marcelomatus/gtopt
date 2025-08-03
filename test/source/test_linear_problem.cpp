@@ -50,7 +50,7 @@ TEST_CASE("Linear problem test 2")
   }
 
   {
-    SparseCol col("c1", -25, 25, 10);
+    SparseCol col({.name = "c1", .lowb = -25, .uppb = 25, .cost = 10});
     REQUIRE(col.name == "c1");
 
     REQUIRE(col.lowb == doctest::Approx(-25));

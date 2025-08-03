@@ -73,8 +73,8 @@ TEST_CASE("Demand daw json test 4")
   std::string_view json_data = R"([{
     "uid":5,
     "name":"CRUCERO",
-    "active": [0,0,1,1]
-    "bus":"GOLDA",
+    "active": [0,0,1,1],
+    "bus":"GOLDA"
     },{
     "uid":10,
     "name":"PTOMONTT",

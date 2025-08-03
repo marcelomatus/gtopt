@@ -12,7 +12,7 @@ TEST_CASE("Demand")
   CHECK(demand.name == "demand_1");
 }
 
-TEST_CASE("Demand")
+TEST_CASE("Demand with capacity")
 {
   using namespace gtopt;
 

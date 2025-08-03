@@ -124,11 +124,11 @@ constexpr auto make_field_arrays(FieldVector&& field_vector)
       continue;
     }
 
-    // Procesar prelude solo una vez
+    // Process prelude only once
     if (!prelude_processed && prelude) [[likely]] {
       auto&& [pfields, parrays] = *std::forward<decltype(prelude)>(prelude);
 
-      // Mover si es rvalue, copiar si es lvalue
+      // Move if rvalue, copy if lvalue
       if constexpr (std::is_rvalue_reference_v<FieldVector&&>) {
         fields = std::move(pfields);
         arrays = std::move(parrays);
