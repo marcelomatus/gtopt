@@ -1,7 +1,8 @@
 """Unit tests for JunctionWriter class."""
 
-import pytest
 from typing import Any, Dict, List, Optional
+
+import pytest
 
 from ..junction_writer import JunctionWriter
 from ..central_parser import CentralParser
