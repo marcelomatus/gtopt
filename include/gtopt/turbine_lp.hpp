@@ -41,7 +41,7 @@ public:
    */
   explicit TurbineLP(Turbine pturbine, InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& turbine(this auto&& self) noexcept
+  [[nodiscard]] constexpr const auto& turbine(this const auto& self) const noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }

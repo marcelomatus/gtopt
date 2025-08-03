@@ -29,7 +29,7 @@ public:
   explicit ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic);
 
   template<typename Self>
-  [[nodiscard]] constexpr auto&& reserve_zone(this Self& self)
+  [[nodiscard]] constexpr const auto& reserve_zone(this const Self& self) const
   {
     return std::forward<Self>(self).object();
   }

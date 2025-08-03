@@ -39,7 +39,7 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr auto&& filtration(this auto&& self) noexcept
+  [[nodiscard]] constexpr const auto& filtration(this const auto& self) const noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }

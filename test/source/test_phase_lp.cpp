@@ -45,7 +45,7 @@ TEST_CASE("PhaseLP construction")
 
     CHECK(phase_lp.uid() == PhaseUid {1});
     CHECK(phase_lp.index() == 1);
-    CHECK(phase_lp.stages().size() == 2);
+    CHECK(phase_lp.stages().size() == 2);  // Only active stages are included
   }
 }
 
@@ -171,6 +171,6 @@ TEST_CASE("PhaseLP construction from simulation")
   const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
   const PhaseLP phase_lp(phase, options, simulation);
 
-  CHECK(phase_lp.stages().size() == 1);
+  CHECK(phase_lp.stages().size() == 1);  // Only one active stage in range
   CHECK(phase_lp.duration() == doctest::Approx(1.0));
 }

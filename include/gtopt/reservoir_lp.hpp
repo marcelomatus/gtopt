@@ -40,7 +40,7 @@ public:
 
   explicit ReservoirLP(Reservoir preservoir, const InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& reservoir(this auto&& self) noexcept
+  [[nodiscard]] constexpr const auto& reservoir(this const auto& self) const noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }
