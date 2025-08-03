@@ -90,10 +90,10 @@ TEST_CASE("Filtration with active property serialization")
     filt.active = True;
 
     auto json = daw::json::to_json(filt);
-    Filtration roundtrip = daw::json::from_json<Filtration>(json);
+    const Filtration roundtrip = daw::json::from_json<Filtration>(json);
 
-    REQUIRE(roundtrip.active.has_value());
-    CHECK(std::get<IntBool>(roundtrip.active.value()) == True);
+    CHECK(roundtrip.active.has_value());
+    CHECK(std::get<IntBool>(roundtrip.active.value_or(False)) == True);
   }
 
   SUBCASE("With schedule active")
@@ -106,14 +106,16 @@ TEST_CASE("Filtration with active property serialization")
     auto json = daw::json::to_json(filt);
     Filtration roundtrip = daw::json::from_json<Filtration>(json);
 
-    REQUIRE(roundtrip.active.has_value());
-    const auto& active =
-        std::get<std::vector<IntBool>>(roundtrip.active.value());
-    REQUIRE(active.size() == 4);
-    CHECK(active[0] == True);
-    CHECK(active[1] == False);
-    CHECK(active[2] == True);
-    CHECK(active[3] == False);
+    CHECK(roundtrip.active.has_value());
+    if (roundtrip.active.has_value()) {
+      const auto& active =
+          std::get<std::vector<IntBool>>(roundtrip.active.value());
+      CHECK(active.size() == 4);
+      CHECK(active[0] == True);
+      CHECK(active[1] == False);
+      CHECK(active[2] == True);
+      CHECK(active[3] == False);
+    }
   }
 }
 

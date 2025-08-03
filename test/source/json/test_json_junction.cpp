@@ -31,7 +31,7 @@ TEST_CASE("Junction JSON with drain")
   REQUIRE(junction.uid == 5);
   REQUIRE(junction.name == "CRUCERO");
   REQUIRE(junction.drain.has_value());
-  REQUIRE(junction.drain.value() == true);
+  REQUIRE(junction.drain.value_or(false) == true);
 }
 
 TEST_CASE("Junction JSON array parsing")
@@ -56,7 +56,7 @@ TEST_CASE("Junction JSON array parsing")
   REQUIRE(junctions[1].uid == 10);
   REQUIRE(junctions[1].name == "PTOMONTT");
   REQUIRE(junctions[1].drain.has_value());
-  REQUIRE(junctions[1].drain.value() == false);
+  REQUIRE(junctions[1].drain.value_or(true) == false);
 }
 
 TEST_CASE("Junction JSON with active schedule")
@@ -73,7 +73,7 @@ TEST_CASE("Junction JSON with active schedule")
 
   REQUIRE(junction.active.has_value());
   const auto& active = std::get<std::vector<IntBool>>(junction.active.value());
-  REQUIRE(active.size() == 4);
+  CHECK(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);
   CHECK(active[2] == True);

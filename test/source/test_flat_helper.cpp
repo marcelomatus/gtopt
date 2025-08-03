@@ -82,7 +82,7 @@ TEST_CASE("Flat helper - Flat Methods")
 
   SUBCASE("STBIndexHolder")
   {
-    STBIndexHolder holder;
+    STBIndexHolder<Index> holder;
     const IndexHolder0<BlockUid> blocks = {{BlockUid {0}, 10},
                                            {BlockUid {1}, 20}};
 
@@ -99,7 +99,7 @@ TEST_CASE("Flat helper - Flat Methods")
 
   SUBCASE("STIndexHolder")
   {
-    STIndexHolder holder;
+    STIndexHolder<Index> holder;
     holder[{ScenarioUid {0}, StageUid {0}}] = 42;
 
     const scenario_stage_factor_matrix_t factor;
@@ -166,13 +166,13 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(gstb_values.empty());
     CHECK(gstb_valid.empty());
 
-    const STBIndexHolder stb_holder;
+    const STBIndexHolder<Index> stb_holder;
     auto [stb_values, stb_valid] =
         helper.flat(stb_holder, [](auto v) { return v; });
     CHECK(stb_values.empty());
     CHECK(stb_valid.empty());
 
-    const STIndexHolder st_holder;
+    const STIndexHolder<Index> st_holder;
     auto [st_values, st_valid] =
         helper.flat(st_holder, [](auto v) { return v; });
     CHECK(st_values.empty());

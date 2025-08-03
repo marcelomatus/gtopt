@@ -12,7 +12,7 @@ TEST_CASE("Basic functionality")
 {
   using TestTraits = UidMapTraits<int, std::string, int>;
 
-  SUBCASE("Type aliases")
+  // SUBCASE("Type aliases")
   {
     CHECK(std::is_same_v<TestTraits::value_type, int>);
     CHECK(std::is_same_v<TestTraits::key_type, std::tuple<std::string, int>>);
@@ -20,7 +20,7 @@ TEST_CASE("Basic functionality")
                          gtopt::flat_map<std::tuple<std::string, int>, int>>);
   }
 
-  SUBCASE("Map operations")
+  // SUBCASE("Map operations")
   {
     TestTraits::uid_map_t map;
     auto key = std::make_tuple("test", 42);
