@@ -321,8 +321,8 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     # 2 waterways from PlantA, 1 from PlantB, 1 from extraction
     assert len(result["waterway_array"]) == 4
 
-    # 2 turbines for PlantA and PlantB
-    assert len(result["turbine_array"]) == 2
+    # 1 turbine for PlantA (PlantB has no generation waterway)
+    assert len(result["turbine_array"]) == 1
 
     # 2 flows for PlantA and PlantC
     assert len(result["flow_array"]) == 2
