@@ -3,7 +3,6 @@
 """Writer for converting central data to JSON format."""
 
 from typing import Any, Dict, List, Optional, cast
-import typing
 
 
 from .base_writer import BaseWriter
@@ -41,7 +40,7 @@ class JunctionWriter(BaseWriter):
 
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
-    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> List[Dict[str, Any]]:
         """Convert central data to JSON array format."""
         central_parser = cast(CentralParser, self.parser)
         if items is None:
@@ -52,7 +51,7 @@ class JunctionWriter(BaseWriter):
                 else []
             )
         if not items:
-            return [], []
+            return []
 
         json_junctions: List[Dict[str, Any]] = []
         json_waterways: List[Dict[str, Any]] = []
@@ -82,4 +81,9 @@ class JunctionWriter(BaseWriter):
             }
             json_junctions.append(junction)
 
-        return json_junctions, json_waterways
+        return [
+            {
+                "junction_array": json_junctions,
+                "waterway_array": json_waterways,
+            }
+        ]

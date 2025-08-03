@@ -100,7 +100,9 @@ class BaseParser(ABC):
     def _read_non_empty_lines(self) -> List[str]:
         """Read file and return non-empty, non-comment lines."""
         with open(self.file_path, "r", encoding="utf-8") as f:
-            return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            return [
+                line.strip() for line in f if line.strip() and not line.startswith("#")
+            ]
 
     def _parse_int(self, value: str) -> int:
         """Parse integer handling zero-padded strings."""

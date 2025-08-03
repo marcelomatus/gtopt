@@ -11,7 +11,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 from .base_parser import BaseParser
 
 
