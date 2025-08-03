@@ -5,17 +5,19 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from ..junction_writer import JunctionWriter
+from ..central_parser import CentralParser
 from ..extrac_parser import ExtracParser
 from ..aflce_parser import AflceParser
 
 # Mocks for parsers
 
 
-class MockCentralParser:
+class MockCentralParser(CentralParser):
     """Mock CentralParser for testing."""
 
     def __init__(self, centrals: List[Dict[str, Any]]):
         """Initialize with a list of central data."""
+        super().__init__("dummy.dat")
         self._centrals = centrals
         self.centrals_of_type: Dict[str, List[Dict[str, Any]]] = {}
         for central in centrals:
