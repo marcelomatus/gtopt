@@ -162,7 +162,7 @@ def test_to_json_array_empty(empty_central_parser):
     """Test to_json_array with no input data."""
     writer = JunctionWriter(central_parser=empty_central_parser)
     result = writer.to_json_array()
-    assert result == []
+    assert not result
 
 
 def test_to_json_array_single_plant():
