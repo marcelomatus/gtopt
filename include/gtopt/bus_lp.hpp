@@ -44,7 +44,7 @@ public:
   [[nodiscard]]
   constexpr const auto& bus() const noexcept
   {
-    return ObjectLP<Bus>::object();
+    return object();
   }
 
   [[nodiscard]]
