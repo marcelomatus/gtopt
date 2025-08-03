@@ -102,11 +102,14 @@ def test_json_output_structure(sample_mance_writer):
         ), "Blocks and p_max should match"
 
 
-class MockEmptyManceParser:
+class MockEmptyManceParser(ManceParser):
     """Mock parser that returns empty data."""
 
-    @property
-    def items(self) -> list:
+    def __init__(self):
+        """Initializes the mock parser with a dummy file path."""
+        super().__init__("dummy.dat")
+
+    def get_all(self) -> list:
         """Return an empty list of items."""
         return []
 

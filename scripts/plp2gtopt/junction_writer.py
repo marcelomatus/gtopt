@@ -98,7 +98,7 @@ class JunctionWriter(BaseWriter):
 
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
-    ) -> List[HydroSystemOutput]:
+    ) -> List[Dict[str, Any]]:
         """Convert central plant data to hydro system JSON format.
 
         Args:

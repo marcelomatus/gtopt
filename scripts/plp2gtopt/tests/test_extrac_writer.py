@@ -95,11 +95,14 @@ def test_json_output_structure(sample_extrac_writer):
         assert len(extrac["downstream"]) > 0, "Downstream should not be empty"
 
 
-class MockEmptyExtracParser:
+class MockEmptyExtracParser(ExtracParser):
     """Mock parser that returns empty data."""
 
-    @property
-    def items(self) -> list:
+    def __init__(self):
+        """Initializes the mock parser with a dummy file path."""
+        super().__init__("dummy.dat")
+
+    def get_all(self) -> list:
         """Return an empty list of items."""
         return []
 
