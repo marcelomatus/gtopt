@@ -146,7 +146,7 @@ class JunctionWriter(BaseWriter):
         self,
         plant: Dict[str, Any],
         system: HydroSystemOutput,
-        central_parser: CentralParser,
+        _central_parser: CentralParser,
     ) -> None:
         """Process a single central plant into hydro system elements."""
         plant_id = plant["number"]
