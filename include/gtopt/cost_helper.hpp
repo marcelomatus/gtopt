@@ -63,11 +63,6 @@ namespace gtopt
  * - Applying probability and discount factors
  */
 
-// TODO(marcelo): change to "ecost_factors" methods names to "icost_factor"
-// since they calculate the inverse cost factor required for example to compute
-// dual prices. Also document the methods changed and apply the changes to
-// cost_helper.cpp/hpp files.
-
 class CostHelper
 {
 public:

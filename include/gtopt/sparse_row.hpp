@@ -40,7 +40,7 @@ namespace gtopt
  * storing only non-zero coefficients. It supports various constraint types
  * through fluent interface methods and can convert to dense or flat
  * representations.
- *x
+ *
  * @note All methods are constexpr where possible to enable compile-time
  * evaluation
  */

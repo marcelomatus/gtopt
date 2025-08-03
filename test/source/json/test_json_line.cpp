@@ -113,7 +113,6 @@ TEST_CASE("Line JSON roundtrip serialization")
   REQUIRE(std::get<gtopt::Uid>(roundtrip.bus_a) == 1);
   REQUIRE(std::get<gtopt::Uid>(roundtrip.bus_b) == 2);
   REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(std::get<double>(roundtrip.capacity.value()) == 100.0);
 }
 

@@ -23,7 +23,7 @@ namespace
  * fixed voltage angle (theta) for power flow calculations. A reference bus is
  * needed if:
  * - There are multiple buses
- * - Single-bus mode is not activeLa reu
+ * - Single-bus mode is not active
  * - Kirchhoff's laws are being used
  * - No bus has already been designated as a reference
  * - At least one bus needs Kirchhoff constraints based on threshold

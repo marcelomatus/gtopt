@@ -1,5 +1,5 @@
-/**c
- * @file      system.hpp<gtopt>
+/**
+ * @file      system.hpp
  * @brief     Header of System class
  * @date      Wed Mar 19 21:59:12 2025
  * @author    marcelo

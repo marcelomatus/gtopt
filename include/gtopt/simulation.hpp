@@ -1,5 +1,5 @@
-/**c
- * @file      simulation.hpp<gtopt>
+/**
+ * @file      simulation.hpp
  * @brief     Header of Simulation class
  * @date      Wed Mar 19 21:59:12 2025
  * @author    marcelo

@@ -39,7 +39,7 @@ struct Flow
   SingleId junction {unknown_uid};  ///< Connected junction identifier
   STBRealFieldSched discharge {};  ///< Discharge schedule
 
-  /// @returns true if flow is directed into the junction
+  /// @return true if flow is directed into the junction
   [[nodiscard]] constexpr bool is_input() const noexcept
   {
     return direction > 0;
