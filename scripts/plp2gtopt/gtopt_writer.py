@@ -112,13 +112,16 @@ class GTOptWriter:
     def process_junctions(self, options):
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
-        json_junctions, json_waterways = JunctionWriter(
+        json_junctions = JunctionWriter(
             centrals,
             options,
         ).to_json_array()
 
-        self.planning["system"]["junction_array"] = json_junctions
-        self.planning["system"]["waterway_array"] = json_waterways
+        if not json_junctions:
+            return
+
+        for array in "junction_array", "waterway_array":
+            self.planning["system"][array] = json_junctions[0][array]
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""

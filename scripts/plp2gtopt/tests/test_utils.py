@@ -1,7 +1,7 @@
 """Common test utilities for plp2gtopt."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Type, Union
+from typing import Any, Dict, List, Tuple, Type
 import pytest
 
 

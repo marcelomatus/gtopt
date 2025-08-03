@@ -8,7 +8,7 @@ Handles:
 - Line lookup by name or buses
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from .base_parser import BaseParser
 
 
@@ -89,6 +89,6 @@ class LineParser(BaseParser):
         """Return the number of lines in the file."""
         return len(self.lines)
 
-    def get_line_by_name(self, name: str) -> Dict[str, Any] | None :
+    def get_line_by_name(self, name: str) -> Dict[str, Any] | None:
         """Get line data for a specific line name."""
         return self.get_item_by_name(name)
