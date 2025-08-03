@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from ..junction_writer import JunctionWriter
-from ..central_parser import CentralParser
 from ..extrac_parser import ExtracParser
 from ..aflce_parser import AflceParser
 
