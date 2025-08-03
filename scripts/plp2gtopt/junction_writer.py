@@ -28,14 +28,54 @@ class Waterway(TypedDict, total=False):
     capacity: float
 
 
+class Junction(TypedDict):
+    """Represents a node in the hydro system."""
+
+    uid: int
+    name: str
+    drain: bool
+
+
+class Flow(TypedDict):
+    """Represents a water discharge in the hydro system."""
+
+    uid: int
+    name: str
+    junction: int
+    discharge: float | str
+
+
+class Reservoir(TypedDict):
+    """Represents a storage node in the hydro system."""
+
+    uid: int
+    name: str
+    junction: int
+    vini: float
+    vfin: float
+    vmin: float
+    vmax: float
+    capacity: float
+
+
+class Turbine(TypedDict):
+    """Represents an energy conversion point in the hydro system."""
+
+    uid: int
+    name: str
+    generator: int
+    waterway: int
+    convertion_rate: float
+
+
 class HydroSystemOutput(TypedDict):
     """Output structure for hydro system JSON format."""
 
-    junction_array: List[Dict[str, Any]]
+    junction_array: List[Junction]
     waterway_array: List[Waterway]
-    flow_array: List[Dict[str, Any]]
-    reservoir_array: List[Dict[str, Any]]
-    turbine_array: List[Dict[str, Any]]
+    flow_array: List[Flow]
+    reservoir_array: List[Reservoir]
+    turbine_array: List[Turbine]
 
 
 class JunctionWriter(BaseWriter):
@@ -164,39 +204,36 @@ class JunctionWriter(BaseWriter):
         if gen_waterway:
             system["waterway_array"].append(gen_waterway)
             if plant["bus"] > 0:  # Only create turbine if connected to bus
-                system["turbine_array"].append(
-                    {
-                        "uid": plant_id,
-                        "name": plant_name,
-                        "generator": plant_id,
-                        "waterway": gen_waterway["uid"],
-                        "convertion_rate": plant["efficiency"],
-                    }
-                )
+                turbine: Turbine = {
+                    "uid": plant_id,
+                    "name": plant_name,
+                    "generator": plant_id,
+                    "waterway": gen_waterway["uid"],
+                    "convertion_rate": plant["efficiency"],
+                }
+                system["turbine_array"].append(turbine)
 
         if ver_waterway:
             system["waterway_array"].append(ver_waterway)
 
         # Create junction
-        system["junction_array"].append(
-            {
-                "uid": plant_id,
-                "name": plant_name,
-                "drain": not (gen_waterway and ver_waterway),
-            }
-        )
+        junction: Junction = {
+            "uid": plant_id,
+            "name": plant_name,
+            "drain": not (gen_waterway and ver_waterway),
+        }
+        system["junction_array"].append(junction)
 
         # Add flow if exists
         afluent = self._get_plant_flow(plant_name, plant)
         if afluent != 0.0:
-            system["flow_array"].append(
-                {
-                    "uid": plant_id,
-                    "name": plant_name,
-                    "junction": plant_id,
-                    "discharge": afluent,
-                }
-            )
+            flow: Flow = {
+                "uid": plant_id,
+                "name": plant_name,
+                "junction": plant_id,
+                "discharge": afluent,
+            }
+            system["flow_array"].append(flow)
 
     def _get_plant_flow(self, plant_name: str, plant: Dict[str, Any]) -> float | str:
         """Get flow value for plant, checking aflce parser if available."""
@@ -241,16 +278,15 @@ class JunctionWriter(BaseWriter):
     ) -> None:
         """Process reservoir plants into reservoir elements."""
         reservoirs = central_parser.centrals_of_type.get("embalse", [])
-        for reservoir in reservoirs:
-            system["reservoir_array"].append(
-                {
-                    "uid": reservoir["number"],
-                    "name": reservoir["name"],
-                    "junction": reservoir["number"],
-                    "vini": reservoir["vol_ini"],
-                    "vfin": reservoir["vol_fin"],
-                    "vmin": reservoir["vol_min"],
-                    "vmax": reservoir["vol_max"],
-                    "capacity": reservoir["vol_max"],
-                }
-            )
+        for reservoir_data in reservoirs:
+            reservoir: Reservoir = {
+                "uid": reservoir_data["number"],
+                "name": reservoir_data["name"],
+                "junction": reservoir_data["number"],
+                "vini": reservoir_data["vol_ini"],
+                "vfin": reservoir_data["vol_fin"],
+                "vmin": reservoir_data["vol_min"],
+                "vmax": reservoir_data["vol_max"],
+                "capacity": reservoir_data["vol_max"],
+            }
+            system["reservoir_array"].append(reservoir)
