@@ -23,7 +23,7 @@ public:
 
   explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& waterway(this auto&& self) noexcept
+  [[nodiscard]] constexpr const auto& waterway(this const auto& self) const noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }

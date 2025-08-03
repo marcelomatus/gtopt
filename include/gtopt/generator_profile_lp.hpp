@@ -37,7 +37,7 @@ public:
   explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
                               InputContext& ic);
 
-  [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
+  [[nodiscard]] constexpr const auto& generator_profile(this const auto& self) const noexcept
   {
     return std::forward_like<decltype(self)>(self.object());
   }

@@ -19,7 +19,7 @@ public:
   explicit DemandLP(Demand pdemand, const InputContext& ic);
 
   [[nodiscard]]
-  constexpr auto&& demand() const noexcept
+  constexpr const auto& demand() const noexcept
   {
     return object();
   }
@@ -40,7 +40,7 @@ public:
   bool add_to_output(OutputContext& out) const;
 
   [[nodiscard]]
-  constexpr auto&& load_cols_at(const ScenarioLP& scenario,
+  constexpr const auto& load_cols_at(const ScenarioLP& scenario,
                                 const StageLP& stage) const noexcept
   {
     return load_cols.at({scenario.uid(), stage.uid()});
