@@ -27,18 +27,18 @@ TEST_CASE("Reservoir basic fields deserialization")
 
   Reservoir res = daw::json::from_json<Reservoir>(json_data);
 
-  REQUIRE(res.uid == 123);
-  REQUIRE(res.name == "TestReservoir");
-  REQUIRE(res.active.has_value());
-  REQUIRE(std::get<IntBool>(res.active.value()));
-  REQUIRE(std::get<Uid>(res.junction) == 456);
-  REQUIRE_FALSE(res.capacity.has_value());
-  REQUIRE_FALSE(res.annual_loss.has_value());
-  REQUIRE_FALSE(res.vmin.has_value());
-  REQUIRE_FALSE(res.vmax.has_value());
-  REQUIRE_FALSE(res.vcost.has_value());
-  REQUIRE_FALSE(res.vini.has_value());
-  REQUIRE_FALSE(res.vfin.has_value());
+  CHECK(res.uid == 123);
+  CHECK(res.name == "TestReservoir");
+  CHECK(res.active.has_value());
+  CHECK(std::get<IntBool>(res.active.value_or(False)));
+  CHECK(std::get<Uid>(res.junction) == 456);
+  CHECK_FALSE(res.capacity.has_value());
+  CHECK_FALSE(res.annual_loss.has_value());
+  CHECK_FALSE(res.vmin.has_value());
+  CHECK_FALSE(res.vmax.has_value());
+  CHECK_FALSE(res.vcost.has_value());
+  CHECK_FALSE(res.vini.has_value());
+  CHECK_FALSE(res.vfin.has_value());
 }
 
 TEST_CASE("Reservoir optional fields deserialization")
@@ -56,15 +56,15 @@ TEST_CASE("Reservoir optional fields deserialization")
     "vfin":600.0
   })";
 
-  Reservoir res = daw::json::from_json<Reservoir>(json_data);
-
-  REQUIRE(std::get<double>(res.capacity.value()) == 1.0);
-  REQUIRE(std::get<double>(res.annual_loss.value()) == 0.05);
-  REQUIRE(std::get<double>(res.vmin.value()) == 100.0);
-  REQUIRE(std::get<double>(res.vmax.value()) == 1000.0);
-  REQUIRE(std::get<double>(res.vcost.value()) == 5.0);
-  REQUIRE(res.vini.value() == 500.0);
-  REQUIRE(res.vfin.value() == 600.0);
+  const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+  CHECK(res.capacity.has_value());
+  CHECK(std::get<double>(res.capacity.value_or(-1.0)) == 1.0);
+  CHECK(std::get<double>(res.annual_loss.value_or(-1.0)) == 0.05);
+  CHECK(std::get<double>(res.vmin.value_or(-1.0)) == 100.0);
+  CHECK(std::get<double>(res.vmax.value_or(-1.0)) == 1000.0);
+  CHECK(std::get<double>(res.vcost.value_or(-1.0)) == 5.0);
+  CHECK(res.vini.value_or(-1.0) == 500.0);
+  CHECK(res.vfin.value_or(-1.0) == 600.0);
 }
 
 TEST_CASE("Reservoir array deserialization")
@@ -84,16 +84,16 @@ TEST_CASE("Reservoir array deserialization")
   std::vector<Reservoir> reservoirs =
       daw::json::from_json_array<Reservoir>(json_data);
 
-  REQUIRE(reservoirs.size() == 2);
-  REQUIRE(reservoirs[0].uid == 123);
-  REQUIRE(reservoirs[0].name == "ReservoirA");
-  REQUIRE(std::get<Uid>(reservoirs[0].junction) == 456);
+  CHECK(reservoirs.size() == 2);
+  CHECK(reservoirs[0].uid == 123);
+  CHECK(reservoirs[0].name == "ReservoirA");
+  CHECK(std::get<Uid>(reservoirs[0].junction) == 456);
 
-  REQUIRE(reservoirs[1].uid == 124);
-  REQUIRE(reservoirs[1].name == "ReservoirB");
-  REQUIRE(std::get<Uid>(reservoirs[1].junction) == 457);
-  REQUIRE(std::get<double>(reservoirs[1].capacity.value()) == 1.0);
-  REQUIRE(std::get<double>(reservoirs[1].vmax.value()) == 1000.0);
+  CHECK(reservoirs[1].uid == 124);
+  CHECK(reservoirs[1].name == "ReservoirB");
+  CHECK(std::get<Uid>(reservoirs[1].junction) == 457);
+  CHECK(std::get<double>(reservoirs[1].capacity.value_or(-1.0)) == 1.0);
+  CHECK(std::get<double>(reservoirs[1].vmax.value_or(-1.0)) == 1000.0);
 }
 
 TEST_CASE("Reservoir roundtrip serialization")
@@ -113,32 +113,33 @@ TEST_CASE("Reservoir roundtrip serialization")
   auto json = daw::json::to_json(original);
 
   // Verify JSON contains expected fields
-  REQUIRE(json.find("\"uid\":123") != std::string::npos);
-  REQUIRE(json.find("\"name\":\"TestReservoir\"") != std::string::npos);
-  REQUIRE(json.find("\"active\":1") != std::string::npos);
-  REQUIRE(json.find("\"capacity\":1") != std::string::npos);
+  CHECK(json.find("\"uid\":123") != std::string::npos);
+  CHECK(json.find("\"name\":\"TestReservoir\"") != std::string::npos);
+  CHECK(json.find("\"active\":1") != std::string::npos);
+  CHECK(json.find("\"capacity\":1") != std::string::npos);
 
   Reservoir roundtrip = daw::json::from_json<Reservoir>(json);
 
-  REQUIRE(roundtrip.uid == original.uid);
-  REQUIRE(roundtrip.name == original.name);
-  REQUIRE(roundtrip.active.value() == original.active.value());
-  REQUIRE(std::get<Uid>(roundtrip.junction)
-          == std::get<Uid>(original.junction));
-  REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(roundtrip.capacity.value() == original.capacity.value());
-  REQUIRE(roundtrip.annual_loss.has_value());
-  REQUIRE(roundtrip.annual_loss.value() == original.annual_loss.value());
-  REQUIRE(roundtrip.vmin.has_value());
-  REQUIRE(roundtrip.vmin.value() == original.vmin.value());
-  REQUIRE(roundtrip.vmax.has_value());
-  REQUIRE(roundtrip.vmax.value() == original.vmax.value());
-  REQUIRE(roundtrip.vcost.has_value());
-  REQUIRE(roundtrip.vcost.value() == original.vcost.value());
-  REQUIRE(roundtrip.vini.has_value());
-  REQUIRE(roundtrip.vini.value() == original.vini.value());
-  REQUIRE(roundtrip.vfin.has_value());
-  REQUIRE(roundtrip.vfin.value() == original.vfin.value());
+  CHECK(roundtrip.uid == original.uid);
+  CHECK(roundtrip.name == original.name);
+  CHECK(roundtrip.active.has_value());
+  CHECK(original.active.has_value());
+  CHECK(std::get<Uid>(roundtrip.junction) == std::get<Uid>(original.junction));
+  CHECK(roundtrip.capacity.has_value());
+  CHECK(roundtrip.capacity.value_or(-1.0) == original.capacity.value_or(-2.0));
+  CHECK(roundtrip.annual_loss.has_value());
+  CHECK(roundtrip.annual_loss.value_or(-1.0)
+        == original.annual_loss.value_or(-2.0));
+  CHECK(roundtrip.vmin.has_value());
+  CHECK(roundtrip.vmin.value_or(-1.0) == original.vmin.value_or(-2.0));
+  CHECK(roundtrip.vmax.has_value());
+  CHECK(roundtrip.vmax.value_or(-1.0) == original.vmax.value_or(-2.0));
+  CHECK(roundtrip.vcost.has_value());
+  CHECK(roundtrip.vcost.value_or(-1.0) == original.vcost.value_or(-2.0));
+  CHECK(roundtrip.vini.has_value());
+  CHECK(roundtrip.vini.value_or(-1.0) == original.vini.value_or(-2.0));
+  CHECK(roundtrip.vfin.has_value());
+  CHECK(roundtrip.vfin.value_or(-1.0) == original.vfin.value_or(-2.0));
 }
 
 TEST_CASE("Reservoir with empty optional fields")
@@ -151,14 +152,14 @@ TEST_CASE("Reservoir with empty optional fields")
 
   Reservoir res = daw::json::from_json<Reservoir>(json_data);
 
-  REQUIRE(res.uid == 123);
-  REQUIRE(res.name == "TestReservoir");
-  REQUIRE_FALSE(res.active.has_value());
-  REQUIRE_FALSE(res.capacity.has_value());
-  REQUIRE_FALSE(res.annual_loss.has_value());
-  REQUIRE_FALSE(res.vmin.has_value());
-  REQUIRE_FALSE(res.vmax.has_value());
-  REQUIRE_FALSE(res.vcost.has_value());
-  REQUIRE_FALSE(res.vini.has_value());
-  REQUIRE_FALSE(res.vfin.has_value());
+  CHECK(res.uid == 123);
+  CHECK(res.name == "TestReservoir");
+  CHECK_FALSE(res.active.has_value());
+  CHECK_FALSE(res.capacity.has_value());
+  CHECK_FALSE(res.annual_loss.has_value());
+  CHECK_FALSE(res.vmin.has_value());
+  CHECK_FALSE(res.vmax.has_value());
+  CHECK_FALSE(res.vcost.has_value());
+  CHECK_FALSE(res.vini.has_value());
+  CHECK_FALSE(res.vfin.has_value());
 }

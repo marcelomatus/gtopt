@@ -1,69 +1,43 @@
 ---
 # Only apply to C++ files (exclude Python and CMake files)
 Checks: "*,\
-  -readability-identifier-naming,\
-  -readability-magic-numbers,\
-  -cppcoreguidelines-avoid-magic-numbers,\
-  -readability-function-cognitive-complexity,\
-  -modernize-use-trailing-return-type,\
-  -bugprone-easily-swappable-parameters,\
-  -readability-redundant-member-init,\
-  -llvm-header-guard,\
-  -llvm-include-order,\
-  -llvmlibc-*,\
-  -google-build-using-namespace,\
-  -readability-identifier-length,\
-  -readability-identifier-naming,\
-  -modernize-use-trailing-return-type,\
-  -bugprone-easily-swappable-parameters,\
-  -identifier-naming,\
-  -readability-magic-numbers,\
-  -readability-function-cognitive-complexity,\
-  -cppcoreguidelines-avoid-magic-numbers,\
-  -clang-analyzer-core.uninitialized.UndefReturn,\
-  -constexpr_local_var_non_literal_type,\
-  -boost-use-ranges,\
-  -misc-non-private-member-variables-in-classes,\
-  -misc-confusable-identifiers,\
   misc-const-correctness,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
-   -system-headers,\
-   -template_param_default_arg_redefinition,\
-   -portability-avoid-pragma-once,\
-   -clang-analyzer-cplusplus.NewDeleteLeaks,\
-   -clang-analyzer-security.ArrayBound, \
-#  -cppcoreguidelines-avoid-do-while,\
-#  -google-readability-todo,\
-   -altera-*,\
-#  -fuchsia-*,\
-   -fuchsia-multiple-inheritance,\
-   -fuchsia-default-arguments-calls,\
-   -fuchsia-default-arguments-declarations,\
-   -fuchsia-trailing-return,\
-   -fuchsia-overloaded-operator,\
-   -misc-include-cleaner,\
+  -altera-*,\
+  -boost-use-ranges,\
+  -bugprone-easily-swappable-parameters,\
+  -bugprone-unchecked-optional-access,\
+  -clang-analyzer-core.uninitialized.UndefReturn,\
+  -clang-analyzer-cplusplus.NewDeleteLeaks,\
+  -clang-analyzer-security.ArrayBound,\
+  -constexpr_local_var_non_literal_type,\
+  -cppcoreguidelines-avoid-magic-numbers,\
+  -cppcoreguidelines-macro-usage,\
+  -fuchsia-default-arguments-calls,\
+  -fuchsia-default-arguments-declarations,\
+  -fuchsia-multiple-inheritance,\
+  -fuchsia-overloaded-operator,\
+  -fuchsia-trailing-return,\
+  -google-build-using-namespace,\
+  -google-readability-casting,\
+  -identifier-naming,\
   -llvm-header-guard,\
   -llvm-include-order,\
   -llvmlibc-*,\
-#  -cppcoreguidelines-macro-usage,\
-  -google-build-using-namespace,\
+  -misc-confusable-identifiers,\
+  -misc-include-cleaner,\
+  -misc-non-private-member-variables-in-classes,\
+  -modernize-use-trailing-return-type,\
+  -portability-avoid-pragma-once,\
+  -readability-function-cognitive-complexity,\
   -readability-identifier-length,\
   -readability-identifier-naming,\
-  -readability-redundant-member-init, \
-  -modernize-use-trailing-return-type,\
-  -bugprone-easily-swappable-parameters,\
-  -identifier-naming,\
-#  -deduced_class_template_ctor_no_viable,\
-#  -modernize-use-nodiscard,\
   -readability-magic-numbers,\
-  -readability-function-cognitive-complexity,\
-  -cppcoreguidelines-avoid-magic-numbers,\
-#  -clang-analyzer-core.uninitialized.UndefReturn,\
-#  -constexpr_local_var_non_literal_type,\
-#  -boost-use-ranges,\
-  -misc-non-private-member-variables-in-classes"
+  -readability-redundant-member-init,\
+  -system-headers,\
+  -template_param_default_arg_redefinition"
 
 
 # HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'

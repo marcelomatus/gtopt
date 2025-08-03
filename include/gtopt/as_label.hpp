@@ -91,7 +91,7 @@ public:
   // For non-string types
   template<typename T>
     requires(!string_like<T>)
-  constexpr explicit string_holder(const T& value)
+  explicit string_holder(const T& value)
       : storage(fmt::format("{}", value))
   {
   }
@@ -164,7 +164,7 @@ template<char sep = '_'>
  * @endcode
  */
 template<char sep = '_', typename... Args>
-[[nodiscard]] constexpr std::string as_label(Args&&... args) noexcept(
+[[nodiscard]] std::string as_label(Args&&... args) noexcept(
     (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
 {
   // Create holders for all arguments

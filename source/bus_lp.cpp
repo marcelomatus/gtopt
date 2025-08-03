@@ -30,7 +30,8 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 
     for (auto&& block : blocks) {
       SparseCol theta_col {
-          .name = sc.lp_label(scenario, stage, block, "theta")};
+          .name =
+              sc.lp_label(scenario, stage, block, ClassName, "theta", uid())};
       const auto tc = lp.add_col(theta ? std::move(theta_col.equal(*theta))
                                        : std::move(theta_col.free()));
       tblocks[block.uid()] = tc;
@@ -57,8 +58,8 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   brows.reserve(blocks.size());
 
   for (auto&& block : blocks) {
-    brows[block.uid()] =
-        lp.add_row({.name = sc.lp_label(scenario, stage, block, "bal")});
+    brows[block.uid()] = lp.add_row(
+        {.name = sc.lp_label(scenario, stage, block, ClassName, "bal", uid())});
   }
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};

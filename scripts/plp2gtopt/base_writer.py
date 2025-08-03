@@ -61,7 +61,7 @@ class BaseWriter(ABC):
         """Help to consistently build JSON output items."""
         return {k: v for k, v in fields.items() if v is not None}
 
-    def _create_dataframe(  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements
+    def _create_dataframe(
         self,
         items: List[Dict[str, Any]],
         unit_parser: ParserVar | None,

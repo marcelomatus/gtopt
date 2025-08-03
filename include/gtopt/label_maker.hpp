@@ -37,8 +37,7 @@ public:
   }
 
   template<typename... Types>
-  [[nodiscard]] constexpr auto lp_label(Types&&... args) const noexcept
-      -> std::string
+  [[nodiscard]] auto lp_label(Types&&... args) const -> std::string
   {
     if (dont_use_lp_names()) [[likely]] {
       return {};

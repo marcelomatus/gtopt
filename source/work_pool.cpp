@@ -61,7 +61,7 @@ void AdaptiveWorkPool::shutdown()
   }
 
   {
-    std::lock_guard lock(active_mutex_);
+    const std::lock_guard lock(active_mutex_);
     for (auto& task : active_tasks_) {
       task.future.wait();
     }
@@ -144,10 +144,10 @@ void AdaptiveWorkPool::schedule_next_task()
   try {
     auto future = std::async(
         std::launch::async,
-        [task = std::move(task), req = std::move(req)]() mutable noexcept
+        [ntask = std::move(task)]() mutable noexcept
         {
           try {
-            task.execute();
+            ntask.execute();
           } catch (const std::exception& e) {
             SPDLOG_ERROR(fmt::format("Task execution failed: {}", e.what()));
           } catch (...) {
@@ -157,16 +157,9 @@ void AdaptiveWorkPool::schedule_next_task()
 
     active_tasks_.push_back(
         ActiveTask {.future = std::move(future),
-                    .requirements = req,
+                    .requirements = std::move(req),
                     .start_time = std::chrono::steady_clock::now()});
 
-    if (task.requirements().name) {
-      SPDLOG_INFO(
-          fmt::format("Scheduled task: '{}' (threads: {}, priority: {})",
-                      *task.requirements().name,
-                      threads_needed,
-                      static_cast<int>(task.requirements().priority)));
-    }
   } catch (...) {
     active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
     throw;

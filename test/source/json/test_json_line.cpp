@@ -87,13 +87,15 @@ TEST_CASE("Line JSON with active schedule")
 
   Line line = daw::json::from_json<Line>(json_data);
 
-  REQUIRE(line.active.has_value());
-  const auto& active = std::get<std::vector<IntBool>>(line.active.value());
-  REQUIRE(active.size() == 4);
-  CHECK(active[0] == True);
-  CHECK(active[1] == False);
-  CHECK(active[2] == True);
-  CHECK(active[3] == False);
+  CHECK(line.active.has_value());
+  if (line.active.has_value()) {
+    const auto& active = std::get<std::vector<IntBool>>(line.active.value());
+    REQUIRE(active.size() == 4);
+    CHECK(active[0] == True);
+    CHECK(active[1] == False);
+    CHECK(active[2] == True);
+    CHECK(active[3] == False);
+  }
 }
 
 TEST_CASE("Line JSON roundtrip serialization")
@@ -101,8 +103,8 @@ TEST_CASE("Line JSON roundtrip serialization")
   gtopt::Line original;
   original.uid = 7;
   original.name = "ROUNDTRIP";
-  original.bus_a = gtopt::SingleId(gtopt::Uid(1));
-  original.bus_b = gtopt::SingleId(gtopt::Uid(2));
+  original.bus_a = gtopt::SingleId(static_cast<gtopt::Uid>(1));
+  original.bus_b = gtopt::SingleId(static_cast<gtopt::Uid>(2));
   original.capacity = 100.0;
 
   auto json = daw::json::to_json(original);
@@ -112,8 +114,8 @@ TEST_CASE("Line JSON roundtrip serialization")
   REQUIRE(roundtrip.name == "ROUNDTRIP");
   REQUIRE(std::get<gtopt::Uid>(roundtrip.bus_a) == 1);
   REQUIRE(std::get<gtopt::Uid>(roundtrip.bus_b) == 2);
-  REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(std::get<double>(roundtrip.capacity.value()) == 100.0);
+  CHECK(roundtrip.capacity.has_value());
+  CHECK(std::get<double>(roundtrip.capacity.value_or(-1.0)) == 100.0);
 }
 
 TEST_CASE("Line with empty optional fields")
