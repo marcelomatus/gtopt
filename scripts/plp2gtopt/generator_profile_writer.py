@@ -54,10 +54,6 @@ class GeneratorProfileWriter(BaseWriter):
 
         json_profiles = []
         for central in items:
-            if central["type"] != "pasada":
-                # Only process centrals of type "pasada"
-                continue
-
             # Skip centrals without a bus or with bus 0
             bus_number = central.get("bus", -1)
             if bus_number <= 0:
@@ -80,6 +76,9 @@ class GeneratorProfileWriter(BaseWriter):
                 else None
             )
             afluent = central.get("afluent", 0.0) if aflce is None else "afluent"
+
+            if isinstance(afluent, float) and afluent <= 0.0:
+                continue
 
             profile = {
                 "uid": central_number,

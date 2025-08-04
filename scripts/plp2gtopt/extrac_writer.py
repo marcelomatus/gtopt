@@ -40,7 +40,9 @@ class ExtracWriter(BaseWriter):
             for extrac in items
         ]
 
-    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None) -> pd.DataFrame:
+    def to_dataframe(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> pd.DataFrame:
         """Convert extraction data to pandas DataFrame."""
         if items is None:
             items = self.items or []
