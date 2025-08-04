@@ -84,7 +84,9 @@ class GeneratorProfileWriter(BaseWriter):
                 if self.aflce_parser
                 else None
             )
-            afluent = central.get("afluent", 0.0) if aflce is None else "afluent"
+            afluent = (
+                central.get("afluent", 0.0) if aflce is None else "Afluent@afluent"
+            )
 
             if isinstance(afluent, float) and afluent <= 0.0:
                 continue
@@ -96,8 +98,6 @@ class GeneratorProfileWriter(BaseWriter):
                 "profile": afluent,
             }
             json_profiles.append(profile)
-
-        self._write_parquet_files()
 
         return cast(List[Dict[str, Any]], json_profiles)
 

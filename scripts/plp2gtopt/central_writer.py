@@ -67,6 +67,8 @@ class CentralWriter(BaseWriter):
         if not items:
             return []
 
+        parquet_cols = self._write_parquet_files()
+
         json_centrals: List[Generator] = []
         for central in items:
             # skip centrals that are "falla" type
@@ -88,44 +90,30 @@ class CentralWriter(BaseWriter):
                     continue
 
             central_name = central["name"]
-            # lookup cost by name if cost_parser is available, and use it
-            cost = (
-                self.cost_parser.get_cost_by_name(central_name)
-                if self.cost_parser
-                else None
-            )
-            gcost = central.get("gcost", 0.0) if cost is None else "gcost"
+            central_number = central["number"]
 
-            # lookup mance by name if cost_parser is available, and use it
-            mance = (
-                self.mance_parser.get_mance_by_name(central_name)
-                if self.mance_parser
-                else None
-            )
-            pmin, pmax = (
-                (central.get("pmin", 0.0), central.get("pmax", 0.0))
-                if mance is None
-                else ("pmin", "pmax")
-            )
+            # lookup cost by name if cost_parser is available, and use it
+            col_name = "uid:" + str(central_number)
+            gcost = "gcost" if col_name in parquet_cols["gcost"] else central["gcost"]
+            pmin = "pmin" if col_name in parquet_cols["pmin"] else central["pmin"]
+            pmax = "pmax" if col_name in parquet_cols["pmax"] else central["pmax"]
 
             generator: Generator = {
-                "uid": central["number"],
+                "uid": central_number,
                 "name": central_name,
                 "bus": bus_number,
                 "gcost": gcost,
-                "capacity": float(central.get("pmax", 0)),
-                "efficiency": float(central.get("efficiency", 1.0)),
+                "capacity": float(central["pmax"]),
+                "efficiency": float(central["efficiency"]),
                 "pmax": pmax,
                 "pmin": pmin,
                 "type": central.get("type", "unknown"),
             }
             json_centrals.append(generator)
 
-        self._write_parquet_files()
-
         return typing.cast(List[Dict[str, Any]], json_centrals)
 
-    def _write_parquet_files(self) -> None:
+    def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Generator"
@@ -140,9 +128,16 @@ class CentralWriter(BaseWriter):
             self.stage_parser,
             self.options,
         )
-        cost_writer.to_parquet(output_dir)
+        cost_cols = cost_writer.to_parquet(output_dir)
 
         mance_writer = ManceWriter(
             self.mance_parser, self.central_parser, self.block_parser, self.options
         )
-        mance_writer.to_parquet(output_dir)
+        mance_cols = mance_writer.to_parquet(output_dir)
+
+        mcols = {}
+        for d in cost_cols, mance_cols:
+            for key, value in d.items():
+                mcols[key] = value
+
+        return mcols

@@ -29,11 +29,6 @@ class BusParser(BaseParser):
             TypeError: If file_path is not str or Path
             ValueError: If file_path is empty
         """
-        """Initialize parser with bus file path.
-
-        Args:
-            file_path: Path to plpbar.dat format file (str or Path)
-        """
         super().__init__(file_path)
         self.bus_num_map: Dict[int, int] = {}
 

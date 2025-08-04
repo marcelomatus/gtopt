@@ -90,8 +90,8 @@ class AflceParser(BaseParser):
                 self._append(
                     {
                         "name": name,
-                        "blocks": blocks,
-                        "flows": flows,
+                        "block": blocks,
+                        "flow": flows,
                         "num_hydrologies": num_hydrologies,
                     }
                 )

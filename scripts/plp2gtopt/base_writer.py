@@ -20,8 +20,7 @@ from .block_parser import BlockParser
 from .stage_parser import StageParser
 from .base_parser import BaseParser
 
-WriterVar = TypeVar("WriterVar", bound="BaseWriter")
-ParserVar = TypeVar("ParserVar", bound="BaseParser")  # Used in type hints
+ParserVar = TypeVar("ParserVar", bound=BaseParser)  # Used in type hints
 
 
 class BaseWriter(ABC):
@@ -109,12 +108,12 @@ class BaseWriter(ABC):
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
 
-            # Skip if all values match the fill value
             values = [value_oper(v) for v in item.get(value_field, [])]
             index = item.get(index_field, [])
             if len(values) * len(index) == 0:
                 continue
 
+            # Skip if all values match the fill value
             if col_name in fill_values and np.allclose(
                 values, fill_values[col_name], rtol=1e-8, atol=1e-11
             ):

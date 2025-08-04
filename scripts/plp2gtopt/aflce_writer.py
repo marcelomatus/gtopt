@@ -16,8 +16,8 @@ class HydroFlow(TypedDict):
     """Represents a hydro flow entry."""
 
     name: str
-    blocks: List[int]
-    flows: List[float]
+    block: List[int]
+    flow: List[float]
 
 
 class AflceWriter(BaseWriter):
@@ -46,8 +46,8 @@ class AflceWriter(BaseWriter):
         json_flows: List[HydroFlow] = [
             {
                 "name": flow["name"],
-                "blocks": flow["blocks"].tolist(),
-                "flows": flow["flows"].tolist(),
+                "block": flow["block"].tolist(),
+                "flow": flow["flow"].tolist(),
             }
             for flow in items
         ]
@@ -61,8 +61,8 @@ class AflceWriter(BaseWriter):
             items=items,
             unit_parser=self.central_parser,
             index_parser=self.block_parser,
-            value_field="flows",
-            index_field="blocks",
+            value_field="flow",
+            index_field="block",
             fill_field="afluent",
             value_oper=lambda v: v[hydro_idx],
         )
@@ -108,7 +108,7 @@ class AflceWriter(BaseWriter):
                     "df": df,
                     "uid": scenario.get("uid", -1),
                     "stage": (
-                        df["blocks"].map(self.block_parser.get_stage_number)
+                        df["block"].map(self.block_parser.get_stage_number)
                         if self.block_parser
                         else None
                     ),
@@ -135,11 +135,13 @@ class AflceWriter(BaseWriter):
 
         return pd.concat(dfs, ignore_index=True)
 
-    def to_parquet(self, output_dir: Path, items=None) -> None:
+    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
         """Write flow data to Parquet files (one per hydrology)."""
+        cols: Dict[str, List[str]] = {"afluent": []}
+
         df = self.to_dataframe(items)
         if df.empty:
-            return
+            return cols
 
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / "afluent.parquet"
@@ -149,3 +151,6 @@ class AflceWriter(BaseWriter):
             index=False,  # Don't write row indices to file
             compression=self.get_compression(),
         )
+
+        cols["afluent"] = df.columns.tolist()
+        return cols

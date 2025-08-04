@@ -77,8 +77,22 @@ class ManliWriter(BaseWriter):
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
         df_tmax_ab = self._create_dataframe_for_field("tmax_ab", items)
+        if self.block_parser:
+            df_tmax_ab["stage"] = df_tmax_ab.index.map(
+                self.block_parser.get_stage_number
+            ).astype("int16")
+
         df_tmax_ba = self._create_dataframe_for_field("tmax_ba", items)
+        if self.block_parser:
+            df_tmax_ba["stage"] = df_tmax_ba.index.map(
+                self.block_parser.get_stage_number
+            ).astype("int16")
+
         df_active = self._create_dataframe_for_field("operational", items)
+        if self.block_parser:
+            df_active["stage"] = df_active.index.map(
+                self.block_parser.get_stage_number
+            ).astype("int16")
 
         return df_tmax_ab, df_tmax_ba, df_active
 

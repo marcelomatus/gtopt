@@ -46,15 +46,15 @@ def test_get_flows(tmp_path):
 
     # Verify structure and types
     assert flow["name"] == "test_central"
-    assert isinstance(flow["blocks"], np.ndarray)
-    assert isinstance(flow["flows"], np.ndarray)
-    assert flow["blocks"].dtype == np.int16
-    assert flow["flows"].dtype == np.float64
+    assert isinstance(flow["block"], np.ndarray)
+    assert isinstance(flow["flow"], np.ndarray)
+    assert flow["block"].dtype == np.int16
+    assert flow["flow"].dtype == np.float64
     assert flow["num_hydrologies"] == 2
 
     # Verify array contents
-    np.testing.assert_array_equal(flow["blocks"], [1, 2])
-    np.testing.assert_array_equal(flow["flows"], [[1.5, 2.0], [1.8, 2.2]])
+    np.testing.assert_array_equal(flow["block"], [1, 2])
+    np.testing.assert_array_equal(flow["flow"], [[1.5, 2.0], [1.8, 2.2]])
 
 
 def test_parse_sample_file(sample_aflce_file):
@@ -71,31 +71,31 @@ def test_parse_sample_file(sample_aflce_file):
     for flow in flows:
         assert isinstance(flow["name"], str)
         assert flow["name"] != ""
-        assert isinstance(flow["blocks"], np.ndarray)
-        assert isinstance(flow["flows"], np.ndarray)
-        assert len(flow["blocks"]) > 0
-        assert len(flow["blocks"]) == len(flow["flows"])
+        assert isinstance(flow["block"], np.ndarray)
+        assert isinstance(flow["flow"], np.ndarray)
+        assert len(flow["block"]) > 0
+        assert len(flow["block"]) == len(flow["flow"])
         assert flow["num_hydrologies"] == 5
 
         # Verify array types and values
-        assert flow["blocks"].dtype == np.int16
-        assert flow["flows"].dtype == np.float64
-        assert np.all(flow["blocks"] > 0)
-        assert np.all(flow["flows"] >= 0)
+        assert flow["block"].dtype == np.int16
+        assert flow["flow"].dtype == np.float64
+        assert np.all(flow["block"] > 0)
+        assert np.all(flow["flow"] >= 0)
 
     # Verify first central data
     flow1 = flows[0]
     assert flow1["name"] == "LOS_MORROS"
-    assert len(flow1["blocks"]) == 5
-    assert flow1["blocks"][0] == 1
-    np.testing.assert_array_equal(flow1["flows"][0], [1.19] * 5)
+    assert len(flow1["block"]) == 5
+    assert flow1["block"][0] == 1
+    np.testing.assert_array_equal(flow1["flow"][0], [1.19] * 5)
 
     # Verify second central data
     flow2 = flows[1]
     assert flow2["name"] == "MAITENES"
-    assert len(flow2["blocks"]) == 3
-    assert flow2["blocks"][0] == 1
-    np.testing.assert_array_equal(flow2["flows"][0], [0.0] * 5)
+    assert len(flow2["block"]) == 3
+    assert flow2["block"][0] == 1
+    np.testing.assert_array_equal(flow2["flow"][0], [0.0] * 5)
 
 
 def test_get_flow_by_name(sample_aflce_file):
@@ -109,8 +109,8 @@ def test_get_flow_by_name(sample_aflce_file):
     flow_data = parser.get_flow_by_name(first_central)
     assert flow_data is not None
     assert flow_data["name"] == first_central
-    assert len(flow_data["blocks"]) > 0
-    assert len(flow_data["flows"]) > 0
+    assert len(flow_data["block"]) > 0
+    assert len(flow_data["flow"]) > 0
 
     # Test non-existent central
     missing = parser.get_flow_by_name("NonExistentCentral")

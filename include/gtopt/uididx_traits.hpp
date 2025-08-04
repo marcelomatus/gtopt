@@ -11,7 +11,6 @@
 #pragma once
 
 #include <expected>
-#include <ranges>
 #include <tuple>
 #include <utility>
 
@@ -33,8 +32,9 @@ namespace gtopt
 {
 struct UidColumn
 {
-  [[nodiscard]] static constexpr auto make_uid_column(
-      const ArrowTable& table, const std::string_view name) noexcept
+  [[nodiscard]]
+  static constexpr auto make_uid_column(const ArrowTable& table,
+                                        const std::string_view name) noexcept
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {
@@ -124,8 +124,23 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
   static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
+    if (!scenarios) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get scenarios column {}", scenarios.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
     const auto stages = make_uid_column(table, Stage::class_name);
+    if (!stages) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get stages column {}", stages.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
     const auto blocks = make_uid_column(table, Block::class_name);
+    if (!blocks) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get blocks column {}", blocks.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
 
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
@@ -153,7 +168,17 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
   static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
+    if (!stages) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get stages column: {}", stages.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
     const auto blocks = make_uid_column(table, Block::class_name);
+    if (!blocks) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get blocks column {}", blocks.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
 
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
@@ -181,7 +206,17 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
   static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
+    if (!scenarios) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get scenarios column {}", scenarios.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
     const auto stages = make_uid_column(table, Stage::class_name);
+    if (!stages) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get stages column {}", stages.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
 
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));
@@ -208,6 +243,11 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
   static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
+    if (!stages) {
+      SPDLOG_ERROR(
+          fmt::format("Failed to get stages column {}", stages.error()));
+      return std::shared_ptr<uid_arrow_idx_map_t>();
+    }
 
     uid_arrow_idx_map_t uid_idx;
     uid_idx.reserve(static_cast<size_t>(table->num_rows()));

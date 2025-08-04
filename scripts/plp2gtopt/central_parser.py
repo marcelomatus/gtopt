@@ -11,7 +11,7 @@ Handles:
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from .base_parser import BaseParser
 
 
@@ -97,7 +97,7 @@ class CentralParser(BaseParser):
                 self.centrals_of_type[central_type] = []
             self.centrals_of_type[central_type].append(central)
 
-    def get_central_by_name(self, name: str) -> Dict[str, Any] | None:
+    def get_central_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get central data by name."""
         return self.get_item_by_name(name)
 
@@ -184,8 +184,8 @@ class CentralParser(BaseParser):
         current_gen["pmin"] = self._parse_float(parts[0])
         current_gen["pmax"] = self._parse_float(parts[1])
         if len(parts) > 2:
-            current_gen["v_max"] = self._parse_float(parts[2])
-            current_gen["v_min"] = self._parse_float(parts[3])
+            current_gen["vol_max"] = self._parse_float(parts[2])
+            current_gen["vol_min"] = self._parse_float(parts[3])
 
         return current_gen, idx
 

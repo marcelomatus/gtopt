@@ -61,7 +61,7 @@ struct ArrayIndexBase
 
       if (!table || !index) [[unlikely]] {
         const auto msg =
-            fmt::format("Can't create table/index for {}:{}", fname, name);
+            fmt::format("Can't create table/index for '{}:{}'", fname, name);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
       }
@@ -69,7 +69,7 @@ struct ArrayIndexBase
       auto [res, ok] = table_map.emplace(table_key, std::pair {table, index});
       if (!ok) [[unlikely]] {
         const auto msg = fmt::format(
-            "Can't insert non-unique table key {} {}", cname, fname);
+            "Can't insert non-unique table key '{}' '{}'", cname, fname);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
       }
@@ -90,8 +90,8 @@ struct ArrayIndexBase
     }();
 
     if (!array) [[unlikely]] {
-      const auto msg =
-          fmt::format("Can't find column {} in table {}", name, fname);
+      const auto msg = fmt::format(
+          "Can't find element '{}:{}' in table '{}'", name, uid, fname);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
     }
@@ -100,7 +100,7 @@ struct ArrayIndexBase
     auto [res, ok] = array_map.emplace(array_key, std::pair {array, index_idx});
     if (!ok) [[unlikely]] {
       const auto msg = fmt::format(
-          "Can't insert non-unique arrow key {} {} {}", cname, fname, uid);
+          "Can't insert non-unique arrow key '{} {} {}'", cname, fname, uid);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
     }

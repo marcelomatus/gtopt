@@ -74,7 +74,7 @@ public:
                  Operation op,
                  const Factor& factor)
   {
-    if (holder.empty()) {
+    if (holder.empty() || value_span.empty()) {
       return;
     }
 

@@ -21,6 +21,7 @@ def sample_input_dir(tmp_path):
         "plpmance.dat",
         "plpmanli.dat",
         "plpaflce.dat",
+        "plpextrac.dat",
     ]
     for f in files:
         (tmp_path / f).touch()
@@ -58,7 +59,9 @@ def test_parse_all_success(sample_input_dir):
         "plp2gtopt.plp_parser.ManliParser"
     ) as mock_manli, patch(
         "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce:
+    ) as mock_aflce, patch(
+        "plp2gtopt.plp_parser.ExtracParser"
+    ) as mock_extrac:
 
         # Setup mock parsers
         mock_parser = MagicMock()
@@ -73,11 +76,12 @@ def test_parse_all_success(sample_input_dir):
         mock_mance.return_value = mock_parser
         mock_manli.return_value = mock_parser
         mock_aflce.return_value = mock_parser
+        mock_extrac.return_value = mock_parser
 
         parser = PLPParser({"input_dir": sample_input_dir})
         parser.parse_all()
 
-        assert len(parser.parsed_data) == 10
+        assert len(parser.parsed_data) == 11
         for name in [
             "block_array",
             "stage_array",
@@ -89,6 +93,7 @@ def test_parse_all_success(sample_input_dir):
             "mance_array",
             "manli_array",
             "aflce_array",
+            "extrac_array",
         ]:
             assert name in parser.parsed_data
 

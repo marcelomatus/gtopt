@@ -82,7 +82,7 @@ constexpr auto make_collection(InputContext& input_context,
 //
 //
 
-constexpr void add_to_lp(auto& collections,
+constexpr auto add_to_lp(auto& collections,
                          SystemContext& system_context,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
@@ -113,7 +113,15 @@ constexpr void add_to_lp(auto& collections,
     }
   };
 
-  visit_elements(collections, visitor);
+  auto count = visit_elements(collections, visitor);
+  if (count == 0) [[unlikely]] {
+    SPDLOG_WARN(
+        fmt::format("No active elements found for scenario {} in stage {}",
+                    scenario.uid(),
+                    stage.uid()));
+  }
+
+  return count;
 }
 
 constexpr auto create_linear_interface(auto& collections,
@@ -222,8 +230,13 @@ void SystemLP::write_out() const
 {
   OutputContext oc(system_context(), linear_interface());
 
-  visit_elements(collections(),
-                 [&oc](const auto& e) { return e.add_to_output(oc); });
+  auto count = visit_elements(
+      collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
+
+  if (count <= 0) {
+    SPDLOG_WARN("No elements added to output");
+    return;
+  }
 
   oc.write();
 }
