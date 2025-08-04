@@ -3,7 +3,7 @@
 """Writer for converting central data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 import typing
 
 from .base_writer import BaseWriter
@@ -15,6 +15,20 @@ from .mance_parser import ManceParser
 from .cost_writer import CostWriter
 from .mance_writer import ManceWriter
 from .block_parser import BlockParser
+
+
+class Generator(TypedDict):
+    """Represents a generator in the system."""
+
+    uid: int
+    name: str
+    bus: int
+    gcost: float | str
+    capacity: float
+    efficiency: float
+    pmax: float | str
+    pmin: float | str
+    type: str
 
 
 class CentralWriter(BaseWriter):
@@ -94,19 +108,18 @@ class CentralWriter(BaseWriter):
                 else ("pmin", "pmax")
             )
 
-            json_centrals.append(
-                {
-                    "uid": central["number"],
-                    "name": central_name,
-                    "bus": bus_number,
-                    "gcost": gcost,
-                    "capacity": float(central.get("pmax", 0)),
-                    "efficiency": float(central.get("efficiency", 1.0)),
-                    "pmax": pmax,
-                    "pmin": pmin,
-                    "type": central.get("type", "unknown"),
-                }
-            )
+            generator: Generator = {
+                "uid": central["number"],
+                "name": central_name,
+                "bus": bus_number,
+                "gcost": gcost,
+                "capacity": float(central.get("pmax", 0)),
+                "efficiency": float(central.get("efficiency", 1.0)),
+                "pmax": pmax,
+                "pmin": pmin,
+                "type": central.get("type", "unknown"),
+            }
+            json_centrals.append(generator)
 
         self._write_parquet_files()
 

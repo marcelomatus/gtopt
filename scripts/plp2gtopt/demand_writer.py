@@ -2,13 +2,22 @@
 
 """Writer for converting demand data to JSON format."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 from pathlib import Path
 import pandas as pd
 
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
 from .block_parser import BlockParser
+
+
+class Demand(TypedDict):
+    """Represents a demand in the system."""
+
+    uid: int | str
+    name: str
+    bus: int | str
+    lmax: str
 
 
 class DemandWriter(BaseWriter):
@@ -38,7 +47,7 @@ class DemandWriter(BaseWriter):
             if len(demand["blocks"]) == 0 or len(demand["values"]) == 0:
                 continue
 
-            dem = {
+            dem: Demand = {
                 "uid": demand.get("bus", demand["number"]),
                 "name": demand["name"],
                 "bus": demand.get("bus", demand["name"]),
