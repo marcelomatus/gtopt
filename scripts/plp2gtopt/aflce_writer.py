@@ -76,46 +76,6 @@ class AflceWriter(BaseWriter):
         Raises:
             ValueError: If input data is invalid
         """
-        """Convert flow data to pandas DataFrame.
-        
-        Args:
-            items: Optional list of flow items to convert. Uses self.items if None.
-            
-        Returns:
-            DataFrame containing flow data with columns:
-            - block: Block numbers
-            - scenario: Scenario IDs  
-            - stage: Stage numbers
-            - afluent: Flow values
-            
-        Raises:
-            ValueError: If input data is invalid
-        """
-        """Convert flow data to pandas DataFrame.
-
-        Args:
-            items: Optional list of flow items to convert. Uses self.items if None.
-
-        Returns:
-            DataFrame containing flow data with columns:
-            - block: Block numbers
-            - scenario: Scenario IDs
-            - stage: Stage numbers
-            - afluent: Flow values
-        """
-        """Convert flow data to pandas DataFrame.
-
-        Args:
-            items: Optional list of flow items to convert. Uses self.items if None.
-
-        Returns:
-            DataFrame containing flow data with columns:
-            - block: Block numbers
-            - scenario: Scenario IDs
-            - stage: Stage numbers
-            - afluent: Flow values
-        """
-        """Convert flow data to pandas DataFrames (one per hydrology)."""
         if items is None:
             items = self.items
 
