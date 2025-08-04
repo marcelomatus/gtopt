@@ -3,13 +3,23 @@
 """Writer for converting line maintenance data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 
 import pandas as pd
 from .base_writer import BaseWriter
 from .manli_parser import ManliParser
 from .line_parser import LineParser
 from .block_parser import BlockParser
+
+
+class LineMaintenance(TypedDict):
+    """Represents line maintenance data."""
+
+    name: str
+    block: List[int]
+    tmax_ab: List[float]
+    tmax_ba: List[float]
+    active: List[int]
 
 
 class ManliWriter(BaseWriter):
@@ -31,8 +41,8 @@ class ManliWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format."""
         if items is None:
-            items = self.items
-        return [
+            items = self.items or []
+        json_manlis: List[LineMaintenance] = [
             {
                 "name": manli["name"],
                 "block": manli["block"].tolist(),
@@ -42,6 +52,7 @@ class ManliWriter(BaseWriter):
             }
             for manli in items
         ]
+        return cast(List[Dict[str, Any]], json_manlis)
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field."""

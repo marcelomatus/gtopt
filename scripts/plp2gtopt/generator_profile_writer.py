@@ -3,7 +3,7 @@
 """Writer for converting central data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 import typing
 
 from .base_writer import BaseWriter
@@ -12,6 +12,15 @@ from .bus_parser import BusParser
 from .aflce_parser import AflceParser
 from .aflce_writer import AflceWriter
 from .block_parser import BlockParser
+
+
+class GeneratorProfile(TypedDict):
+    """Represents a generator profile."""
+
+    uid: int
+    name: str
+    generator: int
+    profile: str | float
 
 
 class GeneratorProfileWriter(BaseWriter):
@@ -52,7 +61,7 @@ class GeneratorProfileWriter(BaseWriter):
         if not items:
             return []
 
-        json_profiles = []
+        json_profiles: List[GeneratorProfile] = []
         for central in items:
             # Skip centrals without a bus or with bus 0
             bus_number = central.get("bus", -1)
@@ -80,7 +89,7 @@ class GeneratorProfileWriter(BaseWriter):
             if isinstance(afluent, float) and afluent <= 0.0:
                 continue
 
-            profile = {
+            profile: GeneratorProfile = {
                 "uid": central_number,
                 "name": central_name,
                 "generator": central_number,
@@ -90,7 +99,7 @@ class GeneratorProfileWriter(BaseWriter):
 
         self._write_parquet_files()
 
-        return json_profiles
+        return cast(List[Dict[str, Any]], json_profiles)
 
     def _write_parquet_files(self) -> None:
         """Write demand data to Parquet file format."""

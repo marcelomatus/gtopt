@@ -2,9 +2,17 @@
 
 """Writer for converting block data to JSON format."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 from .base_writer import BaseWriter
 from .block_parser import BlockParser
+
+
+class Block(TypedDict):
+    """Represents a block in the system."""
+
+    uid: int
+    duration: float
+    stage: int
 
 
 class BlockWriter(BaseWriter):
@@ -17,9 +25,9 @@ class BlockWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format."""
         if items is None:
-            items = self.items
+            items = self.items or []
 
-        return [
+        json_blocks: List[Block] = [
             {
                 "uid": block["number"],
                 "duration": block["duration"],
@@ -27,3 +35,4 @@ class BlockWriter(BaseWriter):
             }
             for block in items
         ]
+        return cast(List[Dict[str, Any]], json_blocks)
