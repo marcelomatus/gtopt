@@ -2,9 +2,17 @@
 
 """Writer for converting bus data to JSON format."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 from .base_writer import BaseWriter
 from .bus_parser import BusParser
+
+
+class Bus(TypedDict):
+    """Represents a bus in the system."""
+
+    uid: int
+    name: str
+    voltage: float
 
 
 class BusWriter(BaseWriter):
@@ -17,8 +25,8 @@ class BusWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert bus data to JSON array format."""
         if items is None:
-            items = self.items
-        return [
+            items = self.items or []
+        json_buses: List[Bus] = [
             {
                 "uid": bus["number"],
                 "name": bus["name"],
@@ -26,3 +34,4 @@ class BusWriter(BaseWriter):
             }
             for bus in items
         ]
+        return cast(List[Dict[str, Any]], json_buses)

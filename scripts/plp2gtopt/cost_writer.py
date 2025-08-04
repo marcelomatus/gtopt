@@ -3,13 +3,21 @@
 """Writer for converting generator cost data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 import pandas as pd
 
 from .base_writer import BaseWriter
 from .cost_parser import CostParser
 from .central_parser import CentralParser
 from .stage_parser import StageParser
+
+
+class GeneratorCost(TypedDict):
+    """Represents generator cost data."""
+
+    name: str
+    stage: List[int]
+    cost: List[float]
 
 
 class CostWriter(BaseWriter):
@@ -31,8 +39,8 @@ class CostWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""
         if items is None:
-            items = self.items
-        return [
+            items = self.items or []
+        json_costs: List[GeneratorCost] = [
             {
                 "name": cost["name"],
                 "stage": cost["stage"].tolist(),
@@ -40,6 +48,7 @@ class CostWriter(BaseWriter):
             }
             for cost in items
         ]
+        return cast(List[Dict[str, Any]], json_costs)
 
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None

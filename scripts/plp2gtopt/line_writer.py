@@ -3,12 +3,28 @@
 """Writer for converting line data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 from .base_writer import BaseWriter
 from .line_parser import LineParser
 from .manli_parser import ManliParser
 from .manli_writer import ManliWriter
 from .block_parser import BlockParser
+
+
+class Line(TypedDict, total=False):
+    """Represents a line in the system."""
+
+    uid: int
+    name: str
+    active: int | str
+    bus_a: int
+    bus_b: int
+    resistance: float
+    reactance: float
+    tmax_ab: float | str
+    tmax_ba: float | str
+    voltage: float
+    is_hvdc: int
 
 
 class LineWriter(BaseWriter):
@@ -36,7 +52,7 @@ class LineWriter(BaseWriter):
         if not items:
             return []
 
-        json_lines = []
+        json_lines: List[Line] = []
         for line in items:
             bus_a = line.get("bus_a", -1)
             bus_b = line.get("bus_b", -1)
@@ -59,25 +75,24 @@ class LineWriter(BaseWriter):
                 else ("tmax_ba", "tmax_ab", "active")
             )
 
-            json_lines.append(
-                {
-                    "uid": line["number"],
-                    "name": line["name"],
-                    "active": active,
-                    "bus_a": line["bus_a"],
-                    "bus_b": line["bus_b"],
-                    "resistance": line["r"],
-                    "reactance": line["x"],
-                    "tmax_ab": tmax_ab,
-                    "tmax_ba": tmax_ba,
-                    "voltage": line["voltage"],
-                    **({"is_hvdc": 1} if "hdvc" in line else {}),
-                }
-            )
+            json_line: Line = {
+                "uid": line["number"],
+                "name": line["name"],
+                "active": active,
+                "bus_a": line["bus_a"],
+                "bus_b": line["bus_b"],
+                "resistance": line["r"],
+                "reactance": line["x"],
+                "tmax_ab": tmax_ab,
+                "tmax_ba": tmax_ba,
+                "voltage": line["voltage"],
+                **({"is_hvdc": 1} if "hdvc" in line else {}),
+            }
+            json_lines.append(json_line)
 
         self._write_parquet_files()
 
-        return json_lines
+        return cast(List[Dict[str, Any]], json_lines)
 
     def _write_parquet_files(self) -> None:
         """Write demand data to Parquet file format."""

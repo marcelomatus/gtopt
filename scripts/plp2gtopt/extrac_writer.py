@@ -3,11 +3,19 @@
 """Writer for converting extraction data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 
 import pandas as pd
 from .base_writer import BaseWriter
 from .extrac_parser import ExtracParser
+
+
+class Extraction(TypedDict):
+    """Represents an extraction entry."""
+
+    name: str
+    max_extrac: float
+    downstream: str
 
 
 class ExtracWriter(BaseWriter):
@@ -30,8 +38,8 @@ class ExtracWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert extraction data to JSON array format."""
         if items is None:
-            items = self.items
-        return [
+            items = self.items or []
+        json_extractions: List[Extraction] = [
             {
                 "name": extrac["name"],
                 "max_extrac": extrac["max_extrac"],
@@ -39,6 +47,7 @@ class ExtracWriter(BaseWriter):
             }
             for extrac in items
         ]
+        return cast(List[Dict[str, Any]], json_extractions)
 
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None

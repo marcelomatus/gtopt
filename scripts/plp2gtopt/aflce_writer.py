@@ -3,13 +3,21 @@
 """Writer for converting hydro flow data to JSON format."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict, cast
 import pandas as pd
 
 from .base_writer import BaseWriter
 from .aflce_parser import AflceParser
 from .central_parser import CentralParser
 from .block_parser import BlockParser
+
+
+class HydroFlow(TypedDict):
+    """Represents a hydro flow entry."""
+
+    name: str
+    blocks: List[int]
+    flows: List[float]
 
 
 class AflceWriter(BaseWriter):
@@ -33,8 +41,9 @@ class AflceWriter(BaseWriter):
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert flow data to JSON array format."""
         if items is None:
-            items = self.items
-        return [
+            items = self.items or []
+
+        json_flows: List[HydroFlow] = [
             {
                 "name": flow["name"],
                 "blocks": flow["blocks"].tolist(),
@@ -42,6 +51,7 @@ class AflceWriter(BaseWriter):
             }
             for flow in items
         ]
+        return cast(List[Dict[str, Any]], json_flows)
 
     def _create_dataframe_for_hydrology(
         self, hydro_idx: int, items: list
