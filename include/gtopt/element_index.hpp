@@ -30,7 +30,7 @@ struct ElementIndex : StrongIndexType<Element>
 
   constexpr static auto Unknown = unknown_index;
 
-  ElementIndex()
+  constexpr ElementIndex() noexcept
       : Base(Unknown)
   {
   }
