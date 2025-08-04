@@ -39,7 +39,7 @@ class DemandWriter(BaseWriter):
         if items is None:
             items = self.items
 
-        json_demands = []
+        json_demands: List[Dict[str, Any]] = []
         for demand in items:
             if demand.get("bus", -1) == 0:
                 continue

@@ -67,7 +67,7 @@ class CentralWriter(BaseWriter):
         if not items:
             return []
 
-        json_centrals = []
+        json_centrals: List[Dict[str, Any]] = []
         for central in items:
             # skip centrals that are "falla" type
             if central["type"] == "falla":
