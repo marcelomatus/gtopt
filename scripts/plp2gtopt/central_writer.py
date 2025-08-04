@@ -67,7 +67,7 @@ class CentralWriter(BaseWriter):
         if not items:
             return []
 
-        json_centrals: List[Dict[str, Any]] = []
+        json_centrals: List[Generator] = []
         for central in items:
             # skip centrals that are "falla" type
             if central["type"] == "falla":
@@ -123,7 +123,7 @@ class CentralWriter(BaseWriter):
 
         self._write_parquet_files()
 
-        return json_centrals
+        return typing.cast(List[Dict[str, Any]], json_centrals)
 
     def _write_parquet_files(self) -> None:
         """Write demand data to Parquet file format."""

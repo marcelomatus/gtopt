@@ -2,7 +2,7 @@
 
 """Writer for converting demand data to JSON format."""
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict, cast
 from pathlib import Path
 import pandas as pd
 
@@ -39,7 +39,7 @@ class DemandWriter(BaseWriter):
         if items is None:
             items = self.items
 
-        json_demands: List[Dict[str, Any]] = []
+        json_demands: List[Demand] = []
         for demand in items:
             if demand.get("bus", -1) == 0:
                 continue
@@ -57,7 +57,7 @@ class DemandWriter(BaseWriter):
             json_demands.append(dem)
 
         self.to_parquet("lmax.parquet", items=items)
-        return json_demands
+        return cast(List[Dict[str, Any]], json_demands)
 
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None
