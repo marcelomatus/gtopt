@@ -19,20 +19,22 @@ def sample_demand_file():
 
 
 @pytest.fixture
-def sample_demand_writer(sample_demand_file):
+def sample_demand_writer(sample_demand_file, tmp_path):
     """Fixture providing initialized DemandWriter with sample data."""
     parser = DemandParser(sample_demand_file)
     parser.parse()
-    return DemandWriter(parser)
+    options = {"output_dir": tmp_path}
+    return DemandWriter(parser, options=options)
 
 
 def test_demand_writer_initialization(
-    sample_demand_file,
+    sample_demand_file, tmp_path
 ):  # pylint: disable=redefined-outer-name
     """Test DemandWriter initialization."""
     parser = DemandParser(sample_demand_file)
     parser.parse()
-    writer = DemandWriter(parser)
+    options = {"output_dir": tmp_path}
+    writer = DemandWriter(parser, options=options)
 
     assert writer.parser == parser
     assert writer.items is not None and len(writer.items) == parser.num_demands
@@ -84,13 +86,14 @@ def test_json_output_structure(
         assert len(demand["name"]) > 0, "Name should not be empty"
 
 
-def test_write_empty_demands():
+def test_write_empty_demands(tmp_path):
     """Test handling of empty demand list."""
     # Create parser with no demands
     parser = DemandParser("dummy.dat")
     parser._data = []  # pylint: disable=protected-access
 
-    writer = DemandWriter(parser)
+    options = {"output_dir": tmp_path}
+    writer = DemandWriter(parser, options=options)
 
     # Test empty array conversion
     json_demands = writer.to_json_array()
