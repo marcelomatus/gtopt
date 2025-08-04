@@ -20,20 +20,22 @@ def sample_line_file():
 
 
 @pytest.fixture
-def sample_line_writer(sample_line_file):
+def sample_line_writer(sample_line_file, tmp_path):
     """Fixture providing initialized LineWriter with sample data."""
     parser = LineParser(sample_line_file)  # Using fixture directly
     parser.parse()
-    return LineWriter(parser)
+    options = {"output_dir": tmp_path}
+    return LineWriter(parser, options=options)
 
 
 def test_line_writer_initialization(
-    sample_line_file,
+    sample_line_file, tmp_path
 ):  # pylint: disable=redefined-outer-name
     """Test LineWriter initialization."""
     parser = LineParser(sample_line_file)
     parser.parse()
-    writer = LineWriter(parser)
+    options = {"output_dir": tmp_path}
+    writer = LineWriter(parser, options=options)
 
     assert writer.parser == parser
     assert writer.items is not None and len(writer.items) == parser.num_lines
@@ -116,7 +118,7 @@ def test_json_output_structure(
         assert line["tmax_ba"] <= 0, "Flow limit BA should be negative"
 
 
-def test_write_empty_lines():
+def test_write_empty_lines(tmp_path):
     """Test handling of empty line list."""
 
     # Create parser with no lines
@@ -134,7 +136,8 @@ def test_write_empty_lines():
 
     mock_parser: typing.Any = MockLineParser()
 
-    writer = LineWriter(mock_parser)
+    options = {"output_dir": tmp_path}
+    writer = LineWriter(mock_parser, options=options)
     json_lines = writer.to_json_array()
     assert not json_lines
 
