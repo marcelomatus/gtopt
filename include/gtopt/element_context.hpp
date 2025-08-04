@@ -29,10 +29,9 @@ public:
   {
   }
 
-  template<typename Self>
-  [[nodiscard]] constexpr auto&& system_lp(this Self&& self)
+  [[nodiscard]] constexpr auto&& system_lp(this auto&& self)
   {
-    return std::forward_like<Self>(self.m_system_lp_.get());
+    return std::forward_like<decltype(self)>(self.m_system_lp_.get());
   }
 
   template<typename Element>
