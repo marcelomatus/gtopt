@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <expected>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -319,7 +320,7 @@ public:
 template<typename Collections, typename Op, typename... Args>
 constexpr auto visit_elements(Collections&& collections,
                               Op op,
-                              Args&&... args) noexcept  // NOLINT
+                              Args&&... args)  // NOLINT
 {
   std::size_t count = 0;
 

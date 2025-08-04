@@ -194,10 +194,10 @@ class JunctionWriter(BaseWriter):
 
         # Create waterways
         gen_waterway = self._create_waterway(
-            plant_name, plant_id, plant.get("ser_hid", 0)
+            plant_name + "_gen", plant_id, plant.get("ser_hid", 0)
         )
         ver_waterway = self._create_waterway(
-            plant_name, plant_id, plant.get("ser_ver", 0)
+            plant_name + "_ver", plant_id, plant.get("ser_ver", 0)
         )
 
         # Add waterways if they exist
@@ -226,21 +226,23 @@ class JunctionWriter(BaseWriter):
 
         # Add flow if exists
         afluent = self._get_plant_flow(plant_name, plant)
-        if afluent != 0.0:
-            flow: Flow = {
-                "uid": plant_id,
-                "name": plant_name,
-                "junction": plant_id,
-                "discharge": afluent,
-            }
-            system["flow_array"].append(flow)
+        if isinstance(afluent, float) and afluent == 0.0:
+            return
+
+        flow: Flow = {
+            "uid": plant_id,
+            "name": plant_name,
+            "junction": plant_id,
+            "discharge": afluent,
+        }
+        system["flow_array"].append(flow)
 
     def _get_plant_flow(self, plant_name: str, plant: Dict[str, Any]) -> float | str:
         """Get flow value for plant, checking aflce parser if available."""
         if self.aflce_parser:
             aflce = self.aflce_parser.get_item_by_name(plant_name)
             if aflce is not None:
-                return "afluent"
+                return "Afluent@afluent"
         return plant.get("afluent", 0.0)
 
     def _process_extractions(
@@ -251,7 +253,7 @@ class JunctionWriter(BaseWriter):
         """Process extraction plants into waterways."""
         if not self.extrac_parser:
             return
-        for extraction in self.extrac_parser.extracs:
+        for i, extraction in enumerate(self.extrac_parser.extracs):
             upstream_name = extraction["name"]
             upstream_central = central_parser.get_central_by_name(upstream_name)
             if not upstream_central:
@@ -263,7 +265,7 @@ class JunctionWriter(BaseWriter):
                 continue  # Skip invalid downstream
 
             waterway = self._create_waterway(
-                upstream_name,
+                upstream_name + "_extrac_" + str(i),
                 upstream_central["number"],
                 downstream_central["number"],
                 extraction.get("max_extrac"),

@@ -84,8 +84,15 @@ class ManceWriter(BaseWriter):
             return pd.DataFrame(), pd.DataFrame()
 
         try:
-            df_pmin = self._create_dataframe_for_field("pmin", items)
-            df_pmax = self._create_dataframe_for_field("pmax", items)
+            df_pmin = self._create_dataframe_for_field("pmin", items).copy()
+            df_pmax = self._create_dataframe_for_field("pmax", items).copy()
+            if self.block_parser:
+                df_pmin["stage"] = df_pmin.index.map(
+                    self.block_parser.get_stage_number
+                ).astype("int16")
+                df_pmax["stage"] = df_pmax.index.map(
+                    self.block_parser.get_stage_number
+                ).astype("int16")
 
             return df_pmin, df_pmax
         except Exception as e:
@@ -107,9 +114,13 @@ class ManceWriter(BaseWriter):
             compression=self.get_compression(),
         )
 
-    def to_parquet(self, output_dir: Path, items=None) -> None:
+    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
         """Write maintenance data to Parquet files for pmin and pmax."""
+        cols: Dict[str, List[str]] = {"pmin": [], "pmax": []}
         df_pmin, df_pmax = self.to_dataframe(items)
+
+        cols["pmin"] = df_pmin.columns.tolist() if not df_pmin.empty else []
+        cols["pmax"] = df_pmax.columns.tolist() if not df_pmax.empty else []
 
         try:
             # Ensure output directory exists
@@ -126,3 +137,5 @@ class ManceWriter(BaseWriter):
                 del df_pmin
             if "df_pmax" in locals():
                 del df_pmax
+
+        return cols

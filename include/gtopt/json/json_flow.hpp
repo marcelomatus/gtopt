@@ -32,7 +32,7 @@ struct json_data_contract<Flow>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
-      json_number<"direction", Int>,
+      json_number_null<"direction", OptInt>,
       json_variant<"junction", SingleId>,
       json_variant<"discharge", STBRealFieldSched, jvtl_STBRealFieldSched>>;
 

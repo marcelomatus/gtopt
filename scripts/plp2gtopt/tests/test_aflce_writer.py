@@ -47,8 +47,8 @@ def test_to_json_array(sample_aflce_writer):
     # Verify each flow has required fields
     required_fields = {
         "name": str,
-        "blocks": list,
-        "flows": list,
+        "block": list,
+        "flow": list,
     }
 
     for flow in json_flows:
@@ -80,8 +80,8 @@ def test_json_output_structure(sample_aflce_writer):
     # Expected structure
     REQUIRED_FIELDS = {
         "name": str,
-        "blocks": list,
-        "flows": list,
+        "block": list,
+        "flow": list,
     }
 
     for flow in json_flows:
@@ -94,10 +94,8 @@ def test_json_output_structure(sample_aflce_writer):
 
         # Additional value checks
         assert len(flow["name"]) > 0, "Name should not be empty"
-        assert len(flow["blocks"]) > 0, "Should have at least one block"
-        assert len(flow["blocks"]) == len(
-            flow["flows"]
-        ), "Blocks and flows should match"
+        assert len(flow["block"]) > 0, "Should have at least one block"
+        assert len(flow["block"]) == len(flow["flow"]), "Blocks and flows should match"
 
 
 def test_write_empty_flows():

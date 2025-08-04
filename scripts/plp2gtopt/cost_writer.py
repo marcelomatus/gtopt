@@ -68,11 +68,15 @@ class CostWriter(BaseWriter):
 
         return df
 
-    def to_parquet(self, output_dir: Path, cost_items=None) -> None:
+    def to_parquet(self, output_dir: Path, cost_items=None) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""
+        cols: Dict[str, List[str]] = {"gcost": []}
+
         df = self.to_dataframe(cost_items)
+        cols["gcost"] = df.columns.tolist() if not df.empty else []
+
         if df.empty:
-            return
+            return cols
 
         output_file = output_dir / "gcost.parquet"
 
@@ -81,3 +85,5 @@ class CostWriter(BaseWriter):
             index=False,
             compression=self.get_compression(),
         )
+
+        return cols

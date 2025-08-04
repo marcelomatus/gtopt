@@ -21,6 +21,7 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
+from .aflce_writer import AflceWriter
 
 
 class GTOptWriter:
@@ -109,19 +110,45 @@ class GTOptWriter:
             options,
         ).to_json_array()
 
-    def process_junctions(self, options):
+    def process_afluents(self, options):
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_array", [])
+        blocks = self.parser.parsed_data.get("block_array", None)
+        aflces = self.parser.parsed_data.get("aflce_array", [])
+        scenarios = self.planning["simulation"]["scenario_array"]
+
+        output_dir = Path(options["output_dir"]) if options else Path("results")
+        output_dir = output_dir / "Afluent"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        aflce_writer = AflceWriter(
+            aflces,
+            centrals,
+            blocks,
+            scenarios,
+            options,
+        )
+
+        aflce_writer.to_parquet(output_dir)
+
+    def process_junctions(self, options):
+        """Process generator profile data to include block and stage information."""
+        centrals = self.parser.parsed_data.get("central_array", None)
+        aflces = self.parser.parsed_data.get("aflce_array", None)
+        extracts = self.parser.parsed_data.get("extract_array", None)
         json_junctions = JunctionWriter(
             centrals,
+            aflces,
+            extracts,
             options,
         ).to_json_array()
 
         if not json_junctions:
             return
 
-        for array in "junction_array", "waterway_array":
-            self.planning["system"][array] = json_junctions[0][array]
+        for j in json_junctions:
+            for key, val in j.items():
+                self.planning["system"][key] = val
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""
@@ -140,8 +167,6 @@ class GTOptWriter:
             mances,
             options,
         ).to_json_array()
-
-        # aflces = self.parser.parsed_data.get("aflce_array", None)
 
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
@@ -192,7 +217,9 @@ class GTOptWriter:
         self.process_lines(options)
         self.process_centrals(options)
         self.process_demands(options)
+        self.process_afluents(options)
         self.process_generator_profiles(options)
+        self.process_junctions(options)
 
         # Organize into planning structure
         self.planning["system"]["name"] = "plp2gtopt"

@@ -1,0 +1,21 @@
+# Archivo de Extracciones (plpextrac.dat)
+# Numero Centrales con extraccion
+3
+# Nombre de central de extraccion
+'COLBUN'
+# Maxima Extraccion (m3/seg)
+24.0
+# Nombre de la Central aguas abajo
+'CHIBURGO'
+# Nombre de central de extraccion
+'COLBUN'
+# Maxima Extraccion (m3/seg)
+50.0
+# Nombre de la Central aguas abajo
+'BPretilCol'
+# Nombre de central de extraccion
+'RALCO'
+# Maxima Extraccion (m3/seg)
+27.1
+# Nombre de la Central aguas abajo
+'PALMUCHO'
