@@ -56,7 +56,6 @@ class DemandWriter(BaseWriter):
 
             json_demands.append(dem)
 
-        self.to_parquet("lmax.parquet", items=items)
         return cast(List[Dict[str, Any]], json_demands)
 
     def to_dataframe(

@@ -153,12 +153,12 @@ def test_write_empty_lines(tmp_path):
 
 
 @patch("scripts.plp2gtopt.line_writer.ManliWriter")
-def test_to_json_array_creates_parquet(
+def test_to_parquet_creates_files(
     mock_manli_writer, sample_line_writer, tmp_path
 ):  # pylint: disable=redefined-outer-name
-    """Test that to_json_array triggers creation of manli parquet files."""
+    """Test that to_parquet triggers creation of manli parquet files."""
     mock_instance = mock_manli_writer.return_value
-    sample_line_writer.to_json_array()
+    sample_line_writer.to_parquet()
 
     expected_output_dir = tmp_path / "Line"
     mock_instance.to_parquet.assert_called_once_with(expected_output_dir)
