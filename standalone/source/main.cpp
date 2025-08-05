@@ -23,6 +23,18 @@ namespace
 {
 using namespace gtopt;
 
+namespace po = boost::program_options;
+
+template<typename T>
+[[nodiscard]] std::optional<T> get_opt(const po::variables_map& vm,
+                                       const std::string& name)
+{
+  if (vm.contains(name)) {
+    return vm[name].as<T>();
+  }
+  return std::nullopt;
+}
+
 #include <expected>
 
 [[nodiscard]] std::expected<int, std::string> Main(
@@ -201,8 +213,6 @@ int main(int argc, char** argv)
   // process the command options
   //
 
-  namespace po = boost::program_options;
-
   try {
     po::options_description desc("Gtoptp options");
     desc.add_options()("help,h", "describes arguments")  //
@@ -287,66 +297,20 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    auto [lp_file, json_file, quiet, use_single_bus] = [&vm]()
-    {
-      return std::make_tuple(
-          vm.contains("lp-file")
-              ? std::make_optional(vm["lp-file"].as<std::string>())
-              : std::nullopt,
-          vm.contains("json-file")
-              ? std::make_optional(vm["json-file"].as<std::string>())
-              : std::nullopt,
-          vm.contains("quiet") ? std::make_optional(vm["quiet"].as<bool>())
-                               : std::nullopt,
-          vm.contains("use-single-bus")
-              ? std::make_optional(vm["use-single-bus"].as<bool>())
-              : std::nullopt);
-    }();
-
-    std::optional<int> use_lp_names;
-    if (vm.contains("use-lp-names")) {
-      use_lp_names = vm["use-lp-names"].as<int>();
-    }
-
-    std::optional<double> matrix_eps;
-    if (vm.contains("matrix-eps")) {
-      matrix_eps = vm["matrix-eps"].as<double>();
-    }
-
-    std::optional<bool> just_create;
-    if (vm.contains("just-create")) {
-      just_create = vm["just-create"].as<bool>();
-    }
-
-    std::optional<bool> fast_parsing;
-    if (vm.contains("fast-parsing")) {
-      fast_parsing = vm["fast-parsing"].as<bool>();
-    }
-
-    std::optional<std::string> input_directory;
-    if (vm.contains("input-directory")) {
-      input_directory = vm["input-directory"].as<std::string>();
-    }
-
-    std::optional<std::string> output_directory;
-    if (vm.contains("output-directory")) {
-      output_directory = vm["output-directory"].as<std::string>();
-    }
-
-    std::optional<std::string> output_format;
-    if (vm.contains("output-format")) {
-      output_format = vm["output-format"].as<std::string>();
-    }
-
-    std::optional<std::string> compression_format;
-    if (vm.contains("compression-format")) {
-      compression_format = vm["compression-format"].as<std::string>();
-    }
-
-    std::optional<std::string> input_format;
-    if (vm.contains("input-format")) {
-      input_format = vm["input-format"].as<std::string>();
-    }
+    const auto lp_file = get_opt<std::string>(vm, "lp-file");
+    const auto json_file = get_opt<std::string>(vm, "json-file");
+    const auto quiet = get_opt<bool>(vm, "quiet");
+    const auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
+    const auto use_lp_names = get_opt<int>(vm, "use-lp-names");
+    const auto matrix_eps = get_opt<double>(vm, "matrix-eps");
+    const auto just_create = get_opt<bool>(vm, "just-create");
+    const auto fast_parsing = get_opt<bool>(vm, "fast-parsing");
+    const auto input_directory = get_opt<std::string>(vm, "input-directory");
+    const auto output_directory = get_opt<std::string>(vm, "output-directory");
+    const auto output_format = get_opt<std::string>(vm, "output-format");
+    const auto compression_format =
+        get_opt<std::string>(vm, "compression-format");
+    const auto input_format = get_opt<std::string>(vm, "input-format");
 
     //
     // LOG system configuration
