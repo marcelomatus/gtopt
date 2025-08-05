@@ -7,6 +7,7 @@ import json
 import tempfile
 import typing
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from ..line_writer import LineWriter
 from ..line_parser import LineParser
@@ -149,3 +150,15 @@ def test_write_empty_lines(tmp_path):
         with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             assert data == []
+
+
+@patch("scripts.plp2gtopt.line_writer.ManliWriter")
+def test_to_json_array_creates_parquet(
+    mock_manli_writer, sample_line_writer, tmp_path
+):  # pylint: disable=redefined-outer-name
+    """Test that to_json_array triggers creation of manli parquet files."""
+    mock_instance = mock_manli_writer.return_value
+    sample_line_writer.to_json_array()
+
+    expected_output_dir = tmp_path / "Line"
+    mock_instance.to_parquet.assert_called_once_with(expected_output_dir)
