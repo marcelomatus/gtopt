@@ -39,10 +39,9 @@ class ManceWriter(BaseWriter):
             block_parser: Parser for block data
             options: Dictionary of writer options
         """
-        super().__init__(mance_parser)
+        super().__init__(mance_parser, options)
         self.central_parser = central_parser
         self.block_parser = block_parser
-        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format."""

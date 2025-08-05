@@ -30,9 +30,8 @@ class DemandWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a DemandParser instance."""
-        super().__init__(demand_parser)
+        super().__init__(demand_parser, options)
         self.block_parser = block_parser
-        self.options = options if options is not None else {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert demand data to JSON array format."""
@@ -56,6 +55,7 @@ class DemandWriter(BaseWriter):
 
             json_demands.append(dem)
 
+        self.to_parquet("lmax.parquet", items=items)
         return cast(List[Dict[str, Any]], json_demands)
 
     def to_dataframe(

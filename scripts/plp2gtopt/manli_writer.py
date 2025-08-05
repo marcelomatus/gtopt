@@ -33,10 +33,9 @@ class ManliWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a ManliParser instance."""
-        super().__init__(manli_parser)
+        super().__init__(manli_parser, options)
         self.line_parser = line_parser
         self.block_parser = block_parser
-        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format."""
@@ -96,9 +95,14 @@ class ManliWriter(BaseWriter):
 
         return df_tmax_ab, df_tmax_ba, df_active
 
-    def to_parquet(self, output_dir: Path, items=None) -> None:
+    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
         """Write maintenance data to Parquet files."""
+        cols: Dict[str, List[str]] = {"tmax_ab": [], "tmax_ba": [], "active": []}
         df_tmax_ab, df_tmax_ba, df_active = self.to_dataframe(items)
+
+        cols["tmax_ab"] = df_tmax_ab.columns.tolist() if not df_tmax_ab.empty else []
+        cols["tmax_ba"] = df_tmax_ba.columns.tolist() if not df_tmax_ba.empty else []
+        cols["active"] = df_active.columns.tolist() if not df_active.empty else []
 
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,3 +120,5 @@ class ManliWriter(BaseWriter):
         finally:
             # Clean up DataFrames
             del df_tmax_ab, df_tmax_ba, df_active
+
+        return cols

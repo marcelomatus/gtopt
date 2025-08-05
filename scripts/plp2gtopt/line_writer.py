@@ -38,11 +38,10 @@ class LineWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a LineParser instance."""
-        super().__init__(line_parser)
+        super().__init__(line_parser, options)
         self.manli_parser = manli_parser
         self.line_parser = line_parser
         self.block_parser = block_parser
-        self.options = options if options is not None else {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert line data to JSON array format."""
@@ -52,50 +51,48 @@ class LineWriter(BaseWriter):
         if not items:
             return []
 
+        pcols = self._write_parquet_files()
+
         json_lines: List[Line] = []
         for line in items:
-            bus_a = line.get("bus_a", -1)
-            bus_b = line.get("bus_b", -1)
-            if bus_a <= 0 or bus_b <= 0:
+            line_name = line["name"]
+            line_number = line["number"]
+
+            bus_number_a = line.get("bus_a", -1)
+            bus_number_b = line.get("bus_b", -1)
+            if bus_number_a <= 0 or bus_number_b <= 0 or bus_number_a == bus_number_b:
                 continue
 
-            # lookup manli by name if cost_parser is available, and use it
-            manli = (
-                self.manli_parser.get_manli_by_name(line["name"])
-                if self.manli_parser
-                else None
-            )
-            tmax_ba, tmax_ab, active = (
-                (
-                    line.get("p_max_ba", 0.0),
-                    line.get("p_max_ab", 0.0),
-                    line.get("operational", 1),
-                )
-                if not manli
-                else ("tmax_ba", "tmax_ab", "active")
-            )
+            # lookup for cols in parquet files
+            pcol_name = self.pcol_name(line_name, line_number)
+            tmax_ab = "tmax_ab" if pcol_name in pcols["tmax_ab"] else line["tmax_ab"]
+            tmax_ba = "tmax_ba" if pcol_name in pcols["tmax_ba"] else line["tmax_ba"]
+            active = "active" if pcol_name in pcols["active"] else line["operational"]
 
             json_line: Line = {
-                "uid": line["number"],
-                "name": line["name"],
+                "uid": line_number,
+                "name": line_name,
                 "active": active,
-                "bus_a": line["bus_a"],
-                "bus_b": line["bus_b"],
+                "bus_a": bus_number_a,
+                "bus_b": bus_number_b,
                 "resistance": line["r"],
                 "reactance": line["x"],
                 "tmax_ab": tmax_ab,
                 "tmax_ba": tmax_ba,
                 "voltage": line["voltage"],
-                **({"is_hvdc": 1} if "hdvc" in line else {}),
+                **({"is_hvdc": 1} if "hvdc" in line else {}),
             }
             json_lines.append(json_line)
 
         return cast(List[Dict[str, Any]], json_lines)
 
-    def to_parquet(self) -> None:
+    def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write line data to Parquet file format."""
+        cols: Dict[str, List[str]] = {"tmax_ab": [], "tmax_ba": [], "active": []}
+
         if not self.manli_parser:
-            return
+            return cols
+
         output_dir = (
             self.options["output_dir"] / "Line"
             if "output_dir" in self.options
@@ -106,4 +103,6 @@ class LineWriter(BaseWriter):
         manli_writer = ManliWriter(
             self.manli_parser, self.line_parser, self.block_parser, self.options
         )
-        manli_writer.to_parquet(output_dir)
+        cols = manli_writer.to_parquet(output_dir)
+
+        return cols

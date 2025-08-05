@@ -115,7 +115,7 @@ def test_json_output_structure(
         assert line["resistance"] >= 0, "Resistance should be non-negative"
         assert line["reactance"] >= 0, "Reactance should be non-negative"
         assert line["tmax_ab"] >= 0, "Flow limit AB should be non-negative"
-        assert line["tmax_ba"] <= 0, "Flow limit BA should be negative"
+        assert line["tmax_ba"] >= 0, "Flow limit BA should be non-negative"
 
 
 def test_write_empty_lines(tmp_path):

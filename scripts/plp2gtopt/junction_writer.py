@@ -96,10 +96,9 @@ class JunctionWriter(BaseWriter):
             extrac_parser: Parser for extraction data
             options: Configuration options for the writer
         """
-        super().__init__(central_parser)
+        super().__init__(central_parser, options)
         self.aflce_parser = aflce_parser
         self.extrac_parser = extrac_parser
-        self.options = options or {}
         self._waterway_counter = 0
 
     def _create_waterway(
