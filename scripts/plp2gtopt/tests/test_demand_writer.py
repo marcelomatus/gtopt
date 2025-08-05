@@ -6,6 +6,7 @@
 import json
 import tempfile
 from pathlib import Path
+import pandas as pd
 import pytest
 from ..demand_writer import DemandWriter
 from ..demand_parser import DemandParser
@@ -116,3 +117,34 @@ def test_write_empty_demands(tmp_path):
         with open(output_path, "r", encoding="utf-8") as f:
             data2 = json.load(f)
             assert data == data2
+
+
+def test_to_dataframe_structure(
+    sample_demand_writer,
+):  # pylint: disable=redefined-outer-name
+    """Verify the structure of the DataFrame created by to_dataframe."""
+    df = sample_demand_writer.to_dataframe()
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty
+    assert "block" in df.columns
+
+    expected_cols = ["block"]
+    for item in sample_demand_writer.items:
+        if item.get("bus", -1) == 0:
+            continue
+        if len(item["blocks"]) == 0 or len(item["values"]) == 0:
+            continue
+        uid = item.get("bus", item["name"])
+        name = f"uid:{uid}" if not isinstance(uid, str) else uid
+        expected_cols.append(name)
+    assert set(df.columns) == set(expected_cols)
+
+
+def test_to_parquet_creates_file(
+    sample_demand_writer, tmp_path
+):  # pylint: disable=redefined-outer-name
+    """Test that to_parquet creates a Parquet file."""
+    sample_demand_writer.to_parquet("lmax.parquet")
+    parquet_file = tmp_path / "Demand" / "lmax.parquet"
+    assert parquet_file.exists()
+    assert parquet_file.is_file()
