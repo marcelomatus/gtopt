@@ -45,13 +45,12 @@ class CentralWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a CentralParser instance."""
-        super().__init__(central_parser)
+        super().__init__(central_parser, options)
         self.stage_parser = stage_parser
         self.block_parser = block_parser
         self.cost_parser = cost_parser
         self.bus_parser = bus_parser
         self.mance_parser = mance_parser
-        self.options = options if options is not None else {}
 
     @property
     def central_parser(self) -> CentralParser:
@@ -71,6 +70,9 @@ class CentralWriter(BaseWriter):
 
         json_centrals: List[Generator] = []
         for central in items:
+            central_name = central["name"]
+            central_number = central["number"]
+
             # skip centrals that are "falla" type
             if central["type"] == "falla":
                 # Falla centrals are not included in the output
@@ -83,20 +85,17 @@ class CentralWriter(BaseWriter):
 
             if self.bus_parser:
                 bus = self.bus_parser.get_bus_by_number(bus_number)
-                if bus is None or bus.get("number", -1) != bus_number:
+                if bus is None or bus["number"] != bus_number:
                     print(
-                        f"Skipping central {central['name']} with invalid bus {bus_number}."
+                        f"Skipping central {central_name} with invalid bus {bus_number}."
                     )
                     continue
 
-            central_name = central["name"]
-            central_number = central["number"]
-
-            # lookup cost by name if cost_parser is available, and use it
-            col_name = "uid:" + str(central_number)
-            gcost = "gcost" if col_name in parquet_cols["gcost"] else central["gcost"]
-            pmin = "pmin" if col_name in parquet_cols["pmin"] else central["pmin"]
-            pmax = "pmax" if col_name in parquet_cols["pmax"] else central["pmax"]
+            # lookup for cols in parquet files
+            pcol_name = self.pcol_name(central_name, central_number)
+            gcost = "gcost" if pcol_name in parquet_cols["gcost"] else central["gcost"]
+            pmin = "pmin" if pcol_name in parquet_cols["pmin"] else central["pmin"]
+            pmax = "pmax" if pcol_name in parquet_cols["pmax"] else central["pmax"]
 
             generator: Generator = {
                 "uid": central_number,

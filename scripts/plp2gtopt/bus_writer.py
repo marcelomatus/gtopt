@@ -18,9 +18,13 @@ class Bus(TypedDict):
 class BusWriter(BaseWriter):
     """Converts bus parser data to JSON format used by GTOPT."""
 
-    def __init__(self, bus_parser: Optional[BusParser] = None):
+    def __init__(
+        self,
+        bus_parser: Optional[BusParser] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize with a BusParser instance."""
-        super().__init__(bus_parser)
+        super().__init__(bus_parser, options)
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert bus data to JSON array format."""

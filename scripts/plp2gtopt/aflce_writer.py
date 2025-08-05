@@ -32,11 +32,10 @@ class AflceWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with an AflceParser instance."""
-        super().__init__(aflce_parser)
+        super().__init__(aflce_parser, options)
         self.central_parser = central_parser
         self.block_parser = block_parser
         self.scenarios = scenarios or []
-        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert flow data to JSON array format."""

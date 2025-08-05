@@ -31,10 +31,9 @@ class CostWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a CostParser instance."""
-        super().__init__(cost_parser)
+        super().__init__(cost_parser, options)
         self.central_parser = central_parser
         self.stage_parser = stage_parser
-        self.options = options or {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""

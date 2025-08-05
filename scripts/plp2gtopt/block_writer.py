@@ -18,9 +18,13 @@ class Block(TypedDict):
 class BlockWriter(BaseWriter):
     """Converts block parser data to JSON format used by GTOPT."""
 
-    def __init__(self, block_parser: Optional[BlockParser] = None):
+    def __init__(
+        self,
+        block_parser: Optional[BlockParser] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize with a BlockParser instance."""
-        super().__init__(block_parser)
+        super().__init__(block_parser, options)
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format."""

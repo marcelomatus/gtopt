@@ -32,8 +32,7 @@ class ExtracWriter(BaseWriter):
             extrac_parser: Parser for extraction data
             options: Dictionary of writer options
         """
-        super().__init__(extrac_parser)
-        self.options = options or {}
+        super().__init__(extrac_parser, options)
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert extraction data to JSON array format."""

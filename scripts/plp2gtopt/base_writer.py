@@ -30,7 +30,11 @@ class BaseWriter(ABC):
         """Get items from the parser."""
         return self.items
 
-    def __init__(self, parser: Optional[ParserVar] = None) -> None:
+    def __init__(
+        self,
+        parser: Optional[ParserVar] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Initialize with a parser instance.
 
         Args:
@@ -38,6 +42,7 @@ class BaseWriter(ABC):
         """
         self.parser = parser
         self.items = self.parser.get_all() if self.parser else None
+        self.options = options if options is not None else {}
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert data to JSON array format."""
@@ -103,7 +108,7 @@ class BaseWriter(ABC):
                 continue
 
             uid = int(unit[item_key]) if item_key in unit else name
-            col_name = f"uid:{uid}" if isinstance(uid, int) else uid
+            col_name = self.pcol_name(name, uid)
 
             if fill_field and fill_field in unit:
                 fill_values[col_name] = unit[fill_field]
@@ -148,7 +153,27 @@ class BaseWriter(ABC):
     def get_compression(self, options: Optional[Dict[str, Any]] = None) -> str:
         """Get and validate compression option from writer options."""
         if options is None:
-            options = self.options if hasattr(self, "options") else {}
+            options = self.options
 
         compression = options.get("compression", "gzip") if options else "gzip"
         return compression if compression in self.VALID_COMPRESSION else "gzip"
+
+    def pcol_name(
+        self,
+        item_name: str,
+        item_number: int | str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Get and validate compression option from writer options."""
+        if options is None:
+            options = self.options
+
+        if isinstance(item_number, str):
+            return item_number
+
+        if options.get("use_uid_label", False):
+            col_name = f"uid:{item_number}"
+        else:
+            col_name = f"{item_name}:{item_number}"
+
+        return col_name

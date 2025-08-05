@@ -36,12 +36,11 @@ class GeneratorProfileWriter(BaseWriter):
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a CentralParser instance."""
-        super().__init__(central_parser)
+        super().__init__(central_parser, options)
         self.block_parser = block_parser
         self.bus_parser = bus_parser
         self.aflce_parser = aflce_parser
         self.scenarios = scenarios
-        self.options = options if options is not None else {}
 
     @property
     def central_parser(self) -> CentralParser:
