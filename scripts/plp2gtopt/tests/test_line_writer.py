@@ -7,7 +7,7 @@ import json
 import tempfile
 import typing
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import pytest
 from ..line_writer import LineWriter
 from ..line_parser import LineParser
@@ -157,6 +157,7 @@ def test_to_parquet_creates_files(
     mock_manli_writer, sample_line_writer, tmp_path
 ):  # pylint: disable=redefined-outer-name
     """Test that to_parquet triggers creation of manli parquet files."""
+    sample_line_writer.manli_parser = MagicMock()
     mock_instance = mock_manli_writer.return_value
     sample_line_writer.to_parquet()
 

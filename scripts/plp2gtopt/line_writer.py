@@ -94,6 +94,8 @@ class LineWriter(BaseWriter):
 
     def to_parquet(self) -> None:
         """Write line data to Parquet file format."""
+        if not self.manli_parser:
+            return
         output_dir = (
             self.options["output_dir"] / "Line"
             if "output_dir" in self.options
