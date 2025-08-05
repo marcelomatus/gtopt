@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <string>
 #include <string_view>
@@ -197,6 +198,9 @@ template<char sep = '_', typename... Args>
     result.append(view);
     needs_sep = true;
   }
+
+  std::ranges::transform(
+      result, result.begin(), [](auto c) { return std::tolower(c); });
 
   return result;
 }

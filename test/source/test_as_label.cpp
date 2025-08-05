@@ -29,7 +29,7 @@ TEST_CASE("as_label basic functionality")
   SUBCASE("custom separator")
   {
     CHECK(as_label<'-'>("a", "b", "c") == "a-b-c");
-    CHECK(as_label<' '>("hello", "world") == "hello world");
+    CHECK(as_label<' '>("Hello", "world") == "hello world");
     CHECK(as_label<','>(1, 2, 3) == "1,2,3");
   }
 
@@ -39,6 +39,7 @@ TEST_CASE("as_label basic functionality")
     const std::string_view sv = "view";
     CHECK(as_label(s, sv, 42) == "str_view_42");
     CHECK(as_label("prefix", 3.14, "suffix") == "prefix_3.14_suffix");
+    CHECK(as_label("prefiX", 3.14, "Suffix") == "prefix_3.14_suffix");
   }
 
   SUBCASE("edge cases")
