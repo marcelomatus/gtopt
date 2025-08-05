@@ -20,12 +20,13 @@ def test_block_parser_initialization():
     assert parser.num_blocks == 0
 
 
-def test_get_blocks():
+def test_get_blocks(tmp_path):
     """Test get_blocks returns blocks list."""
-    parser = BlockParser("test.dat")
+    test_file_path = tmp_path / "test.dat"
+    parser = BlockParser(test_file_path)
     # Create test file with known content
     test_content = "1\n1 1 1.0"
-    with open(parser.file_path, "w", encoding="utf-8") as f:
+    with open(test_file_path, "w", encoding="utf-8") as f:
         f.write(test_content)
 
     parser.parse()
