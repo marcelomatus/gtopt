@@ -90,12 +90,10 @@ class LineWriter(BaseWriter):
             }
             json_lines.append(json_line)
 
-        self._write_parquet_files()
-
         return cast(List[Dict[str, Any]], json_lines)
 
-    def _write_parquet_files(self) -> None:
-        """Write demand data to Parquet file format."""
+    def to_parquet(self) -> None:
+        """Write line data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Line"
             if "output_dir" in self.options
