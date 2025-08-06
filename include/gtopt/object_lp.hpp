@@ -14,19 +14,13 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object_utils.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
-
-struct LPClassName
-{
-  std::string_view name;
-  std::string_view short_name;
-};
-
 // Forward declarations
 class InputContext;
 class OutputContext;
