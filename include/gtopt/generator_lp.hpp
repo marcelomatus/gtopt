@@ -27,7 +27,8 @@ namespace gtopt
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
-  constexpr static std::string_view ClassName = "Generator";
+  static constexpr std::string_view ClassName = "Generator";
+  static constexpr std::string_view ShortName = "gen";
 
   using CapacityBase = CapacityObjectLP<Generator>;
 

@@ -18,7 +18,7 @@ namespace gtopt
 {
 
 DemandLP::DemandLP(Demand pdemand, const InputContext& ic)
-    : CapacityBase(std::move(pdemand), ic, ClassName)
+    : CapacityBase(std::move(pdemand), ic, ClassName, ShortName)
     , lmax(ic, ClassName, id(), std::move(object().lmax))
     , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
     , fcost(ic, ClassName, id(), std::move(object().fcost))
@@ -32,7 +32,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
@@ -140,7 +140,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
 bool DemandLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   out.add_col_sol(cname, "load", pid, load_cols);

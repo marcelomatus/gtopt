@@ -163,7 +163,7 @@ template<typename T>
   //
 
   const auto eps = matrix_eps.value_or(0);  // Default to exact matching
-  const auto lp_names = use_lp_names.value_or(0);  // Default to no names
+  const auto lp_names = use_lp_names.value_or(true);  // Default to use names
 
   FlatOptions flat_opts;
   flat_opts.eps = eps;  // Coefficient epsilon tolerance

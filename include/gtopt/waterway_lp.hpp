@@ -19,7 +19,8 @@ namespace gtopt
 class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
-  constexpr static std::string_view ClassName = "Waterway";
+  static constexpr std::string_view ClassName = "Waterway";
+  static constexpr std::string_view ShortName = "wwy";
 
   explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
 

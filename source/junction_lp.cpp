@@ -23,7 +23,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
@@ -71,7 +71,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
 bool JunctionLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   // Add all solution components to output context

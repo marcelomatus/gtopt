@@ -29,7 +29,8 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  constexpr static std::string_view ClassName = "Bus";
+  static constexpr std::string_view ClassName = "Bus";
+  static constexpr std::string_view ShortName = "bus";
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap

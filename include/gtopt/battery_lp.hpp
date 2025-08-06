@@ -33,7 +33,8 @@ using BatteryLPSId = ObjectSingleId<class BatteryLP>;
 class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
-  constexpr static std::string_view ClassName = "Battery";
+  static constexpr std::string_view ClassName = "Battery";
+  static constexpr std::string_view ShortName = "bat";
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;
@@ -54,10 +55,7 @@ public:
    * @param ic Input context for parameter processing
    * @param pbattery Battery object to convert to LP representation
    */
-  explicit BatteryLP(Battery pbattery, const InputContext& ic)
-      : StorageBase(std::move(pbattery), ic, ClassName)
-  {
-  }
+  explicit BatteryLP(Battery pbattery, const InputContext& ic);
 
   /**
    * @brief Adds battery variables and constraints to the linear problem

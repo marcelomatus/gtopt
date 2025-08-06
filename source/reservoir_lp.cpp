@@ -21,7 +21,7 @@ namespace gtopt
 {
 
 ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
-    : StorageBase(std::move(preservoir), ic, ClassName)
+    : StorageBase(std::move(preservoir), ic, ClassName, ShortName)
     , capacity(ic, ClassName, id(), std::move(reservoir().capacity))
 {
 }
@@ -45,7 +45,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
 
   if (!is_active(stage)) {
     return true;
@@ -103,7 +103,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
 
   out.add_col_sol(cname, "extraction", id(), extraction_cols);
   out.add_col_cost(cname, "extraction", id(), extraction_cols);

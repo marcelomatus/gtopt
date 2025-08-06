@@ -10,7 +10,7 @@ using namespace gtopt;
 
 struct test_object
 {
-  constexpr static std::string_view ClassName = "test_object";
+  static constexpr std::string_view ClassName = "test_object";
   Uid uid {unknown_uid};
   Name name {};
   int value {};

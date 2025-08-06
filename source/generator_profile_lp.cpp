@@ -35,7 +35,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!is_active(stage)) {
     return true;
@@ -103,7 +103,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
 
   out.add_col_sol(cname, "spillover", id(), spillover_cols);
   out.add_col_cost(cname, "spillover", id(), spillover_cols);

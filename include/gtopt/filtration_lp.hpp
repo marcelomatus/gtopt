@@ -27,7 +27,8 @@ namespace gtopt
 class FiltrationLP : public ObjectLP<Filtration>
 {
 public:
-  constexpr static std::string_view ClassName = "Filtration";
+  static constexpr std::string_view ClassName = "Filtration";
+  static constexpr std::string_view ShortName = "fil";
 
   /// Constructs a FiltrationLP from a Filtration and input context
   /// @param pfiltration The filtration system to wrap
