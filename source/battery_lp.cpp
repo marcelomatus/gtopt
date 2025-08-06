@@ -11,8 +11,6 @@
  * capacity constraints.
  */
 
-#include <ranges>
-
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>

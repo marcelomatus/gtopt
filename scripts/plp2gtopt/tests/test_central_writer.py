@@ -20,20 +20,22 @@ def sample_central_file():
 
 
 @pytest.fixture
-def sample_central_writer(sample_central_file):
+def sample_central_writer(sample_central_file, tmp_path):
     """Fixture providing initialized CentralWriter with sample data."""
     parser = CentralParser(sample_central_file)
     parser.parse()
-    return CentralWriter(parser)
+    options = {"output_dir": tmp_path}
+    return CentralWriter(parser, options=options)
 
 
 def test_central_writer_initialization(
-    sample_central_file,
+    sample_central_file, tmp_path
 ):  # pylint: disable=redefined-outer-name
     """Test CentralWriter initialization."""
     parser = CentralParser(sample_central_file)
     parser.parse()
-    writer = CentralWriter(parser)
+    options = {"output_dir": tmp_path}
+    writer = CentralWriter(parser, options=options)
 
     assert writer.parser == parser
     assert writer.items is not None and len(writer.items) == parser.num_centrals
@@ -75,7 +77,7 @@ def test_write_to_file(sample_central_writer):  # pylint: disable=redefined-oute
             assert len(data) > 0
 
 
-def test_write_empty_centrals():
+def test_write_empty_centrals(tmp_path):
     """Test handling of empty central list."""
 
     # Create parser with no centrals
@@ -101,7 +103,8 @@ def test_write_empty_centrals():
 
     mock_parser: typing.Any = MockCentralParser()
 
-    writer = CentralWriter(mock_parser)
+    options = {"output_dir": tmp_path}
+    writer = CentralWriter(mock_parser, options=options)
     json_centrals = writer.to_json_array()
     assert not json_centrals
 

@@ -171,7 +171,7 @@ class BaseWriter(ABC):
         if isinstance(item_number, str):
             return item_number
 
-        if options.get("use_uid_label", False):
+        if options.get("use_uid_label", True):
             col_name = f"uid:{item_number}"
         else:
             col_name = f"{item_name}:{item_number}"

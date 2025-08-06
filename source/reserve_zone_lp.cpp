@@ -99,6 +99,8 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (!is_active(stage)) {
     return true;
   }
@@ -106,9 +108,9 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   return add_requirement(
-             ClassName, sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
+             cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
       && add_requirement(
-             ClassName, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+             cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
 }
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const

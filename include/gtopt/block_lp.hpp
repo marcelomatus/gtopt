@@ -29,7 +29,7 @@ namespace gtopt
 class BlockLP
 {
 public:
-  constexpr static std::string_view ClassName = "BlockLP";
+  constexpr static std::string_view ClassName = "Block";
 
   BlockLP() = default;
 

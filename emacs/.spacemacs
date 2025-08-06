@@ -730,11 +730,13 @@ This function is called at the very end of Spacemacs initialization."
    ;; If there is more than one, they won't work right.
    '(aidermacs-architect-model "deepseek/deepseek-coder")
    '(aidermacs-default-model "deepseek/deepseek-coder")
+   '(lsp-dired-mode nil)
    '(lsp-pylsp-plugins-autopep8-enabled t)
    '(lsp-pylsp-plugins-black-enabled t)
    '(lsp-pylsp-plugins-jedi-completion-fuzzy t)
    '(lsp-pylsp-plugins-mypy-enabled nil)
    '(lsp-pylsp-plugins-ruff-enabled nil)
+   '(lsp-treemacs-sync-mode t)
    '(package-selected-packages
      '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
                 auto-highlight-symbol auto-yasnippet blacken browse-at-remote

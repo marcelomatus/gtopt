@@ -52,6 +52,7 @@ class GTOptWriter:
             "scale_objective": 1000,
             "use_kirchhoff": True,
             "annual_discount_rate": 0.0,
+            "write_lp": True,
         }
 
     def process_stage_blocks(self):

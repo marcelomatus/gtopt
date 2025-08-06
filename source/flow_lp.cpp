@@ -33,6 +33,8 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (!is_active(stage)) {
     return true;
   }
@@ -55,8 +57,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     const auto block_discharge =
         discharge.at(scenario.uid(), stage.uid(), block.uid());
 
-    auto col_name =
-        sc.lp_label(scenario, stage, block, class_name(), "flow", uid());
+    auto col_name = sc.lp_label(scenario, stage, block, cname, "flow", uid());
     const auto fcol = lp.add_col({.name = std::move(col_name),
                                   .lowb = block_discharge,
                                   .uppb = block_discharge});
