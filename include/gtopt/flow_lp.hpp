@@ -22,8 +22,7 @@ namespace gtopt
 class FlowLP : public ObjectLP<Flow>
 {
 public:
-  static constexpr std::string_view ClassName = "Flow";
-  static constexpr std::string_view ShortName = "flw";
+  static constexpr LPClassName ClassName = {"Flow", "flw"};
 
   explicit FlowLP(Flow pflow, const InputContext& ic);
 

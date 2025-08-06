@@ -34,8 +34,7 @@ using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
-  static constexpr std::string_view ClassName = "Reservoir";
-  static constexpr std::string_view ShortName = "rsv";
+  static constexpr LPClassName ClassName = {"Reservoir", "rsv"};
 
   using StorageBase = StorageLP<ObjectLP<Reservoir>>;
 

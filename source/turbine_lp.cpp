@@ -21,7 +21,8 @@ namespace gtopt
 {
 TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
     : ObjectLP<Turbine>(std::move(pturbine))
-    , conversion_rate(ic, ClassName, id(), std::move(turbine().conversion_rate))
+    , conversion_rate(
+          ic, ClassName.name, id(), std::move(turbine().conversion_rate))
 {
 }
 
@@ -42,7 +43,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ShortName;
+  static constexpr std::string_view cname = ClassName.short_name;
 
   if (!is_active(stage)) {
     return true;
@@ -94,7 +95,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
  */
 bool TurbineLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName.name;
 
   out.add_row_dual(cname, "conversion", id(), conversion_rows);
 

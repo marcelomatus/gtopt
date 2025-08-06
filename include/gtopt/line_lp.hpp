@@ -22,8 +22,7 @@ namespace gtopt
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
-  static constexpr std::string_view ClassName = "Line";
-  static constexpr std::string_view ShortName = "lin";
+  static constexpr LPClassName ClassName = {"Line", "lin"};
 
   using CapacityBase = CapacityObjectLP<Line>;
 

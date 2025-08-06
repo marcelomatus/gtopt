@@ -24,7 +24,7 @@ namespace gtopt
 
 FlowLP::FlowLP(Flow pflow, const InputContext& ic)
     : ObjectLP<Flow>(std::move(pflow))
-    , discharge(ic, ClassName, id(), std::move(flow().discharge))
+    , discharge(ic, ClassName.name, id(), std::move(flow().discharge))
 {
 }
 
@@ -33,7 +33,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ShortName;
+  static constexpr std::string_view cname = ClassName.short_name;
 
   if (!is_active(stage)) {
     return true;
@@ -77,7 +77,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
 
 bool FlowLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName.name;
 
   out.add_col_sol(cname, "flow", id(), flow_cols);
   out.add_col_cost(cname, "flow", id(), flow_cols);

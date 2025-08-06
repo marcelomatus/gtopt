@@ -55,8 +55,7 @@ struct CapacityObjectBase
 
   template<typename OF>
   constexpr explicit CapacityObjectBase(const InputContext& ic,
-                                        const std::string_view class_name,
-                                        const std::string_view short_name,
+                                        const LPClassName cname,
                                         Id pid,
                                         OF&& capacity,
                                         OF&& expcap,
@@ -64,17 +63,17 @@ struct CapacityObjectBase
                                         OF&& expmod,
                                         OF&& annual_capcost,
                                         OF&& annual_derating)
-      : m_class_name_(class_name)
-      , m_short_name_(short_name)
+      : m_class_name_(cname.name)
+      , m_short_name_(cname.short_name)
       , m_id_(std::move(pid))
-      , m_capacity_(ic, class_name, id(), std::forward<OF>(capacity))
-      , m_expcap_(ic, class_name, id(), std::forward<OF>(expcap))
-      , m_capmax_(ic, class_name, id(), std::forward<OF>(capmax))
-      , m_expmod_(ic, class_name, id(), std::forward<OF>(expmod))
+      , m_capacity_(ic, cname.name, id(), std::forward<OF>(capacity))
+      , m_expcap_(ic, cname.name, id(), std::forward<OF>(expcap))
+      , m_capmax_(ic, cname.name, id(), std::forward<OF>(capmax))
+      , m_expmod_(ic, cname.name, id(), std::forward<OF>(expmod))
       , m_annual_capcost_(
-            ic, class_name, id(), std::forward<OF>(annual_capcost))
+            ic, cname.name, id(), std::forward<OF>(annual_capcost))
       , m_annual_derating_(
-            ic, class_name, id(), std::forward<OF>(annual_derating))
+            ic, cname.name, id(), std::forward<OF>(annual_derating))
   {
   }
 
@@ -243,15 +242,12 @@ struct CapacityObjectLP
    * - Annual derating factors
    */
   template<typename ObjectT>
-  constexpr explicit CapacityObjectLP(
-      ObjectT&& pobject,
-      const InputContext& ic,
-      const std::string_view class_name,
-      const std::string_view short_name) noexcept
-      : ObjectLP<Object>(std::forward<ObjectT>(pobject))
+  constexpr explicit CapacityObjectLP(ObjectT&& pobject,
+                                      const InputContext& ic,
+                                      const LPClassName cname) noexcept
+      : ObjectLP<Object>(std::forward<ObjectT>(pobject), ic, cname)
       , CapacityObjectBase(ic,
-                           class_name,
-                           short_name,
+                           cname,
                            id(),
                            std::move(object().capacity),
                            std::move(object().expcap),

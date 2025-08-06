@@ -33,8 +33,7 @@ using BatteryLPSId = ObjectSingleId<class BatteryLP>;
 class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
-  static constexpr std::string_view ClassName = "Battery";
-  static constexpr std::string_view ShortName = "bat";
+  static constexpr LPClassName ClassName = {"Battery", "bat"};
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;
