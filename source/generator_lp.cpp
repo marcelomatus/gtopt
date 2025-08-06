@@ -64,6 +64,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
   }
@@ -99,8 +101,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col(
-        {.name =
-             sc.lp_label(scenario, stage, block, class_name(), "gen", uid()),
+        {.name = sc.lp_label(scenario, stage, block, cname, "gen", uid()),
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
@@ -114,10 +115,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
     if (capacity_col) {
-      auto crow =
-          SparseRow {.name = sc.lp_label(
-                         scenario, stage, block, class_name(), "cap", uid())}
-              .greater_equal(0);
+      auto crow = SparseRow {.name = sc.lp_label(
+                                 scenario, stage, block, cname, "cap", uid())}
+                      .greater_equal(0);
       crow[*capacity_col] = 1;
       crow[gcol] = -1;
 
@@ -149,10 +149,12 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
  */
 bool GeneratorLP::add_to_output(OutputContext& out) const
 {
+  constexpr std::string_view cname = ClassName;
+
   const auto pid = id();
-  out.add_col_sol(class_name(), "generation", pid, generation_cols);
-  out.add_col_cost(class_name(), "generation", pid, generation_cols);
-  out.add_row_dual(class_name(), "capacity", pid, capacity_rows);
+  out.add_col_sol(cname, "generation", pid, generation_cols);
+  out.add_col_cost(cname, "generation", pid, generation_cols);
+  out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
   return CapacityBase::add_to_output(out);
 }

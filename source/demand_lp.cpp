@@ -32,6 +32,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
   }
@@ -90,12 +92,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     const auto lcol = stage_fcost
         ? lp.add_col(
-              {.name = sc.lp_label(
-                   scenario, stage, block, ClassName, "load", uid()),
+              {.name =
+                   sc.lp_label(scenario, stage, block, cname, "load", uid()),
                .uppb = block_lmax,
                .cost = -sc.block_ecost(scenario, stage, block, *stage_fcost)})
         : lp.add_col({.name = sc.lp_label(
-                          scenario, stage, block, ClassName, "load", uid()),
+                          scenario, stage, block, cname, "load", uid()),
                       .lowb = block_lmax,
                       .uppb = block_lmax});
 
@@ -107,10 +109,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      auto crow =
-          SparseRow {.name = sc.lp_label(
-                         scenario, stage, block, ClassName, "cap", uid())}
-              .greater_equal(0.0);
+      auto crow = SparseRow {.name = sc.lp_label(
+                                 scenario, stage, block, cname, "cap", uid())}
+                      .greater_equal(0.0);
 
       crow[*capacity_col] = 1.0;
       crow[lcol] = -1.0;
@@ -139,15 +140,16 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
 bool DemandLP::add_to_output(OutputContext& out) const
 {
+  constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
-  out.add_col_sol(ClassName, "load", pid, load_cols);
-  out.add_col_cost(ClassName, "load", pid, load_cols);
-  out.add_row_dual(ClassName, "capacity", pid, capacity_rows);
+  out.add_col_sol(cname, "load", pid, load_cols);
+  out.add_col_cost(cname, "load", pid, load_cols);
+  out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
-  out.add_col_sol(ClassName, "emin", pid, emin_cols);
-  out.add_col_cost(ClassName, "emin", pid, emin_cols);
-  out.add_row_dual(ClassName, "emin", pid, emin_rows);
+  out.add_col_sol(cname, "emin", pid, emin_cols);
+  out.add_col_cost(cname, "emin", pid, emin_cols);
+  out.add_row_dual(cname, "emin", pid, emin_rows);
 
   return CapacityBase::add_to_output(out);
 }

@@ -23,6 +23,8 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
     return true;
@@ -45,15 +47,13 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
     const auto buid = block.uid();
 
     // Create balance row for this block
-    auto brow =
-        SparseRow {.name = sc.lp_label(
-                       scenario, stage, block, class_name(), "bal", uid())};
+    auto brow = SparseRow {
+        .name = sc.lp_label(scenario, stage, block, cname, "bal", uid())};
 
     // Add drain column if needed
     if (add_drain_col) {
       const auto dcol = lp.add_col(
-          {.name = sc.lp_label(
-               scenario, stage, block, class_name(), "drain", uid())});
+          {.name = sc.lp_label(scenario, stage, block, cname, "drain", uid())});
       dcols[buid] = dcol;
       brow[dcol] = -1.0;  // Drain coefficient
     }
@@ -71,12 +71,13 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
 bool JunctionLP::add_to_output(OutputContext& out) const
 {
+  constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   // Add all solution components to output context
-  out.add_col_sol(class_name(), "drain", pid, drain_cols);
-  out.add_col_cost(class_name(), "drain", pid, drain_cols);
-  out.add_row_dual(class_name(), "balance", pid, balance_rows);
+  out.add_col_sol(cname, "drain", pid, drain_cols);
+  out.add_col_cost(cname, "drain", pid, drain_cols);
+  out.add_row_dual(cname, "balance", pid, balance_rows);
 
   return true;
 }

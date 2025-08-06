@@ -43,6 +43,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           LinearProblem& lp)
 {
   constexpr std::string_view cname = ClassName;
+
   if (!is_active(stage)) {
     return true;
   }

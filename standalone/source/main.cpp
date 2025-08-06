@@ -317,6 +317,14 @@ int main(int argc, char** argv)
     //
     {
       spdlog::cfg::load_env_levels();
+
+      spdlog::set_level(spdlog::level::info);
+      if (quiet.value_or(false)) {
+        spdlog::set_level(spdlog::level::off);
+      } else if (!vm.contains("verbose")) {
+        spdlog::set_level(spdlog::level::trace);
+      }
+
       spdlog::cfg::load_argv_levels(argc, argv);
 
       spdlog::info(fmt::format("starting gtopt {}", GTOPT_VERSION));

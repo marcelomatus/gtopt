@@ -170,6 +170,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (!is_active(stage)) {
     return true;
   }
@@ -213,7 +215,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       continue;
     }
 
-    const bool result = add_provision(ClassName,
+    const bool result = add_provision(cname,
                                       sc,
                                       scenario,
                                       stage,
@@ -226,7 +228,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                       "uprov",
                                       reserve_zone.urequirement_rows(),
                                       uprov_row)
-        && add_provision(ClassName,
+        && add_provision(cname,
                          sc,
                          scenario,
                          stage,

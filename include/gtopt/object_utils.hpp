@@ -19,6 +19,8 @@ namespace gtopt
 
 class SystemContext;
 class StageLP;
+class ScenarioLP;
+class BlockLP;
 
 /**
  * @class ObjectUtils

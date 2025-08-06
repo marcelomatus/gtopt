@@ -23,11 +23,11 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  constexpr std::string_view cname = ClassName;
+
   if (is_loop()) {
     return true;
   }
-
-  constexpr std::string_view cname = ClassName;
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;

@@ -157,13 +157,13 @@ public:
 
 template<typename Type, typename Map, typename FieldSched, typename... Uid>
 constexpr auto make_array_index(const SystemContext& system_context,
-                                const std::string_view ClassName,
+                                const std::string_view class_name,
                                 Map& array_table_map,
                                 const FieldSched& sched,
                                 const Id& id)
 {
   return ArrayIndexTraits<Type, Map, FieldSched, Uid...>::make_array_index(
-      system_context, ClassName, array_table_map, sched, id);
+      system_context, class_name, array_table_map, sched, id);
 }
 
 }  // namespace gtopt

@@ -34,12 +34,12 @@ public:
   template<typename ObjectT>
   explicit StorageLP(ObjectT&& pstorage,
                      const InputContext& ic,
-                     const std::string_view ClassName)
-      : Object(std::forward<ObjectT>(pstorage), ic, ClassName)
-      , vmin(ic, ClassName, id(), std::move(storage().vmin))
-      , vmax(ic, ClassName, id(), std::move(storage().vmax))
-      , vcost(ic, ClassName, id(), std::move(storage().vcost))
-      , annual_loss(ic, ClassName, id(), std::move(storage().annual_loss))
+                     const std::string_view class_name)
+      : Object(std::forward<ObjectT>(pstorage), ic, class_name)
+      , vmin(ic, class_name, id(), std::move(storage().vmin))
+      , vmax(ic, class_name, id(), std::move(storage().vmax))
+      , vcost(ic, class_name, id(), std::move(storage().vcost))
+      , annual_loss(ic, class_name, id(), std::move(storage().annual_loss))
   {
   }
 
