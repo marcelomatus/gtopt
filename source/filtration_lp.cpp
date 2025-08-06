@@ -22,7 +22,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
                              const StageLP& stage,
                              LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!is_active(stage)) {
     return true;
@@ -68,7 +68,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
 
 bool FiltrationLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   out.add_col_sol(cname, "filtration", pid, filtration_cols);

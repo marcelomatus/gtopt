@@ -49,6 +49,13 @@ public:
     return Self::ClassName;
   }
 
+  template<typename Self>
+  [[nodiscard]] constexpr std::string_view short_name(
+      [[maybe_unused]] this const Self& self) noexcept
+  {
+    return Self::ShortName;
+  }
+
   /**
    * @brief Constructs an ObjectLP by moving in an object
    * @param pobject The object to wrap and manage
@@ -66,6 +73,16 @@ public:
       OT&& object,
       [[maybe_unused]] const InputContext& ic,
       [[maybe_unused]] const std::string_view cname) noexcept
+      : ObjectLP(std::forward<OT>(object))
+  {
+  }
+
+  template<typename OT>
+  explicit constexpr ObjectLP(
+      OT&& object,
+      [[maybe_unused]] const InputContext& ic,
+      [[maybe_unused]] const std::string_view cname,
+      [[maybe_unused]] const std::string_view sname) noexcept
       : ObjectLP(std::forward<OT>(object))
   {
   }

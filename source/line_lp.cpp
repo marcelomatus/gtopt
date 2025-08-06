@@ -8,7 +8,7 @@ namespace gtopt
 {
 
 LineLP::LineLP(Line pline, const InputContext& ic)
-    : CapacityBase(std::move(pline), ic, ClassName)
+    : CapacityBase(std::move(pline), ic, ClassName, ShortName)
     , tmax_ba(ic, ClassName, id(), std::move(line().tmax_ba))
     , tmax_ab(ic, ClassName, id(), std::move(line().tmax_ab))
     , tcost(ic, ClassName, id(), std::move(line().tcost))
@@ -23,7 +23,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (is_loop()) {
     return true;
@@ -182,11 +182,11 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
 bool LineLP::add_to_output(OutputContext& out) const
 {
+  static constexpr std::string_view cname = ClassName;
   if (is_loop()) {
     return true;
   }
 
-  constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   out.add_col_sol(cname, "flowp", pid, flowp_cols);

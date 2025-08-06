@@ -31,7 +31,8 @@ namespace gtopt
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  constexpr static std::string_view ClassName = "Turbine";
+  static constexpr std::string_view ClassName = "Turbine";
+  static constexpr std::string_view ShortName = "tur";
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context

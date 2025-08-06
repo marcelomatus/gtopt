@@ -22,7 +22,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const std::vector<BlockLP>& blocks) const
     -> const BIndexHolder<ColIndex>&
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   BIndexHolder<ColIndex> tblocks;
   tblocks.reserve(blocks.size());
@@ -49,7 +49,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!is_active(stage)) {
     return true;
@@ -73,7 +73,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 
 bool BusLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
   const auto pid = id();
 
   out.add_row_dual(cname, "balance", pid, balance_rows);

@@ -24,7 +24,8 @@ namespace gtopt
 class ConverterLP : public CapacityObjectLP<Converter>
 {
 public:
-  constexpr static std::string_view ClassName = "Converter";
+  static constexpr std::string_view ClassName = "Converter";
+  static constexpr std::string_view ShortName = "con";
 
   using CapacityBase = CapacityObjectLP<Converter>;
 

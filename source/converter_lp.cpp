@@ -21,7 +21,7 @@ namespace gtopt
 {
 
 ConverterLP::ConverterLP(Converter pconverter, InputContext& ic)
-    : CapacityBase(std::move(pconverter), ic, ClassName)
+    : CapacityBase(std::move(pconverter), ic, ClassName, ShortName)
     , conversion_rate(
           ic, ClassName, id(), std::move(converter().conversion_rate))
 {
@@ -32,7 +32,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
@@ -103,7 +103,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
 bool ConverterLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
 
   out.add_row_dual(cname, "conversion", id(), conversion_rows);
   out.add_row_dual(cname, "capacity", id(), capacity_rows);

@@ -34,7 +34,7 @@ namespace gtopt
  * parameters like minimum/maximum generation limits, loss factors, and costs.
  */
 GeneratorLP::GeneratorLP(Generator generator, const InputContext& ic)
-    : CapacityBase(std::move(generator), ic, ClassName)
+    : CapacityBase(std::move(generator), ic, ClassName, ShortName)
     , pmin(ic, ClassName, id(), std::move(object().pmin))
     , pmax(ic, ClassName, id(), std::move(object().pmax))
     , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
@@ -64,7 +64,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ShortName;
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
@@ -149,7 +149,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
  */
 bool GeneratorLP::add_to_output(OutputContext& out) const
 {
-  constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName;
 
   const auto pid = id();
   out.add_col_sol(cname, "generation", pid, generation_cols);
