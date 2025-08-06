@@ -20,10 +20,10 @@ namespace gtopt
 
 WaterwayLP::WaterwayLP(Waterway pwaterway, const InputContext& ic)
     : ObjectLP<Waterway>(std::move(pwaterway))
-    , fmin(ic, ClassName, id(), std::move(waterway().fmin))
-    , fmax(ic, ClassName, id(), std::move(waterway().fmax))
-    , capacity(ic, ClassName, id(), std::move(waterway().capacity))
-    , lossfactor(ic, ClassName, id(), std::move(waterway().lossfactor))
+    , fmin(ic, ClassName.name, id(), std::move(waterway().fmin))
+    , fmax(ic, ClassName.name, id(), std::move(waterway().fmax))
+    , capacity(ic, ClassName.name, id(), std::move(waterway().capacity))
+    , lossfactor(ic, ClassName.name, id(), std::move(waterway().lossfactor))
 {
 }
 
@@ -32,7 +32,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ShortName;
+  static constexpr std::string_view cname = ClassName.short_name;
 
   if (!is_active(stage)) {
     return true;
@@ -94,7 +94,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
 bool WaterwayLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName.name;
   const auto pid = id();
 
   out.add_col_sol(cname, "flow", pid, flow_cols);

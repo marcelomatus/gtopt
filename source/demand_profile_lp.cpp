@@ -21,8 +21,8 @@ namespace gtopt
 DemandProfileLP::DemandProfileLP(DemandProfile pdemand_profile,
                                  InputContext& ic)
     : ObjectLP<DemandProfile>(std::move(pdemand_profile))
-    , scost(ic, ClassName, id(), std::move(demand_profile().scost))
-    , profile(ic, ClassName, id(), std::move(demand_profile().profile))
+    , scost(ic, ClassName.name, id(), std::move(demand_profile().scost))
+    , profile(ic, ClassName.name, id(), std::move(demand_profile().profile))
 {
 }
 
@@ -31,7 +31,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
                                 const StageLP& stage,
                                 LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ShortName;
+  static constexpr std::string_view cname = ClassName.short_name;
 
   if (!is_active(stage)) {
     return true;
@@ -97,7 +97,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
 bool DemandProfileLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName;
+  static constexpr std::string_view cname = ClassName.name;
 
   out.add_col_sol(cname, "unserved", id(), spillover_cols);
   out.add_row_dual(cname, "unserved", id(), spillover_rows);

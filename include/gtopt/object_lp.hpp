@@ -20,6 +20,13 @@
 
 namespace gtopt
 {
+
+struct LPClassName
+{
+  std::string_view name;
+  std::string_view short_name;
+};
+
 // Forward declarations
 class InputContext;
 class OutputContext;
@@ -43,17 +50,17 @@ public:
   using object_type = ObjectType;  ///< Type of the wrapped object
 
   template<typename Self>
-  [[nodiscard]] constexpr std::string_view class_name(
+  [[nodiscard]] constexpr auto class_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName;
+    return Self::ClassName.name;
   }
 
   template<typename Self>
-  [[nodiscard]] constexpr std::string_view short_name(
+  [[nodiscard]] constexpr auto short_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ShortName;
+    return Self::ClassName.short_name;
   }
 
   /**
@@ -78,11 +85,9 @@ public:
   }
 
   template<typename OT>
-  explicit constexpr ObjectLP(
-      OT&& object,
-      [[maybe_unused]] const InputContext& ic,
-      [[maybe_unused]] const std::string_view cname,
-      [[maybe_unused]] const std::string_view sname) noexcept
+  explicit constexpr ObjectLP(OT&& object,
+                              [[maybe_unused]] const InputContext& ic,
+                              [[maybe_unused]] const LPClassName cname) noexcept
       : ObjectLP(std::forward<OT>(object))
   {
   }

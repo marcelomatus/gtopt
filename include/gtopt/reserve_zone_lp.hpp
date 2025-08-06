@@ -22,8 +22,7 @@ namespace gtopt
 class ReserveZoneLP : public ObjectLP<ReserveZone>
 {
 public:
-  static constexpr std::string_view ClassName = "ReserveZone";
-  static constexpr std::string_view ShortName = "rzn";
+  static constexpr LPClassName ClassName = {"ReserveZone", "rzn"};
 
   using Base = ObjectLP<ReserveZone>;
 

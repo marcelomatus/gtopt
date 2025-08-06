@@ -21,8 +21,7 @@ namespace gtopt
 class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
-  static constexpr std::string_view ClassName = "ReserveProvision";
-  static constexpr std::string_view ShortName = "rpr";
+  static constexpr LPClassName ClassName = {"ReserveProvision", "rpr"};
 
   using Base = ObjectLP<ReserveProvision>;
 

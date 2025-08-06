@@ -45,8 +45,7 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  static constexpr std::string_view ClassName = "Junction";
-  static constexpr std::string_view ShortName = "jun";
+  static constexpr LPClassName ClassName = {"Junction", "jun"};
 
   /**
    * @brief Construct a JunctionLP from input data

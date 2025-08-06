@@ -18,8 +18,7 @@ namespace gtopt
 class DemandProfileLP : public ObjectLP<DemandProfile>
 {
 public:
-  static constexpr std::string_view ClassName = "DemandProfile";
-  static constexpr std::string_view ShortName = "dpr";
+  static constexpr LPClassName ClassName = {"DemandProfile", "dpr"};
 
   explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
 
