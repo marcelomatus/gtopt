@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include <gtopt/block.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
