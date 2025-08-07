@@ -26,6 +26,10 @@ struct LPClassName
   {
   }
 
+  /// Explicit conversion to std::string_view (returns full_name)
+  explicit constexpr operator std::string_view() const noexcept { return full_name; }
+
+  /// Function call operator (returns full_name)
   constexpr std::string_view operator()() const noexcept { return full_name; }
 };
 }  // namespace gtopt
