@@ -34,11 +34,14 @@ struct LPClassName
   }
 };
 
+}  // namespace gtopt
+
 // Specialize std::formatter for LPClassName
+namespace std {
 template <>
-struct std::formatter<gtopt::LPClassName> : std::formatter<std::string_view> {
+struct formatter<gtopt::LPClassName> : formatter<std::string_view> {
   auto format(const gtopt::LPClassName& name, format_context& ctx) const {
-    return std::formatter<std::string_view>::format(name.full_name, ctx);
+    return formatter<std::string_view>::format(name.full_name, ctx);
   }
 };
-}  // namespace gtopt
+}  // namespace std
