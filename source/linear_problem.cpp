@@ -108,10 +108,6 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     return names;
   };
 
-  SPDLOG_INFO(fmt::format(
-      "building name vectors, col_with_names={}, col_with_name_map={}",
-      opts.col_with_names,
-      opts.col_with_name_map));
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
     colnm = build_name_vector(cols, opts.move_names);
@@ -150,15 +146,6 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   if (opts.row_with_name_map) [[unlikely]] {
     rowmp = build_name_map(rownm, "row");
   }
-
-  SPDLOG_INFO(
-      fmt::format("flattened linear problem with {} rows, {} columns, {} "
-                  "non-zeros and names {} "
-                  "",
-                  nrows,
-                  ncols,
-                  nnzero,
-                  colnm.empty() ? "" : colnm.front()));
 
   return {.ncols = static_cast<fp_index_t>(ncols),
           .nrows = static_cast<fp_index_t>(nrows),

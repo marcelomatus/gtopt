@@ -37,7 +37,9 @@ Checks: "*,\
   -readability-magic-numbers,\
   -readability-redundant-member-init,\
   -system-headers,\
-  -template_param_default_arg_redefinition"
+  -template_param_default_arg_redefinition,\
+  -llvm-prefer-static-over-anonymous-namespace
+  "
 
 
 # HeaderFilterRegex: '.*\.(h|hpp|cpp|cc|cxx)$'

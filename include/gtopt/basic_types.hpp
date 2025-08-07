@@ -53,7 +53,7 @@ using NameView = std::string_view;
 using OptNameView = std::optional<NameView>;
 
 /** @brief Combined identifier with both numeric ID and name */
-using Id = std::pair<Uid, NameView>;
+using Id = std::pair<Uid, Name>;
 
 /** @brief Real number type for physical quantities and costs */
 using Real = double;
