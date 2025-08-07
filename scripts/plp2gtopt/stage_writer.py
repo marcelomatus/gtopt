@@ -32,7 +32,8 @@ class StageWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        DEFAULT_LAST_STAGE = pow(2, 32) - 1  # Maximum 32-bit unsigned integer
+        import sys
+        DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
         
         if not self.options:
             last_stage = DEFAULT_LAST_STAGE
