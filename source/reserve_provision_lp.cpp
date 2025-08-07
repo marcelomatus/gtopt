@@ -146,14 +146,14 @@ ReserveProvisionLP::ReserveProvisionLP(ReserveProvision preserve_provision,
                                        const InputContext& ic)
     : Base(std::move(preserve_provision))
     , up(ic,
-         ClassName.name,
+         ClassName.full_name(),
          id(),
          std::move(reserve_provision().urmax),
          std::move(reserve_provision().urcost),
          std::move(reserve_provision().ur_capacity_factor),
          std::move(reserve_provision().ur_provision_factor))
     , dp(ic,
-         ClassName.name,
+         ClassName.full_name(),
          id(),
          std::move(reserve_provision().drmax),
          std::move(reserve_provision().drcost),
@@ -170,7 +170,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (!is_active(stage)) {
     return true;
@@ -251,7 +251,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
 bool ReserveProvisionLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, "uprovision", pid, up.provision_cols);

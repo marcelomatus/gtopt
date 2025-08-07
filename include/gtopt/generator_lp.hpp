@@ -27,7 +27,7 @@ namespace gtopt
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
-  static constexpr LPClassName ClassName = {"Generator", "gen"};
+  static constexpr LPClassName ClassName {"Generator", "gen"};
 
   using CapacityBase = CapacityObjectLP<Generator>;
 

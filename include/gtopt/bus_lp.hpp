@@ -29,7 +29,7 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  static constexpr LPClassName ClassName = {"Bus", "bus"};
+  static constexpr LPClassName ClassName {"Bus", "bus"};
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap

@@ -36,10 +36,11 @@ public:
                      const InputContext& ic,
                      const LPClassName cname)
       : Object(std::forward<ObjectT>(pstorage), ic, cname)
-      , vmin(ic, cname.name, id(), std::move(storage().vmin))
-      , vmax(ic, cname.name, id(), std::move(storage().vmax))
-      , vcost(ic, cname.name, id(), std::move(storage().vcost))
-      , annual_loss(ic, cname.name, id(), std::move(storage().annual_loss))
+      , vmin(ic, cname.full_name(), id(), std::move(storage().vmin))
+      , vmax(ic, cname.full_name(), id(), std::move(storage().vmax))
+      , vcost(ic, cname.full_name(), id(), std::move(storage().vcost))
+      , annual_loss(
+            ic, cname.full_name(), id(), std::move(storage().annual_loss))
   {
   }
 

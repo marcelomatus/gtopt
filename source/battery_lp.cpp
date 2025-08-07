@@ -42,7 +42,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   // Add capacity-related variables and constraints
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
@@ -96,7 +96,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
  */
 bool BatteryLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
 
   // Add flow variable solutions and costs to output
   out.add_col_sol(cname, "flow", id(), flow_cols);

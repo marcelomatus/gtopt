@@ -82,12 +82,12 @@ ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
 ReserveZoneLP::ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic)
     : Base(std::move(preserve_zone))
     , ur(ic,
-         ClassName.name,
+         ClassName.full_name(),
          id(),
          std::move(reserve_zone().urreq),
          std::move(reserve_zone().urcost))
     , dr(ic,
-         ClassName.name,
+         ClassName.full_name(),
          id(),
          std::move(reserve_zone().drreq),
          std::move(reserve_zone().drcost))
@@ -99,7 +99,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (!is_active(stage)) {
     return true;
@@ -115,7 +115,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, "urequirement", pid, ur.requirement_cols);

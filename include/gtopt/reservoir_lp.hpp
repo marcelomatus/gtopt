@@ -34,7 +34,7 @@ using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
-  static constexpr LPClassName ClassName = {"Reservoir", "rsv"};
+  static constexpr LPClassName ClassName {"Reservoir", "rsv"};
 
   using StorageBase = StorageLP<ObjectLP<Reservoir>>;
 

@@ -32,7 +32,7 @@ class GeneratorProfileLP : public ObjectLP<GeneratorProfile>
 {
 public:
   /// Class name constant used for labeling LP elements
-  static constexpr LPClassName ClassName = {"GeneratorProfile", "gpr"};
+  static constexpr LPClassName ClassName {"GeneratorProfile", "gpr"};
 
   explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
                               InputContext& ic);

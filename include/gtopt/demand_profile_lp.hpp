@@ -18,7 +18,7 @@ namespace gtopt
 class DemandProfileLP : public ObjectLP<DemandProfile>
 {
 public:
-  static constexpr LPClassName ClassName = {"DemandProfile", "dpr"};
+  static constexpr LPClassName ClassName {"DemandProfile", "dpr"};
 
   explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
 

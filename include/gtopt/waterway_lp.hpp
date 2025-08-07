@@ -19,7 +19,7 @@ namespace gtopt
 class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
-  static constexpr LPClassName ClassName = {"Waterway", "wwy"};
+  static constexpr LPClassName ClassName {"Waterway", "wwy"};
 
   explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
 

@@ -21,7 +21,7 @@ namespace gtopt
 class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
-  static constexpr LPClassName ClassName = {"ReserveProvision", "rpr"};
+  static constexpr LPClassName ClassName {"ReserveProvision", "rpr"};
 
   using Base = ObjectLP<ReserveProvision>;
 

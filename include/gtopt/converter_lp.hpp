@@ -24,7 +24,7 @@ namespace gtopt
 class ConverterLP : public CapacityObjectLP<Converter>
 {
 public:
-  static constexpr LPClassName ClassName = {"Converter", "con"};
+  static constexpr LPClassName ClassName {"Converter", "con"};
 
   using CapacityBase = CapacityObjectLP<Converter>;
 

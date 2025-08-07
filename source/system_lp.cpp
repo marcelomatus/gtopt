@@ -106,9 +106,8 @@ constexpr auto add_to_lp(auto& collections,
         // For all other elements, just call their add_to_lp method
         return e.add_to_lp(system_context, scenario, stage, lp);
       } catch (const std::exception& ex) {
-        SPDLOG_ERROR(fmt::format("Error adding {} to LP: {}",
-                                     T::ClassName.name,
-                                     ex.what()));
+        SPDLOG_ERROR(fmt::format(
+            "Error adding {} to LP: {}", T::ClassName.full_name(), ex.what()));
         return false;
       }
     }

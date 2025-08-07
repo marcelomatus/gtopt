@@ -19,8 +19,6 @@
 
 #pragma once
 
-#include <string_view>
-
 #include <gtopt/block.hpp>
 #include <gtopt/lp_class_name.hpp>
 
@@ -30,8 +28,6 @@ namespace gtopt
 class BlockLP
 {
 public:
-  static constexpr LPClassName ClassName = {"Block", "blo"};
-
   BlockLP() = default;
 
   explicit constexpr BlockLP(
