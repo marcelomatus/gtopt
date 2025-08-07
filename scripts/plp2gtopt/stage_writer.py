@@ -2,6 +2,8 @@
 
 """Writer for converting stage data to JSON format."""
 
+import sys
+
 from typing import Any, Dict, List, TypedDict, Optional, cast
 from .base_writer import BaseWriter
 from .stage_parser import StageParser
@@ -32,9 +34,7 @@ class StageWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        import sys
         DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
-        
         if not self.options:
             last_stage = DEFAULT_LAST_STAGE
         else:
