@@ -21,7 +21,7 @@ TEST_CASE("CSV file write and read test")
 
   // Datos de prueba
   std::vector<TestData> test_data = {
-      {0, 0, 1.0}, {1, 0, 2.0}, {0, 1, 3.0}, {1, 1, 4.0}};
+      {0, 0, 1.0}, {1, 0, 2.0}, {0, 1, 3.0}, {1, 1, 4.0}};  // NOLINT
 
   SUBCASE("0 Write CSV file")
   {

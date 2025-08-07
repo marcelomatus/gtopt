@@ -15,7 +15,6 @@
 
 namespace
 {
-
 /**
  * @brief Determines if the system needs a reference bus for voltage angle
  *

@@ -57,9 +57,9 @@ public:
   /** @brief Default compression format for output files */
   static constexpr auto default_compression_format = "gzip";
   /** @brief Default setting for using LP variable/constraint names */
-  static constexpr Bool default_use_lp_names = false;
+  static constexpr Bool default_use_lp_names = true;
   /** @brief Default setting for using UIDs in filenames */
-  static constexpr Bool default_use_uid_fname = false;
+  static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
   static constexpr Real default_annual_discount_rate = 0.0;
 
