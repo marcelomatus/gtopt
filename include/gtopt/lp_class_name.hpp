@@ -11,6 +11,7 @@
 #pragma once
 
 #include <string_view>
+#include <format>
 
 namespace gtopt
 {
@@ -30,6 +31,14 @@ struct LPClassName
   constexpr operator std::string_view() const noexcept  // NOLINT
   {
     return full_name;
+  }
+};
+
+// Specialize std::formatter for LPClassName
+template <>
+struct std::formatter<gtopt::LPClassName> : std::formatter<std::string_view> {
+  auto format(const gtopt::LPClassName& name, format_context& ctx) const {
+    return std::formatter<std::string_view>::format(name.full_name, ctx);
   }
 };
 }  // namespace gtopt
