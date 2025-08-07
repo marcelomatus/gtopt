@@ -30,10 +30,11 @@ def main():
         default=Path("output/gtopt_case.json"),
     )
     parser.add_argument(
-        "last_stage",
+        "--last-stage",
+        dest="last_stage",
         type=int,
-        help="Last stage number to extract from the plp data files, -1 is all",
-        default=int(-1),
+        help="Last stage number to extract from the plp data files (default: all stages)",
+        default=-1),
     )
     args = parser.parse_args()
 
