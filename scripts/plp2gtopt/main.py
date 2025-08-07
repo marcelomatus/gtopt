@@ -34,7 +34,7 @@ def main():
         dest="last_stage",
         type=int,
         help="Last stage number to extract from the plp data files (default: all stages)",
-        default=-1),
+        default=-1
     )
     args = parser.parse_args()
 
