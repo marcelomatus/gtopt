@@ -32,15 +32,17 @@ class StageWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        last_stage = (
-            self.options["last_stage"]
-            if (
-                self.options
-                and "last_stage" in self.options
-                and self.options["last_stage"] > 0
-            )
-            else pow(2, 32)
-        )
+        DEFAULT_LAST_STAGE = pow(2, 32) - 1  # Maximum 32-bit unsigned integer
+        
+        if not self.options:
+            last_stage = DEFAULT_LAST_STAGE
+        else:
+            try:
+                last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
+                if last_stage <= 0:
+                    last_stage = DEFAULT_LAST_STAGE
+            except (ValueError, TypeError):
+                last_stage = DEFAULT_LAST_STAGE
 
         json_stages: List[Stage] = []
         for stage in items:
