@@ -63,17 +63,17 @@ struct CapacityObjectBase
                                         OF&& expmod,
                                         OF&& annual_capcost,
                                         OF&& annual_derating)
-      : m_class_name_(cname.name)
-      , m_short_name_(cname.short_name)
+      : m_class_name_(cname.full_name())
+      , m_short_name_(cname.short_name())
       , m_id_(std::move(pid))
-      , m_capacity_(ic, cname.name, id(), std::forward<OF>(capacity))
-      , m_expcap_(ic, cname.name, id(), std::forward<OF>(expcap))
-      , m_capmax_(ic, cname.name, id(), std::forward<OF>(capmax))
-      , m_expmod_(ic, cname.name, id(), std::forward<OF>(expmod))
+      , m_capacity_(ic, cname.full_name(), id(), std::forward<OF>(capacity))
+      , m_expcap_(ic, cname.full_name(), id(), std::forward<OF>(expcap))
+      , m_capmax_(ic, cname.full_name(), id(), std::forward<OF>(capmax))
+      , m_expmod_(ic, cname.full_name(), id(), std::forward<OF>(expmod))
       , m_annual_capcost_(
-            ic, cname.name, id(), std::forward<OF>(annual_capcost))
+            ic, cname.full_name(), id(), std::forward<OF>(annual_capcost))
       , m_annual_derating_(
-            ic, cname.name, id(), std::forward<OF>(annual_derating))
+            ic, cname.full_name(), id(), std::forward<OF>(annual_derating))
   {
   }
 

@@ -22,7 +22,7 @@ namespace gtopt
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
-  static constexpr LPClassName ClassName = {"Line", "lin"};
+  static constexpr LPClassName ClassName {"Line", "lin"};
 
   using CapacityBase = CapacityObjectLP<Line>;
 

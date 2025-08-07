@@ -22,7 +22,7 @@ namespace gtopt
 
 ReservoirLP::ReservoirLP(Reservoir preservoir, const InputContext& ic)
     : StorageBase(std::move(preservoir), ic, ClassName)
-    , capacity(ic, ClassName.name, id(), std::move(reservoir().capacity))
+    , capacity(ic, ClassName.full_name(), id(), std::move(reservoir().capacity))
 {
 }
 
@@ -45,7 +45,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
 
   if (!is_active(stage)) {
     return true;
@@ -78,8 +78,13 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
     brow[rc] = 1;
   }
 
-  if (!StorageBase::add_to_lp(
-          sc, scenario, stage, lp, ClassName.short_name, rcols, stage_capacity))
+  if (!StorageBase::add_to_lp(sc,
+                              scenario,
+                              stage,
+                              lp,
+                              ClassName.short_name(),
+                              rcols,
+                              stage_capacity))
   {
     return false;
   }
@@ -103,12 +108,12 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
 
   out.add_col_sol(cname, "extraction", id(), extraction_cols);
   out.add_col_cost(cname, "extraction", id(), extraction_cols);
 
-  return StorageBase::add_to_output(out, ClassName.name);
+  return StorageBase::add_to_output(out, ClassName.full_name());
 }
 
 }  // namespace gtopt

@@ -19,11 +19,12 @@ namespace gtopt
 
 DemandLP::DemandLP(Demand pdemand, const InputContext& ic)
     : CapacityBase(std::move(pdemand), ic, ClassName)
-    , lmax(ic, ClassName.name, id(), std::move(object().lmax))
-    , lossfactor(ic, ClassName.name, id(), std::move(object().lossfactor))
-    , fcost(ic, ClassName.name, id(), std::move(object().fcost))
-    , emin(ic, ClassName.name, id(), std::move(object().emin))
-    , ecost(ic, ClassName.name, id(), std::move(object().ecost))
+    , lmax(ic, ClassName.full_name(), id(), std::move(object().lmax))
+    , lossfactor(
+          ic, ClassName.full_name(), id(), std::move(object().lossfactor))
+    , fcost(ic, ClassName.full_name(), id(), std::move(object().fcost))
+    , emin(ic, ClassName.full_name(), id(), std::move(object().emin))
+    , ecost(ic, ClassName.full_name(), id(), std::move(object().ecost))
 {
 }
 
@@ -32,7 +33,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
     return false;
@@ -140,7 +141,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
 bool DemandLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, "load", pid, load_cols);

@@ -25,8 +25,12 @@ namespace gtopt
 GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
                                        InputContext& ic)
     : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
-    , scost(ic, ClassName.name, id(), std::move(generator_profile().scost))
-    , profile(ic, ClassName.name, id(), std::move(generator_profile().profile))
+    , scost(
+          ic, ClassName.full_name(), id(), std::move(generator_profile().scost))
+    , profile(ic,
+              ClassName.full_name(),
+              id(),
+              std::move(generator_profile().profile))
 {
 }
 
@@ -35,7 +39,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (!is_active(stage)) {
     return true;
@@ -103,7 +107,7 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
 
   out.add_col_sol(cname, "spillover", id(), spillover_cols);
   out.add_col_cost(cname, "spillover", id(), spillover_cols);

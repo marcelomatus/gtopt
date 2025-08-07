@@ -45,7 +45,7 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  static constexpr LPClassName ClassName = {"Junction", "jun"};
+  static constexpr LPClassName ClassName {"Junction", "jun"};
 
   /**
    * @brief Construct a JunctionLP from input data

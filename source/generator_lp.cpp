@@ -35,10 +35,11 @@ namespace gtopt
  */
 GeneratorLP::GeneratorLP(Generator generator, const InputContext& ic)
     : CapacityBase(std::move(generator), ic, ClassName)
-    , pmin(ic, ClassName.name, id(), std::move(object().pmin))
-    , pmax(ic, ClassName.name, id(), std::move(object().pmax))
-    , lossfactor(ic, ClassName.name, id(), std::move(object().lossfactor))
-    , gcost(ic, ClassName.name, id(), std::move(object().gcost))
+    , pmin(ic, ClassName.full_name(), id(), std::move(object().pmin))
+    , pmax(ic, ClassName.full_name(), id(), std::move(object().pmax))
+    , lossfactor(
+          ic, ClassName.full_name(), id(), std::move(object().lossfactor))
+    , gcost(ic, ClassName.full_name(), id(), std::move(object().gcost))
 {
 }
 
@@ -64,7 +65,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
     return false;
@@ -149,7 +150,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
  */
 bool GeneratorLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
 
   const auto pid = id();
   out.add_col_sol(cname, "generation", pid, generation_cols);

@@ -22,7 +22,7 @@ namespace gtopt
 class FlowLP : public ObjectLP<Flow>
 {
 public:
-  static constexpr LPClassName ClassName = {"Flow", "flw"};
+  static constexpr LPClassName ClassName {"Flow", "flw"};
 
   explicit FlowLP(Flow pflow, const InputContext& ic);
 

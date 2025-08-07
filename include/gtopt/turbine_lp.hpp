@@ -31,7 +31,7 @@ namespace gtopt
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  static constexpr LPClassName ClassName = {"Turbine", "tur"};
+  static constexpr LPClassName ClassName {"Turbine", "tur"};
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context

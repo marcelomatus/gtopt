@@ -9,12 +9,12 @@ namespace gtopt
 
 LineLP::LineLP(Line pline, const InputContext& ic)
     : CapacityBase(std::move(pline), ic, ClassName)
-    , tmax_ba(ic, ClassName.name, id(), std::move(line().tmax_ba))
-    , tmax_ab(ic, ClassName.name, id(), std::move(line().tmax_ab))
-    , tcost(ic, ClassName.name, id(), std::move(line().tcost))
-    , lossfactor(ic, ClassName.name, id(), std::move(line().lossfactor))
-    , reactance(ic, ClassName.name, id(), std::move(line().reactance))
-    , voltage(ic, ClassName.name, id(), std::move(line().voltage))
+    , tmax_ba(ic, ClassName.full_name(), id(), std::move(line().tmax_ba))
+    , tmax_ab(ic, ClassName.full_name(), id(), std::move(line().tmax_ab))
+    , tcost(ic, ClassName.full_name(), id(), std::move(line().tcost))
+    , lossfactor(ic, ClassName.full_name(), id(), std::move(line().lossfactor))
+    , reactance(ic, ClassName.full_name(), id(), std::move(line().reactance))
+    , voltage(ic, ClassName.full_name(), id(), std::move(line().voltage))
 {
 }
 
@@ -23,7 +23,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name;
+  static constexpr std::string_view cname = ClassName.short_name();
 
   if (is_loop()) {
     return true;
@@ -182,7 +182,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
 bool LineLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.name;
+  static constexpr std::string_view cname = ClassName.full_name();
   if (is_loop()) {
     return true;
   }

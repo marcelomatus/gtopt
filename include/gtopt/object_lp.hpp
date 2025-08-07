@@ -13,8 +13,8 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/object.hpp>
 #include <gtopt/lp_class_name.hpp>
+#include <gtopt/object.hpp>
 #include <gtopt/object_utils.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/stage_lp.hpp>
@@ -47,14 +47,14 @@ public:
   [[nodiscard]] constexpr auto class_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName.name;
+    return Self::ClassName.full;
   }
 
   template<typename Self>
   [[nodiscard]] constexpr auto short_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName.short_name;
+    return Self::ClassName.short_name();
   }
 
   /**
