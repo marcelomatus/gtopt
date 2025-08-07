@@ -10,38 +10,45 @@
  */
 #pragma once
 
-#include <string_view>
 #include <format>
+#include <string_view>
 
 namespace gtopt
 {
-struct LPClassName
+struct LPClassName : std::string_view
 {
-  std::string_view full_name;
-  std::string_view short_name;
+  [[nodiscard]] constexpr const std::string_view& full_name() const noexcept
+  {
+    return *this;
+  }
+
+  [[nodiscard]] constexpr const std::string_view& short_name() const noexcept
+  {
+    return m_short_name;
+  }
 
   constexpr LPClassName(std::string_view pfull_name,
                         std::string_view pshort_name) noexcept
-      : full_name(pfull_name)
-      , short_name(pshort_name)
+      : std::string_view(pfull_name)
+      , m_short_name(pshort_name)
   {
   }
 
-  /// Conversion to std::string_view (returns full_name)
-  constexpr operator std::string_view() const noexcept  // NOLINT
-  {
-    return full_name;
-  }
+private:
+  std::string_view m_short_name;
 };
 
 }  // namespace gtopt
 
 // Specialize std::formatter for LPClassName
-namespace std {
-template <>
-struct formatter<gtopt::LPClassName> : formatter<std::string_view> {
-  auto format(const gtopt::LPClassName& name, format_context& ctx) const {
-    return formatter<std::string_view>::format(name.full_name, ctx);
+namespace std
+{
+template<>
+struct formatter<gtopt::LPClassName> : formatter<std::string_view>
+{
+  auto format(const gtopt::LPClassName& name, format_context& ctx) const
+  {
+    return formatter<std::string_view>::format(name.full_name(), ctx);
   }
 };
 }  // namespace std
