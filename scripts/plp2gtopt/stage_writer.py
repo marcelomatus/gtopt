@@ -29,21 +29,28 @@ class StageWriter(BaseWriter):
         """Initialize with a BlockParser instance."""
         super().__init__(block_parser, options)
 
+    def _get_last_stage(self) -> int:
+        """Get the last stage number from options with validation.
+        
+        Returns:
+            int: The last stage number, or sys.maxsize if invalid/not specified
+        """
+        DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
+        if not self.options:
+            return DEFAULT_LAST_STAGE
+            
+        try:
+            last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
+            return last_stage if last_stage > 0 else DEFAULT_LAST_STAGE
+        except (ValueError, TypeError):
+            return DEFAULT_LAST_STAGE
+
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format."""
         if items is None:
             items = self.items or []
 
-        DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
-        if not self.options:
-            last_stage = DEFAULT_LAST_STAGE
-        else:
-            try:
-                last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
-                if last_stage <= 0:
-                    last_stage = DEFAULT_LAST_STAGE
-            except (ValueError, TypeError):
-                last_stage = DEFAULT_LAST_STAGE
+        last_stage = self._get_last_stage()
 
         json_stages: List[Stage] = []
         for stage in items:
