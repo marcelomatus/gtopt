@@ -16,7 +16,16 @@ namespace gtopt
 {
 struct LPClassName
 {
-  std::string_view name;
+  std::string_view full_name;
   std::string_view short_name;
+
+  constexpr LPClassName(std::string_view pfull_name,
+                        std::string_view pshort_name) noexcept
+      : full_name(pfull_name)
+      , short_name(pshort_name)
+  {
+  }
+
+  constexpr std::string_view operator()() const noexcept { return full_name; }
 };
 }  // namespace gtopt
