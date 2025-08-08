@@ -19,12 +19,11 @@ namespace gtopt
 
 DemandLP::DemandLP(Demand pdemand, const InputContext& ic)
     : CapacityBase(std::move(pdemand), ic, ClassName)
-    , lmax(ic, ClassName.full_name(), id(), std::move(object().lmax))
-    , lossfactor(
-          ic, ClassName.full_name(), id(), std::move(object().lossfactor))
-    , fcost(ic, ClassName.full_name(), id(), std::move(object().fcost))
-    , emin(ic, ClassName.full_name(), id(), std::move(object().emin))
-    , ecost(ic, ClassName.full_name(), id(), std::move(object().ecost))
+    , lmax(ic, ClassName, id(), std::move(object().lmax))
+    , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
+    , fcost(ic, ClassName, id(), std::move(object().fcost))
+    , emin(ic, ClassName, id(), std::move(object().emin))
+    , ecost(ic, ClassName, id(), std::move(object().ecost))
 {
 }
 

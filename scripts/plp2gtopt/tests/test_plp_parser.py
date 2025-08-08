@@ -83,17 +83,17 @@ def test_parse_all_success(sample_input_dir):
 
         assert len(parser.parsed_data) == 11
         for name in [
-            "block_array",
-            "stage_array",
-            "bus_array",
-            "line_array",
-            "central_array",
-            "demand_array",
-            "cost_array",
-            "mance_array",
-            "manli_array",
-            "aflce_array",
-            "extrac_array",
+            "block_parser",
+            "stage_parser",
+            "bus_parser",
+            "line_parser",
+            "central_parser",
+            "demand_parser",
+            "cost_parser",
+            "mance_parser",
+            "manli_parser",
+            "aflce_parser",
+            "extrac_parser",
         ]:
             assert name in parser.parsed_data
 

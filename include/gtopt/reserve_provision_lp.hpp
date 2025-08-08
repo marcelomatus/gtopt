@@ -48,7 +48,7 @@ public:
   struct Provision
   {
     Provision(const InputContext& ic,
-              std::string_view cname,
+              const std::string_view& cname,
               const Id& id,
               auto&& rmax,
               auto&& rcost,

@@ -34,7 +34,29 @@ def main():
         dest="last_stage",
         type=int,
         help="Last stage number to extract from the plp data files (default: all stages)",
-        default=-1
+        default=-1,
+    )
+    parser.add_argument(
+        "--compression",
+        dest="compression",
+        type=str,
+        help="Compression format for output files (default: gzip)",
+        default="gzip",
+    )
+    parser.add_argument(
+        "--hydrologies",
+        dest="hydrologies",
+        type=str,
+        help="Comma-separated list of hydrology scenarios (default: 1)",
+        default="1",
+    )
+    parser.add_argument(
+        "--probability-factors",
+        dest="probability_factors",
+        type=str,
+        help="Comma-separated list of probability factors for each hydrology"
+        " scenario (default: equal distribution)",
+        default=None,
     )
     args = parser.parse_args()
 
@@ -43,7 +65,8 @@ def main():
         "output_dir": args.output_dir,
         "output_file": args.output_file,
         "last_stage": args.last_stage,
-        "compression": "gzip",
+        "compression": args.compression,
+        "hydrologies": args.hydrologies,
     }
 
     convert_plp_case(options)

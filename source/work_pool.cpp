@@ -61,7 +61,7 @@ void AdaptiveWorkPool::shutdown()
   }
 
   {
-    const std::lock_guard lock(active_mutex_);
+    const std::scoped_lock lock(active_mutex_);
     for (auto& task : active_tasks_) {
       task.future.wait();
     }
@@ -74,7 +74,7 @@ void AdaptiveWorkPool::shutdown()
 
 void AdaptiveWorkPool::cleanup_completed_tasks()
 {
-  const std::lock_guard<std::mutex> lock(active_mutex_);
+  const std::scoped_lock<std::mutex> lock(active_mutex_);
   auto new_end = std::ranges::remove_if(
                      active_tasks_,
                      [this](const auto& task)

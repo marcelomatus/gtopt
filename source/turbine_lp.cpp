@@ -21,8 +21,7 @@ namespace gtopt
 {
 TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
     : ObjectLP<Turbine>(std::move(pturbine))
-    , conversion_rate(
-          ic, ClassName.full_name(), id(), std::move(turbine().conversion_rate))
+    , conversion_rate(ic, ClassName, id(), std::move(turbine().conversion_rate))
 {
 }
 

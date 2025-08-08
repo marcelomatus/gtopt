@@ -70,7 +70,7 @@ namespace gtopt
 {
 
 ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
-                                        std::string_view cname,
+                                        const std::string_view& cname,
                                         const Id& id,
                                         auto&& rreq,
                                         auto&& rcost)
@@ -82,12 +82,12 @@ ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
 ReserveZoneLP::ReserveZoneLP(ReserveZone preserve_zone, const InputContext& ic)
     : Base(std::move(preserve_zone))
     , ur(ic,
-         ClassName.full_name(),
+         ClassName,
          id(),
          std::move(reserve_zone().urreq),
          std::move(reserve_zone().urcost))
     , dr(ic,
-         ClassName.full_name(),
+         ClassName,
          id(),
          std::move(reserve_zone().drreq),
          std::move(reserve_zone().drcost))
