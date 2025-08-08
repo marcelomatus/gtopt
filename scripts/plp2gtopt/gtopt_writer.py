@@ -55,10 +55,10 @@ class GTOptWriter:
             "write_lp": True,
         }
 
-    def process_stage_blocks(self):
+    def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages."""
-        stages = self.parser.parsed_data.get("stage_array", []).stages
-        blocks = self.parser.parsed_data.get("block_array", []).blocks
+        stages = self.parser.parsed_data.get("stage_parser", []).stages
+        blocks = self.parser.parsed_data.get("block_parser", []).blocks
         for stage in stages:
             stage_blocks = [
                 index
@@ -68,15 +68,19 @@ class GTOptWriter:
             stage["first_block"] = stage_blocks[0] if stage_blocks else -1
             stage["count_block"] = len(stage_blocks) if stage_blocks else -1
 
-        self.planning["simulation"]["block_array"] = BlockWriter().to_json_array(blocks)
-        self.planning["simulation"]["stage_array"] = StageWriter().to_json_array(stages)
+        self.planning["simulation"]["block_array"] = BlockWriter(
+            options=options
+        ).to_json_array(blocks)
+        self.planning["simulation"]["stage_array"] = StageWriter(
+            options=options
+        ).to_json_array(stages)
 
     def process_scenarios(self, options):
         """Process scenario data to include block and stage information."""
-        hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
+        hydrologies = [int(h) - 1 for h in options.get("hydrologies", "1").split(",")]
         probability_factors = options.get("probability_factors", None)
 
-        if probability_factors is None or len(probability_factors) < len(hydrologies):
+        if probability_factors is None or len(probability_factors) == 0:
             probability_factors = [1.0 / len(hydrologies)] * len(hydrologies)
         else:
             probability_factors = [
@@ -96,10 +100,10 @@ class GTOptWriter:
 
     def process_generator_profiles(self, options):
         """Process generator profile data to include block and stage information."""
-        centrals = self.parser.parsed_data.get("central_array", [])
-        blocks = self.parser.parsed_data.get("block_array", None)
-        buses = self.parser.parsed_data.get("bus_array", None)
-        aflces = self.parser.parsed_data.get("aflce_array", [])
+        centrals = self.parser.parsed_data.get("central_parser", [])
+        blocks = self.parser.parsed_data.get("block_parser", None)
+        buses = self.parser.parsed_data.get("bus_parser", None)
+        aflces = self.parser.parsed_data.get("aflce_parser", [])
         scenarios = self.planning["simulation"]["scenario_array"]
 
         self.planning["system"]["generator_profile_array"] = GeneratorProfileWriter(
@@ -113,9 +117,9 @@ class GTOptWriter:
 
     def process_afluents(self, options):
         """Process generator profile data to include block and stage information."""
-        centrals = self.parser.parsed_data.get("central_array", [])
-        blocks = self.parser.parsed_data.get("block_array", None)
-        aflces = self.parser.parsed_data.get("aflce_array", [])
+        centrals = self.parser.parsed_data.get("central_parser", [])
+        blocks = self.parser.parsed_data.get("block_parser", None)
+        aflces = self.parser.parsed_data.get("aflce_parser", [])
         scenarios = self.planning["simulation"]["scenario_array"]
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
@@ -134,9 +138,9 @@ class GTOptWriter:
 
     def process_junctions(self, options):
         """Process generator profile data to include block and stage information."""
-        centrals = self.parser.parsed_data.get("central_array", None)
-        aflces = self.parser.parsed_data.get("aflce_array", None)
-        extracts = self.parser.parsed_data.get("extract_array", None)
+        centrals = self.parser.parsed_data.get("central_parser", None)
+        aflces = self.parser.parsed_data.get("aflce_parser", None)
+        extracts = self.parser.parsed_data.get("extract_parser", None)
         json_junctions = JunctionWriter(
             centrals,
             aflces,
@@ -153,12 +157,12 @@ class GTOptWriter:
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""
-        centrals = self.parser.parsed_data.get("central_array", [])
-        stages = self.parser.parsed_data.get("stage_array", None)
-        blocks = self.parser.parsed_data.get("block_array", None)
-        costs = self.parser.parsed_data.get("cost_array", None)
-        buses = self.parser.parsed_data.get("bus_array", None)
-        mances = self.parser.parsed_data.get("mance_array", None)
+        centrals = self.parser.parsed_data.get("central_parser", [])
+        stages = self.parser.parsed_data.get("stage_parser", None)
+        blocks = self.parser.parsed_data.get("block_parser", None)
+        costs = self.parser.parsed_data.get("cost_parser", None)
+        buses = self.parser.parsed_data.get("bus_parser", None)
+        mances = self.parser.parsed_data.get("mance_parser", None)
         self.planning["system"]["generator_array"] = CentralWriter(
             centrals,
             stages,
@@ -171,11 +175,11 @@ class GTOptWriter:
 
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
-        demands = self.parser.parsed_data.get("demand_array", [])
+        demands = self.parser.parsed_data.get("demand_parser", [])
         if not demands:
             return
 
-        buses = self.parser.parsed_data.get("bus_array", [])
+        buses = self.parser.parsed_data.get("bus_parser", [])
         if not buses:
             return
 
@@ -183,14 +187,14 @@ class GTOptWriter:
         for demand in dems:
             demand["bus"] = buses.get_bus_by_name(demand["name"])["number"]
 
-        blocks = self.parser.parsed_data.get("block_array", [])
+        blocks = self.parser.parsed_data.get("block_parser", [])
         self.planning["system"]["demand_array"] = DemandWriter(
             demands, blocks, options
         ).to_json_array()
 
     def process_buses(self):
         """Process bus data to include block and stage information."""
-        buses = self.parser.parsed_data.get("bus_array", [])
+        buses = self.parser.parsed_data.get("bus_parser", [])
         if not buses:
             return
 
@@ -198,9 +202,9 @@ class GTOptWriter:
 
     def process_lines(self, options):
         """Process line data to include block and stage information."""
-        lines = self.parser.parsed_data.get("line_array", [])
-        blocks = self.parser.parsed_data.get("block_array", None)
-        manlis = self.parser.parsed_data.get("manli_array", None)
+        lines = self.parser.parsed_data.get("line_parser", [])
+        blocks = self.parser.parsed_data.get("block_parser", None)
+        manlis = self.parser.parsed_data.get("manli_parser", None)
 
         self.planning["system"]["line_array"] = LineWriter(
             lines, blocks, manlis, options
@@ -212,7 +216,7 @@ class GTOptWriter:
             options = {}
 
         self.process_options(options)
-        self.process_stage_blocks()
+        self.process_stage_blocks(options)
         self.process_scenarios(options)
         self.process_buses()
         self.process_lines(options)

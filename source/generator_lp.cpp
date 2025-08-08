@@ -35,11 +35,10 @@ namespace gtopt
  */
 GeneratorLP::GeneratorLP(Generator generator, const InputContext& ic)
     : CapacityBase(std::move(generator), ic, ClassName)
-    , pmin(ic, ClassName.full_name(), id(), std::move(object().pmin))
-    , pmax(ic, ClassName.full_name(), id(), std::move(object().pmax))
-    , lossfactor(
-          ic, ClassName.full_name(), id(), std::move(object().lossfactor))
-    , gcost(ic, ClassName.full_name(), id(), std::move(object().gcost))
+    , pmin(ic, ClassName, id(), std::move(object().pmin))
+    , pmax(ic, ClassName, id(), std::move(object().pmax))
+    , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
+    , gcost(ic, ClassName, id(), std::move(object().gcost))
 {
 }
 

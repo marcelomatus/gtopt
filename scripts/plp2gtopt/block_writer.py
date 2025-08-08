@@ -31,12 +31,19 @@ class BlockWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        json_blocks: List[Block] = [
-            {
+        last_stage = self._get_last_stage()
+
+        json_blocks: List[Block] = []
+        for block in items:
+            stage_number = block["stage"]
+            if stage_number > last_stage:
+                continue
+
+            jblock: Block = {
                 "uid": block["number"],
                 "duration": block["duration"],
-                "stage": block["stage"],
+                "stage": stage_number,
             }
-            for block in items
-        ]
+            json_blocks.append(jblock)
+
         return cast(List[Dict[str, Any]], json_blocks)

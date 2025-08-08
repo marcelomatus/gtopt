@@ -36,17 +36,17 @@ class PLPParser:
     def parse_all(self):
         """Parse all PLP input files."""
         parsers = [
-            ("block_array", BlockParser, "plpblo.dat"),
-            ("stage_array", StageParser, "plpeta.dat"),
-            ("bus_array", BusParser, "plpbar.dat"),
-            ("line_array", LineParser, "plpcnfli.dat"),
-            ("central_array", CentralParser, "plpcnfce.dat"),
-            ("demand_array", DemandParser, "plpdem.dat"),
-            ("cost_array", CostParser, "plpcosce.dat"),
-            ("mance_array", ManceParser, "plpmance.dat"),
-            ("manli_array", ManliParser, "plpmanli.dat"),
-            ("aflce_array", AflceParser, "plpaflce.dat"),
-            ("extrac_array", ExtracParser, "plpextrac.dat"),
+            ("block_parser", BlockParser, "plpblo.dat"),
+            ("stage_parser", StageParser, "plpeta.dat"),
+            ("bus_parser", BusParser, "plpbar.dat"),
+            ("line_parser", LineParser, "plpcnfli.dat"),
+            ("central_parser", CentralParser, "plpcnfce.dat"),
+            ("demand_parser", DemandParser, "plpdem.dat"),
+            ("cost_parser", CostParser, "plpcosce.dat"),
+            ("mance_parser", ManceParser, "plpmance.dat"),
+            ("manli_parser", ManliParser, "plpmanli.dat"),
+            ("aflce_parser", AflceParser, "plpaflce.dat"),
+            ("extrac_parser", ExtracParser, "plpextrac.dat"),
         ]
         for name, parser_class, filename in parsers:
             filepath = self.input_path / filename

@@ -29,7 +29,7 @@ TEST_CASE("WorkPool basic functionality")
     auto high_task = pool.submit(
         [&]
         {
-          const std::lock_guard<std::mutex> lock(order_mutex);
+          const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(1);
           counter++;
         },
@@ -38,7 +38,7 @@ TEST_CASE("WorkPool basic functionality")
     auto medium_task = pool.submit(
         [&]
         {
-          const std::lock_guard<std::mutex> lock(order_mutex);
+          const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(2);
           counter++;
         },
@@ -48,7 +48,7 @@ TEST_CASE("WorkPool basic functionality")
     auto low_task = pool.submit(
         [&]
         {
-          const std::lock_guard<std::mutex> lock(order_mutex);
+          const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(3);
           counter++;
         },

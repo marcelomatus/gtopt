@@ -175,7 +175,9 @@ template<typename T>
   flat_opts.reserve_matrix = false;  // Don't pre-reserve matrix (already done)
   flat_opts.reserve_factor = 2;  // Memory reservation factor
 
+  spdlog::stopwatch sw;
   PlanningLP planning_lp {std::move(planning), flat_opts};
+  spdlog::info(fmt::format("creating lp  {}", sw));
 
   if (lp_file) {
     planning_lp.write_lp(lp_file.value());

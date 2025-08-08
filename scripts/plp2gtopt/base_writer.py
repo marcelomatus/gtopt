@@ -9,6 +9,7 @@ the required methods for their specific data formats.
 """
 
 import json
+import sys
 from abc import ABC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar, Callable
@@ -177,3 +178,19 @@ class BaseWriter(ABC):
             col_name = f"{item_name}:{item_number}"
 
         return col_name
+
+    def _get_last_stage(self) -> int:
+        """Get the last stage number from options with validation.
+
+        Returns:
+            int: The last stage number, or sys.maxsize if invalid/not specified
+        """
+        DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
+        if not self.options:
+            return DEFAULT_LAST_STAGE
+
+        try:
+            last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
+            return last_stage if last_stage > 0 else DEFAULT_LAST_STAGE
+        except (ValueError, TypeError):
+            return DEFAULT_LAST_STAGE

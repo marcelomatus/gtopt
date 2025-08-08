@@ -49,7 +49,7 @@ private:
   struct Requirement
   {
     Requirement(const InputContext& ic,
-                std::string_view cname,
+                const std::string_view& cname,
                 const Id& id,
                 auto&& rreq,
                 auto&& rcost);

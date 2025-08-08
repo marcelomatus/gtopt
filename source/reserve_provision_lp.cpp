@@ -129,7 +129,7 @@ namespace gtopt
 {
 
 ReserveProvisionLP::Provision::Provision(const InputContext& ic,
-                                         std::string_view cname,
+                                         const std::string_view& cname,
                                          const Id& id,
                                          auto&& rmax,
                                          auto&& rcost,
@@ -146,14 +146,14 @@ ReserveProvisionLP::ReserveProvisionLP(ReserveProvision preserve_provision,
                                        const InputContext& ic)
     : Base(std::move(preserve_provision))
     , up(ic,
-         ClassName.full_name(),
+         ClassName,
          id(),
          std::move(reserve_provision().urmax),
          std::move(reserve_provision().urcost),
          std::move(reserve_provision().ur_capacity_factor),
          std::move(reserve_provision().ur_provision_factor))
     , dp(ic,
-         ClassName.full_name(),
+         ClassName,
          id(),
          std::move(reserve_provision().drmax),
          std::move(reserve_provision().drcost),

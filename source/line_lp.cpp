@@ -9,12 +9,12 @@ namespace gtopt
 
 LineLP::LineLP(Line pline, const InputContext& ic)
     : CapacityBase(std::move(pline), ic, ClassName)
-    , tmax_ba(ic, ClassName.full_name(), id(), std::move(line().tmax_ba))
-    , tmax_ab(ic, ClassName.full_name(), id(), std::move(line().tmax_ab))
-    , tcost(ic, ClassName.full_name(), id(), std::move(line().tcost))
-    , lossfactor(ic, ClassName.full_name(), id(), std::move(line().lossfactor))
-    , reactance(ic, ClassName.full_name(), id(), std::move(line().reactance))
-    , voltage(ic, ClassName.full_name(), id(), std::move(line().voltage))
+    , tmax_ba(ic, ClassName, id(), std::move(line().tmax_ba))
+    , tmax_ab(ic, ClassName, id(), std::move(line().tmax_ab))
+    , tcost(ic, ClassName, id(), std::move(line().tcost))
+    , lossfactor(ic, ClassName, id(), std::move(line().lossfactor))
+    , reactance(ic, ClassName, id(), std::move(line().reactance))
+    , voltage(ic, ClassName, id(), std::move(line().voltage))
 {
 }
 

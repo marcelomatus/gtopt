@@ -15,6 +15,7 @@ Checks: "*,\
   -constexpr_local_var_non_literal_type,\
   -cppcoreguidelines-avoid-magic-numbers,\
   -cppcoreguidelines-macro-usage,\
+  -cppcoreguidelines-slicing,\
   -fuchsia-default-arguments-calls,\
   -fuchsia-default-arguments-declarations,\
   -fuchsia-multiple-inheritance,\

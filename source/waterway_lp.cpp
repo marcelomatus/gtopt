@@ -20,11 +20,10 @@ namespace gtopt
 
 WaterwayLP::WaterwayLP(Waterway pwaterway, const InputContext& ic)
     : ObjectLP<Waterway>(std::move(pwaterway))
-    , fmin(ic, ClassName.full_name(), id(), std::move(waterway().fmin))
-    , fmax(ic, ClassName.full_name(), id(), std::move(waterway().fmax))
-    , capacity(ic, ClassName.full_name(), id(), std::move(waterway().capacity))
-    , lossfactor(
-          ic, ClassName.full_name(), id(), std::move(waterway().lossfactor))
+    , fmin(ic, ClassName, id(), std::move(waterway().fmin))
+    , fmax(ic, ClassName, id(), std::move(waterway().fmax))
+    , capacity(ic, ClassName, id(), std::move(waterway().capacity))
+    , lossfactor(ic, ClassName, id(), std::move(waterway().lossfactor))
 {
 }
 

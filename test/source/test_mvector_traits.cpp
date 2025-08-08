@@ -334,8 +334,8 @@ TEST_CASE("Custom types")
 
   using traits_custom =
       mvector_traits_auto<Point, std::tuple<std::size_t, std::size_t>>;
-  const traits_custom::vector_type vec = {{{0, 0}, {1, 0}, {2, 0}},
-                                          {{0, 1}, {1, 1}, {2, 1}}};
+  const traits_custom::vector_type vec = {{{0, 0}, {1, 0}, {2, 0}},  // NOLINT
+                                          {{0, 1}, {1, 1}, {2, 1}}};  // NOLINT
 
   {
     auto point = traits_custom::at_value(
