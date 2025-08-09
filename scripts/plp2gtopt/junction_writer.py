@@ -168,8 +168,8 @@ class JunctionWriter(BaseWriter):
         }
 
         # Process central plants
-        for plant in items:
-            self._process_plant(plant, system, central_parser)
+        for central in items:
+            self._process_central(central, system, central_parser)
 
         # Process extraction plants
         if self.extrac_parser and central_parser:
@@ -181,34 +181,34 @@ class JunctionWriter(BaseWriter):
 
         return [cast(Dict[str, Any], system)]
 
-    def _process_plant(
+    def _process_central(
         self,
-        plant: Dict[str, Any],
+        central: Dict[str, Any],
         system: HydroSystemOutput,
         _central_parser: CentralParser,
     ) -> None:
-        """Process a single central plant into hydro system elements."""
-        plant_id = plant["number"]
-        plant_name = plant["name"]
+        """Process a single central central into hydro system elements."""
+        central_id = central["number"]
+        central_name = central["name"]
 
         # Create waterways
         gen_waterway = self._create_waterway(
-            plant_name + "_gen", plant_id, plant.get("ser_hid", 0)
+            central_name + "_gen", central_id, central.get("ser_hid", 0)
         )
         ver_waterway = self._create_waterway(
-            plant_name + "_ver", plant_id, plant.get("ser_ver", 0)
+            central_name + "_ver", central_id, central.get("ser_ver", 0)
         )
 
         # Add waterways if they exist
         if gen_waterway:
             system["waterway_array"].append(gen_waterway)
-            if plant["bus"] > 0:  # Only create turbine if connected to bus
+            if central["bus"] > 0:  # Only create turbine if connected to bus
                 turbine: Turbine = {
-                    "uid": plant_id,
-                    "name": plant_name,
-                    "generator": plant_id,
+                    "uid": central_id,
+                    "name": central_name,
+                    "generator": central_id,
                     "waterway": gen_waterway["uid"],
-                    "convertion_rate": plant["efficiency"],
+                    "convertion_rate": central["efficiency"],
                 }
                 system["turbine_array"].append(turbine)
 
@@ -217,39 +217,41 @@ class JunctionWriter(BaseWriter):
 
         # Create junction
         junction: Junction = {
-            "uid": plant_id,
-            "name": plant_name,
+            "uid": central_id,
+            "name": central_name,
             "drain": not (gen_waterway and ver_waterway),
         }
         system["junction_array"].append(junction)
 
         # Add flow if exists
-        afluent = self._get_plant_flow(plant_name, plant)
+        afluent = self._get_central_flow(central_name, central)
         if isinstance(afluent, float) and afluent == 0.0:
             return
 
         flow: Flow = {
-            "uid": plant_id,
-            "name": plant_name,
-            "junction": plant_id,
+            "uid": central_id,
+            "name": central_name,
+            "junction": central_id,
             "discharge": afluent,
         }
         system["flow_array"].append(flow)
 
-    def _get_plant_flow(self, plant_name: str, plant: Dict[str, Any]) -> float | str:
-        """Get flow value for plant, checking aflce parser if available."""
+    def _get_central_flow(
+        self, central_name: str, central: Dict[str, Any]
+    ) -> float | str:
+        """Get flow value for central, checking aflce parser if available."""
         if self.aflce_parser:
-            aflce = self.aflce_parser.get_item_by_name(plant_name)
+            aflce = self.aflce_parser.get_item_by_name(central_name)
             if aflce is not None:
                 return "Afluent@afluent"
-        return plant.get("afluent", 0.0)
+        return central.get("afluent", 0.0)
 
     def _process_extractions(
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
     ) -> None:
-        """Process extraction plants into waterways."""
+        """Process extraction centrals into waterways."""
         if not self.extrac_parser:
             return
         for i, extraction in enumerate(self.extrac_parser.extracs):
@@ -277,7 +279,7 @@ class JunctionWriter(BaseWriter):
         system: HydroSystemOutput,
         central_parser: CentralParser,
     ) -> None:
-        """Process reservoir plants into reservoir elements."""
+        """Process reservoir centrals into reservoir elements."""
         reservoirs = central_parser.centrals_of_type.get("embalse", [])
         for reservoir_data in reservoirs:
             reservoir: Reservoir = {

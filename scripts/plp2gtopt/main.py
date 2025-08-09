@@ -37,6 +37,13 @@ def main():
         default=-1,
     )
     parser.add_argument(
+        "--last-time",
+        dest="last_time",
+        type=float,
+        help="Last time to extract from the plp data files (default: all times)",
+        default=-1,
+    )
+    parser.add_argument(
         "--compression",
         dest="compression",
         type=str,
@@ -65,6 +72,7 @@ def main():
         "output_dir": args.output_dir,
         "output_file": args.output_file,
         "last_stage": args.last_stage,
+        "last_time": args.last_time,
         "compression": args.compression,
         "hydrologies": args.hydrologies,
     }

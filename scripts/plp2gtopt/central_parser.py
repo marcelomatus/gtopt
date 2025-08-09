@@ -219,11 +219,13 @@ class CentralParser(BaseParser):
 
             # Optional fields for embalses
             if len(parts) > 7:
-                current_gen["vol_ini"] = self._parse_float(parts[7])
-                current_gen["vol_fin"] = self._parse_float(parts[8])
-                current_gen["vol_min"] = self._parse_float(parts[9])
-                current_gen["vol_max"] = self._parse_float(parts[10])
-                current_gen["fact_esc"] = self._parse_float(parts[11])
+                scale = (
+                    self._parse_float(parts[11]) / 1000.0 if len(parts) > 11 else 1.0
+                )
+                current_gen["vol_ini"] = self._parse_float(parts[7]) * scale
+                current_gen["vol_fin"] = self._parse_float(parts[8]) * scale
+                current_gen["vol_min"] = self._parse_float(parts[9]) * scale
+                current_gen["vol_max"] = self._parse_float(parts[10]) * scale
 
         except (ValueError, IndexError) as e:
             raise ValueError(

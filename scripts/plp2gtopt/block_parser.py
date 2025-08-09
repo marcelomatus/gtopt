@@ -40,16 +40,20 @@ class BlockParser(BaseParser):
         num_blocks = self._parse_int(lines[idx])
         idx += 1
 
+        accumulated_time = 0.0
         for _ in range(num_blocks):
             parts = lines[idx].split()
             if len(parts) < 3:
                 raise ValueError(f"Invalid block entry at line {idx+1}")
-
+            duration = self._parse_float(parts[2])
+            accumulated_time += duration
             block: dict[str, Any] = {
                 "number": self._parse_int(parts[0]),
                 "stage": self._parse_int(parts[1]),
-                "duration": self._parse_float(parts[2]),
+                "duration": duration,
+                "accumulated_time": accumulated_time,
             }
+
             self._append(block)
             self.stage_number_map[int(block["number"])] = int(block["stage"])
             idx += 1
