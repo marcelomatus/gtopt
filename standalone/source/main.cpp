@@ -107,7 +107,7 @@ template<typename T>
       }
     }
 
-    spdlog::info(fmt::format("parsing all json files {}", sw));
+    spdlog::info(fmt::format("parsing all json files {}s", sw));
   }
 
   //
@@ -155,7 +155,7 @@ template<typename T>
       spdlog::error(fmt::format("can't create json file {}", jpath.string()));
     }
 
-    spdlog::info(fmt::format("writing system json file {}", sw));
+    spdlog::info(fmt::format("writing system json file {}s", sw));
   }
 
   //
@@ -177,7 +177,7 @@ template<typename T>
 
   spdlog::stopwatch sw;
   PlanningLP planning_lp {std::move(planning), flat_opts};
-  spdlog::info(fmt::format("creating lp  {}", sw));
+  spdlog::info(fmt::format("creating lp {}s", sw));
 
   if (lp_file) {
     planning_lp.write_lp(lp_file.value());
@@ -192,7 +192,7 @@ template<typename T>
     spdlog::stopwatch sw;
 
     auto result = planning_lp.resolve();
-    spdlog::info(fmt::format("planning  {}", sw));
+    spdlog::info(fmt::format("planning  {}s", sw));
 
     optimal = result.has_value();
   }
@@ -201,7 +201,7 @@ template<typename T>
     spdlog::stopwatch sw;
 
     planning_lp.write_out();
-    spdlog::info(fmt::format("writing output  {}", sw));
+    spdlog::info(fmt::format("writing output  {}s", sw));
   }
 
   return optimal ? 0 : 1;

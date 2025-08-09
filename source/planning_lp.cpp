@@ -59,13 +59,13 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
   for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
     if (auto result = system_sp.resolve(lp_opts); !result) {
       // On error, write the problematic model to a file for debugging
-      auto filename =
-          fmt::format("error_scene_{}_phase_{}.lp", scene_index, phase_index);
+      const auto filename =
+          fmt::format("error_{}_{}", scene_index, phase_index);
       system_sp.write_lp(filename);
 
       auto error = std::move(result.error());
-      error.message +=
-          fmt::format(", failed at scene {} phase {}", scene_index, phase_index);
+      error.message += fmt::format(
+          ", failed at scene {} phase {}", scene_index, phase_index);
 
       return std::unexpected(std::move(error));
     }

@@ -57,22 +57,25 @@ class GTOptWriter:
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages."""
-        stages = self.parser.parsed_data.get("stage_parser", []).stages
-        blocks = self.parser.parsed_data.get("block_parser", []).blocks
+        stage_parser = self.parser.parsed_data.get("stage_parser", [])
+        block_parser = self.parser.parsed_data.get("block_parser", [])
+
+        stages = stage_parser.items
         for stage in stages:
             stage_blocks = [
                 index
-                for index, block in enumerate(blocks)
+                for index, block in enumerate(block_parser.items)
                 if block["stage"] == stage["number"]
             ]
             stage["first_block"] = stage_blocks[0] if stage_blocks else -1
             stage["count_block"] = len(stage_blocks) if stage_blocks else -1
 
         self.planning["simulation"]["block_array"] = BlockWriter(
-            options=options
-        ).to_json_array(blocks)
+            block_parser=block_parser, options=options
+        ).to_json_array()
+
         self.planning["simulation"]["stage_array"] = StageWriter(
-            options=options
+            stage_parser=stage_parser, block_parser=block_parser, options=options
         ).to_json_array(stages)
 
     def process_scenarios(self, options):

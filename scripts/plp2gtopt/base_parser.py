@@ -110,7 +110,7 @@ class BaseParser(ABC):
 
     def _parse_float(self, value: str) -> float:
         """Parse float handling zero-padded strings."""
-        return float(value.lstrip("0") or "0.0")
+        return float(value)
 
     def _parse_name(self, line: str) -> str:
         """Parse a name from a line, removing quotes."""

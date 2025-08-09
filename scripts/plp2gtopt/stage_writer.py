@@ -5,6 +5,7 @@
 from typing import Any, Dict, List, TypedDict, Optional, cast
 from .base_writer import BaseWriter
 from .stage_parser import StageParser
+from .block_parser import BlockParser
 
 
 class Stage(TypedDict):
@@ -21,18 +22,21 @@ class StageWriter(BaseWriter):
 
     def __init__(
         self,
-        block_parser: Optional[StageParser] = None,
+        stage_parser: Optional[StageParser] = None,
+        block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with a BlockParser instance."""
-        super().__init__(block_parser, options)
+        super().__init__(stage_parser, options)
+        self.block_parser = block_parser
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format."""
         if items is None:
             items = self.items or []
 
-        last_stage = self._get_last_stage()
+        blocks = self.block_parser.items if self.block_parser else []
+        last_stage = self._get_last_stage(blocks)
 
         json_stages: List[Stage] = []
         for stage in items:

@@ -179,7 +179,7 @@ class BaseWriter(ABC):
 
         return col_name
 
-    def _get_last_stage(self) -> int:
+    def _get_last_stage(self, blocks=None) -> int:
         """Get the last stage number from options with validation.
 
         Returns:
@@ -191,6 +191,17 @@ class BaseWriter(ABC):
 
         try:
             last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
-            return last_stage if last_stage > 0 else DEFAULT_LAST_STAGE
+            last_stage = last_stage if last_stage > 0 else DEFAULT_LAST_STAGE
         except (ValueError, TypeError):
-            return DEFAULT_LAST_STAGE
+            last_stage = DEFAULT_LAST_STAGE
+
+        last_time = (
+            float(self.options["last_time"]) if "last_time" in self.options else -1.0
+        )
+
+        if last_time > 0 and blocks:
+            for block in blocks:
+                if block["accumulated_time"] >= last_time:
+                    return block["stage"]
+
+        return last_stage

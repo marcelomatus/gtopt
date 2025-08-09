@@ -13,6 +13,7 @@ class Block(TypedDict):
     uid: int
     duration: float
     stage: int
+    accumulated_time: float
 
 
 class BlockWriter(BaseWriter):
@@ -31,7 +32,8 @@ class BlockWriter(BaseWriter):
         if items is None:
             items = self.items or []
 
-        last_stage = self._get_last_stage()
+        blocks = self.parser.items if self.parser else []
+        last_stage = self._get_last_stage(blocks)
 
         json_blocks: List[Block] = []
         for block in items:
@@ -43,6 +45,7 @@ class BlockWriter(BaseWriter):
                 "uid": block["number"],
                 "duration": block["duration"],
                 "stage": stage_number,
+                "accumulated_time": block["accumulated_time"],
             }
             json_blocks.append(jblock)
 
