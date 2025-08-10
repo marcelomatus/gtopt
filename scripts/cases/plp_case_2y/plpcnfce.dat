@@ -10027,7 +10027,7 @@
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
  1278 'ANGAMOS_2'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
-           000.0  234.3   000.0   000.0
+           000.0  234.4   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen

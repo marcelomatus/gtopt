@@ -84,6 +84,10 @@ def sample_central_parser() -> MockCentralParser:
             "name": "PlantA",
             "number": 1,
             "bus": 101,
+            "pmin": 0,
+            "pmax": 50,
+            "vert_min": 0,
+            "vert_max": 50,
             "efficiency": 0.9,
             "ser_hid": 2,
             "ser_ver": 3,
@@ -94,6 +98,10 @@ def sample_central_parser() -> MockCentralParser:
             "name": "PlantB",
             "number": 2,
             "bus": 102,
+            "pmin": 0,
+            "pmax": 60,
+            "vert_min": 0,
+            "vert_max": 50,
             "efficiency": 0.85,
             "ser_hid": 0,
             "ser_ver": 3,
@@ -104,6 +112,10 @@ def sample_central_parser() -> MockCentralParser:
             "name": "PlantC",
             "number": 3,
             "bus": 0,
+            "pmin": 0,
+            "pmax": 70,
+            "vert_min": 0,
+            "vert_max": 50,
             "efficiency": 0.95,
             "ser_hid": 0,
             "ser_ver": 0,
@@ -122,6 +134,10 @@ def reservoir_parser() -> MockCentralParser:
             "name": "ReservoirA",
             "number": 10,
             "bus": 0,
+            "pmin": 0,
+            "pmax": 100,
+            "vert_min": 0,
+            "vert_max": 50,
             "efficiency": 0,
             "ser_hid": 0,
             "ser_ver": 0,
@@ -174,6 +190,10 @@ def test_to_json_array_single_plant():
         "name": "PlantA",
         "number": 1,
         "bus": 101,
+        "pmin": 0,
+        "pmax": 50,
+        "vert_min": 0,
+        "vert_max": 50,
         "efficiency": 0.9,
         "ser_hid": 2,
         "ser_ver": 2,
@@ -215,6 +235,10 @@ def test_drain_junction():
         "name": "PlantDrain",
         "number": 5,
         "bus": 101,
+        "pmin": 0,
+        "pmax": 50,
+        "vert_min": 0,
+        "vert_max": 50,
         "efficiency": 0.9,
         "ser_hid": 0,
         "ser_ver": 0,
@@ -238,6 +262,10 @@ def test_no_turbine_creation():
         "name": "PlantNoBus",
         "number": 6,
         "bus": 0,
+        "pmin": 0,
+        "pmax": 50,
+        "vert_min": 0,
+        "vert_max": 50,
         "efficiency": 0.9,
         "ser_hid": 7,
         "ser_ver": 0,
@@ -270,8 +298,32 @@ def test_process_reservoirs(reservoir_parser):
 def test_process_extractions(sample_extrac_parser):
     """Test processing of extraction data into waterways."""
     centrals = [
-        {"name": "PlantA", "number": 1, "type": "serie", "bus": 0, "efficiency": 0},
-        {"name": "PlantB", "number": 2, "type": "serie", "bus": 0, "efficiency": 0},
+        {
+            "name": "PlantA",
+            "number": 1,
+            "type": "serie",
+            "bus": 0,
+            "pmin": 0,
+            "pmax": 15,
+            "vert_min": 0,
+            "vert_max": 50,
+            "ser_hid": 2,
+            "ser_ver": 5,
+            "efficiency": 0,
+        },
+        {
+            "name": "PlantB",
+            "number": 2,
+            "type": "serie",
+            "bus": 0,
+            "pmin": 0,
+            "pmax": 50,
+            "vert_min": 0,
+            "vert_max": 50,
+            "ser_hid": 3,
+            "ser_ver": 7,
+            "efficiency": 0,
+        },
     ]
     central_parser = MockCentralParser(centrals)
 
@@ -280,12 +332,19 @@ def test_process_extractions(sample_extrac_parser):
     )
     result = writer.to_json_array()[0]
 
-    # Waterways from central plants (none in this case) + 1 from extraction
-    assert len(result["waterway_array"]) == 1
+    # Waterways from centrals
+    assert len(result["waterway_array"]) == 5
     waterway = result["waterway_array"][0]
     assert waterway["junction_a"] == 1
     assert waterway["junction_b"] == 2
-    assert waterway["capacity"] == 15.0
+    assert waterway["fmin"] == 0.0
+    assert waterway["fmax"] == 15.0
+
+    waterway = result["waterway_array"][1]
+    assert waterway["junction_a"] == 1
+    assert waterway["junction_b"] == 5
+    assert waterway["fmin"] == 0.0
+    assert waterway["fmax"] == 50.0
 
 
 def test_get_plant_flow_with_aflce(sample_aflce_parser):
@@ -296,6 +355,10 @@ def test_get_plant_flow_with_aflce(sample_aflce_parser):
         "afluent": 10.0,
         "type": "serie",
         "bus": 101,
+        "pmin": 0,
+        "pmax": 50,
+        "vert_min": 0,
+        "vert_max": 50,
         "efficiency": 0.9,
         "ser_hid": 0,
         "ser_ver": 0,
