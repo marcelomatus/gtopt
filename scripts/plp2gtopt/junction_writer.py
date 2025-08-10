@@ -25,6 +25,8 @@ class Waterway(TypedDict, total=False):
     name: str
     junction_a: int
     junction_b: int
+    fmin: float
+    fmax: float
     capacity: float
 
 
@@ -106,6 +108,8 @@ class JunctionWriter(BaseWriter):
         source_name: str,
         source_id: int,
         target_id: int,
+        fmin: float,
+        fmax: float,
         capacity: Optional[float] = None,
     ) -> Optional[Waterway]:
         """Create a waterway connection between two junctions.
@@ -128,6 +132,8 @@ class JunctionWriter(BaseWriter):
             "name": f"{source_name}_{source_id}_{target_id}",
             "junction_a": source_id,
             "junction_b": target_id,
+            "fmin": fmin,
+            "fmax": fmax,
         }
 
         if capacity is not None:
@@ -193,10 +199,18 @@ class JunctionWriter(BaseWriter):
 
         # Create waterways
         gen_waterway = self._create_waterway(
-            central_name + "_gen", central_id, central.get("ser_hid", 0)
+            central_name + "_gen",
+            central_id,
+            central["ser_hid"],
+            central["pmin"],
+            central["pmax"],
         )
         ver_waterway = self._create_waterway(
-            central_name + "_ver", central_id, central.get("ser_ver", 0)
+            central_name + "_ver",
+            central_id,
+            central["ser_ver"],
+            central["vert_min"],
+            central["vert_max"],
         )
 
         # Add waterways if they exist
@@ -269,7 +283,8 @@ class JunctionWriter(BaseWriter):
                 upstream_name + "_extrac_" + str(i),
                 upstream_central["number"],
                 downstream_central["number"],
-                extraction.get("max_extrac"),
+                fmin=0.0,
+                fmax=extraction.get("max_extrac", 0.0),
             )
             if waterway:
                 system["waterway_array"].append(waterway)

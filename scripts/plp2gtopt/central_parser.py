@@ -184,8 +184,8 @@ class CentralParser(BaseParser):
         current_gen["pmin"] = self._parse_float(parts[0])
         current_gen["pmax"] = self._parse_float(parts[1])
         if len(parts) > 2:
-            current_gen["vol_max"] = self._parse_float(parts[2])
-            current_gen["vol_min"] = self._parse_float(parts[3])
+            current_gen["vert_min"] = self._parse_float(parts[2])
+            current_gen["vert_max"] = self._parse_float(parts[3])
 
         return current_gen, idx
 
