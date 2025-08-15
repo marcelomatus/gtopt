@@ -31,7 +31,7 @@ struct ArrowTraits<int>
 template<>
 struct ArrowTraits<int16_t>
 {
-  using Type = arrow::Int16Type;
+  using Type = arrow::Int32Type;
   static constexpr auto type() { return arrow::int16(); }
 };
 
