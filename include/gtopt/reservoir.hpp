@@ -40,6 +40,8 @@ struct Reservoir
   OptTRealFieldSched vcost {};
   OptReal vini {};
   OptReal vfin {};
+
+  OptReal vol_scale {1.0};
 };
 
 }  // namespace gtopt
