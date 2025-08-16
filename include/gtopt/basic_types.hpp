@@ -29,7 +29,7 @@ namespace gtopt
  * @brief Base type for unique identifiers
  * @details Used for entity identification in the power system model
  */
-using uid_t = std::int16_t;
+using uid_t = std::int32_t;
 
 /** @brief Unique identifier type */
 using Uid = uid_t;
@@ -81,7 +81,7 @@ using Bool = bool;
 using OptBool = std::optional<Bool>;
 
 /** @brief Integer boolean for space-efficient storage */
-using IntBool = std::int8_t;
+using IntBool = std::int32_t;
 /** @brief Optional integer boolean type */
 using OptIntBool = std::optional<IntBool>;
 

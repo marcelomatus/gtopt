@@ -38,9 +38,9 @@ TEST_CASE("Parquet file write and read test")
     const std::vector<double> d1_data = {1.0, 2.0, 3.0, 4.0, 5.0};
 
     // Crear arrays de Arrow usando builders
-    arrow::Int16Builder scenario_builder;
-    arrow::Int16Builder stage_builder;
-    arrow::Int16Builder block_builder;
+    arrow::Int32Builder scenario_builder;
+    arrow::Int32Builder stage_builder;
+    arrow::Int32Builder block_builder;
     arrow::DoubleBuilder d1_builder;
 
     // Agregar datos a los builders
@@ -135,9 +135,9 @@ TEST_CASE("Parquet file write and read test")
     CHECK(schema->field(3)->name() == "d1");
 
     // Verificar tipos de datos
-    CHECK(schema->field(0)->type()->id() == arrow::Type::INT16);
-    CHECK(schema->field(1)->type()->id() == arrow::Type::INT16);
-    CHECK(schema->field(2)->type()->id() == arrow::Type::INT16);
+    CHECK(schema->field(0)->type()->id() == arrow::Type::INT32);
+    CHECK(schema->field(1)->type()->id() == arrow::Type::INT32);
+    CHECK(schema->field(2)->type()->id() == arrow::Type::INT32);
     CHECK(schema->field(3)->type()->id() == arrow::Type::DOUBLE);
 
     // Obtener columnas
@@ -148,7 +148,7 @@ TEST_CASE("Parquet file write and read test")
 
     // Verificar datos de la columna 'scenario'
     auto scenario_array =
-        std::static_pointer_cast<arrow::Int16Array>(scenario_column->chunk(0));
+        std::static_pointer_cast<arrow::Int32Array>(scenario_column->chunk(0));
     CHECK(scenario_array->Value(0) == 1);
     CHECK(scenario_array->Value(1) == 1);
     CHECK(scenario_array->Value(2) == 1);
@@ -157,7 +157,7 @@ TEST_CASE("Parquet file write and read test")
 
     // Verificar datos de la columna 'stage'
     auto stage_array =
-        std::static_pointer_cast<arrow::Int16Array>(stage_column->chunk(0));
+        std::static_pointer_cast<arrow::Int32Array>(stage_column->chunk(0));
     CHECK(stage_array->Value(0) == 1);
     CHECK(stage_array->Value(1) == 2);
     CHECK(stage_array->Value(2) == 3);
@@ -166,7 +166,7 @@ TEST_CASE("Parquet file write and read test")
 
     // Verificar datos de la columna 'block'
     auto block_array =
-        std::static_pointer_cast<arrow::Int16Array>(block_column->chunk(0));
+        std::static_pointer_cast<arrow::Int32Array>(block_column->chunk(0));
     CHECK(block_array->Value(0) == 1);
     CHECK(block_array->Value(1) == 2);
     CHECK(block_array->Value(2) == 3);

@@ -53,7 +53,7 @@ class ManceParser(BaseParser):
                     continue
 
                 # Initialize numpy arrays
-                blocks = np.empty(num_blocks, dtype=np.int16)
+                blocks = np.empty(num_blocks, dtype=np.int32)
                 p_min = np.empty(num_blocks, dtype=np.float64)
                 p_max = np.empty(num_blocks, dtype=np.float64)
 

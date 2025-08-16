@@ -80,13 +80,13 @@ def df_to_file(df, input_path, cname, fname, input_format, compression):
     input_file = input_dir / (fname + "." + input_format)
 
     types = {}
-    btype = np.int16 if fname == "active" else np.float64
+    btype = np.int32 if fname == "active" else np.float64
     for c in df.columns:
         types[c] = btype
 
     for c in ["scenario", "stage", "block"]:
         if c in df.columns:
-            types[c] = np.int16
+            types[c] = np.int32
 
     df = df.astype(types)
 

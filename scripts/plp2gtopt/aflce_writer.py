@@ -124,7 +124,7 @@ class AflceWriter(BaseWriter):
                     pd.DataFrame(
                         {"scenario": data["uid"], "stage": data["stage"]},
                         index=data["df"].index,
-                    ).astype({"scenario": "int16", "stage": "int16"}),
+                    ).astype({"scenario": "int32", "stage": "int32"}),
                     data["df"],
                 ],
                 axis=1,

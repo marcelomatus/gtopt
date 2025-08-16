@@ -23,7 +23,7 @@ struct Scenario
 
   OptReal probability_factor {1};
 
-  static constexpr std::string_view class_name = "scenario";
+  static constexpr std::string class_name = "scenario";
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {

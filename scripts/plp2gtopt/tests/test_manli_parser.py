@@ -48,7 +48,7 @@ def test_get_manlis(tmp_path):
     assert isinstance(manli["tmax_ab"], np.ndarray)
     assert isinstance(manli["tmax_ba"], np.ndarray)
     assert isinstance(manli["operational"], np.ndarray)
-    assert manli["block"].dtype == np.int16
+    assert manli["block"].dtype == np.int32
     assert manli["tmax_ab"].dtype == np.float64
     assert manli["tmax_ba"].dtype == np.float64
     assert manli["operational"].dtype == np.int8
@@ -84,7 +84,7 @@ def test_parse_sample_file(sample_manli_file):
         assert len(maint["block"]) == len(maint["operational"])
 
         # Verify array types and values
-        assert maint["block"].dtype == np.int16
+        assert maint["block"].dtype == np.int32
         assert maint["tmax_ab"].dtype == np.float64
         assert maint["tmax_ba"].dtype == np.float64
         assert maint["operational"].dtype == np.int8

@@ -40,6 +40,8 @@ GeneratorLP::GeneratorLP(Generator generator, const InputContext& ic)
     , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
     , gcost(ic, ClassName, id(), std::move(object().gcost))
 {
+  SPDLOG_DEBUG(
+      fmt::format("GeneratorLP created for generator with uid {}", uid()));
 }
 
 /**
@@ -92,6 +94,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   gcols.reserve(blocks.size());
   crows.reserve(blocks.size());
 
+  const auto guid = uid();
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     const auto balance_row = balance_rows.at(buid);
@@ -99,9 +102,19 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
+    SPDLOG_DEBUG(
+        fmt::format("GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
+                    "pmax {} capacity {}",
+                    guid,
+                    stage.uid(),
+                    block.uid(),
+                    block_pmin,
+                    block_pmax,
+                    stage_capacity));
+
     // Create generation variable for this time block
     const auto gcol = lp.add_col(
-        {.name = sc.lp_label(scenario, stage, block, cname, "gen", uid()),
+        {.name = sc.lp_label(scenario, stage, block, cname, "gen", guid),
          .lowb = block_pmin,
          .uppb = block_pmax,
          .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
@@ -116,7 +129,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Ensures generation <= installed capacity
     if (capacity_col) {
       auto crow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "cap", uid())}
+                                 scenario, stage, block, cname, "cap", guid)}
                       .greater_equal(0);
       crow[*capacity_col] = 1;
       crow[gcol] = -1;

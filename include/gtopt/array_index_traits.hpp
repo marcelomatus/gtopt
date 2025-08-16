@@ -40,11 +40,20 @@ struct ArrayIndexBase
     const auto& [uid, name] = id;
 
     const auto array_key = array_map_key {cname, fname, uid};
+    SPDLOG_DEBUG(fmt::format("get_arrow_index: key '{} {} {}: {}'",
+                             cname,
+                             fname,
+                             uid,
+                             as_string(array_key)));
 
     // Try to find existing array first (cache hit)
     if (auto aiter = array_map.find(array_key); aiter != array_map.end()) {
+      SPDLOG_DEBUG(fmt::format("get_arrow_index: found existing array key '{}'",
+                               as_string(array_key)));
       return aiter->second;
     }
+    SPDLOG_DEBUG(fmt::format("get_arrow_index: creating new array key '{}'",
+                             as_string(array_key)));
 
     // Cache miss - need to load table and create index
     auto [table, index_idx] = [&]()
@@ -58,6 +67,12 @@ struct ArrayIndexBase
       // Load table and create index if not found
       auto table = read_arrow_table(system_context, cname, fname);
       auto index = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
+
+      SPDLOG_DEBUG(
+          fmt::format("get_arrow_index: read table '{}' for key '{} {}'",
+                      fname,
+                      cname,
+                      fname));
 
       if (!table || !index) [[unlikely]] {
         const auto msg =
@@ -77,16 +92,26 @@ struct ArrayIndexBase
       return res->second;
     }();
 
+    SPDLOG_DEBUG(fmt::format("get_arrow_index: looking for column {}", name));
+
     // Try multiple column name patterns
     auto array = [&]()
     {
-      if (auto col = table->GetColumnByName(std::string {name})) {
+      if (auto col = table->GetColumnByName(as_label<':'>("uid", uid))) {
+        SPDLOG_DEBUG(fmt::format(
+            "Found column '{}' for uid '{}'", as_label<':'>("uid", uid), uid));
         return col;
       }
-      if (auto col = table->GetColumnByName(as_label<':'>(name, uid))) {
+      if (auto col = table->GetColumnByName(name)) {
+        SPDLOG_DEBUG(fmt::format("Found column '{}' for uid '{}'", name, uid));
         return col;
       }
-      return table->GetColumnByName(as_label<':'>("uid", uid));
+      auto col = table->GetColumnByName(as_label<':'>(name, uid));
+      if (col) {
+        SPDLOG_DEBUG(fmt::format(
+            "Found column '{}' for uid '{}'", as_label<':'>(name, uid), uid));
+      }
+      return col;
     }();
 
     if (!array) [[unlikely]] {
@@ -119,13 +144,12 @@ public:
   using uid_tuple = std::tuple<Uid...>;
 
   using value_type = Type;
-  using vector_type = typename InputTraits::idx_vector_t<value_type, Uid...>;
+  using vector_type = InputTraits::idx_vector_t<value_type, Uid...>;
   using file_sched = FileSched;
-
   using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
 
   static constexpr auto make_array_index(const auto& system_context,
-                                         const std::string_view class_name,
+                                         const std::string_view& class_name,
                                          Map& array_table_map,
                                          const FSched& sched,
                                          const Id& id) -> array_vector_uid_idx_v
@@ -135,11 +159,29 @@ public:
     auto&& [array_map, table_map, vector_idx] =
         std::get<map_type>(array_table_map);
 
-    return std::visit(
+    SPDLOG_DEBUG(fmt::format("make_array_index: class '{}' id '{} {}'",
+                             class_name,
+                             id.first,
+                             id.second));
+    auto arrow_index = std::visit(
         Overload {
-            [&](const value_type&) -> array_vector_uid_idx_v { return {}; },
+            [&](const value_type&) -> array_vector_uid_idx_v
+            {
+              SPDLOG_DEBUG(
+                  fmt::format("make_array_index: value class '{}' id '{} {}'",
+                              class_name,
+                              id.first,
+                              id.second));
+
+              return {};
+            },
             [&](const vector_type&) -> array_vector_uid_idx_v
             {
+              SPDLOG_DEBUG(
+                  fmt::format("make_array_index: vector class '{}' id '{} {}'",
+                              class_name,
+                              id.first,
+                              id.second));
               if (!vector_idx) {
                 vector_idx = UidToVectorIdx<Uid...>::make_vector_uids_idx(
                     system_context.simulation());
@@ -148,20 +190,33 @@ public:
             },
             [&](const file_sched& fsched) -> array_vector_uid_idx_v
             {
+              SPDLOG_DEBUG(fmt::format(
+                  "make_array_index: fsched {} class '{}' id '{} {}'",
+                  fsched,
+                  class_name,
+                  id.first,
+                  id.second));
               return get_arrow_index<Uid...>(
                   system_context, class_name, fsched, id, array_map, table_map);
             }},
         sched);
+
+    return arrow_index;
   }
 };
 
 template<typename Type, typename Map, typename FieldSched, typename... Uid>
 constexpr auto make_array_index(const SystemContext& system_context,
-                                const std::string_view class_name,
+                                const std::string_view& class_name,
                                 Map& array_table_map,
                                 const FieldSched& sched,
                                 const Id& id)
 {
+  SPDLOG_DEBUG(fmt::format("make_array_index: class '{}' id '{} {}'",
+                           class_name,
+                           id.first,
+                           id.second));
+
   return ArrayIndexTraits<Type, Map, FieldSched, Uid...>::make_array_index(
       system_context, class_name, array_table_map, sched, id);
 }

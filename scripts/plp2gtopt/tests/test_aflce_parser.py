@@ -48,7 +48,7 @@ def test_get_flows(tmp_path):
     assert flow["name"] == "test_central"
     assert isinstance(flow["block"], np.ndarray)
     assert isinstance(flow["flow"], np.ndarray)
-    assert flow["block"].dtype == np.int16
+    assert flow["block"].dtype == np.int32
     assert flow["flow"].dtype == np.float64
     assert flow["num_hydrologies"] == 2
 
@@ -78,7 +78,7 @@ def test_parse_sample_file(sample_aflce_file):
         assert flow["num_hydrologies"] == 5
 
         # Verify array types and values
-        assert flow["block"].dtype == np.int16
+        assert flow["block"].dtype == np.int32
         assert flow["flow"].dtype == np.float64
         assert np.all(flow["block"] > 0)
         assert np.all(flow["flow"] >= 0)
