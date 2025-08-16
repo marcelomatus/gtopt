@@ -14,6 +14,8 @@
 #pragma once
 
 #include <vector>
+#include <utility>  // for std::to_underlying
+#include <cassert>
 
 namespace gtopt
 {
@@ -22,64 +24,72 @@ namespace gtopt
  * A vector that enforces access through a strongly-typed index.
  * Inherits privately from std::vector to ensure type safety.
  * Implements efficient move operations marked with noexcept to
- * enable compiler plannings.
+ * enable compiler optimizations.
  */
 template<typename Index, typename T>
 class StrongIndexVector : private std::vector<T>
 {
 public:
   // Standard constructors with appropriate move semantics
-  StrongIndexVector() = default;
+  constexpr StrongIndexVector() noexcept = default;
 
-  explicit StrongIndexVector(typename std::vector<T>::size_type count)
+  explicit constexpr StrongIndexVector(typename std::vector<T>::size_type count)
       : std::vector<T>(count)
   {
   }
 
-  explicit StrongIndexVector(typename std::vector<T>::size_type count,
+  explicit constexpr StrongIndexVector(typename std::vector<T>::size_type count,
                              const T& value)
       : std::vector<T>(count, value)
   {
   }
 
   template<class InputIt>
-  StrongIndexVector(InputIt first, InputIt last)
+  constexpr StrongIndexVector(InputIt first, InputIt last)
       : std::vector<T>(first, last)
   {
   }
 
   // Uses move semantics for initializer lists to avoid unnecessary copies
-  StrongIndexVector(std::initializer_list<T> init) noexcept
+  constexpr StrongIndexVector(std::initializer_list<T> init) noexcept
       : std::vector<T>(std::move(init))
   {
   }
 
-  // Special member functions with appropriate noexcept specifications
-  StrongIndexVector(StrongIndexVector const& other) = default;
-  StrongIndexVector(StrongIndexVector&& other) noexcept = default;
+  // Special member functions
+  constexpr StrongIndexVector(StrongIndexVector const& other) = default;
+  constexpr StrongIndexVector(StrongIndexVector&& other) noexcept = default;
+  constexpr ~StrongIndexVector() = default;
 
-  ~StrongIndexVector() = default;
-
-  typename std::vector<T>::reference operator[](Index pos) noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::reference operator[](Index pos) noexcept
   {
-    return std::vector<T>::operator[](pos.value_of());
+    [[assume(pos.value_of() < this->size())]];
+    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
-  typename std::vector<T>::const_reference operator[](Index pos) const noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::const_reference operator[](Index pos) const noexcept
   {
-    return std::vector<T>::operator[](pos.value_of());
+    [[assume(pos.value_of() < this->size())]];
+    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
-  typename std::vector<T>::const_reference at(Index pos) const noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::const_reference at(Index pos) const
   {
-    return std::vector<T>::at(pos.value_of());
+    if (pos.value_of() >= this->size()) [[unlikely]] {
+      throw std::out_of_range("StrongIndexVector::at");
+    }
+    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
-  typename std::vector<T>::reference at(Index pos) noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::reference at(Index pos)
   {
-    return std::vector<T>::at(pos.value_of());
+    if (pos.value_of() >= this->size()) [[unlikely]] {
+      throw std::out_of_range("StrongIndexVector::at");
+    }
+    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
+  // Type aliases
   using typename std::vector<T>::value_type;
   using typename std::vector<T>::allocator_type;
   using typename std::vector<T>::size_type;
@@ -93,17 +103,14 @@ public:
   using typename std::vector<T>::reverse_iterator;
   using typename std::vector<T>::const_reverse_iterator;
 
-  // Assignment operators with noexcept for move operations
-  // This allows the compiler to optimize moves and provide stronger exception
-  // safety
-  StrongIndexVector& operator=(StrongIndexVector const& other) noexcept =
-      default;
-  StrongIndexVector& operator=(StrongIndexVector&& other) noexcept = default;
+  // Assignment operators
+  constexpr StrongIndexVector& operator=(StrongIndexVector const& other) = default;
+  constexpr StrongIndexVector& operator=(StrongIndexVector&& other) noexcept = default;
   using std::vector<T>::operator=;
 
+  // Inherited functions with constexpr and noexcept where applicable
   using std::vector<T>::assign;
-  using std::vector<T>::get_allocator;
-  using std::vector<T>::at;
+  [[nodiscard]] constexpr auto get_allocator() const noexcept -> allocator_type;
   using std::vector<T>::front;
   using std::vector<T>::back;
   using std::vector<T>::data;
@@ -115,13 +122,13 @@ public:
   using std::vector<T>::crbegin;
   using std::vector<T>::rend;
   using std::vector<T>::crend;
-  using std::vector<T>::empty;
-  using std::vector<T>::size;
-  using std::vector<T>::max_size;
-  using std::vector<T>::reserve;
-  using std::vector<T>::capacity;
-  using std::vector<T>::shrink_to_fit;
-  using std::vector<T>::clear;
+  [[nodiscard]] constexpr bool empty() const noexcept;
+  [[nodiscard]] constexpr size_type size() const noexcept;
+  [[nodiscard]] constexpr size_type max_size() const noexcept;
+  constexpr void reserve(size_type new_cap);
+  [[nodiscard]] constexpr size_type capacity() const noexcept;
+  constexpr void shrink_to_fit();
+  constexpr void clear() noexcept;
   using std::vector<T>::insert;
   using std::vector<T>::emplace;
   using std::vector<T>::erase;
@@ -129,7 +136,7 @@ public:
   using std::vector<T>::emplace_back;
   using std::vector<T>::pop_back;
   using std::vector<T>::resize;
-  using std::vector<T>::swap;
+  constexpr void swap(StrongIndexVector& other) noexcept;
 };
 
 }  // namespace gtopt
