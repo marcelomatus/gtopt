@@ -16,6 +16,7 @@
 #include <vector>
 #include <utility>  // for std::to_underlying
 #include <cassert>
+#include <stdexcept> // for std::out_of_range
 
 namespace gtopt
 {
