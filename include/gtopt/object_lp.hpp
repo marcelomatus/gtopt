@@ -73,7 +73,7 @@ public:
   explicit constexpr ObjectLP(
       OT&& object,
       [[maybe_unused]] const InputContext& ic,
-      [[maybe_unused]] const std::string_view cname) noexcept
+      [[maybe_unused]] const std::string_view& cname) noexcept
       : ObjectLP(std::forward<OT>(object))
   {
   }

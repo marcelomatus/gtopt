@@ -14,7 +14,6 @@
 #pragma once
 
 #include <cassert>
-#include <stdexcept>  // for std::out_of_range
 #include <vector>
 
 namespace gtopt
