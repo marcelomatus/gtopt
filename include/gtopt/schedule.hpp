@@ -48,13 +48,8 @@ public:
       , m_arrow_array_uid_(ic.template get_array_index<Type, FSched, Uid...>(
             m_sched_, cname, id))
   {
-  }
-
-  template<typename InputContext, typename FS>
-  explicit Schedule(const InputContext& ic, FS&& sched)
-      : m_sched_(std::forward<FS>(sched))
-  {
-    (void)ic;
+    SPDLOG_DEBUG(fmt::format(
+        "Schedule: cname '{}' id '{} {}'", cname, id.first, id.second));
   }
 
   constexpr Type at(Uid... uids) const
@@ -68,7 +63,7 @@ class OptSchedule : public InputTraits
 {
 public:
   using value_type = Type;
-  using vector_type = typename InputTraits::idx_vector_t<Type, Uid...>;
+  using vector_type = InputTraits::idx_vector_t<Type, Uid...>;
   using FSched = FieldSched<Type, vector_type>;
   using OptFSched = std::optional<FSched>;
 
@@ -91,9 +86,13 @@ public:
                        const Id& id,
                        OptFSched psched)
       : m_sched_(std::move(psched))
-      , m_arrow_array_uids_(ic.template get_array_index<Type, FSched, Uid...>(
-            m_sched_.value_or(FSched {}), cname, id))
   {
+    SPDLOG_DEBUG(fmt::format(
+        "OptSchedule: cname '{}' id '{} {}'", cname, id.first, id.second));
+    if (m_sched_) {
+      m_arrow_array_uids_ = ic.template get_array_index<Type, FSched, Uid...>(
+          m_sched_.value(), cname, id);
+    }
   }
 
   [[nodiscard]] constexpr bool has_value() const

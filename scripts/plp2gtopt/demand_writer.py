@@ -95,11 +95,11 @@ class DemandWriter(BaseWriter):
 
         if self.block_parser:
             df["stage"] = df.index.map(self.block_parser.get_stage_number).astype(
-                "int16"
+                "int32"
             )
 
         # Convert index to block column
-        df.index = df.index.astype("int16")
+        df.index = df.index.astype("int32")
         df = df.reset_index().rename(columns={"index": "block"})
 
         # Fill missing values with column-specific defaults

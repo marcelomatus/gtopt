@@ -88,10 +88,10 @@ class ManceWriter(BaseWriter):
             if self.block_parser:
                 df_pmin["stage"] = df_pmin.index.map(
                     self.block_parser.get_stage_number
-                ).astype("int16")
+                ).astype("int32")
                 df_pmax["stage"] = df_pmax.index.map(
                     self.block_parser.get_stage_number
-                ).astype("int16")
+                ).astype("int32")
 
             return df_pmin, df_pmax
         except Exception as e:

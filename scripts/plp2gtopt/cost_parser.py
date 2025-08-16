@@ -44,7 +44,7 @@ class CostParser(BaseParser):
                     continue
 
                 # Initialize numpy arrays for this central
-                stages = np.empty(num_stages, dtype=np.int16)
+                stages = np.empty(num_stages, dtype=np.int32)
                 costs = np.empty(num_stages, dtype=np.float64)
 
                 # Parse cost entries

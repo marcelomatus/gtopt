@@ -40,9 +40,12 @@ public:
 
   template<typename Type, typename FSched, typename... Uids>
   auto get_array_index(const FSched& sched,
-                       const std::string_view cname,
+                       const std::string_view& cname,
                        const Id& id) const
   {
+    SPDLOG_DEBUG(fmt::format(
+        "get_array_index: cname '{}' id '{} {}'", cname, id.first, id.second));
+
     return make_array_index<Type,
                             decltype(m_array_table_maps_),
                             FSched,

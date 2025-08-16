@@ -138,7 +138,7 @@ class BaseWriter(ABC):
         index_name = index_name or index_field
         if index_parser and index_parser.items:
             index_values = np.array(
-                [item[item_key] for item in index_parser.items], dtype=np.int16
+                [item[item_key] for item in index_parser.items], dtype=np.int32
             )
             s = pd.Series(data=index_values, index=index_values, name=index_name)
             df = pd.concat([s, df], axis=1)

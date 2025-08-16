@@ -46,7 +46,7 @@ def test_get_mances(tmp_path):
     assert isinstance(mance["block"], np.ndarray)
     assert isinstance(mance["pmin"], np.ndarray)
     assert isinstance(mance["pmax"], np.ndarray)
-    assert mance["block"].dtype == np.int16
+    assert mance["block"].dtype == np.int32
     assert mance["pmin"].dtype == np.float64
     assert mance["pmax"].dtype == np.float64
 
@@ -78,7 +78,7 @@ def test_parse_sample_file(sample_mance_file):
         assert len(maint["block"]) == len(maint["pmax"])
 
         # Verify array types and values
-        assert maint["block"].dtype == np.int16
+        assert maint["block"].dtype == np.int32
         assert maint["pmin"].dtype == np.float64
         assert maint["pmax"].dtype == np.float64
         assert np.all(maint["block"] > 0)

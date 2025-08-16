@@ -67,7 +67,7 @@ class AflceParser(BaseParser):
                     continue  # Skip centrals with no blocks
 
                 # Initialize numpy arrays with optimal types
-                blocks = np.empty(num_blocks, dtype=np.int16)
+                blocks = np.empty(num_blocks, dtype=np.int32)
                 flows = np.empty((num_blocks, num_hydrologies), dtype=np.float64)
 
                 # Parse each block's flow data

@@ -48,7 +48,7 @@ class DemandParser(BaseParser):
                 num_blocks = self._parse_int(lines[idx].strip().split()[0])
 
                 # Initialize numpy arrays for this bus
-                blocks = np.empty(num_blocks, dtype=np.int16)
+                blocks = np.empty(num_blocks, dtype=np.int32)
                 values = np.empty(num_blocks, dtype=np.float64)
 
                 # Parse demand entries

@@ -35,9 +35,9 @@ struct InputTraits : UidTraits
            typename AccessOper,
            typename... Uid>
   static constexpr auto access_sched(const FSched& sched,
-                                     [[maybe_unused]] const UidIdx& uid_idx,
-                                     [[maybe_unused]] AccessOper access_oper,
-                                     [[maybe_unused]] Uid... uid) -> RType
+                                     const UidIdx& uid_idx,
+                                     AccessOper access_oper,
+                                     Uid... uid) -> RType
   {
     using value_type = Type;
     using vector_uid_idx_t = vector_uid_idx_t<Uid...>;
@@ -92,10 +92,18 @@ struct InputTraits : UidTraits
     return access_sched<Type>(
         sched,
         uid_idx,
-        [](const auto& values, const auto& uid_idx, const auto& key) -> Type
+        [&](const auto& values, const auto& uid_idx, const auto& key) -> Type
         {
           try {
-            return values->Value(uid_idx->at(key));
+            const auto idx = uid_idx->at(key);
+            const auto value = values->Value(idx);
+            SPDLOG_DEBUG(
+                fmt::format("at_sched: key {} idx {} value {} values {}",
+                            gtopt::as_string(key),
+                            idx,
+                            value,
+                            (void*)values.get()));
+            return value;
           } catch (const std::out_of_range& e) {
             SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
                                      gtopt::as_string(key),
@@ -114,13 +122,21 @@ struct InputTraits : UidTraits
     return access_sched<Type, std::optional<Type>>(
         sched,
         uid_idx,
-        [](const auto& values,
-           const auto& uid_idx,
-           const auto& key) -> std::optional<Type>
+        [&](const auto& values,
+            const auto& uid_idx,
+            const auto& key) -> std::optional<Type>
         {
           try {
-            return get_optvalue(*uid_idx, key)
-                .transform([&values](auto idx) { return values->Value(idx); });
+            const auto idx = uid_idx->at(key);
+            const auto value = values->Value(idx);
+            SPDLOG_DEBUG(
+                fmt::format("optval_sched: key {} idx {} value {} values {}",
+                            gtopt::as_string(key),
+                            idx,
+                            value,
+                            (void*)values.get()));
+            return value;
+
           } catch (const std::out_of_range& e) {
             SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
                                      gtopt::as_string(key),

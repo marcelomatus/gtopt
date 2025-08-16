@@ -34,7 +34,7 @@ struct UidColumn
 {
   [[nodiscard]]
   static constexpr auto make_uid_column(const ArrowTable& table,
-                                        const std::string_view name) noexcept
+                                        const std::string& name) noexcept
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {
@@ -44,7 +44,7 @@ struct UidColumn
       return std::unexpected(std::move(msg));
     }
 
-    const auto column = table->GetColumnByName(std::string {name});
+    const auto column = table->GetColumnByName(name);
     if (!column) {
       auto msg = fmt::format("Column '{}' not found in table", name);
       SPDLOG_ERROR(msg);
@@ -186,6 +186,8 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {StageUid {(*stages)->Value(i)},
                                  BlockUid {(*blocks)->Value(i)}};
+      SPDLOG_DEBUG(
+          fmt::format("uididx Processing key: {} and {}", as_string(key), i));
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
         SPDLOG_WARN(fmt::format("using duplicated id values at element {}",
