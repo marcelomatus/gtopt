@@ -2,12 +2,21 @@
 """Main entry point for PLP to GTOPT conversion."""
 
 import argparse
+import signal
+import sys
 from pathlib import Path
 from .plp2gtopt import convert_plp_case
 
 
+def signal_handler(sig, frame):
+    """Handle Ctrl-C gracefully."""
+    print("\nInterrupted by user. Exiting...")
+    sys.exit(0)
+
+
 def main():
     """Parse arguments and initiate conversion."""
+    signal.signal(signal.SIGINT, signal_handler)
     parser = argparse.ArgumentParser(
         description="Convert PLP input files to GTOPT format"
     )
