@@ -12,57 +12,64 @@ def main():
         description="Convert PLP input files to GTOPT format"
     )
     parser.add_argument(
-        "input_dir",
+        "-i",
+        "--input-dir",
         type=Path,
-        help="Directory containing PLP input files",
+        help="directory containing PLP input files (default: input)",
         default=Path("input"),
     )
     parser.add_argument(
-        "output_dir",
+        "-o",
+        "--output-dir",
         type=Path,
-        help="Directory to write GTOPT output files",
+        help="directory to write GTOPT output files (default: output)",
         default=Path("output"),
     )
     parser.add_argument(
-        "output_file",
+        "-f",
+        "--output-file",
         type=Path,
-        help="File to write the GTOPT output",
+        help="file to write the GTOPT output (default: output/gtopt_case.json)",
         default=Path("output/gtopt_case.json"),
     )
     parser.add_argument(
+        "-s",
         "--last-stage",
         dest="last_stage",
         type=int,
-        help="Last stage number to extract from the plp data files (default: all stages)",
+        help="last stage number to extract from plp data files (default: all stages)",
         default=-1,
     )
     parser.add_argument(
+        "-t",
         "--last-time",
         dest="last_time",
         type=float,
-        help="Last time to extract from the plp data files (default: all times)",
+        help="last time to extract from plp data files (default: all times)",
         default=-1,
     )
     parser.add_argument(
+        "-c",
         "--compression",
         dest="compression",
         type=str,
-        help="Compression format for output files (default: gzip)",
+        help="compression format for output files (default: gzip)",
         default="gzip",
     )
     parser.add_argument(
+        "-y",
         "--hydrologies",
         dest="hydrologies",
         type=str,
-        help="Comma-separated list of hydrology scenarios (default: 1)",
+        help="comma-separated list of hydrology scenarios (default: 1)",
         default="1",
     )
     parser.add_argument(
+        "-p",
         "--probability-factors",
         dest="probability_factors",
         type=str,
-        help="Comma-separated list of probability factors for each hydrology"
-        " scenario (default: equal distribution)",
+        help="comma-separated list of probability factors for each hydrology scenario (default: equal distribution)",
         default=None,
     )
     args = parser.parse_args()
@@ -75,6 +82,7 @@ def main():
         "last_time": args.last_time,
         "compression": args.compression,
         "hydrologies": args.hydrologies,
+        "probability_factors": args.probability_factors,
     }
 
     convert_plp_case(options)
