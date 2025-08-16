@@ -18,6 +18,7 @@ struct json_data_contract<Turbine>
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_variant<"waterway", SingleId>,
       json_variant<"generator", SingleId>,
+      json_bool_null<"drain", OptBool>,
       json_variant_null<"conversion_rate",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
@@ -30,6 +31,7 @@ struct json_data_contract<Turbine>
                                  turbine.active,
                                  turbine.waterway,
                                  turbine.generator,
+                                 turbine.drain,
                                  turbine.conversion_rate,
                                  turbine.capacity);
   }

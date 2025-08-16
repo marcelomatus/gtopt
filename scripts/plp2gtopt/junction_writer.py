@@ -67,7 +67,7 @@ class Turbine(TypedDict):
     name: str
     generator: int
     waterway: int
-    convertion_rate: float
+    conversion_rate: float
 
 
 class HydroSystemOutput(TypedDict):
@@ -108,8 +108,8 @@ class JunctionWriter(BaseWriter):
         source_name: str,
         source_id: int,
         target_id: int,
-        fmin: float,
-        fmax: float,
+        fmin: float = 0.0,
+        fmax: Optional[float] = None,
         capacity: Optional[float] = None,
     ) -> Optional[Waterway]:
         """Create a waterway connection between two junctions.
@@ -133,9 +133,10 @@ class JunctionWriter(BaseWriter):
             "junction_a": source_id,
             "junction_b": target_id,
             "fmin": fmin,
-            "fmax": fmax,
         }
 
+        if fmax is not None:
+            waterway["fmax"] = fmax
         if capacity is not None:
             waterway["capacity"] = capacity
 
@@ -177,13 +178,13 @@ class JunctionWriter(BaseWriter):
         for central in items:
             self._process_central(central, system, central_parser)
 
-        # Process extraction plants
-        if self.extrac_parser and central_parser:
-            self._process_extractions(system, central_parser)
-
         # Process reservoirs
         if central_parser:
             self._process_reservoirs(system, central_parser)
+
+        # Process extraction plants
+        if self.extrac_parser and central_parser:
+            self._process_extractions(system, central_parser)
 
         return [cast(Dict[str, Any], system)]
 
@@ -202,8 +203,6 @@ class JunctionWriter(BaseWriter):
             central_name + "_gen",
             central_id,
             central["ser_hid"],
-            central["pmin"],
-            central["pmax"],
         )
         ver_waterway = self._create_waterway(
             central_name + "_ver",
@@ -222,7 +221,7 @@ class JunctionWriter(BaseWriter):
                     "name": central_name,
                     "generator": central_id,
                     "waterway": gen_waterway["uid"],
-                    "convertion_rate": central["efficiency"],
+                    "conversion_rate": central["efficiency"],
                 }
                 system["turbine_array"].append(turbine)
 
@@ -272,11 +271,19 @@ class JunctionWriter(BaseWriter):
             upstream_name = extraction["name"]
             upstream_central = central_parser.get_central_by_name(upstream_name)
             if not upstream_central:
+                print(
+                    f"Warning: Upstream central '{upstream_name}' not found in central parser."
+                )
                 continue
 
             downstream_name = extraction["downstream"]
             downstream_central = central_parser.get_central_by_name(downstream_name)
             if not downstream_central:
+                print(
+                    f"Warning: Downstream central '{downstream_name}' "
+                    "not found for extraction '{upstream_name}'"
+                )
+
                 continue  # Skip invalid downstream
 
             waterway = self._create_waterway(

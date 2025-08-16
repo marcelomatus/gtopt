@@ -35,9 +35,11 @@ struct Turbine
   SingleId waterway {unknown_uid};  ///< ID of connected waterway
   SingleId generator {unknown_uid};  ///< ID of connected generator
 
-  OptTRealFieldSched
-      conversion_rate {};  ///< Water-to-power conversion rate schedule
-  OptTRealFieldSched capacity {};  ///< Maximum power capacity schedule
+  OptBool drain {};  ///< Whether turbine can drain water when not
+                     ///< generating
+
+  OptTRealFieldSched conversion_rate {};  ///< Water-to-power conversion rate
+  OptTRealFieldSched capacity {};  ///< Maximum power capacity
 };
 
 }  // namespace gtopt

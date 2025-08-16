@@ -22,6 +22,7 @@ namespace gtopt
 TurbineLP::TurbineLP(Turbine pturbine, InputContext& ic)
     : ObjectLP<Turbine>(std::move(pturbine))
     , conversion_rate(ic, ClassName, id(), std::move(turbine().conversion_rate))
+    , capacity(ic, ClassName, id(), std::move(turbine().capacity))
 {
 }
 
@@ -51,6 +52,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   const auto stage_conversion_rate =
       conversion_rate.at(stage.uid()).value_or(1.0);
 
+  const auto stage_capacity = capacity.at(stage.uid());
+
   auto&& blocks = stage.blocks();
 
   const auto& generator = sc.element<GeneratorLP>(generator_sid());
@@ -60,25 +63,39 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
+  BIndexHolder<RowIndex> crows;
   rrows.reserve(blocks.size());
+  crows.reserve(blocks.size());
 
+  const auto use_drain = drain();
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     const auto fcol = flow_cols.at(buid);
     const auto gcol = gen_cols.at(buid);
 
-    auto rrow = SparseRow {.name = sc.lp_label(
-                               scenario, stage, block, cname, "conv", uid())}
-                    .equal(0);
+    auto rrow = SparseRow {
+        .name = sc.lp_label(scenario, stage, block, cname, "conv", uid())};
     rrow[fcol] = -stage_conversion_rate;
     rrow[gcol] = 1;
 
-    rrows[buid] = lp.add_row(std::move(rrow));
+    rrows[buid] =
+        lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
+
+    if (stage_capacity.has_value()) {
+      // Add capacity constraint if capacity is defined
+      auto crow = SparseRow {.name = sc.lp_label(
+                                 scenario, stage, block, cname, "fcap", uid())}
+                      .less_equal(*stage_capacity);
+      crow[fcol] = 1;
+
+      crows[buid] = lp.add_row(std::move(crow));
+    }
   }
 
   // storing the indices for this scenario and stage
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   conversion_rows[st_key] = std::move(rrows);
+  capacity_rows[st_key] = std::move(crows);
 
   return true;
 }
@@ -97,6 +114,7 @@ bool TurbineLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = ClassName.full_name();
 
   out.add_row_dual(cname, "conversion", id(), conversion_rows);
+  out.add_row_dual(cname, "capacity", id(), capacity_rows);
 
   return true;
 }
