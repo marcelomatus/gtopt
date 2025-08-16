@@ -50,9 +50,9 @@ public:
   {
   }
 
-  // Uses move semantics for initializer lists to avoid unnecessary copies
-  constexpr StrongIndexVector(std::initializer_list<T> init) noexcept
-      : std::vector<T>(std::move(init))
+  // Uses initializer list to construct vector
+  constexpr StrongIndexVector(std::initializer_list<T> init)
+      : std::vector<T>(init)
   {
   }
 
@@ -61,35 +61,26 @@ public:
   constexpr StrongIndexVector(StrongIndexVector&& other) noexcept = default;
   constexpr ~StrongIndexVector() = default;
 
-  [[nodiscard]] constexpr typename std::vector<T>::reference operator[](
-      Index pos) noexcept
+  [[nodiscard]] constexpr auto& operator[](Index pos) noexcept
   {
     [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](pos.value_of());
   }
 
-  [[nodiscard]] constexpr typename std::vector<T>::const_reference operator[](
-      Index pos) const noexcept
+  [[nodiscard]] constexpr auto& operator[](Index pos) const noexcept
   {
     [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](pos.value_of());
   }
 
-  [[nodiscard]] constexpr typename std::vector<T>::const_reference at(
-      Index pos) const
+  [[nodiscard]] constexpr auto& at(Index pos) const
   {
-    if (pos.value_of() >= this->size()) [[unlikely]] {
-      throw std::out_of_range("StrongIndexVector::at");
-    }
-    return std::vector<T>::operator[](pos.value_of());
+    return std::vector<T>::at(pos.value_of());
   }
 
-  [[nodiscard]] constexpr typename std::vector<T>::reference at(Index pos)
+  [[nodiscard]] constexpr auto& at(Index pos)
   {
-    if (pos.value_of() >= this->size()) [[unlikely]] {
-      throw std::out_of_range("StrongIndexVector::at");
-    }
-    return std::vector<T>::operator[](pos.value_of());
+    return std::vector<T>::at(pos.value_of());
   }
 
   // Type aliases
@@ -116,7 +107,6 @@ public:
   // Inherited functions with constexpr and noexcept where applicable
   using std::vector<T>::assign;
   using std::vector<T>::get_allocator;
-  using std::vector<T>::at;
   using std::vector<T>::front;
   using std::vector<T>::back;
   using std::vector<T>::data;
