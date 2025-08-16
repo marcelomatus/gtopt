@@ -15,7 +15,6 @@
 
 #include <cassert>
 #include <stdexcept>  // for std::out_of_range
-#include <utility>  // for std::to_underlying
 #include <vector>
 
 namespace gtopt
@@ -66,14 +65,14 @@ public:
       Index pos) noexcept
   {
     [[assume(pos.value_of() < this->size())]];
-    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
+    return std::vector<T>::operator[](pos.value_of());
   }
 
   [[nodiscard]] constexpr typename std::vector<T>::const_reference operator[](
       Index pos) const noexcept
   {
     [[assume(pos.value_of() < this->size())]];
-    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
+    return std::vector<T>::operator[](pos.value_of());
   }
 
   [[nodiscard]] constexpr typename std::vector<T>::const_reference at(
@@ -82,7 +81,7 @@ public:
     if (pos.value_of() >= this->size()) [[unlikely]] {
       throw std::out_of_range("StrongIndexVector::at");
     }
-    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
+    return std::vector<T>::operator[](pos.value_of());
   }
 
   [[nodiscard]] constexpr typename std::vector<T>::reference at(Index pos)
@@ -90,7 +89,7 @@ public:
     if (pos.value_of() >= this->size()) [[unlikely]] {
       throw std::out_of_range("StrongIndexVector::at");
     }
-    return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
+    return std::vector<T>::operator[](pos.value_of());
   }
 
   // Type aliases
