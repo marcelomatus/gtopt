@@ -13,10 +13,10 @@
 
 #pragma once
 
-#include <vector>
-#include <utility>  // for std::to_underlying
 #include <cassert>
-#include <stdexcept> // for std::out_of_range
+#include <stdexcept>  // for std::out_of_range
+#include <utility>  // for std::to_underlying
+#include <vector>
 
 namespace gtopt
 {
@@ -40,7 +40,7 @@ public:
   }
 
   explicit constexpr StrongIndexVector(typename std::vector<T>::size_type count,
-                             const T& value)
+                                       const T& value)
       : std::vector<T>(count, value)
   {
   }
@@ -62,19 +62,22 @@ public:
   constexpr StrongIndexVector(StrongIndexVector&& other) noexcept = default;
   constexpr ~StrongIndexVector() = default;
 
-  [[nodiscard]] constexpr typename std::vector<T>::reference operator[](Index pos) noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::reference operator[](
+      Index pos) noexcept
   {
     [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
-  [[nodiscard]] constexpr typename std::vector<T>::const_reference operator[](Index pos) const noexcept
+  [[nodiscard]] constexpr typename std::vector<T>::const_reference operator[](
+      Index pos) const noexcept
   {
     [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](std::to_underlying(pos.value_of()));
   }
 
-  [[nodiscard]] constexpr typename std::vector<T>::const_reference at(Index pos) const
+  [[nodiscard]] constexpr typename std::vector<T>::const_reference at(
+      Index pos) const
   {
     if (pos.value_of() >= this->size()) [[unlikely]] {
       throw std::out_of_range("StrongIndexVector::at");
@@ -105,13 +108,16 @@ public:
   using typename std::vector<T>::const_reverse_iterator;
 
   // Assignment operators
-  constexpr StrongIndexVector& operator=(StrongIndexVector const& other) = default;
-  constexpr StrongIndexVector& operator=(StrongIndexVector&& other) noexcept = default;
+  constexpr StrongIndexVector& operator=(StrongIndexVector const& other) =
+      default;
+  constexpr StrongIndexVector& operator=(StrongIndexVector&& other) noexcept =
+      default;
   using std::vector<T>::operator=;
 
   // Inherited functions with constexpr and noexcept where applicable
   using std::vector<T>::assign;
-  [[nodiscard]] constexpr auto get_allocator() const noexcept -> allocator_type;
+  using std::vector<T>::get_allocator;
+  using std::vector<T>::at;
   using std::vector<T>::front;
   using std::vector<T>::back;
   using std::vector<T>::data;
@@ -123,13 +129,13 @@ public:
   using std::vector<T>::crbegin;
   using std::vector<T>::rend;
   using std::vector<T>::crend;
-  [[nodiscard]] constexpr bool empty() const noexcept;
-  [[nodiscard]] constexpr size_type size() const noexcept;
-  [[nodiscard]] constexpr size_type max_size() const noexcept;
-  constexpr void reserve(size_type new_cap);
-  [[nodiscard]] constexpr size_type capacity() const noexcept;
-  constexpr void shrink_to_fit();
-  constexpr void clear() noexcept;
+  using std::vector<T>::empty;
+  using std::vector<T>::size;
+  using std::vector<T>::max_size;
+  using std::vector<T>::reserve;
+  using std::vector<T>::capacity;
+  using std::vector<T>::shrink_to_fit;
+  using std::vector<T>::clear;
   using std::vector<T>::insert;
   using std::vector<T>::emplace;
   using std::vector<T>::erase;
@@ -137,7 +143,7 @@ public:
   using std::vector<T>::emplace_back;
   using std::vector<T>::pop_back;
   using std::vector<T>::resize;
-  constexpr void swap(StrongIndexVector& other) noexcept;
+  using std::vector<T>::swap;
 };
 
 }  // namespace gtopt
