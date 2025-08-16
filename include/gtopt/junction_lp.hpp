@@ -65,7 +65,7 @@ public:
     return std::forward_like<decltype(self)>(self.object());
   }
 
-  /// @return Whether this junction has drain effects enabled
+  /// @return Whether this junction has drainage enabled
   [[nodiscard]] constexpr auto drain() const noexcept
   {
     return junction().drain.value_or(false);

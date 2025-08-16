@@ -51,7 +51,7 @@ struct SparseRow
   using cmap_t = flat_map<ColIndex, double>;  ///< Type for coefficient storage
   using size_type = typename cmap_t::size_type;
 
-  std::string name;  ///< Row/constraint name (empty for anonymous constraints)
+  std::string name;  ///< Row/constraint name
   double lowb {0};  ///< Lower bound (default: 0)
   double uppb {0};  ///< Upper bound (default: 0)
   cmap_t cmap {};  ///< Sparse coefficient map

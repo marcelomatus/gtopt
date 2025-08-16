@@ -38,7 +38,7 @@ struct Junction
   Name name {};  ///< Human-readable junction name
   OptActive active {};  ///< Activation status (whether junction is modeled)
 
-  OptBool drain {};  ///< Whether junction has energy drain/loss effects
+  OptBool drain {};  ///< Whether junction can drain water away of the system
 };
 
 }  // namespace gtopt

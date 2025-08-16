@@ -143,12 +143,12 @@ class GTOptWriter:
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", None)
         aflces = self.parser.parsed_data.get("aflce_parser", None)
-        extracts = self.parser.parsed_data.get("extract_parser", None)
+        extracs = self.parser.parsed_data.get("extrac_parser", None)
         json_junctions = JunctionWriter(
-            centrals,
-            aflces,
-            extracts,
-            options,
+            central_parser=centrals,
+            aflce_parser=aflces,
+            extrac_parser=extracs,
+            options=options,
         ).to_json_array()
 
         if not json_junctions:

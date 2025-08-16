@@ -220,7 +220,7 @@ def test_to_json_array_single_plant():
     assert turbine["uid"] == 1
     assert turbine["generator"] == 1
     assert turbine["waterway"] == ww1["uid"]
-    assert turbine["convertion_rate"] == 0.9
+    assert turbine["conversion_rate"] == 0.9
 
     assert len(result["flow_array"]) == 1
     flow = result["flow_array"][0]

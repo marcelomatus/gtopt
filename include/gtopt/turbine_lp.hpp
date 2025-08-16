@@ -55,6 +55,12 @@ public:
     return GeneratorLPSId {turbine().generator};
   }
 
+  /// @return Whether this turbine has drainage enabled
+  [[nodiscard]] constexpr auto drain() const noexcept
+  {
+    return turbine().drain.value_or(false);
+  }
+
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
@@ -64,8 +70,10 @@ public:
 
 private:
   OptTRealSched conversion_rate;
+  OptTRealSched capacity;
 
   STBIndexHolder<RowIndex> conversion_rows;
+  STBIndexHolder<RowIndex> capacity_rows;
 };
 
 }  // namespace gtopt
