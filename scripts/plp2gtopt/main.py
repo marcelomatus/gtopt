@@ -8,15 +8,17 @@ from pathlib import Path
 from .plp2gtopt import convert_plp_case
 
 
-def signal_handler(sig, frame):
-    """Handle Ctrl-C gracefully."""
-    print("\nInterrupted by user. Exiting...")
+def signal_handler(sig, _frame):
+    """Handle termination signals gracefully."""
+    signame = signal.strsignal(sig)
+    print(f"\nCaught signal {signame}. Exiting...")
     sys.exit(0)
 
 
 def main():
     """Parse arguments and initiate conversion."""
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     parser = argparse.ArgumentParser(
         description="Convert PLP input files to GTOPT format"
     )
