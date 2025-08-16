@@ -31,8 +31,13 @@ public:
   // Standard constructors with appropriate move semantics
   StrongIndexVector() = default;
 
+  explicit StrongIndexVector(typename std::vector<T>::size_type count)
+      : std::vector<T>(count)
+  {
+  }
+
   explicit StrongIndexVector(typename std::vector<T>::size_type count,
-                             const T& value = T())
+                             const T& value)
       : std::vector<T>(count, value)
   {
   }
