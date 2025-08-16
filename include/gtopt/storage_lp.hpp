@@ -61,7 +61,7 @@ public:
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp,
-                 const std::string_view cname,
+                 const std::string_view& cname,
                  const BIndexHolder<ColIndex>& rcols,
                  double stage_capacity,
                  std::optional<ColIndex> capacity_col = {})
@@ -94,10 +94,10 @@ public:
     const auto& blocks = stage.blocks();
 
     BIndexHolder<ColIndex> vcols;
-    vcols.reserve(blocks.size());
     BIndexHolder<RowIndex> vrows;
-    vrows.reserve(blocks.size());
     BIndexHolder<RowIndex> crows;
+    vcols.reserve(blocks.size());
+    vrows.reserve(blocks.size());
     crows.reserve(blocks.size());
 
     auto prev_vc = vicol;
@@ -152,7 +152,7 @@ public:
   }
 
   template<typename OutputContext>
-  bool add_to_output(OutputContext& out, std::string_view cname) const
+  bool add_to_output(OutputContext& out, const std::string_view& cname) const
   {
     const auto pid = id();
 

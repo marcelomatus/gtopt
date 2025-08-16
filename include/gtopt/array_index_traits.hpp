@@ -28,8 +28,8 @@ struct ArrayIndexBase
   template<typename... Uid>
   [[nodiscard]] static constexpr auto get_arrow_index(
       const SystemContext& system_context,
-      const std::string_view cname,
-      const std::string_view fname,
+      const std::string_view& cname,
+      const std::string_view& fname,
       const Id& id,
       auto& array_map,
       auto& table_map)
