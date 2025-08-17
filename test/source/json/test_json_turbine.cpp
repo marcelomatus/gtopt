@@ -12,7 +12,8 @@ TEST_CASE("Turbine daw json test 1")
     "waterway":10,
     "generator":20,
     "capacity":100.0,
-    "conversion_rate":50.0
+    "conversion_rate":50.0,
+    "drain":true
   })";
 
   gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
@@ -23,6 +24,8 @@ TEST_CASE("Turbine daw json test 1")
   CHECK(std::get<double>(turbine.capacity.value_or(-1.0)) == 100.0);
   CHECK(turbine.conversion_rate.has_value());
   CHECK(std::get<double>(turbine.conversion_rate.value_or(-1.0)) == 50.0);
+  CHECK(turbine.drain.has_value());
+  CHECK(turbine.drain.value() == true);
 }
 
 TEST_CASE("Turbine daw json test 2")
@@ -40,6 +43,7 @@ TEST_CASE("Turbine daw json test 2")
   CHECK(turbine.name == "TURBINE_A");
   CHECK(!turbine.capacity.has_value());
   CHECK(!turbine.conversion_rate.has_value());
+  CHECK(!turbine.drain.has_value());
 }
 
 TEST_CASE("Turbine array json test")
@@ -48,14 +52,16 @@ TEST_CASE("Turbine array json test")
     "uid":5,
     "name":"TURBINE_A",
     "waterway":10,
-    "generator":20
+    "generator":20,
+    "drain":false
   },{
     "uid":15,
     "name":"TURBINE_B",
     "capacity":200.0,
     "conversion_rate":75.0,
     "waterway":30,
-    "generator":40
+    "generator":40,
+    "drain":true
   }])";
 
   std::vector<gtopt::Turbine> turbines =
@@ -65,6 +71,8 @@ TEST_CASE("Turbine array json test")
   CHECK(turbines[0].name == "TURBINE_A");
   CHECK(!turbines[0].capacity.has_value());
   CHECK(!turbines[0].conversion_rate.has_value());
+  CHECK(turbines[0].drain.has_value());
+  CHECK(turbines[0].drain.value() == false);
 
   CHECK(turbines[1].uid == 15);
   CHECK(turbines[1].name == "TURBINE_B");
@@ -72,6 +80,8 @@ TEST_CASE("Turbine array json test")
   CHECK(std::get<double>(turbines[1].capacity.value_or(-1.0)) == 200.0);
   CHECK(turbines[1].conversion_rate.has_value());
   CHECK(std::get<double>(turbines[1].conversion_rate.value_or(-1.0)) == 75.0);
+  CHECK(turbines[1].drain.has_value());
+  CHECK(turbines[1].drain.value() == true);
 }
 
 TEST_CASE("Turbine with active property serialization")
@@ -84,12 +94,15 @@ TEST_CASE("Turbine with active property serialization")
     turbine.uid = 1;
     turbine.name = "test_turbine";
     turbine.active = True;
+    turbine.drain = false;
 
     auto json = daw::json::to_json(turbine);
     const Turbine roundtrip = daw::json::from_json<Turbine>(json);
 
     CHECK(roundtrip.active.has_value());
     CHECK(std::get<IntBool>(roundtrip.active.value_or(False)) == True);
+    CHECK(roundtrip.drain.has_value());
+    CHECK(roundtrip.drain.value() == false);
   }
 
   SUBCASE("With schedule active")
@@ -98,6 +111,7 @@ TEST_CASE("Turbine with active property serialization")
     turbine.uid = 1;
     turbine.name = "test_turbine";
     turbine.active = std::vector<IntBool> {True, False, True, False};
+    turbine.drain = std::nullopt;
 
     auto json = daw::json::to_json(turbine);
     Turbine roundtrip = daw::json::from_json<Turbine>(json);
@@ -112,6 +126,7 @@ TEST_CASE("Turbine with active property serialization")
       CHECK(active[2] == True);
       CHECK(active[3] == False);
     }
+    CHECK(!roundtrip.drain.has_value());
   }
 }
 
@@ -126,7 +141,8 @@ TEST_CASE("Turbine with empty optional fields")
     "capacity":null,
     "waterway":10,
     "generator":20,
-    "conversion_rate":null
+    "conversion_rate":null,
+    "drain":null
   })";
 
   Turbine turbine = daw::json::from_json<Turbine>(json_data);
@@ -136,4 +152,5 @@ TEST_CASE("Turbine with empty optional fields")
   CHECK(!turbine.active.has_value());
   CHECK(!turbine.capacity.has_value());
   CHECK(!turbine.conversion_rate.has_value());
+  CHECK(!turbine.drain.has_value());
 }
