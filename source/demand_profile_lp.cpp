@@ -70,7 +70,7 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
     const auto block_scost =
         sc.block_ecost(scenario, stage, block, stage_scost);
-    auto name = sc.lp_label(scenario, stage, block, cname, "prof", uid());
+    auto name = sc.lp_label(scenario, stage, block, cname, "spl", uid());
     const auto scol = lp.add_col({.name = name, .cost = block_scost});
     scols[buid] = scol;
 
@@ -80,10 +80,10 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
     if (capacity_col) {
       srow[*capacity_col] = -block_profile;
-      srows[buid] = lp.add_row(std::move(srow.greater_equal(0)));
+      srows[buid] = lp.add_row(std::move(srow.equal(0)));
     } else {
       const auto cprofile = stage_capacity * block_profile;
-      srows[buid] = lp.add_row(std::move(srow.greater_equal(cprofile)));
+      srows[buid] = lp.add_row(std::move(srow.equal(cprofile)));
     }
   }
 
@@ -101,6 +101,7 @@ bool DemandProfileLP::add_to_output(OutputContext& out) const
 
   out.add_col_sol(cname, "unserved", id(), spillover_cols);
   out.add_row_dual(cname, "unserved", id(), spillover_rows);
+  out.add_row_dual(cname, "spillover", id(), spillover_rows);
 
   return true;
 }

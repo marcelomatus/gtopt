@@ -27,7 +27,7 @@ class ManceParser(BaseParser):
         """Return the number of maintenance entries in the file."""
         return len(self.mances)
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 

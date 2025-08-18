@@ -53,5 +53,5 @@ class PLPParser:
             if not filepath.exists():
                 raise FileNotFoundError(f"{name} file not found: {filepath}")
             parser = parser_class(filepath)
-            parser.parse()
+            parser.parse(self.parsed_data)
             self.parsed_data[name] = parser

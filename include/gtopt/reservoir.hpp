@@ -5,11 +5,11 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This file defines the `gtopt::Reservoir` structure, which models a water reservoir
- * within a hydro-thermal power system. A reservoir is a key component for
- * storing and managing water resources, influencing power generation schedules
- * and water flow dynamics. It is characterized by its storage capacity,
- * operational limits, and associated costs.
+ * This file defines the `gtopt::Reservoir` structure, which models a water
+ * reservoir within a hydro-thermal power system. A reservoir is a key component
+ * for storing and managing water resources, influencing power generation
+ * schedules and water flow dynamics. It is characterized by its storage
+ * capacity, operational limits, and associated costs.
  */
 
 #pragma once
@@ -28,6 +28,16 @@ namespace gtopt
  * factors (like storage costs). It also links to a junction in the water
  * network. The data can be static or time-varying to model different
  * conditions over an optimization horizon.
+ *
+ * All the volume and capacity variables or parameters are in Deca cubic
+ * meters, dam3, where  1 dam3 = 1'000 m3.
+ *
+ * The flows are in m3/second, then in one hour, the accumulate volume for a
+ * given flow is V = flow * 3600 second / (1'000 m3 / dam3).
+ *
+ * Example: if flow = 1 m3/second, then in one hour, the accumulated volume is
+ *               V = 3.6 * flow [dam3]
+ *
  */
 struct Reservoir
 {
@@ -43,7 +53,8 @@ struct Reservoir
   /// @brief Optional time-varying storage capacity of the reservoir.
   OptTRealFieldSched capacity {};
 
-  /// @brief Optional time-varying annual water loss as a fraction of the stored volume (e.g., due to evaporation).
+  /// @brief Optional time-varying annual water loss as a fraction of the stored
+  /// volume (e.g., due to evaporation).
   OptTRealFieldSched annual_loss {};
   /// @brief Optional time-varying minimum allowed volume.
   OptTRealFieldSched vmin {};
@@ -51,13 +62,16 @@ struct Reservoir
   OptTRealFieldSched vmax {};
   /// @brief Optional time-varying cost associated with stored water volume.
   OptTRealFieldSched vcost {};
-  /// @brief Optional initial volume of water at the beginning of the optimization horizon.
+  /// @brief Optional initial volume of water at the beginning of the
+  /// optimization horizon.
   OptReal vini {};
-  /// @brief Optional final (target) volume of water at the end of the optimization horizon.
+  /// @brief Optional final (target) volume of water at the end of the
+  /// optimization horizon.
   OptReal vfin {};
 
   /// @brief Optional scaling factor for volume units. Defaults to 1.0.
   OptReal vol_scale {1.0};
+  OptReal flow_conversion_rate {3.6};
 };
 
 }  // namespace gtopt

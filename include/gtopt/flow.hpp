@@ -33,11 +33,11 @@ struct Flow
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
 
-  /// Flow direction: 1 for input, -1 for output
+  /// Flow direction: +1 for input, -1 for output
   OptInt direction {1};
 
   SingleId junction {unknown_uid};  ///< Connected junction identifier
-  STBRealFieldSched discharge {};  ///< Discharge schedule
+  STBRealFieldSched discharge {};  ///< Discharge schedule [m3/second]
 
   /// @return true if flow is directed into the junction
   [[nodiscard]] constexpr bool is_input() const noexcept

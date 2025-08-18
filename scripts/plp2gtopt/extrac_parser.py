@@ -26,7 +26,7 @@ class ExtracParser(BaseParser):
         """Return the number of extraction entries in the file."""
         return len(self.extracs)
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the extraction file and populate the data structure."""
         self.validate_file()
 

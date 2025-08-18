@@ -84,8 +84,12 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                               lp,
                               ClassName.short_name(),
                               rcols,
+                              flow_conversion_rate(),
                               stage_capacity))
   {
+    SPDLOG_CRITICAL(fmt::format(
+        "Failed to add storage constraints for reservoir {}", uid()));
+
     return false;
   }
 

@@ -23,7 +23,7 @@ class LineParser(BaseParser):
         _number_index_map: Dict mapping numbers to indices
     """
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the line file and populate the lines structure.
 
         Raises:

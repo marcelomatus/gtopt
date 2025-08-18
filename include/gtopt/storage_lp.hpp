@@ -63,6 +63,7 @@ public:
                  LinearProblem& lp,
                  const std::string_view& cname,
                  const BIndexHolder<ColIndex>& rcols,
+                 double flow_conversion_rate,
                  double stage_capacity,
                  std::optional<ColIndex> capacity_col = {})
   {
@@ -120,7 +121,7 @@ public:
       vrow[prev_vc] = -(1 - (hour_loss * block.duration()));
       vrow[vc] = 1;
 
-      vrow[rcols.at(buid)] = block.duration();
+      vrow[rcols.at(buid)] = flow_conversion_rate * block.duration();
 
       vrows[buid] = lp.add_row(std::move(vrow));
 

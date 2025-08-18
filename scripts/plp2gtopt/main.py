@@ -80,7 +80,8 @@ def main():
         "--probability-factors",
         dest="probability_factors",
         type=str,
-        help="comma-separated list of probability factors for each hydrology scenario (default: equal distribution)",
+        help="comma-separated list of probability factors for each hydrology scenario "
+        "(default: equal distribution)",
         default=None,
     )
     args = parser.parse_args()
