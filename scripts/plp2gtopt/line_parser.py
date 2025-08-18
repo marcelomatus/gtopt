@@ -8,7 +8,7 @@ Handles:
 - Line lookup by name or buses
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base_parser import BaseParser
 
 
@@ -23,7 +23,7 @@ class LineParser(BaseParser):
         _number_index_map: Dict mapping numbers to indices
     """
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the line file and populate the lines structure.
 
         Raises:

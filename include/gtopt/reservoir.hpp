@@ -69,6 +69,9 @@ struct Reservoir
   /// optimization horizon.
   OptReal vfin {};
 
+  OptReal fmin {-10'000.0};
+  OptReal fmax {+10'000.0};
+
   /// @brief Optional scaling factor for volume units. Defaults to 1.0.
   OptReal vol_scale {1.0};
   OptReal flow_conversion_rate {3.6};

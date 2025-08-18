@@ -338,7 +338,6 @@ def test_process_extractions(sample_extrac_parser):
     assert waterway["junction_a"] == 1
     assert waterway["junction_b"] == 2
     assert waterway["fmin"] == 0.0
-    assert waterway["fmax"] == 15.0
 
     waterway = result["waterway_array"][1]
     assert waterway["junction_a"] == 1

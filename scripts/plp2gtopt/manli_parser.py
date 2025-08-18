@@ -8,7 +8,7 @@ Handles:
 - Maintenance lookup by line name
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import numpy as np
 
 from .base_parser import BaseParser
@@ -27,7 +27,7 @@ class ManliParser(BaseParser):
         """Return the number of maintenance entries in the file."""
         return len(self.manlis)
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 

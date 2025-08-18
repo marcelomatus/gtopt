@@ -27,7 +27,7 @@ class AflceParser(BaseParser):
         """Get the number of flow entries."""
         return len(self.flows)
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the flow file and populate the data structure.
 
         Raises:
@@ -35,7 +35,9 @@ class AflceParser(BaseParser):
         """
         self.validate_file()
 
-        central_parser: CentralParser = parsers["central_parser"]
+        central_parser: CentralParser | None = (
+            parsers["central_parser"] if parsers else None
+        )
         try:
             lines = self._read_non_empty_lines()
             if not lines:
@@ -64,13 +66,6 @@ class AflceParser(BaseParser):
                 central = (
                     central_parser.get_central_by_name(name) if central_parser else None
                 )
-                central_scale = (
-                    central["pmax"]
-                    if central
-                    and central["type"] == "pasada"
-                    and central["pmax"] != 0.0
-                    else 1.0
-                )
 
                 # Get number of blocks
                 idx = self._next_idx(idx, lines)
@@ -95,9 +90,15 @@ class AflceParser(BaseParser):
 
                     blocks[block_idx] = self._parse_int(parts[1])  # Block number
                     flows[block_idx] = [
-                        self._parse_float(v) / central_scale
-                        for v in parts[2 : 2 + num_hydrologies]
+                        self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
                     ]
+
+                # scale flows if central is of type 'pasada'
+                if central and central["type"] == "pasada":
+                    central_pmax = central.get("pmax", 0.0)
+                    central_pmax = max(central_pmax, np.max(flows))
+                    central["pmax"] = central_pmax
+                    flows = flows / central_pmax if central_pmax > 0 else flows
 
                 # Store complete data
                 self._append(
