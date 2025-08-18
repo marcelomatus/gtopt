@@ -68,11 +68,11 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
 
   const auto flow_conversion_rate = 1.0;
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
-  if (!StorageBase::add_to_lp(sc,
+  if (!StorageBase::add_to_lp(cname,
+                              sc,
                               scenario,
                               stage,
                               lp,
-                              cname,
                               fcols,
                               flow_conversion_rate,
                               stage_capacity,
