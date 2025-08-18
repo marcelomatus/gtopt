@@ -15,7 +15,7 @@
 
 namespace gtopt
 {
-class DemandProfileLP : public ObjectLP<DemandProfile>
+class DemandProfileLP : public ProfileObjectLP<DemandProfile, DemandLP>
 {
 public:
   static constexpr LPClassName ClassName {"DemandProfile", "dpr"};
@@ -39,12 +39,8 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-private:
-  OptTRealSched scost;
-  STBRealSched profile;
-
-  STBIndexHolder<ColIndex> spillover_cols;
-  STBIndexHolder<RowIndex> spillover_rows;
+protected:
+  using ProfileObjectLP<DemandProfile, DemandLP>::ProfileObjectLP;
 };
 
 }  // namespace gtopt

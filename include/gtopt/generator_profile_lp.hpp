@@ -28,7 +28,7 @@ namespace gtopt
  * - Profile constraint generation
  * - Solution output processing
  */
-class GeneratorProfileLP : public ObjectLP<GeneratorProfile>
+class GeneratorProfileLP : public ProfileObjectLP<GeneratorProfile, GeneratorLP>
 {
 public:
   /// Class name constant used for labeling LP elements
@@ -54,12 +54,8 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-private:
-  OptTRealSched scost;
-  STBRealSched profile;
-
-  STBIndexHolder<ColIndex> spillover_cols;
-  STBIndexHolder<RowIndex> spillover_rows;
+protected:
+  using ProfileObjectLP<GeneratorProfile, GeneratorLP>::ProfileObjectLP;
 };
 
 }  // namespace gtopt
