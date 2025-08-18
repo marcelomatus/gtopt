@@ -12,7 +12,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  1.2934600  0.0000000  1.4534093  1.0E+9       T
+             0.0  1.000      0      2      0    0.0  0012.0  0.6570569  0.6570569  0.0000000  1.4534093  1.0E+9       T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
     6 'CIPRESES'                                        1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -20,7 +20,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  2.864    115      9      9    0.0  0034.2  0.9554300  1.6053943  0.0471636  1.7466033  1.0E+8       T
+             0.0  2.864    115      9      9    0.0  0034.2  0.9554300  0.9554300  0.0471636  1.7466033  1.0E+8       T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    21 'PEHUENCHE'                                       1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -36,7 +36,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  1.530    120     33      0    0.0  0068.5  0.9087234  1.5532459  0.3816243  1.5532459  1.0E+9       T
+             0.0  1.530    120     33      0    0.0  0068.5  0.9087234  0.9087234  0.3816243  1.5532459  1.0E+9       T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    37 'ELTORO'                                          1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -44,7 +44,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  4.800     96     39     38    0.0  0183.4  0.1731823  0.3777430  0.0000000  0.5585888  1.0E+10      T
+             0.0  4.800     96     39     38    0.0  0183.4  0.1731823  0.1731823  0.0000000  0.5585888  1.0E+10      T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    63 'RAPEL'                                           1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax
@@ -52,7 +52,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  0.640    177      0      0    0.0  0576.9  0.2850326  0.5632124  0.1302219  0.5632124  1.0E+9       T
+             0.0  0.640    177      0      0    0.0  0576.9  0.2850326  0.2850326  0.1302219  0.5632124  1.0E+9       T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    64 'CANUTILLAR'                                      1    F       F       F       F           T          0           0
           PotMin PotMax VertMin VertMax
@@ -60,7 +60,7 @@
            Start   Stop ON(t<0) NEta_OnOff
              0.0    0.0 F       0               Pot.           Volumen    Volumen    Volumen    Volumen  Factor
           CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial      Final     Minimo     Maximo  Escala EmbCFUE
-             0.0  2.000    102      0      0    0.0  0126.3  0.5401160  1.0653785  0.4497390  1.0653785  1.0E+9       T
+             0.0  2.000    102      0      0    0.0  0126.3  0.5401160  0.5401160 0.4497390  1.0653785  1.0E+9       T
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz Hid_Indep  Cen_NEtaArr Cen_NEtaDet
    65 'RALCO'                                           1    F       F       F       F           F          0           0
           PotMin PotMax VertMin VertMax

@@ -2,10 +2,8 @@
 
 """Writer for converting extraction data to JSON format."""
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
 
-import pandas as pd
 from .base_writer import BaseWriter
 from .extrac_parser import ExtracParser
 

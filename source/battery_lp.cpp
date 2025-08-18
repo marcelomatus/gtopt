@@ -66,10 +66,17 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     fcols[block.uid()] = col;
   }
 
+  const auto flow_conversion_rate = 1.0;
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
-  if (!StorageBase::add_to_lp(
-          sc, scenario, stage, lp, cname, fcols, stage_capacity, capacity_col))
-      [[unlikely]]
+  if (!StorageBase::add_to_lp(sc,
+                              scenario,
+                              stage,
+                              lp,
+                              cname,
+                              fcols,
+                              flow_conversion_rate,
+                              stage_capacity,
+                              capacity_col))
   {
     SPDLOG_CRITICAL(
         fmt::format("Failed to add storage constraints for battery {}", uid()));

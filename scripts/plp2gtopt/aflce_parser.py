@@ -11,10 +11,11 @@ import numpy as np
 
 
 from .base_parser import BaseParser
+from .central_parser import CentralParser
 
 
 class AflceParser(BaseParser):
-    """Parser for plpaflce.dat format files containing hydro flow data."""
+    """Parser for plpaflce.dat format files containing hyyro flow data."""
 
     @property
     def flows(self) -> List[Dict[str, Any]]:
@@ -26,7 +27,7 @@ class AflceParser(BaseParser):
         """Get the number of flow entries."""
         return len(self.flows)
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the flow file and populate the data structure.
 
         Raises:
@@ -34,6 +35,7 @@ class AflceParser(BaseParser):
         """
         self.validate_file()
 
+        central_parser: CentralParser = parsers["central_parser"]
         try:
             lines = self._read_non_empty_lines()
             if not lines:
@@ -59,6 +61,16 @@ class AflceParser(BaseParser):
                 # Get central name
                 idx = self._next_idx(idx, lines)
                 name = self._parse_name(lines[idx])
+                central = (
+                    central_parser.get_central_by_name(name) if central_parser else None
+                )
+                central_scale = (
+                    central["pmax"]
+                    if central
+                    and central["type"] == "pasada"
+                    and central["pmax"] != 0.0
+                    else 1.0
+                )
 
                 # Get number of blocks
                 idx = self._next_idx(idx, lines)
@@ -83,7 +95,8 @@ class AflceParser(BaseParser):
 
                     blocks[block_idx] = self._parse_int(parts[1])  # Block number
                     flows[block_idx] = [
-                        self._parse_float(v) for v in parts[2 : 2 + num_hydrologies]
+                        self._parse_float(v) / central_scale
+                        for v in parts[2 : 2 + num_hydrologies]
                     ]
 
                 # Store complete data

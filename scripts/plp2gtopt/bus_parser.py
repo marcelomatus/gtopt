@@ -42,7 +42,7 @@ class BusParser(BaseParser):
         """Return the number of buses in the file."""
         return len(self.buses)
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the bus file and populate the buses structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()

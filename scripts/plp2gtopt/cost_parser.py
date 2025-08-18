@@ -3,7 +3,7 @@
 """Parser for plpcosce.dat format files containing central cost data."""
 
 import numpy as np
-
+from typing import Any
 from .base_parser import BaseParser
 
 
@@ -20,7 +20,7 @@ class CostParser(BaseParser):
         """Return the number of cost entries in the file."""
         return len(self.costs)
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the cost file and populate the costs structure."""
         self.validate_file()
 

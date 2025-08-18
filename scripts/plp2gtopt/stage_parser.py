@@ -19,7 +19,7 @@ class StageParser(BaseParser):
     - Duration and discount factor calculation
     """
 
-    def parse(self) -> None:
+    def parse(self, parsers: dict[str, Any] = None) -> None:
         """Parse the stage file and populate the stages structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()
