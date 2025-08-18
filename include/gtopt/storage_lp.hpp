@@ -34,7 +34,7 @@ public:
   template<typename ObjectT>
   explicit StorageLP(ObjectT&& pstorage,
                      const InputContext& ic,
-                     const LPClassName cname)
+                     const LPClassName& cname)
       : Object(std::forward<ObjectT>(pstorage), ic, cname)
       , vmin(ic, cname.full_name(), id(), std::move(storage().vmin))
       , vmax(ic, cname.full_name(), id(), std::move(storage().vmax))
@@ -57,11 +57,11 @@ public:
   }
 
   template<typename SystemContextT>
-  bool add_to_lp(const SystemContextT& sc,
+  bool add_to_lp(const std::string_view& cname,
+                 const SystemContextT& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp,
-                 const std::string_view& cname,
                  const BIndexHolder<ColIndex>& rcols,
                  double flow_conversion_rate,
                  double stage_capacity,

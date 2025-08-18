@@ -39,9 +39,6 @@ public:
                                LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
-
-protected:
-  using ProfileObjectLP<DemandProfile, DemandLP>::ProfileObjectLP;
 };
 
 }  // namespace gtopt

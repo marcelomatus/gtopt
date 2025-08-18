@@ -19,15 +19,15 @@ namespace gtopt
 {
 
 DemandProfileLP::DemandProfileLP(DemandProfile pdemand_profile,
-                               InputContext& ic)
+                                 InputContext& ic)
     : ProfileObjectLP(std::move(pdemand_profile), ic, ClassName)
 {
 }
 
 bool DemandProfileLP::add_to_lp(const SystemContext& sc,
-                              const ScenarioLP& scenario,
-                              const StageLP& stage,
-                              LinearProblem& lp)
+                                const ScenarioLP& scenario,
+                                const StageLP& stage,
+                                LinearProblem& lp)
 {
   auto&& demand = sc.element<DemandLP>(demand_sid());
   if (!demand.is_active(stage)) {
@@ -35,30 +35,30 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   }
 
   auto&& load_cols = demand.load_cols_at(scenario, stage);
-  const auto [stage_capacity, capacity_col] = demand.capacity_and_col(stage, lp);
+
+  const auto [stage_capacity, capacity_col] =
+      demand.capacity_and_col(stage, lp);
 
   if (!capacity_col && !demand.demand().capacity) {
-    SPDLOG_WARN("DemandProfile requires that Demand defines capacity or expansion");
+    SPDLOG_WARN(
+        "DemandProfile requires that Demand defines capacity or expansion");
     return false;
   }
 
-  for (const auto& block : stage.blocks()) {
-    const auto lcol = load_cols.at(block.uid());
-    return add_profile_to_lp(ClassName.short_name(), sc, scenario, stage, lp, 
-                           "unserved", lcol, capacity_col, stage_capacity);
-  }
-  return true;
+  return add_profile_to_lp(ClassName.short_name(),
+                           sc,
+                           scenario,
+                           stage,
+                           lp,
+                           "usv",
+                           load_cols,
+                           capacity_col,
+                           stage_capacity);
 }
 
 bool DemandProfileLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
-
-  out.add_col_sol(cname, "unserved", id(), spillover_cols);
-  out.add_row_dual(cname, "unserved", id(), spillover_rows);
-  out.add_row_dual(cname, "spillover", id(), spillover_rows);
-
-  return true;
+  return add_profile_to_output(ClassName.full_name(), out, "unserved");
 }
 
 }  // namespace gtopt

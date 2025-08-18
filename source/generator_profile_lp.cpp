@@ -23,7 +23,7 @@
 namespace gtopt
 {
 GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
-                                     InputContext& ic)
+                                       InputContext& ic)
     : ProfileObjectLP(std::move(pgenerator_profile), ic, ClassName)
 {
 }
@@ -33,12 +33,6 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
-  if (!is_active(stage)) {
-    return true;
-  }
-
   auto&& generator = sc.element<GeneratorLP>(generator_sid());
   if (!generator.is_active(stage)) {
     return true;
@@ -56,52 +50,20 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  const auto stage_scost = scost.optval(stage.uid()).value_or(0.0);
-
-  const auto& blocks = stage.blocks();
-
-  BIndexHolder<ColIndex> scols;
-  BIndexHolder<RowIndex> srows;
-  scols.reserve(blocks.size());
-  srows.reserve(blocks.size());
-
-  for (const auto& block : blocks) {
-    const auto buid = block.uid();
-    const auto gcol = generation_cols.at(buid);
-    const auto block_profile = profile.at(scenario.uid(), stage.uid(), buid);
-
-    const auto block_scost =
-        sc.block_ecost(scenario, stage, block, stage_scost);
-    auto name = sc.lp_label(scenario, stage, block, cname, "spl", uid());
-    const auto scol = lp.add_col({.name = name, .cost = block_scost});
-    scols[buid] = scol;
-
-    auto srow = SparseRow {.name = std::move(name)};
-    srow[scol] = 1;
-    srow[gcol] = 1;
-
-    if (capacity_col) {
-      srow[capacity_col.value()] = -block_profile;
-      srows[buid] = lp.add_row(std::move(srow.equal(0)));
-    } else {
-      const auto cprofile = stage_capacity * block_profile;
-      srows[buid] = lp.add_row(std::move(srow.equal(cprofile)));
-    }
-  }
-
-  // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
-  spillover_cols[st_key] = std::move(scols);
-  spillover_rows[st_key] = std::move(srows);
-
-  return true;
+  return add_profile_to_lp(ClassName.short_name(),
+                           sc,
+                           scenario,
+                           stage,
+                           lp,
+                           "spo",
+                           generation_cols,
+                           capacity_col,
+                           stage_capacity);
 }
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  add_profile_to_output(ClassName.full_name(), out, "spillover");
-  out.add_col_cost(ClassName.full_name(), "spillover", id(), spillover_cols_);
-  return true;
+  return add_profile_to_output(ClassName.full_name(), out, "spillover");
 }
 
 }  // namespace gtopt

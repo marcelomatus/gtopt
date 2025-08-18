@@ -78,11 +78,11 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
     brow[rc] = 1;
   }
 
-  if (!StorageBase::add_to_lp(sc,
+  if (!StorageBase::add_to_lp(cname,
+                              sc,
                               scenario,
                               stage,
                               lp,
-                              ClassName.short_name(),
                               rcols,
                               flow_conversion_rate(),
                               stage_capacity))
