@@ -23,10 +23,8 @@
 namespace gtopt
 {
 GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
-                                       InputContext& ic)
-    : ObjectLP<GeneratorProfile>(std::move(pgenerator_profile))
-    , scost(ic, ClassName, id(), std::move(generator_profile().scost))
-    , profile(ic, ClassName, id(), std::move(generator_profile().profile))
+                                     InputContext& ic)
+    : ProfileObjectLP(std::move(pgenerator_profile), ic, ClassName)
 {
 }
 
@@ -101,12 +99,8 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
-
-  out.add_col_sol(cname, "spillover", id(), spillover_cols);
-  out.add_col_cost(cname, "spillover", id(), spillover_cols);
-  out.add_row_dual(cname, "spillover", id(), spillover_rows);
-
+  add_profile_to_output(ClassName.full_name(), out, "spillover");
+  out.add_col_cost(ClassName.full_name(), "spillover", id(), spillover_cols_);
   return true;
 }
 

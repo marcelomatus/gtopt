@@ -19,79 +19,34 @@ namespace gtopt
 {
 
 DemandProfileLP::DemandProfileLP(DemandProfile pdemand_profile,
-                                 InputContext& ic)
-    : ObjectLP<DemandProfile>(std::move(pdemand_profile))
-    , scost(ic, ClassName, id(), std::move(demand_profile().scost))
-    , profile(ic, ClassName, id(), std::move(demand_profile().profile))
+                               InputContext& ic)
+    : ProfileObjectLP(std::move(pdemand_profile), ic, ClassName)
 {
 }
 
 bool DemandProfileLP::add_to_lp(const SystemContext& sc,
-                                const ScenarioLP& scenario,
-                                const StageLP& stage,
-                                LinearProblem& lp)
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
-  if (!is_active(stage)) {
-    return true;
-  }
-
   auto&& demand = sc.element<DemandLP>(demand_sid());
   if (!demand.is_active(stage)) {
     return true;
   }
 
   auto&& load_cols = demand.load_cols_at(scenario, stage);
-
-  const auto [stage_capacity, capacity_col] =
-      demand.capacity_and_col(stage, lp);
+  const auto [stage_capacity, capacity_col] = demand.capacity_and_col(stage, lp);
 
   if (!capacity_col && !demand.demand().capacity) {
-    SPDLOG_WARN("requires that Demand defines capacity or expansion");
+    SPDLOG_WARN("DemandProfile requires that Demand defines capacity or expansion");
     return false;
   }
 
-  const auto stage_scost = scost.optval(stage.uid()).value_or(0.0);
-
-  const auto& blocks = stage.blocks();
-
-  BIndexHolder<ColIndex> scols;
-  BIndexHolder<RowIndex> srows;
-  scols.reserve(blocks.size());
-  srows.reserve(blocks.size());
-
-  for (const auto& block : blocks) {
-    const auto buid = block.uid();
-    const auto lcol = load_cols.at(buid);
-
-    const auto block_profile =
-        profile.at(scenario.uid(), stage.uid(), block.uid());
-
-    const auto block_scost =
-        sc.block_ecost(scenario, stage, block, stage_scost);
-    auto name = sc.lp_label(scenario, stage, block, cname, "spl", uid());
-    const auto scol = lp.add_col({.name = name, .cost = block_scost});
-    scols[buid] = scol;
-
-    auto srow = SparseRow {.name = std::move(name)};
-    srow[scol] = 1;
-    srow[lcol] = 1;
-
-    if (capacity_col) {
-      srow[*capacity_col] = -block_profile;
-      srows[buid] = lp.add_row(std::move(srow.equal(0)));
-    } else {
-      const auto cprofile = stage_capacity * block_profile;
-      srows[buid] = lp.add_row(std::move(srow.equal(cprofile)));
-    }
+  for (const auto& block : stage.blocks()) {
+    const auto lcol = load_cols.at(block.uid());
+    return add_profile_to_lp(ClassName.short_name(), sc, scenario, stage, lp, 
+                           "unserved", lcol, capacity_col, stage_capacity);
   }
-
-  // Store spillover columns and rows for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
-  spillover_cols[st_key] = std::move(scols);
-  spillover_rows[st_key] = std::move(srows);
-
   return true;
 }
 
