@@ -28,21 +28,21 @@ namespace gtopt {
  */
 template<typename ProfileType, typename ElementLPType>
 class ProfileObjectLP : public ObjectLP<ProfileType> {
-protected:
+private:
     using Base = ObjectLP<ProfileType>;
     using typename Base::ClassName;
     using typename Base::id;
     using Base::is_active;
 
     /// Spillover column indices (scenario × stage × block)
-    STBIndexHolder<ColIndex> spillover_cols;
+    STBIndexHolder<ColIndex> spillover_cols_;
     /// Spillover row indices (scenario × stage × block) 
-    STBIndexHolder<RowIndex> spillover_rows;
+    STBIndexHolder<RowIndex> spillover_rows_;
 
     /// Profile schedule data
-    const STBRealSched profile;
+    STBRealSched profile_;
     /// Short-term cost schedule
-    const OptTRealSched scost;
+    OptTRealSched scost_;
 
     /**
      * @brief Construct a new ProfileObjectLP
@@ -52,8 +52,8 @@ protected:
      */
     explicit ProfileObjectLP(ProfileType pprofile, InputContext& ic)
         : Base(std::move(pprofile))
-        , profile(ic, ClassName, id(), std::move(Base::object().profile))
-        , scost(ic, ClassName, id(), std::move(Base::object().scost))
+        , profile_(ic, this->ClassName, this->id(), std::move(Base::object().profile))
+        , scost_(ic, this->ClassName, this->id(), std::move(Base::object().scost))
     {
     }
 
@@ -95,11 +95,11 @@ protected:
 
         for (const auto& block : blocks) {
             const auto buid = block.uid();
-            const auto block_profile = profile.at(scenario.uid(), stage.uid(), buid);
+            const auto block_profile = profile_.at(scenario.uid(), stage.uid(), buid);
             const auto block_scost = sc.block_ecost(scenario, stage, block, stage_scost);
 
             auto name = sc.lp_label(scenario, stage, block, 
-                                  ClassName.short_name(), profile_type, id());
+                                  this->ClassName.short_name(), profile_type, this->id());
             const auto scol = lp.add_col({
                 .name = name, 
                 .cost = block_scost
@@ -121,8 +121,8 @@ protected:
 
         // Store indices for this scenario and stage
         const auto st_key = std::pair {scenario.uid(), stage.uid()};
-        spillover_cols[st_key] = std::move(scols);
-        spillover_rows[st_key] = std::move(srows);
+        spillover_cols_[st_key] = std::move(scols);
+        spillover_rows_[st_key] = std::move(srows);
 
         return true;
     }
@@ -137,8 +137,8 @@ protected:
     bool add_profile_to_output(OutputContext& out, 
                              std::string_view profile_type) const
     {
-        out.add_col_sol(ClassName.full_name(), profile_type, id(), spillover_cols);
-        out.add_row_dual(ClassName.full_name(), profile_type, id(), spillover_rows);
+        out.add_col_sol(this->ClassName.full_name(), profile_type, this->id(), spillover_cols_);
+        out.add_row_dual(this->ClassName.full_name(), profile_type, this->id(), spillover_rows_);
         return true;
     }
 };
