@@ -9,7 +9,7 @@ Handles:
 """
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from .base_parser import BaseParser
 
 
@@ -31,7 +31,7 @@ class BlockParser(BaseParser):
         super().__init__(file_path)
         self.stage_number_map: Dict[int, int] = {}
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the block file and populate the blocks structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()

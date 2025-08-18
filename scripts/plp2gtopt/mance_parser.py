@@ -8,7 +8,7 @@ Handles:
 - Maintenance lookup by name
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .base_parser import BaseParser
@@ -27,7 +27,7 @@ class ManceParser(BaseParser):
         """Return the number of maintenance entries in the file."""
         return len(self.mances)
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 

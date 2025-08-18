@@ -50,7 +50,7 @@ class BaseParser(ABC):
         return [self._parse_int(v) for v in values]
 
     @abstractmethod
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the input file."""
 
     def get_all(self) -> List[Dict[str, Any]]:

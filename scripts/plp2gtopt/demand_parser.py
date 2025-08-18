@@ -7,9 +7,9 @@ Handles:
 - Demand data structure creation
 - Bus demand lookup
 """
+from typing import Any, Optional
 
 import numpy as np
-from typing import Any
 from .base_parser import BaseParser
 
 
@@ -26,7 +26,7 @@ class DemandParser(BaseParser):
         """Return the number of demand entries in the file."""
         return len(self.demands)
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the demand file and populate the demands structure."""
         self.validate_file()
 

@@ -8,7 +8,7 @@ Handles:
 - Extraction lookup by name
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .base_parser import BaseParser
 
@@ -26,7 +26,7 @@ class ExtracParser(BaseParser):
         """Return the number of extraction entries in the file."""
         return len(self.extracs)
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the extraction file and populate the data structure."""
         self.validate_file()
 

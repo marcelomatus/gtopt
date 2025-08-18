@@ -50,11 +50,6 @@ public:
     return JunctionLPSId {reservoir().junction};
   }
 
-  [[nodiscard]] constexpr auto vol_scale() const noexcept
-  {
-    return reservoir().vol_scale.value_or(1.0);
-  }
-
   [[nodiscard]] constexpr auto flow_conversion_rate() const noexcept
   {
     return reservoir().flow_conversion_rate.value_or(3.6);

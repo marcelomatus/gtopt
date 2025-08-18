@@ -61,6 +61,9 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
   auto&& balance_rows = junction.balance_rows_at(scenario, stage);
   auto&& blocks = stage.blocks();
 
+  const auto fmin = reservoir().fmin.value_or(-COIN_DBL_MAX);
+  const auto fmax = reservoir().fmax.value_or(+COIN_DBL_MAX);
+
   BIndexHolder<ColIndex> rcols;
   rcols.reserve(blocks.size());
 
@@ -68,8 +71,10 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
     const auto buid = block.uid();
 
     const auto rc = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "fext", uid())}
-                                   .free());
+        .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
+        .lowb = fmin,
+        .uppb = fmax});
+
     rcols[buid] = rc;
 
     // the flow in the reservoir is an extraction, therefore, it adds flow  to

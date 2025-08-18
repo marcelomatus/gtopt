@@ -26,6 +26,8 @@ struct json_data_contract<Reservoir>
       json_variant_null<"vcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_number_null<"vini", OptReal>,
       json_number_null<"vfin", OptReal>,
+      json_number_null<"fmin", OptReal>,
+      json_number_null<"fmax", OptReal>,
       json_number_null<"vol_scale", OptReal>,
       json_number_null<"flow_conversion_rate", OptReal>>;
 
@@ -42,6 +44,8 @@ struct json_data_contract<Reservoir>
                                  reservoir.vcost,
                                  reservoir.vini,
                                  reservoir.vfin,
+                                 reservoir.fmin,
+                                 reservoir.fmax,
                                  reservoir.vol_scale,
                                  reservoir.flow_conversion_rate);
   }

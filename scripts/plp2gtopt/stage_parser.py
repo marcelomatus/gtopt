@@ -4,7 +4,7 @@
 """Parser for plpeta.dat format files containing stage data."""
 
 
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 
 from .base_parser import BaseParser
@@ -19,7 +19,7 @@ class StageParser(BaseParser):
     - Duration and discount factor calculation
     """
 
-    def parse(self, parsers: dict[str, Any] = None) -> None:
+    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the stage file and populate the stages structure."""
         self.validate_file()
         lines = self._read_non_empty_lines()

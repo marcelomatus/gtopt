@@ -58,6 +58,9 @@ class Reservoir(TypedDict):
     vmin: float
     vmax: float
     capacity: float
+    fmin: float
+    fmax: float
+    flow_conversion_rate: float
 
 
 class Turbine(TypedDict):
@@ -313,5 +316,8 @@ class JunctionWriter(BaseWriter):
                 "vmin": reservoir_data["vol_min"],
                 "vmax": reservoir_data["vol_max"],
                 "capacity": reservoir_data["vol_max"],
+                "fmin": -8000.0,
+                "fmax": +8000.0,
+                "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)

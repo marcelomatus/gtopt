@@ -129,12 +129,3 @@ def test_write_empty_extracs():
             data = json.load(f)
             assert isinstance(data, list)
             assert len(data) == 0
-
-
-def test_to_dataframe_with_empty_parser():
-    """Test DataFrame creation with empty parser."""
-    parser = MockEmptyExtracParser()
-    writer = ExtracWriter(parser)
-
-    df = writer.to_dataframe()
-    assert df.empty

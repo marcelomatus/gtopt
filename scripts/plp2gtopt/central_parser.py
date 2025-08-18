@@ -55,7 +55,7 @@ class CentralParser(BaseParser):
         return len(self.centrals)
 
     def parse(
-        self, parsers: dict[str, Any] = None
+        self, parsers: Optional[dict[str, Any]] = None
     ) -> None:  # pylint: disable=too-many-branches,too-many-statements
         """Parse the central file and populate the centrals structure."""
         self.validate_file()
@@ -222,7 +222,7 @@ class CentralParser(BaseParser):
             # Optional fields for embalses
             if len(parts) > 7:
                 scale = (
-                    self._parse_float(parts[11]) / 1000.0 if len(parts) > 11 else 1.0
+                    self._parse_float(parts[11]) / 1000000.0 if len(parts) > 11 else 1.0
                 )
                 current_gen["vol_ini"] = self._parse_float(parts[7]) * scale
                 current_gen["vol_fin"] = self._parse_float(parts[8]) * scale
