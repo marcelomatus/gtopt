@@ -16,6 +16,7 @@
 
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/profile_object_lp.hpp>
 
 namespace gtopt
 {

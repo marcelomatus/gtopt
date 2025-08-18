@@ -12,6 +12,7 @@
 
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile.hpp>
+#include <gtopt/profile_object_lp.hpp>
 
 namespace gtopt
 {
