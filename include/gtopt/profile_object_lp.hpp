@@ -28,10 +28,9 @@ namespace gtopt {
  */
 template<typename ProfileType, typename ElementLPType>
 class ProfileObjectLP : public ObjectLP<ProfileType> {
-private:
     using Base = ObjectLP<ProfileType>;
-    using typename Base::ClassName;
-    using typename Base::id;
+    using ClassName = typename Base::ClassName;
+    using id = typename Base::id;
     using Base::is_active;
 
     /// Spillover column indices (scenario × stage × block)
@@ -52,8 +51,8 @@ private:
      */
     explicit ProfileObjectLP(ProfileType pprofile, InputContext& ic)
         : Base(std::move(pprofile))
-        , profile_(ic, this->ClassName, this->id(), std::move(Base::object().profile))
-        , scost_(ic, this->ClassName, this->id(), std::move(Base::object().scost))
+        , profile_(ic, ClassName{}, id{}(), std::move(Base::object().profile))
+        , scost_(ic, ClassName{}, id{}(), std::move(Base::object().scost))
     {
     }
 
@@ -85,7 +84,7 @@ private:
             return true;
         }
 
-        const auto stage_scost = scost.optval(stage.uid()).value_or(0.0);
+        const auto stage_scost = scost_.optval(stage.uid()).value_or(0.0);
         const auto& blocks = stage.blocks();
 
         BIndexHolder<ColIndex> scols;
@@ -99,7 +98,7 @@ private:
             const auto block_scost = sc.block_ecost(scenario, stage, block, stage_scost);
 
             auto name = sc.lp_label(scenario, stage, block, 
-                                  this->ClassName.short_name(), profile_type, this->id());
+                                  ClassName::short_name(), profile_type, id{}());
             const auto scol = lp.add_col({
                 .name = name, 
                 .cost = block_scost
@@ -137,8 +136,8 @@ private:
     bool add_profile_to_output(OutputContext& out, 
                              std::string_view profile_type) const
     {
-        out.add_col_sol(this->ClassName.full_name(), profile_type, this->id(), spillover_cols_);
-        out.add_row_dual(this->ClassName.full_name(), profile_type, this->id(), spillover_rows_);
+        out.add_col_sol(ClassName::full_name(), profile_type, id{}(), spillover_cols_);
+        out.add_row_dual(ClassName::full_name(), profile_type, id{}(), spillover_rows_);
         return true;
     }
 };
