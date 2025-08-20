@@ -44,9 +44,9 @@ def test_to_json_array(sample_manem_writer):
     # Verify each maintenance has required fields
     required_fields = {
         "name": str,
-        "block": list,
-        "volmin": list,
-        "volmax": list,
+        "stage": list,
+        "vmin": list,
+        "vmax": list,
     }
 
     for manem in json_manems:
@@ -78,9 +78,9 @@ def test_json_output_structure(sample_manem_writer):
     # Expected structure
     REQUIRED_FIELDS = {
         "name": str,
-        "block": list,
-        "volmin": list,
-        "volmax": list,
+        "stage": list,
+        "vmin": list,
+        "vmax": list,
     }
 
     for manem in json_manems:
@@ -93,13 +93,13 @@ def test_json_output_structure(sample_manem_writer):
 
         # Additional value checks
         assert len(manem["name"]) > 0, "Name should not be empty"
-        assert len(manem["block"]) > 0, "Should have at least one block"
-        assert len(manem["block"]) == len(
-            manem["volmin"]
-        ), "Blocks and vol_min should match"
-        assert len(manem["block"]) == len(
-            manem["volmax"]
-        ), "Blocks and vol_max should match"
+        assert len(manem["stage"]) > 0, "Should have at least one stage"
+        assert len(manem["stage"]) == len(
+            manem["vmin"]
+        ), "Stages and vol_min should match"
+        assert len(manem["stage"]) == len(
+            manem["vmax"]
+        ), "Stages and vol_max should match"
 
 
 class MockEmptyManemParser(ManemParser):
@@ -143,7 +143,7 @@ def test_to_dataframe_with_empty_parser():
     parser = MockEmptyManemParser()
     writer = ManemWriter(parser)
 
-    df_volmin, df_volmax = writer.to_dataframe()
+    df_vmin, df_vmax = writer.to_dataframe()
 
-    assert df_volmin.empty
-    assert df_volmax.empty
+    assert df_vmin.empty
+    assert df_vmax.empty

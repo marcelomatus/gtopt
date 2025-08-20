@@ -10,12 +10,17 @@ Converts central plant data into:
 - Turbines (energy conversion points)
 """
 
+import typing
+from pathlib import Path
 from typing import Any, Dict, List, Optional, cast, TypedDict
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
+from .manem_parser import ManemParser
+from .manem_writer import ManemWriter
+from .stage_parser import StageParser
 
 
 class Waterway(TypedDict, total=False):
@@ -55,8 +60,8 @@ class Reservoir(TypedDict):
     junction: int
     vini: float
     vfin: float
-    vmin: float
-    vmax: float
+    vmin: float | str
+    vmax: float | str
     capacity: float
     fmin: float
     fmax: float
@@ -89,8 +94,10 @@ class JunctionWriter(BaseWriter):
     def __init__(
         self,
         central_parser: Optional[CentralParser] = None,
+        stage_parser: Optional[StageParser] = None,
         aflce_parser: Optional[AflceParser] = None,
         extrac_parser: Optional[ExtracParser] = None,
+        manem_parser: Optional[ManemParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -102,9 +109,16 @@ class JunctionWriter(BaseWriter):
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
+        self.stage_parser = stage_parser
         self.aflce_parser = aflce_parser
         self.extrac_parser = extrac_parser
+        self.manem_parser = manem_parser
         self._waterway_counter = 0
+
+    @property
+    def central_parser(self) -> CentralParser:
+        """Get the central parser instance."""
+        return typing.cast(CentralParser, self.parser)
 
     def _create_waterway(
         self,
@@ -157,7 +171,9 @@ class JunctionWriter(BaseWriter):
         Returns:
             List containing single hydro system dictionary with all elements
         """
-        central_parser = cast(CentralParser, self.parser)
+        parquet_cols = self._write_parquet_files()
+
+        central_parser = self.central_parser
 
         # Get default items if none provided
         if items is None and central_parser:
@@ -183,7 +199,7 @@ class JunctionWriter(BaseWriter):
 
         # Process reservoirs
         if central_parser:
-            self._process_reservoirs(system, central_parser)
+            self._process_reservoirs(system, central_parser, parquet_cols)
 
         # Process extraction plants
         if self.extrac_parser and central_parser:
@@ -303,21 +319,51 @@ class JunctionWriter(BaseWriter):
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
+        parquet_cols,
     ) -> None:
         """Process reservoir centrals into reservoir elements."""
         reservoirs = central_parser.centrals_of_type.get("embalse", [])
-        for reservoir_data in reservoirs:
+        for central in reservoirs:
+            central_name = central["name"]
+            central_number = central["number"]
+            pcol_name = self.pcol_name(central_name, central_number)
+
+            vmin = "vmin" if pcol_name in parquet_cols["vmin"] else central["vmin"]
+            vmax = "vmax" if pcol_name in parquet_cols["vmax"] else central["vmax"]
+
             reservoir: Reservoir = {
-                "uid": reservoir_data["number"],
-                "name": reservoir_data["name"],
-                "junction": reservoir_data["number"],
-                "vini": reservoir_data["vol_ini"],
-                "vfin": reservoir_data["vol_fin"],
-                "vmin": reservoir_data["vol_min"],
-                "vmax": reservoir_data["vol_max"],
-                "capacity": reservoir_data["vol_max"],
+                "uid": central["number"],
+                "name": central["name"],
+                "junction": central["number"],
+                "vini": central["vol_ini"],
+                "vfin": central["vol_fin"],
+                "vmin": vmin,
+                "vmax": vmax,
+                "capacity": central["vmax"],
                 "fmin": -8000.0,
                 "fmax": +8000.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)
+
+    def _write_parquet_files(self) -> Dict[str, List[str]]:
+        """Write demand data to Parquet file format."""
+        #
+        # write the manem data
+        #
+        output_dir = (
+            self.options["output_dir"] / "Reservoir"
+            if "output_dir" in self.options
+            else Path("Reservoir")
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manem_writer = ManemWriter(
+            self.manem_parser, self.central_parser, self.stage_parser, self.options
+        )
+        manem_cols = manem_writer.to_parquet(output_dir)
+
+        #
+        # collect the cols
+        #
+
+        return manem_cols

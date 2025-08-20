@@ -134,6 +134,9 @@ class CentralWriter(BaseWriter):
         )
         mance_cols = mance_writer.to_parquet(output_dir)
 
+        #
+        # collect the cols
+        #
         mcols = {}
         for d in cost_cols, mance_cols:
             for key, value in d.items():

@@ -31,6 +31,7 @@ class ManemParser(BaseParser):
         """Parse the maintenance file and populate the data structure."""
         self.validate_file()
 
+        central_parser = parsers["central_parser"] if parsers else None
         lines = []
         try:
             lines = self._read_non_empty_lines()
@@ -45,35 +46,41 @@ class ManemParser(BaseParser):
                 idx = self._next_idx(idx, lines)
                 name = lines[idx].strip("'")
 
-                # Get number of blocks and intervals
+                central = (
+                    central_parser.get_central_by_name(name) if central_parser else None
+                )
+
+                scale = central["vol_scale"] if central else 1.0
+
+                # Get number of stages and intervals
                 idx = self._next_idx(idx, lines)
                 parts = lines[idx].split()
-                num_blocks = self._parse_int(parts[0])
-                if num_blocks <= 0:
+                num_stages = self._parse_int(parts[0])
+                if num_stages <= 0:
                     continue
 
                 # Initialize numpy arrays
-                blocks = np.empty(num_blocks, dtype=np.int32)
-                vol_min = np.empty(num_blocks, dtype=np.float64)
-                vol_max = np.empty(num_blocks, dtype=np.float64)
+                stages = np.empty(num_stages, dtype=np.int32)
+                vmin = np.empty(num_stages, dtype=np.float64)
+                vmax = np.empty(num_stages, dtype=np.float64)
 
                 # Parse maintenance entries
-                for i in range(num_blocks):
+                for i in range(num_stages):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
                     if len(parts) < 4:
                         raise ValueError(f"Invalid maintenance entry at line {idx+1}")
 
-                    blocks[i] = self._parse_int(parts[1])
-                    vol_min[i] = self._parse_float(parts[2])
-                    vol_max[i] = self._parse_float(parts[3])
+                    stages[i] = self._parse_int(parts[1])
+                    vmin[i] = self._parse_float(parts[2]) * scale
+                    vmax[i] = self._parse_float(parts[3]) * scale
 
                 # Store complete data
                 manem = {
                     "name": name,
-                    "block": blocks,
-                    "volmin": vol_min,
-                    "volmax": vol_max,
+                    "stage": stages,
+                    "vmin": vmin,
+                    "vmax": vmax,
                 }
                 self._append(manem)
 

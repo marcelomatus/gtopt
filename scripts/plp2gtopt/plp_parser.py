@@ -17,6 +17,7 @@ from .manli_parser import ManliParser
 from .aflce_parser import AflceParser
 from .stage_parser import StageParser
 from .extrac_parser import ExtracParser
+from .manem_parser import ManemParser
 
 
 class PLPParser:
@@ -47,6 +48,7 @@ class PLPParser:
             ("manli_parser", ManliParser, "plpmanli.dat"),
             ("aflce_parser", AflceParser, "plpaflce.dat"),
             ("extrac_parser", ExtracParser, "plpextrac.dat"),
+            ("manem_parser", ManemParser, "plpmanem.dat"),
         ]
         for name, parser_class, filename in parsers:
             filepath = self.input_path / filename
