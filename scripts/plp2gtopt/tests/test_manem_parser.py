@@ -43,17 +43,17 @@ def test_get_manems(tmp_path):
 
     # Verify structure and types
     assert manem["name"] == "test"
-    assert isinstance(manem["block"], np.ndarray)
-    assert isinstance(manem["volmin"], np.ndarray)
-    assert isinstance(manem["volmax"], np.ndarray)
-    assert manem["block"].dtype == np.int32
-    assert manem["volmin"].dtype == np.float64
-    assert manem["volmax"].dtype == np.float64
+    assert isinstance(manem["stage"], np.ndarray)
+    assert isinstance(manem["vmin"], np.ndarray)
+    assert isinstance(manem["vmax"], np.ndarray)
+    assert manem["stage"].dtype == np.int32
+    assert manem["vmin"].dtype == np.float64
+    assert manem["vmax"].dtype == np.float64
 
     # Verify array contents
-    np.testing.assert_array_equal(manem["block"], [1, 2])
-    np.testing.assert_array_equal(manem["volmin"], [0.5, 0.5])
-    np.testing.assert_array_equal(manem["volmax"], [6.75, 6.75])
+    np.testing.assert_array_equal(manem["stage"], [1, 2])
+    np.testing.assert_array_equal(manem["vmin"], [0.5, 0.5])
+    np.testing.assert_array_equal(manem["vmax"], [6.75, 6.75])
 
 
 def test_parse_sample_file(sample_manem_file):
@@ -70,36 +70,36 @@ def test_parse_sample_file(sample_manem_file):
     for maint in manems:
         assert isinstance(maint["name"], str)
         assert maint["name"] != ""
-        assert isinstance(maint["block"], np.ndarray)
-        assert isinstance(maint["volmin"], np.ndarray)
-        assert isinstance(maint["volmax"], np.ndarray)
-        assert len(maint["block"]) > 0
-        assert len(maint["block"]) == len(maint["volmin"])
-        assert len(maint["block"]) == len(maint["volmax"])
+        assert isinstance(maint["stage"], np.ndarray)
+        assert isinstance(maint["vmin"], np.ndarray)
+        assert isinstance(maint["vmax"], np.ndarray)
+        assert len(maint["stage"]) > 0
+        assert len(maint["stage"]) == len(maint["vmin"])
+        assert len(maint["stage"]) == len(maint["vmax"])
 
         # Verify array types and values
-        assert maint["block"].dtype == np.int32
-        assert maint["volmin"].dtype == np.float64
-        assert maint["volmax"].dtype == np.float64
-        assert np.all(maint["block"] > 0)
-        assert np.all(maint["volmin"] >= 0)
-        assert np.all(maint["volmax"] >= 0)
+        assert maint["stage"].dtype == np.int32
+        assert maint["vmin"].dtype == np.float64
+        assert maint["vmax"].dtype == np.float64
+        assert np.all(maint["stage"] > 0)
+        assert np.all(maint["vmin"] >= 0)
+        assert np.all(maint["vmax"] >= 0)
 
     # Verify first reservoir data
     maint1 = manems[0]
     assert maint1["name"] == "COLBUN"
-    assert len(maint1["block"]) == 5
-    assert maint1["block"][0] == 1
-    assert maint1["volmin"][0] == 0.3816243
-    assert maint1["volmax"][0] == 1.5043824
+    assert len(maint1["stage"]) == 5
+    assert maint1["stage"][0] == 1
+    assert maint1["vmin"][0] == 0.3816243
+    assert maint1["vmax"][0] == 1.5043824
 
     # Verify second reservoir data
     maint2 = manems[1]
     assert maint2["name"] == "RAPEL"
-    assert len(maint2["block"]) == 3
-    assert maint2["block"][0] == 1
-    assert maint2["volmin"][0] == 0.2723049
-    assert maint2["volmax"][0] == 0.5632124
+    assert len(maint2["stage"]) == 3
+    assert maint2["stage"][0] == 1
+    assert maint2["vmin"][0] == 0.2723049
+    assert maint2["vmax"][0] == 0.5632124
 
 
 def test_real_file_parsing():
@@ -118,28 +118,28 @@ def test_real_file_parsing():
     # Verify first reservoir data
     maint1 = manems[0]
     assert maint1["name"] == "COLBUN"
-    assert len(maint1["block"]) == 5
-    assert maint1["block"][0] == 1
-    assert maint1["volmin"][0] == pytest.approx(0.3816243)
-    assert maint1["volmax"][0] == pytest.approx(1.5043824)
+    assert len(maint1["stage"]) == 5
+    assert maint1["stage"][0] == 1
+    assert maint1["vmin"][0] == pytest.approx(0.3816243)
+    assert maint1["vmax"][0] == pytest.approx(1.5043824)
 
-    # Verify all blocks for COLBUN
-    assert maint1["block"].tolist() == [1, 2, 3, 4, 5]
-    assert maint1["volmin"].tolist() == [0.3816243] * 5
-    assert maint1["volmax"].tolist() == [1.5043824] * 5
+    # Verify all stages for COLBUN
+    assert maint1["stage"].tolist() == [1, 2, 3, 4, 5]
+    assert maint1["vmin"].tolist() == [0.3816243] * 5
+    assert maint1["vmax"].tolist() == [1.5043824] * 5
 
     # Verify second reservoir data
     maint2 = manems[1]
     assert maint2["name"] == "RAPEL"
-    assert len(maint2["block"]) == 3
-    assert maint2["block"][0] == 1
-    assert maint2["volmin"][0] == pytest.approx(0.2723049)
-    assert maint2["volmax"][0] == pytest.approx(0.5632124)
+    assert len(maint2["stage"]) == 3
+    assert maint2["stage"][0] == 1
+    assert maint2["vmin"][0] == pytest.approx(0.2723049)
+    assert maint2["vmax"][0] == pytest.approx(0.5632124)
 
-    # Verify all blocks for RAPEL
-    assert maint2["block"].tolist() == [1, 2, 3]
-    assert maint2["volmin"].tolist() == [0.2723049] * 3
-    assert maint2["volmax"].tolist() == [0.5632124] * 3
+    # Verify all stages for RAPEL
+    assert maint2["stage"].tolist() == [1, 2, 3]
+    assert maint2["vmin"].tolist() == [0.2723049] * 3
+    assert maint2["vmax"].tolist() == [0.5632124] * 3
 
 
 def test_parse_with_whitespace_variations(tmp_path):
@@ -163,8 +163,8 @@ def test_parse_with_whitespace_variations(tmp_path):
     parser.parse()
 
     assert parser.num_manems == 2
-    assert len(parser.manems[0]["block"]) == 4
-    assert len(parser.manems[1]["block"]) == 2
+    assert len(parser.manems[0]["stage"]) == 4
+    assert len(parser.manems[1]["stage"]) == 2
 
 
 def test_parse_with_comments(tmp_path):
@@ -175,7 +175,7 @@ def test_parse_with_comments(tmp_path):
 2
 # Reservoir comment
 'RESERVOIR1'
-# Block count comment
+# Stage count comment
 4
 # Data comment
 03      001        0.5    6.75
@@ -207,9 +207,9 @@ def test_get_manem_by_name(sample_manem_file):
     res_data = parser.get_manem_by_name(first_res)
     assert res_data is not None
     assert res_data["name"] == first_res
-    assert len(res_data["block"]) > 0
-    assert len(res_data["volmin"]) > 0
-    assert len(res_data["volmax"]) > 0
+    assert len(res_data["stage"]) > 0
+    assert len(res_data["vmin"]) > 0
+    assert len(res_data["vmax"]) > 0
 
     # Test another existing reservoir if available
     if len(manems) > 1:
@@ -217,9 +217,9 @@ def test_get_manem_by_name(sample_manem_file):
         res_data = parser.get_manem_by_name(second_res)
         assert res_data is not None
         assert res_data["name"] == second_res
-        assert len(res_data["block"]) > 0
-        assert len(res_data["volmin"]) > 0
-        assert len(res_data["volmax"]) > 0
+        assert len(res_data["stage"]) > 0
+        assert len(res_data["vmin"]) > 0
+        assert len(res_data["vmax"]) > 0
 
     # Test non-existent reservoir
     missing = parser.get_manem_by_name("NonExistentRes")

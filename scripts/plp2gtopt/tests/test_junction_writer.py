@@ -145,8 +145,8 @@ def reservoir_parser() -> MockCentralParser:
             "type": "embalse",
             "vol_ini": 100,
             "vol_fin": 100,
-            "vol_min": 50,
-            "vol_max": 200,
+            "vmin": 50,
+            "vmax": 200,
         }
     ]
     return MockCentralParser(reservoirs)

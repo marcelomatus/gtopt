@@ -47,7 +47,7 @@ public:
   /** @brief Default objective function scaling factor */
   static constexpr Real default_scale_objective = 1'000;
   /** @brief Default voltage angle scaling factor (10 * 100 * 100 = 100,000) */
-  static constexpr Real default_scale_theta = 10 * 100 * 100;
+  static constexpr Real default_scale_theta = 1'000;
 
   // Default values for output settings
   /** @brief Default output directory path */

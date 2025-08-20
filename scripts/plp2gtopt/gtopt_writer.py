@@ -142,12 +142,16 @@ class GTOptWriter:
     def process_junctions(self, options):
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", None)
+        stages = self.parser.parsed_data.get("stage_parser", None)
         aflces = self.parser.parsed_data.get("aflce_parser", None)
         extracs = self.parser.parsed_data.get("extrac_parser", None)
+        manems = self.parser.parsed_data.get("manem_parser", None)
         json_junctions = JunctionWriter(
             central_parser=centrals,
+            stage_parser=stages,
             aflce_parser=aflces,
             extrac_parser=extracs,
+            manem_parser=manems,
             options=options,
         ).to_json_array()
 
@@ -160,7 +164,7 @@ class GTOptWriter:
 
     def process_centrals(self, options):
         """Process central data to include block and stage information."""
-        centrals = self.parser.parsed_data.get("central_parser", [])
+        centrals = self.parser.parsed_data.get("central_parser", None)
         stages = self.parser.parsed_data.get("stage_parser", None)
         blocks = self.parser.parsed_data.get("block_parser", None)
         costs = self.parser.parsed_data.get("cost_parser", None)

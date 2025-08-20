@@ -129,12 +129,13 @@ public:
    */
   bool add_profile_to_output(const std::string_view& cname,
                              OutputContext& out,
-                             std::string_view profile_type) const
+                             std::string_view profile_name) const
   {
     const auto pid = id();
 
-    out.add_col_sol(cname, profile_type, pid, spillover_cols);
-    out.add_row_dual(cname, profile_type, pid, spillover_rows);
+    out.add_col_sol(cname, profile_name, pid, spillover_cols);
+    out.add_col_cost(cname, profile_name, pid, spillover_cols);
+    out.add_row_dual(cname, profile_name, pid, spillover_rows);
     return true;
   }
 

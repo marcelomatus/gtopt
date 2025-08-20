@@ -71,6 +71,8 @@ public:
       return true;
     }
 
+    const auto is_last_stage =
+        stage.uid() == sc.simulation().stages().back().uid();
     const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
 
     const auto stage_vcost = sc.scenario_stage_ecost(  //
@@ -104,17 +106,18 @@ public:
     auto prev_vc = vicol;
     for (const auto& block : blocks) {
       const auto buid = block.uid();
-      const auto is_last = buid == blocks.back().uid();
+      const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
 
       auto vrow = SparseRow {.name = sc.lp_label(
                                  scenario, stage, block, cname, "vol", uid())}
                       .equal(0);
 
-      const auto vc = lp.add_col(
-          {.name = vrow.name,
-           .lowb = !is_last ? stage_vmin : storage().vfin.value_or(stage_vmin),
-           .uppb = stage_vmax,
-           .cost = stage_vcost});
+      const auto vc = lp.add_col({.name = vrow.name,
+                                  .lowb = !is_last_block
+                                      ? stage_vmin
+                                      : storage().vfin.value_or(stage_vmin),
+                                  .uppb = stage_vmax,
+                                  .cost = stage_vcost});
 
       vcols[buid] = vc;
 

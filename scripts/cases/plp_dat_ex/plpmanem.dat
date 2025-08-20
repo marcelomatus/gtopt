@@ -1,0 +1,21 @@
+# Archivo de mantenimientos embalses (plpmanem.dat)
+# Numero de embalses con mantenimientos
+ 2
+# Nombre del embalse
+'COLBUN'
+#   Numero de Etapas con mantenimiento
+    5
+#   Mes   Etapa     VolMin     VolMax
+     03     001  0.3816243  1.5043824
+     03     002  0.3816243  1.5043824
+     03     003  0.3816243  1.5043824
+     04     004  0.3816243  1.5043824
+     04     005  0.3816243  1.5043824
+# Nombre del embalse
+'RAPEL'
+#   Numero de Etapas con mantenimiento
+    3
+#   Mes   Etapa     VolMin     VolMax
+     03     001  0.2723049  0.5632124
+     03     002  0.2723049  0.5632124
+     03     003  0.2723049  0.5632124
