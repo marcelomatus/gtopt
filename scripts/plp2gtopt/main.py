@@ -52,6 +52,22 @@ def main():
         default=-1,
     )
     parser.add_argument(
+        "-d",
+        "--discount-rate",
+        dest="discount_rate",
+        type=float,
+        help="annual discount rate",
+        default=0.1,
+    )
+    parser.add_argument(
+        "-m",
+        "--management-factor",
+        dest="management_factor",
+        type=float,
+        help="demand management factor",
+        default=0.0,
+    )
+    parser.add_argument(
         "-t",
         "--last-time",
         dest="last_time",
@@ -95,6 +111,8 @@ def main():
         "compression": args.compression,
         "hydrologies": args.hydrologies,
         "probability_factors": args.probability_factors,
+        "discount_rate": args.discount_rate,
+        "management_factor": args.management_factor,
     }
 
     convert_plp_case(options)

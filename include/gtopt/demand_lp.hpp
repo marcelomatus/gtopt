@@ -54,8 +54,10 @@ private:
 
   STBIndexHolder<ColIndex> load_cols;
   STBIndexHolder<RowIndex> capacity_rows;
-  GSTIndexHolder<ColIndex> emin_cols;
-  GSTIndexHolder<RowIndex> emin_rows;
+  STIndexHolder<ColIndex> emin_cols;
+  STIndexHolder<RowIndex> emin_rows;
+
+  STBIndexHolder<ColIndex> lman_cols;
 };
 
 using DemandLPId = ObjectId<DemandLP>;

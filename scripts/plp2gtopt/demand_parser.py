@@ -30,15 +30,16 @@ class DemandParser(BaseParser):
         """Parse the demand file and populate the demands structure."""
         self.validate_file()
 
+        block_parser = parsers["block_parser"] if parsers else None
         try:
             lines = self._read_non_empty_lines()
             if not lines:
                 raise ValueError("The demand file is empty or malformed.")
 
             idx = self._next_idx(-1, lines)
-            num_bars = self._parse_int(lines[idx])
+            num_dems = self._parse_int(lines[idx])
 
-            for dem_number in range(1, num_bars + 1):
+            for dem_number in range(1, num_dems + 1):
                 # Get bus name
                 idx = self._next_idx(idx, lines)
                 name = lines[idx].strip("'").split()[0]
@@ -52,6 +53,7 @@ class DemandParser(BaseParser):
                 values = np.empty(num_blocks, dtype=np.float64)
 
                 # Parse demand entries
+                energies: dict[int, float] = {}
                 for i in range(num_blocks):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
@@ -61,12 +63,27 @@ class DemandParser(BaseParser):
                     blocks[i] = self._parse_int(parts[1])  # Block number
                     values[i] = self._parse_float(parts[2])  # Demand value
 
+                    block = (
+                        block_parser.get_item_by_number(blocks[i])
+                        if block_parser
+                        else None
+                    )
+
+                    stage = (
+                        block_parser.get_stage_number(blocks[i]) if block_parser else -1
+                    )
+                    if stage >= 0:
+                        bdur = block.get("duration", 0.0) if block else 0.0
+                        energies[stage] = energies.get(stage, 0.0) + values[i] * bdur
+
                 # Store complete data for this bus
                 demand = {
                     "number": dem_number,
                     "name": name,
                     "blocks": blocks,
                     "values": values,
+                    "stages": energies.keys(),
+                    "energies": energies.values(),
                 }
                 self._append(demand)
 
