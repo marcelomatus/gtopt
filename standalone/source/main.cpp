@@ -45,6 +45,7 @@ template<typename T>
     const std::optional<std::string>& output_format,
     const std::optional<std::string>& compression_format,
     const std::optional<bool>& use_single_bus,
+    const std::optional<bool>& use_kirchhoff,
     const std::optional<std::string>& lp_file,
     const std::optional<int>& use_lp_names,
     const std::optional<double>& matrix_eps,
@@ -115,6 +116,10 @@ template<typename T>
   //
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
+  }
+
+  if (use_kirchhoff) {
+    planning.options.use_kirchhoff = use_kirchhoff;
   }
 
   if (use_lp_names) {
@@ -246,6 +251,9 @@ int main(int argc, char** argv)
         ("use-single-bus,b",
          po::value<bool>()->implicit_value(true),
          "use single bus mode")  //
+        ("use-kirchhoff,k",
+         po::value<bool>()->implicit_value(true),
+         "use kirchhoff mode")  //
         ("use-lp-names,n",
          po::value<int>()->implicit_value(1),
          "use real col/row names in the lp file")  //
@@ -303,6 +311,7 @@ int main(int argc, char** argv)
     const auto json_file = get_opt<std::string>(vm, "json-file");
     const auto quiet = get_opt<bool>(vm, "quiet");
     const auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
+    const auto use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff");
     const auto use_lp_names = get_opt<int>(vm, "use-lp-names");
     const auto matrix_eps = get_opt<double>(vm, "matrix-eps");
     const auto just_create = get_opt<bool>(vm, "just-create");
@@ -343,6 +352,7 @@ int main(int argc, char** argv)
                            output_format,
                            compression_format,
                            use_single_bus,
+                           use_kirchhoff,
                            lp_file,
                            use_lp_names,
                            matrix_eps,

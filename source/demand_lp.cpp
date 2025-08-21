@@ -56,6 +56,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   // adding the minimum energy constraint
+  const auto stage_emin = emin.optval(stage.uid());
+  auto stage_ecost = ecost.optval(stage.uid());
+  if (!stage_ecost && stage_fcost) {
+    stage_ecost = *stage_fcost * stage.duration();
+  }
+
   auto emin_row = [&](const auto& stage_emin,
                       const auto& stage_ecost) -> std::optional<SparseRow>
   {
@@ -74,15 +80,17 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     emin_cols[st_key] = emin_col;
 
-    auto row = SparseRow {.name = std::move(name)}.greater_equal(0);
+    auto row = SparseRow {.name = std::move(name)}.equal(0);
     row[emin_col] = -1.0;
 
     return row;
-  }(emin.optval(stage.uid()), ecost.optval(stage.uid()));
+  }(stage_emin, stage_ecost);
 
   BIndexHolder<ColIndex> lcols;
+  BIndexHolder<ColIndex> mcols;
   BIndexHolder<RowIndex> crows;
   lcols.reserve(blocks.size());
+  mcols.reserve(blocks.size());
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {
@@ -120,14 +128,25 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     }
 
     // adding the minimum energy constraint
-    if (emin_row) {
-      (*emin_row)[lcol] = block.duration();
+    if (stage_emin && emin_row) {
+      const auto bdur = block.duration();
+
+      const auto mcol = lp.add_col(
+          {.name = sc.lp_label(scenario, stage, block, cname, "lman", uid()),
+           .uppb = *stage_emin / bdur});
+
+      mcols[buid] = mcol;
+      (*emin_row)[mcol] = bdur;
+
+      brow[mcol] = -(1.0 + stage_lossfactor);
     }
   }
 
-  if (emin_row && emin_row->size() > 1U) {
+  if (!mcols.empty()) {
     emin_rows[st_key] = lp.add_row(std::move(*emin_row));
+    lman_cols[st_key] = std::move(mcols);
   }
+
   if (!lcols.empty()) {
     load_cols[st_key] = std::move(lcols);
   }
@@ -150,6 +169,9 @@ bool DemandLP::add_to_output(OutputContext& out) const
   out.add_col_sol(cname, "emin", pid, emin_cols);
   out.add_col_cost(cname, "emin", pid, emin_cols);
   out.add_row_dual(cname, "emin", pid, emin_rows);
+
+  out.add_col_sol(cname, "lman", pid, lman_cols);
+  out.add_col_cost(cname, "lman", pid, lman_cols);
 
   return CapacityBase::add_to_output(out);
 }

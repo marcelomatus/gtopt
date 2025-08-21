@@ -11,13 +11,14 @@ from .demand_parser import DemandParser
 from .block_parser import BlockParser
 
 
-class Demand(TypedDict):
+class Demand(TypedDict, total=False):
     """Represents a demand in the system."""
 
     uid: int | str
     name: str
     bus: int | str
     lmax: str
+    emin: float
 
 
 class DemandWriter(BaseWriter):
@@ -38,6 +39,8 @@ class DemandWriter(BaseWriter):
         if items is None:
             items = self.items
 
+        self.to_parquet(items=items)
+
         json_demands: List[Demand] = []
         for demand in items:
             if demand.get("bus", -1) == 0:
@@ -51,16 +54,14 @@ class DemandWriter(BaseWriter):
                 "name": demand["name"],
                 "bus": demand.get("bus", demand["name"]),
                 "lmax": "lmax",
+                **({"emin": demand["emin"]} if "emin" in demand else {}),
             }
 
             json_demands.append(dem)
 
-        self.to_parquet("lmax.parquet", items=items)
         return cast(List[Dict[str, Any]], json_demands)
 
-    def to_dataframe(
-        self, items: Optional[List[Dict[str, Any]]] = None
-    ) -> pd.DataFrame:
+    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None):
         """Convert demand data to pandas DataFrame format.
 
         Returns:
@@ -68,13 +69,17 @@ class DemandWriter(BaseWriter):
             - Index: Block numbers (merged from all demands)
             - Columns: Demand values for each bus (column name = bus name)
         """
+        df, de = [pd.DataFrame(), pd.DataFrame()]
+
         if items is None:
             items = self.items
-
         if not items:
-            return pd.DataFrame()
+            return df, de
+
+        management_factor = self.options.get("management_factor", 0.0)
 
         series = []
+        energies = []
         for demand in items:
             if demand.get("bus", -1) == 0:
                 continue
@@ -88,16 +93,25 @@ class DemandWriter(BaseWriter):
 
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             s = s.iloc[~s.index.duplicated(keep="last")]
+            #
+            if management_factor > 0.0:
+                s = (1.0 - management_factor) * s
+                e = management_factor * pd.Series(
+                    data=demand["energies"],
+                    index=demand["stages"],
+                    name=name,
+                )
+                demand["emin"] = "emin"
+                energies.append(e)
+
             # Add to DataFrame
             series.append(s)
 
         df = pd.concat(series, axis=1)
-
         if self.block_parser:
             df["stage"] = df.index.map(self.block_parser.get_stage_number).astype(
                 "int32"
             )
-
         # Convert index to block column
         df.index = df.index.astype("int32")
         df = df.reset_index().rename(columns={"index": "block"})
@@ -111,9 +125,15 @@ class DemandWriter(BaseWriter):
         }
         df = df.fillna(fill_values)
 
-        return df
+        # prepare the energies dataframe
+        if energies:
+            de = pd.concat(energies, axis=1)
+            de.index = de.index.astype("int32")
+            de = de.reset_index().rename(columns={"index": "stage"})
 
-    def to_parquet(self, output_file: str | Path, items=None) -> None:
+        return df, de
+
+    def to_parquet(self, items=None) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Demand"
@@ -122,14 +142,19 @@ class DemandWriter(BaseWriter):
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / output_file
 
-        df = self.to_dataframe(items)
-        if df.empty:
-            return
+        df, de = self.to_dataframe(items)
 
-        df.to_parquet(
-            output_file,
-            index=False,
-            compression=self.get_compression(),
-        )
+        if not df.empty:
+            df.to_parquet(
+                output_dir / "lmax.parquet",
+                index=False,
+                compression=self.get_compression(),
+            )
+
+        if not de.empty:
+            de.to_parquet(
+                output_dir / "emin.parquet",
+                index=False,
+                compression=self.get_compression(),
+            )

@@ -123,10 +123,11 @@ def test_to_dataframe_structure(
     sample_demand_writer,
 ):  # pylint: disable=redefined-outer-name
     """Verify the structure of the DataFrame created by to_dataframe."""
-    df = sample_demand_writer.to_dataframe()
+    df, de = sample_demand_writer.to_dataframe()
     assert isinstance(df, pd.DataFrame)
     assert not df.empty
     assert "block" in df.columns
+    assert de.empty
 
     expected_cols = ["block"]
     for item in sample_demand_writer.items:
@@ -144,7 +145,7 @@ def test_to_parquet_creates_file(
     sample_demand_writer, tmp_path
 ):  # pylint: disable=redefined-outer-name
     """Test that to_parquet creates a Parquet file."""
-    sample_demand_writer.to_parquet("lmax.parquet")
+    sample_demand_writer.to_parquet()
     parquet_file = tmp_path / "Demand" / "lmax.parquet"
     assert parquet_file.exists()
     assert parquet_file.is_file()
