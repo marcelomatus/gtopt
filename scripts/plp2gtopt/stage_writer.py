@@ -15,6 +15,8 @@ class Stage(TypedDict):
     first_block: int
     count_block: int
     active: int
+    duration: float
+    discount_factor: float
 
 
 class StageWriter(BaseWriter):
@@ -49,6 +51,8 @@ class StageWriter(BaseWriter):
                 "first_block": stage.get("first_block", 0),
                 "count_block": stage.get("count_block", -1),
                 "active": 1,
+                "duration": stage["duration"],
+                "discount_factor": stage["discount_factor"],
             }
             json_stages.append(jstage)
 

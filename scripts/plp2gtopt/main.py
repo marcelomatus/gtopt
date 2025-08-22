@@ -57,7 +57,7 @@ def main():
         dest="discount_rate",
         type=float,
         help="annual discount rate",
-        default=0.1,
+        default=0.0,
     )
     parser.add_argument(
         "-m",

@@ -81,7 +81,14 @@ def test_json_output_structure(
 
     # Check against example from system_c0.json
     for stage in json_stages:
-        assert set(stage.keys()) == {"uid", "first_block", "count_block", "active"}
+        assert set(stage.keys()) == {
+            "uid",
+            "first_block",
+            "count_block",
+            "active",
+            "duration",
+            "discount_factor",
+        }
         assert isinstance(stage["uid"], int)
         assert isinstance(stage["first_block"], int)
         assert isinstance(stage["count_block"], int)
