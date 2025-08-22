@@ -42,7 +42,7 @@ class GTOptWriter:
     def process_options(self, options):
         """Process options data to include input and output paths."""
         discount_rate = (
-            options["discount_rate"] if options and "discount_rate" in options else 0.1
+            options["discount_rate"] if options and "discount_rate" in options else 0.0
         )
         self.planning["options"] = {
             "input_directory": str(options.get("output_dir", "")),
@@ -54,6 +54,7 @@ class GTOptWriter:
             "demand_fail_cost": 1000,
             "scale_objective": 1000,
             "annual_discount_rate": discount_rate,
+            **({"annual_discount_rate": discount_rate} if discount_rate != 0.0 else {}),
         }
 
     def process_stage_blocks(self, options):
@@ -97,7 +98,7 @@ class GTOptWriter:
                 {
                     "uid": 1,
                     "probability_factor": factor,
-                    "hydrology": hydro_idx,
+                    "hydrology": hydro_idx + 1,
                 }
             )
         self.planning["simulation"]["scenario_array"] = scenarios
