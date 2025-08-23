@@ -93,9 +93,10 @@ class AflceWriter(BaseWriter):
 
         # Build all data at once
         scenario_data = []
+
         for i, scenario in enumerate(self.scenarios):
             hydro_idx = scenario.get("hydrology", i)
-            if hydro_idx < 0 or hydro_idx >= len(self.scenarios):
+            if hydro_idx < 0:
                 continue
 
             df = self._create_dataframe_for_hydrology(hydro_idx, items)
@@ -137,7 +138,6 @@ class AflceWriter(BaseWriter):
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
         """Write flow data to Parquet files (one per hydrology)."""
         cols: Dict[str, List[str]] = {"afluent": []}
-
         df = self.to_dataframe(items)
         if df.empty:
             return cols

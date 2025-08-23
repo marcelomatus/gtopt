@@ -89,7 +89,7 @@ def main():
         dest="hydrologies",
         type=str,
         help="comma-separated list of hydrology scenarios (default: 1)",
-        default="1",
+        default="0",
     )
     parser.add_argument(
         "-p",

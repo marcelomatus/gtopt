@@ -59,7 +59,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto stage_emin = emin.optval(stage.uid());
   auto stage_ecost = ecost.optval(stage.uid());
   if (!stage_ecost && stage_fcost) {
-    stage_ecost = *stage_fcost * stage.duration();
+    stage_ecost = stage_fcost;
   }
 
   auto emin_row = [&](const auto& stage_emin,
