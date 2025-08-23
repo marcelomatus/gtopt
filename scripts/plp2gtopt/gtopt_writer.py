@@ -82,7 +82,7 @@ class GTOptWriter:
 
     def process_scenarios(self, options):
         """Process scenario data to include block and stage information."""
-        hydrologies = [int(h) - 1 for h in options.get("hydrologies", "1").split(",")]
+        hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
         probability_factors = options.get("probability_factors", None)
 
         if probability_factors is None or len(probability_factors) == 0:
@@ -98,7 +98,7 @@ class GTOptWriter:
                 {
                     "uid": 1,
                     "probability_factor": factor,
-                    "hydrology": hydro_idx + 1,
+                    "hydrology": hydro_idx,
                 }
             )
         self.planning["simulation"]["scenario_array"] = scenarios
@@ -131,6 +131,7 @@ class GTOptWriter:
         output_dir = output_dir / "Afluent"
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        print("process_afluents")
         aflce_writer = AflceWriter(
             aflces,
             centrals,
