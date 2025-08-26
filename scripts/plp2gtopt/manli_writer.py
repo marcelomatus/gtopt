@@ -78,6 +78,8 @@ class ManliWriter(BaseWriter):
             df = df.set_index("stage")
             # Remove duplicate index values by keeping the first occurrence
             df = df[~df.index.duplicated(keep="first")]
+            # Reset index to make 'stage' a column again
+            df = df.reset_index()
         return df
 
     def to_dataframe(
