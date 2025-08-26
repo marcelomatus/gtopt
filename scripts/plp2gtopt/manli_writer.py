@@ -75,24 +75,40 @@ class ManliWriter(BaseWriter):
         if not items:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+        # Create the initial DataFrames
         df_tmax_ab = self._create_dataframe_for_field("tmax_ab", items)
-        if self.block_parser:
-            df_tmax_ab["stage"] = df_tmax_ab.index.map(
-                self.block_parser.get_stage_number
-            ).astype("int32")
-
         df_tmax_ba = self._create_dataframe_for_field("tmax_ba", items)
-        if self.block_parser:
-            df_tmax_ba["stage"] = df_tmax_ba.index.map(
-                self.block_parser.get_stage_number
-            ).astype("int32")
-
         df_active = self._create_dataframe_for_field("operational", items)
+        
+        # Add stage column using block_parser if available
         if self.block_parser:
-            df_active["stage"] = df_active.index.map(
-                self.block_parser.get_stage_number
-            ).astype("int32")
-
+            # Add stage column
+            for df in [df_tmax_ab, df_tmax_ba, df_active]:
+                if not df.empty:
+                    df["stage"] = df.index.map(
+                        self.block_parser.get_stage_number
+                    ).astype("int32")
+        
+        # Process each DataFrame
+        def process_df(df):
+            if df.empty:
+                return df
+            # Drop the 'block' column if it exists (it's the index, so reset index first)
+            df = df.reset_index()
+            if 'block' in df.columns:
+                df = df.drop(columns=['block'])
+            # Set 'stage' as index and remove duplicates
+            if 'stage' in df.columns:
+                df = df.set_index('stage')
+                # Remove duplicate index values by keeping the first occurrence
+                df = df[~df.index.duplicated(keep='first')]
+            return df
+        
+        # Process each DataFrame
+        df_tmax_ab = process_df(df_tmax_ab)
+        df_tmax_ba = process_df(df_tmax_ba)
+        df_active = process_df(df_active)
+        
         return df_tmax_ab, df_tmax_ba, df_active
 
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
