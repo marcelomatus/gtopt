@@ -144,7 +144,8 @@ class BaseWriter(ABC):
             df = pd.concat([s, df], axis=1)
 
         # Fill missing values with column-specific defaults
-        df = df.fillna(fill_values)
+        if fill_values:
+            df = df.fillna(fill_values)
 
         return df
 

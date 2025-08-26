@@ -61,6 +61,7 @@ class ManliWriter(BaseWriter):
             index_parser=self.block_parser,
             value_field=field,
             index_field="block",
+            fill_field=field,
         )
         return df
 
@@ -68,6 +69,8 @@ class ManliWriter(BaseWriter):
         """Process a DataFrame to set stage as index and remove duplicates."""
         if df.empty:
             return df
+        for column in df.columns:
+            df[column] = df[column].astype("int32")
         # Drop the 'block' column if it exists (it's the index, so reset index first)
         if "block" in df.columns:
             df = df.drop(columns=["block"])
@@ -77,10 +80,9 @@ class ManliWriter(BaseWriter):
             # Remove duplicate index values by keeping the first occurrence
             df = df[~df.index.duplicated(keep="first")]
             # Reset index to make 'stage' a column again
+
             df = df.reset_index()
         # Convert all columns to int32
-        for column in df.columns:
-            df[column] = df[column].astype('int32')
         return df
 
     def to_dataframe(
