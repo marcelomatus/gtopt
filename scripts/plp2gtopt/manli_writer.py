@@ -61,7 +61,6 @@ class ManliWriter(BaseWriter):
             index_parser=self.block_parser,
             value_field=field,
             index_field="block",
-            fill_field=field,
         )
         return df
 
@@ -70,7 +69,6 @@ class ManliWriter(BaseWriter):
         if df.empty:
             return df
         # Drop the 'block' column if it exists (it's the index, so reset index first)
-        df = df.reset_index()
         if "block" in df.columns:
             df = df.drop(columns=["block"])
         # Set 'stage' as index and remove duplicates
