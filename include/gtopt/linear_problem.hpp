@@ -70,8 +70,8 @@ struct FlatOptions
   bool row_with_names {false};  ///< Include row names
   bool col_with_name_map {false};  ///< Include column name mapping
   bool row_with_name_map {false};  ///< Include row name mapping
-  bool move_names {true};  ///< Move instead of copy names
-  bool reserve_matrix {true};  ///< Pre-reserve matrix memory
+  bool move_names {false};  ///< Move instead of copy names
+  bool reserve_matrix {false};  ///< Pre-reserve matrix memory
   double reserve_factor {
       default_reserve_factor};  ///< Memory reservation factor
 };

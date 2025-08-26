@@ -248,10 +248,11 @@ class JunctionWriter(BaseWriter):
             system["waterway_array"].append(ver_waterway)
 
         # Create junction
+        drain = not (gen_waterway and ver_waterway) or (central["type"] == "embalse")
         junction: Junction = {
             "uid": central_id,
             "name": central_name,
-            "drain": not (gen_waterway and ver_waterway),
+            "drain": drain,
         }
         system["junction_array"].append(junction)
 

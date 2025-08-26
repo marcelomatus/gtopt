@@ -131,7 +131,6 @@ class GTOptWriter:
         output_dir = output_dir / "Afluent"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        print("process_afluents")
         aflce_writer = AflceWriter(
             aflces,
             centrals,

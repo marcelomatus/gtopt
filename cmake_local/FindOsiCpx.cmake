@@ -6,4 +6,4 @@ find_library(
 )
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(OSICPX DEFAULT_MSG COIN_OSICPX_LIBRARY)
+find_package_handle_standard_args(OsiCpx DEFAULT_MSG COIN_OSICPX_LIBRARY)

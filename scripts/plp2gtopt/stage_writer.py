@@ -40,6 +40,7 @@ class StageWriter(BaseWriter):
         blocks = self.block_parser.items if self.block_parser else []
         last_stage = self._get_last_stage(blocks)
 
+        total_time = 0.0
         json_stages: List[Stage] = []
         for stage in items:
             stage_number = stage["number"]
@@ -54,6 +55,9 @@ class StageWriter(BaseWriter):
                 "duration": stage["duration"],
                 "discount_factor": stage["discount_factor"],
             }
+            total_time += stage["duration"]
+
             json_stages.append(jstage)
+        print(f"Total Time [h]: {round(total_time, 2)}")
 
         return cast(List[Dict[str, Any]], json_stages)

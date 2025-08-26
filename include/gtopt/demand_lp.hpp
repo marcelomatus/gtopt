@@ -58,6 +58,9 @@ private:
   STIndexHolder<RowIndex> emin_rows;
 
   STBIndexHolder<ColIndex> lman_cols;
+
+  STBIndexHolder<ColIndex> fail_cols;
+  STBIndexHolder<RowIndex> balance_rows;
 };
 
 using DemandLPId = ObjectId<DemandLP>;

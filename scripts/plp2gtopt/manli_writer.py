@@ -65,6 +65,21 @@ class ManliWriter(BaseWriter):
         )
         return df
 
+    def block_to_stage_df(self, df):
+        """Process a DataFrame to set stage as index and remove duplicates."""
+        if df.empty:
+            return df
+        # Drop the 'block' column if it exists (it's the index, so reset index first)
+        df = df.reset_index()
+        if "block" in df.columns:
+            df = df.drop(columns=["block"])
+        # Set 'stage' as index and remove duplicates
+        if "stage" in df.columns:
+            df = df.set_index("stage")
+            # Remove duplicate index values by keeping the first occurrence
+            df = df[~df.index.duplicated(keep="first")]
+        return df
+
     def to_dataframe(
         self, items=None
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -75,11 +90,9 @@ class ManliWriter(BaseWriter):
         if not items:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-        # Create the initial DataFrames
         df_tmax_ab = self._create_dataframe_for_field("tmax_ab", items)
         df_tmax_ba = self._create_dataframe_for_field("tmax_ba", items)
         df_active = self._create_dataframe_for_field("operational", items)
-        
         # Add stage column using block_parser if available
         if self.block_parser:
             # Add stage column
@@ -88,27 +101,9 @@ class ManliWriter(BaseWriter):
                     df["stage"] = df.index.map(
                         self.block_parser.get_stage_number
                     ).astype("int32")
-        
-        # Process each DataFrame
-        def process_df(df):
-            if df.empty:
-                return df
-            # Drop the 'block' column if it exists (it's the index, so reset index first)
-            df = df.reset_index()
-            if 'block' in df.columns:
-                df = df.drop(columns=['block'])
-            # Set 'stage' as index and remove duplicates
-            if 'stage' in df.columns:
-                df = df.set_index('stage')
-                # Remove duplicate index values by keeping the first occurrence
-                df = df[~df.index.duplicated(keep='first')]
-            return df
-        
-        # Process each DataFrame
-        df_tmax_ab = process_df(df_tmax_ab)
-        df_tmax_ba = process_df(df_tmax_ba)
-        df_active = process_df(df_active)
-        
+
+        df_active = self.block_to_stage_df(df_active)
+
         return df_tmax_ab, df_tmax_ba, df_active
 
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:

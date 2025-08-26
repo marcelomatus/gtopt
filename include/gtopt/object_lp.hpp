@@ -38,7 +38,7 @@ template<typename ObjectType>
 class ObjectLP : public ObjectUtils
 {
   ObjectType m_object_;  ///< The wrapped object instance
-  ActiveSched m_active_;  ///< Schedule tracking object's active status
+  OptActiveSched m_active_;  ///< Schedule tracking object's active status
 
 public:
   using object_type = ObjectType;  ///< Type of the wrapped object
@@ -47,7 +47,7 @@ public:
   [[nodiscard]] constexpr auto class_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName.full;
+    return Self::ClassName.full_name();
   }
 
   template<typename Self>
@@ -63,26 +63,28 @@ public:
    */
   template<typename OT>
     requires(!std::same_as<std::remove_cvref_t<OT>, ObjectLP>)
-  explicit constexpr ObjectLP(OT&& object) noexcept
-      : m_object_(std::forward<OT>(object))
+  explicit constexpr ObjectLP(OT&& pobject) noexcept
+      : m_object_(std::forward<OT>(pobject))
       , m_active_(m_object_.active.value_or(True))
   {
   }
 
   template<typename OT>
   explicit constexpr ObjectLP(
-      OT&& object,
+      OT&& pobject,
       [[maybe_unused]] const InputContext& ic,
       [[maybe_unused]] const std::string_view& cname) noexcept
-      : ObjectLP(std::forward<OT>(object))
+      : m_object_(std::forward<OT>(pobject))
+      , m_active_(ic, cname, id(), std::move(object().active))
   {
   }
 
   template<typename OT>
-  explicit constexpr ObjectLP(OT&& object,
+  explicit constexpr ObjectLP(OT&& pobject,
                               [[maybe_unused]] const InputContext& ic,
                               [[maybe_unused]] const LPClassName cname) noexcept
-      : ObjectLP(std::forward<OT>(object))
+      : m_object_(std::forward<OT>(pobject))
+      , m_active_(ic, cname.full_name(), id(), std::move(object().active))
   {
   }
 
