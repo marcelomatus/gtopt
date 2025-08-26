@@ -62,13 +62,11 @@ public:
 
   [[nodiscard]] constexpr auto& operator[](Index pos) noexcept
   {
-    [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](pos.value_of());
   }
 
   [[nodiscard]] constexpr auto& operator[](Index pos) const noexcept
   {
-    [[assume(pos.value_of() < this->size())]];
     return std::vector<T>::operator[](pos.value_of());
   }
 

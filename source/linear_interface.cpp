@@ -274,8 +274,8 @@ void LinearInterface::write_lp(const std::string& filename) const
   if (filename.empty()) {
     return;
   }
-
-  solver->writeLp(filename.c_str());
+  solver->setIntParam(OsiNameDiscipline, 2);
+  solver->writeLps(filename.c_str());
 }
 
 void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
@@ -364,6 +364,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
           get_prob_name(),
           get_status());
 
+      SPDLOG_INFO(message);
       return std::unexpected(Error {.code = ErrorCode::SolverError,
                                     .message = std::move(message),
                                     .status = get_status()});
@@ -372,10 +373,11 @@ std::expected<int, Error> LinearInterface::initial_solve(
     return get_status();
 
   } catch (const std::exception& e) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message =
-            fmt::format("Unexpected error in initial_solve: {}", e.what())});
+    auto message =
+        fmt::format("Unexpected error in initial_solve: {}", e.what());
+    SPDLOG_INFO(message);
+    return std::unexpected(Error {.code = ErrorCode::InternalError,
+                                  .message = std::move(message)});
   }
 }
 
@@ -397,6 +399,7 @@ std::expected<int, Error> LinearInterface::resolve(
           get_prob_name(),
           get_status());
 
+      SPDLOG_INFO(message);
       return std::unexpected(Error {.code = ErrorCode::SolverError,
                                     .message = std::move(message),
                                     .status = get_status()});
@@ -405,9 +408,10 @@ std::expected<int, Error> LinearInterface::resolve(
     return get_status();
 
   } catch (const std::exception& e) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message = fmt::format("Unexpected error in resolve: {}", e.what())});
+    auto message = fmt::format("Unexpected error in resolve: {}", e.what());
+    SPDLOG_INFO(message);
+    return std::unexpected(Error {.code = ErrorCode::InternalError,
+                                  .message = std::move(message)});
   }
 }
 

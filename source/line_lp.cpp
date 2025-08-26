@@ -33,6 +33,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  if (!is_active(stage)) [[unlikely]] {
+    return true;
+  }
+
   const auto& bus_a_lp = sc.element<BusLP>(bus_a_sid());
   const auto& bus_b_lp = sc.element<BusLP>(bus_b_sid());
   if (!bus_a_lp.is_active(stage) || !bus_b_lp.is_active(stage)) {
@@ -130,7 +134,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
 
-  // adding the Kirchhoff relations if there is a line reactance
   if (const auto& stage_reactance = sc.stage_reactance(stage, reactance)) {
     const auto& theta_a_cols =
         bus_a_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
@@ -155,10 +158,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
         trow.reserve(4);
 
-        trow[theta_a_cols.at(buid)] = 1;
-        trow[theta_b_cols.at(buid)] = -1;
+        trow[theta_a_cols.at(buid)] = -1.0;
+        trow[theta_b_cols.at(buid)] = +1.0;
         if (!fpcols.empty()) {
-          trow[fpcols.at(buid)] = x;
+          trow[fpcols.at(buid)] = +x;
         }
         if (!fncols.empty()) {
           trow[fncols.at(buid)] = -x;

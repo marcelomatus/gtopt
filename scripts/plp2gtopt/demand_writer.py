@@ -41,6 +41,7 @@ class DemandWriter(BaseWriter):
 
         self.to_parquet(items=items)
 
+        total_energy = 0.0
         json_demands: List[Demand] = []
         for demand in items:
             if demand.get("bus", -1) == 0:
@@ -56,9 +57,11 @@ class DemandWriter(BaseWriter):
                 "lmax": "lmax",
                 **({"emin": demand["emin"]} if "emin" in demand else {}),
             }
+            total_energy += demand["energy"]
 
             json_demands.append(dem)
 
+        print(f"Total Energy Demand [GWh]: {round(total_energy/1000.0, 2)}")
         return cast(List[Dict[str, Any]], json_demands)
 
     def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None):
@@ -78,6 +81,9 @@ class DemandWriter(BaseWriter):
 
         management_factor = self.options.get("management_factor", 0.0)
 
+        blocks = self.block_parser.items if self.block_parser else []
+        last_stage = self._get_last_stage(blocks)
+
         series = []
         energies = []
         for demand in items:
@@ -94,13 +100,16 @@ class DemandWriter(BaseWriter):
             s = pd.Series(data=demand["values"], index=demand["blocks"], name=name)
             s = s.iloc[~s.index.duplicated(keep="last")]
             #
+            es = pd.Series(
+                data=demand["energies"],
+                index=demand["stages"],
+                name=name,
+            )
+            te = es[:last_stage].sum()
+            demand["energy"] = te
             if management_factor > 0.0:
                 s = (1.0 - management_factor) * s
-                e = management_factor * pd.Series(
-                    data=demand["energies"],
-                    index=demand["stages"],
-                    name=name,
-                )
+                e = management_factor * es
                 demand["emin"] = "emin"
                 energies.append(e)
 

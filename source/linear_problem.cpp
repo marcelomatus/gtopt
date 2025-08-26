@@ -102,6 +102,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   {
     fp_name_vec_t names;
     names.reserve(source.size());
+
     for (auto& item : source) {
       names.emplace_back(move_names ? std::move(item.name) : item.name);
     }

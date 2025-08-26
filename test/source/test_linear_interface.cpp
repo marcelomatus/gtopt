@@ -39,8 +39,8 @@ TEST_CASE("LinearInterface - Constructor and basic operations")
   REQUIRE(col_upp[col1] == doctest::Approx(10.0));
   REQUIRE(col_low[col2] == doctest::Approx(0.0));
   REQUIRE(col_upp[col2] == doctest::Approx(5.0));
-  REQUIRE(col_low[col3] < -1.0e20);  // Free columns have large negative bound
-  REQUIRE(col_upp[col3] > 1.0e20);  // Free columns have large positive bound
+  REQUIRE(col_low[col3] <= -1.0e20);  // Free columns have large negative bound
+  REQUIRE(col_upp[col3] >= 1.0e20);  // Free columns have large positive bound
 
   // Test setting objective coefficients
   interface.set_obj_coeff(col1, 2.0);

@@ -120,6 +120,7 @@ public:
 };
 
 using ActiveSched = Schedule<IntBool, StageUid>;
+using OptActiveSched = OptSchedule<IntBool, StageUid>;
 
 using TRealSched = Schedule<Real, StageUid>;
 using STRealSched = Schedule<Real, ScenarioUid, StageUid>;

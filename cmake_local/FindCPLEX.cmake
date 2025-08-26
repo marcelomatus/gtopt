@@ -8,7 +8,7 @@
 
 # config
 set(CPLEX_ROOT_DIR
-    ""
+    "/opt/cplex"
     CACHE PATH "CPLEX root directory"
 )
 
