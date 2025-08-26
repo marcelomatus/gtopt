@@ -78,6 +78,9 @@ class ManliWriter(BaseWriter):
             df = df[~df.index.duplicated(keep="first")]
             # Reset index to make 'stage' a column again
             df = df.reset_index()
+        # Convert all columns to int32
+        for column in df.columns:
+            df[column] = df[column].astype('int32')
         return df
 
     def to_dataframe(
