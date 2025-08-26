@@ -341,8 +341,8 @@ class JunctionWriter(BaseWriter):
                 "vmin": vmin,
                 "vmax": vmax,
                 "capacity": central["vmax"],
-                "fmin": -8000.0,
-                "fmax": +8000.0,
+                "fmin": -12000.0,
+                "fmax": +12000.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)

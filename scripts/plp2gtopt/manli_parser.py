@@ -55,7 +55,7 @@ class ManliParser(BaseParser):
                 blocks = np.empty(num_blocks, dtype=np.int32)
                 p_max_ab = np.empty(num_blocks, dtype=np.float64)
                 p_max_ba = np.empty(num_blocks, dtype=np.float64)
-                operational = np.empty(num_blocks, dtype=np.int8)
+                operational = np.empty(num_blocks, dtype=np.int32)
 
                 # Parse maintenance entries
                 for i in range(num_blocks):
