@@ -62,10 +62,15 @@ public:
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp,
-                 const BIndexHolder<ColIndex>& rcols,
-                 double flow_conversion_rate,
-                 double stage_capacity,
-                 std::optional<ColIndex> capacity_col = {})
+                 const double flow_conversion_rate,
+                 const BIndexHolder<ColIndex>& finp_cols,
+                 const double finp_efficiency,
+                 const BIndexHolder<ColIndex>& fout_cols,
+                 const double fout_efficiency,
+                 const double stage_capacity,
+                 const std::optional<ColIndex> capacity_col = {},
+                 const std::optional<Real> drain_cost = {},
+                 const std::optional<Real> drain_capacity = {})
   {
     if (!is_active(stage)) {
       return true;
@@ -97,11 +102,13 @@ public:
     const auto& blocks = stage.blocks();
 
     BIndexHolder<ColIndex> vcols;
+    BIndexHolder<ColIndex> dcols;
     BIndexHolder<RowIndex> vrows;
     BIndexHolder<RowIndex> crows;
     vcols.reserve(blocks.size());
     vrows.reserve(blocks.size());
     crows.reserve(blocks.size());
+    dcols.reserve(blocks.size());
 
     auto prev_vc = vicol;
     for (const auto& block : blocks) {
@@ -124,7 +131,27 @@ public:
       vrow[prev_vc] = -(1 - (hour_loss * block.duration()));
       vrow[vc] = 1;
 
-      vrow[rcols.at(buid)] = flow_conversion_rate * block.duration();
+      const auto fout_col = fout_cols.at(buid);
+      const auto finp_col = finp_cols.at(buid);
+      vrow[fout_col] =
+          +(flow_conversion_rate / fout_efficiency) * block.duration();
+
+      // if the input and output are the same, we only need one entry
+      if (fout_col != finp_col) {
+        vrow[finp_col] =
+            -(flow_conversion_rate * finp_efficiency) * block.duration();
+      }
+
+      if (drain_cost) {
+        const auto dcol = lp.add_col(
+            {.name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
+             .lowb = 0,
+             .uppb = drain_capacity.value_or(COIN_DBL_MAX),
+             .cost = sc.block_ecost(scenario, stage, block, *drain_cost)});
+
+        dcols[buid] = dcol;
+        vrow[dcol] = flow_conversion_rate * block.duration();
+      }
 
       vrows[buid] = lp.add_row(std::move(vrow));
 
@@ -148,6 +175,10 @@ public:
     vfin_cols[st_key] = prev_vc;
     volumen_rows[st_key] = std::move(vrows);
     volumen_cols[st_key] = std::move(vcols);
+    if (drain_cost) {
+      drain_cols[st_key] = std::move(dcols);
+    }
+
     if (!crows.empty()) {
       capacity_rows[st_key] = std::move(crows);
     }
@@ -171,6 +202,9 @@ public:
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
+    out.add_col_sol(cname, "drain", pid, drain_cols);
+    out.add_col_cost(cname, "drain", pid, drain_cols);
+
     return true;
   }
 
@@ -182,6 +216,7 @@ private:
   OptTRealSched annual_loss;
 
   STBIndexHolder<ColIndex> volumen_cols;
+  STBIndexHolder<ColIndex> drain_cols;
   STBIndexHolder<RowIndex> volumen_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 
