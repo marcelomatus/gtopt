@@ -61,11 +61,13 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
   auto&& balance_rows = junction.balance_rows_at(scenario, stage);
   auto&& blocks = stage.blocks();
 
-  const auto fmin = reservoir().fmin.value_or(-COIN_DBL_MAX);
-  const auto fmax = reservoir().fmax.value_or(+COIN_DBL_MAX);
+  const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
+  const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
   BIndexHolder<ColIndex> rcols;
+  BIndexHolder<ColIndex> scols;
   rcols.reserve(blocks.size());
+  scols.reserve(blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
@@ -88,9 +90,15 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                               scenario,
                               stage,
                               lp,
-                              rcols,
                               flow_conversion_rate(),
-                              stage_capacity))
+                              rcols,
+                              1.0,
+                              rcols,
+                              1.0,
+                              stage_capacity,
+                              std::nullopt,
+                              spillway_cost(),
+                              spillway_capacity()))
   {
     SPDLOG_CRITICAL(fmt::format(
         "Failed to add storage constraints for reservoir {}", uid()));

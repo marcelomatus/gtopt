@@ -10,12 +10,13 @@
 
 #pragma once
 
+#include <limits>
+
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
-#include <limits>
 
 namespace gtopt
 {
@@ -147,7 +148,7 @@ public:
         const auto dcol = lp.add_col(
             {.name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
              .lowb = 0,
-             .uppb = drain_capacity.value_or(std::numeric_limits<double>::max()),
+             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
              .cost = sc.block_ecost(scenario, stage, block, *drain_cost)});
 
         dcols[buid] = dcol;

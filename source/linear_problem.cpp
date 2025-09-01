@@ -12,11 +12,13 @@
  */
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
 {
+const double LinearProblem::DblMax = COIN_DBL_MAX;
 
 auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 {

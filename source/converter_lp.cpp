@@ -53,31 +53,44 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& gen_cols = generator.generation_cols_at(scenario, stage);
 
   auto&& demand = sc.element<DemandLP>(demand_sid());
-  auto&& load_cols = demand.load_cols_at(scenario, stage);
+  auto&& demand_cols = demand.load_cols_at(scenario, stage);
 
   auto&& battery = sc.element<BatteryLP>(battery_sid());
-  auto&& flow_cols = battery.flow_cols_at(scenario, stage);
+  auto&& finp_cols = battery.finp_cols_at(scenario, stage);
+  auto&& fout_cols = battery.fout_cols_at(scenario, stage);
 
-  BIndexHolder<RowIndex> rrows;
+  BIndexHolder<RowIndex> grows;
+  BIndexHolder<RowIndex> drows;
   BIndexHolder<RowIndex> crows;
-  rrows.reserve(blocks.size());
+  grows.reserve(blocks.size());
+  drows.reserve(blocks.size());
   crows.reserve(blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
-    const auto fcol = flow_cols.at(buid);
+
     const auto gcol = gen_cols.at(buid);
-    const auto lcol = load_cols.at(buid);
+    {
+      auto grow = SparseRow {.name = sc.lp_label(
+                                 scenario, stage, block, cname, "gconv", uid())}
+                      .equal(0);
+      const auto ocol = fout_cols.at(buid);
 
-    auto rrow = SparseRow {.name = sc.lp_label(
-                               scenario, stage, block, cname, "conv", uid())}
-                    .equal(0);
+      grow[ocol] = -stage_conversion_rate;
+      grow[gcol] = +1;
+      grows[buid] = lp.add_row(std::move(grow));
+    }
 
-    rrow[fcol] = -stage_conversion_rate;
-    rrow[gcol] = +1;
-    rrow[lcol] = -1;
-
-    rrows[buid] = lp.add_row(std::move(rrow));
+    const auto dcol = demand_cols.at(buid);
+    {
+      const auto icol = finp_cols.at(buid);
+      auto drow = SparseRow {.name = sc.lp_label(
+                                 scenario, stage, block, cname, "dconv", uid())}
+                      .equal(0);
+      drow[icol] = -stage_conversion_rate;
+      drow[dcol] = +1;
+      drows[buid] = lp.add_row(std::move(drow));
+    }
 
     // adding the capacity constraint
     if (capacity_col) {
@@ -87,7 +100,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
       crow[*capacity_col] = 1;
       crow[gcol] = -1;
-      crow[lcol] = -1;
+      crow[dcol] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
     }
@@ -96,7 +109,8 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   // storing the indices for this scenario and stage
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   capacity_rows[st_key] = std::move(crows);
-  conversion_rows[st_key] = std::move(rrows);
+  generation_rows[st_key] = std::move(grows);
+  demand_rows[st_key] = std::move(drows);
 
   return true;
 }
@@ -105,7 +119,8 @@ bool ConverterLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  out.add_row_dual(cname, "conversion", id(), conversion_rows);
+  out.add_row_dual(cname, "generation", id(), generation_rows);
+  out.add_row_dual(cname, "demand", id(), demand_rows);
   out.add_row_dual(cname, "capacity", id(), capacity_rows);
 
   return CapacityBase::add_to_output(out);

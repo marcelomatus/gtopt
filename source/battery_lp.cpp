@@ -21,6 +21,10 @@ namespace gtopt
 
 BatteryLP::BatteryLP(Battery pbattery, const InputContext& ic)
     : StorageBase(std::move(pbattery), ic, ClassName)
+    , input_efficiency(
+          ic, ClassName, id(), std::move(object().input_efficiency))
+    , output_efficiency(
+          ic, ClassName, id(), std::move(object().input_efficiency))
 {
 }
 
@@ -43,6 +47,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
   if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
@@ -52,29 +57,38 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // Get capacity information
   auto&& [stage_capacity, capacity_col] = capacity_and_col(stage, lp);
 
+  const auto stage_input_efficiency =
+      input_efficiency.optval(stage.uid()).value_or(1.0);
+  const auto stage_output_efficiency =
+      output_efficiency.optval(stage.uid()).value_or(1.0);
+
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
 
-  // Create flow variables for each time block
-  BIndexHolder<ColIndex> fcols;
-  fcols.reserve(blocks.size());
+  // Create finp variables for each time block
+  BIndexHolder<ColIndex> finps;
+  BIndexHolder<ColIndex> fouts;
+  finps.reserve(blocks.size());
+  fouts.reserve(blocks.size());
 
   for (auto&& block : blocks) {
-    const auto col = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "flow", uid())}
-                                    .free());
-    fcols[block.uid()] = col;
+    const auto buid = block.uid();
+    finps[buid] = lp.add_col(SparseCol {
+        .name = sc.lp_label(scenario, stage, block, cname, "finp", uid())});
+    fouts[buid] = lp.add_col(SparseCol {
+        .name = sc.lp_label(scenario, stage, block, cname, "fout", uid())});
   }
-
-  const auto flow_conversion_rate = 1.0;
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
   if (!StorageBase::add_to_lp(cname,
                               sc,
                               scenario,
                               stage,
                               lp,
-                              fcols,
                               flow_conversion_rate,
+                              finps,
+                              stage_input_efficiency,
+                              fouts,
+                              stage_output_efficiency,
                               stage_capacity,
                               capacity_col))
   {
@@ -84,9 +98,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  // Store flow variable indices for later use
+  // Store finp variable indices for later use
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
-  flow_cols[st_key] = std::move(fcols);
+  finp_cols[st_key] = std::move(finps);
+  fout_cols[st_key] = std::move(fouts);
 
   return true;
 }
@@ -97,7 +112,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
  * @return True if successful, false otherwise
  *
  * Processes planning results for:
- * - Flow variables (charge/discharge decisions)
+ * - Finp variables (charge/discharge decisions)
  * - Storage levels
  * - Capacity-related outputs
  */
@@ -105,9 +120,13 @@ bool BatteryLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  // Add flow variable solutions and costs to output
-  out.add_col_sol(cname, "flow", id(), flow_cols);
-  out.add_col_cost(cname, "flow", id(), flow_cols);
+  // Add finp variable solutions and costs to output
+  out.add_col_sol(cname, "finp", id(), finp_cols);
+  out.add_col_cost(cname, "finp", id(), finp_cols);
+
+  // Add fout variable solutions and costs to output
+  out.add_col_sol(cname, "fout", id(), fout_cols);
+  out.add_col_cost(cname, "fout", id(), fout_cols);
 
   // Process storage and capacity outputs
   return StorageBase::add_to_output(out, cname)

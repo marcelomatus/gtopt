@@ -50,6 +50,10 @@ struct Reservoir
 
   /// @brief ID of the junction associated with this reservoir.
   SingleId junction {unknown_uid};
+
+  OptReal spillway_capacity {+6'000.0};  // in dam3/second
+  OptReal spillway_cost {};  // cost per dam3 of spillage
+
   /// @brief Optional time-varying storage capacity of the reservoir.
   OptTRealFieldSched capacity {};
 
@@ -74,7 +78,7 @@ struct Reservoir
 
   /// @brief Optional scaling factor for volume units. Defaults to 1.0.
   OptReal vol_scale {1.0};
-  OptReal flow_conversion_rate {3.6};
+  OptReal flow_conversion_rate {0.0036};
 };
 
 }  // namespace gtopt

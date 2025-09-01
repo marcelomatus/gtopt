@@ -60,7 +60,8 @@ public:
 private:
   OptTRealSched conversion_rate;
 
-  STBIndexHolder<RowIndex> conversion_rows;
+  STBIndexHolder<RowIndex> generation_rows;
+  STBIndexHolder<RowIndex> demand_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 };
 

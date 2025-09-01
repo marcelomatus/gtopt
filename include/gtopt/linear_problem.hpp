@@ -87,6 +87,10 @@ struct FlatOptions
 class LinearProblem
 {
 public:
+  // Constants
+  static const double DblMax;
+
+  // Type aliases for indices and sparse structures
   using index_t = FlatLinearProblem::index_t;
   using SparseVector = flat_map<ColIndex, double>;
   using SparseMatrix = std::vector<SparseVector>;
