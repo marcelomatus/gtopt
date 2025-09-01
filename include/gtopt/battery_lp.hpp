@@ -78,14 +78,24 @@ public:
    * @brief Gets the flow variables for a specific scenario and stage
    * @return Reference to the flow variables
    */
-  [[nodiscard]] constexpr auto&& flow_cols_at(const ScenarioLP& scenario,
+  [[nodiscard]] constexpr auto&& finp_cols_at(const ScenarioLP& scenario,
                                               const StageLP& stage) const
   {
-    return flow_cols.at({scenario.uid(), stage.uid()});
+    return finp_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr auto&& fout_cols_at(const ScenarioLP& scenario,
+                                              const StageLP& stage) const
+  {
+    return fout_cols.at({scenario.uid(), stage.uid()});
   }
 
 private:
-  STBIndexHolder<ColIndex> flow_cols;  ///< Holds flow variables
+  OptTRealSched input_efficiency;
+  OptTRealSched output_efficiency;
+
+  STBIndexHolder<ColIndex> finp_cols;
+  STBIndexHolder<ColIndex> fout_cols;
 };
 
 }  // namespace gtopt

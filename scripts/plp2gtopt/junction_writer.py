@@ -248,7 +248,7 @@ class JunctionWriter(BaseWriter):
             system["waterway_array"].append(ver_waterway)
 
         # Create junction
-        drain = not (gen_waterway and ver_waterway) or (central["type"] == "embalse")
+        drain = not (gen_waterway and ver_waterway) and (central["type"] != "embalse")
         junction: Junction = {
             "uid": central_id,
             "name": central_name,
@@ -342,7 +342,10 @@ class JunctionWriter(BaseWriter):
                 "vmax": vmax,
                 "capacity": central["vmax"],
                 "fmin": -12000.0,
-                "fmax": +12000.0,
+                "fmax": +6000.0,
+                "spillway_cost": 1.0,
+                "spillway_capacity": 6000.0,
+                "annual_loss": 0.02,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)

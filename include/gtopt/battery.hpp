@@ -42,7 +42,14 @@ struct Battery
   OptActive active {};  ///< Activation status (whether the battery is modeled)
 
   OptTRealFieldSched
+      input_efficiency {};  ///< Input (charging) efficiency (fraction)
+
+  OptTRealFieldSched
+      output_efficiency {};  ///< Output (discharging) efficiency (fraction)
+
+  OptTRealFieldSched
       annual_loss {};  ///< Annual energy loss rate (fraction per year)
+
   OptTRealFieldSched
       vmin {};  ///< Minimum state of charge (fraction of capacity)
   OptTRealFieldSched

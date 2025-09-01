@@ -103,7 +103,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
 
     const auto load_lowb = !stage_fcost ? block_lmax : 0;
-    const auto load_uppb = !stage_fcost ? block_lmax : COIN_DBL_MAX;
+    const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
     const auto lcol = lp.add_col(
         {.name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
          .lowb = load_lowb,

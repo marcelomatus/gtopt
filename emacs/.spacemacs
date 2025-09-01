@@ -54,8 +54,8 @@ This function should only modify configuration layer settings."
      better-defaults
      emacs-lisp
      git
-     ;; helm
-     ivy
+     helm
+     ;; ivy
      (lsp :variables lsp-clients-clangd-args '("--j=4" "--log=error"
                                                "--header-insertion=never"
                                                "--background-index"

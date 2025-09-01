@@ -55,6 +55,16 @@ public:
     return reservoir().flow_conversion_rate.value_or(3.6);
   }
 
+  [[nodiscard]] constexpr auto spillway_cost() const noexcept
+  {
+    return reservoir().spillway_cost;
+  }
+
+  [[nodiscard]] constexpr auto spillway_capacity() const noexcept
+  {
+    return reservoir().spillway_capacity.value_or(+6'000.0);
+  }
+
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
