@@ -16,6 +16,7 @@ class BatteryDispatchModel:
         self.config = config
         self.model = None
         self.n_periods = len(config.time_series.marginal_costs_usd_per_mwh)
+        self.time_durations = config.time_series.time_durations_hours
 
     def build(self) -> None:
         """Build the Pyomo optimization model."""
@@ -44,12 +45,14 @@ class BatteryDispatchModel:
 
         # Objective: minimize total cost
         marginal_costs = self.config.time_series.marginal_costs_usd_per_mwh
+        time_durations = self.time_durations
 
         def objective_rule(model):
-            # Cost = sum over time of (discharge - charge) * marginal_cost
+            # Cost = sum over time of (discharge - charge) * marginal_cost * duration
             # Discharge earns money (negative cost), charge costs money
+            # Multiply by duration to account for variable time intervals
             return sum(
-                (model.discharge[t] - model.charge[t]) * marginal_costs[t]
+                (model.discharge[t] - model.charge[t]) * marginal_costs[t] * time_durations[t]
                 for t in model.T
             )
 
@@ -61,16 +64,17 @@ class BatteryDispatchModel:
         def soc_evolution_rule(model, t):
             if t == 0:
                 # Initial SOC
+                # Energy = power * time, so multiply by duration
                 return model.soc[t] == (
                     self.config.battery.initial_soc_mwh
-                    + model.charge[t] * self.config.battery.charge_efficiency
-                    - model.discharge[t] / self.config.battery.discharge_efficiency
+                    + model.charge[t] * self.config.battery.charge_efficiency * time_durations[t]
+                    - model.discharge[t] / self.config.battery.discharge_efficiency * time_durations[t]
                 )
             # Subsequent periods
             return model.soc[t] == (
                 model.soc[t-1]
-                + model.charge[t] * self.config.battery.charge_efficiency
-                - model.discharge[t] / self.config.battery.discharge_efficiency
+                + model.charge[t] * self.config.battery.charge_efficiency * time_durations[t]
+                - model.discharge[t] / self.config.battery.discharge_efficiency * time_durations[t]
             )
 
         m.soc_evolution = Constraint(m.T, rule=soc_evolution_rule)
@@ -88,6 +92,7 @@ class BatteryDispatchModel:
         m.no_simultaneous = Constraint(m.T, rule=no_simultaneous_rule)
 
         # Link binary variables to power variables
+        # Power limits remain in MW (power), not affected by time duration
         def charge_linking_rule(model, t):
             return model.charge[t] <= model.charge_binary[t] * self.config.battery.max_charge_rate_mw
 

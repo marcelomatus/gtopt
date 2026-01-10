@@ -45,13 +45,30 @@ class ResultsHandler:
         charge = results['charge_mw']
         discharge = results['discharge_mw']
         soc = results['soc_mwh']
+        time_durations = results.get('time_durations_hours', [])
 
         if charge and discharge and soc:
             print(f"\nTime periods: {len(charge)}")
-            print(f"Total charge: {sum(charge):.2f} MWh")
-            print(f"Total discharge: {sum(discharge):.2f} MWh")
+            
+            # Calculate total energy considering variable time durations
+            if time_durations and len(time_durations) == len(charge):
+                total_charge_energy = sum(c * d for c, d in zip(charge, time_durations))
+                total_discharge_energy = sum(d * dur for d, dur in zip(discharge, time_durations))
+                print(f"Total charge energy: {total_charge_energy:.2f} MWh")
+                print(f"Total discharge energy: {total_discharge_energy:.2f} MWh")
+            else:
+                print(f"Total charge power: {sum(charge):.2f} MW (sum)")
+                print(f"Total discharge power: {sum(discharge):.2f} MW (sum)")
+            
             print(f"Max SOC: {max(soc):.2f} MWh")
             print(f"Min SOC: {min(soc):.2f} MWh")
             print(f"Final SOC: {soc[-1]:.2f} MWh")
+            
+            # Print time duration statistics if available
+            if time_durations:
+                print(f"\nTime duration statistics:")
+                print(f"  Min duration: {min(time_durations):.3f} hours")
+                print(f"  Max duration: {max(time_durations):.3f} hours")
+                print(f"  Avg duration: {sum(time_durations)/len(time_durations):.3f} hours")
 
         print("\n" + "="*60)

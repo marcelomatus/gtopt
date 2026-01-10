@@ -35,7 +35,7 @@ def create_test_config_file() -> str:
             "max_soc_mwh": 90.0
         },
         "time_series": {
-            "time_resolution_hours": 1.0,
+            "time_durations_hours": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
             "marginal_costs_usd_per_mwh": [
                 30.0, 25.0, 20.0, 15.0,  # Low prices: charge
                 50.0, 60.0, 70.0, 80.0,  # High prices: discharge
@@ -68,7 +68,8 @@ def test_config_loader():
         assert config.battery.name == "test_battery"
         assert config.battery.storage_capacity_mwh == 100.0
         assert config.battery.charge_efficiency == 0.95
-        assert config.time_series.time_resolution_hours == 1.0
+        assert len(config.time_series.time_durations_hours) == 10
+        assert all(d == 1.0 for d in config.time_series.time_durations_hours)
         assert len(config.time_series.marginal_costs_usd_per_mwh) == 10
         assert config.solver_name == "cbc"
     finally:
