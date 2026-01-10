@@ -29,8 +29,10 @@ def create_optimization_model():
     model = ConcreteModel(name="HBMaule_Optimization")
 
     # Decision variables
-    model.x = Var(domain=NonNegativeIntegers, doc="Integer decision variable")
-    model.y = Var(domain=NonNegativeReals, doc="Continuous decision variable")
+    model.x = Var(domain=NonNegativeIntegers,
+                  doc="Integer decision variable")
+    model.y = Var(domain=NonNegativeReals,
+                  doc="Continuous decision variable")
 
     # Objective function: maximize 2x + 3y
     model.obj = Objective(
@@ -72,9 +74,11 @@ def solve_model(model, solver_name="glpk"):
     # Some solvers may be None, others may be unavailable
     try:
         # Solve the model
-        result = solver.solve(model, tee=False)  # tee=False suppresses solver output
+        result = solver.solve(model, tee=False)
     except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-        raise RuntimeError(f"Solver '{solver_name}' failed to solve the model: {e}") from e
+        raise RuntimeError(
+            f"Solver '{solver_name}' failed to solve the model: {e}"
+        ) from e
 
     # Collect results
     x_val = value(model.x) if model.x.value is not None else None
