@@ -51,3 +51,7 @@ max-public-methods=30
 [IMPORTS]
 # Allow wildcard imports
 allow-wildcard-with-all=no
+
+[TYPECHECK]
+# Ignore import errors for third-party modules
+ignored-modules=pyomo,pytest
