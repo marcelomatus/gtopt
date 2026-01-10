@@ -66,17 +66,26 @@ def solve_model(model, solver_name="glpk"):
     if solver is None:
         raise RuntimeError(f"Solver '{solver_name}' is not available.")
     
-    # Solve the model
-    result = solver.solve(model, tee=False)  # tee=False suppresses solver output
+    # Check if the solver is actually available by trying to get its name
+    # Some solvers may be None, others may be unavailable
+    try:
+        # Solve the model
+        result = solver.solve(model, tee=False)  # tee=False suppresses solver output
+    except Exception as e:
+        raise RuntimeError(f"Solver '{solver_name}' failed to solve the model: {e}")
     
     # Collect results
+    x_val = value(model.x) if model.x.value is not None else None
+    y_val = value(model.y) if model.y.value is not None else None
+    obj_val = value(model.obj.expr) if model.obj.expr is not None else None
+    
     results = {
         "solver_status": str(result.solver.status),
         "termination_condition": str(result.solver.termination_condition),
         "success": result.solver.termination_condition == "optimal",
-        "x_value": value(model.x) if model.x.value is not None else None,
-        "y_value": value(model.y) if model.y.value is not None else None,
-        "objective_value": value(model.obj) if model.obj() is not None else None,
+        "x_value": x_val,
+        "y_value": y_val,
+        "objective_value": obj_val,
     }
     
     return results
@@ -99,9 +108,18 @@ def display_results(results):
     if results['success']:
         print("\n✓ Optimal solution found!")
         print(f"\nDecision Variables:")
-        print(f"  x (integer) = {results['x_value']:.2f}")
-        print(f"  y (continuous) = {results['y_value']:.2f}")
-        print(f"\nObjective Value: {results['objective_value']:.2f}")
+        if results['x_value'] is not None:
+            print(f"  x (integer) = {results['x_value']:.2f}")
+        else:
+            print(f"  x (integer) = None")
+        if results['y_value'] is not None:
+            print(f"  y (continuous) = {results['y_value']:.2f}")
+        else:
+            print(f"  y (continuous) = None")
+        if results['objective_value'] is not None:
+            print(f"\nObjective Value: {results['objective_value']:.2f}")
+        else:
+            print(f"\nObjective Value: None")
         
         # Display constraint satisfaction
         print("\nConstraint Analysis:")
