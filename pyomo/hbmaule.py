@@ -39,20 +39,27 @@ def create_optimization_model() -> ConcreteModel:
         doc="Continuous decision variable"
     )
 
+    # Define constants to avoid magic numbers
+    OBJ_X_COEFF = 2
+    OBJ_Y_COEFF = 3
+    CONSTRAINT1_RHS = 6
+    CONSTRAINT2_RHS = 1
+    CONSTRAINT1_Y_COEFF = 2
+
     # Objective function: maximize 2x + 3y
     model.obj = Objective(
-        expr=2 * model.x + 3 * model.y,
+        expr=OBJ_X_COEFF * model.x + OBJ_Y_COEFF * model.y,
         sense=maximize,
         doc="Maximize the objective function"
     )
 
     # Constraints
     model.c1 = Constraint(
-        expr=model.x + 2 * model.y <= 6,
+        expr=model.x + CONSTRAINT1_Y_COEFF * model.y <= CONSTRAINT1_RHS,
         doc="First constraint: x + 2y ≤ 6"
     )
     model.c2 = Constraint(
-        expr=model.x - model.y >= 1,
+        expr=model.x - model.y >= CONSTRAINT2_RHS,
         doc="Second constraint: x - y ≥ 1"
     )
 
@@ -84,9 +91,8 @@ def solve_model(
         # Solve the model
         result = solver.solve(model, tee=False)
     except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-        raise RuntimeError(
-            f"Solver '{solver_name}' failed to solve the model: {e}"
-        ) from e
+        error_msg = f"Solver '{solver_name}' failed to solve the model: {e}"
+        raise RuntimeError(error_msg) from e
 
     # Collect results
     x_val = value(model.x) if model.x.value is not None else None
@@ -141,8 +147,11 @@ def display_results(results: Dict[str, Any]) -> None:
         print("  (Values would be computed with the solution)")
     else:
         print("\n✗ No optimal solution found.")
-        print("  The problem may be infeasible, unbounded,"
-              " or the solver encountered an error.")
+        error_msg = (
+            "  The problem may be infeasible, unbounded,"
+            " or the solver encountered an error."
+        )
+        print(error_msg)
 
     print("\n" + "=" * 50)
 
@@ -154,6 +163,8 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
+    DEFAULT_SOLVER = "glpk"
+    
     print("HBMaule Optimization Model")
     print("=" * 50)
     print("Problem: maximize 2x + 3y")
@@ -169,7 +180,7 @@ def main() -> int:
         model = create_optimization_model()
 
         # Solve the model
-        results = solve_model(model, solver_name="glpk")
+        results = solve_model(model, solver_name=DEFAULT_SOLVER)
 
         # Display results
         display_results(results)
