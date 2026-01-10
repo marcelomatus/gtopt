@@ -6,6 +6,7 @@ and continuous variables.
 """
 
 import sys
+from typing import Dict, Any
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -19,7 +20,7 @@ from pyomo.environ import (
 )
 
 
-def create_optimization_model():
+def create_optimization_model() -> ConcreteModel:
     """
     Create and configure the optimization model.
 
@@ -29,10 +30,14 @@ def create_optimization_model():
     model = ConcreteModel(name="HBMaule_Optimization")
 
     # Decision variables
-    model.x = Var(domain=NonNegativeIntegers,
-                  doc="Integer decision variable")
-    model.y = Var(domain=NonNegativeReals,
-                  doc="Continuous decision variable")
+    model.x = Var(
+        domain=NonNegativeIntegers,
+        doc="Integer decision variable"
+    )
+    model.y = Var(
+        domain=NonNegativeReals,
+        doc="Continuous decision variable"
+    )
 
     # Objective function: maximize 2x + 3y
     model.obj = Objective(
@@ -54,16 +59,19 @@ def create_optimization_model():
     return model
 
 
-def solve_model(model, solver_name="glpk"):
+def solve_model(
+    model: ConcreteModel,
+    solver_name: str = "glpk"
+) -> Dict[str, Any]:
     """
     Solve the optimization model.
 
     Args:
-        model (ConcreteModel): Pyomo model to solve
-        solver_name (str): Name of the solver to use
+        model: Pyomo model to solve
+        solver_name: Name of the solver to use
 
     Returns:
-        dict: Results dictionary containing solution information
+        Results dictionary containing solution information
     """
     # Check if solver is available
     solver = SolverFactory(solver_name)
@@ -97,12 +105,12 @@ def solve_model(model, solver_name="glpk"):
     return results
 
 
-def display_results(results):
+def display_results(results: Dict[str, Any]) -> None:
     """
     Display the optimization results in a formatted way.
 
     Args:
-        results (dict): Results dictionary from solve_model
+        results: Results dictionary from solve_model
     """
     print("\n" + "=" * 50)
     print("OPTIMIZATION RESULTS")
@@ -139,9 +147,12 @@ def display_results(results):
     print("\n" + "=" * 50)
 
 
-def main():
+def main() -> int:
     """
     Main function to run the optimization example.
+
+    Returns:
+        Exit code (0 for success, 1 for error)
     """
     print("HBMaule Optimization Model")
     print("=" * 50)
