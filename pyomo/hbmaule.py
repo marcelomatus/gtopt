@@ -73,8 +73,8 @@ def solve_model(model, solver_name="glpk"):
     try:
         # Solve the model
         result = solver.solve(model, tee=False)  # tee=False suppresses solver output
-    except Exception as e:
-        raise RuntimeError(f"Solver '{solver_name}' failed to solve the model: {e}")
+    except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+        raise RuntimeError(f"Solver '{solver_name}' failed to solve the model: {e}") from e
 
     # Collect results
     x_val = value(model.x) if model.x.value is not None else None
@@ -167,7 +167,7 @@ def main():
         print("\nPlease ensure you have a suitable solver installed.")
         print("You can install GLPK or use another solver like 'cbc'.")
         return 1
-    except Exception as e:
+    except (ValueError, TypeError, AttributeError, ImportError) as e:
         print(f"\nUnexpected error: {e}", file=sys.stderr)
         return 1
 
