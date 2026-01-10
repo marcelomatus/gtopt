@@ -24,9 +24,30 @@ class BatteryConfig:
 @dataclass
 class TimeSeriesConfig:
     """Time series data configuration."""
-    time_resolution_hours: float  # e.g., 1.0, 0.25
+    time_durations_hours: List[float]  # duration of each interval in hours
     marginal_costs_usd_per_mwh: List[float]
     time_periods: Optional[List[str]] = None  # optional timestamps
+    
+    def __post_init__(self):
+        """Validate that all lists have the same length."""
+        if len(self.time_durations_hours) != len(self.marginal_costs_usd_per_mwh):
+            raise ValueError(
+                f"Length of time_durations_hours ({len(self.time_durations_hours)}) "
+                f"must match length of marginal_costs_usd_per_mwh "
+                f"({len(self.marginal_costs_usd_per_mwh)})"
+            )
+        if self.time_periods and len(self.time_periods) != len(self.marginal_costs_usd_per_mwh):
+            raise ValueError(
+                f"Length of time_periods ({len(self.time_periods)}) "
+                f"must match length of marginal_costs_usd_per_mwh "
+                f"({len(self.marginal_costs_usd_per_mwh)})"
+            )
+        # Validate all durations are positive
+        for i, duration in enumerate(self.time_durations_hours):
+            if duration <= 0:
+                raise ValueError(
+                    f"Time duration at index {i} must be positive, got {duration}"
+                )
 
 
 @dataclass
@@ -68,16 +89,26 @@ class ConfigLoader:
         
         # Parse time series config
         ts_data = data["time_series"]
+        
+        # Handle both old format (time_resolution_hours) and new format (time_durations_hours)
+        if "time_durations_hours" in ts_data:
+            time_durations = ts_data["time_durations_hours"]
+        elif "time_resolution_hours" in ts_data:
+            # Convert single resolution to list of identical durations
+            resolution = ts_data["time_resolution_hours"]
+            n_periods = len(ts_data["marginal_costs_usd_per_mwh"])
+            time_durations = [resolution] * n_periods
+        else:
+            raise ValueError(
+                "time_series must contain either 'time_durations_hours' "
+                "or 'time_resolution_hours'"
+            )
+        
         time_series = TimeSeriesConfig(
-            time_resolution_hours=ts_data["time_resolution_hours"],
+            time_durations_hours=time_durations,
             marginal_costs_usd_per_mwh=ts_data["marginal_costs_usd_per_mwh"],
             time_periods=ts_data.get("time_periods")
         )
-        
-        # Validate time series length
-        n_periods = len(time_series.marginal_costs_usd_per_mwh)
-        if time_series.time_periods and len(time_series.time_periods) != n_periods:
-            raise ValueError("Number of time periods must match marginal costs length")
         
         return OptimizationConfig(
             battery=battery,

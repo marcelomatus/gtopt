@@ -61,7 +61,7 @@ class BatteryDispatchSolver:
             "charge_mw": charge,
             "discharge_mw": discharge,
             "soc_mwh": soc,
-            "time_resolution_hours": self.config.time_series.time_resolution_hours,
+            "time_durations_hours": self.config.time_series.time_durations_hours,
             "time_periods": self.config.time_series.time_periods,
             "marginal_costs_usd_per_mwh": self.config.time_series.marginal_costs_usd_per_mwh,
         }
