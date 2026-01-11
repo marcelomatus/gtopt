@@ -1,6 +1,7 @@
 """
 Solver wrapper for battery dispatch optimization.
 """
+
 import logging
 from typing import Dict, Any
 
@@ -45,8 +46,7 @@ class BatteryDispatchSolver:
             self.solution = result
         else:
             logger.warning(
-                "Solver terminated with: %s",
-                result.solver.termination_condition
+                "Solver terminated with: %s", result.solver.termination_condition
             )
             self.solution = result
 
