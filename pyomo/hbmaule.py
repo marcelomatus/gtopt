@@ -8,15 +8,23 @@ This module provides a command-line interface to run optimization models:
 
 import sys
 import argparse
-from typing import Optional
+from typing import Optional, Type, cast
 
 # Import refactored modules
+SimpleOptimization: Optional[Type] = None
+BatteryDispatchRunner: Optional[Type] = None
+
 try:
-    from simple_optimization import SimpleOptimization
-    from battery_runner import BatteryDispatchRunner
+    from simple_optimization import SimpleOptimization as SO
+    SimpleOptimization = SO
 except ImportError:
-    SimpleOptimization = None
-    BatteryDispatchRunner = None
+    pass
+
+try:
+    from battery_runner import BatteryDispatchRunner as BDR
+    BatteryDispatchRunner = BDR
+except ImportError:
+    pass
 
 
 def _setup_argparse() -> argparse.ArgumentParser:
@@ -60,6 +68,7 @@ def main() -> int:
         if SimpleOptimization is None:
             print("Error: SimpleOptimization module not found.", file=sys.stderr)
             return 1
+        # Create instance and call run method
         optimizer = SimpleOptimization()
         return optimizer.run()
 

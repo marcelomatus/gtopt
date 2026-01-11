@@ -3,20 +3,53 @@ Battery dispatch runner class.
 """
 
 import sys
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from battery_dispatch.config import (
+        OptimizationConfig,
+        BatteryConfig,
+        TimeSeriesConfig,
+    )
+    from battery_dispatch import ConfigLoader, BatteryDispatchSolver, ResultsHandler
 
 # Import battery dispatch modules
 try:
     from battery_dispatch import ConfigLoader, BatteryDispatchSolver, ResultsHandler
-    from battery_dispatch.config import OptimizationConfig
+    from battery_dispatch.config import (
+        OptimizationConfig,
+        BatteryConfig,
+        TimeSeriesConfig,
+    )
 
     BATTERY_DISPATCH_AVAILABLE = True
 except ImportError:
     BATTERY_DISPATCH_AVAILABLE = False
     # Create dummy types for type checking when battery_dispatch is not available
+    class BatteryConfig:  # type: ignore
+        """Dummy BatteryConfig class."""
+        max_charge_rate_mw: float = 0.0
+        max_discharge_rate_mw: float = 0.0
+        min_soc_mwh: float = 0.0
+        max_soc_mwh: float = 0.0
+        initial_soc_mwh: float = 0.0
+        charge_efficiency: float = 0.0
+        discharge_efficiency: float = 0.0
+
+    class TimeSeriesConfig:  # type: ignore
+        """Dummy TimeSeriesConfig class."""
+        marginal_costs_usd_per_mwh: list[float]
+        time_durations_hours: list[float]
+        time_periods: list[int]
+        
+        def __init__(self) -> None:
+            self.marginal_costs_usd_per_mwh = []
+            self.time_durations_hours = []
+            self.time_periods = []
+
     class OptimizationConfig:  # type: ignore
         """Dummy config class for type hints."""
-        def __init__(self, battery: Any, time_series: Any) -> None:
+        def __init__(self, battery: BatteryConfig, time_series: TimeSeriesConfig) -> None:
             self.battery = battery
             self.time_series = time_series
             self.output_file: str = ""
@@ -27,24 +60,9 @@ except ImportError:
         @staticmethod
         def from_file(filepath: str) -> OptimizationConfig:
             """Dummy method."""
-            # Create dummy objects for battery and time_series
-            class DummyBattery:
-                max_charge_rate_mw = 0.0
-                max_discharge_rate_mw = 0.0
-                min_soc_mwh = 0.0
-                max_soc_mwh = 0.0
-                initial_soc_mwh = 0.0
-                charge_efficiency = 0.0
-                discharge_efficiency = 0.0
-            
-            class DummyTimeSeries:
-                marginal_costs_usd_per_mwh: list[float] = []
-                time_durations_hours: list[float] = []
-                time_periods: list[int] = []
-            
             return OptimizationConfig(
-                battery=DummyBattery(),
-                time_series=DummyTimeSeries()
+                battery=BatteryConfig(),
+                time_series=TimeSeriesConfig()
             )
 
     class BatteryDispatchSolver:  # type: ignore
