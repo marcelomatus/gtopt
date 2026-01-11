@@ -72,14 +72,14 @@ def main() -> int:
             return 1
         optimizer = SimpleOptimization()
         return optimizer.run()
-    
+
     elif args.command == "battery":
         if BatteryDispatchRunner is None:
             print("Error: BatteryDispatchRunner module not found.", file=sys.stderr)
             return 1
         runner = BatteryDispatchRunner()
         return runner.run(args.config_file, args.output)
-    
+
     else:
         parser.print_help()
         return 0
