@@ -26,7 +26,7 @@ try:
 except ImportError:
     BATTERY_DISPATCH_AVAILABLE = False
     # Create dummy types for type checking when battery_dispatch is not available
-    class BatteryConfig:  # type: ignore
+    class _BatteryConfig:  # type: ignore
         """Dummy BatteryConfig class."""
         max_charge_rate_mw: float = 0.0
         max_discharge_rate_mw: float = 0.0
@@ -36,56 +36,67 @@ except ImportError:
         charge_efficiency: float = 0.0
         discharge_efficiency: float = 0.0
 
-    class TimeSeriesConfig:  # type: ignore
+    class _TimeSeriesConfig:  # type: ignore
         """Dummy TimeSeriesConfig class."""
         marginal_costs_usd_per_mwh: list[float]
         time_durations_hours: list[float]
         time_periods: list[int]
-        
+
         def __init__(self) -> None:
             self.marginal_costs_usd_per_mwh = []
             self.time_durations_hours = []
             self.time_periods = []
 
-    class OptimizationConfig:  # type: ignore
+    class _OptimizationConfig:  # type: ignore
         """Dummy config class for type hints."""
-        def __init__(self, battery: BatteryConfig, time_series: TimeSeriesConfig) -> None:
+        def __init__(self, battery: _BatteryConfig, time_series: _TimeSeriesConfig) -> None:
             self.battery = battery
             self.time_series = time_series
             self.output_file: str = ""
             self.solver_name: str = "cbc"
 
-    class ConfigLoader:  # type: ignore
+    class _ConfigLoader:  # type: ignore
         """Dummy loader class for type hints."""
         @staticmethod
-        def from_file(filepath: str) -> OptimizationConfig:
+        def from_file(filepath: str) -> _OptimizationConfig:
             """Dummy method."""
-            return OptimizationConfig(
-                battery=BatteryConfig(),
-                time_series=TimeSeriesConfig()
+            # Use underscore to avoid unused argument warning
+            _ = filepath
+            return _OptimizationConfig(
+                battery=_BatteryConfig(),
+                time_series=_TimeSeriesConfig()
             )
 
-    class BatteryDispatchSolver:  # type: ignore
+    class _BatteryDispatchSolver:  # type: ignore
         """Dummy solver class for type hints."""
-        def __init__(self, config: OptimizationConfig) -> None:
+        def __init__(self, config: _OptimizationConfig) -> None:
             """Dummy init."""
-            pass
-        
+            self.config = config
+
         def solve(self) -> dict[str, Any]:
             """Dummy solve."""
             return {}
 
-    class ResultsHandler:  # type: ignore
+    class _ResultsHandler:  # type: ignore
         """Dummy results handler for type hints."""
         @staticmethod
         def print_summary(results: dict[str, Any]) -> None:
             """Dummy method."""
-            pass
-        
+            _ = results
+
         @staticmethod
         def to_json(results: dict[str, Any], output_path: str) -> None:
             """Dummy method."""
-            pass
+            _ = results
+            _ = output_path
+
+    # Create aliases for the dummy classes
+    BatteryConfig = _BatteryConfig
+    TimeSeriesConfig = _TimeSeriesConfig
+    OptimizationConfig = _OptimizationConfig
+    ConfigLoader = _ConfigLoader
+    BatteryDispatchSolver = _BatteryDispatchSolver
+    ResultsHandler = _ResultsHandler
 
 
 class BatteryDispatchRunner:
