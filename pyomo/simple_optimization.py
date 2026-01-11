@@ -19,11 +19,11 @@ from pyomo.environ import (
 
 class SimpleOptimization:
     """Handles the simple mixed-integer optimization example."""
-    
+
     def __init__(self, solver_name: str = "glpk"):
         self.solver_name = solver_name
         self.model = None
-        
+
     def create_model(self) -> ConcreteModel:
         """Create the simple optimization model."""
         model = ConcreteModel(name="HBMaule_Optimization")
@@ -58,12 +58,12 @@ class SimpleOptimization:
 
         self.model = model
         return model
-    
+
     def solve(self) -> Dict[str, Any]:
         """Solve the optimization model."""
         if self.model is None:
             self.create_model()
-            
+
         solver = SolverFactory(self.solver_name)
         if solver is None:
             raise RuntimeError(f"Solver '{self.solver_name}' is not available.")
@@ -76,7 +76,9 @@ class SimpleOptimization:
 
         x_val = value(self.model.x) if self.model.x.value is not None else None
         y_val = value(self.model.y) if self.model.y.value is not None else None
-        obj_val = value(self.model.obj.expr) if self.model.obj.expr is not None else None
+        obj_val = (
+            value(self.model.obj.expr) if self.model.obj.expr is not None else None
+        )
 
         return {
             "solver_status": str(result.solver.status),
@@ -86,7 +88,7 @@ class SimpleOptimization:
             "y_value": y_val,
             "objective_value": obj_val,
         }
-    
+
     def display_results(self, results: Dict[str, Any]) -> None:
         """Display the optimization results."""
         print("\n" + "=" * 50)
@@ -120,11 +122,11 @@ class SimpleOptimization:
             print(error_msg)
 
         print("\n" + "=" * 50)
-    
+
     def run(self) -> int:
         """
         Run the complete simple optimization example.
-        
+
         Returns:
             Exit code (0 for success, 1 for error)
         """
