@@ -3,7 +3,7 @@ Simple optimization model class.
 """
 
 import sys
-from typing import Dict, Any, Optional, TypedDict, cast
+from typing import Optional, TypedDict, cast
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -20,6 +20,7 @@ from pyomo.opt import SolverResults
 
 class OptimizationResults(TypedDict):
     """Type definition for optimization results."""
+
     solver_status: str
     termination_condition: str
     success: bool
@@ -75,7 +76,7 @@ class SimpleOptimization:
         """Solve the optimization model."""
         if self.model is None:
             self.create_model()
-        
+
         # Ensure model is not None for mypy
         model = cast(ConcreteModel, self.model)
 
@@ -94,14 +95,12 @@ class SimpleOptimization:
         obj_val = value(model.obj.expr) if model.obj.expr is not None else None
 
         termination_condition = (
-            str(result.solver.termination_condition) 
-            if hasattr(result.solver, 'termination_condition') 
+            str(result.solver.termination_condition)
+            if hasattr(result.solver, "termination_condition")
             else "unknown"
         )
         solver_status = (
-            str(result.solver.status) 
-            if hasattr(result.solver, 'status') 
-            else "unknown"
+            str(result.solver.status) if hasattr(result.solver, "status") else "unknown"
         )
 
         return OptimizationResults(

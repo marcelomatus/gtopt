@@ -7,8 +7,9 @@ project(gtoptStandalone LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -Wall -O2 -g")
 
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
@@ -39,9 +40,9 @@ CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake_local ${PROJECT_SOURCE_DIR}/../cmake)
 
-option(COIN_USE_CLP "Use Clp" OFF)
+option(COIN_USE_CLP "Use Clp" ON)
 option(COIN_USE_CBC "Use Cbc" OFF)
-option(COIN_USE_CPX "Use Cplex" ON)
+option(COIN_USE_CPX "Use Cplex" OFF)
 
 set(COIN_ROOT_DIR
   "/opt/coinor"

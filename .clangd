@@ -33,7 +33,8 @@ Diagnostics:
       "boost-use-ranges",
       "llvm-include-order",
       "readability-redundant-member-init",
-      "readability-function-cognitive-complexity"
+      "readability-function-cognitive-complexity",
+      "bugprone-lambda-function-name"
     ]
 
 Index:
