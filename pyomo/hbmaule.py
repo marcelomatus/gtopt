@@ -8,7 +8,6 @@ This module provides a command-line interface to run optimization models:
 
 import sys
 import argparse
-from typing import Dict, Any
 
 # Import refactored modules
 try:
@@ -73,16 +72,15 @@ def main() -> int:
         optimizer = SimpleOptimization()
         return optimizer.run()
 
-    elif args.command == "battery":
+    if args.command == "battery":
         if BatteryDispatchRunner is None:
             print("Error: BatteryDispatchRunner module not found.", file=sys.stderr)
             return 1
         runner = BatteryDispatchRunner()
         return runner.run(args.config_file, args.output)
 
-    else:
-        parser.print_help()
-        return 0
+    parser.print_help()
+    return 0
 
 
 if __name__ == "__main__":

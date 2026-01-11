@@ -21,6 +21,7 @@ class SimpleOptimization:
     """Handles the simple mixed-integer optimization example."""
 
     def __init__(self, solver_name: str = "glpk"):
+        """Initialize with optional solver name."""
         self.solver_name = solver_name
         self.model = None
 
@@ -70,9 +71,9 @@ class SimpleOptimization:
 
         try:
             result = solver.solve(self.model, tee=False)
-        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-            error_msg = f"Solver '{self.solver_name}' failed to solve the model: {e}"
-            raise RuntimeError(error_msg) from e
+        except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
+            error_msg = f"Solver '{self.solver_name}' failed to solve the model: {exc}"
+            raise RuntimeError(error_msg) from exc
 
         x_val = value(self.model.x) if self.model.x.value is not None else None
         y_val = value(self.model.y) if self.model.y.value is not None else None
@@ -146,11 +147,11 @@ class SimpleOptimization:
             self.display_results(results)
             return 0 if results["success"] else 1
 
-        except RuntimeError as e:
-            print(f"\nError: {e}", file=sys.stderr)
+        except RuntimeError as exc:
+            print(f"\nError: {exc}", file=sys.stderr)
             print("\nPlease ensure you have a suitable solver installed.")
             print("You can install GLPK or use another solver like 'cbc'.")
             return 1
-        except (ValueError, TypeError, AttributeError, ImportError) as e:
-            print(f"\nUnexpected error: {e}", file=sys.stderr)
+        except (ValueError, TypeError, AttributeError, ImportError) as exc:
+            print(f"\nUnexpected error: {exc}", file=sys.stderr)
             return 1
