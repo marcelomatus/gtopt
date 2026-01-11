@@ -1,6 +1,7 @@
 """
 Battery dispatch optimization model using Pyomo.
 """
+
 from typing import List, Tuple
 
 import pyomo.environ as pyo
@@ -27,17 +28,25 @@ class BatteryDispatchModel:
 
         # Decision variables
         # Charge power (MW) at each time period
-        m.charge = Var(m.T, within=NonNegativeReals,
-                      bounds=(0, self.config.battery.max_charge_rate_mw))
+        m.charge = Var(
+            m.T,
+            within=NonNegativeReals,
+            bounds=(0, self.config.battery.max_charge_rate_mw),
+        )
 
         # Discharge power (MW) at each time period
-        m.discharge = Var(m.T, within=NonNegativeReals,
-                         bounds=(0, self.config.battery.max_discharge_rate_mw))
+        m.discharge = Var(
+            m.T,
+            within=NonNegativeReals,
+            bounds=(0, self.config.battery.max_discharge_rate_mw),
+        )
 
         # State of charge (MWh) at each time period
-        m.soc = Var(m.T, within=NonNegativeReals,
-                   bounds=(self.config.battery.min_soc_mwh,
-                           self.config.battery.max_soc_mwh))
+        m.soc = Var(
+            m.T,
+            within=NonNegativeReals,
+            bounds=(self.config.battery.min_soc_mwh, self.config.battery.max_soc_mwh),
+        )
 
         # Binary variable to prevent simultaneous charge/discharge
         m.charge_binary = Var(m.T, within=pyo.Binary)
@@ -52,7 +61,9 @@ class BatteryDispatchModel:
             # Discharge earns money (negative cost), charge costs money
             # Multiply by duration to account for variable time intervals
             return sum(
-                (model.discharge[t] - model.charge[t]) * marginal_costs[t] * time_durations[t]
+                (model.discharge[t] - model.charge[t])
+                * marginal_costs[t]
+                * time_durations[t]
                 for t in model.T
             )
 
@@ -67,14 +78,22 @@ class BatteryDispatchModel:
                 # Energy = power * time, so multiply by duration
                 return model.soc[t] == (
                     self.config.battery.initial_soc_mwh
-                    + model.charge[t] * self.config.battery.charge_efficiency * time_durations[t]
-                    - model.discharge[t] / self.config.battery.discharge_efficiency * time_durations[t]
+                    + model.charge[t]
+                    * self.config.battery.charge_efficiency
+                    * time_durations[t]
+                    - model.discharge[t]
+                    / self.config.battery.discharge_efficiency
+                    * time_durations[t]
                 )
             # Subsequent periods
             return model.soc[t] == (
-                model.soc[t-1]
-                + model.charge[t] * self.config.battery.charge_efficiency * time_durations[t]
-                - model.discharge[t] / self.config.battery.discharge_efficiency * time_durations[t]
+                model.soc[t - 1]
+                + model.charge[t]
+                * self.config.battery.charge_efficiency
+                * time_durations[t]
+                - model.discharge[t]
+                / self.config.battery.discharge_efficiency
+                * time_durations[t]
             )
 
         m.soc_evolution = Constraint(m.T, rule=soc_evolution_rule)
@@ -94,10 +113,16 @@ class BatteryDispatchModel:
         # Link binary variables to power variables
         # Power limits remain in MW (power), not affected by time duration
         def charge_linking_rule(model, t):
-            return model.charge[t] <= model.charge_binary[t] * self.config.battery.max_charge_rate_mw
+            return (
+                model.charge[t]
+                <= model.charge_binary[t] * self.config.battery.max_charge_rate_mw
+            )
 
         def discharge_linking_rule(model, t):
-            return model.discharge[t] <= model.discharge_binary[t] * self.config.battery.max_discharge_rate_mw
+            return (
+                model.discharge[t]
+                <= model.discharge_binary[t] * self.config.battery.max_discharge_rate_mw
+            )
 
         m.charge_linking = Constraint(m.T, rule=charge_linking_rule)
         m.discharge_linking = Constraint(m.T, rule=discharge_linking_rule)
