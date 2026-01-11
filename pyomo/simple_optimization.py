@@ -3,7 +3,7 @@ Simple optimization model class.
 """
 
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Optional, TypedDict, cast
 from pyomo.environ import (
     ConcreteModel,
     Var,
@@ -15,15 +15,26 @@ from pyomo.environ import (
     maximize,
     value,
 )
+from pyomo.opt import SolverResults
+
+
+class OptimizationResults(TypedDict):
+    """Type definition for optimization results."""
+    solver_status: str
+    termination_condition: str
+    success: bool
+    x_value: Optional[float]
+    y_value: Optional[float]
+    objective_value: Optional[float]
 
 
 class SimpleOptimization:
     """Handles the simple mixed-integer optimization example."""
 
-    def __init__(self, solver_name: str = "glpk"):
+    def __init__(self, solver_name: str = "glpk") -> None:
         """Initialize with optional solver name."""
         self.solver_name = solver_name
-        self.model = None
+        self.model: Optional[ConcreteModel] = None
 
     def create_model(self) -> ConcreteModel:
         """Create the simple optimization model."""
@@ -60,37 +71,49 @@ class SimpleOptimization:
         self.model = model
         return model
 
-    def solve(self) -> Dict[str, Any]:
+    def solve(self) -> OptimizationResults:
         """Solve the optimization model."""
         if self.model is None:
             self.create_model()
+        
+        # Ensure model is not None for mypy
+        model = cast(ConcreteModel, self.model)
 
         solver = SolverFactory(self.solver_name)
         if solver is None:
             raise RuntimeError(f"Solver '{self.solver_name}' is not available.")
 
         try:
-            result = solver.solve(self.model, tee=False)
+            result = cast(SolverResults, solver.solve(model, tee=False))
         except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
             error_msg = f"Solver '{self.solver_name}' failed to solve the model: {exc}"
             raise RuntimeError(error_msg) from exc
 
-        x_val = value(self.model.x) if self.model.x.value is not None else None
-        y_val = value(self.model.y) if self.model.y.value is not None else None
-        obj_val = (
-            value(self.model.obj.expr) if self.model.obj.expr is not None else None
+        x_val = value(model.x) if model.x.value is not None else None
+        y_val = value(model.y) if model.y.value is not None else None
+        obj_val = value(model.obj.expr) if model.obj.expr is not None else None
+
+        termination_condition = (
+            str(result.solver.termination_condition) 
+            if hasattr(result.solver, 'termination_condition') 
+            else "unknown"
+        )
+        solver_status = (
+            str(result.solver.status) 
+            if hasattr(result.solver, 'status') 
+            else "unknown"
         )
 
-        return {
-            "solver_status": str(result.solver.status),
-            "termination_condition": str(result.solver.termination_condition),
-            "success": result.solver.termination_condition == "optimal",
-            "x_value": x_val,
-            "y_value": y_val,
-            "objective_value": obj_val,
-        }
+        return OptimizationResults(
+            solver_status=solver_status,
+            termination_condition=termination_condition,
+            success=termination_condition == "optimal",
+            x_value=x_val,
+            y_value=y_val,
+            objective_value=obj_val,
+        )
 
-    def display_results(self, results: Dict[str, Any]) -> None:
+    def display_results(self, results: OptimizationResults) -> None:
         """Display the optimization results."""
         print("\n" + "=" * 50)
         print("SIMPLE OPTIMIZATION RESULTS")
