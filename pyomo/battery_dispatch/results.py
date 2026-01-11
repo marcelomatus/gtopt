@@ -35,9 +35,10 @@ class ResultsHandler:
     @staticmethod
     def print_summary(results: Dict[str, Any]) -> None:
         """Print a summary of results to console."""
-        print("\n" + "=" * 60)
+        separator = "=" * 60
+        print(f"\n{separator}")
         print("BATTERY DISPATCH OPTIMIZATION RESULTS")
-        print("=" * 60)
+        print(separator)
 
         print(f"\nStatus: {results['status']}")
         print(f"Termination: {results['termination_condition']}")
@@ -69,11 +70,10 @@ class ResultsHandler:
 
             # Print time duration statistics if available
             if time_durations:
-                print(f"\nTime duration statistics:")
+                print("\nTime duration statistics:")
                 print(f"  Min duration: {min(time_durations):.3f} hours")
                 print(f"  Max duration: {max(time_durations):.3f} hours")
-                print(
-                    f"  Avg duration: {sum(time_durations)/len(time_durations):.3f} hours"
-                )
+                avg_duration = sum(time_durations) / len(time_durations)
+                print(f"  Avg duration: {avg_duration:.3f} hours")
 
         print("\n" + "=" * 60)

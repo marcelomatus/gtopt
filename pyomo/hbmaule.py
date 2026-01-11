@@ -1,5 +1,7 @@
 """
-Pyomo optimization models including:
+Pyomo optimization models.
+
+This module provides two optimization models:
 1. Simple mixed-integer linear programming example
 2. Battery dispatch optimization for energy storage
 """
@@ -29,6 +31,102 @@ from pyomo.environ import (
 )
 
 
+def _create_optimization_model() -> ConcreteModel:
+    """Create the simple optimization model."""
+    model = ConcreteModel(name="HBMaule_Optimization")
+
+    # Decision variables
+    model.x = Var(domain=NonNegativeIntegers, doc="Integer decision variable")
+    model.y = Var(domain=NonNegativeReals, doc="Continuous decision variable")
+
+    # Define constants to avoid magic numbers
+    obj_x_coeff = 2
+    obj_y_coeff = 3
+    constraint1_rhs = 6
+    constraint2_rhs = 1
+    constraint1_y_coeff = 2
+
+    # Objective function: maximize 2x + 3y
+    model.obj = Objective(
+        expr=obj_x_coeff * model.x + obj_y_coeff * model.y,
+        sense=maximize,
+        doc="Maximize the objective function",
+    )
+
+    # Constraints
+    model.c1 = Constraint(
+        expr=model.x + constraint1_y_coeff * model.y <= constraint1_rhs,
+        doc="First constraint: x + 2y ≤ 6",
+    )
+    model.c2 = Constraint(
+        expr=model.x - model.y >= constraint2_rhs,
+        doc="Second constraint: x - y ≥ 1",
+    )
+
+    return model
+
+
+def _solve_model(model: ConcreteModel, solver_name: str = "glpk") -> Dict[str, Any]:
+    """Solve the optimization model."""
+    solver = SolverFactory(solver_name)
+    if solver is None:
+        raise RuntimeError(f"Solver '{solver_name}' is not available.")
+
+    try:
+        result = solver.solve(model, tee=False)
+    except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+        error_msg = f"Solver '{solver_name}' failed to solve the model: {e}"
+        raise RuntimeError(error_msg) from e
+
+    x_val = value(model.x) if model.x.value is not None else None
+    y_val = value(model.y) if model.y.value is not None else None
+    obj_val = value(model.obj.expr) if model.obj.expr is not None else None
+
+    return {
+        "solver_status": str(result.solver.status),
+        "termination_condition": str(result.solver.termination_condition),
+        "success": result.solver.termination_condition == "optimal",
+        "x_value": x_val,
+        "y_value": y_val,
+        "objective_value": obj_val,
+    }
+
+
+def _display_results(results: Dict[str, Any]) -> None:
+    """Display the optimization results."""
+    print("\n" + "=" * 50)
+    print("SIMPLE OPTIMIZATION RESULTS")
+    print("=" * 50)
+
+    print(f"\nSolver Status: {results['solver_status']}")
+    print(f"Termination Condition: {results['termination_condition']}")
+
+    if results["success"]:
+        print("\n✓ Optimal solution found!")
+        print("\nDecision Variables:")
+        if results["x_value"] is not None:
+            print(f"  x (integer) = {results['x_value']:.2f}")
+        else:
+            print("  x (integer) = None")
+        if results["y_value"] is not None:
+            print(f"  y (continuous) = {results['y_value']:.2f}")
+        else:
+            print("  y (continuous) = None")
+        if results["objective_value"] is not None:
+            print(f"\nObjective Value: {results['objective_value']:.2f}")
+        else:
+            print("\nObjective Value: None")
+    else:
+        print("\n✗ No optimal solution found.")
+        error_msg = (
+            "  The problem may be infeasible, unbounded,"
+            " or the solver encountered an error."
+        )
+        print(error_msg)
+
+    print("\n" + "=" * 50)
+
+
 def run_simple_example() -> int:
     """
     Run the original simple optimization example.
@@ -36,101 +134,7 @@ def run_simple_example() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-
-    def create_optimization_model() -> ConcreteModel:
-        """Create the simple optimization model."""
-        model = ConcreteModel(name="HBMaule_Optimization")
-
-        # Decision variables
-        model.x = Var(domain=NonNegativeIntegers, doc="Integer decision variable")
-        model.y = Var(domain=NonNegativeReals, doc="Continuous decision variable")
-
-        # Define constants to avoid magic numbers
-        OBJ_X_COEFF = 2
-        OBJ_Y_COEFF = 3
-        CONSTRAINT1_RHS = 6
-        CONSTRAINT2_RHS = 1
-        CONSTRAINT1_Y_COEFF = 2
-
-        # Objective function: maximize 2x + 3y
-        model.obj = Objective(
-            expr=OBJ_X_COEFF * model.x + OBJ_Y_COEFF * model.y,
-            sense=maximize,
-            doc="Maximize the objective function",
-        )
-
-        # Constraints
-        model.c1 = Constraint(
-            expr=model.x + CONSTRAINT1_Y_COEFF * model.y <= CONSTRAINT1_RHS,
-            doc="First constraint: x + 2y ≤ 6",
-        )
-        model.c2 = Constraint(
-            expr=model.x - model.y >= CONSTRAINT2_RHS,
-            doc="Second constraint: x - y ≥ 1",
-        )
-
-        return model
-
-    def solve_model(model: ConcreteModel, solver_name: str = "glpk") -> Dict[str, Any]:
-        """Solve the optimization model."""
-        solver = SolverFactory(solver_name)
-        if solver is None:
-            raise RuntimeError(f"Solver '{solver_name}' is not available.")
-
-        try:
-            result = solver.solve(model, tee=False)
-        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-            error_msg = f"Solver '{solver_name}' failed to solve the model: {e}"
-            raise RuntimeError(error_msg) from e
-
-        x_val = value(model.x) if model.x.value is not None else None
-        y_val = value(model.y) if model.y.value is not None else None
-        obj_val = value(model.obj.expr) if model.obj.expr is not None else None
-
-        return {
-            "solver_status": str(result.solver.status),
-            "termination_condition": str(result.solver.termination_condition),
-            "success": result.solver.termination_condition == "optimal",
-            "x_value": x_val,
-            "y_value": y_val,
-            "objective_value": obj_val,
-        }
-
-    def display_results(results: Dict[str, Any]) -> None:
-        """Display the optimization results."""
-        print("\n" + "=" * 50)
-        print("SIMPLE OPTIMIZATION RESULTS")
-        print("=" * 50)
-
-        print(f"\nSolver Status: {results['solver_status']}")
-        print(f"Termination Condition: {results['termination_condition']}")
-
-        if results["success"]:
-            print("\n✓ Optimal solution found!")
-            print("\nDecision Variables:")
-            if results["x_value"] is not None:
-                print(f"  x (integer) = {results['x_value']:.2f}")
-            else:
-                print("  x (integer) = None")
-            if results["y_value"] is not None:
-                print(f"  y (continuous) = {results['y_value']:.2f}")
-            else:
-                print("  y (continuous) = None")
-            if results["objective_value"] is not None:
-                print(f"\nObjective Value: {results['objective_value']:.2f}")
-            else:
-                print("\nObjective Value: None")
-        else:
-            print("\n✗ No optimal solution found.")
-            error_msg = (
-                "  The problem may be infeasible, unbounded,"
-                " or the solver encountered an error."
-            )
-            print(error_msg)
-
-        print("\n" + "=" * 50)
-
-    DEFAULT_SOLVER = "glpk"
+    default_solver = "glpk"
 
     print("Simple Optimization Model")
     print("=" * 50)
@@ -143,9 +147,9 @@ def run_simple_example() -> int:
     print("=" * 50)
 
     try:
-        model = create_optimization_model()
-        results = solve_model(model, solver_name=DEFAULT_SOLVER)
-        display_results(results)
+        model = _create_optimization_model()
+        results = _solve_model(model, solver_name=default_solver)
+        _display_results(results)
         return 0 if results["success"] else 1
 
     except RuntimeError as e:
@@ -206,8 +210,8 @@ def run_battery_dispatch(config_file: str, output_file: str = None) -> int:
     return 0
 
 
-def main() -> int:
-    """Main entry point with command line interface."""
+def _setup_argparse() -> argparse.ArgumentParser:
+    """Set up command line argument parser."""
     parser = argparse.ArgumentParser(
         description="Pyomo Optimization Models",
         epilog="Examples:\n"
@@ -219,7 +223,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Simple example command
-    simple_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "simple", help="Run the simple mixed-integer optimization example"
     )
 
@@ -234,6 +238,13 @@ def main() -> int:
         "--output", type=str, help="Override output file path (optional)"
     )
 
+    return parser
+
+
+def main() -> int:
+    """Main entry point with command line interface."""
+    parser = _setup_argparse()
+
     # If no arguments, show help
     if len(sys.argv) == 1:
         parser.print_help()
@@ -243,11 +254,11 @@ def main() -> int:
 
     if args.command == "simple":
         return run_simple_example()
-    elif args.command == "battery":
+    if args.command == "battery":
         return run_battery_dispatch(args.config_file, args.output)
-    else:
-        parser.print_help()
-        return 0
+
+    parser.print_help()
+    return 0
 
 
 if __name__ == "__main__":

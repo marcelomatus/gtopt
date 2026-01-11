@@ -31,10 +31,11 @@ class BatteryDispatchSolver:
         solver = pyo.SolverFactory(self.config.solver_name)
 
         if solver is None:
-            raise RuntimeError(
+            error_msg = (
                 f"Solver '{self.config.solver_name}' not available. "
-                f"Install with 'conda install -c conda-forge coincbc' or similar."
+                "Install with 'conda install -c conda-forge coincbc' or similar."
             )
+            raise RuntimeError(error_msg)
 
         # Solve
         logger.info("Solving with %s...", self.config.solver_name)
