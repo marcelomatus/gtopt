@@ -1,6 +1,7 @@
 """
 Unit tests for battery dispatch optimization.
 """
+
 import json
 import os
 import sys
@@ -9,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-# Add the pyomo directory to the path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from battery_dispatch import (
     ConfigLoader,
     BatteryDispatchModel,
     BatteryDispatchSolver,
     ResultsHandler,
 )
+
+# Add the pyomo directory to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def create_test_config_file() -> str:
@@ -32,28 +33,40 @@ def create_test_config_file() -> str:
             "discharge_efficiency": 0.95,
             "initial_soc_mwh": 50.0,
             "min_soc_mwh": 10.0,
-            "max_soc_mwh": 90.0
+            "max_soc_mwh": 90.0,
         },
         "time_series": {
             "time_durations_hours": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
             "marginal_costs_usd_per_mwh": [
-                30.0, 25.0, 20.0, 15.0,  # Low prices: charge
-                50.0, 60.0, 70.0, 80.0,  # High prices: discharge
-                30.0, 25.0
+                30.0,
+                25.0,
+                20.0,
+                15.0,  # Low prices: charge
+                50.0,
+                60.0,
+                70.0,
+                80.0,  # High prices: discharge
+                30.0,
+                25.0,
             ],
             "time_periods": [
-                "2024-01-01T00:00", "2024-01-01T01:00",
-                "2024-01-01T02:00", "2024-01-01T03:00",
-                "2024-01-01T04:00", "2024-01-01T05:00",
-                "2024-01-01T06:00", "2024-01-01T07:00",
-                "2024-01-01T08:00", "2024-01-01T09:00"
-            ]
+                "2024-01-01T00:00",
+                "2024-01-01T01:00",
+                "2024-01-01T02:00",
+                "2024-01-01T03:00",
+                "2024-01-01T04:00",
+                "2024-01-01T05:00",
+                "2024-01-01T06:00",
+                "2024-01-01T07:00",
+                "2024-01-01T08:00",
+                "2024-01-01T09:00",
+            ],
         },
         "solver": "cbc",
-        "output_file": "test_results.json"
+        "output_file": "test_results.json",
     }
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(config, f, indent=2)
         return f.name
 
@@ -91,10 +104,10 @@ def test_model_build():
         assert len(model.model.T) == 10  # 10 time periods
 
         # Check variables exist
-        assert hasattr(model.model, 'charge')
-        assert hasattr(model.model, 'discharge')
-        assert hasattr(model.model, 'soc')
-        assert hasattr(model.model, 'objective')
+        assert hasattr(model.model, "charge")
+        assert hasattr(model.model, "discharge")
+        assert hasattr(model.model, "soc")
+        assert hasattr(model.model, "objective")
 
     finally:
         Path(config_file).unlink()
@@ -110,10 +123,10 @@ def test_model_variables():
         model.build()
 
         # Set some dummy values for testing
-        for t in model.model.T:
-            model.model.charge[t].value = t * 1.0
-            model.model.discharge[t].value = t * 0.5
-            model.model.soc[t].value = 50.0 + t * 2.0
+        for t in model.model.T:  # type: ignore
+            model.model.charge[t].value = t * 1.0  # type: ignore
+            model.model.discharge[t].value = t * 0.5  # type: ignore
+            model.model.soc[t].value = 50.0 + t * 2.0  # type: ignore
 
         charge, discharge, soc = model.get_variables()
 
@@ -142,7 +155,7 @@ def test_results_handler():
         "marginal_costs_usd_per_mwh": [30.0, 25.0, 40.0],
     }
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         output_path = f.name
 
     try:
@@ -152,7 +165,7 @@ def test_results_handler():
         # Verify file exists and contains data
         assert Path(output_path).exists()
 
-        with open(output_path, 'r', encoding='utf-8') as f:
+        with open(output_path, "r", encoding="utf-8") as f:
             saved = json.load(f)
 
         assert "metadata" in saved

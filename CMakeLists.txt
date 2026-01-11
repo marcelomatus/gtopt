@@ -127,9 +127,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC range-v3::range-v3)
 # range-v3::range-v3)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
 
-option(COIN_USE_CLP "Use Clp" OFF)
+option(COIN_USE_CLP "Use Clp" ON)
 option(COIN_USE_CBC "Use Cbc" OFF)
-option(COIN_USE_CPX "Use Cplex" ON)
+option(COIN_USE_CPX "Use Cplex" OFF)
 
 set(COIN_ROOT_DIR
     "/opt/coinor"

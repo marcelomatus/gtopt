@@ -8,7 +8,7 @@ This module provides a command-line interface to run optimization models:
 
 import sys
 import argparse
-from typing import Optional, Type, cast
+from typing import Optional, Type
 
 # Import refactored modules
 SimpleOptimization: Optional[Type] = None
@@ -16,12 +16,14 @@ BatteryDispatchRunner: Optional[Type] = None
 
 try:
     from simple_optimization import SimpleOptimization as SO
+
     SimpleOptimization = SO
 except ImportError:
     pass
 
 try:
     from battery_runner import BatteryDispatchRunner as BDR
+
     BatteryDispatchRunner = BDR
 except ImportError:
     pass
@@ -37,7 +39,9 @@ def _setup_argparse() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command", help="Command to run", required=True
+    )
 
     # Simple example command
     subparsers.add_parser(
