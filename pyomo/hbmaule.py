@@ -8,6 +8,7 @@ This module provides a command-line interface to run optimization models:
 
 import sys
 import argparse
+from typing import Optional, cast
 
 # Import refactored modules
 try:
@@ -33,7 +34,7 @@ def _setup_argparse() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    subparsers = parser.add_subparsers(dest="command", help="Command to run", required=True)
 
     # Simple example command
     subparsers.add_parser(
@@ -58,11 +59,6 @@ def main() -> int:
     """Main entry point with command line interface."""
     parser = _setup_argparse()
 
-    # If no arguments, show help
-    if len(sys.argv) == 1:
-        parser.print_help()
-        return 0
-
     args = parser.parse_args()
 
     if args.command == "simple":
@@ -77,10 +73,13 @@ def main() -> int:
             print("Error: BatteryDispatchRunner module not found.", file=sys.stderr)
             return 1
         runner = BatteryDispatchRunner()
-        return runner.run(args.config_file, args.output)
+        # Use cast to ensure mypy knows args has config_file attribute
+        parsed_args = cast(argparse.Namespace, args)
+        return runner.run(parsed_args.config_file, parsed_args.output)
 
+    # This should never be reached due to required=True in subparsers
     parser.print_help()
-    return 0
+    return 1
 
 
 if __name__ == "__main__":
