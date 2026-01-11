@@ -2,8 +2,7 @@
 Battery dispatch optimization model using Pyomo.
 """
 
-from typing import List, Tuple
-
+from typing import List, Tuple, Optional
 import pyomo.environ as pyo
 from pyomo.environ import ConcreteModel, Var, Objective, Constraint, NonNegativeReals
 
@@ -13,9 +12,9 @@ from .config import OptimizationConfig
 class BatteryDispatchModel:
     """Pyomo model for battery dispatch optimization."""
 
-    def __init__(self, config: OptimizationConfig):
+    def __init__(self, config: OptimizationConfig) -> None:
         self.config = config
-        self.model = None
+        self.model: Optional[ConcreteModel] = None
         self.n_periods = len(config.time_series.marginal_costs_usd_per_mwh)
         self.time_durations = config.time_series.time_durations_hours
 
@@ -134,6 +133,7 @@ class BatteryDispatchModel:
         if self.model is None:
             raise RuntimeError("Model not built. Call build() first.")
 
+        # Use list comprehension to extract values
         charge = [pyo.value(self.model.charge[t]) for t in self.model.T]
         discharge = [pyo.value(self.model.discharge[t]) for t in self.model.T]
         soc = [pyo.value(self.model.soc[t]) for t in self.model.T]
