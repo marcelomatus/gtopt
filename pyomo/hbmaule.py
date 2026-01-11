@@ -6,16 +6,12 @@ Pyomo optimization models including:
 
 import sys
 import argparse
-from pathlib import Path
 from typing import Dict, Any
 
 # Import battery dispatch modules
 try:
-    from battery_dispatch import (
-        ConfigLoader,
-        BatteryDispatchSolver,
-        ResultsHandler
-    )
+    from battery_dispatch import ConfigLoader, BatteryDispatchSolver, ResultsHandler
+
     BATTERY_DISPATCH_AVAILABLE = True
 except ImportError:
     BATTERY_DISPATCH_AVAILABLE = False
@@ -36,23 +32,18 @@ from pyomo.environ import (
 def run_simple_example() -> int:
     """
     Run the original simple optimization example.
-    
+
     Returns:
         Exit code (0 for success, 1 for error)
     """
+
     def create_optimization_model() -> ConcreteModel:
         """Create the simple optimization model."""
         model = ConcreteModel(name="HBMaule_Optimization")
 
         # Decision variables
-        model.x = Var(
-            domain=NonNegativeIntegers,
-            doc="Integer decision variable"
-        )
-        model.y = Var(
-            domain=NonNegativeReals,
-            doc="Continuous decision variable"
-        )
+        model.x = Var(domain=NonNegativeIntegers, doc="Integer decision variable")
+        model.y = Var(domain=NonNegativeReals, doc="Continuous decision variable")
 
         # Define constants to avoid magic numbers
         OBJ_X_COEFF = 2
@@ -65,25 +56,22 @@ def run_simple_example() -> int:
         model.obj = Objective(
             expr=OBJ_X_COEFF * model.x + OBJ_Y_COEFF * model.y,
             sense=maximize,
-            doc="Maximize the objective function"
+            doc="Maximize the objective function",
         )
 
         # Constraints
         model.c1 = Constraint(
             expr=model.x + CONSTRAINT1_Y_COEFF * model.y <= CONSTRAINT1_RHS,
-            doc="First constraint: x + 2y ≤ 6"
+            doc="First constraint: x + 2y ≤ 6",
         )
         model.c2 = Constraint(
             expr=model.x - model.y >= CONSTRAINT2_RHS,
-            doc="Second constraint: x - y ≥ 1"
+            doc="Second constraint: x - y ≥ 1",
         )
 
         return model
 
-    def solve_model(
-        model: ConcreteModel,
-        solver_name: str = "glpk"
-    ) -> Dict[str, Any]:
+    def solve_model(model: ConcreteModel, solver_name: str = "glpk") -> Dict[str, Any]:
         """Solve the optimization model."""
         solver = SolverFactory(solver_name)
         if solver is None:
@@ -117,18 +105,18 @@ def run_simple_example() -> int:
         print(f"\nSolver Status: {results['solver_status']}")
         print(f"Termination Condition: {results['termination_condition']}")
 
-        if results['success']:
+        if results["success"]:
             print("\n✓ Optimal solution found!")
             print("\nDecision Variables:")
-            if results['x_value'] is not None:
+            if results["x_value"] is not None:
                 print(f"  x (integer) = {results['x_value']:.2f}")
             else:
                 print("  x (integer) = None")
-            if results['y_value'] is not None:
+            if results["y_value"] is not None:
                 print(f"  y (continuous) = {results['y_value']:.2f}")
             else:
                 print("  y (continuous) = None")
-            if results['objective_value'] is not None:
+            if results["objective_value"] is not None:
                 print(f"\nObjective Value: {results['objective_value']:.2f}")
             else:
                 print("\nObjective Value: None")
@@ -158,7 +146,7 @@ def run_simple_example() -> int:
         model = create_optimization_model()
         results = solve_model(model, solver_name=DEFAULT_SOLVER)
         display_results(results)
-        return 0 if results['success'] else 1
+        return 0 if results["success"] else 1
 
     except RuntimeError as e:
         print(f"\nError: {e}", file=sys.stderr)
@@ -173,19 +161,22 @@ def run_simple_example() -> int:
 def run_battery_dispatch(config_file: str, output_file: str = None) -> int:
     """
     Run battery dispatch optimization.
-    
+
     Args:
         config_file: Path to JSON configuration file
         output_file: Optional override for output file path
-    
+
     Returns:
         Exit code (0 for success, 1 for error)
     """
     if not BATTERY_DISPATCH_AVAILABLE:
         print("Error: Battery dispatch modules not available.", file=sys.stderr)
-        print("Make sure all battery_dispatch files are in the pyomo directory.", file=sys.stderr)
+        print(
+            "Make sure all battery_dispatch files are in the pyomo directory.",
+            file=sys.stderr,
+        )
         return 1
-    
+
     try:
         config = ConfigLoader.from_file(config_file)
     except FileNotFoundError as e:
@@ -194,10 +185,10 @@ def run_battery_dispatch(config_file: str, output_file: str = None) -> int:
     except (KeyError, ValueError) as e:
         print(f"Invalid configuration: {e}", file=sys.stderr)
         return 1
-    
+
     if output_file:
         config.output_file = output_file
-    
+
     try:
         solver = BatteryDispatchSolver(config)
         results = solver.solve()
@@ -208,10 +199,10 @@ def run_battery_dispatch(config_file: str, output_file: str = None) -> int:
         print("  or", file=sys.stderr)
         print("  apt-get install coinor-cbc", file=sys.stderr)
         return 1
-    
+
     ResultsHandler.print_summary(results)
     ResultsHandler.to_json(results, config.output_file)
-    
+
     return 0
 
 
@@ -220,42 +211,36 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Pyomo Optimization Models",
         epilog="Examples:\n"
-               "  python hbmaule.py simple          # Run simple example\n"
-               "  python hbmaule.py battery config.json  # Run battery dispatch",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        "  python hbmaule.py simple          # Run simple example\n"
+        "  python hbmaule.py battery config.json  # Run battery dispatch",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
+
     # Simple example command
     simple_parser = subparsers.add_parser(
-        "simple",
-        help="Run the simple mixed-integer optimization example"
+        "simple", help="Run the simple mixed-integer optimization example"
     )
-    
+
     # Battery dispatch command
     battery_parser = subparsers.add_parser(
-        "battery",
-        help="Run battery dispatch optimization"
+        "battery", help="Run battery dispatch optimization"
     )
     battery_parser.add_argument(
-        "config_file",
-        type=str,
-        help="Path to JSON configuration file"
+        "config_file", type=str, help="Path to JSON configuration file"
     )
     battery_parser.add_argument(
-        "--output",
-        type=str,
-        help="Override output file path (optional)"
+        "--output", type=str, help="Override output file path (optional)"
     )
-    
+
     # If no arguments, show help
     if len(sys.argv) == 1:
         parser.print_help()
         return 0
-    
+
     args = parser.parse_args()
-    
+
     if args.command == "simple":
         return run_simple_example()
     elif args.command == "battery":
