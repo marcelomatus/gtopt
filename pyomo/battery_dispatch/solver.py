@@ -3,9 +3,10 @@ Solver wrapper for battery dispatch optimization.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import pyomo.environ as pyo
+from pyomo.opt import SolverResults
 
 from .config import OptimizationConfig
 from .model import BatteryDispatchModel
@@ -16,16 +17,19 @@ logger = logging.getLogger(__name__)
 class BatteryDispatchSolver:
     """Solver for battery dispatch optimization."""
 
-    def __init__(self, config: OptimizationConfig):
+    def __init__(self, config: OptimizationConfig) -> None:
         self.config = config
         self.model_wrapper = BatteryDispatchModel(config)
-        self.solution = None
+        self.solution: Optional[SolverResults] = None
 
     def solve(self) -> Dict[str, Any]:
         """Solve the optimization problem."""
         # Build the model
         self.model_wrapper.build()
         model = self.model_wrapper.model
+
+        if model is None:
+            raise RuntimeError("Model not built properly")
 
         # Setup solver
         solver = pyo.SolverFactory(self.config.solver_name)

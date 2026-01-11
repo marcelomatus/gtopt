@@ -3,7 +3,7 @@ Battery dispatch runner class.
 """
 
 import sys
-from typing import Optional, Any, cast
+from typing import Optional, Any
 
 # Import battery dispatch modules
 try:
@@ -16,14 +16,36 @@ except ImportError:
     # Create dummy types for type checking when battery_dispatch is not available
     class OptimizationConfig:  # type: ignore
         """Dummy config class for type hints."""
-        output_file: str = ""
+        def __init__(self, battery: Any, time_series: Any) -> None:
+            self.battery = battery
+            self.time_series = time_series
+            self.output_file: str = ""
+            self.solver_name: str = "cbc"
 
     class ConfigLoader:  # type: ignore
         """Dummy loader class for type hints."""
         @staticmethod
         def from_file(filepath: str) -> OptimizationConfig:
             """Dummy method."""
-            return OptimizationConfig()
+            # Create dummy objects for battery and time_series
+            class DummyBattery:
+                max_charge_rate_mw = 0.0
+                max_discharge_rate_mw = 0.0
+                min_soc_mwh = 0.0
+                max_soc_mwh = 0.0
+                initial_soc_mwh = 0.0
+                charge_efficiency = 0.0
+                discharge_efficiency = 0.0
+            
+            class DummyTimeSeries:
+                marginal_costs_usd_per_mwh: list[float] = []
+                time_durations_hours: list[float] = []
+                time_periods: list[int] = []
+            
+            return OptimizationConfig(
+                battery=DummyBattery(),
+                time_series=DummyTimeSeries()
+            )
 
     class BatteryDispatchSolver:  # type: ignore
         """Dummy solver class for type hints."""

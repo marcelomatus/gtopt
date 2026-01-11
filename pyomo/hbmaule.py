@@ -8,20 +8,15 @@ This module provides a command-line interface to run optimization models:
 
 import sys
 import argparse
-from typing import Optional, cast
+from typing import Optional
 
 # Import refactored modules
 try:
-    from .simple_optimization import SimpleOptimization
-    from .battery_runner import BatteryDispatchRunner
+    from simple_optimization import SimpleOptimization
+    from battery_runner import BatteryDispatchRunner
 except ImportError:
-    # For direct execution
-    try:
-        from simple_optimization import SimpleOptimization
-        from battery_runner import BatteryDispatchRunner
-    except ImportError:
-        SimpleOptimization = None
-        BatteryDispatchRunner = None
+    SimpleOptimization = None
+    BatteryDispatchRunner = None
 
 
 def _setup_argparse() -> argparse.ArgumentParser:
@@ -73,9 +68,8 @@ def main() -> int:
             print("Error: BatteryDispatchRunner module not found.", file=sys.stderr)
             return 1
         runner = BatteryDispatchRunner()
-        # Use cast to ensure mypy knows args has config_file attribute
-        parsed_args = cast(argparse.Namespace, args)
-        return runner.run(parsed_args.config_file, parsed_args.output)
+        # args is guaranteed to have these attributes by argparse
+        return runner.run(args.config_file, args.output)
 
     # This should never be reached due to required=True in subparsers
     parser.print_help()
