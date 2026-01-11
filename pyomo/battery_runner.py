@@ -18,6 +18,7 @@ class BatteryDispatchRunner:
     """Handles running battery dispatch optimization."""
 
     def __init__(self):
+        """Initialize the runner."""
         self.config = None
         self.results = None
 
@@ -28,10 +29,10 @@ class BatteryDispatchRunner:
 
         try:
             self.config = ConfigLoader.from_file(config_file)
-        except FileNotFoundError as e:
-            raise FileNotFoundError(f"Configuration file not found: {e}")
-        except (KeyError, ValueError) as e:
-            raise ValueError(f"Invalid configuration: {e}")
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"Configuration file not found: {exc}") from exc
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"Invalid configuration: {exc}") from exc
 
         if output_file:
             self.config.output_file = output_file
@@ -44,8 +45,8 @@ class BatteryDispatchRunner:
         try:
             solver = BatteryDispatchSolver(self.config)
             self.results = solver.solve()
-        except RuntimeError as e:
-            raise RuntimeError(f"Solver error: {e}")
+        except RuntimeError as exc:
+            raise RuntimeError(f"Solver error: {exc}") from exc
 
     def display_and_save_results(self) -> None:
         """Display results and save to file."""
@@ -76,17 +77,17 @@ class BatteryDispatchRunner:
 
         try:
             self.load_config(config_file, output_file)
-        except FileNotFoundError as e:
-            print(f"Error: {e}", file=sys.stderr)
+        except FileNotFoundError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
             return 1
-        except (KeyError, ValueError) as e:
-            print(f"Invalid configuration: {e}", file=sys.stderr)
+        except (KeyError, ValueError) as exc:
+            print(f"Invalid configuration: {exc}", file=sys.stderr)
             return 1
 
         try:
             self.solve()
-        except RuntimeError as e:
-            print(f"Solver error: {e}", file=sys.stderr)
+        except RuntimeError as exc:
+            print(f"Solver error: {exc}", file=sys.stderr)
             print("\nMake sure CBC solver is installed:", file=sys.stderr)
             print("  conda install -c conda-forge coincbc", file=sys.stderr)
             print("  or", file=sys.stderr)
@@ -95,8 +96,8 @@ class BatteryDispatchRunner:
 
         try:
             self.display_and_save_results()
-        except RuntimeError as e:
-            print(f"Error handling results: {e}", file=sys.stderr)
+        except RuntimeError as exc:
+            print(f"Error handling results: {exc}", file=sys.stderr)
             return 1
 
         return 0
