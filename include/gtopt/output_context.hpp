@@ -48,7 +48,9 @@ public:
   [[nodiscard]] auto&& options() const { return sc.get().options(); }
 
   template<typename Holder, typename Op, typename Factor>
-  constexpr auto flat(const Holder& holder, Op op, Factor factor) const
+  [[nodiscard]] constexpr auto flat(const Holder& holder,
+                                    Op op,
+                                    const Factor& factor) const
   {
     return sc.get().flat(holder, op, factor);
   }

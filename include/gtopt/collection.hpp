@@ -59,14 +59,14 @@ class Collection
 {
   using element_type = Type;
   using vector_t = VectorType;
-  using index_t = typename vector_t::size_type;
+  using index_t = vector_t::size_type;
   using name_t = std::string;
 
   using name_map_t = gtopt::flat_map<name_t, index_t>;
   using uid_map_t = gtopt::flat_map<Uid, index_t>;
 
-  using value_name_t = typename name_map_t::value_type;
-  using value_uid_t = typename uid_map_t::value_type;
+  using value_name_t = name_map_t::value_type;
+  using value_uid_t = uid_map_t::value_type;
 
   // Primary storage for elements
   vector_t element_vector {};
@@ -266,7 +266,7 @@ public:
    * @throws std::out_of_range if the element is not found
    */
   template<typename ID>
-  constexpr auto element_index(const ID& id) const noexcept(false)
+  [[nodiscard]] constexpr auto element_index(const ID& id) const noexcept(false)
   {
     return get_element_index(uid_map, name_map, id);
   }
@@ -281,7 +281,8 @@ public:
   template<typename Self, typename ID>
   constexpr auto&& element(this Self&& self, const ID& id)
   {
-    return std::forward<Self>(self).element_vector.at(self.element_index(id));
+    const auto index = self.element_index(id);
+    return std::forward<Self>(self).element_vector.at(index);
   }
 
   /**
@@ -298,9 +299,15 @@ public:
    * @brief Get the number of elements in the collection
    * @return The element count
    */
-  constexpr auto size() const noexcept { return element_vector.size(); }
+  [[nodiscard]] constexpr auto size() const noexcept
+  {
+    return element_vector.size();
+  }
 
-  constexpr auto empty() const noexcept { return element_vector.empty(); }
+  [[nodiscard]] constexpr auto empty() const noexcept
+  {
+    return element_vector.empty();
+  }
 };
 
 /**

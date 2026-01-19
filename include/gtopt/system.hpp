@@ -71,43 +71,10 @@ struct System
    * @param sys The system to merge from (will be moved from if it's an rvalue)
    * @return Reference to this system after merge
    */
-  template<typename T>
-  constexpr System& merge(T&& sys)
-  {
-    if (!sys.name.empty()) {
-      name = std::forward<T>(sys).name;
-    }
 
-    if (!sys.version.empty()) {
-      version = std::forward<T>(sys).version;
-    }
+  void merge(System&& sys);
 
-    // Using std::forward to preserve value category (lvalue vs rvalue)
-    gtopt::merge(bus_array, std::forward<T>(sys).bus_array);
-    gtopt::merge(demand_array, std::forward<T>(sys).demand_array);
-    gtopt::merge(generator_array, std::forward<T>(sys).generator_array);
-    gtopt::merge(line_array, std::forward<T>(sys).line_array);
-    gtopt::merge(generator_profile_array,
-                 std::forward<T>(sys).generator_profile_array);
-    gtopt::merge(demand_profile_array,
-                 std::forward<T>(sys).demand_profile_array);
-    gtopt::merge(battery_array, std::forward<T>(sys).battery_array);
-    gtopt::merge(converter_array, std::forward<T>(sys).converter_array);
-    gtopt::merge(reserve_zone_array, std::forward<T>(sys).reserve_zone_array);
-    gtopt::merge(reserve_provision_array,
-                 std::forward<T>(sys).reserve_provision_array);
-
-    gtopt::merge(junction_array, std::forward<T>(sys).junction_array);
-    gtopt::merge(waterway_array, std::forward<T>(sys).waterway_array);
-    gtopt::merge(flow_array, std::forward<T>(sys).flow_array);
-    gtopt::merge(reservoir_array, std::forward<T>(sys).reservoir_array);
-    gtopt::merge(filtration_array, std::forward<T>(sys).filtration_array);
-    gtopt::merge(turbine_array, std::forward<T>(sys).turbine_array);
-
-    return *this;
-  }
-
-  System& setup_reference_bus(const class OptionsLP& options);
+  void setup_reference_bus(const class OptionsLP& options);
 };
 
 }  // namespace gtopt

@@ -83,8 +83,11 @@ struct ObjectSingleId : SingleId
   {
   }
 
-  constexpr auto uid() const { return std::get<Uid>(*this); }
-  constexpr const auto& name() const { return std::get<Name>(*this); }
+  [[nodiscard]] constexpr auto uid() const { return std::get<Uid>(*this); }
+  [[nodiscard]] constexpr const auto& name() const
+  {
+    return std::get<Name>(*this);
+  }
 };
 
 }  // namespace gtopt

@@ -4,9 +4,12 @@ project(gtoptTests LANGUAGES CXX)
 
 # ---- Options ----
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_CXX_FLAGS_DEBUG "-Wall -O0 -g3 -Wno-deprecated-declarations")
+set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -Wall -O2 -g -Wno-deprecated-declarations")
 
 set(CMAKE_BUILD_TYPE Debug)
 
@@ -37,7 +40,7 @@ else()
   CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()
 
-CPMAddPackage("gh:doctest/doctest@2.4.11")
+CPMAddPackage("gh:doctest/doctest@2.4.12")
 
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
@@ -67,7 +70,6 @@ file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*
 add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23)
 
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
 target_link_libraries(
@@ -77,7 +79,7 @@ target_link_libraries(
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wpedantic -Wextra -Werror)
+    target_compile_options(${PROJECT_NAME} PUBLIC -D_GLIBCXX_CISO646 -Wall -Wpedantic -Wextra -Werror -Wno-c2y-extensions -Wno-deprecated-declarations)
   elseif(MSVC)
     target_compile_options(${PROJECT_NAME} PUBLIC /W4 /WX)
     target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)

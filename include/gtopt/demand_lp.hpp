@@ -40,7 +40,7 @@ public:
 
   [[nodiscard]]
   constexpr const auto& load_cols_at(const ScenarioLP& scenario,
-                                     const StageLP& stage) const noexcept
+                                     const StageLP& stage) const
   {
     return load_cols.at({scenario.uid(), stage.uid()});
   }

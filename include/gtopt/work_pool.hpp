@@ -219,7 +219,7 @@ public:
       auto future = task->get_future();
 
       {
-        const std::lock_guard<std::mutex> lock(queue_mutex_);
+        const std::scoped_lock<std::mutex> lock(queue_mutex_);
         try {
           task_queue_.emplace([task]() { (*task)(); }, req);
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);

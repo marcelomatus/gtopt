@@ -30,7 +30,7 @@ constexpr bool add_provision(const std::string_view cname,
                              auto provision_row)
 {
   const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
-  if (!(stage_provision_factor) || (stage_provision_factor.value() <= 0.0)) {
+  if (!stage_provision_factor || (stage_provision_factor.value() <= 0.0)) {
     return true;
   }
 

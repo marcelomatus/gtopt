@@ -58,7 +58,7 @@ TEST_CASE("Planning - Merge operation")
                  .system = {.name = "Opt2System", .bus_array = bus_array}};
 
   // Merge second into first
-  opt1.merge(opt2);
+  opt1.merge(std::move(opt2));
 
   // Verify the merge result (should contain components from both)
   // Exact behavior depends on how merge is implemented in child components

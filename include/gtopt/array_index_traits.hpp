@@ -34,8 +34,8 @@ struct ArrayIndexBase
       auto& array_map,
       auto& table_map)
   {
-    using array_map_key = typename std::decay_t<decltype(array_map)>::key_type;
-    using table_map_key = typename std::decay_t<decltype(table_map)>::key_type;
+    using array_map_key = std::decay_t<decltype(array_map)>::key_type;
+    using table_map_key = std::decay_t<decltype(table_map)>::key_type;
 
     const auto& [uid, name] = id;
 

@@ -60,8 +60,7 @@ using str = std::string;
 
 template<typename Type = Uid, typename STBUids>
   requires std::same_as<std::remove_cvref_t<STBUids>, gtopt::STBUids>
-[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids) noexcept(
-    noexcept(std::forward<STBUids>(stb_uids)))
+[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids)
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -79,8 +78,7 @@ template<typename Type = Uid, typename STBUids>
 
 template<typename Type = Uid, typename STUids>
   requires std::same_as<std::remove_cvref_t<STUids>, gtopt::STUids>
-[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids) noexcept(
-    noexcept(std::forward<STUids>(st_uids)))
+[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids)
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -105,7 +103,6 @@ template<typename Type = Uid, typename TUids>
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
-
 template<typename Type = double, typename FieldVector>
 constexpr auto make_field_arrays(FieldVector&& field_vector)
 {

@@ -103,8 +103,8 @@ struct ArrowUidTraits
   using BaseMapTraits = UidMapTraits<ArrowIndex, Uids...>;
 
   using typename BaseMapTraits::key_type;
-  using uid_arrow_idx_map_t = typename BaseMapTraits::uid_map_t;
-  using uid_arrow_idx_map_ptr = typename BaseMapTraits::uid_map_ptr;
+  using uid_arrow_idx_map_t = BaseMapTraits::uid_map_t;
+  using uid_arrow_idx_map_ptr = BaseMapTraits::uid_map_ptr;
 };
 
 template<typename... Uids>
@@ -347,7 +347,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  static constexpr auto make_vector_uids_idx(const SimulationLP& sim) noexcept
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
     index_uids.reserve(sim.scenarios().size() * sim.stages().size());
@@ -377,7 +377,7 @@ struct UidToVectorIdx<StageUid>
   using UidIdx = uid_vector_idx_map_ptr;
 
   template<typename SystemContextType = class SystemContext>
-  static auto make_vector_uids_idx(const SimulationLP& sim) noexcept
+  static auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
     index_uids.reserve(sim.stages().size());

@@ -5,6 +5,10 @@ Checks: "*,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
+  -cppcoreguidelines-macro-to-enum,\
+  -modernize-macro-to-enum,\
+  -modernize-type-traits,\
+  -bugprone-derived-method-shadowing-base-method,\
   -altera-*,\
   -boost-use-ranges,\
   -bugprone-easily-swappable-parameters,\
@@ -13,6 +17,11 @@ Checks: "*,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -clang-analyzer-cplusplus.NewDeleteLeaks,\
   -clang-analyzer-security.ArrayBound,\
+  -llvm-namespace-comment,\
+  -misc-multiple-inheritance,\
+  -fuchsia-statically-constructed-objects,\
+  -google-readability-namespace-comments,\
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,\
   -constexpr_local_var_non_literal_type,\
   -cppcoreguidelines-avoid-magic-numbers,\
   -cppcoreguidelines-macro-usage,\

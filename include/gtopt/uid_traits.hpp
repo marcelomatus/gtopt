@@ -34,7 +34,7 @@ struct UidTraits
   using CFName = std::tuple<ClassNameType, FieldNameType>;
 
   template<typename... Uid>
-  using ArrowUidIdx = typename UidToArrowIdx<Uid...>::UidIdx;
+  using ArrowUidIdx = UidToArrowIdx<Uid...>::UidIdx;
 
   template<typename... Uid>
   using arrow_array_uid_idx_t =
@@ -51,17 +51,17 @@ struct UidTraits
   using table_uid_idx_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;
 
   template<typename... Uid>
-  using VectorUidIdx = typename UidToVectorIdx<Uid...>::UidIdx;
+  using VectorUidIdx = UidToVectorIdx<Uid...>::UidIdx;
 
   template<typename... Uid>
   using vector_uid_idx_t = VectorUidIdx<Uid...>;
 
   template<typename... Uid>
-  using idx_key_t = typename UidToVectorIdx<Uid...>::IndexKey;
+  using idx_key_t = UidToVectorIdx<Uid...>::IndexKey;
 
   template<typename value_type, typename... Uid>
   using idx_vector_t =
-      typename mvector_traits<value_type, idx_key_t<Uid...>>::vector_type;
+      mvector_traits<value_type, idx_key_t<Uid...>>::vector_type;
 
   template<typename... Uid>
   using array_table_vector_uid_idx_t = std::tuple<array_uid_idx_map_t<Uid...>,

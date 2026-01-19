@@ -66,7 +66,7 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
 namespace gtopt
 {
 
-System& System::setup_reference_bus(const OptionsLP& options)
+void System::setup_reference_bus(const OptionsLP& options)
 {
   if (needs_ref_theta(bus_array, options)) {
     auto& bus = bus_array.front();
@@ -74,7 +74,38 @@ System& System::setup_reference_bus(const OptionsLP& options)
     SPDLOG_INFO(fmt::format(
         "Setting bus '{}' as reference bus (reference_theta=0)", bus.name));
   }
-  return *this;
+}
+
+void System::merge(System&& sys)  // NOLINT
+{
+  if (!sys.name.empty()) {
+    name = std::move(sys.name);
+  }
+
+  if (!sys.version.empty()) {
+    version = std::move(sys.version);
+  }
+
+  gtopt::merge(bus_array, std::move(sys.bus_array));
+  gtopt::merge(demand_array, std::move(sys.demand_array));
+  gtopt::merge(generator_array, std::move(sys.generator_array));
+  gtopt::merge(line_array, std::move(sys.line_array));
+
+  gtopt::merge(generator_profile_array, std::move(sys.generator_profile_array));
+  gtopt::merge(demand_profile_array, std::move(sys.demand_profile_array));
+
+  gtopt::merge(battery_array, std::move(sys.battery_array));
+  gtopt::merge(converter_array, std::move(sys.converter_array));
+
+  gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
+  gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));
+
+  gtopt::merge(junction_array, std::move(sys.junction_array));
+  gtopt::merge(waterway_array, std::move(sys.waterway_array));
+  gtopt::merge(flow_array, std::move(sys.flow_array));
+  gtopt::merge(reservoir_array, std::move(sys.reservoir_array));
+  gtopt::merge(filtration_array, std::move(sys.filtration_array));
+  gtopt::merge(turbine_array, std::move(sys.turbine_array));
 }
 
 }  // namespace gtopt

@@ -48,8 +48,7 @@ public:
   template<typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
       && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_label(StageLP&& stage,
-                                        Types&&... args) const noexcept
+  [[nodiscard]] constexpr auto lp_label(StageLP&& stage, Types&&... args) const
       -> std::string
   {
     if (dont_use_lp_names()) [[likely]] {
@@ -65,8 +64,7 @@ public:
       && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
-                                        Types&&... args) const noexcept
-      -> std::string
+                                        Types&&... args) const -> std::string
   {
     if (dont_use_lp_names()) [[likely]] {
       return {};
@@ -87,8 +85,7 @@ public:
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
                                         BlockLP&& block,
-                                        Types&&... args) const noexcept
-      -> std::string
+                                        Types&&... args) const -> std::string
   {
     if (dont_use_lp_names()) [[likely]] {
       return {};

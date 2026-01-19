@@ -1,7 +1,7 @@
 # Aider configuration
 ---
 lint-cmd:
-  - "cpp: clang-tidy -p . --quiet  --extra-arg-before=--driver-mode=g++ --extra-arg=-std=c++23"
+  - "cpp: clang-tidy -p . --quiet  --extra-arg-before=--driver-mode=g++ --extra-arg=-std=c++24"
   - "python: black --line-length 120"
   - "python: mypy --strict --show-error-codes --ignore-missing-imports --disallow-untyped-defs --disallow-incomplete-defs"
   - "python: flake8 --max-line-length=120 --ignore=E203,E266,E501,W503"

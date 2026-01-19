@@ -82,7 +82,7 @@ public:
   template<typename OT>
   explicit constexpr ObjectLP(OT&& pobject,
                               [[maybe_unused]] const InputContext& ic,
-                              [[maybe_unused]] const LPClassName cname) noexcept
+                              [[maybe_unused]] const LPClassName cname)
       : m_object_(std::forward<OT>(pobject))
       , m_active_(ic, cname.full_name(), id(), std::move(object().active))
   {

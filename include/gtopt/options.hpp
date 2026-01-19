@@ -69,66 +69,31 @@ struct Options
   /** @brief Annual discount rate for multi-year planning (per unit) */
   OptReal annual_discount_rate {};
 
-  /**
-   * @brief Merges another Options object into this one
-   *
-   * The merge operation takes values from the source object (opts) and
-   * sets them in the destination object (this) when the source has a value.
-   * If the source field doesn't have a value, the destination field is
-   * unchanged. In other words, non-null values in opts override corresponding
-   * values in this.
-   *
-   * @param opts Source options to merge from
-   * @return Reference to this object after merging
-   */
-  /**
-   * @brief Merges another Options object into this one
-   *
-   * The merge operation takes values from the source object and
-   * sets them in the destination object (this) when the source has a value.
-   * If the source field doesn't have a value, the destination field is
-   * unchanged. Non-null values in the source override corresponding values in
-   * this.
-   *
-   * This is a unified template method that handles both lvalue and rvalue
-   * references. When merging from an rvalue reference, move semantics are used
-   * automatically.
-   *
-   * @tparam T Options reference type (can be lvalue or rvalue reference)
-   * @param opts Source options to merge from (will be moved from if it's an
-   * rvalue)
-   * @return Reference to this object after merging
-   */
-  template<typename T>
-  constexpr Options& merge(T&& opts)
+  void merge(Options&& opts)  // NOLINT
   {
     // Merge input-related options (always moving string values)
-    merge_opt(input_directory,
-              std::move(std::forward<T>(opts).input_directory));
-    merge_opt(input_format, std::move(std::forward<T>(opts).input_format));
+    merge_opt(input_directory, std::move(opts.input_directory));
+    merge_opt(input_format, std::move(opts.input_format));
 
     // Merge optimization parameters
-    // Using std::forward to preserve value category (lvalue vs rvalue)
-    merge_opt(demand_fail_cost, std::forward<T>(opts).demand_fail_cost);
-    merge_opt(reserve_fail_cost, std::forward<T>(opts).reserve_fail_cost);
-    merge_opt(use_line_losses, std::forward<T>(opts).use_line_losses);
-    merge_opt(use_kirchhoff, std::forward<T>(opts).use_kirchhoff);
-    merge_opt(use_single_bus, std::forward<T>(opts).use_single_bus);
-    merge_opt(kirchhoff_threshold, std::forward<T>(opts).kirchhoff_threshold);
-    merge_opt(scale_objective, std::forward<T>(opts).scale_objective);
-    merge_opt(scale_theta, std::forward<T>(opts).scale_theta);
+
+    merge_opt(demand_fail_cost, opts.demand_fail_cost);
+    merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
+    merge_opt(use_line_losses, opts.use_line_losses);
+    merge_opt(use_kirchhoff, opts.use_kirchhoff);
+    merge_opt(use_single_bus, opts.use_single_bus);
+    merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
+    merge_opt(scale_objective, opts.scale_objective);
+    merge_opt(scale_theta, opts.scale_theta);
 
     // Merge output-related options (always moving string values)
-    merge_opt(output_directory,
-              std::move(std::forward<T>(opts).output_directory));
-    merge_opt(output_format, std::move(std::forward<T>(opts).output_format));
-    merge_opt(compression_format,
-              std::move(std::forward<T>(opts).compression_format));
-    merge_opt(use_lp_names, std::forward<T>(opts).use_lp_names);
-    merge_opt(use_uid_fname, std::forward<T>(opts).use_uid_fname);
-    merge_opt(annual_discount_rate, std::forward<T>(opts).annual_discount_rate);
+    merge_opt(output_directory, std::move(opts.output_directory));
+    merge_opt(output_format, std::move(opts.output_format));
+    merge_opt(compression_format, std::move(opts.compression_format));
 
-    return *this;
+    merge_opt(use_lp_names, opts.use_lp_names);
+    merge_opt(use_uid_fname, opts.use_uid_fname);
+    merge_opt(annual_discount_rate, opts.annual_discount_rate);
   }
 };
 

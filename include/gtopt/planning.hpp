@@ -39,14 +39,11 @@ struct Planning
    * an rvalue)
    * @return Reference to this planning object
    */
-  template<typename T>
-  constexpr Planning& merge(T&& plan)
+  constexpr void merge(Planning&& plan)  // NOLINT
   {
-    options.merge(std::forward<T>(plan).options);
-    simulation.merge(std::forward<T>(plan).simulation);
-    system.merge(std::forward<T>(plan).system);
-
-    return *this;
+    options.merge(std::move(plan.options));
+    simulation.merge(std::move(plan.simulation));
+    system.merge(std::move(plan.system));
   }
 };
 

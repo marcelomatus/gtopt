@@ -49,7 +49,7 @@ struct SparseRow
   static constexpr double const CoinDblMax = std::numeric_limits<double>::max();
 
   using cmap_t = flat_map<ColIndex, double>;  ///< Type for coefficient storage
-  using size_type = typename cmap_t::size_type;
+  using size_type = cmap_t::size_type;
 
   std::string name;  ///< Row/constraint name
   double lowb {0};  ///< Lower bound (default: 0)
@@ -116,7 +116,7 @@ struct SparseRow
    * @param e Coefficient value
    * @return Reference to this row for method chaining
    */
-  constexpr SparseRow& set_coeff(ColIndex c, double e) noexcept
+  constexpr SparseRow& set_coeff(ColIndex c, double e)
   {
     cmap[c] = e;
     return *this;
@@ -174,8 +174,8 @@ struct SparseRow
   [[nodiscard]] constexpr auto to_flat(double eps = 0.0) const
       -> std::pair<KVec, VVec>
   {
-    using key_t = typename KVec::value_type;
-    using value_t = typename VVec::value_type;
+    using key_t = KVec::value_type;
+    using value_t = VVec::value_type;
 
     const auto msize = cmap.size();
     KVec keys;

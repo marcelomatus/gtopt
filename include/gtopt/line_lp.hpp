@@ -50,7 +50,7 @@ public:
     return BusLPSId {line().bus_b};
   }
 
-  [[nodiscard]] constexpr bool is_loop() const noexcept
+  [[nodiscard]] constexpr bool is_loop() const
   {
     return line().bus_a == line().bus_b;
   }

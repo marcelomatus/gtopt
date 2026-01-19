@@ -64,7 +64,7 @@ public:
       : m_stage_(std::move(stage))
       , m_blocks_(detail::create_block_array(blocks, m_stage_))
       , m_timeinit_(ranges::fold_left(
-            blocks | ranges::views::take(stage.first_block)
+            blocks | ranges::views::take(m_stage_.first_block)
                 | ranges::views::transform([](const Block& b)
                                            { return b.duration; }),
             0.0,

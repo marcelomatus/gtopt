@@ -1,5 +1,5 @@
 CompileFlags:
-  Add: [-Wlifetime, -Wall, -Wextra, -Werror]
+  Add: [-Wlifetime, -Wall, -Wextra, -Werror, -Wno-deprecated-declarations, -Wno-c2y-extensions]
 
 Diagnostics:
   UnusedIncludes: Strict

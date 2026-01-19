@@ -22,7 +22,7 @@ class Schedule : public InputTraits
 {
 public:
   using value_type = Type;
-  using vector_type = typename InputTraits::idx_vector_t<Type, Uid...>;
+  using vector_type = InputTraits::idx_vector_t<Type, Uid...>;
   using FSched = FieldSched<Type, vector_type>;
 
   using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
@@ -52,7 +52,7 @@ public:
         "Schedule: cname '{}' id '{} {}'", cname, id.first, id.second));
   }
 
-  constexpr Type at(Uid... uids) const
+  [[nodiscard]] constexpr Type at(Uid... uids) const
   {
     return at_sched<Type>(m_sched_, m_arrow_array_uid_, uids...);
   }
@@ -102,7 +102,7 @@ public:
 
   constexpr explicit operator bool() const { return has_value(); }
 
-  constexpr std::optional<Type> at(Uid... uids) const
+  [[nodiscard]] constexpr std::optional<Type> at(Uid... uids) const
   {
     if (m_sched_) {
       return at_sched<Type>(*m_sched_, m_arrow_array_uids_, uids...);
@@ -110,7 +110,7 @@ public:
     return {};
   }
 
-  constexpr std::optional<Type> optval(Uid... uids) const
+  [[nodiscard]] constexpr std::optional<Type> optval(Uid... uids) const
   {
     if (m_sched_) {
       return optval_sched<Type>(*m_sched_, m_arrow_array_uids_, uids...);
