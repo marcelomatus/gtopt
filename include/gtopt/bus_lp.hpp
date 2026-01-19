@@ -66,7 +66,7 @@ public:
   }
 
   [[nodiscard]]
-  auto needs_kirchhoff(const SystemContext& sc) const noexcept -> bool;
+  auto needs_kirchhoff(const SystemContext& sc) const -> bool;
 
   [[nodiscard]]
   bool add_to_lp(const SystemContext& sc,

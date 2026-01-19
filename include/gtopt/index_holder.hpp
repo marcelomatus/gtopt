@@ -73,20 +73,20 @@ constexpr auto emplace_bholder(const ScenarioLP& scenario,
 
   // holder.shrink_to_fit();
 
-  using Key = typename Map::key_type;
+  using Key = Map::key_type;
   return (empty_insert || !holder.empty())
       ? map.emplace(Key {scenario.uid(), stage.uid()},
                     std::forward<BHolder>(holder))
       : std::pair {map.end(), true};
 }
 
-template<typename Map, typename Value = typename Map::value_type>
+template<typename Map, typename Value = Map::value_type>
 constexpr auto emplace_value(const ScenarioLP& scenario,
                              const StageLP& stage,
                              Map& map,
                              Value&& value)
 {
-  using Key = typename Map::key_type;
+  using Key = Map::key_type;
   return map.emplace(Key {scenario.uid(), stage.uid()},
                      std::forward<Value>(value));
 }

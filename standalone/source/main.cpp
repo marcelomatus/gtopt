@@ -69,7 +69,7 @@ template<typename T>
       daw::json::options::UseExactMappingsByDefault::no>;
 
   const auto strict_parsing = !fast_parsing.value_or(false);
-  if (!strict_parsing) {
+  if (!strict_parsing) {  // NOLINT
     spdlog::info("using fast json parsing");
   }
 

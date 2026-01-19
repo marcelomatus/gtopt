@@ -86,7 +86,7 @@ public:
                                         SystemContext& sc,
                                         const ScenarioLP& scenario,
                                         const StageLP& stage,
-                                        Args&&... args) noexcept
+                                        Args&&... args)
   {
     return sc.lp_label(scenario,
                        stage,

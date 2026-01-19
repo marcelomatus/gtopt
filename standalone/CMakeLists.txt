@@ -4,12 +4,13 @@ project(gtoptStandalone LANGUAGES CXX)
 
 # ---- Options ----
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -Wall -O2 -g")
+set(CMAKE_CXX_FLAGS_DEBUG "-Wall -O0 -g3 -Wno-deprecated-declarations")
+set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -Wall -O2 -g -Wno-deprecated-declarations")
 
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
@@ -61,7 +62,7 @@ file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*
 add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(${PROJECT_NAME} gtopt::gtopt Boost::program_options)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 23 OUTPUT_NAME "gtopt")
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
 
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
 target_link_libraries(

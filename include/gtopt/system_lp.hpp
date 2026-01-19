@@ -232,7 +232,7 @@ public:
    */
   template<typename Element, typename Self, template<typename> class Id>
   [[nodiscard]] constexpr auto&& element(this Self&& self,
-                                         const Id<Element>& id) noexcept
+                                         const Id<Element>& id)
   {
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
@@ -247,8 +247,7 @@ public:
    * @return Index of the element
    */
   template<typename Element, template<typename> class Id>
-  [[nodiscard]] constexpr auto element_index(
-      const Id<Element>& id) const noexcept
+  [[nodiscard]] constexpr auto element_index(const Id<Element>& id) const
   {
     return std::get<Collection<Element>>(m_collections_).element_index(id);
   }
@@ -305,7 +304,7 @@ public:
   }
 
   template<typename Id>
-  constexpr bool is_single_bus(const Id& id) const noexcept
+  [[nodiscard]] constexpr bool is_single_bus(const Id& id) const
   {
     if (m_single_bus_id_) {
       auto&& sid = *m_single_bus_id_;

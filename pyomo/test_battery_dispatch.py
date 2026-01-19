@@ -181,7 +181,7 @@ def test_results_handler():
             Path(output_path).unlink()
 
 
-@pytest.mark.skip(reason="Requires CBC solver installed")
+# @pytest.mark.skip(reason="Requires CBC solver installed")
 def test_solver_integration():
     """Integration test with solver (requires CBC installed)."""
     config_file = create_test_config_file()

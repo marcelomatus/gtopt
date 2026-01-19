@@ -41,9 +41,9 @@ struct InputTraits : UidTraits
   {
     using value_type = Type;
     using vector_uid_idx_t = vector_uid_idx_t<Uid...>;
-    using idx_key_t = typename UidToVectorIdx<Uid...>::IndexKey;
+    using idx_key_t = UidToVectorIdx<Uid...>::IndexKey;
     using vector_traits = mvector_traits<value_type, idx_key_t>;
-    using vector_type = typename vector_traits::vector_type;
+    using vector_type = vector_traits::vector_type;
     using file_sched = FileSched;
 
     auto visitor = Overload {
@@ -51,7 +51,7 @@ struct InputTraits : UidTraits
         [&](const vector_type& vec) -> RType
         {
           const auto& v_uid_idx = std::get<vector_uid_idx_t>(uid_idx);
-          idx_key_t idx_key = v_uid_idx->at(std::make_tuple(uid...));
+          const idx_key_t idx_key = v_uid_idx->at(std::make_tuple(uid...));
           return RType {vector_traits::at_value(vec, idx_key)};
         },
         [&]([[maybe_unused]] const file_sched& arr_idx) -> RType
@@ -74,7 +74,7 @@ struct InputTraits : UidTraits
                             chunk->type()->ToString()));
           }
 
-          using array_value_type = typename arrow::CTypeTraits<Type>::ArrayType;
+          using array_value_type = arrow::CTypeTraits<Type>::ArrayType;
           auto array_value = std::static_pointer_cast<array_value_type>(chunk);
 
           return RType {

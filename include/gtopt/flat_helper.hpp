@@ -276,9 +276,9 @@ public:
   template<typename Projection,
            typename Value = Index,
            typename Factor = block_factor_matrix_t>
-  constexpr auto flat(const STBIndexHolder<Value>& hstb,
-                      Projection proj,
-                      const Factor& factor = Factor()) const noexcept
+  [[nodiscard]] constexpr auto flat(const STBIndexHolder<Value>& hstb,
+                                    Projection proj,
+                                    const Factor& factor = Factor()) const
   {
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
@@ -304,7 +304,7 @@ public:
             values[idx] =
                 factor.empty() ? value : value * factor[sidx][tidx][bidx];
 
-            valid[idx] = (true);
+            valid[idx] = true;
             ++count;
 
             need_values = true;
@@ -321,9 +321,10 @@ public:
   template<typename Projection,
            typename Value = Index,
            typename Factor = scenario_stage_factor_matrix_t>
-  constexpr auto flat(const STIndexHolder<Value>& hst,
-                      Projection proj,
-                      const Factor& factor = Factor()) const noexcept
+  [[nodiscard]] constexpr auto flat(
+      const STIndexHolder<Value>& hst,
+      Projection proj,
+      const Factor& factor = Factor()) const noexcept
   {
     const auto size = m_active_scenarios_.size() * m_active_stages_.size();
     std::vector<double> values(size);
@@ -359,9 +360,9 @@ public:
   template<typename Projection = std::identity,
            typename Value = Index,
            typename Factor = stage_factor_matrix_t>
-  constexpr auto flat(const TIndexHolder<Value>& ht,
-                      Projection proj = {},
-                      const Factor& factor = {}) const noexcept
+  [[nodiscard]] constexpr auto flat(const TIndexHolder<Value>& ht,
+                                    Projection proj = {},
+                                    const Factor& factor = {}) const noexcept
   {
     const auto size = m_active_stages_.size();
     std::vector<double> values(size);

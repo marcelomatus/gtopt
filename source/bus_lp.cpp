@@ -8,7 +8,7 @@ namespace gtopt
 {
 
 [[nodiscard]]
-auto BusLP::needs_kirchhoff(const SystemContext& sc) const noexcept -> bool
+auto BusLP::needs_kirchhoff(const SystemContext& sc) const -> bool
 {
   const auto& opts = sc.options();
   return !opts.use_single_bus() && opts.use_kirchhoff()

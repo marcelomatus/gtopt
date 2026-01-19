@@ -1,14 +1,15 @@
 /**
  * @file      element_context.hpp
- * @brief     Provides a context for interacting with elements within a SystemLP.
+ * @brief     Provides a context for interacting with elements within a
+ * SystemLP.
  * @date      Tue Apr 22 22:52:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the ElementContext class, which serves as an interface for
- * managing and accessing elements in a linear programming model of a system.
- * It simplifies element creation, retrieval, and indexing by forwarding calls
- * to the underlying SystemLP type.
+ * This module defines the ElementContext class, which serves as an interface
+ * for managing and accessing elements in a linear programming model of a
+ * system. It simplifies element creation, retrieval, and indexing by forwarding
+ * calls to the underlying SystemLP type.
  */
 #pragma once
 
@@ -125,14 +126,14 @@ public:
    * @return ElementIndex of the found or created element.
    */
   template<typename Element, typename Self, typename Object, typename Attrs>
-  [[nodiscard]] auto
-  make_element_index(this Self&& self,
-                     const Object& objori,
-                     const std::variant<Uid, Name, Attrs>& element_var)
+  [[nodiscard]] auto make_element_index(
+      this Self&& self,
+      const Object& objori,
+      const std::variant<Uid, Name, Attrs>& element_var)
       -> ElementIndex<Element>
   {
     using ElementId = ObjectSingleId<Element>;
-    using ObjElement = typename Element::object_type;
+    using ObjElement = Element::object_type;
     return std::visit(
         Overload {[&](const Uid uid)
                   { return self.element_index(ElementId {uid}); },

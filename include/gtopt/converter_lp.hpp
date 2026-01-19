@@ -50,10 +50,10 @@ public:
     return DemandLPSId {converter().demand};
   }
 
-  bool add_to_lp(SystemContext& sc,
-                 const ScenarioLP& scenario,
-                 const StageLP& stage,
-                 LinearProblem& lp);
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
 
   bool add_to_output(OutputContext& out) const;
 

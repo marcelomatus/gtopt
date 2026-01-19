@@ -33,27 +33,13 @@ struct Simulation
   Array<Phase> phase_array {Phase {}};
   Array<Scene> scene_array {Scene {}};
 
-  /**
-   * @brief Merges another simulation into this one
-   *
-   * This is a unified template method that handles both lvalue and rvalue
-   * references. When merging from an rvalue reference, move semantics are used
-   * automatically.
-   *
-   * @tparam T Simulation reference type (can be lvalue or rvalue reference)
-   * @param sim The simulation to merge from (will be moved from if it's an
-   * rvalue)
-   * @return Reference to this simulation after merge
-   */
-  template<typename T>
-  constexpr Simulation& merge(T&& sim)
+  constexpr Simulation& merge(Simulation&& sim)  // NOLINT
   {
-    // Using std::forward to preserve value category (lvalue vs rvalue)
-    gtopt::merge(block_array, std::forward<T>(sim).block_array);
-    gtopt::merge(stage_array, std::forward<T>(sim).stage_array);
-    gtopt::merge(scenario_array, std::forward<T>(sim).scenario_array);
-    gtopt::merge(phase_array, std::forward<T>(sim).phase_array);
-    gtopt::merge(scene_array, std::forward<T>(sim).scene_array);
+    gtopt::merge(block_array, std::move(sim.block_array));
+    gtopt::merge(stage_array, std::move(sim.stage_array));
+    gtopt::merge(scenario_array, std::move(sim.scenario_array));
+    gtopt::merge(phase_array, std::move(sim.phase_array));
+    gtopt::merge(scene_array, std::move(sim.scene_array));
 
     return *this;
   }

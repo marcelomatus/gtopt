@@ -32,12 +32,12 @@ public:
   // Standard constructors with appropriate move semantics
   constexpr StrongIndexVector() noexcept = default;
 
-  explicit constexpr StrongIndexVector(typename std::vector<T>::size_type count)
+  explicit constexpr StrongIndexVector(std::vector<T>::size_type count)
       : std::vector<T>(count)
   {
   }
 
-  explicit constexpr StrongIndexVector(typename std::vector<T>::size_type count,
+  explicit constexpr StrongIndexVector(std::vector<T>::size_type count,
                                        const T& value)
       : std::vector<T>(count, value)
   {

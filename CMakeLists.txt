@@ -13,7 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 cmake_policy(SET CMP0167 NEW)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -40,7 +40,7 @@ set(CPM_DOWNLOAD_ALL ON)
 set(CPPCHECK_ARGS "--check-level=exhaustive" "--suppress=returnDanglingLifetime"
                   "--suppress=internalAstError"
 )
-# set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
+#set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 
 set(USE_CCACHE YES)
 
@@ -60,27 +60,31 @@ CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.12.0
+  VERSION 1.15.3
   OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable
   # target
+  SYSTEM YES
 )
 
 CPMAddPackage(
   NAME fmt
   GITHUB_REPOSITORY fmtlib/fmt
   GIT_TAG 9.1.0 # Use a specific version compatible with spdlog
+  SYSTEM YES
 )
 
 CPMAddPackage(
   NAME daw
   GITHUB_REPOSITORY beached/daw_json_link
-  VERSION 3.30.2
+  VERSION 3.31.0
+  SYSTEM YES
 )
 
 CPMAddPackage(
   NAME strong_type
   GITHUB_REPOSITORY rollbear/strong_type
   VERSION 15
+  SYSTEM YES
 )
 
 # ---- Add source files ----

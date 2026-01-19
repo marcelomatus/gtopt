@@ -161,7 +161,7 @@ template<ranges::range Range>
  * @return std::optional containing iterator if found, nullopt otherwise
  * @throws Nothing (noexcept)
  */
-template<typename T, typename K = typename T::key_type>
+template<typename T, typename K = T::key_type>
   requires requires(const T& m, K&& k) { m.find(std::forward<K>(k)); }
 [[nodiscard]] constexpr auto get_optiter(const T& map, K&& key) noexcept
 {
@@ -169,7 +169,7 @@ template<typename T, typename K = typename T::key_type>
   return (it != map.end()) ? std::optional<decltype(it)> {it} : std::nullopt;
 }
 
-template<typename T, typename K = typename T::key_type>
+template<typename T, typename K = T::key_type>
 constexpr auto get_optvalue(const T& map, K&& key) noexcept
 {
   const auto it = map.find(std::forward<K>(key));

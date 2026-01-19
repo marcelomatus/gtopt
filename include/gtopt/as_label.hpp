@@ -60,7 +60,7 @@ class string_holder
   template<string_like T>
   static constexpr auto as_string(T&& t)
   {
-    if constexpr (std::is_convertible_v<T, std::string_view>) {
+    if constexpr (std::is_constructible_v<T, std::string_view>) {
       return std::string_view(std::forward<T>(t));
     } else {
       return fmt::format("{}", std::forward<T>(t));
@@ -97,7 +97,7 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr std::string_view view() const noexcept
+  [[nodiscard]] constexpr std::string_view view() const
   {
     return std::visit(
         [](const auto& s) noexcept -> std::string_view
@@ -169,7 +169,7 @@ template<char sep = '_', typename... Args>
     (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
 {
   // Create holders for all arguments
-  std::array<detail::string_holder, sizeof...(Args)> holders {
+  const std::array<detail::string_holder, sizeof...(Args)> holders {
       detail::string_holder(std::forward<Args>(args))...};
 
   // Calculate total size needed

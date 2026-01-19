@@ -55,7 +55,6 @@
 namespace gtopt
 {
 
-class Bus;
 class BusLP;
 class SystemLP;
 class SimulationLP;
@@ -94,8 +93,8 @@ public:
   //
 
   template<typename LossFactor>
-  constexpr auto stage_lossfactor(const StageLP& stage,
-                                  const LossFactor& lfact) const
+  [[nodiscard]] constexpr auto stage_lossfactor(const StageLP& stage,
+                                                const LossFactor& lfact) const
   {
     return options().use_line_losses()
         ? std::max(lfact.at(stage.uid()).value_or(0.0), 0.0)
@@ -103,8 +102,8 @@ public:
   }
 
   template<typename Reactance>
-  constexpr auto stage_reactance(const StageLP& stage,
-                                 const Reactance& reactance) const
+  [[nodiscard]] constexpr auto stage_reactance(const StageLP& stage,
+                                               const Reactance& reactance) const
   {
     if (options().use_kirchhoff()) {
       return reactance.at(stage.uid());
@@ -114,16 +113,16 @@ public:
   }
 
   template<typename FailCost>
-  constexpr auto demand_fail_cost(const StageLP& stage,
-                                  const FailCost& fcost) const
+  [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
+                                                const FailCost& fcost) const
   {
     const auto fc = fcost.optval(stage.uid());
     return fc ? fc : options().demand_fail_cost();
   }
 
   template<typename FailCost>
-  constexpr auto reserve_fail_cost(const StageLP& stage,
-                                   const FailCost& fcost) const
+  [[nodiscard]] constexpr auto reserve_fail_cost(const StageLP& stage,
+                                                 const FailCost& fcost) const
   {
     const auto fc = fcost.optval(stage.uid());
     return fc ? fc : options().reserve_fail_cost();
@@ -134,10 +133,11 @@ public:
   //
 
   template<typename Max>
-  constexpr auto block_max_at(const StageLP& stage,
-                              const BlockLP& block,
-                              const Max& lmax,
-                              const double capacity_max = CoinDblMax) const
+  [[nodiscard]] constexpr auto block_max_at(
+      const StageLP& stage,
+      const BlockLP& block,
+      const Max& lmax,
+      const double capacity_max = CoinDblMax) const
   {
     const auto lmax_at =
         lmax.at(stage.uid(), block.uid()).value_or(capacity_max);
@@ -147,13 +147,13 @@ public:
   }
 
   template<typename Min, typename Max>
-  constexpr auto block_maxmin_at(const StageLP& stage,
-                                 const BlockLP& block,
-                                 const Max& lmax,
-                                 const Min& lmin,
-                                 const double capacity_max,
-                                 const double capacity_min = 0.0) const
-      -> std::pair<double, double>
+  [[nodiscard]] constexpr auto block_maxmin_at(
+      const StageLP& stage,
+      const BlockLP& block,
+      const Max& lmax,
+      const Min& lmin,
+      const double capacity_max,
+      const double capacity_min = 0.0) const -> std::pair<double, double>
   {
     const auto lmin_at =
         lmin.at(stage.uid(), block.uid()).value_or(capacity_min);
@@ -167,12 +167,12 @@ public:
   }
 
   template<typename Min, typename Max>
-  constexpr auto stage_maxmin_at(const StageLP& stage,
-                                 const Min& lmax,
-                                 const Max& lmin,
-                                 const double capacity_max,
-                                 const double capacity_min = 0.0) const
-      -> std::pair<double, double>
+  [[nodiscard]] constexpr auto stage_maxmin_at(
+      const StageLP& stage,
+      const Min& lmax,
+      const Max& lmin,
+      const double capacity_max,
+      const double capacity_min = 0.0) const -> std::pair<double, double>
   {
     const auto lmin_at = lmin.at(stage.uid()).value_or(capacity_min);
     const auto lmin_block = std::max(capacity_min, lmin_at);
@@ -194,7 +194,7 @@ public:
   }
 
   template<typename Element, template<typename> class Id>
-  constexpr auto&& element(const Id<Element>& id) const
+  [[nodiscard]] constexpr auto&& element(const Id<Element>& id) const
   {
     return get_element(*this, id);
   }

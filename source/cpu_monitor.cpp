@@ -90,8 +90,8 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 
     const double load = total_delta != 0 ? 100.0
             * (1.0
-               - static_cast<double>(idle_delta)
-                   / static_cast<double>(total_delta))
+               - (static_cast<double>(idle_delta)
+                  / static_cast<double>(total_delta)))
                                          : 0.0;
 
     // Log every 50th call (thread-safe counter)

@@ -183,7 +183,7 @@ private:
   [[nodiscard]] constexpr auto lp_label_p(this const Self& self,
                                           SystemContext& sc,
                                           const StageLP& stage,
-                                          Args&&... args) noexcept
+                                          Args&&... args)
   {
     return sc.lp_label(
         stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
@@ -244,7 +244,7 @@ struct CapacityObjectLP
   template<typename ObjectT>
   constexpr explicit CapacityObjectLP(ObjectT&& pobject,
                                       const InputContext& ic,
-                                      const LPClassName cname) noexcept
+                                      const LPClassName cname)
       : ObjectLP<Object>(std::forward<ObjectT>(pobject), ic, cname)
       , CapacityObjectBase(ic,
                            cname,

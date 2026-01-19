@@ -124,7 +124,7 @@ TEST_CASE("Options - Merge operation")
                    .output_format = "parquet"};
 
   // Merge overlay into base
-  base.merge(overlay);
+  base.merge(std::move(overlay));
 
   // Check that values were properly merged
   // Overlapping values should be replaced by overlay
@@ -199,7 +199,7 @@ TEST_CASE("Options - Merging with empty options")
 
   // Test merging empty into filled (should not change anything)
   Options filled_copy = filled;
-  filled_copy.merge(empty);
+  filled_copy.merge(std::move(empty));
 
   if (filled_copy.input_directory.has_value()) {
     CHECK(*filled_copy.input_directory == "input_dir");
@@ -220,7 +220,7 @@ TEST_CASE("Options - Merging with empty options")
   }
 
   // Test merging filled into empty (empty should gain all values)
-  empty.merge(filled);
+  empty.merge(std::move(filled));
 
   if (empty.input_directory.has_value()) {
     CHECK(*empty.input_directory == "input_dir");

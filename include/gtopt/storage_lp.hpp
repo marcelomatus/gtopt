@@ -30,8 +30,11 @@ public:
   using Object::object;
   using Object::uid;
 
-  constexpr auto&& storage() { return object(); }
-  constexpr auto&& storage() const { return object(); }
+  [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
+  {
+    // Forward the object() call with same value category as self
+    return std::forward_like<decltype(self)>(self.object());
+  }
 
   template<typename ObjectT>
   explicit StorageLP(ObjectT&& pstorage,
@@ -46,14 +49,14 @@ public:
   {
   }
 
-  constexpr auto vfin_col_at(const ScenarioLP& scenario,
-                             const StageLP& stage) const
+  [[nodiscard]] constexpr auto vfin_col_at(const ScenarioLP& scenario,
+                                           const StageLP& stage) const
   {
     return vfin_cols.at({scenario.uid(), stage.uid()});
   }
 
-  constexpr auto vini_col_at(const ScenarioLP& scenario,
-                             const StageLP& stage) const
+  [[nodiscard]] constexpr auto vini_col_at(const ScenarioLP& scenario,
+                                           const StageLP& stage) const
   {
     return vini_cols.at({scenario.uid(), stage.uid()});
   }
