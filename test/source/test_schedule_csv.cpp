@@ -8,12 +8,16 @@
 
 #include <doctest/doctest.h>
 
+namespace
+{
 struct TestData
 {
   int stage;
   int block;
   double uid_1;
 };
+
+}  // namespace
 
 TEST_CASE("CSV file write and read test")
 {
@@ -119,7 +123,7 @@ TEST_CASE("CSV file write and read test")
     }
 
     // Limpiar archivo de prueba al final
-    int remove_result = std::remove(filename.c_str());
+    const int remove_result = std::remove(filename.c_str());
     CHECK(remove_result == 0);
   }
 }

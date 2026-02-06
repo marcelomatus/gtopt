@@ -32,7 +32,7 @@ struct UidColumn
 {
   [[nodiscard]]
   static constexpr auto make_uid_column(const ArrowTable& table,
-                                        const std::string& name) noexcept
+                                        const std::string& name)
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {

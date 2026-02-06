@@ -19,8 +19,6 @@
 
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
-#include <range/v3/all.hpp>
-#include <range/v3/view/all.hpp>
 
 namespace gtopt
 {
@@ -53,10 +51,12 @@ constexpr auto create_stage_array(const Simulation& simulation,
              [&](auto&& is)
              {
                const auto& [index, stage] = is;
-               return StageLP {stage,
-                               simulation.block_array,
-                               options.annual_discount_rate(),
-                               index};
+               return StageLP {
+                   stage,
+                   simulation.block_array,
+                   options.annual_discount_rate(),
+                   index,
+               };
              })
       | ranges::to<std::vector>();
 }

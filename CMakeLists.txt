@@ -55,8 +55,7 @@ option(USE_CCACHE "use ccache" YES)
 
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
-CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
-
+# External libraries
 
 CPMAddPackage(
   NAME spdlog
@@ -118,10 +117,7 @@ target_compile_options(
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
-target_link_libraries(${PROJECT_NAME} PUBLIC range-v3::range-v3)
 
-# find_package(range-v3 REQUIRED) target_link_libraries(${PROJECT_NAME} PRIVATE
-# range-v3::range-v3)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
 
 option(COIN_USE_CLP "Use Clp" ON)
@@ -171,5 +167,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "range-v3 0.12.0" "spdlog 1.17.0" "strong_type 15"  "daw 3.31.0"
+  DEPENDENCIES "spdlog 1.17.0" "strong_type 15" "daw 3.31.0"
 )

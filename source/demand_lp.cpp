@@ -12,7 +12,6 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -72,10 +71,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     auto name = lp_label(sc, scenario, stage, "emin");
 
     const auto emin_col = stage_ecost
-        ? lp.add_col(
-              {.name = name,
-               .uppb = *stage_emin,
-               .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration())})
+        ? lp.add_col({
+              .name = name,
+              .uppb = *stage_emin,
+              .cost = -sc.stage_ecost(stage, *stage_ecost / stage.duration()),
+          })
         : lp.add_col({.name = name, .lowb = *stage_emin, .uppb = *stage_emin});
 
     emin_cols[st_key] = emin_col;
@@ -104,16 +104,18 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     const auto load_lowb = !stage_fcost ? block_lmax : 0;
     const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
-    const auto lcol = lp.add_col(
-        {.name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
-         .lowb = load_lowb,
-         .uppb = load_uppb});
+    const auto lcol = lp.add_col({
+        .name = sc.lp_label(scenario, stage, block, cname, "load", uid()),
+        .lowb = load_lowb,
+        .uppb = load_uppb,
+    });
 
     if (stage_fcost) {
       auto name = sc.lp_label(scenario, stage, block, cname, "fail", uid());
-      const auto fcol = lp.add_col(
-          {.name = name,
-           .cost = sc.block_ecost(scenario, stage, block, *stage_fcost)});
+      const auto fcol = lp.add_col({
+          .name = name,
+          .cost = sc.block_ecost(scenario, stage, block, *stage_fcost),
+      });
       fcols[buid] = fcol;
 
       auto frow = SparseRow {.name = std::move(name)}.equal(block_lmax);
@@ -131,9 +133,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "cap", uid())}
-                      .greater_equal(0.0);
+      auto crow =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+          }
+              .greater_equal(0.0);
 
       crow[*capacity_col] = 1.0;
       crow[lcol] = -1.0;
@@ -145,9 +149,10 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (stage_emin && emin_row) {
       const auto bdur = block.duration();
 
-      const auto mcol = lp.add_col(
-          {.name = sc.lp_label(scenario, stage, block, cname, "lman", uid()),
-           .uppb = *stage_emin / bdur});
+      const auto mcol = lp.add_col({
+          .name = sc.lp_label(scenario, stage, block, cname, "lman", uid()),
+          .uppb = *stage_emin / bdur,
+      });
 
       mcols[buid] = mcol;
       (*emin_row)[mcol] = bdur;

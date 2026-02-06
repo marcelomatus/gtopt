@@ -6,7 +6,7 @@ using namespace gtopt;
 
 TEST_CASE("Linear problem test 0")
 {
-  SparseCol col({.name = "hola", .cost = 1});
+  const SparseCol col({.name = "hola", .cost = 1});
   REQUIRE(col.name == "hola");
   REQUIRE(col.cost == doctest::Approx(1));
 }
@@ -32,7 +32,7 @@ TEST_CASE("Linear problem test 1")
 TEST_CASE("Linear problem test 2")
 {
   {
-    gtopt::SparseCol col({.name = "c1"});
+    const gtopt::SparseCol col({.name = "c1"});
     REQUIRE(col.name == "c1");
 
     REQUIRE(col.lowb == doctest::Approx(0));
@@ -40,7 +40,7 @@ TEST_CASE("Linear problem test 2")
   }
 
   {
-    gtopt::SparseCol col({.name = "c1", .lowb = 25, .uppb = 25});
+    const gtopt::SparseCol col({.name = "c1", .lowb = 25, .uppb = 25});
     REQUIRE(col.name == "c1");
 
     REQUIRE(col.lowb == doctest::Approx(25));
@@ -49,7 +49,7 @@ TEST_CASE("Linear problem test 2")
   }
 
   {
-    SparseCol col({.name = "c1", .lowb = -25, .uppb = 25, .cost = 10});
+    const SparseCol col({.name = "c1", .lowb = -25, .uppb = 25, .cost = 10});
     REQUIRE(col.name == "c1");
 
     REQUIRE(col.lowb == doctest::Approx(-25));
@@ -87,9 +87,11 @@ TEST_CASE("Linear problem matrix operations")
   // Test flat conversion with different options
   SUBCASE("Flat conversion options")
   {
-    auto flat_full = lp.to_flat({.col_with_names = true,
-                                 .row_with_names = true,
-                                 .col_with_name_map = true});
+    auto flat_full = lp.to_flat({
+        .col_with_names = true,
+        .row_with_names = true,
+        .col_with_name_map = true,
+    });
 
     CHECK(flat_full.ncols == 5);
     CHECK(flat_full.nrows == 3);
@@ -254,30 +256,34 @@ TEST_CASE("Linear problem advanced operations")
   lp.col_at(col2).cost = 20;
 
   {
-    const auto flat_lp = lp.to_flat({.col_with_names = true,
-                                     .row_with_names = true,
-                                     .col_with_name_map = true,
-                                     .row_with_name_map = true});
+    const auto flat_lp = lp.to_flat({
+        .col_with_names = true,
+        .row_with_names = true,
+        .col_with_name_map = true,
+        .row_with_name_map = true,
+    });
 
     REQUIRE(flat_lp.ncols == 2);
     REQUIRE(flat_lp.nrows == 2);
 
-    const flat_lp_t flat_lp2 = {.ncols = 2,
-                                .nrows = 2,
-                                .matbeg = {0, 1, 2},
-                                .matind = {0, 1},
-                                .matval = {1, -1},
-                                .collb = {-10, 0},
-                                .colub = {100, 200},
-                                .objval = {10, 20},
-                                .rowlb = {0, 0},
-                                .rowub = {25, 35},
-                                .colint = {1},
-                                .colnm = {"col1", "col2"},
-                                .rownm = {"row1", "row2"},
-                                .colmp = {{"col1", 0}, {"col2", 1}},
-                                .rowmp = {{"row1", 0}, {"row2", 1}},
-                                .name = "SEN"};
+    const flat_lp_t flat_lp2 = {
+        .ncols = 2,
+        .nrows = 2,
+        .matbeg = {0, 1, 2},
+        .matind = {0, 1},
+        .matval = {1, -1},
+        .collb = {-10, 0},
+        .colub = {100, 200},
+        .objval = {10, 20},
+        .rowlb = {0, 0},
+        .rowub = {25, 35},
+        .colint = {1},
+        .colnm = {"col1", "col2"},
+        .rownm = {"row1", "row2"},
+        .colmp = {{"col1", 0}, {"col2", 1}},
+        .rowmp = {{"row1", 0}, {"row2", 1}},
+        .name = "SEN",
+    };
 
     REQUIRE(flat_lp.ncols == flat_lp2.ncols);
     REQUIRE(flat_lp.nrows == flat_lp2.nrows);
@@ -303,22 +309,24 @@ TEST_CASE("Linear problem advanced operations")
     REQUIRE(flat_lp.ncols == 2);
     REQUIRE(flat_lp.nrows == 2);
 
-    const flat_lp_t flat_lp2 = {.ncols = 2,
-                                .nrows = 2,
-                                .matbeg = {0, 1, 2},
-                                .matind = {0, 1},
-                                .matval = {1, -1},
-                                .collb = {-10, 0},
-                                .colub = {100, 200},
-                                .objval = {10, 20},
-                                .rowlb = {0, 0},
-                                .rowub = {25, 35},
-                                .colint = {1},
-                                .colnm = {},
-                                .rownm = {},
-                                .colmp = {},
-                                .rowmp = {},
-                                .name = "SEN"};
+    const flat_lp_t flat_lp2 = {
+        .ncols = 2,
+        .nrows = 2,
+        .matbeg = {0, 1, 2},
+        .matind = {0, 1},
+        .matval = {1, -1},
+        .collb = {-10, 0},
+        .colub = {100, 200},
+        .objval = {10, 20},
+        .rowlb = {0, 0},
+        .rowub = {25, 35},
+        .colint = {1},
+        .colnm = {},
+        .rownm = {},
+        .colmp = {},
+        .rowmp = {},
+        .name = "SEN",
+    };
 
     REQUIRE(flat_lp.ncols == flat_lp2.ncols);
     REQUIRE(flat_lp.nrows == flat_lp2.nrows);

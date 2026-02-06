@@ -130,7 +130,7 @@ TEST_CASE("Filtration with empty optional fields")
     "reservoir":20
   })";
 
-  Filtration filt = daw::json::from_json<Filtration>(json_data);
+  const Filtration filt = daw::json::from_json<Filtration>(json_data);
 
   CHECK(filt.uid == 5);
   CHECK(filt.name == "FILTER_A");

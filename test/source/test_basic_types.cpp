@@ -3,14 +3,13 @@
 #include <doctest/doctest.h>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/utils.hpp>
-#include <range/v3/all.hpp>
 
 TEST_CASE("Name")
 {
   using namespace gtopt;
 
-  Name name = "bus_1";
-  Uid uid {1};
+  const Name name = "bus_1";
+  const Uid uid {1};
 
   CHECK(name == "bus_1");
   CHECK(uid == 1);

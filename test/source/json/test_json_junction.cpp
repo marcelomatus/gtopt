@@ -11,7 +11,8 @@ TEST_CASE("Junction JSON basic parsing")
     "name":"CRUCERO"
   })";
 
-  gtopt::Junction junction = daw::json::from_json<gtopt::Junction>(json_data);
+  const gtopt::Junction junction =
+      daw::json::from_json<gtopt::Junction>(json_data);
 
   REQUIRE(junction.uid == 5);
   REQUIRE(junction.name == "CRUCERO");
@@ -26,7 +27,8 @@ TEST_CASE("Junction JSON with drain")
     "drain":true
   })";
 
-  gtopt::Junction junction = daw::json::from_json<gtopt::Junction>(json_data);
+  const gtopt::Junction junction =
+      daw::json::from_json<gtopt::Junction>(json_data);
 
   REQUIRE(junction.uid == 5);
   REQUIRE(junction.name == "CRUCERO");

@@ -7,7 +7,7 @@ TEST_SUITE("SparseRow")
 {
   TEST_CASE("Default Construction")
   {
-    SparseRow row;
+    const SparseRow row;
     CHECK(row.name.empty());
     CHECK(row.lowb == 0.0);
     CHECK(row.uppb == 0.0);

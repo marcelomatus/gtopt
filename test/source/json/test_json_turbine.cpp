@@ -37,7 +37,8 @@ TEST_CASE("Turbine daw json test 2")
     "generator":20
   })";
 
-  gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
+  const gtopt::Turbine turbine =
+      daw::json::from_json<gtopt::Turbine>(json_data);
 
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");
@@ -145,7 +146,7 @@ TEST_CASE("Turbine with empty optional fields")
     "drain":null
   })";
 
-  Turbine turbine = daw::json::from_json<Turbine>(json_data);
+  const Turbine turbine = daw::json::from_json<Turbine>(json_data);
 
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");

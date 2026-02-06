@@ -13,7 +13,6 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage_lp.hpp>
-#include <range/v3/view/filter.hpp>
 
 namespace gtopt
 {

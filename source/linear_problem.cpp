@@ -150,22 +150,24 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     rowmp = build_name_map(rownm, "row");
   }
 
-  return {.ncols = static_cast<fp_index_t>(ncols),
-          .nrows = static_cast<fp_index_t>(nrows),
-          .matbeg = std::move(matbeg),
-          .matind = std::move(matind),
-          .matval = std::move(matval),
-          .collb = std::move(collb),
-          .colub = std::move(colub),
-          .objval = std::move(objval),
-          .rowlb = std::move(rowlb),
-          .rowub = std::move(rowub),
-          .colint = std::move(colint),
-          .colnm = std::move(colnm),
-          .rownm = std::move(rownm),
-          .colmp = std::move(colmp),
-          .rowmp = std::move(rowmp),
-          .name = opts.move_names ? std::move(pname) : pname};
+  return {
+      .ncols = static_cast<fp_index_t>(ncols),
+      .nrows = static_cast<fp_index_t>(nrows),
+      .matbeg = std::move(matbeg),
+      .matind = std::move(matind),
+      .matval = std::move(matval),
+      .collb = std::move(collb),
+      .colub = std::move(colub),
+      .objval = std::move(objval),
+      .rowlb = std::move(rowlb),
+      .rowub = std::move(rowub),
+      .colint = std::move(colint),
+      .colnm = std::move(colnm),
+      .rownm = std::move(rownm),
+      .colmp = std::move(colmp),
+      .rowmp = std::move(rowmp),
+      .name = opts.move_names ? std::move(pname) : pname,
+  };
 }
 
 }  // namespace gtopt

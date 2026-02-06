@@ -53,11 +53,13 @@ namespace detail
              [&](auto&& is)
              {
                const auto& [stage_index, stage] = is;
-               return StageLP {stage,
-                               all_blocks,
-                               options.annual_discount_rate(),
-                               stage_index,
-                               phase_index};
+               return StageLP {
+                   stage,
+                   all_blocks,
+                   options.annual_discount_rate(),
+                   stage_index,
+                   phase_index,
+               };
              })
       | ranges::to<std::vector>();
 }

@@ -8,7 +8,7 @@ using namespace gtopt;
 
 TEST_CASE("Battery construction and default values")
 {
-  Battery battery;
+  const Battery battery;
 
   // Check default values
   CHECK(battery.uid == Uid {unknown_uid});

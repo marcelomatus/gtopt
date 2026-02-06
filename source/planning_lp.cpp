@@ -132,7 +132,8 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
   } catch (const std::exception& e) {
     return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = std::format("Unexpected error in resolve: {}", e.what())});
+        .message = std::format("Unexpected error in resolve: {}", e.what()),
+    });
   }
 }
 

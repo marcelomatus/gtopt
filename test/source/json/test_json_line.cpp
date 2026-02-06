@@ -35,7 +35,7 @@ TEST_CASE("Line JSON with optional fields")
     "capacity":200.0
   })";
 
-  gtopt::Line line = daw::json::from_json<gtopt::Line>(json_data);
+  const gtopt::Line line = daw::json::from_json<gtopt::Line>(json_data);
 
   REQUIRE(line.uid == 5);
   REQUIRE(line.name == "LINE_1");
@@ -133,7 +133,7 @@ TEST_CASE("Line with empty optional fields")
     "capacity":null
   })";
 
-  Line line = daw::json::from_json<Line>(json_data);
+  const Line line = daw::json::from_json<Line>(json_data);
 
   CHECK(line.uid == 5);
   CHECK(line.name == "LINE_1");

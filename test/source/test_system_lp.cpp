@@ -20,25 +20,39 @@ TEST_CASE("SystemLP 1")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 1000.0}};
+      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 100.0},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{.uid = Uid {3}, .duration = 1},
-                      {.uid = Uid {4}, .duration = 2},
-                      {.uid = Uid {5}, .duration = 3}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
-                      {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
-      .scenario_array = {{.uid = Uid {0}}}};
+      .block_array =
+          {
+              {.uid = Uid {3}, .duration = 1},
+              {.uid = Uid {4}, .duration = 2},
+              {.uid = Uid {5}, .duration = 3},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+              {.uid = Uid {2}, .first_block = 1, .count_block = 2},
+          },
+      .scenario_array = {{.uid = Uid {0}}},
+  };
 
-  const System system = {.name = "SEN",
-                         .bus_array = bus_array,
-                         .demand_array = demand_array,
-                         .generator_array = generator_array};
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
 
   REQUIRE(simulation.scenario_array.size() == 1);
   REQUIRE(simulation.stage_array.size() == 2);
@@ -79,22 +93,35 @@ TEST_CASE("SystemLP - Primal Infeasible Case")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 200.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
+      {
+          .uid = Uid {1},
+          .name = "b1",
+          .bus = Uid {1},
+          .capacity = 200.0,
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {3}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}}};
+      .scenario_array = {{.uid = Uid {0}}},
+  };
 
-  const System system = {.name = "SEN",
-                         .bus_array = bus_array,
-                         .demand_array = demand_array,
-                         .generator_array = generator_array};
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
 
   const OptionsLP options;
   SimulationLP simulation_lp(simulation, options);
@@ -114,22 +141,35 @@ TEST_CASE("SystemLP - Timeout Scenario")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 1000.0}};
+      {
+          .uid = Uid {1},
+          .name = "b1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {3}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}}};
+      .scenario_array = {{.uid = Uid {0}}},
+  };
 
-  const System system = {.name = "SEN",
-                         .bus_array = bus_array,
-                         .demand_array = demand_array,
-                         .generator_array = generator_array};
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
 
   const OptionsLP options;
   SimulationLP simulation_lp(simulation, options);

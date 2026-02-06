@@ -72,11 +72,12 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
     //  adding flow variable
 
-    const auto fc = lp.add_col(
-        {// flow variable
-         .name = sc.lp_label(scenario, stage, block, cname, "flow", uid()),
-         .lowb = block_fmin,
-         .uppb = block_fmax});
+    const auto fc = lp.add_col({
+        // flow variable
+        .name = sc.lp_label(scenario, stage, block, cname, "flow", uid()),
+        .lowb = block_fmin,
+        .uppb = block_fmax,
+    });
 
     fcols[buid] = fc;
 

@@ -364,9 +364,11 @@ std::expected<int, Error> LinearInterface::initial_solve(
           get_status());
 
       SPDLOG_INFO(message);
-      return std::unexpected(Error {.code = ErrorCode::SolverError,
-                                    .message = std::move(message),
-                                    .status = get_status()});
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::move(message),
+          .status = get_status(),
+      });
     }
 
     return get_status();
@@ -375,8 +377,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
     auto message =
         std::format("Unexpected error in initial_solve: {}", e.what());
     SPDLOG_INFO(message);
-    return std::unexpected(Error {.code = ErrorCode::InternalError,
-                                  .message = std::move(message)});
+    return std::unexpected(Error {
+        .code = ErrorCode::InternalError,
+        .message = std::move(message),
+    });
   }
 }
 
@@ -399,9 +403,11 @@ std::expected<int, Error> LinearInterface::resolve(
           get_status());
 
       SPDLOG_INFO(message);
-      return std::unexpected(Error {.code = ErrorCode::SolverError,
-                                    .message = std::move(message),
-                                    .status = get_status()});
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::move(message),
+          .status = get_status(),
+      });
     }
 
     return get_status();
@@ -409,8 +415,10 @@ std::expected<int, Error> LinearInterface::resolve(
   } catch (const std::exception& e) {
     auto message = std::format("Unexpected error in resolve: {}", e.what());
     SPDLOG_INFO(message);
-    return std::unexpected(Error {.code = ErrorCode::InternalError,
-                                  .message = std::move(message)});
+    return std::unexpected(Error {
+        .code = ErrorCode::InternalError,
+        .message = std::move(message),
+    });
   }
 }
 

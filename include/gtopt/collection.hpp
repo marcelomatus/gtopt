@@ -206,7 +206,7 @@ public:
   Collection(const Collection&) = default;
   Collection() = default;
   Collection& operator=(Collection&&) noexcept = default;
-  Collection& operator=(const Collection&) noexcept = default;
+  Collection& operator=(const Collection&) = default;
   ~Collection() = default;
 
   /**

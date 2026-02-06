@@ -6,7 +6,7 @@ TEST_CASE("Demand")
 {
   using namespace gtopt;
 
-  Demand demand = {.uid = 1, .name = "demand_1"};
+  const Demand demand = {.uid = 1, .name = "demand_1"};
 
   CHECK(demand.uid == 1);
   CHECK(demand.name == "demand_1");

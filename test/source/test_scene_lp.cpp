@@ -19,15 +19,19 @@ TEST_SUITE("SceneLP")
 
   TEST_CASE("Construction with scene and scenarios")
   {
-    const Scene scene {.uid = 1,
-                       .name = "test_scene",
-                       .active = true,
-                       .first_scenario = 0,
-                       .count_scenario = 2};
+    const Scene scene {
+        .uid = 1,
+        .name = "test_scene",
+        .active = true,
+        .first_scenario = 0,
+        .count_scenario = 2,
+    };
 
-    std::vector<Scenario> scenarios {Scenario {.uid = 1, .active = true},
-                                     Scenario {.uid = 2, .active = true},
-                                     Scenario {.uid = 3, .active = false}};
+    std::vector<Scenario> scenarios {
+        Scenario {.uid = 1, .active = true},
+        Scenario {.uid = 2, .active = true},
+        Scenario {.uid = 3, .active = false},
+    };
 
     const SceneLP scene_lp(scene, scenarios, SceneIndex {1});
 
@@ -39,15 +43,19 @@ TEST_SUITE("SceneLP")
 
   TEST_CASE("Construction with simulation")
   {
-    const Scene scene {.uid = 2,
-                       .name = "simulation_scene",
-                       .active = true,
-                       .first_scenario = 1,
-                       .count_scenario = 1};
+    const Scene scene {
+        .uid = 2,
+        .name = "simulation_scene",
+        .active = true,
+        .first_scenario = 1,
+        .count_scenario = 1,
+    };
 
-    const std::vector<Scenario> scenarios {Scenario {.uid = 1, .active = false},
-                                           Scenario {.uid = 2, .active = true},
-                                           Scenario {.uid = 3, .active = true}};
+    const std::vector<Scenario> scenarios {
+        Scenario {.uid = 1, .active = false},
+        Scenario {.uid = 2, .active = true},
+        Scenario {.uid = 3, .active = true},
+    };
 
     SceneIndex index {2};
     const SceneLP scene_lp(scene, scenarios, index);
@@ -60,14 +68,18 @@ TEST_SUITE("SceneLP")
 
   TEST_CASE("Inactive scene")
   {
-    const Scene scene {.uid = 3,
-                       .name = "inactive_scene",
-                       .active = false,
-                       .first_scenario = 0,
-                       .count_scenario = 2};
+    const Scene scene {
+        .uid = 3,
+        .name = "inactive_scene",
+        .active = false,
+        .first_scenario = 0,
+        .count_scenario = 2,
+    };
 
-    std::vector<Scenario> scenarios {Scenario {.uid = 1, .active = true},
-                                     Scenario {.uid = 2, .active = true}};
+    std::vector<Scenario> scenarios {
+        Scenario {.uid = 1, .active = true},
+        Scenario {.uid = 2, .active = true},
+    };
 
     SceneIndex index {3};
     const SceneLP scene_lp(scene, scenarios, index);
@@ -80,11 +92,13 @@ TEST_SUITE("SceneLP")
   {
     SUBCASE("Empty scenario list")
     {
-      const Scene scene {.uid = 4,
-                         .name = "empty_scene",
-                         .active = true,
-                         .first_scenario = 0,
-                         .count_scenario = 0};
+      const Scene scene {
+          .uid = 4,
+          .name = "empty_scene",
+          .active = true,
+          .first_scenario = 0,
+          .count_scenario = 0,
+      };
 
       const SceneLP scene_lp(scene, std::vector<Scenario> {});
 

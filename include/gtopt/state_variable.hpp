@@ -106,12 +106,14 @@ public:
       SceneIndex scene_index = SceneIndex {unknown_index},
       ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
   {
-    return {.scenario_uid = scenario_uid,
-            .stage_uid = stage_uid,
-            .uid = uid,
-            .col_name = col_name,
-            .class_name = class_name,
-            .lp_key = {.scene_index = scene_index, .phase_index = phase_index}};
+    return {
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+        .uid = uid,
+        .col_name = col_name,
+        .class_name = class_name,
+        .lp_key = {.scene_index = scene_index, .phase_index = phase_index},
+    };
   }
 
   template<typename ScenarioLP, typename StageLP>
@@ -167,9 +169,12 @@ public:
                                         ColIndex col) noexcept
       -> const DependentVariable&
   {
-    return add_dependent_variable(LPKey {.scene_index = scenario.scene_index(),
-                                         .phase_index = stage.phase_index()},
-                                  col);
+    return add_dependent_variable(
+        LPKey {
+            .scene_index = scenario.scene_index(),
+            .phase_index = stage.phase_index(),
+        },
+        col);
   }
 
 private:

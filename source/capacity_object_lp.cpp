@@ -77,10 +77,12 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   SparseRow capainst_row {.name = lp_label_p(sc, stage, "capainst")};
-  const auto capainst_col = lp.add_col({.name = capainst_row.name,
-                                        .lowb = stage_capacity,
-                                        .uppb = stage_capmax,
-                                        .cost = 0.0});
+  const auto capainst_col = lp.add_col({
+      .name = capainst_row.name,
+      .lowb = stage_capacity,
+      .uppb = stage_capmax,
+      .cost = 0.0,
+  });
   sc.add_state_variable(sv_key_p(scenario, stage, "capainst"), capainst_col);
 
   capainst_row[capainst_col] = -1;
@@ -93,10 +95,11 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
-    const auto expmod_col = expmod_cols[stage.uid()] =
-        lp.add_col({// expmod variable
-                    .name = lp_label_p(sc, stage, "expmod"),
-                    .uppb = stage_expmod});
+    const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
+        // expmod variable
+        .name = lp_label_p(sc, stage, "expmod"),
+        .uppb = stage_expmod,
+    });
 
     capainst_row[expmod_col] = +stage_expcap;
     capacost_row[expmod_col] = -stage_expcap * stage_hour_capcost;

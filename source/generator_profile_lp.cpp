@@ -17,7 +17,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt

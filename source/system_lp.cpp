@@ -18,8 +18,6 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
-#include <range/v3/view/all.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
@@ -49,9 +47,11 @@ constexpr auto make_collection(InputContext& input_context,
 {
   return Collection<Out> {
       input
-      | ranges::views::transform(
-          [&](auto element) { return Out {std::move(element), input_context}; })
-      | ranges::to<std::vector<Out>>()};
+          | ranges::views::transform(
+              [&](auto element)
+              { return Out {std::move(element), input_context}; })
+          | ranges::to<std::vector<Out>>(),
+  };
 }
 
 /**

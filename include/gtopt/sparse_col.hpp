@@ -39,8 +39,7 @@ struct SparseCol
   double lowb {0.0};  ///< Lower bound (default: 0.0)
   double uppb {CoinDblMax};  ///< Upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
-  bool is_integer {
-      false};  ///< Whether variable is integer-constrained (default: false)
+  bool is_integer {false};  ///< is integer-constrained (default: false)
 
   /**
    * Sets variable to a fixed value (equality constraint)

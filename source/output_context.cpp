@@ -66,13 +66,16 @@ template<typename Type = Uid, typename STBUids>
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Block::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Block::class_name}, ArrowTraits<Type>::type()),
+  };
 
   // Capture fields before moving stb_uids
   auto&& f_uids = std::forward<STBUids>(stb_uids);
-  std::vector<ArrowArray> arrays = {make_array<Type>(f_uids.scenario_uids),
-                                    make_array<Type>(f_uids.stage_uids),
-                                    make_array<Type>(f_uids.block_uids)};
+  std::vector<ArrowArray> arrays = {
+      make_array<Type>(f_uids.scenario_uids),
+      make_array<Type>(f_uids.stage_uids),
+      make_array<Type>(f_uids.block_uids),
+  };
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -83,11 +86,14 @@ template<typename Type = Uid, typename STUids>
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
+  };
 
   auto&& f_uids = std::forward<STUids>(st_uids);
-  std::vector<ArrowArray> arrays = {make_array<Type>(f_uids.scenario_uids),
-                                    make_array<Type>(f_uids.stage_uids)};
+  std::vector<ArrowArray> arrays = {
+      make_array<Type>(f_uids.scenario_uids),
+      make_array<Type>(f_uids.stage_uids),
+  };
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -97,10 +103,12 @@ template<typename Type = Uid, typename TUids>
 [[nodiscard]] constexpr auto make_t_prelude(TUids&& t_uids)
 {
   std::vector<ArrowField> fields = {
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type())};
+      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
+  };
 
   std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<TUids>(t_uids).stage_uids)};
+      make_array<Type>(std::forward<TUids>(t_uids).stage_uids),
+  };
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
@@ -175,7 +183,8 @@ constexpr auto parquet_write_table(const auto& fpath,
       {"uncompressed", parquet::Compression::UNCOMPRESSED},
       {"gzip", parquet::Compression::GZIP},
       {"zstd", parquet::Compression::ZSTD},
-      {"lzo", parquet::Compression::LZO}};
+      {"lzo", parquet::Compression::LZO},
+  };
 
   props_builder.compression(
       get_optvalue(codec_map, zfmt).value_or(parquet::Compression::GZIP));

@@ -183,7 +183,7 @@ TEST_CASE("LinearInterface - LP file output")
 
   // Verify file was created
   const std::string lp_file = temp_file + ".lp";
-  bool file_exists = std::filesystem::exists(lp_file);
+  const bool file_exists = std::filesystem::exists(lp_file);
   if (file_exists) {
     std::filesystem::remove(lp_file);  // Clean up
   }
