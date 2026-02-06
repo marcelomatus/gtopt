@@ -94,8 +94,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                               stage_capacity,
                               capacity_col))
   {
-    SPDLOG_CRITICAL(
-        std::format("Failed to add storage constraints for battery {}", uid()));
+    SPDLOG_CRITICAL("Failed to add storage constraints for battery {}", uid());
 
     return false;
   }

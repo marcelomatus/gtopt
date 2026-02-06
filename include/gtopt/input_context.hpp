@@ -43,8 +43,8 @@ public:
                        const std::string_view& cname,
                        const Id& id) const
   {
-    SPDLOG_DEBUG(fmt::format(
-        "get_array_index: cname '{}' id '{} {}'", cname, id.first, id.second));
+    SPDLOG_DEBUG(
+        "get_array_index: cname '{}' id '{} {}'", cname, id.first, id.second);
 
     return make_array_index<Type,
                             decltype(m_array_table_maps_),

@@ -158,8 +158,7 @@ namespace gtopt
     throw std::runtime_error(msg);
   }
 
-  SPDLOG_TRACE(std::format(
-      "Successfully loaded table for class {} field {}", cname, fname));
+  SPDLOG_TRACE("Successfully loaded table for class {} field {}", cname, fname);
   return *result;
 }
 

@@ -36,8 +36,8 @@ void PlanningLP::write_lp(const std::string& filename) const
       }
     }
   } catch (const std::exception& e) {
-    SPDLOG_ERROR(std::format(
-        "Failed to write LP file {}: {}", filename, std::string(e.what())));
+    SPDLOG_ERROR(
+        "Failed to write LP file {}: {}", filename, std::string(e.what()));
     throw;
   }
 }
