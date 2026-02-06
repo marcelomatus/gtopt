@@ -12,9 +12,7 @@
 
 #include <expected>
 #include <tuple>
-#include <utility>
 
-#include <fmt/format.h>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
@@ -39,35 +37,35 @@ struct UidColumn
                        std::string>
   {
     if (!table) {
-      auto msg = fmt::format("Null table, no column for name '{}'", name);
+      auto msg = std::format("Null table, no column for name '{}'", name);
       SPDLOG_ERROR(msg);
       return std::unexpected(std::move(msg));
     }
 
     const auto column = table->GetColumnByName(name);
     if (!column) {
-      auto msg = fmt::format("Column '{}' not found in table", name);
+      auto msg = std::format("Column '{}' not found in table", name);
       SPDLOG_ERROR(msg);
       return std::unexpected(std::move(msg));
     }
 
     try {
       if (column->num_chunks() == 0) {
-        auto msg = fmt::format("Column '{}' has no chunks", name);
+        auto msg = std::format("Column '{}' has no chunks", name);
         SPDLOG_ERROR(msg);
         return std::unexpected(std::move(msg));
       }
 
       const auto chunk = column->chunk(0);
       if (!chunk) {
-        auto msg = fmt::format("Null chunk in column '{}'", name);
+        auto msg = std::format("Null chunk in column '{}'", name);
         SPDLOG_ERROR(msg);
         return std::unexpected(std::move(msg));
       }
 
       if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
         auto msg =
-            fmt::format("Type mismatch in column '{}': expected {} got {}",
+            std::format("Type mismatch in column '{}': expected {} got {}",
                         name,
                         ArrowTraits<Uid>::Type::type_name(),
                         chunk->type()->ToString());
@@ -78,7 +76,7 @@ struct UidColumn
       return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
           chunk);
     } catch (const std::exception& e) {
-      auto msg = fmt::format("Column cast failed: {}", e.what());
+      auto msg = std::format("Column cast failed: {}", e.what());
       SPDLOG_ERROR(msg);
       return std::unexpected(std::move(msg));
     }
@@ -126,19 +124,19 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get scenarios column {}", scenarios.error()));
+          std::format("Failed to get scenarios column {}", scenarios.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get stages column {}", stages.error()));
+          std::format("Failed to get stages column {}", stages.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto blocks = make_uid_column(table, Block::class_name);
     if (!blocks) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get blocks column {}", blocks.error()));
+          std::format("Failed to get blocks column {}", blocks.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -151,7 +149,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
                                  BlockUid {(*blocks)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
                                 as_string(key)));
       }
     }
@@ -170,13 +168,13 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get stages column: {}", stages.error()));
+          std::format("Failed to get stages column: {}", stages.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto blocks = make_uid_column(table, Block::class_name);
     if (!blocks) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get blocks column {}", blocks.error()));
+          std::format("Failed to get blocks column {}", blocks.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -187,10 +185,10 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
       const auto key = key_type {StageUid {(*stages)->Value(i)},
                                  BlockUid {(*blocks)->Value(i)}};
       SPDLOG_DEBUG(
-          fmt::format("uididx Processing key: {} and {}", as_string(key), i));
+          std::format("uididx Processing key: {} and {}", as_string(key), i));
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(fmt::format("using duplicated id values at element {}",
+        SPDLOG_WARN(std::format("using duplicated id values at element {}",
                                 as_string(key)));
       }
     }
@@ -210,13 +208,13 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get scenarios column {}", scenarios.error()));
+          std::format("Failed to get scenarios column {}", scenarios.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get stages column {}", stages.error()));
+          std::format("Failed to get stages column {}", stages.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -228,7 +226,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
                                  StageUid {(*stages)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
                                 as_string(key)));
       }
     }
@@ -247,7 +245,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
       SPDLOG_ERROR(
-          fmt::format("Failed to get stages column {}", stages.error()));
+          std::format("Failed to get stages column {}", stages.error()));
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -258,7 +256,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
       const auto key = key_type {StageUid {(*stages)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(fmt::format("using duplicate uid values at element {}",
+        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
                                 as_string(key)));
       }
     }

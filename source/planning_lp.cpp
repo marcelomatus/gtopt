@@ -30,13 +30,13 @@ void PlanningLP::write_lp(const std::string& filename) const
           system.write_lp(filename);
         } catch (const std::exception& e) {
           SPDLOG_ERROR(
-              fmt::format("Failed to write LP for system: {}", e.what()));
+              std::format("Failed to write LP for system: {}", e.what()));
           throw;
         }
       }
     }
   } catch (const std::exception& e) {
-    SPDLOG_ERROR(fmt::format(
+    SPDLOG_ERROR(std::format(
         "Failed to write LP file {}: {}", filename, std::string(e.what())));
     throw;
   }
@@ -60,11 +60,11 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     if (auto result = system_sp.resolve(lp_opts); !result) {
       // On error, write the problematic model to a file for debugging
       const auto filename =
-          fmt::format("error_{}_{}", scene_index, phase_index);
+          std::format("error_{}_{}", scene_index, phase_index);
       system_sp.write_lp(filename);
 
       auto error = std::move(result.error());
-      error.message += fmt::format(
+      error.message += std::format(
           ", failed at scene {} phase {}", scene_index, phase_index);
 
       return std::unexpected(std::move(error));
@@ -132,7 +132,7 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
   } catch (const std::exception& e) {
     return std::unexpected(Error {
         .code = ErrorCode::InternalError,
-        .message = fmt::format("Unexpected error in resolve: {}", e.what())});
+        .message = std::format("Unexpected error in resolve: {}", e.what())});
   }
 }
 

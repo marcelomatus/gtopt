@@ -9,7 +9,6 @@
 #include <fstream>
 #include <numeric>
 #include <ranges>
-#include <system_error>
 
 #include <gtopt/cpu_monitor.hpp>
 #include <spdlog/spdlog.h>
@@ -30,7 +29,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     // Fast existence check
     if (!std::filesystem::exists(proc_stat_path)) [[unlikely]] {
       const auto msg =
-          fmt::format("{} does not exist, using fallback CPU value: {:.2f}",
+          std::format("{} does not exist, using fallback CPU value: {:.2f}",
                       proc_stat_path,
                       fallback_value);
       SPDLOG_WARN(msg);
@@ -40,7 +39,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     // Open /proc/stat in text mode (default)
     std::ifstream proc_stat {std::string(proc_stat_path)};
     if (!proc_stat.is_open()) [[unlikely]] {
-      const auto msg = fmt::format("Failed to open {}", proc_stat_path);
+      const auto msg = std::format("Failed to open {}", proc_stat_path);
       SPDLOG_WARN(msg);
       return fallback_value;
     }
@@ -74,7 +73,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 
     if (count < min_stats) [[unlikely]] {
       SPDLOG_WARN(
-          fmt::format("Insufficient CPU stats, only {} values read", count));
+          std::format("Insufficient CPU stats, only {} values read", count));
       return fallback_value;
     }
 
@@ -97,7 +96,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     // Log every 50th call (thread-safe counter)
     if (call_count.fetch_add(1, std::memory_order_relaxed) % 50 == 0) {
       SPDLOG_INFO(
-          fmt::format("CPU load: {:.2f}% (idle_delta: {}, total_delta: {})",
+          std::format("CPU load: {:.2f}% (idle_delta: {}, total_delta: {})",
                       load,
                       idle_delta,
                       total_delta));

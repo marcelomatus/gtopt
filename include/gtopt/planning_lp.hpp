@@ -11,11 +11,9 @@
 
 #pragma once
 
-#include <expected>
 #include <string>
 #include <utility>
 
-#include <fmt/format.h>
 #include <gtopt/error.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning.hpp>

@@ -69,7 +69,7 @@ struct InputTraits : UidTraits
 
           if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
             throw std::runtime_error(
-                fmt::format("Type mismatch: expected {} got {}",
+                std::format("Type mismatch: expected {} got {}",
                             ArrowTraits<Type>::Type::type_name(),
                             chunk->type()->ToString()));
           }
@@ -98,14 +98,14 @@ struct InputTraits : UidTraits
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);
             SPDLOG_DEBUG(
-                fmt::format("at_sched: key {} idx {} value {} values {}",
+                std::format("at_sched: key {} idx {} value {} values {}",
                             gtopt::as_string(key),
                             idx,
                             value,
                             (void*)values.get()));
             return value;
           } catch (const std::out_of_range& e) {
-            SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
+            SPDLOG_ERROR(std::format("Key {} not found in uid index: {}",
                                      gtopt::as_string(key),
                                      e.what()));
             throw;
@@ -130,7 +130,7 @@ struct InputTraits : UidTraits
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);
             SPDLOG_DEBUG(
-                fmt::format("optval_sched: key {} idx {} value {} values {}",
+                std::format("optval_sched: key {} idx {} value {} values {}",
                             gtopt::as_string(key),
                             idx,
                             value,
@@ -138,7 +138,7 @@ struct InputTraits : UidTraits
             return value;
 
           } catch (const std::out_of_range& e) {
-            SPDLOG_ERROR(fmt::format("Key {} not found in uid index: {}",
+            SPDLOG_ERROR(std::format("Key {} not found in uid index: {}",
                                      gtopt::as_string(key),
                                      e.what()));
             return std::nullopt;

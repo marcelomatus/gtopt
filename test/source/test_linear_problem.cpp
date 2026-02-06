@@ -1,6 +1,5 @@
 
 #include <doctest/doctest.h>
-#include <fmt/ranges.h>
 #include <gtopt/linear_problem.hpp>
 
 using namespace gtopt;
@@ -68,14 +67,14 @@ TEST_CASE("Linear problem matrix operations")
   col_indices.reserve(5);
   for (int i = 0; i < 5; ++i) {
     col_indices.push_back(
-        lp.add_col(gtopt::SparseCol {.name = fmt::format("col{}", i)}));
+        lp.add_col(gtopt::SparseCol {.name = std::format("col{}", i)}));
   }
 
   std::vector<RowIndex> row_indices;
   row_indices.reserve(3);
   for (int i = 0; i < 3; ++i) {
     row_indices.push_back(
-        lp.add_row(gtopt::SparseRow {.name = fmt::format("row{}", i)}));
+        lp.add_row(gtopt::SparseRow {.name = std::format("row{}", i)}));
   }
 
   // Set up a small matrix

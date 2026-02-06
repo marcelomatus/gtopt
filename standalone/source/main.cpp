@@ -84,9 +84,9 @@ template<typename T>
 
       if (!json_result) {
         return std::unexpected(
-            fmt::format("problem reading input file {}", planning_file));
+            std::format("problem reading input file {}", planning_file));
       }
-      spdlog::info(fmt::format("parsing input file {}", fpath.string()));
+      spdlog::info(std::format("parsing input file {}", fpath.string()));
 
       auto&& json_doc = json_result.value();
       try {
@@ -100,7 +100,7 @@ template<typename T>
         }
       } catch (daw::json::json_exception const& jex) {
         spdlog::critical(
-            fmt::format("parsing file {} failed, {}",
+            std::format("parsing file {} failed, {}",
                         fpath.string(),
                         to_formatted_string(jex, json_doc.c_str())));
       } catch (...) {
@@ -108,7 +108,7 @@ template<typename T>
       }
     }
 
-    spdlog::info(fmt::format("parsing all json files {}s", sw));
+    spdlog::info(std::format("parsing all json files {}s", sw));
   }
 
   //
@@ -157,10 +157,10 @@ template<typename T>
     if (jfile) {
       jfile << daw::json::to_json(planning) << '\n';
     } else {
-      spdlog::error(fmt::format("can't create json file {}", jpath.string()));
+      spdlog::error(std::format("can't create json file {}", jpath.string()));
     }
 
-    spdlog::info(fmt::format("writing system json file {}s", sw));
+    spdlog::info(std::format("writing system json file {}s", sw));
   }
 
   //
@@ -182,7 +182,7 @@ template<typename T>
 
   spdlog::stopwatch sw;
   PlanningLP planning_lp {std::move(planning), flat_opts};
-  spdlog::info(fmt::format("creating lp {}s", sw));
+  spdlog::info(std::format("creating lp {}s", sw));
 
   if (lp_file) {
     planning_lp.write_lp(lp_file.value());
@@ -197,7 +197,7 @@ template<typename T>
     spdlog::stopwatch sw;
 
     auto result = planning_lp.resolve();
-    spdlog::info(fmt::format("planning  {}s", sw));
+    spdlog::info(std::format("planning  {}s", sw));
 
     optimal = result.has_value();
   }
@@ -206,7 +206,7 @@ template<typename T>
     spdlog::stopwatch sw;
 
     planning_lp.write_out();
-    spdlog::info(fmt::format("writing output  {}s", sw));
+    spdlog::info(std::format("writing output  {}s", sw));
   }
 
   return optimal ? 0 : 1;
@@ -338,7 +338,7 @@ int main(int argc, char** argv)
 
       spdlog::cfg::load_argv_levels(argc, argv);
 
-      spdlog::info(fmt::format("starting gtopt {}", GTOPT_VERSION));
+      spdlog::info(std::format("starting gtopt {}", GTOPT_VERSION));
     }
 
     //
@@ -367,7 +367,7 @@ int main(int argc, char** argv)
     }
     return result_value;
   } catch (const std::exception& ex) {
-    spdlog::critical(fmt::format("Exception: {}", ex.what()));
+    spdlog::critical(std::format("Exception: {}", ex.what()));
     return 1;
   }
 }

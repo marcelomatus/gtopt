@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-#define STRONG_HAS_FMT_FORMAT 1
+#define STRONG_HAS_STD_FORMAT 1
 #include <strong_type/formattable.hpp>
 #include <strong_type/strong_type.hpp>
 

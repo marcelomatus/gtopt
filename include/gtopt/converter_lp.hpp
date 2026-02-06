@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <fmt/format.h>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/converter.hpp>

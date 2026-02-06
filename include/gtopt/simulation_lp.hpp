@@ -165,7 +165,7 @@ public:
         map.try_emplace(std::forward<Key>(key), key.lp_key, col);
 
     if (!inserted) {
-      auto msg = fmt::format("duplicated variable {}:{} in simulation map",
+      auto msg = std::format("duplicated variable {}:{} in simulation map",
                              key.class_name,
                              key.col_name);
       SPDLOG_CRITICAL(msg);

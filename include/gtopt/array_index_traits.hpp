@@ -76,14 +76,14 @@ struct ArrayIndexBase
 
       if (!table || !index) [[unlikely]] {
         const auto msg =
-            fmt::format("Can't create table/index for '{}:{}'", fname, name);
+            std::format("Can't create table/index for '{}:{}'", fname, name);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
       }
 
       auto [res, ok] = table_map.emplace(table_key, std::pair {table, index});
       if (!ok) [[unlikely]] {
-        const auto msg = fmt::format(
+        const auto msg = std::format(
             "Can't insert non-unique table key '{}' '{}'", cname, fname);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
@@ -92,30 +92,30 @@ struct ArrayIndexBase
       return res->second;
     }();
 
-    SPDLOG_DEBUG(fmt::format("get_arrow_index: looking for column {}", name));
+    SPDLOG_DEBUG(std::format("get_arrow_index: looking for column {}", name));
 
     // Try multiple column name patterns
     auto array = [&]()
     {
       if (auto col = table->GetColumnByName(as_label<':'>("uid", uid))) {
-        SPDLOG_DEBUG(fmt::format(
+        SPDLOG_DEBUG(std::format(
             "Found column '{}' for uid '{}'", as_label<':'>("uid", uid), uid));
         return col;
       }
       if (auto col = table->GetColumnByName(name)) {
-        SPDLOG_DEBUG(fmt::format("Found column '{}' for uid '{}'", name, uid));
+        SPDLOG_DEBUG(std::format("Found column '{}' for uid '{}'", name, uid));
         return col;
       }
       auto col = table->GetColumnByName(as_label<':'>(name, uid));
       if (col) {
-        SPDLOG_DEBUG(fmt::format(
+        SPDLOG_DEBUG(std::format(
             "Found column '{}' for uid '{}'", as_label<':'>(name, uid), uid));
       }
       return col;
     }();
 
     if (!array) [[unlikely]] {
-      const auto msg = fmt::format(
+      const auto msg = std::format(
           "Can't find element '{}:{}' in table '{}'", name, uid, fname);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
@@ -124,7 +124,7 @@ struct ArrayIndexBase
     // Cache the array
     auto [res, ok] = array_map.emplace(array_key, std::pair {array, index_idx});
     if (!ok) [[unlikely]] {
-      const auto msg = fmt::format(
+      const auto msg = std::format(
           "Can't insert non-unique arrow key '{} {} {}'", cname, fname, uid);
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
@@ -159,7 +159,7 @@ public:
     auto&& [array_map, table_map, vector_idx] =
         std::get<map_type>(array_table_map);
 
-    SPDLOG_DEBUG(fmt::format("make_array_index: class '{}' id '{} {}'",
+    SPDLOG_DEBUG(std::format("make_array_index: class '{}' id '{} {}'",
                              class_name,
                              id.first,
                              id.second));
@@ -168,7 +168,7 @@ public:
             [&](const value_type&) -> array_vector_uid_idx_v
             {
               SPDLOG_DEBUG(
-                  fmt::format("make_array_index: value class '{}' id '{} {}'",
+                  std::format("make_array_index: value class '{}' id '{} {}'",
                               class_name,
                               id.first,
                               id.second));
@@ -178,7 +178,7 @@ public:
             [&](const vector_type&) -> array_vector_uid_idx_v
             {
               SPDLOG_DEBUG(
-                  fmt::format("make_array_index: vector class '{}' id '{} {}'",
+                  std::format("make_array_index: vector class '{}' id '{} {}'",
                               class_name,
                               id.first,
                               id.second));
@@ -190,7 +190,7 @@ public:
             },
             [&](const file_sched& fsched) -> array_vector_uid_idx_v
             {
-              SPDLOG_DEBUG(fmt::format(
+              SPDLOG_DEBUG(std::format(
                   "make_array_index: fsched {} class '{}' id '{} {}'",
                   fsched,
                   class_name,
@@ -212,7 +212,7 @@ constexpr auto make_array_index(const SystemContext& system_context,
                                 const FieldSched& sched,
                                 const Id& id)
 {
-  SPDLOG_DEBUG(fmt::format("make_array_index: class '{}' id '{} {}'",
+  SPDLOG_DEBUG(std::format("make_array_index: class '{}' id '{} {}'",
                            class_name,
                            id.first,
                            id.second));

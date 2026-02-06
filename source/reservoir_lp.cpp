@@ -100,7 +100,7 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                               spillway_cost(),
                               spillway_capacity()))
   {
-    SPDLOG_CRITICAL(fmt::format(
+    SPDLOG_CRITICAL(std::format(
         "Failed to add storage constraints for reservoir {}", uid()));
 
     return false;
