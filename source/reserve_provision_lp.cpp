@@ -8,7 +8,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 
 namespace
 {
@@ -65,10 +64,11 @@ constexpr bool add_provision(const std::string_view cname,
     }
 
     const auto name = sc.lp_label(scenario, stage, block, cname, pname, uid);
-    const auto prov_col = lp.add_col(
-        {.name = name,
-         .uppb = block_rmax.value(),
-         .cost = sc.block_ecost(scenario, stage, block, stage_cost)});
+    const auto prov_col = lp.add_col({
+        .name = name,
+        .uppb = block_rmax.value(),
+        .cost = sc.block_ecost(scenario, stage, block, stage_cost),
+    });
 
     prov_cols[buid] = prov_col;
     prov_rows[buid] = lp.add_row(provision_row(name, gcol, prov_col));
@@ -113,14 +113,14 @@ constexpr auto make_rzone_indexes(const InputContext& ic,
   auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
 
   return rzones
-      | ranges::views::transform(
+      | std::views::transform(
              [&](auto rz)
              {
                using RZoneId = ObjectSingleId<ReserveZoneLP>;
                return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
                                                   : RZoneId {std::move(rz)});
              })
-      | ranges::to<std::vector>;
+      | std::ranges::to<std::vector>();
 }
 
 }  // namespace

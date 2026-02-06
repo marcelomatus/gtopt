@@ -33,19 +33,21 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
     const auto& theta = reference_theta();
 
     for (auto&& block : blocks) {
-      auto theta_col = theta
-          ? SparseCol {.name = sc.lp_label(
-                           scenario, stage, block, cname, "theta", uid()),
-                       .lowb = *theta * scale_theta,
-                       .uppb = *theta * scale_theta}
-          : SparseCol {.name = sc.lp_label(
-                           scenario, stage, block, cname, "theta", uid()),
-                       .lowb = -12 * scale_theta,
-                       .uppb = +12 * scale_theta};
-
-      const auto tc = lp.add_col(std::move(theta_col));
-
-      tblocks[block.uid()] = tc;
+      const auto buid = block.uid();
+      auto tname = sc.lp_label(scenario, stage, block, cname, "theta", uid());
+      if (theta) {
+        tblocks[buid] = lp.add_col(SparseCol {
+            .name = std::move(tname),
+            .lowb = *theta * scale_theta,
+            .uppb = *theta * scale_theta,
+        });
+      } else {
+        tblocks[buid] = lp.add_col(SparseCol {
+            .name = std::move(tname),
+            .lowb = -12 * scale_theta,
+            .uppb = +12 * scale_theta,
+        });
+      }
     }
   }
 

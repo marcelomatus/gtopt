@@ -36,8 +36,10 @@ TEST_CASE("StateVariable::Key functionality")
 
 TEST_CASE("StateVariable core functionality")
 {
-  const StateVariable::LPKey lp_key {.scene_index = SceneIndex {1},
-                                     .phase_index = PhaseIndex {2}};
+  const StateVariable::LPKey lp_key {
+      .scene_index = SceneIndex {1},
+      .phase_index = PhaseIndex {2},
+  };
   StateVariable var {lp_key, ColIndex {3}};
 
   SUBCASE("Basic properties")

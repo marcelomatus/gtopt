@@ -122,22 +122,26 @@ TEST_CASE("System daw json test 3")
     for (size_t i = 0; i < size; ++i) {
       const gtopt::SingleId bus {uid};
       bus_array[i] = {.uid = uid, .name = "bus"};
-      generator_array[i] = {.uid = uid,
-                            .name = "gen",
-                            .bus = bus,
-                            .pmin = 0.0,
-                            .pmax = 300.0,
-                            .gcost = 50.0,
-                            .capacity = 300.0};
+      generator_array[i] = {
+          .uid = uid,
+          .name = "gen",
+          .bus = bus,
+          .pmin = 0.0,
+          .pmax = 300.0,
+          .gcost = 50.0,
+          .capacity = 300.0,
+      };
       ++uid;
     }
   }
 
-  const gtopt::System system {.name = "system",
-                              .bus_array = bus_array,
-                              .demand_array = demand_array,
-                              .generator_array = generator_array,
-                              .line_array = line_array};
+  const gtopt::System system {
+      .name = "system",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
 
   REQUIRE(system.bus_array.size() == size);
   REQUIRE(system.generator_array.size() == size);

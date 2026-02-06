@@ -75,7 +75,8 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
     const auto rc = lp.add_col(SparseCol {
         .name = sc.lp_label(scenario, stage, block, cname, "fext", uid()),
         .lowb = fmin,
-        .uppb = fmax});
+        .uppb = fmax,
+    });
 
     rcols[buid] = rc;
 

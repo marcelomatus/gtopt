@@ -43,7 +43,8 @@ TEST_CASE("Deep Nesting with Indexed Alternative")
 {
   using traits_deep = mvector_traits<float, std::tuple<int, int, int, int>, 4>;
   const traits_deep::vector_type vec = {
-      {{{{1.1, 2.2}, {3.3, 4.4}}, {{5.5, 6.6}, {7.7, 8.8}}}}};
+      {{{{1.1, 2.2}, {3.3, 4.4}}, {{5.5, 6.6}, {7.7, 8.8}}}},
+  };
 
   {
     auto indices = std::make_tuple(0, 0, 0, 0);
@@ -156,7 +157,10 @@ TEST_CASE("2D vector access")
   using traits_2d =
       mvector_traits_auto<int, std::tuple<std::size_t, std::size_t>>;
   const traits_2d::vector_type vec = {
-      {1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}};
+      {1, 2, 3, 4},
+      {5, 6, 7, 8},
+      {9, 10, 11, 12},
+  };
 
   {
     CHECK(traits_2d::at_value(vec,
@@ -202,7 +206,10 @@ TEST_CASE("2D vector access Uid")
 {
   using traits_2d = mvector_traits_auto<int, std::tuple<StageUid, BlockUid>>;
   const traits_2d::vector_type vec = {
-      {1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}};
+      {1, 2, 3, 4},
+      {5, 6, 7, 8},
+      {9, 10, 11, 12},
+  };
 
   {
     CHECK(traits_2d::at_value(vec, std::make_tuple(StageUid {0}, BlockUid {0}))
@@ -245,8 +252,10 @@ TEST_CASE("3D vector access")
   using traits_3d =
       mvector_traits_auto<int,
                           std::tuple<std::size_t, std::size_t, std::size_t>>;
-  const traits_3d::vector_type vec = {{{1, 2, 3}, {4, 5, 6}},
-                                      {{7, 8, 9}, {10, 11, 12}}};
+  const traits_3d::vector_type vec = {
+      {{1, 2, 3}, {4, 5, 6}},
+      {{7, 8, 9}, {10, 11, 12}},
+  };
 
   {
     CHECK(
@@ -301,8 +310,10 @@ TEST_CASE("Mixed index types")
 {
   using traits_mixed =
       mvector_traits_auto<std::string, std::tuple<int, std::size_t, unsigned>>;
-  const traits_mixed::vector_type vec = {{{"a", "b"}, {"c", "d"}},
-                                         {{"e", "f"}, {"g", "h"}}};
+  const traits_mixed::vector_type vec = {
+      {{"a", "b"}, {"c", "d"}},
+      {{"e", "f"}, {"g", "h"}},
+  };
 
   {
     CHECK(traits_mixed::at_value(vec, std::make_tuple(0, std::size_t {0}, 0U))

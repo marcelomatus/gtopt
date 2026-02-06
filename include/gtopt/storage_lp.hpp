@@ -99,10 +99,11 @@ public:
 
     const auto vicol = prev_stage
         ? vfin_col_at(scenario, *prev_stage)
-        : lp.add_col(
-              {.name = sc.lp_label(scenario, stage, cname, "vini", uid()),
-               .lowb = storage().vini.value_or(stage_vmin),
-               .uppb = storage().vini.value_or(stage_vmax)});
+        : lp.add_col({
+              .name = sc.lp_label(scenario, stage, cname, "vini", uid()),
+              .lowb = storage().vini.value_or(stage_vmin),
+              .uppb = storage().vini.value_or(stage_vmax),
+          });
 
     const auto& blocks = stage.blocks();
 
@@ -120,16 +121,19 @@ public:
       const auto buid = block.uid();
       const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
 
-      auto vrow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "vol", uid())}
-                      .equal(0);
+      auto vrow =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, block, cname, "vol", uid()),
+          }
+              .equal(0);
 
-      const auto vc = lp.add_col({.name = vrow.name,
-                                  .lowb = !is_last_block
-                                      ? stage_vmin
-                                      : storage().vfin.value_or(stage_vmin),
-                                  .uppb = stage_vmax,
-                                  .cost = stage_vcost});
+      const auto vc = lp.add_col({
+          .name = vrow.name,
+          .lowb =
+              !is_last_block ? stage_vmin : storage().vfin.value_or(stage_vmin),
+          .uppb = stage_vmax,
+          .cost = stage_vcost,
+      });
 
       vcols[buid] = vc;
 
@@ -148,11 +152,12 @@ public:
       }
 
       if (drain_cost) {
-        const auto dcol = lp.add_col(
-            {.name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
-             .lowb = 0,
-             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-             .cost = sc.block_ecost(scenario, stage, block, *drain_cost)});
+        const auto dcol = lp.add_col({
+            .name = sc.lp_label(scenario, stage, block, cname, "drain", uid()),
+            .lowb = 0,
+            .uppb = drain_capacity.value_or(LinearProblem::DblMax),
+            .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
+        });
 
         dcols[buid] = dcol;
         vrow[dcol] = flow_conversion_rate * block.duration();
@@ -162,9 +167,12 @@ public:
 
       // adding the capacity constraint
       if (capacity_col) {
-        auto crow = SparseRow {.name = sc.lp_label(
-                                   scenario, stage, block, cname, "cap", uid())}
-                        .greater_equal(0);
+        auto crow =
+            SparseRow {
+                .name =
+                    sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+            }
+                .greater_equal(0);
         crow[*capacity_col] = 1;
         crow[vc] = -1;
 

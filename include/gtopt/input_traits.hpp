@@ -78,8 +78,10 @@ struct InputTraits : UidTraits
           auto array_value = std::static_pointer_cast<array_value_type>(chunk);
 
           return RType {
-              access_oper(array_value, a_uid_idx, std::make_tuple(uid...))};
-        }};
+              access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+          };
+        },
+    };
 
     return std::visit(visitor, sched);
   }

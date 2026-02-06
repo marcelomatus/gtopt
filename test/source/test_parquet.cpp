@@ -71,10 +71,12 @@ TEST_CASE("Parquet file write and read test")
     REQUIRE(uid_1_finish.ok());
 
     // Crear schema
-    auto schema = arrow::schema({arrow::field("scenario", arrow::int32()),
-                                 arrow::field("stage", arrow::int32()),
-                                 arrow::field("block", arrow::int32()),
-                                 arrow::field("uid_1", arrow::float64())});
+    auto schema = arrow::schema({
+        arrow::field("scenario", arrow::int32()),
+        arrow::field("stage", arrow::int32()),
+        arrow::field("block", arrow::int32()),
+        arrow::field("uid_1", arrow::float64()),
+    });
 
     // Crear tabla
     auto table_result = arrow::Table::Make(
@@ -195,12 +197,19 @@ TEST_CASE("Parquet file write and read test")
     using namespace gtopt;
 
     const Simulation sim = {
-        .block_array = {{.uid = Uid {1}, .duration = 1},
-                        {.uid = Uid {2}, .duration = 2},
-                        {.uid = Uid {3}, .duration = 3}},
-        .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
-                        {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
-        .scenario_array = {{.uid = Uid {1}}, {.uid = Uid {2}}}};
+        .block_array =
+            {
+                {.uid = Uid {1}, .duration = 1},
+                {.uid = Uid {2}, .duration = 2},
+                {.uid = Uid {3}, .duration = 3},
+            },
+        .stage_array =
+            {
+                {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+                {.uid = Uid {2}, .first_block = 1, .count_block = 2},
+            },
+        .scenario_array = {{.uid = Uid {1}}, {.uid = Uid {2}}},
+    };
 
     Options opt;
     opt.input_directory = iname;
@@ -216,8 +225,10 @@ TEST_CASE("Parquet file write and read test")
 
     SUBCASE("stbfield")
     {
-      const std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
-                                                                 {{4}, {5, 6}}};
+      const std::vector<std::vector<std::vector<double>>> vec = {
+          {{1}, {2, 3}},
+          {{4}, {5, 6}},
+      };
       const STBRealFieldSched stbfield {cname + "@" + fname};
 
       const Id id {1, "uid_1"};

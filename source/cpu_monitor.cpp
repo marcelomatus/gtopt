@@ -3,11 +3,11 @@
  * @brief     CPU monitoring implementation with C++23 optimizations
  */
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <filesystem>
 #include <fstream>
-#include <numeric>
 #include <ranges>
 
 #include <gtopt/cpu_monitor.hpp>
@@ -81,7 +81,7 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
     times[4] = 0;  // IOWait time is the 5th value and is not included in CPU
                    // load calculation
 
-    const auto total = std::accumulate(times.begin(), times.end(), 0ULL);
+    const auto total = std::ranges::fold_left(times, 0, std::plus {});
 
     // Atomic updates
     const auto idle_delta = idle - last_idle.exchange(idle);

@@ -8,7 +8,7 @@ using namespace gtopt;
 
 TEST_CASE("ReserveZone construction and default values")
 {
-  ReserveZone reserve_zone;
+  const ReserveZone reserve_zone;
 
   // Check default values
   CHECK(reserve_zone.uid == Uid {unknown_uid});

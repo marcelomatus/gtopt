@@ -57,7 +57,7 @@ enum class TaskStatus : uint8_t
 {
   Success,
   Failed,
-  Cancelled
+  Cancelled,
 };
 
 enum class TaskPriority : uint8_t
@@ -65,7 +65,7 @@ enum class TaskPriority : uint8_t
   Low = 0,
   Medium = 1,
   High = 2,
-  Critical = 3
+  Critical = 3,
 };
 
 struct TaskRequirements
@@ -194,7 +194,7 @@ public:
 
   template<typename Func, typename... Args>
   [[nodiscard]] auto submit(Func&& func,
-                            const TaskRequirements& req = {},
+                            const TaskRequirements& req = TaskRequirements(),
                             Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
@@ -274,12 +274,14 @@ public:
     std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
     std::unique_lock active_lock(active_mutex_, std::defer_lock);
     std::lock(queue_lock, active_lock);
-    return Statistics {.tasks_submitted = tasks_submitted_.load(),
-                       .tasks_completed = tasks_completed_.load(),
-                       .tasks_pending = task_queue_.size(),
-                       .tasks_active = active_tasks_.size(),
-                       .active_threads = active_threads_.load(),
-                       .current_cpu_load = cpu_monitor_.get_load()};
+    return Statistics {
+        .tasks_submitted = tasks_submitted_.load(),
+        .tasks_completed = tasks_completed_.load(),
+        .tasks_pending = task_queue_.size(),
+        .tasks_active = active_tasks_.size(),
+        .active_threads = active_threads_.load(),
+        .current_cpu_load = cpu_monitor_.get_load(),
+    };
   }
 
   [[nodiscard]] std::string format_statistics() const noexcept

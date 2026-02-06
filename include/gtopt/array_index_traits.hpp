@@ -198,7 +198,8 @@ public:
                   id.second));
               return get_arrow_index<Uid...>(
                   system_context, class_name, fsched, id, array_map, table_map);
-            }},
+            },
+        },
         sched);
 
     return arrow_index;

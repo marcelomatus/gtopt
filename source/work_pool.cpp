@@ -153,10 +153,11 @@ void AdaptiveWorkPool::schedule_next_task()
           }
         });
 
-    active_tasks_.push_back(
-        ActiveTask {.future = std::move(future),
-                    .requirements = std::move(req),
-                    .start_time = std::chrono::steady_clock::now()});
+    active_tasks_.push_back(ActiveTask {
+        .future = std::move(future),
+        .requirements = std::move(req),
+        .start_time = std::chrono::steady_clock::now(),
+    });
 
   } catch (...) {
     active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);

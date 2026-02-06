@@ -13,6 +13,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
 
+using namespace gtopt;
+
 TEST_CASE("Planning daw json test 1 - basic parsing")
 {
   const std::string_view json_data = R"({
@@ -65,27 +67,29 @@ TEST_CASE("Planning daw json test 2 - large scale")
     for (size_t i = 0; i < size; ++i) {
       const gtopt::SingleId bus {uid};
       bus_array[i] = {.uid = uid, .name = "bus"};
-      generator_array[i] = {.uid = uid,
-                            .name = "gen",
-                            .bus = bus,
-                            .pmin = 0.0,
-                            .pmax = 300.0,
-                            .gcost = 50.0,
-                            .capacity = 300.0};
+      generator_array[i] = {
+          .uid = uid,
+          .name = "gen",
+          .bus = bus,
+          .pmin = 0.0,
+          .pmax = 300.0,
+          .gcost = 50.0,
+          .capacity = 300.0,
+      };
       ++uid;
     }
   }
 
-  const gtopt::Planning planning {
-      .options = gtopt::Options {.input_directory = "large_test"},
-      .simulation =
-          gtopt::Simulation {
-              .block_array = {}, .stage_array = {}, .scenario_array = {}},
-      .system = gtopt::System {.name = "large_system",
-                               .bus_array = bus_array,
-                               .demand_array = {},
-                               .generator_array = generator_array,
-                               .line_array = {}}};
+  const Planning planning {
+      .options = Options {.input_directory = "large_test"},
+      .simulation = Simulation(),
+      .system =
+          System {
+              .name = "large_system",
+              .bus_array = bus_array,
+              .generator_array = generator_array,
+          },
+  };
 
   auto json_data = daw::json::to_json(planning);
   gtopt::Planning parsed_plan =

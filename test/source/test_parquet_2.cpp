@@ -71,11 +71,12 @@ TEST_CASE("Parquet file write and read test")
     REQUIRE(d1_finish.ok());
 
     // Crear schema
-    auto schema =
-        arrow::schema({arrow::field("scenario", ArrowTraits<Uid>::type()),
-                       arrow::field("stage", ArrowTraits<Uid>::type()),
-                       arrow::field("block", ArrowTraits<Uid>::type()),
-                       arrow::field("d1", arrow::float64())});
+    auto schema = arrow::schema({
+        arrow::field("scenario", ArrowTraits<Uid>::type()),
+        arrow::field("stage", ArrowTraits<Uid>::type()),
+        arrow::field("block", ArrowTraits<Uid>::type()),
+        arrow::field("d1", arrow::float64()),
+    });
 
     // Crear tabla
     auto table_result = arrow::Table::Make(
@@ -192,17 +193,24 @@ TEST_CASE("Parquet file write and read test")
     using namespace gtopt;
 
     const Simulation sim = {
-        .block_array = {{.uid = Uid {1}, .duration = 1},
-                        {.uid = Uid {2}, .duration = 2},
-                        {.uid = Uid {3}, .duration = 3},
-                        {.uid = Uid {4}, .duration = 4},
-                        {.uid = Uid {5}, .duration = 5}},
-        .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
-                        {.uid = Uid {2}, .first_block = 1, .count_block = 1},
-                        {.uid = Uid {3}, .first_block = 2, .count_block = 1},
-                        {.uid = Uid {4}, .first_block = 3, .count_block = 1},
-                        {.uid = Uid {5}, .first_block = 4, .count_block = 1}},
-        .scenario_array = {{.uid = Uid {1}}}};
+        .block_array =
+            {
+                {.uid = Uid {1}, .duration = 1},
+                {.uid = Uid {2}, .duration = 2},
+                {.uid = Uid {3}, .duration = 3},
+                {.uid = Uid {4}, .duration = 4},
+                {.uid = Uid {5}, .duration = 5},
+            },
+        .stage_array =
+            {
+                {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+                {.uid = Uid {2}, .first_block = 1, .count_block = 1},
+                {.uid = Uid {3}, .first_block = 2, .count_block = 1},
+                {.uid = Uid {4}, .first_block = 3, .count_block = 1},
+                {.uid = Uid {5}, .first_block = 4, .count_block = 1},
+            },
+        .scenario_array = {{.uid = Uid {1}}},
+    };
 
     Options opt;
     opt.input_directory = iname;

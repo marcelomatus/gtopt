@@ -135,19 +135,23 @@ public:
     using ElementId = ObjectSingleId<Element>;
     using ObjElement = Element::object_type;
     return std::visit(
-        Overload {[&](const Uid uid)
-                  { return self.element_index(ElementId {uid}); },
-                  [&](const Name& name)
-                  { return self.element_index(ElementId {name}); },
-                  [&](Attrs attrs)
-                  {
-                    ObjElement objele {.uid = objori.uid,
-                                       .name = objori.name,
-                                       .active = objori.active};
-                    return self.add_element(
-                        Element {objele.set_attrs(std::move(attrs)),
-                                 std::forward<Self>(self)});
-                  }},
+        Overload {
+            [&](const Uid uid) { return self.element_index(ElementId {uid}); },
+            [&](const Name& name)
+            { return self.element_index(ElementId {name}); },
+            [&](Attrs attrs)
+            {
+              ObjElement objele {
+                  .uid = objori.uid,
+                  .name = objori.name,
+                  .active = objori.active,
+              };
+              return self.add_element(Element {
+                  objele.set_attrs(std::move(attrs)),
+                  std::forward<Self>(self),
+              });
+            },
+        },
         element_var);
   }
 

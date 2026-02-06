@@ -15,7 +15,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -71,9 +70,12 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
     const auto gcol = gen_cols.at(buid);
     {
-      auto grow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "gconv", uid())}
-                      .equal(0);
+      auto grow =
+          SparseRow {
+              .name =
+                  sc.lp_label(scenario, stage, block, cname, "gconv", uid()),
+          }
+              .equal(0);
       const auto ocol = fout_cols.at(buid);
 
       grow[ocol] = -stage_conversion_rate;
@@ -84,9 +86,12 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     const auto dcol = demand_cols.at(buid);
     {
       const auto icol = finp_cols.at(buid);
-      auto drow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "dconv", uid())}
-                      .equal(0);
+      auto drow =
+          SparseRow {
+              .name =
+                  sc.lp_label(scenario, stage, block, cname, "dconv", uid()),
+          }
+              .equal(0);
       drow[icol] = -stage_conversion_rate;
       drow[dcol] = +1;
       drows[buid] = lp.add_row(std::move(drow));
@@ -94,9 +99,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
     // adding the capacity constraint
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "cap", uid())}
-                      .greater_equal(0);
+      auto crow =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, block, cname, "cap", uid()),
+          }
+              .greater_equal(0);
 
       crow[*capacity_col] = 1;
       crow[gcol] = -1;

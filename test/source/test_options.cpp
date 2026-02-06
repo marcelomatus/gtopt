@@ -40,22 +40,24 @@ TEST_CASE("Options - Construction with values")
 {
   using namespace gtopt;
 
-  Options options {.input_directory = "input_dir",
-                   .input_format = "json",
-                   .demand_fail_cost = 1000.0,
-                   .reserve_fail_cost = 500.0,
-                   .use_line_losses = true,
-                   .use_kirchhoff = false,
-                   .use_single_bus = true,
-                   .kirchhoff_threshold = 0.01,
-                   .scale_objective = 1.0,
-                   .scale_theta = 10.0,
-                   .output_directory = "output_dir",
-                   .output_format = "csv",
-                   .compression_format = "zip",
-                   .use_lp_names = true,
-                   .use_uid_fname = false,
-                   .annual_discount_rate = 0.05};
+  Options options {
+      .input_directory = "input_dir",
+      .input_format = "json",
+      .demand_fail_cost = 1000.0,
+      .reserve_fail_cost = 500.0,
+      .use_line_losses = true,
+      .use_kirchhoff = false,
+      .use_single_bus = true,
+      .kirchhoff_threshold = 0.01,
+      .scale_objective = 1.0,
+      .scale_theta = 10.0,
+      .output_directory = "output_dir",
+      .output_format = "csv",
+      .compression_format = "zip",
+      .use_lp_names = true,
+      .use_uid_fname = false,
+      .annual_discount_rate = 0.05,
+  };
 
   // Check that all fields have the expected values
   REQUIRE(options.input_directory.has_value());
@@ -112,16 +114,20 @@ TEST_CASE("Options - Merge operation")
   using namespace gtopt;
 
   // Create a base options object with some values
-  Options base {.input_directory = "base_input",
-                .use_kirchhoff = true,
-                .scale_objective = 1.0,
-                .output_directory = "base_output"};
+  Options base {
+      .input_directory = "base_input",
+      .use_kirchhoff = true,
+      .scale_objective = 1.0,
+      .output_directory = "base_output",
+  };
 
   // Create options to merge with some overlapping and some new values
-  Options overlay {.input_directory = "overlay_input",
-                   .demand_fail_cost = 2000.0,
-                   .use_kirchhoff = false,
-                   .output_format = "parquet"};
+  Options overlay {
+      .input_directory = "overlay_input",
+      .demand_fail_cost = 2000.0,
+      .use_kirchhoff = false,
+      .output_format = "parquet",
+  };
 
   // Merge overlay into base
   base.merge(std::move(overlay));
@@ -190,9 +196,11 @@ TEST_CASE("Options - Merging with empty options")
   using namespace gtopt;
 
   // Create options with values
-  Options filled {.input_directory = "input_dir",
-                  .demand_fail_cost = 1000.0,
-                  .use_kirchhoff = true};
+  Options filled {
+      .input_directory = "input_dir",
+      .demand_fail_cost = 1000.0,
+      .use_kirchhoff = true,
+  };
 
   // Create empty options
   Options empty {};
@@ -220,6 +228,7 @@ TEST_CASE("Options - Merging with empty options")
   }
 
   // Test merging filled into empty (empty should gain all values)
+  empty = Options {};
   empty.merge(std::move(filled));
 
   if (empty.input_directory.has_value()) {

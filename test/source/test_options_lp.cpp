@@ -156,22 +156,24 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   using namespace gtopt;
 
   // Create Options with all values set
-  const Options options {.input_directory = "test_input",
-                         .input_format = "csv",
-                         .demand_fail_cost = 1500.0,
-                         .reserve_fail_cost = 750.0,
-                         .use_line_losses = false,
-                         .use_kirchhoff = true,
-                         .use_single_bus = true,
-                         .kirchhoff_threshold = 0.05,
-                         .scale_objective = 500.0,
-                         .scale_theta = 20.0,
-                         .output_directory = "test_output",
-                         .output_format = "json",
-                         .compression_format = "bzip2",
-                         .use_lp_names = true,
-                         .use_uid_fname = true,
-                         .annual_discount_rate = 0.07};
+  const Options options {
+      .input_directory = "test_input",
+      .input_format = "csv",
+      .demand_fail_cost = 1500.0,
+      .reserve_fail_cost = 750.0,
+      .use_line_losses = false,
+      .use_kirchhoff = true,
+      .use_single_bus = true,
+      .kirchhoff_threshold = 0.05,
+      .scale_objective = 500.0,
+      .scale_theta = 20.0,
+      .output_directory = "test_output",
+      .output_format = "json",
+      .compression_format = "bzip2",
+      .use_lp_names = true,
+      .use_uid_fname = true,
+      .annual_discount_rate = 0.07,
+  };
 
   // Create OptionsLP with all values set
   const OptionsLP options_lp {options};

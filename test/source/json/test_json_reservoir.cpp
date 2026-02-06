@@ -98,17 +98,19 @@ TEST_CASE("Reservoir array deserialization")
 
 TEST_CASE("Reservoir roundtrip serialization")
 {
-  Reservoir original {.uid = Uid {123},
-                      .name = "TestReservoir",
-                      .active = true,
-                      .junction = SingleId {Uid {456}},
-                      .capacity = OptTRealFieldSched {1.0},
-                      .annual_loss = OptTRealFieldSched {0.05},
-                      .vmin = OptTRealFieldSched {100.0},
-                      .vmax = OptTRealFieldSched {1000.0},
-                      .vcost = OptTRealFieldSched {5.0},
-                      .vini = OptReal {500.0},
-                      .vfin = OptReal {600.0}};
+  Reservoir original {
+      .uid = Uid {123},
+      .name = "TestReservoir",
+      .active = true,
+      .junction = SingleId {Uid {456}},
+      .capacity = OptTRealFieldSched {1.0},
+      .annual_loss = OptTRealFieldSched {0.05},
+      .vmin = OptTRealFieldSched {100.0},
+      .vmax = OptTRealFieldSched {1000.0},
+      .vcost = OptTRealFieldSched {5.0},
+      .vini = OptReal {500.0},
+      .vfin = OptReal {600.0},
+  };
 
   auto json = daw::json::to_json(original);
 
@@ -150,7 +152,7 @@ TEST_CASE("Reservoir with empty optional fields")
     "junction":456
   })";
 
-  Reservoir res = daw::json::from_json<Reservoir>(json_data);
+  const Reservoir res = daw::json::from_json<Reservoir>(json_data);
 
   CHECK(res.uid == 123);
   CHECK(res.name == "TestReservoir");

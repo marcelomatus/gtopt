@@ -97,7 +97,10 @@ TEST_CASE("enumerate_if and active")
 TEST_CASE("map utilities")
 {
   const std::map<int, std::string> test_map {
-      {1, "one"}, {2, "two"}, {3, "three"}};
+      {1, "one"},
+      {2, "two"},
+      {3, "three"},
+  };
 
   SUBCASE("get_optiter")
   {

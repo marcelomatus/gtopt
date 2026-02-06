@@ -6,6 +6,8 @@
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 
+namespace
+{
 struct Foo
 {
   double f1 {};
@@ -20,6 +22,8 @@ struct MyClass
   variant_t f4;
   std::optional<variant_t> f5;
 };
+
+}  // namespace
 
 namespace daw::json
 {
@@ -75,7 +79,7 @@ TEST_CASE("daw json gtopt basic types 1")
   //
 
   {
-    MyClass mc = daw::json::from_json<MyClass>(json_data_4);
+    const MyClass mc = daw::json::from_json<MyClass>(json_data_4);
     REQUIRE(mc.f1 == doctest::Approx(f1));
     REQUIRE(mc.f2 == f2);
     REQUIRE(mc.f3 == f3);

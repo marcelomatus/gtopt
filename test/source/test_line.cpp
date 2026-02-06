@@ -8,7 +8,7 @@ using namespace gtopt;
 
 TEST_CASE("Line construction and default values")
 {
-  Line line;
+  const Line line;
 
   // Check default values
   CHECK(line.uid == Uid {unknown_uid});

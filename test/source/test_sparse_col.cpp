@@ -7,7 +7,7 @@ TEST_SUITE("SparseCol")
 {
   TEST_CASE("Default Construction")
   {
-    SparseCol col;
+    const SparseCol col;
     CHECK(col.name.empty());
     CHECK(col.lowb == 0.0);
     CHECK(col.uppb == CoinDblMax);

@@ -123,8 +123,10 @@ struct label_size
     if (view.empty()) [[unlikely]] {
       return *this;
     }
-    return {.total = total + (needs_sep ? 1 : 0) + view.size(),
-            .needs_sep = true};
+    return {
+        .total = total + (needs_sep ? 1 : 0) + view.size(),
+        .needs_sep = true,
+    };
   }
 };
 
@@ -139,9 +141,9 @@ struct label_size
  * @note This is the base case for empty argument lists
  */
 template<char sep = '_'>
-[[nodiscard]] constexpr std::string as_label() noexcept
+[[nodiscard]] constexpr auto as_label() noexcept
 {
-  return {};
+  return std::string();
 }
 
 /**

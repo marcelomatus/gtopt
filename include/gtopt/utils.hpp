@@ -13,8 +13,11 @@
  */
 #pragma once
 
+#include <cmath>
 #include <iterator>  // for std::back_inserter
 #include <optional>
+#include <ranges>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -23,7 +26,10 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
-#include <range/v3/all.hpp>
+
+namespace ranges = std::ranges;  // Alias for std::ranges
+
+// #include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -135,7 +141,7 @@ constexpr auto has_value_fnc = [](const auto& opt) noexcept
 { return opt.has_value(); };
 
 /// Predicate that checks if optional has value and value is true
-constexpr auto is_true_fnc = [](const auto& opt) noexcept
+constexpr auto is_true_fnc = [](const auto& opt)
 { return opt.has_value() && opt.value(); };
 
 template<typename IndexType = size_t, typename Range>
@@ -177,8 +183,7 @@ constexpr auto get_optvalue(const T& map, K&& key) noexcept
 }
 
 template<typename T, typename K>
-constexpr auto get_optvalue_optkey(const T& map,
-                                   const std::optional<K>& key) noexcept
+constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
 {
   return key.has_value() ? get_optvalue(map, key.value()) : std::nullopt;
 }

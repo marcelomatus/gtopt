@@ -49,13 +49,18 @@ TEST_CASE("Planning - Merge operation")
 
   // Create first planning
   Planning opt1 {
-      .options = {}, .simulation = {}, .system = {.name = "Opt1System"}};
+      .options = {},  // NOLINT
+      .simulation = {},  // NOLINT
+      .system = {.name = "Opt1System"},
+  };
 
   // Create second planning with different components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  Planning opt2 {.options = {},
-                 .simulation = {},
-                 .system = {.name = "Opt2System", .bus_array = bus_array}};
+  Planning opt2 {
+      .options = {},  // NOLINT
+      .simulation = {},  // NOLINT
+      .system = {.name = "Opt2System", .bus_array = bus_array},
+  };
 
   // Merge second into first
   opt1.merge(std::move(opt2));
@@ -76,9 +81,10 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Planning original {
-      .options = {},
-      .simulation = {},
-      .system = {.name = "JsonSystem", .bus_array = bus_array}};
+      .options = {},  // NOLINT
+      .simulation = {},  // NOLINT
+      .system = {.name = "JsonSystem", .bus_array = bus_array},
+  };
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(original);

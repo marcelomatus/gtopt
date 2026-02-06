@@ -4,7 +4,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 
 namespace
 {
@@ -41,15 +40,19 @@ constexpr bool add_requirement(const std::string_view cname,
 
     const auto name = sc.lp_label(scenario, stage, block, cname, rname, uid);
     const auto rcol = stage_rcost
-        ? lp.add_col({.name = name,
-                      .lowb = 0.0,
-                      .uppb = block_rreq.value(),
-                      .cost = -sc.block_ecost(
-                          scenario, stage, block, stage_rcost.value())})
-        : lp.add_col({.name = name,
-                      .lowb = block_rreq.value(),
-                      .uppb = block_rreq.value(),
-                      .cost = 0.0});
+        ? lp.add_col({
+              .name = name,
+              .lowb = 0.0,
+              .uppb = block_rreq.value(),
+              .cost =
+                  -sc.block_ecost(scenario, stage, block, stage_rcost.value()),
+          })
+        : lp.add_col({
+              .name = name,
+              .lowb = block_rreq.value(),
+              .uppb = block_rreq.value(),
+              .cost = 0.0,
+          });
     rr_cols[buid] = rcol;
 
     SparseRow rr_row {.name = std::move(name)};

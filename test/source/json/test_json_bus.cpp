@@ -11,7 +11,7 @@ TEST_CASE("Bus daw json test 1")
     "name":"CRUCERO",
     })";
 
-  gtopt::Bus bus_a = daw::json::from_json<gtopt::Bus>(json_data);
+  const gtopt::Bus bus_a = daw::json::from_json<gtopt::Bus>(json_data);
 
   REQUIRE(bus_a.uid == 5);
   REQUIRE(bus_a.name == "CRUCERO");
@@ -24,7 +24,7 @@ TEST_CASE("Bus daw json test 2")
     "name":"CRUCERO",
     })";
 
-  gtopt::Bus bus_a = daw::json::from_json<gtopt::Bus>(json_data);
+  const gtopt::Bus bus_a = daw::json::from_json<gtopt::Bus>(json_data);
 
   REQUIRE(bus_a.uid == 5);
   REQUIRE(bus_a.name == "CRUCERO");
@@ -126,7 +126,7 @@ TEST_CASE("Bus with empty optional fields")
     "use_kirchhoff":null
     })";
 
-  Bus bus = daw::json::from_json<Bus>(json_data);
+  const Bus bus = daw::json::from_json<Bus>(json_data);
 
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");

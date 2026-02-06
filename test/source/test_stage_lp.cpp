@@ -7,16 +7,20 @@ TEST_SUITE("StageLP")
 {
   TEST_CASE("Construction and basic properties")
   {
-    std::vector<Block> blocks = {Block {.uid = 1, .duration = 12.0},
-                                 Block {.uid = 2, .duration = 24.0},
-                                 Block {.uid = 3, .duration = 24.0},
-                                 Block {.uid = 4, .duration = 12.0}};
+    std::vector<Block> blocks = {
+        Block {.uid = 1, .duration = 12.0},
+        Block {.uid = 2, .duration = 24.0},
+        Block {.uid = 3, .duration = 24.0},
+        Block {.uid = 4, .duration = 12.0},
+    };
 
-    const Stage stage {.uid = 42,
-                       .active = true,
-                       .first_block = 1,
-                       .count_block = 2,
-                       .discount_factor = 0.9};
+    const Stage stage {
+        .uid = 42,
+        .active = true,
+        .first_block = 1,
+        .count_block = 2,
+        .discount_factor = 0.9,
+    };
 
     const StageLP stage_lp(stage, blocks, 0.05, StageIndex {1}, PhaseIndex {2});
 

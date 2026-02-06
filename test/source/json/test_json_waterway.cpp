@@ -35,7 +35,8 @@ TEST_CASE("Waterway JSON with optional fields")
     "fmax":100.0
   })";
 
-  gtopt::Waterway waterway = daw::json::from_json<gtopt::Waterway>(json_data);
+  const gtopt::Waterway waterway =
+      daw::json::from_json<gtopt::Waterway>(json_data);
 
   REQUIRE(waterway.uid == 5);
   REQUIRE(waterway.name == "RIVER_1");
@@ -101,8 +102,8 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   gtopt::Waterway original;
   original.uid = 7;
   original.name = "ROUNDTRIP";
-  original.junction_a = gtopt::SingleId(gtopt::Uid(1));
-  original.junction_b = gtopt::SingleId(gtopt::Uid(2));
+  original.junction_a = gtopt::SingleId(gtopt::Uid {1});
+  original.junction_b = gtopt::SingleId(gtopt::Uid {2});
   original.capacity = 100.0;
 
   auto json = daw::json::to_json(original);
@@ -132,7 +133,7 @@ TEST_CASE("Waterway with empty optional fields")
     "fmax":null
   })";
 
-  Waterway waterway = daw::json::from_json<Waterway>(json_data);
+  const Waterway waterway = daw::json::from_json<Waterway>(json_data);
 
   CHECK(waterway.uid == 5);
   CHECK(waterway.name == "RIVER_1");

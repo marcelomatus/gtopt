@@ -22,12 +22,17 @@ TEST_CASE("Simulation - Constructor initialization")
   // Create arrays for system components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
 
   // Create minimal system
   const Options options = {};
@@ -38,11 +43,13 @@ TEST_CASE("Simulation - Constructor initialization")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  const System system {.name = "TestSys",
-                       .bus_array = bus_array,
-                       .demand_array = demand_array,
-                       .generator_array = generator_array,
-                       .line_array = {}};
+  const System system {
+      .name = "TestSys",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = {},
+  };
 
   // Test constructor
   const OptionsLP options_lp(options);
@@ -64,12 +71,22 @@ TEST_CASE("Simulation - Basic LP run without solving")
   // Create arrays for system components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
 
   const Options options = {};
 
@@ -79,11 +96,13 @@ TEST_CASE("Simulation - Basic LP run without solving")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  const System system {.name = "TestSys",
-                       .bus_array = bus_array,
-                       .demand_array = demand_array,
-                       .generator_array = generator_array,
-                       .line_array = {}};
+  const System system {
+      .name = "TestSys",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = {},
+  };
 
   // Test constructor
   const OptionsLP options_lp(options);

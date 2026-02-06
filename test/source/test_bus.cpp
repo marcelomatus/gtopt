@@ -6,7 +6,7 @@ TEST_CASE("Bus")
 {
   using namespace gtopt;
 
-  Bus bus(1, "bus_1");
+  const Bus bus(1, "bus_1");
 
   CHECK(bus.uid == 1);
   CHECK(bus.name == "bus_1");
@@ -21,7 +21,7 @@ TEST_CASE("Json Bus 1")
     "name":"CRUCERO",
     })";
 
-  Bus bus = daw::json::from_json<Bus>(json_data);
+  const Bus bus = daw::json::from_json<Bus>(json_data);
 
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");
@@ -42,7 +42,7 @@ TEST_CASE("Json Bus 2")
     "use_kirchhoff":true,
     })";
 
-  Bus bus = daw::json::from_json<Bus>(json_data);
+  const Bus bus = daw::json::from_json<Bus>(json_data);
 
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");
@@ -116,7 +116,7 @@ TEST_CASE("Bus serialization")
     bus.use_kirchhoff = true;
 
     auto json = daw::json::to_json(bus);
-    Bus roundtrip = daw::json::from_json<Bus>(json);
+    const Bus roundtrip = daw::json::from_json<Bus>(json);
 
     CHECK(roundtrip.uid == 5);
     CHECK(roundtrip.name == "CRUCERO");

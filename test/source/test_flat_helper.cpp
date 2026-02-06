@@ -83,8 +83,10 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("STBIndexHolder")
   {
     STBIndexHolder<Index> holder;
-    const IndexHolder0<BlockUid> blocks = {{BlockUid {0}, 10},
-                                           {BlockUid {1}, 20}};
+    const IndexHolder0<BlockUid> blocks = {
+        {BlockUid {0}, 10},
+        {BlockUid {1}, 20},
+    };
 
     holder[{ScenarioUid {0}, StageUid {0}}] = blocks;
 
@@ -190,8 +192,20 @@ TEST_CASE("Flat Helper - Edge Cases")
     const Simulation psimulation = {
         .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
         .stage_array =
-            {{.uid = Uid {0}, .active = 1, .first_block = 0, .count_block = 1},
-             {.uid = Uid {1}, .active = 0, .first_block = 1, .count_block = 1}},
+            {
+                {
+                    .uid = Uid {0},
+                    .active = 1,
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+                {
+                    .uid = Uid {1},
+                    .active = 0,
+                    .first_block = 1,
+                    .count_block = 1,
+                },
+            },
         .scenario_array = {{.uid = Uid {0}}},
 
     };
@@ -245,9 +259,11 @@ TEST_CASE("Flat Helper - Edge Cases")
 TEST_CASE("FlatHelper Move Semantics")
 {
   const OptionsLP options;
-  const Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
-                                  .stage_array = {{.uid = Uid {0}}},
-                                  .scenario_array = {{.uid = Uid {0}}}};
+  const Simulation psimulation = {
+      .block_array = {{.uid = Uid {0}}},
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
   const SimulationLP simulation {psimulation, options};
 
   SUBCASE("Move Construction")
@@ -263,7 +279,7 @@ TEST_CASE("FlatHelper Move Semantics")
   SUBCASE("Move Assignment")
   {
     FlatHelper original(simulation);
-    const SimulationLP simulation2 {{}, options};
+    const SimulationLP simulation2 {{}, options};  // NOLINT
 
     FlatHelper moved(simulation2);
     moved = std::move(original);
@@ -276,9 +292,11 @@ TEST_CASE("FlatHelper Move Semantics")
 TEST_CASE("FlatHelper Const Correctness")
 {
   const OptionsLP options;
-  const Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
-                                  .stage_array = {{.uid = Uid {0}}},
-                                  .scenario_array = {{.uid = Uid {0}}}};
+  const Simulation psimulation = {
+      .block_array = {{.uid = Uid {0}}},
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
 
   const SimulationLP simulation {psimulation, options};
 
@@ -297,15 +315,17 @@ TEST_CASE("FlatHelper Const Correctness")
     GSTBIndexHolder holder;
     holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
-    CHECK_NOTHROW(helper.flat(holder, [](auto v) { return v; }));
+    CHECK_NOTHROW(auto&& _ = helper.flat(holder, [](auto v) { return v; }));
   }
 }
 TEST_CASE("FlatHelper Template Constraints")
 {
   const OptionsLP options;
-  const Simulation psimulation = {.block_array = {{.uid = Uid {0}}},
-                                  .stage_array = {{.uid = Uid {0}}},
-                                  .scenario_array = {{.uid = Uid {0}}}};
+  const Simulation psimulation = {
+      .block_array = {{.uid = Uid {0}}},
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
   const SimulationLP simulation {psimulation, options};
 
   const FlatHelper helper(simulation);
@@ -314,7 +334,8 @@ TEST_CASE("FlatHelper Template Constraints")
 
   SUBCASE("Valid Projection")
   {
-    CHECK_NOTHROW(helper.flat(holder, [](double v) { return v * 2; }));
+    CHECK_NOTHROW(auto&& _ =
+                      helper.flat(holder, [](double v) { return v * 2; }));
   }
 
   SUBCASE("Invalid Projection")

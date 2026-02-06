@@ -124,11 +124,17 @@ public:
                     const FlatOptions& flat_opts = {})
       : SystemLP(system,
                  simulation,
-                 PhaseLP {Phase {},
-                          simulation.options(),
-                          simulation.simulation(),
-                          PhaseIndex {0}},
-                 SceneLP {Scene {}, simulation.simulation(), SceneIndex {0}},
+                 PhaseLP {
+                     Phase(),
+                     simulation.options(),
+                     simulation.simulation(),
+                     PhaseIndex {0},
+                 },
+                 SceneLP {
+                     Scene(),
+                     simulation.simulation(),
+                     SceneIndex {0},
+                 },
                  flat_opts)
   {
   }

@@ -74,9 +74,11 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "finp", uid())});
+        .name = sc.lp_label(scenario, stage, block, cname, "finp", uid()),
+    });
     fouts[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_label(scenario, stage, block, cname, "fout", uid())});
+        .name = sc.lp_label(scenario, stage, block, cname, "fout", uid()),
+    });
   }
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
   if (!StorageBase::add_to_lp(cname,

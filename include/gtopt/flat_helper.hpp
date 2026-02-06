@@ -238,9 +238,10 @@ public:
   template<typename Projection,
            typename Value = Index,
            typename Factor = block_factor_matrix_t>
-  constexpr auto flat(const GSTBIndexHolder<Value>& hstb,
-                      Projection proj,
-                      const Factor& factor = Factor()) const noexcept
+  [[nodiscard]] constexpr auto flat(
+      const GSTBIndexHolder<Value>& hstb,
+      Projection proj,
+      const Factor& factor = Factor()) const noexcept
   {
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 

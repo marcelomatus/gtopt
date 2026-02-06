@@ -33,7 +33,7 @@ enum class LPAlgo : uint8_t
   barrier = 3,
 
   /** @brief Sentinel value for iteration/validation */
-  last_algo = 4
+  last_algo = 4,
 };
 
 /**

@@ -46,9 +46,11 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
     const auto buid = block.uid();
     const auto fcol = flow_cols.at(buid);
 
-    auto frow = SparseRow {.name = sc.lp_label(
-                               scenario, stage, block, cname, "filt", uid())}
-                    .equal(constant());
+    auto frow =
+        SparseRow {
+            .name = sc.lp_label(scenario, stage, block, cname, "filt", uid()),
+        }
+            .equal(constant());
 
     frow[vini_col] = frow[vfin_col] = -slope() * 0.5;
 

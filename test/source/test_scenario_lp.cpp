@@ -31,10 +31,12 @@ TEST_SUITE("Scenario")
 
     SUBCASE("with other fields set")
     {
-      const gtopt::Scenario scenario {.uid = gtopt::Uid {123},
-                                      .name = "Test Scenario",
-                                      .active = false,
-                                      .probability_factor = 0.5};
+      const gtopt::Scenario scenario {
+          .uid = gtopt::Uid {123},
+          .name = "Test Scenario",
+          .active = false,
+          .probability_factor = 0.5,
+      };
       CHECK_FALSE(scenario.is_active());
     }
   }
@@ -75,10 +77,12 @@ TEST_SUITE("ScenarioLP")
 
   TEST_CASE("other methods")
   {
-    gtopt::Scenario scenario {.uid = gtopt::Uid {123},
-                              .name = "Test Scenario",
-                              .active = true,
-                              .probability_factor = 0.75};
+    gtopt::Scenario scenario {
+        .uid = gtopt::Uid {123},
+        .name = "Test Scenario",
+        .active = true,
+        .probability_factor = 0.75,
+    };
     const gtopt::ScenarioLP scenario_lp(
         std::move(scenario), gtopt::ScenarioIndex {1}, gtopt::SceneIndex {2});
 
@@ -106,7 +110,7 @@ TEST_SUITE("ScenarioLP")
     {
       CHECK_FALSE(scenario_lp.is_first());
       const gtopt::ScenarioLP first_scenario(
-          gtopt::Scenario {}, gtopt::ScenarioIndex {0}, gtopt::SceneIndex {0});
+          gtopt::Scenario(), gtopt::ScenarioIndex {0}, gtopt::SceneIndex {0});
       CHECK(first_scenario.is_first());
     }
   }

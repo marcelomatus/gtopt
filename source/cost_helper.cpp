@@ -10,7 +10,6 @@
 
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/utils.hpp>
-#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -41,9 +40,18 @@ auto CostHelper::stage_icost_factors(double probability) const
 {
   auto&& active_stages = enumerate_active<Index>(m_stages_.get());
 
-  return to_vector(active_stages,
-                   [&](const auto& is)
-                   { return 1.0 / cost_factor(is.second, probability); });
+  return active_stages
+      | std::views::transform(
+             [&](const auto& is)
+             {
+               const auto& [i, s] = is;
+               return 1.0 / cost_factor(s, probability);
+             })
+      | std::ranges::to<std::vector>();
+
+  // return to_vector(active_stages,
+  //                  [&](const auto& is)
+  //                  { return 1.0 / cost_factor(is.second, probability); });
 }
 
 auto CostHelper::scenario_stage_icost_factors() const

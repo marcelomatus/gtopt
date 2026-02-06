@@ -79,12 +79,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
     if (!has_loss || block_tmax_ab > 0.0) {
       //  adding flowp variable
 
-      const auto fpc = lp.add_col(
-          {// flow variable
-           .name = sc.lp_label(scenario, stage, block, cname, "fp", uid()),
-           .lowb = has_loss ? 0 : -block_tmax_ba,
-           .uppb = block_tmax_ab,
-           .cost = block_tcost});
+      const auto fpc = lp.add_col({
+          // flow variable
+          .name = sc.lp_label(scenario, stage, block, cname, "fp", uid()),
+          .lowb = has_loss ? 0 : -block_tmax_ba,
+          .uppb = block_tmax_ab,
+          .cost = block_tcost,
+      });
       fpcols[buid] = fpc;
 
       // adding flowp to the bus balances
@@ -94,8 +95,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         auto cprow =
-            SparseRow {.name = sc.lp_label(
-                           scenario, stage, block, cname, "capp", uid())}
+            SparseRow {
+                .name =
+                    sc.lp_label(scenario, stage, block, cname, "capp", uid()),
+            }
                 .greater_equal(0);
         cprow[*capacity_col] = 1;
         cprow[fpc] = -1;
@@ -107,12 +110,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
     if (has_loss && block_tmax_ba > 0.0) {
       //  adding flown variable
 
-      const auto fnc = lp.add_col(
-          {// flow variable
-           .name = sc.lp_label(scenario, stage, block, cname, "fn", uid()),
-           .lowb = 0,
-           .uppb = block_tmax_ba,
-           .cost = block_tcost});
+      const auto fnc = lp.add_col({
+          // flow variable
+          .name = sc.lp_label(scenario, stage, block, cname, "fn", uid()),
+          .lowb = 0,
+          .uppb = block_tmax_ba,
+          .cost = block_tcost,
+      });
 
       fncols[buid] = fnc;
 
@@ -123,7 +127,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
       // adding the capacity constraint
       if (capacity_col) {
         SparseRow cnrow {
-            .name = sc.lp_label(scenario, stage, block, cname, "capn", uid())};
+            .name = sc.lp_label(scenario, stage, block, cname, "capn", uid()),
+        };
         cnrow[capacity_col.value()] = 1;
         cnrow[fnc] = -1;
 
@@ -152,8 +157,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
       for (const auto& block : blocks) {
         const auto buid = block.uid();
         auto trow =
-            SparseRow {.name = sc.lp_label(
-                           scenario, stage, block, cname, "theta", uid())}
+            SparseRow {
+                .name =
+                    sc.lp_label(scenario, stage, block, cname, "theta", uid()),
+            }
                 .equal(0);
 
         trow.reserve(4);

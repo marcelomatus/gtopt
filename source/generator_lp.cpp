@@ -20,7 +20,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <range/v3/all.hpp>
 
 namespace gtopt
 {
@@ -113,11 +112,12 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                     stage_capacity));
 
     // Create generation variable for this time block
-    const auto gcol = lp.add_col(
-        {.name = sc.lp_label(scenario, stage, block, cname, "gen", guid),
-         .lowb = block_pmin,
-         .uppb = block_pmax,
-         .cost = sc.block_ecost(scenario, stage, block, stage_gcost)});
+    const auto gcol = lp.add_col({
+        .name = sc.lp_label(scenario, stage, block, cname, "gen", guid),
+        .lowb = block_pmin,
+        .uppb = block_pmax,
+        .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
+    });
     gcols[buid] = gcol;
 
     // Add generator output to the bus power balance equation
@@ -128,9 +128,11 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity
     if (capacity_col) {
-      auto crow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "cap", guid)}
-                      .greater_equal(0);
+      auto crow =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, block, cname, "cap", guid),
+          }
+              .greater_equal(0);
       crow[*capacity_col] = 1;
       crow[gcol] = -1;
 

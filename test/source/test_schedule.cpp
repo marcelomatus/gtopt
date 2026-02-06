@@ -12,13 +12,23 @@ TEST_CASE("schedule test vector")
   const System sys;
 
   const Simulation sim = {
-      .block_array = {{.uid = Uid {1}, .duration = 1},
-                      {.uid = Uid {2}, .duration = 2},
-                      {.uid = Uid {3}, .duration = 3}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
-                      {.uid = Uid {2}, .first_block = 1, .count_block = 2}},
-      .scenario_array = {{.uid = Uid {1}, .probability_factor = 0.5},
-                         {.uid = Uid {2}, .probability_factor = 0.5}}};
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+              {.uid = Uid {2}, .duration = 2},
+              {.uid = Uid {3}, .duration = 3},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+              {.uid = Uid {2}, .first_block = 1, .count_block = 2},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {1}, .probability_factor = 0.5},
+              {.uid = Uid {2}, .probability_factor = 0.5},
+          },
+  };
 
   const OptionsLP options;
   SimulationLP simulation {sim, options};
@@ -40,8 +50,10 @@ TEST_CASE("schedule test vector")
 
   SUBCASE("stbfield")
   {
-    std::vector<std::vector<std::vector<double>>> vec = {{{1}, {2, 3}},
-                                                         {{4}, {5, 6}}};
+    std::vector<std::vector<std::vector<double>>> vec = {
+        {{1}, {2, 3}},
+        {{4}, {5, 6}},
+    };
     const STBRealFieldSched stbfield {vec};
 
     const STBRealSched stbsched {ic, "class", id, stbfield};

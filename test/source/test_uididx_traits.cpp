@@ -6,9 +6,9 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/uididx_traits.hpp>
 
-namespace gtopt
-{
-TEST_CASE("Basic functionality")
+using namespace gtopt;
+
+TEST_CASE("Basic functionality 1")
 {
   using TestTraits = UidMapTraits<int, std::string, int>;
 
@@ -28,27 +28,6 @@ TEST_CASE("Basic functionality")
 
     CHECK(map.size() == 1);
     CHECK(map.at(key) == 100);
-  }
-}
-
-TEST_CASE("UidColumn success cases")
-{
-  // Would need mock Arrow table setup to test successfully
-  // This is currently missing from test coverage
-}
-
-TEST_CASE("UidToArrowIdx specializations")
-{
-  SUBCASE("Scenario-Stage-Block mapping errors")
-  {
-    // Test error cases for make_arrow_uids_idx
-    // Currently missing from test coverage
-  }
-
-  SUBCASE("Stage-Block mapping errors")
-  {
-    // Test error cases for make_arrow_uids_idx
-    // Currently missing from test coverage
   }
 }
 
@@ -196,5 +175,3 @@ TEST_CASE("Single UID type")
   auto result = TestTraits::make_vector_uids_idx(sim_lp);
   CHECK(result->at(std::make_tuple(StageUid {42})) == std::make_tuple(0));
 }
-
-}  // namespace gtopt

@@ -74,7 +74,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     const auto gcol = gen_cols.at(buid);
 
     auto rrow = SparseRow {
-        .name = sc.lp_label(scenario, stage, block, cname, "conv", uid())};
+        .name = sc.lp_label(scenario, stage, block, cname, "conv", uid()),
+    };
     rrow[fcol] = -stage_conversion_rate;
     rrow[gcol] = 1;
 
@@ -83,9 +84,11 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
 
     if (stage_capacity.has_value()) {
       // Add capacity constraint if capacity is defined
-      auto crow = SparseRow {.name = sc.lp_label(
-                                 scenario, stage, block, cname, "fcap", uid())}
-                      .less_equal(*stage_capacity);
+      auto crow =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, block, cname, "fcap", uid()),
+          }
+              .less_equal(*stage_capacity);
       crow[fcol] = 1;
 
       crows[buid] = lp.add_row(std::move(crow));

@@ -34,13 +34,15 @@ TEST_CASE("SolverOptions - Default construction")
 TEST_CASE("SolverOptions - Custom construction")
 {
   // Test constructing SolverOptions with custom values
-  const SolverOptions options {.algorithm = static_cast<int>(LPAlgo::barrier),
-                               .threads = 4,
-                               .presolve = false,
-                               .optimal_eps = 1e-6,
-                               .feasible_eps = 1e-5,
-                               .barrier_eps = 1e-7,
-                               .log_level = 2};
+  const SolverOptions options {
+      .algorithm = static_cast<int>(LPAlgo::barrier),
+      .threads = 4,
+      .presolve = false,
+      .optimal_eps = 1e-6,
+      .feasible_eps = 1e-5,
+      .barrier_eps = 1e-7,
+      .log_level = 2,
+  };
 
   // Verify custom values
   CHECK(options.algorithm == static_cast<int>(LPAlgo::barrier));
@@ -65,13 +67,15 @@ TEST_CASE("SolverOptions - LPAlgo enumeration values")
 TEST_CASE("SolverOptions - JSON serialization and deserialization")
 {
   // Create a SolverOptions object with non-default values
-  const SolverOptions original {.algorithm = static_cast<int>(LPAlgo::primal),
-                                .threads = 2,
-                                .presolve = false,
-                                .optimal_eps = 1e-6,
-                                .feasible_eps = 1e-5,
-                                .barrier_eps = 1e-7,
-                                .log_level = 1};
+  const SolverOptions original {
+      .algorithm = static_cast<int>(LPAlgo::primal),
+      .threads = 2,
+      .presolve = false,
+      .optimal_eps = 1e-6,
+      .feasible_eps = 1e-5,
+      .barrier_eps = 1e-7,
+      .log_level = 1,
+  };
 
   // Serialize to JSON
   const auto json_string = daw::json::to_json(original);
@@ -116,7 +120,8 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
       .algorithm = static_cast<int>(LPAlgo::primal),
       .presolve = true,
       .optimal_eps = 1e-6,
-      .feasible_eps = 1e-5};
+      .feasible_eps = 1e-5,
+  };
 
   // Solve with custom options
   const auto result = lp.initial_solve(solver_options);
@@ -208,7 +213,7 @@ TEST_CASE("SolverOptions - Presolve and logging options")
 
   SUBCASE("Default presolve (enabled)")
   {
-    SolverOptions options;
+    const SolverOptions options;
     // Default is true
 
     CHECK(options.presolve == true);
@@ -224,7 +229,7 @@ TEST_CASE("SolverOptions - Presolve and logging options")
 
   SUBCASE("Default logging (silent)")
   {
-    SolverOptions options;
+    const SolverOptions options;
     // Default is 0
 
     CHECK(options.log_level == 0);

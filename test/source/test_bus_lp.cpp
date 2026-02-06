@@ -15,7 +15,7 @@ TEST_CASE("BusLP construction and basic properties")
 {
   SUBCASE("Default construction")
   {
-    Bus bus;
+    const Bus bus;
     CHECK(bus.uid == unknown_uid);
     CHECK(bus.name.empty());
     CHECK(!bus.voltage.has_value());
@@ -25,7 +25,7 @@ TEST_CASE("BusLP construction and basic properties")
 
   SUBCASE("Parameterized construction")
   {
-    Bus bus(1, "bus_1");
+    const Bus bus(1, "bus_1");
     CHECK(bus.uid == 1);
     CHECK(bus.name == "bus_1");
     CHECK(!bus.use_kirchhoff.has_value());
@@ -41,7 +41,7 @@ TEST_CASE("BusLP construction and basic properties")
     };
 
     SimulationLP simulation(simu, options);
-    SystemLP system({}, simulation);
+    SystemLP system({}, simulation);  // NOLINT
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
@@ -75,7 +75,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     };
 
     SimulationLP simulation(simu, options);
-    SystemLP system({}, simulation);
+    SystemLP system({}, simulation);  // NOLINT
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
@@ -104,7 +104,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     SimulationLP simulation(simu, options);
 
-    SystemLP system({}, simulation);
+    SystemLP system({}, simulation);  // NOLINT
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
@@ -131,7 +131,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     SimulationLP simulation(simu, options);
 
-    SystemLP system({}, simulation);
+    SystemLP system({}, simulation);  // NOLINT
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
@@ -159,7 +159,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
 
     SimulationLP simulation(simu, options);
 
-    SystemLP system({}, simulation);
+    SystemLP system({}, simulation);  // NOLINT
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
@@ -186,7 +186,7 @@ TEST_CASE("BusLP add_to_lp method")
 
   SimulationLP simulation(simu, options);
 
-  SystemLP system({}, simulation);
+  SystemLP system({}, simulation);  // NOLINT
   const SystemContext sc(simulation, system);
   const InputContext ic(sc);
 

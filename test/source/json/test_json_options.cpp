@@ -175,12 +175,14 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   using namespace gtopt;
 
   // Create original Options
-  Options original {.input_directory = "input_dir",
-                    .demand_fail_cost = 1000.0,
-                    .use_kirchhoff = true,
-                    .scale_objective = 100.0,
-                    .output_directory = "output_dir",
-                    .use_lp_names = false};
+  Options original {
+      .input_directory = "input_dir",
+      .demand_fail_cost = 1000.0,
+      .use_kirchhoff = true,
+      .scale_objective = 100.0,
+      .output_directory = "output_dir",
+      .use_lp_names = false,
+  };
 
   // Serialize to JSON
   const auto json_data = daw::json::to_json(original);

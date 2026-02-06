@@ -21,7 +21,7 @@ enum class ErrorCode : uint8_t
   SolverError,
   InternalError,
   InvalidInput,
-  FileIOError
+  FileIOError,
 };
 
 struct Error

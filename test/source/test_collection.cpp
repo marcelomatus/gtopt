@@ -7,6 +7,8 @@
 #include <gtopt/collection.hpp>
 
 using namespace gtopt;
+namespace
+{
 
 struct test_object
 {
@@ -21,11 +23,15 @@ struct test_object
   }
 };
 
+}  // namespace
+
 TEST_CASE("Collection test 1")
 {
-  std::vector<test_object> vec1 = {{.uid = 1, .name = "n1", .value = 1},
-                                   {.uid = 2, .name = "n2", .value = 2},
-                                   {.uid = 3, .name = "n3", .value = 3}};
+  std::vector<test_object> vec1 = {
+      {.uid = 1, .name = "n1", .value = 1},
+      {.uid = 2, .name = "n2", .value = 2},
+      {.uid = 3, .name = "n3", .value = 3},
+  };
 
   REQUIRE(vec1.size() == 3);
   REQUIRE(vec1[0].uid == 1);
@@ -83,6 +89,9 @@ TEST_CASE("Collection test 1")
 }
 
 // Helper class to test with
+namespace
+{
+
 class MyCollection
 {
 public:
@@ -99,6 +108,7 @@ public:
 private:
   std::vector<int> data;
 };
+}  // namespace
 
 TEST_CASE("visit_elements basic functionality")
 {

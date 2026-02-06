@@ -58,9 +58,11 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
         discharge.at(scenario.uid(), stage.uid(), block.uid());
 
     auto col_name = sc.lp_label(scenario, stage, block, cname, "flow", uid());
-    const auto fcol = lp.add_col({.name = std::move(col_name),
-                                  .lowb = block_discharge,
-                                  .uppb = block_discharge});
+    const auto fcol = lp.add_col({
+        .name = std::move(col_name),
+        .lowb = block_discharge,
+        .uppb = block_discharge,
+    });
     fcols[buid] = fcol;
 
     // adding flow to the junction balances
