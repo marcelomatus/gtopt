@@ -48,8 +48,7 @@ public:
       , m_arrow_array_uid_(ic.template get_array_index<Type, FSched, Uid...>(
             m_sched_, cname, id))
   {
-    SPDLOG_DEBUG(fmt::format(
-        "Schedule: cname '{}' id '{} {}'", cname, id.first, id.second));
+    SPDLOG_DEBUG("Schedule: cname '{}' id '{} {}'", cname, id.first, id.second);
   }
 
   [[nodiscard]] constexpr Type at(Uid... uids) const
@@ -87,8 +86,8 @@ public:
                        OptFSched psched)
       : m_sched_(std::move(psched))
   {
-    SPDLOG_DEBUG(fmt::format(
-        "OptSchedule: cname '{}' id '{} {}'", cname, id.first, id.second));
+    SPDLOG_DEBUG(
+        "OptSchedule: cname '{}' id '{} {}'", cname, id.first, id.second);
     if (m_sched_) {
       m_arrow_array_uids_ = ic.template get_array_index<Type, FSched, Uid...>(
           m_sched_.value(), cname, id);

@@ -123,20 +123,17 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
-      SPDLOG_ERROR(
-          std::format("Failed to get scenarios column {}", scenarios.error()));
+      SPDLOG_ERROR("Failed to get scenarios column {}", scenarios.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
-      SPDLOG_ERROR(
-          std::format("Failed to get stages column {}", stages.error()));
+      SPDLOG_ERROR("Failed to get stages column {}", stages.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto blocks = make_uid_column(table, Block::class_name);
     if (!blocks) {
-      SPDLOG_ERROR(
-          std::format("Failed to get blocks column {}", blocks.error()));
+      SPDLOG_ERROR("Failed to get blocks column {}", blocks.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -149,8 +146,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
                                  BlockUid {(*blocks)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
-                                as_string(key)));
+        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
       }
     }
 
@@ -167,14 +163,12 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
   {
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
-      SPDLOG_ERROR(
-          std::format("Failed to get stages column: {}", stages.error()));
+      SPDLOG_ERROR("Failed to get stages column: {}", stages.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto blocks = make_uid_column(table, Block::class_name);
     if (!blocks) {
-      SPDLOG_ERROR(
-          std::format("Failed to get blocks column {}", blocks.error()));
+      SPDLOG_ERROR("Failed to get blocks column {}", blocks.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -184,12 +178,10 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {StageUid {(*stages)->Value(i)},
                                  BlockUid {(*blocks)->Value(i)}};
-      SPDLOG_DEBUG(
-          std::format("uididx Processing key: {} and {}", as_string(key), i));
+      SPDLOG_DEBUG("uididx Processing key: {} and {}", as_string(key), i);
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(std::format("using duplicated id values at element {}",
-                                as_string(key)));
+        SPDLOG_WARN("using duplicated id values at element {}", as_string(key));
       }
     }
 
@@ -207,14 +199,12 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
-      SPDLOG_ERROR(
-          std::format("Failed to get scenarios column {}", scenarios.error()));
+      SPDLOG_ERROR("Failed to get scenarios column {}", scenarios.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
-      SPDLOG_ERROR(
-          std::format("Failed to get stages column {}", stages.error()));
+      SPDLOG_ERROR("Failed to get stages column {}", stages.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -226,8 +216,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
                                  StageUid {(*stages)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
-                                as_string(key)));
+        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
       }
     }
 
@@ -244,8 +233,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
   {
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
-      SPDLOG_ERROR(
-          std::format("Failed to get stages column {}", stages.error()));
+      SPDLOG_ERROR("Failed to get stages column {}", stages.error());
       return std::shared_ptr<uid_arrow_idx_map_t>();
     }
 
@@ -256,8 +244,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
       const auto key = key_type {StageUid {(*stages)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN(std::format("using duplicate uid values at element {}",
-                                as_string(key)));
+        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
       }
     }
 

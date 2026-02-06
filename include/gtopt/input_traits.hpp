@@ -99,17 +99,16 @@ struct InputTraits : UidTraits
           try {
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);
-            SPDLOG_DEBUG(
-                std::format("at_sched: key {} idx {} value {} values {}",
-                            gtopt::as_string(key),
-                            idx,
-                            value,
-                            (void*)values.get()));
+            SPDLOG_DEBUG("at_sched: key {} idx {} value {} values {}",
+                         gtopt::as_string(key),
+                         idx,
+                         value,
+                         (void*)values.get());
             return value;
           } catch (const std::out_of_range& e) {
-            SPDLOG_ERROR(std::format("Key {} not found in uid index: {}",
-                                     gtopt::as_string(key),
-                                     e.what()));
+            SPDLOG_ERROR("Key {} not found in uid index: {}",
+                         gtopt::as_string(key),
+                         e.what());
             throw;
           }
         },
@@ -131,18 +130,17 @@ struct InputTraits : UidTraits
           try {
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);
-            SPDLOG_DEBUG(
-                std::format("optval_sched: key {} idx {} value {} values {}",
-                            gtopt::as_string(key),
-                            idx,
-                            value,
-                            (void*)values.get()));
+            SPDLOG_DEBUG("optval_sched: key {} idx {} value {} values {}",
+                         gtopt::as_string(key),
+                         idx,
+                         value,
+                         (void*)values.get());
             return value;
 
           } catch (const std::out_of_range& e) {
-            SPDLOG_ERROR(std::format("Key {} not found in uid index: {}",
-                                     gtopt::as_string(key),
-                                     e.what()));
+            SPDLOG_ERROR("Key {} not found in uid index: {}",
+                         gtopt::as_string(key),
+                         e.what());
             return std::nullopt;
           }
         },

@@ -34,8 +34,7 @@ void AdaptiveWorkPool::start()
                           std::this_thread::sleep_for(scheduler_interval_);
                         }
                       }};
-    SPDLOG_INFO(std::format("AdaptiveWorkPool started with {} max threads",
-                            max_threads_));
+    SPDLOG_INFO("AdaptiveWorkPool started with {} max threads", max_threads_);
   } catch (const std::exception& e) {
     running_ = false;
     auto msg = std::format("Failed to start AdaptiveWorkPool: {}", e.what());
@@ -147,7 +146,7 @@ void AdaptiveWorkPool::schedule_next_task()
           try {
             ntask.execute();
           } catch (const std::exception& e) {
-            SPDLOG_ERROR(std::format("Task execution failed: {}", e.what()));
+            SPDLOG_ERROR("Task execution failed: {}", e.what());
           } catch (...) {
             SPDLOG_ERROR("Task execution failed with unknown exception");
           }
