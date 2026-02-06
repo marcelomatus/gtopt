@@ -13,7 +13,6 @@
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
-#include <fmt/format.h>
 #include <gtopt/array_index_traits.hpp>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/input_context.hpp>
@@ -32,7 +31,7 @@ using namespace gtopt;
 
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (!maybe_infile.ok()) {
-    return std::unexpected(fmt::format("Can't open file {}", filename));
+    return std::unexpected(std::format("Can't open file {}", filename));
   }
 
   const auto& infile = *maybe_infile;
@@ -56,13 +55,13 @@ using namespace gtopt;
       io_context, infile, read_options, parse_options, convert_options);
   if (!maybe_reader.ok()) {
     return std::unexpected(
-        fmt::format("Can't create CSV reader for {}", filename));
+        std::format("Can't create CSV reader for {}", filename));
   }
 
   auto maybe_table = (*maybe_reader)->Read();
   if (!maybe_table.ok()) {
     return std::unexpected(
-        fmt::format("Can't read CSV table from {}", filename));
+        std::format("Can't read CSV table from {}", filename));
   }
 
   SPDLOG_TRACE("Read table from file {}", filename);
@@ -81,7 +80,7 @@ using namespace gtopt;
     {
       if (not(ofile.ok())) {
         return std::unexpected(
-            fmt::format("Arrow can't open file {}", filename));
+            std::format("Arrow can't open file {}", filename));
       }
     }
     input = std::move(ofile).ValueUnsafe();
@@ -94,7 +93,7 @@ using namespace gtopt;
     {
       if (not(ofile.ok())) {
         return std::unexpected(
-            fmt::format("Arrow can't open file {}", filename));
+            std::format("Arrow can't open file {}", filename));
       }
     }
     reader = std::move(ofile).ValueUnsafe();
@@ -104,7 +103,7 @@ using namespace gtopt;
   const arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
     return std::unexpected(
-        fmt::format("Can't read Parquet table from {}", filename));
+        std::format("Can't read Parquet table from {}", filename));
   }
 
   SPDLOG_TRACE("Read table from file {}", filename);
@@ -138,7 +137,7 @@ namespace gtopt
         return table;
       }
       SPDLOG_WARN(
-          fmt::format("Error reading table from parquet: {}", table.error()));
+          std::format("Error reading table from parquet: {}", table.error()));
       return csv_read_table(fpath);
     }
 
@@ -151,7 +150,7 @@ namespace gtopt
   const auto result = try_read(sc.options().input_format());
   if (!result) {
     const auto msg =
-        fmt::format("Can't read table for class '{}' field '{}': {}",
+        std::format("Can't read table for class '{}' field '{}': {}",
                     cname,
                     fname,
                     result.error());
@@ -159,7 +158,7 @@ namespace gtopt
     throw std::runtime_error(msg);
   }
 
-  SPDLOG_TRACE(fmt::format(
+  SPDLOG_TRACE(std::format(
       "Successfully loaded table for class {} field {}", cname, fname));
   return *result;
 }

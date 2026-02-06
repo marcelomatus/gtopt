@@ -107,7 +107,7 @@ constexpr auto add_to_lp(auto& collections,
         return e.add_to_lp(system_context, scenario, stage, lp);
       } catch (const std::exception& ex) {
         SPDLOG_ERROR(
-            fmt::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
+            std::format("Error adding {} to LP: {}", T::ClassName, ex.what()));
         return false;
       }
     }
@@ -116,7 +116,7 @@ constexpr auto add_to_lp(auto& collections,
   auto count = visit_elements(collections, visitor);
   if (count == 0) [[unlikely]] {
     SPDLOG_WARN(
-        fmt::format("No active elements found for scenario {} in stage {}",
+        std::format("No active elements found for scenario {} in stage {}",
                     scenario.uid(),
                     stage.uid()));
   }

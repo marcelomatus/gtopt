@@ -45,7 +45,7 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     return system().element(get_bus_index(id));
   } catch (const std::out_of_range& e) {
     SPDLOG_ERROR(
-        fmt::format("Bus with ID {} not found: {}", id.uid(), e.what()));
+        std::format("Bus with ID {} not found: {}", id.uid(), e.what()));
     throw;
   }
 }

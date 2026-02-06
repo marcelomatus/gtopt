@@ -57,19 +57,13 @@ CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
+
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.15.3
-  OPTIONS "SPDLOG_FMT_EXTERNAL 1" "SPDLOG_INSTALL YES" # create an installable
+  VERSION 1.17.0
+  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" # create an installable
   # target
-  SYSTEM YES
-)
-
-CPMAddPackage(
-  NAME fmt
-  GITHUB_REPOSITORY fmtlib/fmt
-  GIT_TAG 9.1.0 # Use a specific version compatible with spdlog
   SYSTEM YES
 )
 
@@ -122,7 +116,6 @@ target_compile_options(
 # Link dependencies
 
 target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
 target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
 target_link_libraries(${PROJECT_NAME} PUBLIC range-v3::range-v3)
@@ -178,6 +171,5 @@ packageProject(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "range-v3 0.12.0" "spdlog 1.12.0" "fmt 9.1.0" "strong_type 15"
-               "daw 3.30.2"
+  DEPENDENCIES "range-v3 0.12.0" "spdlog 1.17.0" "strong_type 15"  "daw 3.31.0"
 )

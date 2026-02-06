@@ -21,7 +21,6 @@
 #include <vector>
 #include <version>
 
-#include <fmt/format.h>
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <range/v3/all.hpp>
@@ -264,7 +263,7 @@ std::string as_string(const std::tuple<Args...>& t)
         std::ostringstream oss;
         oss << "(";
         std::size_t count = 0;
-        ((oss << fmt::format("{}", args)
+        ((oss << std::format("{}", args)
               << (++count < sizeof...(Args) ? ", " : "")),
          ...);
         oss << ")";

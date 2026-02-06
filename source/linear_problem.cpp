@@ -132,7 +132,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
       {
-        const auto msg = fmt::format(
+        const auto msg = std::format(
             "linear problem using repeated {} name {}", entity_type, name);
         SPDLOG_WARN(msg);
       }

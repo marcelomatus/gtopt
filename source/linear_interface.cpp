@@ -3,7 +3,6 @@
 #include <memory>
 
 #include <coin/CoinPackedVector.hpp>
-#include <fmt/format.h>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <spdlog/spdlog.h>
@@ -52,7 +51,7 @@ void LinearInterface::open_log_handler(const int log_level)
     log_file_ptr = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
 
     if (!log_file_ptr) {
-      const auto msg = fmt::format(
+      const auto msg = std::format(
           "failed to open solver log file {} : errno", log_file, errno);
 
       SPDLOG_CRITICAL(msg);
@@ -358,7 +357,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
     }
 
     if (!is_optimal()) {
-      std::string message = fmt::format(
+      std::string message = std::format(
           "Failed to resolve. Solver returned non-optimal for problem: {} "
           "status: {} ",
           get_prob_name(),
@@ -374,7 +373,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
 
   } catch (const std::exception& e) {
     auto message =
-        fmt::format("Unexpected error in initial_solve: {}", e.what());
+        std::format("Unexpected error in initial_solve: {}", e.what());
     SPDLOG_INFO(message);
     return std::unexpected(Error {.code = ErrorCode::InternalError,
                                   .message = std::move(message)});
@@ -393,7 +392,7 @@ std::expected<int, Error> LinearInterface::resolve(
     }
 
     if (!is_optimal()) {
-      std::string message = fmt::format(
+      std::string message = std::format(
           "Failed to resolve. Solver returned non-optimal for problem: {} "
           "status: {} ",
           get_prob_name(),
@@ -408,7 +407,7 @@ std::expected<int, Error> LinearInterface::resolve(
     return get_status();
 
   } catch (const std::exception& e) {
-    auto message = fmt::format("Unexpected error in resolve: {}", e.what());
+    auto message = std::format("Unexpected error in resolve: {}", e.what());
     SPDLOG_INFO(message);
     return std::unexpected(Error {.code = ErrorCode::InternalError,
                                   .message = std::move(message)});

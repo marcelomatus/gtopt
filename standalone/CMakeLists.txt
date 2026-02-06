@@ -10,7 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_FLAGS_DEBUG "-Wall -O0 -g3 -Wno-deprecated-declarations")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -Wall -O2 -g -Wno-deprecated-declarations")
 
-set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
+set(CMAKE_BUILD_TYPE Release)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
