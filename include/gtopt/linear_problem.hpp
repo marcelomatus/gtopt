@@ -87,7 +87,7 @@ class LinearProblem
 {
 public:
   // Constants
-  static const double DblMax;
+  static constexpr double DblMax = CoinDblMax;
 
   // Type aliases for indices and sparse structures
   using index_t = FlatLinearProblem::index_t;

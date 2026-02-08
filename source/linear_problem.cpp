@@ -18,7 +18,6 @@
 
 namespace gtopt
 {
-const double LinearProblem::DblMax = COIN_DBL_MAX;
 
 auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 {

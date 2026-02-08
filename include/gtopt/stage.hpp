@@ -43,7 +43,7 @@ struct Stage
   Size count_block {std::dynamic_extent};
   OptReal discount_factor {1};
 
-  static constexpr std::string class_name = "stage";
+  static constexpr std::string_view class_name = "stage";
 
   [[nodiscard]] constexpr auto is_active() const noexcept
   {

@@ -32,7 +32,7 @@ struct UidColumn
 {
   [[nodiscard]]
   static constexpr auto make_uid_column(const ArrowTable& table,
-                                        const std::string& name)
+                                        std::string_view name)
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {
@@ -42,7 +42,7 @@ struct UidColumn
       return std::unexpected(std::move(msg));
     }
 
-    const auto column = table->GetColumnByName(name);
+    const auto column = table->GetColumnByName(std::string {name});
     if (!column) {
       auto msg = std::format("Column '{}' not found in table", name);
       SPDLOG_ERROR(msg);
