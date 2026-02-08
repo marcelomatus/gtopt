@@ -73,7 +73,7 @@ public:
   explicit constexpr ObjectLP(
       OT&& pobject,
       [[maybe_unused]] const InputContext& ic,
-      [[maybe_unused]] const std::string_view& cname) noexcept
+      [[maybe_unused]] std::string_view cname) noexcept
       : m_object_(std::forward<OT>(pobject))
       , m_active_(ic, cname, id(), std::move(object().active))
   {
