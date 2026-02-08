@@ -5,7 +5,7 @@ Checks: "*,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
-  modernize-type-traits, \
+  -modernize-type-traits, \
   modernize-use-std-print, \
   modernize-use-starts-ends-with, \
   -cppcoreguidelines-macro-to-enum,\

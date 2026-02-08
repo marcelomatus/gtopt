@@ -12,7 +12,6 @@
 #include <concepts>
 #include <filesystem>
 #include <fstream>
-#include <ranges>
 
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
