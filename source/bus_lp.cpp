@@ -117,13 +117,13 @@ bool BusLP::add_to_output(OutputContext& out) const
                   "theta",
                   pid,
                   theta_cols,
-                  [=](auto&& value) { return value * inv_scale_theta; });
+                  [inv_scale_theta](auto&& value) { return value * inv_scale_theta; });
 
   out.add_col_cost(cname,
                    "theta",
                    pid,
                    theta_cols,
-                   [=](auto&& value) { return value * inv_scale_theta; });
+                   [inv_scale_theta](auto&& value) { return value * inv_scale_theta; });
 
   return true;
 }
