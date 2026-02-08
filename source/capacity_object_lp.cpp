@@ -105,12 +105,12 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     capacost_row[expmod_col] = -stage_expcap * stage_hour_capcost;
   }
 
-  if (prev_capainst_col.has_value()) {
-    capainst_row[prev_capainst_col.value()] = +(1 - stage_derating);
+  if (prev_capainst_col) {
+    capainst_row[*prev_capainst_col] = +(1 - stage_derating);
   }
 
-  if (prev_capacost_col.has_value()) {
-    capacost_row[prev_capacost_col.value()] = -1;
+  if (prev_capacost_col) {
+    capacost_row[*prev_capacost_col] = -1;
   }
 
   // Store the indices for this scenario and stage

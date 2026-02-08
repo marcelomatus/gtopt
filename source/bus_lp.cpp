@@ -52,7 +52,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
               sc.lp_label(scenario, stage, block, cname, "theta", uid());
 
           const auto& theta = reference_theta();
-          if (theta.has_value()) [[unlikely]] {
+          if (theta) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
                 .lowb = *theta * scale_theta,

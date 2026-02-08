@@ -82,7 +82,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     rrows[buid] =
         lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
 
-    if (stage_capacity.has_value()) {
+    if (stage_capacity) {
       // Add capacity constraint if capacity is defined
       auto crow =
           SparseRow {
