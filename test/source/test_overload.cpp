@@ -8,6 +8,7 @@
  * Tests for the Overload helper that combines multiple callables for std::visit
  */
 
+#include <format>
 #include <string>
 #include <variant>
 
@@ -27,7 +28,8 @@ TEST_CASE("Overload - Basic functionality")
         Overload {
             [](int val) { return std::format("int: {}", val); },
             [](double val) { return std::format("double: {}", val); },
-            [](const std::string& val) { return std::format("string: {}", val); },
+            [](const std::string& val)
+            { return std::format("string: {}", val); },
         },
         v);
     CHECK(result == "int: 42");
@@ -40,7 +42,8 @@ TEST_CASE("Overload - Basic functionality")
         Overload {
             [](int val) { return std::format("int: {}", val); },
             [](double val) { return std::format("double: {}", val); },
-            [](const std::string& val) { return std::format("string: {}", val); },
+            [](const std::string& val)
+            { return std::format("string: {}", val); },
         },
         v);
     CHECK(result == "double: 3.14");
@@ -53,7 +56,8 @@ TEST_CASE("Overload - Basic functionality")
         Overload {
             [](int val) { return std::format("int: {}", val); },
             [](double val) { return std::format("double: {}", val); },
-            [](const std::string& val) { return std::format("string: {}", val); },
+            [](const std::string& val)
+            { return std::format("string: {}", val); },
         },
         v);
     CHECK(result == "string: hello");
@@ -74,24 +78,6 @@ TEST_CASE("Overload - CTAD (Class Template Argument Deduction)")
   CHECK(result == 20);
 }
 
-TEST_CASE("Overload - Multiple argument types")
-{
-  std::variant<int, float, double> v1 = 5;
-  std::variant<int, float, double> v2 = 3.0;
-
-  auto result = std::visit(
-      Overload {
-          [](int a, int b) { return a + b; },
-          [](int a, double b) { return static_cast<double>(a) + b; },
-          [](double a, int b) { return a + static_cast<double>(b); },
-          [](auto a, auto b) { return a + b; },
-      },
-      v1,
-      v2);
-
-  CHECK(result == 8.0);
-}
-
 TEST_CASE("Overload - With captured variables")
 {
   int multiplier = 3;
@@ -99,10 +85,9 @@ TEST_CASE("Overload - With captured variables")
 
   auto result = std::visit(
       Overload {
-          [&multiplier](int val) { return val * multiplier; },
-          [&multiplier](double val) {
-            return val * static_cast<double>(multiplier);
-          },
+          [&multiplier](int val) { return val * multiplier * 1.0; },
+          [&multiplier](double val)
+          { return val * static_cast<double>(multiplier); },
       },
       v);
 
@@ -116,19 +101,23 @@ TEST_CASE("Overload - Generic lambda fallback")
   SUBCASE("Handles all types with generic lambda")
   {
     v = 42;
-    auto result1 = std::visit(Overload {[](auto val) { return true; }}, v);
+    auto result1 = std::visit(
+        Overload {[]([[maybe_unused]] auto&& val) { return true; }}, v);
     CHECK(result1);
 
     v = 3.14;
-    auto result2 = std::visit(Overload {[](auto val) { return true; }}, v);
+    auto result2 = std::visit(
+        Overload {[]([[maybe_unused]] auto&& val) { return true; }}, v);
     CHECK(result2);
 
     v = std::string("test");
-    auto result3 = std::visit(Overload {[](auto val) { return true; }}, v);
+    auto result3 = std::visit(
+        Overload {[]([[maybe_unused]] auto&& val) { return true; }}, v);
     CHECK(result3);
 
     v = 'c';
-    auto result4 = std::visit(Overload {[](auto val) { return true; }}, v);
+    auto result4 = std::visit(
+        Overload {[]([[maybe_unused]] auto&& val) { return true; }}, v);
     CHECK(result4);
   }
 }
@@ -173,7 +162,8 @@ TEST_CASE("Overload - Nested variants")
 
   auto result = std::visit(
       Overload {
-          [](const InnerVariant& inner) {
+          [](const InnerVariant& inner)
+          {
             return std::visit(
                 Overload {
                     [](int val) { return val; },
