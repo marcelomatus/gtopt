@@ -13,6 +13,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <iterator>  // for std::back_inserter
@@ -66,9 +67,7 @@ constexpr bool merge(std::vector<T>& dest, std::vector<T>&& src) noexcept(
   }
 
   dest.reserve(dest.size() + src.size());
-  dest.insert(dest.end(),
-              std::make_move_iterator(src.begin()),
-              std::make_move_iterator(src.end()));
+  std::ranges::move(src, std::back_inserter(dest));
   src.clear();
   return true;
 }
