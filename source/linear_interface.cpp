@@ -274,7 +274,7 @@ void LinearInterface::write_lp(const std::string& filename) const
     return;
   }
   solver->setIntParam(OsiNameDiscipline, 2);
-  solver->writeLps(filename.c_str());
+  solver->writeLp(filename.c_str());
 }
 
 void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
