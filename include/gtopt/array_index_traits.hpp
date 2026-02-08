@@ -28,8 +28,8 @@ struct ArrayIndexBase
   template<typename... Uid>
   [[nodiscard]] static constexpr auto get_arrow_index(
       const SystemContext& system_context,
-      const std::string_view& cname,
-      const std::string_view& fname,
+      std::string_view cname,
+      std::string_view fname,
       const Id& id,
       auto& array_map,
       auto& table_map)
@@ -148,7 +148,7 @@ public:
   using array_vector_uid_idx_v = InputTraits::array_vector_uid_idx_v<Uid...>;
 
   static constexpr auto make_array_index(const auto& system_context,
-                                         const std::string_view& class_name,
+                                         std::string_view class_name,
                                          Map& array_table_map,
                                          const FSched& sched,
                                          const Id& id) -> array_vector_uid_idx_v
@@ -204,7 +204,7 @@ public:
 
 template<typename Type, typename Map, typename FieldSched, typename... Uid>
 constexpr auto make_array_index(const SystemContext& system_context,
-                                const std::string_view& class_name,
+                                std::string_view class_name,
                                 Map& array_table_map,
                                 const FieldSched& sched,
                                 const Id& id)

@@ -31,12 +31,12 @@ struct LPClassName : std::string_view
   {
   }
 
-  [[nodiscard]] constexpr const std::string_view& full_name() const noexcept
+  [[nodiscard]] constexpr std::string_view full_name() const noexcept
   {
     return *this;
   }
 
-  [[nodiscard]] constexpr const std::string_view& short_name() const noexcept
+  [[nodiscard]] constexpr std::string_view short_name() const noexcept
   {
     return m_short_name;
   }

@@ -62,7 +62,7 @@ public:
   }
 
   template<typename SystemContextT>
-  bool add_to_lp(const std::string_view& cname,
+  bool add_to_lp(std::string_view cname,
                  const SystemContextT& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
@@ -200,7 +200,7 @@ public:
   }
 
   template<typename OutputContext>
-  bool add_to_output(OutputContext& out, const std::string_view& cname) const
+  bool add_to_output(OutputContext& out, std::string_view cname) const
   {
     const auto pid = id();
 
