@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <concepts>
 #include <cstdint>
 #include <iterator>
 #include <optional>
@@ -61,7 +60,7 @@ struct ParseResult
       names.push_back(var);
     }
 
-    std::sort(names.begin(), names.end());
+    std::ranges::sort(names);
     return names;
   }
 };
@@ -74,10 +73,11 @@ class LinearParser
     std::string result;
     result.reserve(expr.size());
 
-    std::ranges::copy_if(expr,
-                         std::back_inserter(result),
-                         [](char c) noexcept
-                         { return !std::isspace(static_cast<unsigned char>(c)); });
+    std::ranges::copy_if(
+        expr,
+        std::back_inserter(result),
+        [](char c) noexcept
+        { return !std::isspace(static_cast<unsigned char>(c)); });
     return result;
   }
 
@@ -275,7 +275,7 @@ public:
   [[nodiscard]] static ParseResult parse(std::string_view expression)
   {
     // Remove whitespace
-    std::string cleaned = removeWhitespace(expression);
+    const std::string cleaned = removeWhitespace(expression);
 
     if (cleaned.empty()) {
       throw std::invalid_argument("Empty expression");
@@ -299,8 +299,8 @@ public:
       const std::size_t op_length = getOpLength(constraint_type);
 
       // Split into left and right sides
-      const std::string_view left_side = cleaned.substr(0, op_pos);
-      const std::string_view right_side = cleaned.substr(op_pos + op_length);
+      const std::string left_side = cleaned.substr(0, op_pos);
+      const std::string right_side = cleaned.substr(op_pos + op_length);
 
       if (left_side.empty() || right_side.empty()) {
         throw std::invalid_argument("Empty left or right side of constraint");
@@ -321,7 +321,7 @@ public:
       const double final_rhs = right_const - left_const;
 
       // Remove zero coefficients using erase_if (C++20)
-      for (auto it = final_coeffs.begin(); it != final_coeffs.end(); ) {
+      for (auto it = final_coeffs.begin(); it != final_coeffs.end();) {
         if (std::abs(it->second) < 1e-10) {
           it = final_coeffs.erase(it);
         } else {
@@ -329,12 +329,13 @@ public:
         }
       }
 
-      return ParseResult {.coefficients = std::move(final_coeffs),
-                          .rhs = final_rhs,
-                          .constraint_type = constraint_type,
-                          .lower_bound = std::nullopt,
-                          .upper_bound = std::nullopt,
-    };
+      return ParseResult {
+          .coefficients = std::move(final_coeffs),
+          .rhs = final_rhs,
+          .constraint_type = constraint_type,
+          .lower_bound = std::nullopt,
+          .upper_bound = std::nullopt,
+      };
     }
     {
       // Range constraint: lower <= expr <= upper or upper >= expr >= lower
@@ -343,9 +344,9 @@ public:
               constraint_info);
 
       // Split into three parts
-      const std::string_view part1 = cleaned.substr(0, pos1);
-      const std::string_view part2 = cleaned.substr(pos1 + 2, pos2 - pos1 - 2);
-      const std::string_view part3 = cleaned.substr(pos2 + 2);
+      const std::string part1 = cleaned.substr(0, pos1);
+      const std::string part2 = cleaned.substr(pos1 + 2, pos2 - pos1 - 2);
+      const std::string part3 = cleaned.substr(pos2 + 2);
 
       if (part1.empty() || part2.empty() || part3.empty()) {
         throw std::invalid_argument("Empty parts in range constraint");
@@ -370,7 +371,7 @@ public:
         final_coeffs = std::move(coeffs2);
 
         // Check if operators are <= (normal) or >= (reversed)
-        const std::string_view op1 = cleaned.substr(pos1, 2);
+        const std::string op1 = cleaned.substr(pos1, 2);
         if (op1 == "<=") {
           lower_bound = const1 - const2;
           upper_bound = const3 - const2;
@@ -395,7 +396,7 @@ public:
       }
 
       // Remove zero coefficients using erase_if (C++20)
-      for (auto it = final_coeffs.begin(); it != final_coeffs.end(); ) {
+      for (auto it = final_coeffs.begin(); it != final_coeffs.end();) {
         if (std::abs(it->second) < 1e-10) {
           it = final_coeffs.erase(it);
         } else {
@@ -403,12 +404,13 @@ public:
         }
       }
 
-      return ParseResult {.coefficients = std::move(final_coeffs),
-                          .rhs = 0.0,  // Not used for range constraints
-                          .constraint_type = ConstraintType::RANGE,
-                          .lower_bound = lower_bound,
-                          .upper_bound = upper_bound,
-    };
+      return ParseResult {
+          .coefficients = std::move(final_coeffs),
+          .rhs = 0.0,  // Not used for range constraints
+          .constraint_type = ConstraintType::RANGE,
+          .lower_bound = lower_bound,
+          .upper_bound = upper_bound,
+      };
     }
   }
 
