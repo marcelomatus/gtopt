@@ -38,7 +38,7 @@ constexpr bool add_requirement(const std::string_view cname,
       continue;
     }
 
-    const auto name = sc.lp_label(scenario, stage, block, cname, rname, uid);
+    auto name = sc.lp_label(scenario, stage, block, cname, rname, uid);
     const auto rcol = stage_rcost
         ? lp.add_col({
               .name = name,
