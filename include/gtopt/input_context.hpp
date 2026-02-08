@@ -40,7 +40,7 @@ public:
 
   template<typename Type, typename FSched, typename... Uids>
   auto get_array_index(const FSched& sched,
-                       const std::string_view& cname,
+                       std::string_view cname,
                        const Id& id) const
   {
     SPDLOG_DEBUG(

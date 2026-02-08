@@ -64,12 +64,12 @@ public:
    * @return true if successful
    * @return false if failed
    */
-  bool add_profile_to_lp(const std::string_view& cname,
+  bool add_profile_to_lp(std::string_view cname,
                          const SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
                          LinearProblem& lp,
-                         const std::string_view& profile_name,
+                         std::string_view profile_name,
                          const auto& element_cols,
                          const std::optional<ColIndex>& capacity_col,
                          double stage_capacity)
@@ -126,7 +126,7 @@ public:
    * @param profile_type Profile type name ("spillover"/"unserved")
    * @return true if successful
    */
-  bool add_profile_to_output(const std::string_view& cname,
+  bool add_profile_to_output(std::string_view cname,
                              OutputContext& out,
                              std::string_view profile_name) const
   {

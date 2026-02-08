@@ -41,7 +41,7 @@ public:
 
   template<typename InputContext>
   explicit Schedule(const InputContext& ic,
-                    const std::string_view& cname,
+                    std::string_view cname,
                     const Id& id,
                     FSched psched)
       : m_sched_(std::move(psched))
@@ -81,7 +81,7 @@ public:
   }
 
   explicit OptSchedule(const InputContext& ic,
-                       const std::string_view& cname,
+                       std::string_view cname,
                        const Id& id,
                        OptFSched psched)
       : m_sched_(std::move(psched))
