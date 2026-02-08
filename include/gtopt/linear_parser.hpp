@@ -1,6 +1,9 @@
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <concepts>
+#include <cstdint>
+#include <iterator>
 #include <optional>
 #include <print>
 #include <ranges>
@@ -59,7 +62,7 @@ struct ParseResult
       names.push_back(var);
     }
 
-    std::ranges::sort(names);
+    std::sort(names.begin(), names.end());
     return names;
   }
 };
@@ -72,11 +75,10 @@ class LinearParser
     std::string result;
     result.reserve(expr.size());
 
-    std::ranges::copy_if(
-        expr,
-        std::back_inserter(result),
-        [](char c) noexcept
-        { return !std::isspace(static_cast<unsigned char>(c)); });
+    std::copy_if(expr.begin(), expr.end(),
+                 std::back_inserter(result),
+                 [](char c) noexcept
+                 { return !std::isspace(static_cast<unsigned char>(c)); });
     return result;
   }
 
@@ -121,28 +123,29 @@ class LinearParser
       constexpr auto getConstraintType =
           [](std::string_view op) noexcept -> ConstraintType
       {
-        if (op == "<=")
+        if (op == "<=") {
           return ConstraintType::LESS_EQUAL;
-        if (op == ">=")
+        }
+        if (op == ">=") {
           return ConstraintType::GREATER_EQUAL;
+        }
         return ConstraintType::EQUAL;
       };
 
       return std::make_pair(getConstraintType(op), pos);
-    } else if (operators.size() == 2) {
+    }
+    if (operators.size() == 2) {
       // Range constraint: check if it's valid (both should be <= or >=)
       auto [pos1, op1] = operators[0];
       auto [pos2, op2] = operators[1];
 
       if ((op1 == "<=" && op2 == "<=") || (op1 == ">=" && op2 == ">=")) {
         return std::make_tuple(ConstraintType::RANGE, pos1, pos2);
-      } else {
-        throw std::invalid_argument(
-            "Invalid range constraint: operators must be consistent");
       }
-    } else {
-      throw std::invalid_argument("Too many constraint operators found");
+      throw std::invalid_argument(
+          "Invalid range constraint: operators must be consistent");
     }
+    throw std::invalid_argument("Too many constraint operators found");
   }
 
   // Parse a single term like "3*x", "-2*y", "5*a", "-3b", "2c"
@@ -168,7 +171,7 @@ class LinearParser
     // Find the variable (last alphabetic character sequence)
     std::size_t var_start = std::string_view::npos;
     for (std::size_t i = 0; i < cleaned.size(); ++i) {
-      if (std::isalpha(static_cast<unsigned char>(cleaned[i]))) {
+      if (std::isalpha(static_cast<unsigned char>(cleaned[i])) != 0) {
         if (var_start == std::string_view::npos) {
           var_start = i;
         }
@@ -223,7 +226,7 @@ class LinearParser
     current_term.reserve(32);  // Reserve space for typical term length
 
     for (std::size_t i = 0; i < expr.size(); ++i) {
-      char c = expr[i];
+      const char c = expr[i];
 
       if ((c == '+' || c == '-') && i > 0) {
         // This is a term separator
@@ -294,12 +297,12 @@ public:
           [](ConstraintType type) noexcept -> std::size_t
       { return (type == ConstraintType::EQUAL) ? 1 : 2; };
 
-      std::size_t op_length = getOpLength(constraint_type);
+      const std::size_t op_length = getOpLength(constraint_type);
 
       // Split into left and right sides
-      std::string_view left_side {cleaned.data(), op_pos};
-      std::string_view right_side {cleaned.data() + op_pos + op_length,
-                                   cleaned.size() - op_pos - op_length};
+      const std::string_view left_side {cleaned.data(), op_pos};
+      const std::string_view right_side {cleaned.data() + op_pos + op_length,
+                                         cleaned.size() - op_pos - op_length};
 
       if (left_side.empty() || right_side.empty()) {
         throw std::invalid_argument("Empty left or right side of constraint");
@@ -317,29 +320,35 @@ public:
         final_coeffs[var] -= coeff;
       }
 
-      double final_rhs = right_const - left_const;
+      const double final_rhs = right_const - left_const;
 
       // Remove zero coefficients using erase_if (C++20)
-      std::erase_if(final_coeffs,
-                    [](const auto& pair) noexcept
-                    { return std::abs(pair.second) < 1e-10; });
+      for (auto it = final_coeffs.begin(); it != final_coeffs.end(); ) {
+        if (std::abs(it->second) < 1e-10) {
+          it = final_coeffs.erase(it);
+        } else {
+          ++it;
+        }
+      }
 
       return ParseResult {.coefficients = std::move(final_coeffs),
                           .rhs = final_rhs,
                           .constraint_type = constraint_type,
                           .lower_bound = std::nullopt,
-                          .upper_bound = std::nullopt};
-    } else {
+                          .upper_bound = std::nullopt,
+    };
+    }
+    {
       // Range constraint: lower <= expr <= upper or upper >= expr >= lower
       auto [constraint_type, pos1, pos2] =
           std::get<std::tuple<ConstraintType, std::size_t, std::size_t>>(
               constraint_info);
 
       // Split into three parts
-      std::string_view part1 {cleaned.data(), pos1};
-      std::string_view part2 {cleaned.data() + pos1 + 2, pos2 - pos1 - 2};
-      std::string_view part3 {cleaned.data() + pos2 + 2,
-                              cleaned.size() - pos2 - 2};
+      const std::string_view part1 {cleaned.data(), pos1};
+      const std::string_view part2 {cleaned.data() + pos1 + 2, pos2 - pos1 - 2};
+      const std::string_view part3 {cleaned.data() + pos2 + 2,
+                                    cleaned.size() - pos2 - 2};
 
       if (part1.empty() || part2.empty() || part3.empty()) {
         throw std::invalid_argument("Empty parts in range constraint");
@@ -351,19 +360,20 @@ public:
       auto [coeffs3, const3] = parseSide(part3);
 
       // Determine which part contains variables (should be the middle one)
-      bool part1_has_vars = !coeffs1.empty();
-      bool part2_has_vars = !coeffs2.empty();
-      bool part3_has_vars = !coeffs3.empty();
+      const bool part1_has_vars = !coeffs1.empty();
+      const bool part2_has_vars = !coeffs2.empty();
+      const bool part3_has_vars = !coeffs3.empty();
 
       std::unordered_map<std::string, double> final_coeffs;
-      double lower_bound, upper_bound;
+      double lower_bound = 0.0;
+      double upper_bound = 0.0;
 
       if (part2_has_vars && !part1_has_vars && !part3_has_vars) {
         // Standard case: const1 <= expr <= const3
         final_coeffs = std::move(coeffs2);
 
         // Check if operators are <= (normal) or >= (reversed)
-        std::string_view op1 {cleaned.data() + pos1, 2};
+        const std::string_view op1 {cleaned.data() + pos1, 2};
         if (op1 == "<=") {
           lower_bound = const1 - const2;
           upper_bound = const3 - const2;
@@ -388,20 +398,25 @@ public:
       }
 
       // Remove zero coefficients using erase_if (C++20)
-      std::erase_if(final_coeffs,
-                    [](const auto& pair) noexcept
-                    { return std::abs(pair.second) < 1e-10; });
+      for (auto it = final_coeffs.begin(); it != final_coeffs.end(); ) {
+        if (std::abs(it->second) < 1e-10) {
+          it = final_coeffs.erase(it);
+        } else {
+          ++it;
+        }
+      }
 
       return ParseResult {.coefficients = std::move(final_coeffs),
                           .rhs = 0.0,  // Not used for range constraints
                           .constraint_type = ConstraintType::RANGE,
                           .lower_bound = lower_bound,
-                          .upper_bound = upper_bound};
+                          .upper_bound = upper_bound,
+    };
     }
   }
 
   // Example usage and testing
-  void printResult(const ParseResult& result);
+  static void printResult(const ParseResult& result);
   int do_main();
 };
 
