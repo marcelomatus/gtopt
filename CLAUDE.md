@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Enable test coverage: Add `-DENABLE_TEST_COVERAGE=ON` to configure command
 
 ## Code Style Guidelines
-- **C++ Standard**: C++23
+- **C++ Standard**: C++26 (C++23 features currently used, C++26 when compiler support is available)
 - **Indentation**: 2 spaces
 - **Namespaces**: Code in `gtopt` namespace
 - **Includes**: Organize in blocks (standard library, external, project)
