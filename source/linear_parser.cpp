@@ -1,5 +1,4 @@
 #include <array>
-#include <print>
 #include <iostream>
 #include "gtopt/linear_parser.hpp"
 
@@ -39,7 +38,7 @@ void LinearParser::printResult(const ParseResult& result)
   std::cout << "\n\n";
 }
 
-int LinearParser::do_main()
+static int do_main()
 {
   constexpr std::array test_expressions = {
       "3*x - 2*y <= 20",
@@ -57,7 +56,7 @@ int LinearParser::do_main()
     std::cout << "Expression: " << expr << "\n";
     try {
       auto result = LinearParser::parse(expr);
-      ::printResult(result);
+      LinearParser::printResult(result);
 
       // Example: get coefficient vector for specific variable order
       auto vars = result.getVariableNames();
