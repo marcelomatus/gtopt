@@ -38,7 +38,7 @@ void LinearParser::printResult(const ParseResult& result)
   std::cout << "\n\n";
 }
 
-static int do_main()
+int LinearParser::do_main()
 {
   constexpr std::array test_expressions = {
       "3*x - 2*y <= 20",
