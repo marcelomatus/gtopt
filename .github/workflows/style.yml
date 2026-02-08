@@ -28,8 +28,16 @@ jobs:
       - name: Install format dependencies
         run: pip3 install clang-format==14.0.6 cmake_format==0.6.11 pyyaml
 
+      - name: install gcc-14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+
       - name: configure
         run: cmake -Stest -Bbuild
+        env:
+          CC: gcc-14
+          CXX: g++-14
 
       - name: check style
         run: cmake --build build --target check-format
