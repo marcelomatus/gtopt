@@ -276,7 +276,7 @@ void OutputContext::write() const
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
-  for (auto&& [path, table] : path_tables) {
+  for (auto& [path, table] : path_tables) {
     tasks.emplace_back(
         [path = std::move(path), table = std::move(table), fmt, zfmt]
         {
