@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
-#include <print>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -22,7 +21,7 @@ enum class ConstraintType : std::uint8_t
   LESS_EQUAL,  // <=
   EQUAL,  // =
   GREATER_EQUAL,  // >=
-  RANGE  // lower <= expr <= upper
+  RANGE,  // lower <= expr <= upper
 };
 
 struct ParseResult
@@ -75,10 +74,10 @@ class LinearParser
     std::string result;
     result.reserve(expr.size());
 
-    std::copy_if(expr.begin(), expr.end(),
-                 std::back_inserter(result),
-                 [](char c) noexcept
-                 { return !std::isspace(static_cast<unsigned char>(c)); });
+    std::ranges::copy_if(expr,
+                         std::back_inserter(result),
+                         [](char c) noexcept
+                         { return !std::isspace(static_cast<unsigned char>(c)); });
     return result;
   }
 
@@ -95,7 +94,7 @@ class LinearParser
     // Find all operators with their positions
     for (std::size_t pos = 0; pos < expr.length(); ++pos) {
       if (pos + 1 < expr.length()) {
-        std::string_view two_char = expr.substr(pos, 2);
+        const std::string_view two_char = expr.substr(pos, 2);
         if (two_char == "<=" || two_char == ">=") {
           operators.emplace_back(pos, two_char);
           ++pos;  // Skip next character
@@ -300,9 +299,8 @@ public:
       const std::size_t op_length = getOpLength(constraint_type);
 
       // Split into left and right sides
-      const std::string_view left_side {cleaned.data(), op_pos};
-      const std::string_view right_side {cleaned.data() + op_pos + op_length,
-                                         cleaned.size() - op_pos - op_length};
+      const std::string_view left_side = cleaned.substr(0, op_pos);
+      const std::string_view right_side = cleaned.substr(op_pos + op_length);
 
       if (left_side.empty() || right_side.empty()) {
         throw std::invalid_argument("Empty left or right side of constraint");
@@ -345,10 +343,9 @@ public:
               constraint_info);
 
       // Split into three parts
-      const std::string_view part1 {cleaned.data(), pos1};
-      const std::string_view part2 {cleaned.data() + pos1 + 2, pos2 - pos1 - 2};
-      const std::string_view part3 {cleaned.data() + pos2 + 2,
-                                    cleaned.size() - pos2 - 2};
+      const std::string_view part1 = cleaned.substr(0, pos1);
+      const std::string_view part2 = cleaned.substr(pos1 + 2, pos2 - pos1 - 2);
+      const std::string_view part3 = cleaned.substr(pos2 + 2);
 
       if (part1.empty() || part2.empty() || part3.empty()) {
         throw std::invalid_argument("Empty parts in range constraint");
@@ -373,7 +370,7 @@ public:
         final_coeffs = std::move(coeffs2);
 
         // Check if operators are <= (normal) or >= (reversed)
-        const std::string_view op1 {cleaned.data() + pos1, 2};
+        const std::string_view op1 = cleaned.substr(pos1, 2);
         if (op1 == "<=") {
           lower_bound = const1 - const2;
           upper_bound = const3 - const2;
@@ -417,7 +414,7 @@ public:
 
   // Example usage and testing
   static void printResult(const ParseResult& result);
-  int do_main();
+  static int do_main();
 };
 
 }  // namespace gtopt
