@@ -306,4 +306,83 @@ TEST_CASE("annual_discount_factor")
     CHECK(annual_discount_factor(1.0, hours_per_year)
           == doctest::Approx(0.5));  // 1/(1+1) = 0.5
   }
+
+  SUBCASE("negative discount rate")
+  {
+    // Negative discount rate means value increases over time
+    // 1/(1 + (-0.05))^1 = 1/0.95 ≈ 1.05263157895
+    CHECK(annual_discount_factor(-0.05, hours_per_year)
+          == doctest::Approx(1.05263157895));
+  }
+}
+
+TEST_CASE("enumerate empty range")
+{
+  std::vector<int> empty_vec;
+  size_t count = 0;
+  for ([[maybe_unused]] auto [idx, val] : enumerate(empty_vec)) {
+    ++count;
+  }
+  CHECK(count == 0);
+}
+
+TEST_CASE("enumerate_active with all active")
+{
+  struct TestElement
+  {
+    bool active;
+    [[nodiscard]] constexpr bool is_active() const noexcept { return active; }
+  };
+
+  std::vector<TestElement> elements {{true}, {true}, {true}};
+  size_t count = 0;
+  for ([[maybe_unused]] auto [idx, elem] : enumerate_active(elements)) {
+    ++count;
+  }
+  CHECK(count == 3);
+}
+
+TEST_CASE("enumerate_active with all inactive")
+{
+  struct TestElement
+  {
+    bool active;
+    [[nodiscard]] constexpr bool is_active() const noexcept { return active; }
+  };
+
+  std::vector<TestElement> elements {{false}, {false}, {false}};
+  size_t count = 0;
+  for ([[maybe_unused]] auto [idx, elem] : enumerate_active(elements)) {
+    ++count;
+  }
+  CHECK(count == 0);
+}
+
+TEST_CASE("to_vector with empty range")
+{
+  std::vector<int> empty_vec;
+  auto result = to_vector(empty_vec);
+  CHECK(result.empty());
+}
+
+TEST_CASE("all_of with empty range")
+{
+  std::vector<int> empty_vec;
+  CHECK(all_of(empty_vec, [](int) { return false; }));
+}
+
+TEST_CASE("merge_opt both empty")
+{
+  std::optional<int> a;
+  const std::optional<int> b;
+  merge_opt(a, b);
+  CHECK_FALSE(a.has_value());
+}
+
+TEST_CASE("merge_opt dest has value, source empty")
+{
+  std::optional<int> a = 42;
+  const std::optional<int> b;
+  merge_opt(a, b);
+  CHECK(a == 42);
 }
