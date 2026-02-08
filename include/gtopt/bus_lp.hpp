@@ -100,11 +100,12 @@ public:
   }
 
 private:
+  [[nodiscard]]
   auto lazy_add_theta(const SystemContext& sc,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       LinearProblem& lp,
-                      const std::vector<BlockLP>& blocks) const
+                      std::span<const BlockLP> blocks) const
       -> const BIndexHolder<ColIndex>&;
 
   STBIndexHolder<RowIndex> balance_rows;

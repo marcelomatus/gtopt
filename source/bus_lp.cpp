@@ -19,10 +19,10 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            const ScenarioLP& scenario,
                            const StageLP& stage,
                            LinearProblem& lp,
-                           const std::vector<BlockLP>& blocks) const
+                           std::span<const BlockLP> blocks) const
     -> const BIndexHolder<ColIndex>&
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constinit std::string_view cname = ClassName.short_name();
 
   BIndexHolder<ColIndex> tblocks;
   tblocks.reserve(blocks.size());
@@ -30,25 +30,31 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   const auto scale_theta = sc.options().scale_theta();
 
   if (stage.is_active() && needs_kirchhoff(sc)) {
-    const auto& theta = reference_theta();
+    std::ranges::for_each(
+        blocks,
+        [&](const BlockLP& block)
+        {
+          const auto buid = block.uid();
+          auto tname =
+              sc.lp_label(scenario, stage, block, cname, "theta", uid());
 
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      auto tname = sc.lp_label(scenario, stage, block, cname, "theta", uid());
-      if (theta) {
-        tblocks[buid] = lp.add_col(SparseCol {
-            .name = std::move(tname),
-            .lowb = *theta * scale_theta,
-            .uppb = *theta * scale_theta,
+          const auto& theta = reference_theta();
+          if (theta.has_value()) {
+            tblocks[buid] = lp.add_col(SparseCol {
+                .name = std::move(tname),
+                .lowb = *theta * scale_theta,
+                .uppb = *theta * scale_theta,
+            });
+          } else {
+            constexpr double theta_bound =
+                2 * std::numbers::pi;  // Default bound for theta
+            tblocks[buid] = lp.add_col(SparseCol {
+                .name = std::move(tname),
+                .lowb = -theta_bound * scale_theta,
+                .uppb = +theta_bound * scale_theta,
+            });
+          }
         });
-      } else {
-        tblocks[buid] = lp.add_col(SparseCol {
-            .name = std::move(tname),
-            .lowb = -12 * scale_theta,
-            .uppb = +12 * scale_theta,
-        });
-      }
-    }
   }
 
   // Store the theta columns for this scenario and stage
@@ -61,7 +67,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constinit std::string_view cname = ClassName.short_name();
 
   if (!is_active(stage)) {
     return true;
@@ -72,10 +78,13 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<RowIndex> brows;
   brows.reserve(blocks.size());
 
-  for (auto&& block : blocks) {
-    brows[block.uid()] = lp.add_row(
-        {.name = sc.lp_label(scenario, stage, block, cname, "bal", uid())});
-  }
+  std::ranges::for_each(
+      blocks,
+      [&](const BlockLP& block)
+      {
+        brows[block.uid()] = lp.add_row(
+            {.name = sc.lp_label(scenario, stage, block, cname, "bal", uid())});
+      });
 
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
   balance_rows[st_key] = std::move(brows);
