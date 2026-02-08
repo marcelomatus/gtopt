@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/CMakeFiles/daw_utf_range-populate"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/CMakeFiles/daw_utf_range-populate.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/CMakeFiles/daw_utf_range-populate-complete.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-build.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-configure.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-download.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-install.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-patch.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-test.rule"
+		},
+		{
+			"file" : "/home/runner/work/gtopt/gtopt/test/build/_deps/daw_utf_range-subbuild/daw_utf_range-populate-prefix/src/daw_utf_range-populate-stamp/daw_utf_range-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"daw_utf_range-populate"
+		],
+		"name" : "daw_utf_range-populate"
+	}
+}
