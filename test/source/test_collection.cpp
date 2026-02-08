@@ -209,3 +209,114 @@ TEST_CASE("visit_elements constexpr usage")
   static_assert(count == 2, "Should count 2 even numbers");
   CHECK(count == 2);  // Also check at runtime
 }
+
+TEST_CASE("Collection duplicate UID detection")
+{
+  std::vector<test_object> vec = {
+      {.uid = 1, .name = "n1", .value = 1},
+      {.uid = 1, .name = "n2", .value = 2},
+  };
+
+  CHECK_THROWS_AS((gtopt::Collection<test_object> {vec}), std::runtime_error);
+}
+
+TEST_CASE("Collection duplicate name detection")
+{
+  std::vector<test_object> vec = {
+      {.uid = 1, .name = "same", .value = 1},
+      {.uid = 2, .name = "same", .value = 2},
+  };
+
+  CHECK_THROWS_AS((gtopt::Collection<test_object> {vec}), std::runtime_error);
+}
+
+TEST_CASE("Collection empty construction")
+{
+  const gtopt::Collection<test_object> coll;
+  CHECK(coll.size() == 0);
+  CHECK(coll.empty());
+}
+
+TEST_CASE("Collection push_back")
+{
+  gtopt::Collection<test_object> coll;
+
+  coll.push_back(test_object {.uid = 10, .name = "a", .value = 100});
+  CHECK(coll.size() == 1);
+  CHECK(coll.element(Uid {10}).value == 100);
+  CHECK(coll.element(std::string {"a"}).value == 100);
+
+  coll.push_back(test_object {.uid = 20, .name = "b", .value = 200});
+  CHECK(coll.size() == 2);
+  CHECK(coll.element(Uid {20}).value == 200);
+}
+
+TEST_CASE("Collection push_back duplicate UID throws")
+{
+  gtopt::Collection<test_object> coll;
+  coll.push_back(test_object {.uid = 1, .name = "a", .value = 1});
+
+  CHECK_THROWS_AS(
+      coll.push_back(test_object {.uid = 1, .name = "b", .value = 2}),
+      std::runtime_error);
+}
+
+TEST_CASE("Collection push_back duplicate name throws")
+{
+  gtopt::Collection<test_object> coll;
+  coll.push_back(test_object {.uid = 1, .name = "same", .value = 1});
+
+  CHECK_THROWS_AS(
+      coll.push_back(test_object {.uid = 2, .name = "same", .value = 2}),
+      std::runtime_error);
+}
+
+TEST_CASE("Collection element_index by UID and name")
+{
+  const std::vector<test_object> vec = {
+      {.uid = 10, .name = "alpha", .value = 1},
+      {.uid = 20, .name = "beta", .value = 2},
+      {.uid = 30, .name = "gamma", .value = 3},
+  };
+
+  const gtopt::Collection<test_object> coll {vec};
+
+  CHECK(coll.element_index(Uid {10}) == gtopt::ElementIndex<test_object> {0});
+  CHECK(coll.element_index(Uid {20}) == gtopt::ElementIndex<test_object> {1});
+  CHECK(coll.element_index(Uid {30}) == gtopt::ElementIndex<test_object> {2});
+
+  CHECK(coll.element_index(std::string {"alpha"}) == gtopt::ElementIndex<test_object> {0});
+  CHECK(coll.element_index(std::string {"beta"}) == gtopt::ElementIndex<test_object> {1});
+  CHECK(coll.element_index(std::string {"gamma"}) == gtopt::ElementIndex<test_object> {2});
+}
+
+TEST_CASE("Collection out-of-range UID throws")
+{
+  const std::vector<test_object> vec = {
+      {.uid = 1, .name = "n1", .value = 1},
+  };
+
+  const gtopt::Collection<test_object> coll {vec};
+
+  CHECK_THROWS(coll.element(Uid {999}));
+  CHECK_THROWS(coll.element(std::string {"nonexistent"}));
+}
+
+TEST_CASE("visit_elements with empty collections")
+{
+  const MyCollection c1 {};
+  const MyCollection c2 {};
+  auto collections = std::make_tuple(c1, c2);
+
+  auto count = visit_elements(collections, [](int) { return true; });
+  CHECK(count == 0);
+}
+
+TEST_CASE("visit_elements with single collection")
+{
+  const MyCollection c1 {1, 2, 3};
+  auto collections = std::make_tuple(c1);
+
+  auto count = visit_elements(collections, [](int n) { return n > 0; });
+  CHECK(count == 3);
+}
