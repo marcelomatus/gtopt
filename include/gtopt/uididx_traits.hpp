@@ -1,6 +1,7 @@
 /**
  * @file      uididx_traits.hpp
- * @brief     Header for UID-to-index mapping traits for Arrow tables and vectors
+ * @brief     Header for UID-to-index mapping traits for Arrow tables and
+ * vectors
  * @date      Mon Jun  2 22:26:26 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -32,8 +33,8 @@ namespace gtopt
 struct UidColumn
 {
   [[nodiscard]]
-  static inline auto make_uid_column(const ArrowTable& table,
-                                     std::string_view name)
+  static constexpr auto make_uid_column(const ArrowTable& table,
+                                        std::string_view name)
       -> std::expected<std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType>,
                        std::string>
   {
@@ -120,7 +121,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
-  static inline auto make_arrow_uids_idx(const ArrowTable& table)
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
@@ -160,7 +161,7 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
-  static inline auto make_arrow_uids_idx(const ArrowTable& table)
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
@@ -196,7 +197,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
-  static inline auto make_arrow_uids_idx(const ArrowTable& table)
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto scenarios = make_uid_column(table, Scenario::class_name);
     if (!scenarios) {
@@ -230,7 +231,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
-  static inline auto make_arrow_uids_idx(const ArrowTable& table)
+  static constexpr auto make_arrow_uids_idx(const ArrowTable& table)
   {
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
@@ -269,7 +270,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  [[nodiscard]] static inline auto make_vector_uids_idx(
+  [[nodiscard]] static constexpr auto make_vector_uids_idx(
       const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
@@ -303,7 +304,7 @@ struct UidToVectorIdx<StageUid, BlockUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  static inline auto make_vector_uids_idx(const SimulationLP& sim)
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
     index_uids.reserve(sim.blocks().size());
@@ -333,7 +334,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
   using uid_vector_idx_map_ptr = std::shared_ptr<uid_vector_idx_map_t>;
   using UidIdx = uid_vector_idx_map_ptr;
 
-  static inline auto make_vector_uids_idx(const SimulationLP& sim)
+  static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
     index_uids.reserve(sim.scenarios().size() * sim.stages().size());
