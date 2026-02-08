@@ -34,10 +34,10 @@ TEST_CASE("gtopt types 1")  // NOLINT
 template<typename IndexType = size_t, typename Range>
 inline auto my_enumerate(const Range& range)  // NOLINT
 {
-  return ranges::views::zip(
-      ranges::views::iota(0)
-          | ranges::views::transform([](size_t i)
-                                     { return static_cast<IndexType>(i); }),
+  return std::ranges::views::zip(
+      std::ranges::views::iota(0)
+          | std::ranges::views::transform(
+              [](size_t i) { return static_cast<IndexType>(i); }),
       range);
 }
 
@@ -46,7 +46,7 @@ TEST_CASE("gtopt types 2")  // NOLINT
   std::vector<int> vec1 = {3, 4, 5, 6, 7};  // NOLINT
   std::vector<int> vec2 = {1, 2, 3, 4, 5};  // NOLINT
 
-  auto rng = ranges::views::zip(vec1, vec2);
+  auto rng = std::ranges::views::zip(vec1, vec2);
 
   for (size_t i = 0; auto&& [v1, v2] : rng) {
     REQUIRE(v1 == vec1[i]);
@@ -54,9 +54,9 @@ TEST_CASE("gtopt types 2")  // NOLINT
     ++i;
   }
 
-  auto rng2 = ranges::views::zip(
-      ranges::views::iota(0)
-          | ranges::views::transform([](size_t i) { return i; }),
+  auto rng2 = std::ranges::views::zip(
+      std::ranges::views::iota(0)
+          | std::ranges::views::transform([](size_t i) { return i; }),
       vec1);
   for (auto&& [i, v1] : rng2) {
     REQUIRE(v1 == vec1[i]);

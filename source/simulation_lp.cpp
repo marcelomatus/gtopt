@@ -47,7 +47,7 @@ constexpr auto create_stage_array(const Simulation& simulation,
                                   const OptionsLP& options)
 {
   return enumerate_active<StageIndex>(simulation.stage_array)
-      | ranges::views::transform(
+      | std::ranges::views::transform(
              [&](auto&& is)
              {
                const auto& [index, stage] = is;
@@ -58,7 +58,7 @@ constexpr auto create_stage_array(const Simulation& simulation,
                    index,
                };
              })
-      | ranges::to<std::vector>();
+      | std::ranges::to<std::vector>();
 }
 
 constexpr auto create_scenario_array(const Simulation& simulation)
@@ -66,20 +66,20 @@ constexpr auto create_scenario_array(const Simulation& simulation)
   auto&& scenarios = simulation.scenario_array;
 
   return enumerate_active<ScenarioIndex>(scenarios)
-      | ranges::views::transform(
+      | std::ranges::views::transform(
              [](const auto& is)
              {
                const auto& [index, scenario] = is;
                return ScenarioLP {scenario, index};
              })
-      | ranges::to<std::vector>();
+      | std::ranges::to<std::vector>();
 }
 
 constexpr auto create_phase_array(const Simulation& simulation,
                                   const OptionsLP& options)
 {
   return enumerate_active<PhaseIndex>(simulation.phase_array)
-      | ranges::views::transform(
+      | std::ranges::views::transform(
              [&](auto&& is)
              {
                const auto& [index, phase] = is;
@@ -90,19 +90,19 @@ constexpr auto create_phase_array(const Simulation& simulation,
                    index,
                };
              })
-      | ranges::to<std::vector>();
+      | std::ranges::to<std::vector>();
 }
 
 constexpr auto create_scene_array(const Simulation& simulation)
 {
   return enumerate_active<SceneIndex>(simulation.scene_array)
-      | ranges::views::transform(
+      | std::ranges::views::transform(
              [&](const auto& si)
              {
                auto&& [index, scene] = si;
                return SceneLP {scene, simulation, index};
              })
-      | ranges::to<std::vector>();
+      | std::ranges::to<std::vector>();
 }
 
 }  // namespace
