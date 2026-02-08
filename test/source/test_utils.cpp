@@ -343,7 +343,7 @@ TEST_CASE("enumerate_active with all active")
     [[nodiscard]] constexpr bool is_active() const noexcept { return active; }
   };
 
-  std::vector<TestElement> elements {{true}, {true}, {true}};
+  const std::vector<TestElement> elements {{true}, {true}, {true}};
   size_t count = 0;
   for ([[maybe_unused]] auto [idx, elem] : enumerate_active(elements)) {
     ++count;
@@ -359,7 +359,7 @@ TEST_CASE("enumerate_active with all inactive")
     [[nodiscard]] constexpr bool is_active() const noexcept { return active; }
   };
 
-  std::vector<TestElement> elements {{false}, {false}, {false}};
+  const std::vector<TestElement> elements {{false}, {false}, {false}};
   size_t count = 0;
   for ([[maybe_unused]] auto [idx, elem] : enumerate_active(elements)) {
     ++count;
