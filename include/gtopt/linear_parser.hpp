@@ -1,11 +1,9 @@
 #include <algorithm>
 #include <cctype>
 #include <concepts>
-#include <iomanip>
-#include <iostream>
 #include <optional>
+#include <print>
 #include <ranges>
-#include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -408,33 +406,36 @@ public:
 
 void printResult(const ParseResult& result)
 {
-  std::cout << "Coefficients: ";
+  std::print("Coefficients: ");
   for (const auto& [var, coeff] : result.coefficients) {
-    std::cout << var << ":" << coeff << " ";
+    std::print("{}:{} ", var, coeff);
   }
 
   if (result.constraint_type == ConstraintType::RANGE) {
-    std::cout << "\nLower bound: " << result.lower_bound.value_or(0);
-    std::cout << "\nUpper bound: " << result.upper_bound.value_or(0);
-    std::cout << "\nConstraint: RANGE";
+    std::println("");
+    std::println("Lower bound: {}", result.lower_bound.value_or(0));
+    std::println("Upper bound: {}", result.upper_bound.value_or(0));
+    std::print("Constraint: RANGE");
   } else {
-    std::cout << "\nRHS: " << result.rhs;
-    std::cout << "\nConstraint: ";
+    std::println("");
+    std::println("RHS: {}", result.rhs);
+    std::print("Constraint: ");
     switch (result.constraint_type) {
       case ConstraintType::LESS_EQUAL:
-        std::cout << "<=";
+        std::print("<=");
         break;
       case ConstraintType::EQUAL:
-        std::cout << "=";
+        std::print("=");
         break;
       case ConstraintType::GREATER_EQUAL:
-        std::cout << ">=";
+        std::print(">=");
         break;
       case ConstraintType::RANGE:
         break;  // Already handled above
     }
   }
-  std::cout << "\n\n";
+  std::println("");
+  std::println("");
 }
 
 int do_main()
@@ -450,7 +451,7 @@ int do_main()
                                            "-1 <= x - y <= 5"};
 
   for (const auto& expr : test_expressions) {
-    std::cout << "Expression: " << expr << std::endl;
+    std::println("Expression: {}", expr);
     try {
       auto result = LinearParser::parse(expr);
       printResult(result);
@@ -459,16 +460,18 @@ int do_main()
       auto vars = result.getVariableNames();
       if (!vars.empty()) {
         auto coeff_vector = result.getCoefficientsVector(vars);
-        std::cout << "Coefficient vector [";
+        std::print("Coefficient vector [");
         for (std::size_t i = 0; i < coeff_vector.size(); ++i) {
-          std::cout << coeff_vector[i];
+          std::print("{}", coeff_vector[i]);
           if (i < coeff_vector.size() - 1)
-            std::cout << ", ";
+            std::print(", ");
         }
-        std::cout << "]\n\n";
+        std::println("]");
+        std::println("");
       }
     } catch (const std::exception& e) {
-      std::cout << "Error: " << e.what() << "\n\n";
+      std::println("Error: {}", e.what());
+      std::println("");
     }
   }
 

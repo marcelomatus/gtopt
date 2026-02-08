@@ -1,3 +1,5 @@
+#include <utility>
+
 #include <doctest/doctest.h>
 #include <gtopt/error.hpp>
 
@@ -7,11 +9,11 @@ TEST_SUITE("Error")
 {
   TEST_CASE("ErrorCode default values")
   {
-    CHECK(static_cast<uint8_t>(ErrorCode::Success) == 0);
-    CHECK(static_cast<uint8_t>(ErrorCode::SolverError) == 1);
-    CHECK(static_cast<uint8_t>(ErrorCode::InternalError) == 2);
-    CHECK(static_cast<uint8_t>(ErrorCode::InvalidInput) == 3);
-    CHECK(static_cast<uint8_t>(ErrorCode::FileIOError) == 4);
+    CHECK(std::to_underlying(ErrorCode::Success) == 0);
+    CHECK(std::to_underlying(ErrorCode::SolverError) == 1);
+    CHECK(std::to_underlying(ErrorCode::InternalError) == 2);
+    CHECK(std::to_underlying(ErrorCode::InvalidInput) == 3);
+    CHECK(std::to_underlying(ErrorCode::FileIOError) == 4);
   }
 
   TEST_CASE("Error default construction")
