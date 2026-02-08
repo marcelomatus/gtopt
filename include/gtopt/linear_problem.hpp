@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -88,7 +87,7 @@ class LinearProblem
 {
 public:
   // Constants
-  static constexpr double DblMax = std::numeric_limits<double>::max();
+  static constexpr double DblMax = CoinDblMax;
 
   // Type aliases for indices and sparse structures
   using index_t = FlatLinearProblem::index_t;
