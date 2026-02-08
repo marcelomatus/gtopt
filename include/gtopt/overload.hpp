@@ -1,11 +1,12 @@
 /**
  * @file      overload.hpp
- * @brief     Header of
+ * @brief     Overload pattern for combining multiple callables
  * @date      Sun Mar 23 21:08:27 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides the Overload helper for std::visit and similar patterns.
+ * C++20 aggregate CTAD eliminates the need for an explicit deduction guide.
  */
 
 #pragma once
@@ -17,6 +18,4 @@ struct Overload : Ts...
 {
   using Ts::operator()...;
 };
-template<class... Ts>
-Overload(Ts...) -> Overload<Ts...>;
 }  // namespace gtopt

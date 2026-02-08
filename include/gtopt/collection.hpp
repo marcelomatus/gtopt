@@ -31,12 +31,11 @@ namespace gtopt
 
 /**
  * Concept that ensures a type can be safely moved.
- * Types must be both move constructible and provide the noexcept guarantee
- * for their move operations to enable compiler plannings.
+ * Uses C++23 _v trait form. nothrow_move_constructible implies
+ * move_constructible, so the redundant check is removed.
  */
 template<typename Type>
-concept CopyMove = std::is_move_constructible<Type>::value  // NOLINT
-    && std::is_nothrow_move_constructible<Type>::value;  // NOLINT
+concept CopyMove = std::is_nothrow_move_constructible_v<Type>;
 
 /**
  * @brief A container for managing typed elements with efficient lookup by name,
