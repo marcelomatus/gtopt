@@ -271,14 +271,14 @@ void OutputContext::write() const
 {
   const auto fmt = options().output_format();
   const auto zfmt = options().compression_format();
-  const auto& path_tables =
+  auto path_tables =
       create_tables(options().output_directory(), field_vector_map);
 
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
   for (auto&& [path, table] : path_tables) {
     tasks.emplace_back(
-        [path, table, fmt, zfmt]
+        [path = std::move(path), table = std::move(table), fmt, zfmt]
         {
           if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
             auto msg = std::format("File write failed: {}", path.string());
