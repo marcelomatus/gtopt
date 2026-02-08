@@ -18,9 +18,9 @@ namespace gtopt
 
 double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
 {
-  static std::atomic<uint64_t> last_idle = 0;
-  static std::atomic<uint64_t> last_total = 0;
-  static std::atomic<size_t> call_count = 0;
+  static constinit std::atomic<uint64_t> last_idle = 0;
+  static constinit std::atomic<uint64_t> last_total = 0;
+  static constinit std::atomic<size_t> call_count = 0;
 
   constexpr std::string_view proc_stat_path = "/proc/stat";
   constexpr size_t min_stats = 4;  // Minimum required CPU stats
