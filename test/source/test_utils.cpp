@@ -105,42 +105,35 @@ TEST_CASE("map utilities")
   SUBCASE("get_optiter")
   {
     auto opt = get_optiter(test_map, 2);
-    REQUIRE(opt.has_value());
-    if (opt.has_value()) {
-      CHECK(opt.value()->first == 2);
-      CHECK(opt.value()->second == "two");
-    }
+    REQUIRE(opt);
+    CHECK((*opt)->first == 2);
+    CHECK((*opt)->second == "two");
 
     auto opt2 = get_optiter(test_map, 42);
-    CHECK_FALSE(opt2.has_value());
+    CHECK_FALSE(opt2);
   }
 
   SUBCASE("get_optvalue")
   {
     auto opt = get_optvalue(test_map, 3);
-    REQUIRE(opt.has_value());
-    if (opt.has_value()) {
-      CHECK(*opt == "three");
-    } else {
-      FAIL("Expected value for key 3");
-    }
+    REQUIRE(opt);
+    CHECK(*opt == "three");
 
     auto opt2 = get_optvalue(test_map, 42);
-    CHECK_FALSE(opt2.has_value());
+    CHECK_FALSE(opt2);
   }
 
   SUBCASE("get_optvalue_optkey")
   {
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
-    REQUIRE(opt.has_value());
-    if (opt.has_value()) {
-      CHECK(*opt == "two");
-    } else {
-      FAIL("Expected value for key 2");
-    }
+    REQUIRE(opt);
+    CHECK(*opt == "two");
 
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
-    CHECK_FALSE(opt2.has_value());
+    CHECK_FALSE(opt2);
+
+    auto opt3 = get_optvalue_optkey(test_map, std::optional<int> {42});
+    CHECK_FALSE(opt3);
   }
 }
 
@@ -172,6 +165,50 @@ TEST_CASE("optional utilities")
     CHECK(is_true_fnc(std::optional<bool> {true}));
     CHECK_FALSE(is_true_fnc(std::optional<bool> {false}));
     CHECK_FALSE(is_true_fnc(std::optional<bool> {}));
+  }
+
+  SUBCASE("is_true_fnc with int-convertible types")
+  {
+    CHECK(is_true_fnc(std::optional<int> {1}));
+    CHECK_FALSE(is_true_fnc(std::optional<int> {0}));
+    CHECK_FALSE(is_true_fnc(std::optional<int> {}));
+  }
+}
+
+TEST_CASE("C++23 optional monadic operations")
+{
+  const std::map<int, std::string> test_map {
+      {1, "one"},
+      {2, "two"},
+      {3, "three"},
+  };
+
+  SUBCASE("get_optvalue_optkey uses and_then")
+  {
+    // and_then chains optional-returning functions
+    auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
+    REQUIRE(opt);
+    CHECK(*opt == "two");
+
+    // with nullopt key
+    auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
+    CHECK_FALSE(opt2);
+
+    // with key not in map
+    auto opt3 = get_optvalue_optkey(test_map, std::optional<int> {99});
+    CHECK_FALSE(opt3);
+  }
+
+  SUBCASE("optional value_or for boolean checks")
+  {
+    // is_true_fnc now uses value_or(false) - a C++23 pattern
+    const std::optional<bool> opt_true {true};
+    const std::optional<bool> opt_false {false};
+    const std::optional<bool> opt_empty {};
+
+    CHECK(is_true_fnc(opt_true));
+    CHECK_FALSE(is_true_fnc(opt_false));
+    CHECK_FALSE(is_true_fnc(opt_empty));
   }
 }
 

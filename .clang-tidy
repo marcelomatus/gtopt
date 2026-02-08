@@ -5,9 +5,11 @@ Checks: "*,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
+  modernize-type-traits, \
+  modernize-use-std-print, \
+  modernize-use-starts-ends-with, \
   -cppcoreguidelines-macro-to-enum,\
   -modernize-macro-to-enum,\
-  -modernize-type-traits,\
   -bugprone-derived-method-shadowing-base-method,\
   -altera-*,\
   -boost-use-ranges,\

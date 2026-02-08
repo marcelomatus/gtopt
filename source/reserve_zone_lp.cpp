@@ -20,7 +20,7 @@ constexpr bool add_requirement(const std::string_view cname,
                                const auto rname)
 {
   using STKey = STBIndexHolder<ColIndex>::key_type;
-  if (!(rr.req.has_value())) {
+  if (!rr.req) {
     return true;
   }
 
