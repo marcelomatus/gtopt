@@ -1,3 +1,16 @@
+/**
+ * @file      bus_lp.cpp
+ * @brief     Implementation of BusLP class for bus linear programming
+ * @date      Sat Feb  8 01:50:00 2026
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module implements the BusLP class, providing the linear programming
+ * representation of electrical buses in power system optimization. It handles
+ * Kirchhoff's law constraints, phase angle variables (theta), and power
+ * balance equations using modern C++26 features.
+ */
+
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -29,7 +42,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
 
   const auto scale_theta = sc.options().scale_theta();
 
-  if (stage.is_active() && needs_kirchhoff(sc)) {
+  if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
     std::ranges::for_each(
         blocks,
         [&](const BlockLP& block)
@@ -39,13 +52,13 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
               sc.lp_label(scenario, stage, block, cname, "theta", uid());
 
           const auto& theta = reference_theta();
-          if (theta.has_value()) {
+          if (theta.has_value()) [[unlikely]] {
             tblocks[buid] = lp.add_col(SparseCol {
                 .name = std::move(tname),
                 .lowb = *theta * scale_theta,
                 .uppb = *theta * scale_theta,
             });
-          } else {
+          } else [[likely]] {
             constexpr double theta_bound =
                 2 * std::numbers::pi;  // Default bound for theta
             tblocks[buid] = lp.add_col(SparseCol {
