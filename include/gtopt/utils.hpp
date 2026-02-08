@@ -14,10 +14,10 @@
 #pragma once
 
 #include <cmath>
+#include <format>
 #include <iterator>  // for std::back_inserter
 #include <optional>
 #include <ranges>
-#include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -52,9 +52,6 @@ template<typename T>
 constexpr bool merge(std::vector<T>& dest, std::vector<T>&& src) noexcept(
     std::is_nothrow_move_constructible_v<T>)
 {
-  static_assert(std::is_move_constructible_v<T>,
-                "Type T must be move-constructible for efficient append");
-
   if (&dest == &src) {
     return false;  // No-op for self-merge
   }
@@ -264,14 +261,13 @@ std::string as_string(const std::tuple<Args...>& t)
   return std::apply(
       [](const Args&... args)
       {
-        std::ostringstream oss;
-        oss << "(";
+        std::string result = "(";
         std::size_t count = 0;
-        ((oss << std::format("{}", args)
-              << (++count < sizeof...(Args) ? ", " : "")),
+        ((result += std::format("{}", args)
+              + (++count < sizeof...(Args) ? ", " : "")),
          ...);
-        oss << ")";
-        return oss.str();
+        result += ")";
+        return result;
       },
       t);
 }
