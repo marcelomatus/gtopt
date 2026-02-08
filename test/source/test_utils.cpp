@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
+#include <tuple>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -243,6 +245,13 @@ TEST_CASE("all_of")
     nums.push_back(1);
     CHECK_FALSE(all_of(nums, [](int x) { return x % 2 == 0; }));
   }
+}
+
+TEST_CASE("as_string tuple formatting")
+{
+  CHECK(as_string(std::tuple {1, 2}) == "(1, 2)");
+  CHECK(as_string(std::tuple {std::string {"alpha"}, 3}) == "(alpha, 3)");
+  CHECK(as_string(std::tuple {42}) == "(42)");
 }
 
 TEST_CASE("annual_discount_factor")
