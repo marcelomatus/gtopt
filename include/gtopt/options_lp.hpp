@@ -67,7 +67,7 @@ public:
    * @brief Constructs an OptionsLP wrapper around an Options object
    * @param poptions The Options object to wrap (defaults to empty Options)
    */
-  explicit OptionsLP(Options poptions = {})
+  explicit constexpr OptionsLP(Options poptions = {})
       : m_options_(std::move(poptions))
   {
   }

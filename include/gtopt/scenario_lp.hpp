@@ -33,12 +33,12 @@ public:
     return m_index_ == ScenarioIndex {0};
   }
 
-  [[nodiscard]] constexpr auto uid() const
+  [[nodiscard]] constexpr auto uid() const noexcept
   {
     return ScenarioUid(m_scenario_.uid);
   }
 
-  [[nodiscard]] constexpr auto probability_factor() const
+  [[nodiscard]] constexpr auto probability_factor() const noexcept
   {
     return m_scenario_.probability_factor.value_or(1.0);
   }

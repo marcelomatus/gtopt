@@ -24,7 +24,7 @@ struct Block
 
   Real duration {0.0};
 
-  static constexpr std::string class_name = "block";
+  static constexpr std::string_view class_name = "block";
 };
 
 using BlockUid = StrongUidType<struct Block>;
