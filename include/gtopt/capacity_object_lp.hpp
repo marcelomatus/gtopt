@@ -124,8 +124,8 @@ struct CapacityObjectBase
                                                 LinearProblem& lp) const -> Out
   {
     auto&& capacity_col = capacity_col_at(stage);
-    if (capacity_col.has_value()) {
-      return {lp.get_col_uppb(capacity_col.value()), capacity_col};
+    if (capacity_col) {
+      return {lp.get_col_uppb(*capacity_col), capacity_col};
     }
 
     return {capacity_at(stage), {}};

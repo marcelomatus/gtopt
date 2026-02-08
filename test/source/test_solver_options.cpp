@@ -9,6 +9,8 @@
  * functionality.
  */
 
+#include <utility>
+
 #include <doctest/doctest.h>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -22,7 +24,7 @@ TEST_CASE("SolverOptions - Default construction")
   const SolverOptions options {};
 
   // Verify default values
-  CHECK(options.algorithm == static_cast<int>(LPAlgo::default_algo));
+  CHECK(options.algorithm == std::to_underlying(LPAlgo::default_algo));
   CHECK(options.threads == 0);
   CHECK(options.presolve == true);  // Only non-zero default
   CHECK(options.optimal_eps == 1.0e-6);
@@ -35,7 +37,7 @@ TEST_CASE("SolverOptions - Custom construction")
 {
   // Test constructing SolverOptions with custom values
   const SolverOptions options {
-      .algorithm = static_cast<int>(LPAlgo::barrier),
+      .algorithm = std::to_underlying(LPAlgo::barrier),
       .threads = 4,
       .presolve = false,
       .optimal_eps = 1e-6,
@@ -45,7 +47,7 @@ TEST_CASE("SolverOptions - Custom construction")
   };
 
   // Verify custom values
-  CHECK(options.algorithm == static_cast<int>(LPAlgo::barrier));
+  CHECK(options.algorithm == std::to_underlying(LPAlgo::barrier));
   CHECK(options.threads == 4);
   CHECK(options.presolve == false);
   CHECK(options.optimal_eps == doctest::Approx(1e-6));
@@ -57,18 +59,18 @@ TEST_CASE("SolverOptions - Custom construction")
 TEST_CASE("SolverOptions - LPAlgo enumeration values")
 {
   // Test the LPAlgo enumeration values
-  CHECK(static_cast<uint8_t>(LPAlgo::default_algo) == 0);
-  CHECK(static_cast<uint8_t>(LPAlgo::primal) == 1);
-  CHECK(static_cast<uint8_t>(LPAlgo::dual) == 2);
-  CHECK(static_cast<uint8_t>(LPAlgo::barrier) == 3);
-  CHECK(static_cast<uint8_t>(LPAlgo::last_algo) == 4);
+  CHECK(std::to_underlying(LPAlgo::default_algo) == 0);
+  CHECK(std::to_underlying(LPAlgo::primal) == 1);
+  CHECK(std::to_underlying(LPAlgo::dual) == 2);
+  CHECK(std::to_underlying(LPAlgo::barrier) == 3);
+  CHECK(std::to_underlying(LPAlgo::last_algo) == 4);
 }
 
 TEST_CASE("SolverOptions - JSON serialization and deserialization")
 {
   // Create a SolverOptions object with non-default values
   const SolverOptions original {
-      .algorithm = static_cast<int>(LPAlgo::primal),
+      .algorithm = std::to_underlying(LPAlgo::primal),
       .threads = 2,
       .presolve = false,
       .optimal_eps = 1e-6,
@@ -117,7 +119,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
 
   // Create solver options with custom values
   const SolverOptions solver_options {
-      .algorithm = static_cast<int>(LPAlgo::primal),
+      .algorithm = std::to_underlying(LPAlgo::primal),
       .presolve = true,
       .optimal_eps = 1e-6,
       .feasible_eps = 1e-5,
