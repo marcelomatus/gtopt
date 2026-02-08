@@ -48,4 +48,23 @@ TEST_CASE("as_label basic functionality")
     CHECK(as_label("a", "", "c") == "a_c");
     CHECK(as_label("", "", "") == "");
   }
+
+  SUBCASE("numeric edge cases")
+  {
+    CHECK(as_label(0) == "0");
+    CHECK(as_label(-1) == "-1");
+    CHECK(as_label(0.0) == "0");
+  }
+
+  SUBCASE("case conversion")
+  {
+    CHECK(as_label("ABC") == "abc");
+    CHECK(as_label("Hello World") == "hello world");
+    CHECK(as_label("MiXeD") == "mixed");
+  }
+
+  SUBCASE("long label")
+  {
+    CHECK(as_label("a", "b", "c", "d", "e") == "a_b_c_d_e");
+  }
 }
