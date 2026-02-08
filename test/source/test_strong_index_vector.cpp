@@ -26,7 +26,7 @@ TEST_CASE("StrongIndexVector indexing")
   values[TestIndex {1}] = 42;
   CHECK(values[TestIndex {1}] == 42);
   CHECK(values.at(TestIndex {2}) == 0);
-  CHECK_THROWS_AS(values.at(TestIndex {3}), std::out_of_range);
+  CHECK_THROWS_AS(auto _ = values.at(TestIndex {3}), std::out_of_range);
 }
 
 TEST_CASE("StrongIndexVector initializer list")
