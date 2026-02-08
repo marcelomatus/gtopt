@@ -25,9 +25,9 @@ TEST_CASE("Json Bus 1")
 
   CHECK(bus.uid == 5);
   CHECK(bus.name == "CRUCERO");
-  CHECK(bus.voltage.has_value() == false);
-  CHECK(bus.reference_theta.has_value() == false);
-  CHECK(bus.use_kirchhoff.has_value() == false);
+  CHECK(!bus.voltage);
+  CHECK(!bus.reference_theta);
+  CHECK(!bus.use_kirchhoff);
 }
 
 TEST_CASE("Json Bus 2")
@@ -103,9 +103,9 @@ TEST_CASE("Bus serialization")
 
     CHECK(roundtrip.uid == 1);
     CHECK(roundtrip.name == "bus_1");
-    CHECK(!roundtrip.voltage.has_value());
-    CHECK(!roundtrip.reference_theta.has_value());
-    CHECK(!roundtrip.use_kirchhoff.has_value());
+    CHECK(!roundtrip.voltage);
+    CHECK(!roundtrip.reference_theta);
+    CHECK(!roundtrip.use_kirchhoff);
   }
 
   SUBCASE("Full bus")

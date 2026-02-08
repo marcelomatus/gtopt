@@ -137,9 +137,9 @@ constexpr auto true_fnc = [](const auto&) noexcept { return true; };
 constexpr auto has_value_fnc = [](const auto& opt) noexcept
 { return opt.has_value(); };
 
-/// Predicate that checks if optional has value and value is true
+/// Predicate that checks if optional has value and value is true (C++23 value_or)
 constexpr auto is_true_fnc = [](const auto& opt)
-{ return opt.has_value() && opt.value(); };
+{ return opt.value_or(false); };
 
 template<typename IndexType = size_t, typename Range>
 constexpr auto enumerate_active(const Range& range) noexcept
@@ -182,7 +182,8 @@ constexpr auto get_optvalue(const T& map, K&& key) noexcept
 template<typename T, typename K>
 constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
 {
-  return key.has_value() ? get_optvalue(map, key.value()) : std::nullopt;
+  return key.and_then(
+      [&map](const K& k) { return get_optvalue(map, k); });
 }
 
 /**
@@ -202,7 +203,7 @@ template<typename OptA, typename OptB>
   requires requires(OptA& a, OptB&& b) { a = std::forward<OptB>(b); }
 constexpr auto& merge_opt(OptA& a, OptB&& b) noexcept
 {
-  if (b.has_value()) {
+  if (b) {
     a = std::forward<OptB>(b);
   }
   return a;

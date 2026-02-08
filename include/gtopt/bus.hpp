@@ -39,7 +39,9 @@ struct Bus
   [[nodiscard]] constexpr bool needs_kirchhoff(const double v_threshold) const
   {
     return use_kirchhoff.value_or(true)
-        && (!voltage.has_value() || voltage.value() > v_threshold);
+        && voltage.transform([v_threshold](double v)
+                             { return v > v_threshold; })
+               .value_or(true);
   }
 };
 
