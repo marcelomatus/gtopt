@@ -87,7 +87,7 @@ TEST_CASE("enumerate_if and active")
   SUBCASE("active view")
   {
     auto active_view = active(elements);
-    CHECK(ranges::distance(active_view) == 3);
+    CHECK(std::ranges::distance(active_view) == 3);
     for (const auto& elem : active_view) {
       CHECK(elem.is_active());
     }

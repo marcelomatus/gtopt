@@ -49,7 +49,7 @@ namespace detail
   auto stages = stage_array.subspan(phase.first_stage, phase.count_stage);
 
   return enumerate_active<StageIndex>(stages)
-      | ranges::views::transform(
+      | std::ranges::views::transform(
              [&](auto&& is)
              {
                const auto& [stage_index, stage] = is;
@@ -61,7 +61,7 @@ namespace detail
                    phase_index,
                };
              })
-      | ranges::to<std::vector>();
+      | std::ranges::to<std::vector>();
 }
 }  // namespace detail
 
@@ -92,8 +92,8 @@ public:
       , m_index_(phase_index)
       , m_stages_(detail::create_stage_array(
             m_phase_, m_index_, options, stages, blocks))
-      , m_duration_(ranges::fold_left(
-            m_stages_ | ranges::views::transform(&StageLP::duration),
+      , m_duration_(std::ranges::fold_left(
+            m_stages_ | std::ranges::views::transform(&StageLP::duration),
             0.0,
             std::plus<>()))
   {

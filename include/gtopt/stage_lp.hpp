@@ -30,8 +30,9 @@ namespace detail
     std::span<const Block> block_array, const Stage& stage)
 {
   return block_array.subspan(stage.first_block, stage.count_block)
-      | ranges::views::transform([](const Block& b) { return BlockLP {b}; })
-      | ranges::to<std::vector>();
+      | std::ranges::views::transform([](const Block& b)
+                                      { return BlockLP {b}; })
+      | std::ranges::to<std::vector>();
 }
 }  // namespace detail
 
@@ -63,14 +64,14 @@ public:
                    PhaseIndex phase_index = PhaseIndex {unknown_index})
       : m_stage_(std::move(stage))
       , m_blocks_(detail::create_block_array(blocks, m_stage_))
-      , m_timeinit_(ranges::fold_left(
-            blocks | ranges::views::take(m_stage_.first_block)
-                | ranges::views::transform([](const Block& b)
-                                           { return b.duration; }),
+      , m_timeinit_(std::ranges::fold_left(
+            blocks | std::ranges::views::take(m_stage_.first_block)
+                | std::ranges::views::transform([](const Block& b)
+                                                { return b.duration; }),
             0.0,
             std::plus()))
-      , m_duration_(ranges::fold_left(
-            m_blocks_ | ranges::views::transform(&BlockLP::duration),
+      , m_duration_(std::ranges::fold_left(
+            m_blocks_ | std::ranges::views::transform(&BlockLP::duration),
             0.0,
             std::plus<>()))
       , m_discount_factor_(
@@ -92,8 +93,8 @@ public:
 
   [[nodiscard]] constexpr auto total_duration() const noexcept
   {
-    return ranges::fold_left(
-        m_blocks_ | ranges::views::transform(&BlockLP::duration),
+    return std::ranges::fold_left(
+        m_blocks_ | std::ranges::views::transform(&BlockLP::duration),
         0.0,
         std::plus<>());
   }

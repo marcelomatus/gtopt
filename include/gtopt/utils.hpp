@@ -27,10 +27,6 @@
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 
-namespace ranges = std::ranges;  // Alias for std::ranges
-
-// #include <range/v3/all.hpp>
-
 namespace gtopt
 {
 
@@ -106,26 +102,27 @@ constexpr bool merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
  *   // i is index, val is element
  * }
  */
-template<typename IndexType = size_t, ranges::range... Ranges>
+template<typename IndexType = size_t, std::ranges::range... Ranges>
 [[nodiscard]] constexpr auto enumerate(Ranges&&... ranges) noexcept
 {
-  return ranges::views::zip(
-      ranges::views::iota(0)
-          | ranges::views::transform([](auto i)
-                                     { return static_cast<IndexType>(i); }),
+  return std::ranges::views::zip(
+      std::ranges::views::iota(0)
+          | std::ranges::views::transform(
+              [](auto i) { return static_cast<IndexType>(i); }),
       std::forward<Ranges>(ranges)...);
 }
 
-template<typename IndexType = size_t, ranges::range Range, typename Op>
-  requires std::invocable<Op, ranges::range_value_t<Range>>
+template<typename IndexType = size_t, std::ranges::range Range, typename Op>
+  requires std::invocable<Op, std::ranges::range_value_t<Range>>
 [[nodiscard]] constexpr auto enumerate_if(Range&& range, Op op) noexcept(
-    noexcept(op(std::declval<ranges::range_value_t<Range>>())))
+    noexcept(op(std::declval<std::ranges::range_value_t<Range>>())))
 {
   //  const auto op_second = [&](auto&& p) { return op(std::get<1>(p)); };
-  //    return enumerate<IndexType>(range) | ranges::views::filter(op_second);
+  //    return enumerate<IndexType>(range) |
+  //    std::ranges::views::filter(op_second);
 
   return enumerate<IndexType>(std::forward<Range>(range)
-                              | ranges::views::filter(op));
+                              | std::ranges::views::filter(op));
 }
 
 /// Predicate that checks if element has is_active() member returning true
@@ -150,10 +147,10 @@ constexpr auto enumerate_active(const Range& range) noexcept
   return enumerate_if<IndexType>(range, active_fnc);
 }
 
-template<ranges::range Range>
+template<std::ranges::range Range>
 [[nodiscard]] constexpr auto active(Range&& range) noexcept
 {
-  return std::forward<Range>(range) | ranges::views::filter(active_fnc);
+  return std::forward<Range>(range) | std::ranges::views::filter(active_fnc);
 }
 
 /**
@@ -220,19 +217,19 @@ constexpr auto& merge_opt(OptA& a, OptB&& b) noexcept
  * @param transform Transform operation (optional)
  * @return std::vector containing transformed elements
  */
-template<ranges::range Range,
+template<std::ranges::range Range,
          typename Transform = decltype([](const auto& x) { return x; }),
-         typename RRef = decltype(*ranges::begin(std::declval<Range>()))>
+         typename RRef = decltype(*std::ranges::begin(std::declval<Range>()))>
   requires std::invocable<Transform, RRef>
 [[nodiscard]] auto to_vector(Range&& range, Transform&& transform = {})
 {
   std::vector<std::invoke_result_t<Transform, RRef>> result;
-  if constexpr (ranges::sized_range<Range>) {
-    result.reserve(ranges::size(range));
+  if constexpr (std::ranges::sized_range<Range>) {
+    result.reserve(std::ranges::size(range));
   }
-  ranges::transform(std::forward<Range>(range),
-                    std::back_inserter(result),
-                    std::forward<Transform>(transform));
+  std::ranges::transform(std::forward<Range>(range),
+                         std::back_inserter(result),
+                         std::forward<Transform>(transform));
   return result;
 }
 
@@ -245,11 +242,12 @@ template<ranges::range Range,
  * @param pred Predicate to test
  * @return true if all elements satisfy predicate, false otherwise
  */
-template<ranges::range Range, typename Pred>
+template<std::ranges::range Range, typename Pred>
 [[nodiscard]] constexpr bool all_of(Range&& range, Pred&& pred) noexcept(
-    noexcept(pred(*ranges::begin(range))))
+    noexcept(pred(*std::ranges::begin(range))))
 {
-  return ranges::all_of(std::forward<Range>(range), std::forward<Pred>(pred));
+  return std::ranges::all_of(std::forward<Range>(range),
+                             std::forward<Pred>(pred));
 }
 
 constexpr double annual_discount_factor(double annual_discount_rate,
