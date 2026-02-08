@@ -24,7 +24,7 @@ struct TestObject1
   Name object_name;
 
   [[nodiscard]] constexpr auto uid() const -> Uid { return object_uid; }
-  [[nodiscard]] constexpr const auto& name() const -> const Name&
+  [[nodiscard]] constexpr auto name() const -> const Name&
   {
     return object_name;
   }
@@ -36,7 +36,7 @@ struct TestObject2
   Name object_name;
 
   [[nodiscard]] constexpr auto uid() const -> Uid { return object_uid; }
-  [[nodiscard]] constexpr const auto& name() const -> const Name&
+  [[nodiscard]] constexpr auto name() const -> const Name&
   {
     return object_name;
   }
@@ -45,7 +45,7 @@ struct TestObject2
 
 TEST_CASE("get_uid and get_name - With objects")
 {
-  TestObject1 obj {.object_uid = Uid {42}, .object_name = "test_obj"};
+  const TestObject1 obj {.object_uid = Uid {42}, .object_name = "test_obj"};
 
   CHECK(get_uid(obj) == Uid {42});
   CHECK(get_name(obj) == "test_obj");
@@ -53,7 +53,7 @@ TEST_CASE("get_uid and get_name - With objects")
 
 TEST_CASE("get_uid and get_name - With Id")
 {
-  Id id {Uid {100}, "test_id"};
+  const Id id {Uid {100}, "test_id"};
 
   CHECK(get_uid(id) == Uid {100});
   CHECK(get_name(id) == "test_id");
@@ -61,8 +61,8 @@ TEST_CASE("get_uid and get_name - With Id")
 
 TEST_CASE("ObjectId - Construction and access")
 {
-  Id base_id {Uid {5}, "base"};
-  ObjectId<TestObject1> obj_id {base_id};
+  const Id base_id {Uid {5}, "base"};
+  const ObjectId<TestObject1> obj_id {base_id};
 
   CHECK(obj_id.first == Uid {5});
   CHECK(obj_id.second == "base");
@@ -89,7 +89,7 @@ TEST_CASE("OptSingleId - Optional variant")
 {
   SUBCASE("Empty optional")
   {
-    OptSingleId opt;
+    const OptSingleId opt;
     CHECK_FALSE(opt.has_value());
   }
 
@@ -114,29 +114,29 @@ TEST_CASE("ObjectSingleId - Construction")
 {
   SUBCASE("Default construction")
   {
-    ObjectSingleId<TestObject1> obj_sid;
+    const ObjectSingleId<TestObject1> obj_sid;
     // Should be default-constructed variant (holds Uid by default)
     CHECK(std::holds_alternative<Uid>(obj_sid));
   }
 
   SUBCASE("Construct from Uid")
   {
-    ObjectSingleId<TestObject1> obj_sid {Uid {99}};
+    const ObjectSingleId<TestObject1> obj_sid {Uid {99}};
     CHECK(std::holds_alternative<Uid>(obj_sid));
     CHECK(obj_sid.uid() == 99);
   }
 
   SUBCASE("Construct from Name")
   {
-    ObjectSingleId<TestObject1> obj_sid {Name {"obj_name"}};
+    const ObjectSingleId<TestObject1> obj_sid {Name {"obj_name"}};
     CHECK(std::holds_alternative<Name>(obj_sid));
     CHECK(obj_sid.name() == "obj_name");
   }
 
   SUBCASE("Construct from SingleId (copy)")
   {
-    SingleId sid = Uid {123};
-    ObjectSingleId<TestObject1> obj_sid {sid};
+    const SingleId sid = Uid {123};
+    const ObjectSingleId<TestObject1> obj_sid {sid};
     CHECK(std::holds_alternative<Uid>(obj_sid));
     CHECK(obj_sid.uid() == 123);
   }
@@ -144,7 +144,7 @@ TEST_CASE("ObjectSingleId - Construction")
   SUBCASE("Construct from SingleId (move)")
   {
     SingleId sid = Name {"moved_name"};
-    ObjectSingleId<TestObject1> obj_sid {std::move(sid)};
+    const ObjectSingleId<TestObject1> obj_sid {std::move(sid)};
     CHECK(std::holds_alternative<Name>(obj_sid));
     CHECK(obj_sid.name() == "moved_name");
   }
@@ -154,14 +154,14 @@ TEST_CASE("ObjectSingleId - Copy and move semantics")
 {
   SUBCASE("Copy construction")
   {
-    ObjectSingleId<TestObject1> obj_sid1 {Uid {50}};
-    ObjectSingleId<TestObject1> obj_sid2 {obj_sid1};
+    const ObjectSingleId<TestObject1> obj_sid1 {Uid {50}};
+    const ObjectSingleId<TestObject1> obj_sid2 {obj_sid1};  // NOLINT
     CHECK(obj_sid2.uid() == 50);
   }
 
   SUBCASE("Copy assignment")
   {
-    ObjectSingleId<TestObject1> obj_sid1 {Uid {60}};
+    const ObjectSingleId<TestObject1> obj_sid1 {Uid {60}};
     ObjectSingleId<TestObject1> obj_sid2 {Uid {70}};
     obj_sid2 = obj_sid1;
     CHECK(obj_sid2.uid() == 60);
@@ -170,7 +170,7 @@ TEST_CASE("ObjectSingleId - Copy and move semantics")
   SUBCASE("Move construction")
   {
     ObjectSingleId<TestObject1> obj_sid1 {Name {"moving"}};
-    ObjectSingleId<TestObject1> obj_sid2 {std::move(obj_sid1)};
+    const ObjectSingleId<TestObject1> obj_sid2 {std::move(obj_sid1)};
     CHECK(obj_sid2.name() == "moving");
   }
 
@@ -187,13 +187,13 @@ TEST_CASE("ObjectSingleId - Accessors")
 {
   SUBCASE("uid() accessor")
   {
-    ObjectSingleId<TestObject1> obj_sid {Uid {200}};
+    const ObjectSingleId<TestObject1> obj_sid {Uid {200}};
     CHECK(obj_sid.uid() == 200);
   }
 
   SUBCASE("name() accessor")
   {
-    ObjectSingleId<TestObject1> obj_sid {Name {"accessor_test"}};
+    const ObjectSingleId<TestObject1> obj_sid {Name {"accessor_test"}};
     CHECK(obj_sid.name() == "accessor_test");
   }
 }
@@ -227,8 +227,7 @@ TEST_CASE("ObjectSingleId - Variant visitation")
           using T = std::decay_t<decltype(value)>;
           if constexpr (std::is_same_v<T, Uid>) {
             return std::format("Uid: {}", value);
-          }
-          else {
+          } else {
             return std::format("Name: {}", value);
           }
         },
@@ -245,8 +244,7 @@ TEST_CASE("ObjectSingleId - Variant visitation")
           using T = std::decay_t<decltype(value)>;
           if constexpr (std::is_same_v<T, Uid>) {
             return std::format("Uid: {}", value);
-          }
-          else {
+          } else {
             return std::format("Name: {}", value);
           }
         },
@@ -259,9 +257,9 @@ TEST_CASE("ObjectSingleId - Variant visitation")
 TEST_CASE("ObjectSingleId - Use in containers")
 {
   std::vector<ObjectSingleId<TestObject1>> vec;
-  vec.push_back(ObjectSingleId<TestObject1> {Uid {1}});
-  vec.push_back(ObjectSingleId<TestObject1> {Name {"second"}});
-  vec.push_back(ObjectSingleId<TestObject1> {Uid {3}});
+  vec.emplace_back(Uid {1});
+  vec.emplace_back(Name {"second"});
+  vec.emplace_back(Uid {3});
 
   CHECK(vec.size() == 3);
   CHECK(std::holds_alternative<Uid>(vec[0]));

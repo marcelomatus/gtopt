@@ -11,6 +11,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/fmap.hpp>
@@ -151,6 +152,8 @@ TEST_CASE("flat_map - Copy and move semantics")
     CHECK(map2.size() == 2);
     CHECK(map2[1] == "one");
     CHECK(map2[2] == "two");
+
+    map1 = map2;
   }
 
   SUBCASE("Move assignment")
@@ -167,9 +170,9 @@ TEST_CASE("flat_map - Complex value types")
 {
   struct ComplexValue
   {
-    std::string name;
-    int value;
-    std::vector<double> data;
+    std::string name {};
+    int value {};
+    std::vector<double> data {};
 
     auto operator==(const ComplexValue& other) const -> bool
     {
@@ -196,9 +199,9 @@ TEST_CASE("flat_map - Tuple keys")
   using TupleKey = std::tuple<int, std::string>;
   flat_map<TupleKey, double> map;
 
-  TupleKey key1 {1, "first"};
-  TupleKey key2 {2, "second"};
-  TupleKey key3 {1, "different"};
+  const TupleKey key1 {1, "first"};
+  const TupleKey key2 {2, "second"};
+  const TupleKey key3 {1, "different"};
 
   map[key1] = 1.5;
   map[key2] = 2.5;

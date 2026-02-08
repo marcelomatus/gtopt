@@ -8,6 +8,8 @@
  * Tests for the ElementIndex strongly-typed index wrapper
  */
 
+#include <algorithm>
+#include <ranges>
 #include <type_traits>
 
 #include <doctest/doctest.h>
@@ -31,18 +33,18 @@ struct TestElement2
 
 TEST_CASE("ElementIndex - Default construction")
 {
-  ElementIndex<TestElement1> idx1;
+  const ElementIndex<TestElement1> idx1;
   CHECK(idx1 == ElementIndex<TestElement1>::Unknown);
   CHECK(idx1 == unknown_index);
 }
 
 TEST_CASE("ElementIndex - Value construction")
 {
-  ElementIndex<TestElement1> idx1 {5};
+  const ElementIndex<TestElement1> idx1 {5};
   CHECK(idx1 == 5);
   CHECK(idx1 != ElementIndex<TestElement1>::Unknown);
 
-  ElementIndex<TestElement1> idx2 {0};
+  const ElementIndex<TestElement1> idx2 {0};
   CHECK(idx2 == 0);
   CHECK(idx2 != ElementIndex<TestElement1>::Unknown);
 }
@@ -51,7 +53,7 @@ TEST_CASE("ElementIndex - Copy and move semantics")
 {
   SUBCASE("Copy construction")
   {
-    ElementIndex<TestElement1> idx1 {10};
+    const ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {idx1};
     CHECK(idx1 == idx2);
     CHECK(idx2 == 10);
@@ -59,7 +61,7 @@ TEST_CASE("ElementIndex - Copy and move semantics")
 
   SUBCASE("Copy assignment")
   {
-    ElementIndex<TestElement1> idx1 {10};
+    const ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {5};
     idx2 = idx1;
     CHECK(idx1 == idx2);
@@ -69,7 +71,7 @@ TEST_CASE("ElementIndex - Copy and move semantics")
   SUBCASE("Move construction")
   {
     ElementIndex<TestElement1> idx1 {10};
-    ElementIndex<TestElement1> idx2 {std::move(idx1)};
+    ElementIndex<TestElement1> idx2 {std::move(idx1)};  // NOLINT
     CHECK(idx2 == 10);
   }
 
@@ -77,7 +79,7 @@ TEST_CASE("ElementIndex - Copy and move semantics")
   {
     ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {5};
-    idx2 = std::move(idx1);
+    idx2 = std::move(idx1);  // NOLINT
     CHECK(idx2 == 10);
   }
 }
@@ -85,15 +87,13 @@ TEST_CASE("ElementIndex - Copy and move semantics")
 TEST_CASE("ElementIndex - Type safety")
 {
   // These should be different types and not convertible
-  static_assert(
-      !std::is_convertible_v<ElementIndex<TestElement1>,
-                             ElementIndex<TestElement2>>,
-      "ElementIndex should enforce type safety");
+  static_assert(!std::is_convertible_v<ElementIndex<TestElement1>,
+                                       ElementIndex<TestElement2>>,
+                "ElementIndex should enforce type safety");
 
-  static_assert(
-      !std::is_convertible_v<ElementIndex<TestElement2>,
-                             ElementIndex<TestElement1>>,
-      "ElementIndex should enforce type safety");
+  static_assert(!std::is_convertible_v<ElementIndex<TestElement2>,
+                                       ElementIndex<TestElement1>>,
+                "ElementIndex should enforce type safety");
 
   // Can construct from size_t
   static_assert(std::is_constructible_v<ElementIndex<TestElement1>, size_t>,
@@ -166,7 +166,7 @@ TEST_CASE("ElementIndex - Unknown constant")
   constexpr auto unknown = ElementIndex<TestElement1>::Unknown;
   CHECK(unknown == unknown_index);
 
-  ElementIndex<TestElement1> idx;
+  const ElementIndex<TestElement1> idx;
   CHECK(idx == unknown);
 }
 
@@ -184,19 +184,19 @@ TEST_CASE("ElementIndex - Constexpr support")
 
 TEST_CASE("ElementIndex - Conversion to size_t")
 {
-  ElementIndex<TestElement1> idx {42};
+  const ElementIndex<TestElement1> idx {42};
 
   // Should be able to convert back to size_t
-  size_t value = static_cast<size_t>(idx);
+  auto value = static_cast<size_t>(idx);
   CHECK(value == 42);
 }
 
 TEST_CASE("ElementIndex - Use in containers")
 {
   std::vector<ElementIndex<TestElement1>> indices;
-  indices.push_back(ElementIndex<TestElement1> {0});
-  indices.push_back(ElementIndex<TestElement1> {1});
-  indices.push_back(ElementIndex<TestElement1> {2});
+  indices.emplace_back(0);
+  indices.emplace_back(1);
+  indices.emplace_back(2);
 
   CHECK(indices.size() == 3);
   CHECK(indices[0] == 0);
