@@ -80,4 +80,73 @@ TEST_SUITE("SparseCol")
     CHECK(col.uppb == 5.0);
     CHECK(col.is_integer == true);
   }
+
+  TEST_CASE("Negative Bounds")
+  {
+    SparseCol col;
+
+    SUBCASE("Negative equal")
+    {
+      col.equal(-10.0);
+      CHECK(col.lowb == -10.0);
+      CHECK(col.uppb == -10.0);
+    }
+
+    SUBCASE("Negative cost")
+    {
+      col.cost = -5.5;
+      CHECK(col.cost == -5.5);
+    }
+
+    SUBCASE("Zero equal")
+    {
+      col.equal(0.0);
+      CHECK(col.lowb == 0.0);
+      CHECK(col.uppb == 0.0);
+    }
+  }
+
+  TEST_CASE("Method Chaining Order")
+  {
+    SparseCol col;
+
+    SUBCASE("free then integer")
+    {
+      col.free().integer();
+      CHECK(col.lowb == -CoinDblMax);
+      CHECK(col.uppb == CoinDblMax);
+      CHECK(col.is_integer == true);
+    }
+
+    SUBCASE("equal overwrites free")
+    {
+      col.free();
+      col.equal(42.0);
+      CHECK(col.lowb == 42.0);
+      CHECK(col.uppb == 42.0);
+    }
+
+    SUBCASE("free overwrites equal")
+    {
+      col.equal(42.0);
+      col.free();
+      CHECK(col.lowb == -CoinDblMax);
+      CHECK(col.uppb == CoinDblMax);
+    }
+  }
+
+  TEST_CASE("Copy Semantics")
+  {
+    SparseCol col1;
+    col1.name = "original";
+    col1.cost = 7.0;
+    col1.equal(3.0).integer();
+
+    const SparseCol col2 = col1;
+    CHECK(col2.name == "original");
+    CHECK(col2.cost == 7.0);
+    CHECK(col2.lowb == 3.0);
+    CHECK(col2.uppb == 3.0);
+    CHECK(col2.is_integer == true);
+  }
 }
