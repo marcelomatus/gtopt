@@ -412,11 +412,13 @@ void printResult(const ParseResult& result)
   }
 
   if (result.constraint_type == ConstraintType::RANGE) {
-    std::println("\nLower bound: {}", result.lower_bound.value_or(0));
+    std::println("");
+    std::println("Lower bound: {}", result.lower_bound.value_or(0));
     std::println("Upper bound: {}", result.upper_bound.value_or(0));
-    std::println("Constraint: RANGE");
+    std::print("Constraint: RANGE");
   } else {
-    std::println("\nRHS: {}", result.rhs);
+    std::println("");
+    std::println("RHS: {}", result.rhs);
     std::print("Constraint: ");
     switch (result.constraint_type) {
       case ConstraintType::LESS_EQUAL:
@@ -432,7 +434,8 @@ void printResult(const ParseResult& result)
         break;  // Already handled above
     }
   }
-  std::println("\n");
+  std::println("");
+  std::println("");
 }
 
 int do_main()
@@ -463,10 +466,12 @@ int do_main()
           if (i < coeff_vector.size() - 1)
             std::print(", ");
         }
-        std::println("]\n");
+        std::println("]");
+        std::println("");
       }
     } catch (const std::exception& e) {
-      std::println("Error: {}\n", e.what());
+      std::println("Error: {}", e.what());
+      std::println("");
     }
   }
 
