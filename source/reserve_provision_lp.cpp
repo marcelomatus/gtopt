@@ -129,7 +129,7 @@ namespace gtopt
 {
 
 ReserveProvisionLP::Provision::Provision(const InputContext& ic,
-                                         const std::string_view& cname,
+                                         std::string_view cname,
                                          const Id& id,
                                          auto&& rmax,
                                          auto&& rcost,

@@ -73,7 +73,7 @@ namespace gtopt
 {
 
 ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
-                                        const std::string_view& cname,
+                                        std::string_view cname,
                                         const Id& id,
                                         auto&& rreq,
                                         auto&& rcost)
