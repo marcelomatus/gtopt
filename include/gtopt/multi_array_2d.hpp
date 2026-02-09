@@ -19,14 +19,14 @@ namespace gtopt
 /**
  * @class MultiArray2D
  * @brief Minimal 2D array wrapper around std::vector
- * 
+ *
  * Provides a simple 2D array interface compatible with boost::multi_array usage
  * in the gtopt codebase. Supports:
  * - 2D indexing via operator[]
  * - empty() to check initialization
  * - Default construction (empty state)
  * - Construction with dimensions
- * 
+ *
  * @tparam T Element type
  */
 template<typename T>
@@ -66,7 +66,11 @@ public:
   class Row
   {
   public:
-    Row(T* data, size_t dim2) : data_(data), dim2_(dim2) {}
+    Row(T* data, size_t dim2)
+        : data_(data)
+        , dim2_(dim2)
+    {
+    }
 
     /**
      * @brief Access element in row
@@ -91,7 +95,11 @@ public:
   class ConstRow
   {
   public:
-    ConstRow(const T* data, size_t dim2) : data_(data), dim2_(dim2) {}
+    ConstRow(const T* data, size_t dim2)
+        : data_(data)
+        , dim2_(dim2)
+    {
+    }
 
     /**
      * @brief Access element in row (const)
