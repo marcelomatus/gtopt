@@ -297,13 +297,42 @@ TEST_CASE("flat_map - Count and contains")
   CHECK(map.count(2) == 1);
   CHECK(map.count(99) == 0);
 
-#if defined(__cpp_lib_generic_unordered_lookup) \
-    && __cpp_lib_generic_unordered_lookup >= 201811L
-  // C++20 feature: contains()
-  if constexpr (requires { map.contains(1); }) {
-    CHECK(map.contains(1));
-    CHECK(map.contains(2));
-    CHECK_FALSE(map.contains(99));
-  }
-#endif
+  CHECK(map.contains(1));
+  CHECK(map.contains(2));
+  CHECK_FALSE(map.contains(99));
+}
+
+TEST_CASE("flat_map - Contains with string keys")
+{
+  flat_map<std::string, int> map;
+  map["alpha"] = 1;
+  map["beta"] = 2;
+
+  CHECK(map.contains("alpha"));
+  CHECK(map.contains("beta"));
+  CHECK_FALSE(map.contains("gamma"));
+}
+
+TEST_CASE("flat_map - Contains after erase")
+{
+  flat_map<int, std::string> map;
+  map[1] = "one";
+  map[2] = "two";
+  map[3] = "three";
+
+  CHECK(map.contains(2));
+  map.erase(2);
+  CHECK_FALSE(map.contains(2));
+  CHECK(map.contains(1));
+  CHECK(map.contains(3));
+}
+
+TEST_CASE("flat_map - Contains after clear")
+{
+  flat_map<int, std::string> map;
+  map[1] = "one";
+
+  CHECK(map.contains(1));
+  map.clear();
+  CHECK_FALSE(map.contains(1));
 }
