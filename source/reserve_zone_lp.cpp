@@ -1,5 +1,3 @@
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
