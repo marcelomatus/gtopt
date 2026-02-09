@@ -65,7 +65,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
     matval.resize(nnzero);
     for (size_t ii = 0; const auto& [ic, ai] : std::views::enumerate(A)) {
       matbeg[ic] = static_cast<fp_index_t>(ii);
-      for (const auto [j, aij] : ai) {
+      for (const auto& [j, aij] : ai) {
         matind[ii] = static_cast<fp_index_t>(j);
         matval[ii] = aij;
         ++ii;
