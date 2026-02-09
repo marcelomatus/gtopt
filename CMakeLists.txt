@@ -147,9 +147,8 @@ target_include_directories(
          $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
 
-find_package(Boost REQUIRED COMPONENTS container serialization)
+find_package(Boost REQUIRED)
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PUBLIC Boost::container Boost::serialization)
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
