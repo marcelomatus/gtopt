@@ -139,7 +139,9 @@ public:
     if (it != data_.end() && !comp_(key, it->first)) {
       return it->second;
     }
-    it = data_.insert(it, value_type(key, Value {}));
+    it = data_.insert(
+        it, value_type(std::piecewise_construct, std::forward_as_tuple(key),
+                       std::tuple<>()));
     return it->second;
   }
 
@@ -162,15 +164,14 @@ public:
   }
 
   template<typename... Args>
-  auto emplace(const Key& key, Args&&... args) -> std::pair<iterator, bool>
+  auto emplace(Args&&... args) -> std::pair<iterator, bool>
   {
-    auto it = lower_bound_impl(key);
-    if (it != data_.end() && !comp_(key, it->first)) {
+    value_type val(std::forward<Args>(args)...);
+    auto it = lower_bound_impl(val.first);
+    if (it != data_.end() && !comp_(val.first, it->first)) {
       return {it, false};
     }
-    it = data_.insert(
-        it, value_type(std::piecewise_construct, std::forward_as_tuple(key),
-                       std::forward_as_tuple(std::forward<Args>(args)...)));
+    it = data_.insert(it, std::move(val));
     return {it, true};
   }
 
