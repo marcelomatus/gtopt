@@ -17,7 +17,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v3
@@ -31,7 +31,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-14 g++-14
+      - name: install parquet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
 
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+        env:
+          CC: gcc-14
+          CXX: g++-14
       - name: configure
         run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
         env:
