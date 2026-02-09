@@ -16,10 +16,10 @@
 #include <functional>
 #include <iostream>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace cli
@@ -111,6 +111,7 @@ public:
       desc_ = parse_name_spec(name_spec);
       desc_.description = description;
       desc_.value_type = 0;  // flag
+      finished_ = false;
       return *this;
     }
 
@@ -120,87 +121,40 @@ public:
       bool has_implicit = false;
       T implicit_val {};
 
-      auto implicit_value(T val) -> typed_value*
+      auto implicit_value(T val) -> typed_value
       {
         has_implicit = true;
         implicit_val = std::move(val);
-        return this;
+        return std::move(*this);
       }
     };
 
+    template<typename T>
     auto operator()(const std::string& name_spec,
-                    typed_value<std::string>* tv,
+                    typed_value<T> tv,
                     const std::string& description) -> option_builder&
     {
       finish();
       desc_ = parse_name_spec(name_spec);
       desc_.description = description;
-      desc_.value_type = 1;
-      if (tv->has_implicit) {
-        desc_.has_implicit = true;
-        desc_.implicit_value = tv->implicit_val;
-      }
-      delete tv;
-      return *this;
-    }
 
-    auto operator()(const std::string& name_spec,
-                    typed_value<int>* tv,
-                    const std::string& description) -> option_builder&
-    {
-      finish();
-      desc_ = parse_name_spec(name_spec);
-      desc_.description = description;
-      desc_.value_type = 2;
-      if (tv->has_implicit) {
-        desc_.has_implicit = true;
-        desc_.implicit_value = tv->implicit_val;
+      if constexpr (std::is_same_v<T, std::string>) {
+        desc_.value_type = 1;
+      } else if constexpr (std::is_same_v<T, int>) {
+        desc_.value_type = 2;
+      } else if constexpr (std::is_same_v<T, double>) {
+        desc_.value_type = 3;
+      } else if constexpr (std::is_same_v<T, bool>) {
+        desc_.value_type = 4;
+      } else if constexpr (std::is_same_v<T, std::vector<std::string>>) {
+        desc_.value_type = 5;
       }
-      delete tv;
-      return *this;
-    }
 
-    auto operator()(const std::string& name_spec,
-                    typed_value<double>* tv,
-                    const std::string& description) -> option_builder&
-    {
-      finish();
-      desc_ = parse_name_spec(name_spec);
-      desc_.description = description;
-      desc_.value_type = 3;
-      if (tv->has_implicit) {
+      if (tv.has_implicit) {
         desc_.has_implicit = true;
-        desc_.implicit_value = tv->implicit_val;
+        desc_.implicit_value = tv.implicit_val;
       }
-      delete tv;
-      return *this;
-    }
-
-    auto operator()(const std::string& name_spec,
-                    typed_value<bool>* tv,
-                    const std::string& description) -> option_builder&
-    {
-      finish();
-      desc_ = parse_name_spec(name_spec);
-      desc_.description = description;
-      desc_.value_type = 4;
-      if (tv->has_implicit) {
-        desc_.has_implicit = true;
-        desc_.implicit_value = tv->implicit_val;
-      }
-      delete tv;
-      return *this;
-    }
-
-    auto operator()(const std::string& name_spec,
-                    typed_value<std::vector<std::string>>* tv,
-                    const std::string& description) -> option_builder&
-    {
-      finish();
-      desc_ = parse_name_spec(name_spec);
-      desc_.description = description;
-      desc_.value_type = 5;
-      delete tv;
+      finished_ = false;
       return *this;
     }
 
@@ -223,7 +177,7 @@ public:
       if (!finished_ && !desc_.long_name.empty()) {
         parent_.options_.push_back(desc_);
       }
-      finished_ = false;
+      finished_ = true;
       desc_ = {};
     }
 
@@ -253,9 +207,9 @@ public:
   }
 
   template<typename T>
-  static auto value() -> typename option_builder::typed_value<T>*
+  static auto value() -> typename option_builder::typed_value<T>
   {
-    return new typename option_builder::typed_value<T>();
+    return typename option_builder::typed_value<T>();
   }
 
   [[nodiscard]] auto options() const -> const std::vector<option_desc>&
