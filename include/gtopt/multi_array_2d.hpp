@@ -7,7 +7,7 @@
  *
  * Provides a minimal replacement for boost::multi_array with 2 dimensions.
  * This is a simple wrapper around std::vector that provides 2D array semantics.
- * Uses std::span for safe row access without pointer arithmetic.
+ * Uses std::span for row access without pointer arithmetic.
  */
 
 #pragma once
@@ -29,7 +29,7 @@ namespace gtopt
  * - Default construction (empty state)
  * - Construction with dimensions
  * 
- * Row access returns std::span for safe, bounds-aware sub-range views.
+ * Row access returns std::span for size-aware sub-range views.
  * 
  * @tparam T Element type
  */
