@@ -35,7 +35,6 @@
 
 #include <utility>
 
-#include <boost/multi_array.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/cost_helper.hpp>
