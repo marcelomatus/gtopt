@@ -66,14 +66,17 @@ public:
   class Row
   {
   public:
-    Row(T* data, size_t dim2) : data_(data), dim2_(dim2) {}
+    explicit Row(T* data) : data_(data) {}
 
+    /**
+     * @brief Access element in row
+     * @note No bounds checking is performed. Callers must ensure j < dim2_.
+     */
     T& operator[](size_t j) { return data_[j]; }
     const T& operator[](size_t j) const { return data_[j]; }
 
   private:
     T* data_;
-    size_t dim2_;
   };
 
   /**
@@ -82,26 +85,31 @@ public:
   class ConstRow
   {
   public:
-    ConstRow(const T* data, size_t dim2) : data_(data), dim2_(dim2) {}
+    explicit ConstRow(const T* data) : data_(data) {}
 
+    /**
+     * @brief Access element in row (const)
+     * @note No bounds checking is performed. Callers must ensure j < dim2_.
+     */
     const T& operator[](size_t j) const { return data_[j]; }
 
   private:
     const T* data_;
-    size_t dim2_;
   };
 
   /**
    * @brief 2D indexing - first dimension access
+   * @note No bounds checking is performed. Callers must ensure i < dim1_.
    */
-  Row operator[](size_t i) { return Row(data_.data() + i * dim2_, dim2_); }
+  Row operator[](size_t i) { return Row(data_.data() + i * dim2_); }
 
   /**
    * @brief 2D indexing - first dimension access (const)
+   * @note No bounds checking is performed. Callers must ensure i < dim1_.
    */
   ConstRow operator[](size_t i) const
   {
-    return ConstRow(data_.data() + i * dim2_, dim2_);
+    return ConstRow(data_.data() + i * dim2_);
   }
 
 private:
