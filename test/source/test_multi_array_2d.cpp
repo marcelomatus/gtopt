@@ -1,4 +1,3 @@
-#include <cstddef>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -8,14 +7,14 @@ using namespace gtopt;
 
 TEST_CASE("MultiArray2D default construction")
 {
-  MultiArray2D<double> arr;
+  const MultiArray2D<double> arr;
   CHECK(arr.empty());
   CHECK(arr.size() == 0);
 }
 
 TEST_CASE("MultiArray2D construction with dimensions")
 {
-  MultiArray2D<int> arr(3, 4);
+  const MultiArray2D<int> arr(3, 4);
   CHECK_FALSE(arr.empty());
   CHECK(arr.size() == 3);
 }
