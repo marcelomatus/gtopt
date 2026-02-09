@@ -31,6 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-14 g++-14
+
       - name: install parquet
         run: |
           sudo apt-get update
@@ -42,9 +43,10 @@ jobs:
 
       - name: install cbc
         run: sudo apt-get install -y -V coinor-libcbc-dev
-        env:
-          CC: gcc-14
-          CXX: g++-14
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-all-dev
+
       - name: configure
         run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
         env:
