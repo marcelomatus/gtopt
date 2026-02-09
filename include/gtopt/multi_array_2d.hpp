@@ -7,10 +7,12 @@
  *
  * Provides a minimal replacement for boost::multi_array with 2 dimensions.
  * This is a simple wrapper around std::vector that provides 2D array semantics.
+ * Uses std::span for row access without pointer arithmetic.
  */
 
 #pragma once
 
+#include <span>
 #include <vector>
 
 namespace gtopt
@@ -27,12 +29,17 @@ namespace gtopt
  * - Default construction (empty state)
  * - Construction with dimensions
  * 
+ * Row access returns std::span for size-aware sub-range views.
+ * 
  * @tparam T Element type
  */
 template<typename T>
 class MultiArray2D
 {
 public:
+  using row_type = std::span<T>;
+  using const_row_type = std::span<const T>;
+
   /**
    * @brief Default constructor - creates empty array
    */
@@ -61,67 +68,21 @@ public:
   [[nodiscard]] size_t size() const noexcept { return dim1_; }
 
   /**
-   * @brief Proxy class for second dimension access
-   */
-  class Row
-  {
-  public:
-    Row(T* data, size_t dim2) : data_(data), dim2_(dim2) {}
-
-    /**
-     * @brief Access element in row
-     * @note No bounds checking is performed. Callers must ensure j < dim2_.
-     */
-    T& operator[](size_t j) { return data_[j]; }
-    const T& operator[](size_t j) const { return data_[j]; }
-
-    /**
-     * @brief Get second dimension size
-     */
-    [[nodiscard]] size_t size() const noexcept { return dim2_; }
-
-  private:
-    T* data_;
-    size_t dim2_;
-  };
-
-  /**
-   * @brief Const proxy class for second dimension access
-   */
-  class ConstRow
-  {
-  public:
-    ConstRow(const T* data, size_t dim2) : data_(data), dim2_(dim2) {}
-
-    /**
-     * @brief Access element in row (const)
-     * @note No bounds checking is performed. Callers must ensure j < dim2_.
-     */
-    const T& operator[](size_t j) const { return data_[j]; }
-
-    /**
-     * @brief Get second dimension size
-     */
-    [[nodiscard]] size_t size() const noexcept { return dim2_; }
-
-  private:
-    const T* data_;
-    size_t dim2_;
-  };
-
-  /**
    * @brief 2D indexing - first dimension access
    * @note No bounds checking is performed. Callers must ensure i < dim1_.
    */
-  Row operator[](size_t i) { return Row(data_.data() + i * dim2_, dim2_); }
+  row_type operator[](size_t i)
+  {
+    return std::span(data_).subspan(i * dim2_, dim2_);
+  }
 
   /**
    * @brief 2D indexing - first dimension access (const)
    * @note No bounds checking is performed. Callers must ensure i < dim1_.
    */
-  ConstRow operator[](size_t i) const
+  const_row_type operator[](size_t i) const
   {
-    return ConstRow(data_.data() + i * dim2_, dim2_);
+    return std::span(data_).subspan(i * dim2_, dim2_);
   }
 
 private:
