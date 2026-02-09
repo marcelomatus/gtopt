@@ -37,9 +37,6 @@ template<typename T>
 class MultiArray2D
 {
 public:
-  using row_type = std::span<T>;
-  using const_row_type = std::span<const T>;
-
   /**
    * @brief Default constructor - creates empty array
    */
