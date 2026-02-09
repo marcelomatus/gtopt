@@ -1,5 +1,6 @@
 #pragma once
 
+#ifdef HAVE_ARROW
 #include <arrow/api.h>
 #include <arrow/table.h>
 #include <arrow/type.h>
@@ -57,3 +58,49 @@ struct ArrowTraits<double>
 };
 
 }  // namespace gtopt
+#else
+// Stub types when Arrow is not available
+namespace gtopt
+{
+using ArrowIndex = int64_t;
+
+// Stub types that don't have the actual Arrow implementation
+struct ArrowField {};
+struct ArrowArray {};
+struct ArrowTable {};
+struct ArrowChunkedArray {};
+struct ArrowColumnResult {};
+
+template<typename Uid>
+struct ArrowTraits {};
+
+template<>
+struct ArrowTraits<int>
+{
+  // Provide dummy Type for compilation with distinct type_id
+  struct Type { static constexpr int type_id = 1; static constexpr const char* type_name() { return "int32"; } };
+  static constexpr auto type() { return nullptr; }
+};
+
+template<>
+struct ArrowTraits<int16_t>
+{
+  struct Type { static constexpr int type_id = 2; static constexpr const char* type_name() { return "int16"; } };
+  static constexpr auto type() { return nullptr; }
+};
+
+template<>
+struct ArrowTraits<int8_t>
+{
+  struct Type { static constexpr int type_id = 3; static constexpr const char* type_name() { return "int8"; } };
+  static constexpr auto type() { return nullptr; }
+};
+
+template<>
+struct ArrowTraits<double>
+{
+  struct Type { static constexpr int type_id = 4; static constexpr const char* type_name() { return "float64"; } };
+  static constexpr auto type() { return nullptr; }
+};
+}
+#endif

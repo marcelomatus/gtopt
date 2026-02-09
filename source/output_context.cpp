@@ -12,14 +12,19 @@
 #include <concepts>
 #include <filesystem>
 #include <fstream>
+#include <mutex>  // For std::call_once
 
+#ifdef HAVE_ARROW
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
-#include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
+#endif
+
+#include <gtopt/output_context.hpp>
 #include <spdlog/spdlog.h>
 
+#ifdef HAVE_ARROW
 template<typename T>
 concept ArrowBuildable = requires {
   {
@@ -262,12 +267,14 @@ constexpr auto create_tables(auto&& output_directory, auto&& field_vector_map)
 }
 
 }  // namespace
+#endif  // HAVE_ARROW
 
 namespace gtopt
 {
 
 void OutputContext::write() const
 {
+#ifdef HAVE_ARROW
   const auto fmt = options().output_format();
   const auto zfmt = options().compression_format();
   auto path_tables =
@@ -288,7 +295,15 @@ void OutputContext::write() const
   for (auto&& t : tasks) {
     t.join();
   }
+#else
+  // Log once (thread-safe) that Arrow is not available
+  static std::once_flag logged;
+  std::call_once(logged, []() {
+    SPDLOG_INFO("Arrow/Parquet output not available - writing CSV output only");
+  });
+#endif
 
+  // Always write solution CSV file
   const auto sol_path =
       std::filesystem::path(options().output_directory()) / "solution.csv";
 
@@ -315,9 +330,15 @@ OutputContext::OutputContext(const SystemContext& psc,
     , block_cost_factors(psc.block_icost_factors())
     , stage_cost_factors(psc.stage_icost_factors())
     , scenario_stage_cost_factors(psc.scenario_stage_icost_factors())
+#ifdef HAVE_ARROW
     , stb_prelude(make_stb_prelude(psc.stb_uids()))
     , st_prelude(make_st_prelude(psc.st_uids()))
     , t_prelude(make_t_prelude(psc.t_uids()))
+#else
+    , stb_prelude()
+    , st_prelude()
+    , t_prelude()
+#endif
 {
 }
 

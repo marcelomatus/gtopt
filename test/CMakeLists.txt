@@ -72,7 +72,9 @@ add_executable(${PROJECT_NAME} ${sources})
 
 target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
 
-target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+if(COIN_FOUND)
+  target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+endif()
 target_link_libraries(
   ${PROJECT_NAME} "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )

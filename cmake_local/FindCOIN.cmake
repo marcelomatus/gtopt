@@ -48,16 +48,37 @@ else(COIN_INCLUDE_DIR)
 
 endif()
 
-include_directories(SYSTEM "${COIN_INCLUDE_DIR}")
+# Only add to include directories if the path exists
+if(COIN_INCLUDE_DIR)
+  include_directories(SYSTEM "${COIN_INCLUDE_DIR}")
+endif()
 
-find_package(LAPACK)
-find_package(ZLIB)
-find_package(Threads)
-find_package(LibM)
+# Only search for LAPACK if COIN was found
+if(COIN_FOUND)
+  find_package(LAPACK)
+  find_package(ZLIB)
+  find_package(Threads)
+  find_package(LibM)
 
-set(COIN_OSI_LIBRARIES
-    "${COIN_OSI_LIBRARIES};${LAPACK_LIBRARIES};${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${LibM_LIBRARIES}"
-)
+  set(COIN_OSI_LIBRARIES
+      "${COIN_OSI_LIBRARIES};${LAPACK_LIBRARIES};${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${LibM_LIBRARIES}"
+  )
+else()
+  # Even if COIN not found, still find these
+  find_package(ZLIB QUIET)
+  find_package(Threads QUIET)
+  find_package(LibM QUIET)
+  # Only add COIN libraries if they were found (avoid undefined variables)
+  if(COIN_OSI_LIBRARY AND COIN_COIN_UTILS_LIBRARY)
+    set(COIN_OSI_LIBRARIES
+        "${COIN_OSI_LIBRARY};${COIN_COIN_UTILS_LIBRARY};${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${LibM_LIBRARIES}"
+    )
+  else()
+    set(COIN_OSI_LIBRARIES
+        "${ZLIB_LIBRARIES};${CMAKE_THREAD_LIBS_INIT};${LibM_LIBRARIES}"
+    )
+  endif()
+endif()
 
 message(STATUS "COIN OSi Libs: ${COIN_OSI_LIBRARIES}")
 

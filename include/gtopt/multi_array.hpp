@@ -53,6 +53,8 @@ public:
    * @brief Access element at [i][j]
    * @param i First dimension index
    * @return Proxy object that allows chained indexing
+   * @note No bounds checking is performed for performance. Caller must ensure valid indices.
+   *       Use size1() and size2() to check dimensions if needed.
    */
   auto operator[](size_type i) noexcept
   {
@@ -63,6 +65,8 @@ public:
    * @brief Access element at [i][j] (const version)
    * @param i First dimension index
    * @return Const proxy object that allows chained indexing
+   * @note No bounds checking is performed for performance. Caller must ensure valid indices.
+   *       Use size1() and size2() to check dimensions if needed.
    */
   auto operator[](size_type i) const noexcept
   {

@@ -130,16 +130,24 @@ set(COIN_ROOT_DIR
 )
 include(cmake_local/Solver.cmake)
 
-target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+if(COIN_FOUND)
+  target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+  target_compile_definitions(${PROJECT_NAME} PUBLIC COIN_FOUND=1)
+endif()
 target_link_libraries(
   ${PROJECT_NAME} PUBLIC "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
-find_package(Arrow REQUIRED)
-find_package(Parquet REQUIRED)
-target_link_libraries(
-  ${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared
-)
+find_package(Arrow QUIET)
+find_package(Parquet QUIET)
+if(Arrow_FOUND AND Parquet_FOUND)
+  target_link_libraries(
+    ${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared
+  )
+  target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_ARROW=1)
+else()
+  message(WARNING "Arrow or Parquet not found - output_context features will not be available")
+endif()
 
 target_include_directories(
   ${PROJECT_NAME}

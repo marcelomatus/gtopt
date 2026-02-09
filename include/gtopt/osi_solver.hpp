@@ -10,6 +10,8 @@
 
 #pragma once
 
+#ifdef COIN_FOUND
+
 #ifdef COIN_USE_CPX
 #  include <coin/OsiCpxSolverInterface.hpp>
 #  define OSI_SOLVER CPLEX
@@ -34,3 +36,5 @@ using osiSolverInterface = OsiCbcSolverInterface;
 // #  define OSI_EXTENDED
 using osiSolverInterface = OsiClpSolverInterface;
 #endif
+
+#endif  // COIN_FOUND

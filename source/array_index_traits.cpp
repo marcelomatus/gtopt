@@ -11,15 +11,19 @@
 #include <expected>
 #include <filesystem>
 
+#ifdef HAVE_ARROW
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
+#include <parquet/arrow/reader.h>
+#endif
+
 #include <gtopt/array_index_traits.hpp>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/system_context.hpp>
-#include <parquet/arrow/reader.h>
 #include <spdlog/spdlog.h>
 
+#ifdef HAVE_ARROW
 namespace
 {
 using namespace gtopt;
@@ -161,5 +165,19 @@ namespace gtopt
   SPDLOG_TRACE("Successfully loaded table for class {} field {}", cname, fname);
   return *result;
 }
+
+}  // namespace
+#endif  // HAVE_ARROW
+
+namespace gtopt
+{
+
+#ifndef HAVE_ARROW
+[[nodiscard]] ArrowTable ArrayIndexBase::read_arrow_table(
+    const SystemContext& /* sc */, std::string_view /* cname */, std::string_view /* fname */)
+{
+  throw std::runtime_error("Arrow/Parquet support not available");
+}
+#endif
 
 }  // namespace gtopt

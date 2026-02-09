@@ -54,6 +54,7 @@ struct InputTraits : UidTraits
           const idx_key_t idx_key = v_uid_idx->at(std::make_tuple(uid...));
           return RType {vector_traits::at_value(vec, idx_key)};
         },
+#ifdef HAVE_ARROW
         [&]([[maybe_unused]] const file_sched& arr_idx) -> RType
         {
           using a_uid_idx_type = arrow_array_uid_idx_t<Uid...>;
@@ -81,6 +82,12 @@ struct InputTraits : UidTraits
               access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
           };
         },
+#else
+        [&]([[maybe_unused]] const file_sched& arr_idx) -> RType
+        {
+          throw std::runtime_error("Arrow/Parquet input support not available");
+        },
+#endif
     };
 
     return std::visit(visitor, sched);
