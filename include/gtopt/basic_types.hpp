@@ -49,8 +49,6 @@ using OptName = std::optional<Name>;
 
 /** @brief String view type for non-owning name references */
 using NameView = std::string_view;
-/** @brief Optional string view type */
-using OptNameView = std::optional<NameView>;
 
 /** @brief Combined identifier with both numeric ID and name */
 using Id = std::pair<Uid, Name>;
@@ -67,8 +65,6 @@ using OptInt = std::optional<Int>;
 
 /** @brief Size type for container dimensions and indices */
 using Size = std::size_t;
-/** @brief Optional size type */
-using OptSize = std::optional<Size>;
 
 /** @brief Index type for large-scale sparse matrices and arrays */
 using Index = std::int32_t;
