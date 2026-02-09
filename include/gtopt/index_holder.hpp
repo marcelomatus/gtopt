@@ -10,10 +10,10 @@
 
 #pragma once
 
-#include <boost/multi_array.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/multi_array.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -91,8 +91,8 @@ constexpr auto emplace_value(const ScenarioLP& scenario,
                      std::forward<Value>(value));
 }
 
-using block_factor_matrix_t = boost::multi_array<std::vector<double>, 2>;
+using block_factor_matrix_t = multi_array_2d<std::vector<double>>;
 using stage_factor_matrix_t = std::vector<double>;
-using scenario_stage_factor_matrix_t = boost::multi_array<double, 2>;
+using scenario_stage_factor_matrix_t = multi_array_2d<double>;
 
 }  // namespace gtopt
