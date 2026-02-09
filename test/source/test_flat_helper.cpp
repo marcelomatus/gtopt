@@ -130,7 +130,7 @@ TEST_CASE("Flat helper - Flat Methods")
     GSTBIndexHolder holder;
     holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
 
-    block_factor_matrix_t factor(boost::extents[1][1]);
+    block_factor_matrix_t factor(1, 1);
     factor[0][0] = {2.0};  // Factor for block 0
 
     auto [values, valid] =

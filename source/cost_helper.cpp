@@ -21,7 +21,7 @@ auto CostHelper::block_icost_factors() const -> block_factor_matrix_t
 
   const auto n_scenarios = std::ranges::distance(active_scenarios);
   const auto n_stages = std::ranges::distance(active_stages);
-  block_factor_matrix_t factors(boost::extents[n_scenarios][n_stages]);
+  block_factor_matrix_t factors(n_scenarios, n_stages);
 
   for (auto&& [si, scenario] : active_scenarios) {
     for (auto&& [ti, stage] : active_stages) {
@@ -62,7 +62,7 @@ auto CostHelper::scenario_stage_icost_factors() const
 
   const auto n_scenarios = std::ranges::distance(active_scenarios);
   const auto n_stages = std::ranges::distance(active_stages);
-  scenario_stage_factor_matrix_t factors(boost::extents[n_scenarios][n_stages]);
+  scenario_stage_factor_matrix_t factors(n_scenarios, n_stages);
 
   for (auto&& [si, scenario] : active_scenarios) {
     for (auto&& [ti, stage] : active_stages) {
