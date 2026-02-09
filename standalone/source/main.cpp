@@ -223,7 +223,7 @@ int main(int argc, char** argv)
     desc.add_options()("help,h", "describes arguments")  //
         ("verbose,v", "activates maximun verbosity")  //
         ("quiet,q",
-         cli::options_description::value<bool>()->implicit_value(true),
+         cli::options_description::value<bool>().implicit_value(true),
          "do not log in the stdout")  //
         ("version,V", "shows program version")  //
         ("system-file,s",
@@ -251,22 +251,22 @@ int main(int argc, char** argv)
          cli::options_description::value<std::string>(),
          "compression format in parquet [uncompressed, gzip, zstd, lzo]")  //
         ("use-single-bus,b",
-         cli::options_description::value<bool>()->implicit_value(true),
+         cli::options_description::value<bool>().implicit_value(true),
          "use single bus mode")  //
         ("use-kirchhoff,k",
-         cli::options_description::value<bool>()->implicit_value(true),
+         cli::options_description::value<bool>().implicit_value(true),
          "use kirchhoff mode")  //
         ("use-lp-names,n",
-         cli::options_description::value<int>()->implicit_value(1),
+         cli::options_description::value<int>().implicit_value(1),
          "use real col/row names in the lp file")  //
         ("matrix-eps,e",
          cli::options_description::value<double>(),
          "eps value to define A matrix non-zero values")  //
         ("just-create,c",
-         cli::options_description::value<bool>()->implicit_value(true),
+         cli::options_description::value<bool>().implicit_value(true),
          "just create the problem, then exit")  //
         ("fast-parsing,p",
-         cli::options_description::value<bool>()->implicit_value(true),
+         cli::options_description::value<bool>().implicit_value(true),
          "use fast (non strict) json parsing");
 
     cli::variables_map vm;
