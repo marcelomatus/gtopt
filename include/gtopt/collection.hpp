@@ -165,7 +165,6 @@ public:
     uid_map_t puid_map;
     map_reserve(puid_map, element_vector.size());
     name_map_t pname_map;
-    map_reserve(pname_map, element_vector.size());
 
     for (index_t i = 0; auto&& e : element_vector) {
       auto&& [uid, name] = e.id();
