@@ -40,7 +40,7 @@ void map_reserve(auto& map, auto n)
 
 #else
 
-// #  define GTOPT_USE_BOOST_FLAT_MAP
+#  define GTOPT_USE_BOOST_FLAT_MAP
 
 #  ifdef GTOPT_USE_BOOST_FLAT_MAP
 
