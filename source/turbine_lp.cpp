@@ -64,8 +64,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
 
   BIndexHolder<RowIndex> rrows;
   BIndexHolder<RowIndex> crows;
-  rrows.reserve(blocks.size());
-  crows.reserve(blocks.size());
+  map_reserve(rrows, blocks.size());
+  map_reserve(crows, blocks.size());
 
   const auto use_drain = drain();
   for (auto&& block : blocks) {

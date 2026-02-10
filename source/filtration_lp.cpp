@@ -39,8 +39,8 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
 
   BIndexHolder<RowIndex> frows;
   BIndexHolder<ColIndex> fcols;
-  frows.reserve(blocks.size());
-  fcols.reserve(blocks.size());
+  map_reserve(frows, blocks.size());
+  map_reserve(fcols, blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();

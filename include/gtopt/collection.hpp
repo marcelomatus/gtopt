@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <map>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -61,7 +62,7 @@ class Collection
   using index_t = vector_t::size_type;
   using name_t = std::string;
 
-  using name_map_t = gtopt::flat_map<name_t, index_t>;
+  using name_map_t = std::map<name_t, index_t>;
   using uid_map_t = gtopt::flat_map<Uid, index_t>;
 
   using value_name_t = name_map_t::value_type;
@@ -162,9 +163,9 @@ public:
   void build_maps()
   {
     uid_map_t puid_map;
-    puid_map.reserve(element_vector.size());
+    map_reserve(puid_map, element_vector.size());
     name_map_t pname_map;
-    pname_map.reserve(element_vector.size());
+    map_reserve(pname_map, element_vector.size());
 
     for (index_t i = 0; auto&& e : element_vector) {
       auto&& [uid, name] = e.id();

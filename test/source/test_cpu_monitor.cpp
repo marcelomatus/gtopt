@@ -1,14 +1,14 @@
-#include <doctest/doctest.h>
-#include <gtopt/cpu_monitor.hpp>
-
 #include <chrono>
 #include <thread>
+
+#include <doctest/doctest.h>
+#include <gtopt/cpu_monitor.hpp>
 
 using namespace gtopt;
 
 TEST_CASE("CPUMonitor default construction")
 {
-  CPUMonitor monitor;
+  const CPUMonitor monitor;
 
   CHECK(monitor.get_load() == doctest::Approx(0.0));
   CHECK(monitor.get_interval() == std::chrono::milliseconds {100});

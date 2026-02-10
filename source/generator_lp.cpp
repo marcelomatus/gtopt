@@ -90,8 +90,8 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
   BIndexHolder<ColIndex> gcols;
   BIndexHolder<RowIndex> crows;
-  gcols.reserve(blocks.size());
-  crows.reserve(blocks.size());
+  map_reserve(gcols, blocks.size());
+  map_reserve(crows, blocks.size());
 
   const auto guid = uid();
   for (auto&& block : blocks) {

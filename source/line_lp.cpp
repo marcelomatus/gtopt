@@ -57,10 +57,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> cprows;
   BIndexHolder<ColIndex> fncols;
   BIndexHolder<RowIndex> cnrows;
-  fpcols.reserve(blocks.size());
-  cprows.reserve(blocks.size());
-  fncols.reserve(blocks.size());
-  cnrows.reserve(blocks.size());
+  map_reserve(fpcols, blocks.size());
+  map_reserve(cprows, blocks.size());
+  map_reserve(fncols, blocks.size());
+  map_reserve(cnrows, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -152,7 +152,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
       const double x = scale_theta * (X / (V * V));
 
       BIndexHolder<RowIndex> trows;
-      trows.reserve(blocks.size());
+      map_reserve(trows, blocks.size());
 
       for (const auto& block : blocks) {
         const auto buid = block.uid();

@@ -29,8 +29,8 @@ constexpr bool add_requirement(const std::string_view cname,
 
   BIndexHolder<ColIndex> rr_cols;
   BIndexHolder<RowIndex> rr_rows;
-  rr_cols.reserve(blocks.size());
-  rr_rows.reserve(blocks.size());
+  map_reserve(rr_cols, blocks.size());
+  map_reserve(rr_rows, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();

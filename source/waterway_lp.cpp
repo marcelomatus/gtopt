@@ -57,7 +57,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   BIndexHolder<ColIndex> fcols;
-  fcols.reserve(blocks.size());
+  map_reserve(fcols, blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();

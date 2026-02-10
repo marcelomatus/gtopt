@@ -68,8 +68,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   // Create finp variables for each time block
   BIndexHolder<ColIndex> finps;
   BIndexHolder<ColIndex> fouts;
-  finps.reserve(blocks.size());
-  fouts.reserve(blocks.size());
+  map_reserve(finps, blocks.size());
+  map_reserve(fouts, blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();

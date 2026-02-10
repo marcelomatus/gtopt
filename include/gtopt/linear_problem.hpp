@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,7 +35,7 @@ struct FlatLinearProblem
 {
   using index_t = int32_t;  ///< Type for indices (row/column indices)
   using name_vec_t = std::vector<std::string>;
-  using index_map_t = flat_map<std::string_view, index_t>;
+  using index_map_t = std::map<std::string_view, index_t>;
 
   index_t ncols {};  ///< Number of columns (variables)
   index_t nrows {};  ///< Number of rows (constraints)

@@ -212,7 +212,7 @@ TEST_CASE("visit_elements constexpr usage")
 
 TEST_CASE("Collection duplicate UID detection")
 {
-  std::vector<test_object> vec = {
+  const std::vector<test_object> vec = {
       {.uid = 1, .name = "n1", .value = 1},
       {.uid = 1, .name = "n2", .value = 2},
   };
@@ -222,7 +222,7 @@ TEST_CASE("Collection duplicate UID detection")
 
 TEST_CASE("Collection duplicate name detection")
 {
-  std::vector<test_object> vec = {
+  const std::vector<test_object> vec = {
       {.uid = 1, .name = "same", .value = 1},
       {.uid = 2, .name = "same", .value = 2},
   };
@@ -285,9 +285,12 @@ TEST_CASE("Collection element_index by UID and name")
   CHECK(coll.element_index(Uid {20}) == gtopt::ElementIndex<test_object> {1});
   CHECK(coll.element_index(Uid {30}) == gtopt::ElementIndex<test_object> {2});
 
-  CHECK(coll.element_index(std::string {"alpha"}) == gtopt::ElementIndex<test_object> {0});
-  CHECK(coll.element_index(std::string {"beta"}) == gtopt::ElementIndex<test_object> {1});
-  CHECK(coll.element_index(std::string {"gamma"}) == gtopt::ElementIndex<test_object> {2});
+  CHECK(coll.element_index(std::string {"alpha"})
+        == gtopt::ElementIndex<test_object> {0});
+  CHECK(coll.element_index(std::string {"beta"})
+        == gtopt::ElementIndex<test_object> {1});
+  CHECK(coll.element_index(std::string {"gamma"})
+        == gtopt::ElementIndex<test_object> {2});
 }
 
 TEST_CASE("Collection out-of-range UID throws")

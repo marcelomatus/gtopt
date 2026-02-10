@@ -91,11 +91,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> mcols;
   BIndexHolder<RowIndex> crows;
   BIndexHolder<RowIndex> brows;
-  lcols.reserve(blocks.size());
-  mcols.reserve(blocks.size());
-  crows.reserve(blocks.size());
-  fcols.reserve(blocks.size());
-  brows.reserve(blocks.size());
+  map_reserve(lcols, blocks.size());
+  map_reserve(mcols, blocks.size());
+  map_reserve(crows, blocks.size());
+  map_reserve(fcols, blocks.size());
+  map_reserve(brows, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();

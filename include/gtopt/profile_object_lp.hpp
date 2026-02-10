@@ -83,8 +83,8 @@ public:
 
     BIndexHolder<ColIndex> scols;
     BIndexHolder<RowIndex> srows;
-    scols.reserve(blocks.size());
-    srows.reserve(blocks.size());
+    map_reserve(scols, blocks.size());
+    map_reserve(srows, blocks.size());
 
     for (const auto& block : blocks) {
       const auto buid = block.uid();

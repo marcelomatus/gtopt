@@ -38,7 +38,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   static constexpr std::string_view cname = ClassName.short_name();
 
   BIndexHolder<ColIndex> tblocks;
-  tblocks.reserve(blocks.size());
+  map_reserve(tblocks, blocks.size());
 
   const auto scale_theta = sc.options().scale_theta();
 
@@ -89,7 +89,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   BIndexHolder<RowIndex> brows;
-  brows.reserve(blocks.size());
+  map_reserve(brows, blocks.size());
 
   std::ranges::for_each(
       blocks,
@@ -117,13 +117,15 @@ bool BusLP::add_to_output(OutputContext& out) const
                   "theta",
                   pid,
                   theta_cols,
-                  [inv_scale_theta](auto&& value) { return value * inv_scale_theta; });
+                  [inv_scale_theta](auto&& value)
+                  { return value * inv_scale_theta; });
 
   out.add_col_cost(cname,
                    "theta",
                    pid,
                    theta_cols,
-                   [inv_scale_theta](auto&& value) { return value * inv_scale_theta; });
+                   [inv_scale_theta](auto&& value)
+                   { return value * inv_scale_theta; });
 
   return true;
 }
