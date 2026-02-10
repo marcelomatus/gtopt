@@ -126,7 +126,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
                            std::string_view entity_type) -> fp_index_map_t
   {
     fp_index_map_t map;
-    map_reserve(map, names.size());
+
     for (const auto& [i, name] : std::views::enumerate(names)) {
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
