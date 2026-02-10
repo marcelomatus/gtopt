@@ -37,9 +37,6 @@ template<typename T>
 class MultiArray2D
 {
 public:
-  using row_type = std::span<T>;
-  using const_row_type = std::span<const T>;
-
   /**
    * @brief Default constructor - creates empty array
    */
@@ -70,19 +67,13 @@ public:
   /**
    * @brief 2D indexing - first dimension access
    * @note No bounds checking is performed. Callers must ensure i < dim1_.
+   *
+   * Uses explicit object parameter (deducing this) to provide both
+   * const and non-const access in a single definition.
    */
-  row_type operator[](size_t i)
+  auto operator[](this auto&& self, size_t i)
   {
-    return std::span(data_).subspan(i * dim2_, dim2_);
-  }
-
-  /**
-   * @brief 2D indexing - first dimension access (const)
-   * @note No bounds checking is performed. Callers must ensure i < dim1_.
-   */
-  const_row_type operator[](size_t i) const
-  {
-    return std::span(data_).subspan(i * dim2_, dim2_);
+    return std::span(self.data_).subspan(i * self.dim2_, self.dim2_);
   }
 
 private:
