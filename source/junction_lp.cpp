@@ -38,8 +38,8 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   // Reserve space for balance rows and drain columns
   BIndexHolder<RowIndex> brows;
   BIndexHolder<ColIndex> dcols;
-  brows.reserve(blocks.size());
-  dcols.reserve(blocks.size());
+  map_reserve(brows, blocks.size());
+  map_reserve(dcols, blocks.size());
 
   const bool add_drain_col = drain();
 

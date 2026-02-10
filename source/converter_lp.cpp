@@ -61,9 +61,9 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> grows;
   BIndexHolder<RowIndex> drows;
   BIndexHolder<RowIndex> crows;
-  grows.reserve(blocks.size());
-  drows.reserve(blocks.size());
-  crows.reserve(blocks.size());
+  map_reserve(grows, blocks.size());
+  map_reserve(drows, blocks.size());
+  map_reserve(crows, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();

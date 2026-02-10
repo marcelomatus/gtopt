@@ -45,7 +45,7 @@ TEST_SUITE("Error")
         .status = 42,
     };
 
-    const Error err2 = err1;
+    const Error err2 = err1;  // NOLINT
     CHECK(err2.code == ErrorCode::InvalidInput);
     CHECK(err2.message == "bad input");
     CHECK(err2.status == 42);

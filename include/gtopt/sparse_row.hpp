@@ -153,10 +153,7 @@ struct SparseRow
    * Reserves space for coefficients
    * @param n Number of coefficients to reserve space for
    */
-  constexpr void reserve(size_type n) noexcept(noexcept(cmap.reserve(n)))
-  {
-    cmap.reserve(n);
-  }
+  void reserve(size_type n) { map_reserve(cmap, n); }
 
   /**
    * Converts to flat representation for solver interfaces

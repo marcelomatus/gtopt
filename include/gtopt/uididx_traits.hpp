@@ -140,7 +140,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     }
 
     uid_arrow_idx_map_t uid_idx;
-    uid_idx.reserve(static_cast<size_t>(table->num_rows()));
+    map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
@@ -175,7 +175,7 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
     }
 
     uid_arrow_idx_map_t uid_idx;
-    uid_idx.reserve(static_cast<size_t>(table->num_rows()));
+    map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {StageUid {(*stages)->Value(i)},
@@ -211,7 +211,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
     }
 
     uid_arrow_idx_map_t uid_idx;
-    uid_idx.reserve(static_cast<size_t>(table->num_rows()));
+    map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
@@ -240,7 +240,7 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
     }
 
     uid_arrow_idx_map_t uid_idx;
-    uid_idx.reserve(static_cast<size_t>(table->num_rows()));
+    map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {StageUid {(*stages)->Value(i)}};
@@ -274,7 +274,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid, BlockUid>
       const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
-    index_uids.reserve(sim.scenarios().size() * sim.blocks().size());
+    map_reserve(index_uids, sim.scenarios().size() * sim.blocks().size());
 
     for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
       for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
@@ -307,7 +307,7 @@ struct UidToVectorIdx<StageUid, BlockUid>
   static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
-    index_uids.reserve(sim.blocks().size());
+    map_reserve(index_uids, sim.blocks().size());
 
     for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
       for (const auto& [bi, block] : enumerate<Index>(stage.blocks())) {
@@ -337,7 +337,7 @@ struct UidToVectorIdx<ScenarioUid, StageUid>
   static constexpr auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
-    index_uids.reserve(sim.scenarios().size() * sim.stages().size());
+    map_reserve(index_uids, sim.scenarios().size() * sim.stages().size());
 
     for (const auto& [si, scenario] : enumerate<Index>(sim.scenarios())) {
       for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
@@ -367,7 +367,7 @@ struct UidToVectorIdx<StageUid>
   static auto make_vector_uids_idx(const SimulationLP& sim)
   {
     uid_vector_idx_map_t index_uids;
-    index_uids.reserve(sim.stages().size());
+    map_reserve(index_uids, sim.stages().size());
 
     for (const auto& [ti, stage] : enumerate<Index>(sim.stages())) {
       const auto res = index_uids.emplace(UidKey {stage.uid()}, IndexKey {ti});

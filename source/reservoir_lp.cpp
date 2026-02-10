@@ -66,8 +66,8 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
 
   BIndexHolder<ColIndex> rcols;
   BIndexHolder<ColIndex> scols;
-  rcols.reserve(blocks.size());
-  scols.reserve(blocks.size());
+  map_reserve(rcols, blocks.size());
+  map_reserve(scols, blocks.size());
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();

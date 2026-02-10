@@ -65,7 +65,9 @@ TEST_CASE("Waterway with time-block flow limits")
   // OptTBRealFieldSched uses 2D vectors (time x block)
   std::vector<std::vector<Real>> fmin_schedule = {{5.0, 10.0}, {15.0, 8.0}};
   std::vector<std::vector<Real>> fmax_schedule = {
-      {400.0, 500.0}, {600.0, 450.0}};
+      {400.0, 500.0},
+      {600.0, 450.0},
+  };
 
   waterway.fmin = fmin_schedule;
   waterway.fmax = fmax_schedule;

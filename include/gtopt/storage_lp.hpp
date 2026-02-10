@@ -111,10 +111,10 @@ public:
     BIndexHolder<ColIndex> dcols;
     BIndexHolder<RowIndex> vrows;
     BIndexHolder<RowIndex> crows;
-    vcols.reserve(blocks.size());
-    vrows.reserve(blocks.size());
-    crows.reserve(blocks.size());
-    dcols.reserve(blocks.size());
+    map_reserve(vcols, blocks.size());
+    map_reserve(vrows, blocks.size());
+    map_reserve(crows, blocks.size());
+    map_reserve(dcols, blocks.size());
 
     auto prev_vc = vicol;
     for (const auto& block : blocks) {

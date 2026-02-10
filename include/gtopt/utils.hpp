@@ -21,6 +21,7 @@
 #include <ranges>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 #include <version>
@@ -133,7 +134,8 @@ constexpr auto true_fnc = [](const auto&) noexcept { return true; };
 constexpr auto has_value_fnc = [](const auto& opt) noexcept
 { return opt.has_value(); };
 
-/// Predicate that checks if optional has value and value is true (C++23 value_or)
+/// Predicate that checks if optional has value and value is true (C++23
+/// value_or)
 constexpr auto is_true_fnc = [](const auto& opt)
 { return opt.value_or(false); };
 
@@ -167,19 +169,18 @@ template<typename T, typename K = T::key_type>
   return (it != map.end()) ? std::optional<decltype(it)> {it} : std::nullopt;
 }
 
-template<typename T, typename K = T::key_type>
-constexpr auto get_optvalue(const T& map, K&& key) noexcept
+template<typename T, typename K>
+constexpr auto get_optvalue(const T& map, K&& key)
 {
-  const auto it = map.find(std::forward<K>(key));
-  return (it != map.end()) ? std::optional<decltype(it->second)> {it->second}
-                           : std::nullopt;
+  auto it = map.find(std::forward<K>(key));
+  using value_t = std::remove_cvref_t<decltype(it->second)>;
+  return (it != map.end()) ? std::optional<value_t> {it->second} : std::nullopt;
 }
 
 template<typename T, typename K>
 constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
 {
-  return key.and_then(
-      [&map](const K& k) { return get_optvalue(map, k); });
+  return key.and_then([&map](const K& k) { return get_optvalue(map, k); });
 }
 
 /**
@@ -262,8 +263,8 @@ std::string as_string(const std::tuple<Args...>& t)
       {
         std::string result = "(";
         std::size_t count = 0;
-        ((result += std::format("{}", args)
-              + (++count < sizeof...(Args) ? ", " : "")),
+        ((result +=
+          std::format("{}", args) + (++count < sizeof...(Args) ? ", " : "")),
          ...);
         result += ")";
         return result;
