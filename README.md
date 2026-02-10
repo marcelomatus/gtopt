@@ -18,7 +18,7 @@ Use the following command to build and run the executable target.
 ```bash
 cmake -S standalone -B build/standalone
 cmake --build build/standalone
-./build/standalone/Greeter --help
+./build/standalone/gtopt --help
 ```
 
 ### Build and run test suite
@@ -107,5 +107,10 @@ By default, analyzers will automatically find configuration files such as `.clan
 Additional arguments can be passed to the analyzers by setting the `CLANG_TIDY_ARGS`, `IWYU_ARGS` or `CPPCHECK_ARGS` variables.
 
 #### Ccache
-
 Ccache can be enabled by configuring with `-DUSE_CCACHE=<ON | OFF>`.
+
+### Dependencies
+#### Boost
+See https://www.boost.org/doc/user-guide/getting-started.html
+#### Arrow
+See https://arrow.apache.org/install/
