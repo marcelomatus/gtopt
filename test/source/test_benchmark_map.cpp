@@ -5,7 +5,7 @@
  * @author    copilot
  * @copyright BSD-3-Clause
  *
- * Measures insertion and iteration performance for:
+ * Measures insertion, iteration, and random search performance for:
  *   - Small maps (4, 8, 12 elements) with sorted and random integer keys
  *   - Large maps (~10000 elements) with sorted and random integer keys
  */
@@ -95,6 +95,41 @@ auto bench_iterate(const std::vector<int>& keys, int iterations) -> double
   auto start = std::chrono::high_resolution_clock::now();
   for (int i = 0; i < iterations; ++i) {
     sink = iterate_sum(map);
+  }
+  auto end = std::chrono::high_resolution_clock::now();
+
+  (void)sink;
+  auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+  return static_cast<double>(ns.count()) / iterations;
+}
+
+template<typename Map>
+auto bench_search(const std::vector<int>& keys,
+                  const std::vector<int>& search_keys,
+                  int iterations) -> double
+{
+  Map map;
+  insert_keys(map, keys);
+
+  // warmup
+  volatile long long sink = 0;
+  for (int i = 0; i < kWarmupIterations; ++i) {
+    for (auto key : search_keys) {
+      auto it = map.find(key);
+      if (it != map.end()) {
+        sink = it->second;
+      }
+    }
+  }
+
+  auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iterations; ++i) {
+    for (auto key : search_keys) {
+      auto it = map.find(key);
+      if (it != map.end()) {
+        sink = it->second;
+      }
+    }
   }
   auto end = std::chrono::high_resolution_clock::now();
 
@@ -213,6 +248,80 @@ TEST_CASE("Benchmark - large maps with random keys")
     auto std_ns = bench_iterate<StdMap>(keys, kLargeMapIterations);
     auto flat_ns = bench_iterate<FlatMap>(keys, kLargeMapIterations);
     report("iterate random n=10000", std_ns, flat_ns);
+    CHECK(std_ns > 0);
+    CHECK(flat_ns > 0);
+  }
+}
+
+TEST_CASE("Benchmark - small maps random search with sorted keys")
+{
+  for (int n : {4, 8, 12}) {
+    auto keys = sorted_keys(n);
+    auto search_keys = random_keys(n);
+
+    SUBCASE(("search sorted n=" + std::to_string(n)).c_str())
+    {
+      auto std_ns
+          = bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
+      auto flat_ns
+          = bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
+      report(
+          ("search sorted n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      CHECK(std_ns > 0);
+      CHECK(flat_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - small maps random search with random keys")
+{
+  for (int n : {4, 8, 12}) {
+    auto keys = random_keys(n);
+    auto search_keys = random_keys(n);
+
+    SUBCASE(("search random n=" + std::to_string(n)).c_str())
+    {
+      auto std_ns
+          = bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
+      auto flat_ns
+          = bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
+      report(
+          ("search random n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      CHECK(std_ns > 0);
+      CHECK(flat_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - large maps random search with sorted keys")
+{
+  constexpr int n = 10000;
+  auto keys = sorted_keys(n);
+  auto search_keys = random_keys(n);
+
+  SUBCASE("search sorted n=10000")
+  {
+    auto std_ns = bench_search<StdMap>(keys, search_keys, kLargeMapIterations);
+    auto flat_ns
+        = bench_search<FlatMap>(keys, search_keys, kLargeMapIterations);
+    report("search sorted n=10000", std_ns, flat_ns);
+    CHECK(std_ns > 0);
+    CHECK(flat_ns > 0);
+  }
+}
+
+TEST_CASE("Benchmark - large maps random search with random keys")
+{
+  constexpr int n = 10000;
+  auto keys = random_keys(n);
+  auto search_keys = random_keys(n);
+
+  SUBCASE("search random n=10000")
+  {
+    auto std_ns = bench_search<StdMap>(keys, search_keys, kLargeMapIterations);
+    auto flat_ns
+        = bench_search<FlatMap>(keys, search_keys, kLargeMapIterations);
+    report("search random n=10000", std_ns, flat_ns);
     CHECK(std_ns > 0);
     CHECK(flat_ns > 0);
   }
