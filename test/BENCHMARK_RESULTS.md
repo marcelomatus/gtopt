@@ -117,7 +117,39 @@
   benefits from spatial locality in the in-order traversal path through the
   tree, narrowing the gap compared to random search.
 
-### 5. Key Takeaways
+### 5. flat_map reserve() Effect
+
+| Size  | Keys   | No Reserve (ns) | Reserved (ns) | Ratio (no_rsv/rsv) | Speedup |
+|-------|--------|-----------------|---------------|---------------------|---------|
+| 4     | sorted | 113.6           | 50.5          | 2.25                | **2.3×** |
+| 8     | sorted | 182.9           | 88.0          | 2.08                | **2.1×** |
+| 12    | sorted | 242.4           | 128.8         | 1.88                | **1.9×** |
+| 4     | random | 116.9           | 63.3          | 1.85                | **1.8×** |
+| 8     | random | 195.6           | 100.8         | 1.94                | **1.9×** |
+| 12    | random | 257.7           | 151.7         | 1.70                | **1.7×** |
+| 10000 | sorted | 242,829         | 154,863       | 1.57                | **1.6×** |
+| 10000 | random | 9,095,360       | 9,014,620     | 1.01                | ~tie     |
+
+- **Small maps (n≤12):** `reserve()` provides a **1.7–2.3× speedup** across all
+  sizes and insertion orders. This is a significant improvement — by
+  pre-allocating the internal vector, `flat_map` avoids repeated reallocations
+  and memory copies during insertion. For small maps, the reallocation overhead
+  is proportionally large compared to the actual insertion work.
+
+- **Large sorted insertion (n=10000):** `reserve()` provides a **1.6× speedup**.
+  Even though sorted insertion appends to the end (amortized O(1) per element),
+  the vector still needs to grow geometrically. Pre-allocating eliminates the
+  ~14 reallocations that would otherwise occur for 10000 elements, saving both
+  the allocation overhead and the element-copy cost on each growth.
+
+- **Large random insertion (n=10000):** `reserve()` has **virtually no effect**
+  (ratio ≈ 1.01). The dominant cost for random insertion is the O(n) element
+  shifting on each insert to maintain sorted order, which results in O(n²) total
+  cost. The vector reallocation cost is negligible compared to the ~50 million
+  element moves. Reserve cannot help here — the bottleneck is algorithmic, not
+  memory allocation.
+
+### 6. Key Takeaways
 
 | Use Case | Recommendation |
 |----------|---------------|
@@ -127,8 +159,9 @@
 | Large maps with random insertion | **std::map** — 6× faster insert; use flat_map only if iteration/search dominate |
 | Iteration-heavy workloads at any size | **flat_map** — 5-14× faster due to cache locality |
 | Mixed workloads with large random inserts + searches | **Depends** — consider building flat_map from sorted data if possible |
+| Any flat_map with known size | **Always call reserve()** — 1.6-2.3× faster insertion for small/sorted cases |
 
-### 6. Recommendation for gtopt
+### 7. Recommendation for gtopt
 
 The `gtopt` project currently uses `boost::container::flat_map` as its default
 (via `gtopt::flat_map` in `fmap.hpp`). This is a **good default** for the
@@ -139,6 +172,11 @@ typical optimization/modeling workload where:
 - Cache locality during iteration over problem coefficients is critical for
   solver performance
 - The 5-14× iteration speedup far outweighs the search overhead for small maps
+
+**Always use `reserve()` when the map size is known in advance** — it provides
+a consistent 1.6–2.3× insertion speedup for sorted and small-map workloads,
+which are the most common patterns in gtopt. The `gtopt::map_reserve()` wrapper
+in `fmap.hpp` already provides this capability across all map backends.
 
 For cases where large maps need random-order construction, consider sorting the
 input data first and using ordered insertion, or building a `std::map` and
