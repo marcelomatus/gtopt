@@ -110,7 +110,7 @@ void report(const char* label,
             double std_map_ns,
             double flat_map_ns)
 {
-  const double ratio = std_map_ns / flat_map_ns;
+  const double ratio = (flat_map_ns > 0) ? (std_map_ns / flat_map_ns) : 0.0;
   MESSAGE(label << ": std::map=" << std_map_ns
                 << " ns, flat_map=" << flat_map_ns
                 << " ns, ratio(std/flat)=" << ratio);
