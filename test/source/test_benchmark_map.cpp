@@ -5,7 +5,8 @@
  * @author    copilot
  * @copyright BSD-3-Clause
  *
- * Measures insertion, iteration, and random search performance for:
+ * Measures insertion, iteration, random search, and sorted search performance
+ * for:
  *   - Small maps (4, 8, 12 elements) with sorted and random integer keys
  *   - Large maps (~10000 elements) with sorted and random integer keys
  */
@@ -322,6 +323,82 @@ TEST_CASE("Benchmark - large maps random search with random keys")
     auto flat_ns
         = bench_search<FlatMap>(keys, search_keys, kLargeMapIterations);
     report("search random n=10000", std_ns, flat_ns);
+    CHECK(std_ns > 0);
+    CHECK(flat_ns > 0);
+  }
+}
+
+TEST_CASE("Benchmark - small maps sorted search with sorted keys")
+{
+  for (int n : {4, 8, 12}) {
+    auto keys = sorted_keys(n);
+    auto search_keys = sorted_keys(n);
+
+    SUBCASE(("sorted search sorted n=" + std::to_string(n)).c_str())
+    {
+      auto std_ns
+          = bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
+      auto flat_ns
+          = bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
+      report(("sorted search sorted n=" + std::to_string(n)).c_str(),
+             std_ns,
+             flat_ns);
+      CHECK(std_ns > 0);
+      CHECK(flat_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - small maps sorted search with random keys")
+{
+  for (int n : {4, 8, 12}) {
+    auto keys = random_keys(n);
+    auto search_keys = sorted_keys(n);
+
+    SUBCASE(("sorted search random n=" + std::to_string(n)).c_str())
+    {
+      auto std_ns
+          = bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
+      auto flat_ns
+          = bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
+      report(("sorted search random n=" + std::to_string(n)).c_str(),
+             std_ns,
+             flat_ns);
+      CHECK(std_ns > 0);
+      CHECK(flat_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - large maps sorted search with sorted keys")
+{
+  constexpr int n = 10000;
+  auto keys = sorted_keys(n);
+  auto search_keys = sorted_keys(n);
+
+  SUBCASE("sorted search sorted n=10000")
+  {
+    auto std_ns = bench_search<StdMap>(keys, search_keys, kLargeMapIterations);
+    auto flat_ns
+        = bench_search<FlatMap>(keys, search_keys, kLargeMapIterations);
+    report("sorted search sorted n=10000", std_ns, flat_ns);
+    CHECK(std_ns > 0);
+    CHECK(flat_ns > 0);
+  }
+}
+
+TEST_CASE("Benchmark - large maps sorted search with random keys")
+{
+  constexpr int n = 10000;
+  auto keys = random_keys(n);
+  auto search_keys = sorted_keys(n);
+
+  SUBCASE("sorted search random n=10000")
+  {
+    auto std_ns = bench_search<StdMap>(keys, search_keys, kLargeMapIterations);
+    auto flat_ns
+        = bench_search<FlatMap>(keys, search_keys, kLargeMapIterations);
+    report("sorted search random n=10000", std_ns, flat_ns);
     CHECK(std_ns > 0);
     CHECK(flat_ns > 0);
   }
