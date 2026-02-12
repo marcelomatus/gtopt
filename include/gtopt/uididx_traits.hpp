@@ -65,7 +65,7 @@ struct UidColumn
         return std::unexpected(std::move(msg));
       }
 
-      if (chunk->type_id() != ArrowTraits<Uid>::Type::type_id) {
+      if (!is_compatible_int32_type(chunk->type_id())) {
         auto msg =
             std::format("Type mismatch in column '{}': expected {} got {}",
                         name,
@@ -75,8 +75,14 @@ struct UidColumn
         return std::unexpected(std::move(msg));
       }
 
-      return std::static_pointer_cast<arrow::CTypeTraits<Uid>::ArrayType>(
-          chunk);
+      auto result = cast_to_int32_array(chunk);
+      if (!result) {
+        auto msg =
+            std::format("Failed to cast column '{}' to int32", name);
+        SPDLOG_ERROR(msg);
+        return std::unexpected(std::move(msg));
+      }
+      return result;
     } catch (const std::exception& e) {
       auto msg = std::format("Column cast failed: {}", e.what());
       SPDLOG_ERROR(msg);
