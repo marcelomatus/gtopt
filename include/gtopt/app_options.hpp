@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * This module provides utility functions for parsing command-line options
- * using Boost.ProgramOptions, applying parsed options to Planning
+ * using a modern C++ command-line parser, applying parsed options to Planning
  * configurations, and building FlatOptions from command-line parameters.
  */
 
@@ -15,17 +15,17 @@
 #include <optional>
 #include <string>
 
-#include <boost/program_options.hpp>
+#include <gtopt/cli_options.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
 
 namespace gtopt
 {
 
-namespace po = boost::program_options;
+namespace po = cli;
 
 /**
- * @brief Extract an optional value from a Boost variables_map
+ * @brief Extract an optional value from a variables_map
  *
  * @tparam T The type of the value to extract
  * @param vm The variables map containing parsed options
@@ -55,7 +55,7 @@ template<typename T>
   desc.add_options()("help,h", "describes arguments")  //
       ("verbose,v", "activates maximum verbosity")  //
       ("quiet,q",
-       po::value<bool>()->implicit_value(true),
+       po::value<bool>().implicit_value(true),
        "do not log in the stdout")  //
       ("version,V", "shows program version")  //
       ("system-file,s",
@@ -77,22 +77,22 @@ template<typename T>
        po::value<std::string>(),
        "compression format in parquet [uncompressed, gzip, zstd, lzo]")  //
       ("use-single-bus,b",
-       po::value<bool>()->implicit_value(true),
+       po::value<bool>().implicit_value(true),
        "use single bus mode")  //
       ("use-kirchhoff,k",
-       po::value<bool>()->implicit_value(true),
+       po::value<bool>().implicit_value(true),
        "use kirchhoff mode")  //
       ("use-lp-names,n",
-       po::value<int>()->implicit_value(1),
+       po::value<int>().implicit_value(1),
        "use real col/row names in the lp file")  //
       ("matrix-eps,e",
        po::value<double>(),
        "eps value to define A matrix non-zero values")  //
       ("just-create,c",
-       po::value<bool>()->implicit_value(true),
+       po::value<bool>().implicit_value(true),
        "just create the problem, then exit")  //
       ("fast-parsing,p",
-       po::value<bool>()->implicit_value(true),
+       po::value<bool>().implicit_value(true),
        "use fast (non strict) json parsing");
   return desc;
 }
