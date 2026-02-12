@@ -62,7 +62,7 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
 
   // Pass 2: fill matind and matval using column offsets
   // Use a working copy of matbeg as write cursors
-  std::vector<fp_index_t> colpos(matbeg.begin(), matbeg.begin() + ncols);
+  std::vector<fp_index_t> colpos = matbeg;
 
   for (const auto& [i, row] : std::views::enumerate(rows)) {
     for (const auto& [j, v] : row.cmap) {
@@ -133,9 +133,8 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
       {
-        const auto msg = std::format(
+        SPDLOG_WARN(
             "linear problem using repeated {} name {}", entity_type, name);
-        SPDLOG_WARN(msg);
       }
     }
     return map;
