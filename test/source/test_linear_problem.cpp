@@ -558,3 +558,26 @@ TEST_CASE("Linear problem to_flat with epsilon filtering")
   CHECK(flat.matind[1] == 1);
   CHECK(flat.matval[1] == -2.0);
 }
+
+TEST_CASE("Linear problem set_coeff overwrite preserves correctness")
+{
+  gtopt::LinearProblem lp("overwrite_test");
+
+  const auto c0 = lp.add_col(gtopt::SparseCol {.name = "c0"});
+  auto r0 = lp.add_row(gtopt::SparseRow {.name = "r0"});
+
+  // Set initial coefficient
+  lp.set_coeff(r0, c0, 1.0);
+  CHECK(lp.get_coeff(r0, c0) == doctest::Approx(1.0));
+
+  // Overwrite the same coefficient
+  lp.set_coeff(r0, c0, 5.0);
+  CHECK(lp.get_coeff(r0, c0) == doctest::Approx(5.0));
+
+  // Verify flat conversion has exactly one entry, not two
+  const auto flat = lp.to_flat();
+  CHECK(flat.ncols == 1);
+  CHECK(flat.nrows == 1);
+  CHECK(flat.matval.size() == 1);
+  CHECK(flat.matval[0] == doctest::Approx(5.0));
+}
