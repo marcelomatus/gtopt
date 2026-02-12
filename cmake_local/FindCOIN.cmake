@@ -50,7 +50,8 @@ endif()
 
 # Save and restore CMAKE_CXX_STANDARD around find_package(LAPACK) because its
 # internal try_compile inherits the global standard, and CXX26 may not yet be
-# supported by the compiler for simple C-linkage checks.
+# supported by the compiler for simple C-linkage checks. C++17 is used as it
+# is widely supported by all modern compilers.
 set(_COIN_SAVED_CXX_STANDARD ${CMAKE_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD 17)
 find_package(LAPACK)
