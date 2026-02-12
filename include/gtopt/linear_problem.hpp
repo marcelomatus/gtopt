@@ -212,8 +212,14 @@ public:
    */
   constexpr void set_coeff(RowIndex row, ColIndex col, double coeff)
   {
-    rows[row][col] = coeff;
-    ++ncoeffs;
+    auto& rmap = rows[row].cmap;
+    auto it = rmap.find(col);
+    if (it != rmap.end()) {
+      it->second = coeff;
+    } else {
+      rmap.emplace(col, coeff);
+      ++ncoeffs;
+    }
   }
 
   /**

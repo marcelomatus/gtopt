@@ -19,19 +19,14 @@ namespace gtopt
 
 STBUids FlatHelper::stb_uids() const
 {
-  std::size_t size = 0;
+  std::size_t n_scenarios = 0;
   for (auto&& scene : simulation().scenes()) {
-    for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : simulation().phases()) {
-        for (auto&& stage : phase.stages()) {
-          size += stage.blocks().size();
-        }
-      }
-    }
+    n_scenarios += scene.scenarios().size();
   }
+  const auto n_blocks = simulation().blocks().size();
 
   STBUids res;
-  res.reserve(size);
+  res.reserve(n_scenarios * n_blocks);
 
   for (auto&& scene : simulation().scenes()) {
     for (auto&& scenario : scene.scenarios()) {
@@ -52,17 +47,14 @@ STBUids FlatHelper::stb_uids() const
 
 STUids FlatHelper::st_uids() const
 {
-  std::size_t size = 0;
+  std::size_t n_scenarios = 0;
   for (auto&& scene : simulation().scenes()) {
-    for ([[maybe_unused]] auto&& scenario : scene.scenarios()) {
-      for (auto&& phase : simulation().phases()) {
-        size += phase.stages().size();
-      }
-    }
+    n_scenarios += scene.scenarios().size();
   }
+  const auto n_stages = simulation().stages().size();
 
   STUids res;
-  res.reserve(size);
+  res.reserve(n_scenarios * n_stages);
 
   for (auto&& scene : simulation().scenes()) {
     for (auto&& scenario : scene.scenarios()) {
@@ -80,13 +72,8 @@ STUids FlatHelper::st_uids() const
 
 TUids FlatHelper::t_uids() const
 {
-  std::size_t size = 0;
-  for (auto&& phase : simulation().phases()) {
-    size += phase.stages().size();
-  }
-
   TUids res;
-  res.reserve(size);
+  res.reserve(simulation().stages().size());
 
   for (auto&& phase : simulation().phases()) {
     for (auto&& stage : phase.stages()) {
