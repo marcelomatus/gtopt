@@ -1,10 +1,11 @@
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 
-#include <boost/program_options.hpp>
 #include <daw/daw_read_file.h>
+#include <gtopt/app_options.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -22,20 +23,6 @@
 namespace
 {
 using namespace gtopt;
-
-namespace po = boost::program_options;
-
-template<typename T>
-[[nodiscard]] std::optional<T> get_opt(const po::variables_map& vm,
-                                       const std::string& name)
-{
-  if (vm.contains(name)) {
-    return vm[name].as<T>();
-  }
-  return std::nullopt;
-}
-
-#include <expected>
 
 [[nodiscard]] std::expected<int, std::string> Main(
     std::span<const std::string> planning_files,
@@ -114,37 +101,15 @@ template<typename T>
   //
   // update the planning options
   //
-  if (use_single_bus) {
-    planning.options.use_single_bus = use_single_bus;
-  }
-
-  if (use_kirchhoff) {
-    planning.options.use_kirchhoff = use_kirchhoff;
-  }
-
-  if (use_lp_names) {
-    planning.options.use_lp_names = use_lp_names.value();
-  }
-
-  if (output_directory) {
-    planning.options.output_directory = output_directory.value();
-  }
-
-  if (input_directory) {
-    planning.options.input_directory = input_directory.value();
-  }
-
-  if (output_format) {
-    planning.options.output_format = output_format.value();
-  }
-
-  if (compression_format) {
-    planning.options.compression_format = compression_format.value();
-  }
-
-  if (input_format) {
-    planning.options.input_format = input_format.value();
-  }
+  apply_cli_options(planning,
+                    use_single_bus,
+                    use_kirchhoff,
+                    use_lp_names,
+                    input_directory,
+                    input_format,
+                    output_directory,
+                    output_format,
+                    compression_format);
 
   //
 
@@ -167,18 +132,7 @@ template<typename T>
   // create and load the lp
   //
 
-  const auto eps = matrix_eps.value_or(0);  // Default to exact matching
-  const auto lp_names = use_lp_names.value_or(true);  // Default to use names
-
-  FlatOptions flat_opts;
-  flat_opts.eps = eps;  // Coefficient epsilon tolerance
-  flat_opts.col_with_names = lp_names > 0;  // Include variable names?
-  flat_opts.row_with_names = lp_names > 0;  // Include constraint names?
-  flat_opts.col_with_name_map = lp_names > 1;  // Include variable name mapping?
-  flat_opts.row_with_name_map =
-      lp_names > 1;  // Include constraint name mapping?
-  flat_opts.reserve_matrix = false;  // Don't pre-reserve matrix (already done)
-  flat_opts.reserve_factor = 2;  // Memory reservation factor
+  const auto flat_opts = make_flat_options(use_lp_names, matrix_eps);
 
   spdlog::stopwatch sw;
   PlanningLP planning_lp {std::move(planning), flat_opts};
@@ -221,51 +175,7 @@ int main(int argc, char** argv)
   //
 
   try {
-    po::options_description desc("Gtoptp options");
-    desc.add_options()("help,h", "describes arguments")  //
-        ("verbose,v", "activates maximun verbosity")  //
-        ("quiet,q",
-         po::value<bool>()->implicit_value(true),
-         "do not log in the stdout")  //
-        ("version,V", "shows program version")  //
-        ("system-file,s",
-         po::value<std::vector<std::string>>(),
-         "name of the system file")  //
-        ("lp-file,l",
-         po::value<std::string>(),
-         "name of the lp file to save")  //
-        ("json-file,j",
-         po::value<std::string>(),
-         "name of the json file to save")  //
-        ("input-directory,D", po::value<std::string>(), "input directory")  //
-        ("input-format,F", po::value<std::string>(), "input format")  //
-        ("output-directory,d",
-         po::value<std::string>(),
-         "output directory")  //
-        ("output-format,f",
-         po::value<std::string>(),
-         "output format [parquet, csv]")  //
-        ("compression-format,C",
-         po::value<std::string>(),
-         "compression format in parquet [uncompressed, gzip, zstd, lzo]")  //
-        ("use-single-bus,b",
-         po::value<bool>()->implicit_value(true),
-         "use single bus mode")  //
-        ("use-kirchhoff,k",
-         po::value<bool>()->implicit_value(true),
-         "use kirchhoff mode")  //
-        ("use-lp-names,n",
-         po::value<int>()->implicit_value(1),
-         "use real col/row names in the lp file")  //
-        ("matrix-eps,e",
-         po::value<double>(),
-         "eps value to define A matrix non-zero values")  //
-        ("just-create,c",
-         po::value<bool>()->implicit_value(true),
-         "just create the problem, then exit")  //
-        ("fast-parsing,p",
-         po::value<bool>()->implicit_value(true),
-         "use fast (non strict) json parsing");
+    auto desc = make_options_description();
 
     po::positional_options_description pos_desc;
     pos_desc.add("system-file", -1);
