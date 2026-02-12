@@ -175,6 +175,21 @@ struct SparseRow
     using value_t = VVec::value_type;
 
     const auto msize = cmap.size();
+
+    if (eps <= 0.0) {
+      // Fast path: no filtering needed, direct indexed writes
+      KVec keys(msize);
+      VVec vals(msize);
+      size_t idx = 0;
+      for (const auto& [key, value] : cmap) {
+        keys[idx] = static_cast<key_t>(key);
+        vals[idx] = static_cast<value_t>(value);
+        ++idx;
+      }
+      return {std::move(keys), std::move(vals)};
+    }
+
+    // Filtered path: skip near-zero values
     KVec keys;
     keys.reserve(msize);
     VVec vals;

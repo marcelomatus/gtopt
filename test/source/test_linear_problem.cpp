@@ -346,3 +346,79 @@ TEST_CASE("Linear problem advanced operations")
     REQUIRE(flat_lp.name == flat_lp2.name);
   }
 }
+
+TEST_CASE("Linear problem to_flat row ordering")
+{
+  // Verify that the two-pass algorithm produces correctly sorted row
+  // indices within each column, matching the expected column-major format.
+  gtopt::LinearProblem lp("ordering_test");
+
+  const auto c0 = lp.add_col(gtopt::SparseCol {.name = "c0"});
+  const auto c1 = lp.add_col(gtopt::SparseCol {.name = "c1"});
+
+  auto r0 = lp.add_row(gtopt::SparseRow {.name = "r0"});
+  auto r1 = lp.add_row(gtopt::SparseRow {.name = "r1"});
+  auto r2 = lp.add_row(gtopt::SparseRow {.name = "r2"});
+
+  // Column 0 has entries in rows 0 and 2
+  // Column 1 has entries in rows 0, 1, and 2
+  lp.set_coeff(r0, c0, 1.0);
+  lp.set_coeff(r2, c0, 3.0);
+  lp.set_coeff(r0, c1, 4.0);
+  lp.set_coeff(r1, c1, 5.0);
+  lp.set_coeff(r2, c1, 6.0);
+
+  const auto flat = lp.to_flat();
+
+  REQUIRE(flat.ncols == 2);
+  REQUIRE(flat.nrows == 3);
+
+  // matbeg: col0 starts at 0, col1 starts at 2, end at 5
+  REQUIRE(flat.matbeg.size() == 3);
+  CHECK(flat.matbeg[0] == 0);
+  CHECK(flat.matbeg[1] == 2);
+  CHECK(flat.matbeg[2] == 5);
+
+  // Column 0: rows 0 and 2 (sorted)
+  CHECK(flat.matind[0] == 0);
+  CHECK(flat.matval[0] == 1.0);
+  CHECK(flat.matind[1] == 2);
+  CHECK(flat.matval[1] == 3.0);
+
+  // Column 1: rows 0, 1, and 2 (sorted)
+  CHECK(flat.matind[2] == 0);
+  CHECK(flat.matval[2] == 4.0);
+  CHECK(flat.matind[3] == 1);
+  CHECK(flat.matval[3] == 5.0);
+  CHECK(flat.matind[4] == 2);
+  CHECK(flat.matval[4] == 6.0);
+}
+
+TEST_CASE("Linear problem to_flat with epsilon filtering")
+{
+  gtopt::LinearProblem lp("eps_test");
+
+  const auto c0 = lp.add_col(gtopt::SparseCol {.name = "c0"});
+  const auto c1 = lp.add_col(gtopt::SparseCol {.name = "c1"});
+
+  auto r0 = lp.add_row(gtopt::SparseRow {.name = "r0"});
+  auto r1 = lp.add_row(gtopt::SparseRow {.name = "r1"});
+
+  lp.set_coeff(r0, c0, 1.0);
+  lp.set_coeff(r0, c1, 0.001);  // Small value
+  lp.set_coeff(r1, c0, -2.0);
+  lp.set_coeff(r1, c1, 0.0005);  // Even smaller
+
+  // With eps=0.01, both c1 entries should be filtered out
+  const auto flat = lp.to_flat({.eps = 0.01});
+
+  REQUIRE(flat.ncols == 2);
+  CHECK(flat.matbeg[0] == 0);  // col0 starts at 0
+  CHECK(flat.matbeg[1] == 2);  // col1 starts at 2
+  CHECK(flat.matbeg[2] == 2);  // col1 has 0 entries (end at 2)
+
+  CHECK(flat.matind[0] == 0);
+  CHECK(flat.matval[0] == 1.0);
+  CHECK(flat.matind[1] == 1);
+  CHECK(flat.matval[1] == -2.0);
+}
