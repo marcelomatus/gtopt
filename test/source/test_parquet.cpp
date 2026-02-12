@@ -292,7 +292,8 @@ TEST_CASE("Parquet read int16 columns as int32")
 
   SUBCASE("Write parquet with int16 columns and read back")
   {
-    // Write a parquet file with int16 columns
+    // 4 rows with varying scenario/stage combinations to test uid index
+    // building from int16 columns that should be cast to int32
     const std::vector<int16_t> scenario_data = {1, 1, 2, 2};
     const std::vector<int16_t> stage_data = {1, 2, 1, 2};
     const std::vector<int16_t> block_data = {1, 1, 1, 1};
