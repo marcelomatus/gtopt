@@ -32,28 +32,28 @@ template<>
 struct ArrowTraits<int>
 {
   using Type = arrow::Int32Type;
-  static constexpr auto type() { return arrow::int32(); }
+  static inline auto type() { return arrow::int32(); }
 };
 
 template<>
 struct ArrowTraits<int16_t>
 {
   using Type = arrow::Int32Type;
-  static constexpr auto type() { return arrow::int16(); }
+  static inline auto type() { return arrow::int16(); }
 };
 
 template<>
 struct ArrowTraits<int8_t>
 {
   using Type = arrow::Int8Type;
-  static constexpr auto type() { return arrow::int8(); }
+  static inline auto type() { return arrow::int8(); }
 };
 
 template<>
 struct ArrowTraits<double>
 {
   using Type = arrow::DoubleType;
-  static constexpr auto type() { return arrow::float64(); }
+  static inline auto type() { return arrow::float64(); }
 };
 
 }  // namespace gtopt

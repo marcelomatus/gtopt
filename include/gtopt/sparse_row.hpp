@@ -104,7 +104,7 @@ struct SparseRow
    * @param key Column index
    * @return Coefficient value (0 if not found)bl
    */
-  [[nodiscard]] constexpr double get_coeff(ColIndex key) const noexcept
+  [[nodiscard]] double get_coeff(ColIndex key) const noexcept
   {
     const auto iter = cmap.find(key);
     return (iter != cmap.end()) ? iter->second : 0.0;

@@ -35,9 +35,9 @@ public:
   /// @param pbus The bus to wrap
   /// @param ic Input context for LP construction
   [[nodiscard]]
-  explicit constexpr BusLP(Bus pbus,
+  explicit constexpr BusLP(const Bus& pbus,
                            [[maybe_unused]] const InputContext& ic) noexcept
-      : ObjectLP<Bus>(std::move(pbus))
+      : ObjectLP<Bus>(pbus)
   {
   }
 
