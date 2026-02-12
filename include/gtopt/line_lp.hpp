@@ -55,7 +55,7 @@ public:
     return line().bus_a == line().bus_b;
   }
 
-  explicit LineLP(Line pline, const InputContext& ic);
+  explicit LineLP(const Line& pline, const InputContext& ic);
 
   bool add_to_lp(SystemContext& sc,
                  const ScenarioLP& scenario,
