@@ -102,7 +102,7 @@ struct SparseRow
   /**
    * Gets a coefficient value
    * @param key Column index
-   * @return Coefficient value (0 if not found)
+   * @return Coefficient value (0 if not found)bl
    */
   [[nodiscard]] constexpr double get_coeff(ColIndex key) const noexcept
   {
