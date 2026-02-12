@@ -76,6 +76,36 @@ inline constexpr auto is_compatible_int32_type(arrow::Type::type type_id) -> boo
  * @return A shared pointer to an Int32Array, or nullptr if the type is
  *         incompatible
  */
+namespace detail
+{
+
+template<typename SourceArrayType>
+inline auto widen_to_int32_array(const arrow::Array& chunk)
+    -> std::shared_ptr<arrow::Int32Array>
+{
+  const auto& src = static_cast<const SourceArrayType&>(chunk);  // NOLINT
+  arrow::Int32Builder builder;
+  auto st = builder.Reserve(chunk.length());
+  if (!st.ok()) {
+    return nullptr;
+  }
+  for (int64_t i = 0; i < chunk.length(); ++i) {
+    if (src.IsNull(i)) {
+      builder.UnsafeAppendNull();
+    } else {
+      builder.UnsafeAppend(static_cast<int32_t>(src.Value(i)));
+    }
+  }
+  std::shared_ptr<arrow::Array> result;
+  st = builder.Finish(&result);
+  if (!st.ok()) {
+    return nullptr;
+  }
+  return std::static_pointer_cast<arrow::Int32Array>(result);
+}
+
+}  // namespace detail
+
 inline auto cast_to_int32_array(const std::shared_ptr<arrow::Array>& chunk)
     -> std::shared_ptr<arrow::Int32Array>
 {
@@ -90,48 +120,11 @@ inline auto cast_to_int32_array(const std::shared_ptr<arrow::Array>& chunk)
   }
 
   if (tid == arrow::Type::INT16) {
-    const auto& src =
-        static_cast<const arrow::Int16Array&>(*chunk);  // NOLINT
-    arrow::Int32Builder builder;
-    auto st = builder.Reserve(chunk->length());
-    if (!st.ok()) {
-      return nullptr;
-    }
-    for (int64_t i = 0; i < chunk->length(); ++i) {
-      if (src.IsNull(i)) {
-        builder.UnsafeAppendNull();
-      } else {
-        builder.UnsafeAppend(static_cast<int32_t>(src.Value(i)));
-      }
-    }
-    std::shared_ptr<arrow::Array> result;
-    st = builder.Finish(&result);
-    if (!st.ok()) {
-      return nullptr;
-    }
-    return std::static_pointer_cast<arrow::Int32Array>(result);
+    return detail::widen_to_int32_array<arrow::Int16Array>(*chunk);
   }
 
   if (tid == arrow::Type::INT8) {
-    const auto& src = static_cast<const arrow::Int8Array&>(*chunk);  // NOLINT
-    arrow::Int32Builder builder;
-    auto st = builder.Reserve(chunk->length());
-    if (!st.ok()) {
-      return nullptr;
-    }
-    for (int64_t i = 0; i < chunk->length(); ++i) {
-      if (src.IsNull(i)) {
-        builder.UnsafeAppendNull();
-      } else {
-        builder.UnsafeAppend(static_cast<int32_t>(src.Value(i)));
-      }
-    }
-    std::shared_ptr<arrow::Array> result;
-    st = builder.Finish(&result);
-    if (!st.ok()) {
-      return nullptr;
-    }
-    return std::static_pointer_cast<arrow::Int32Array>(result);
+    return detail::widen_to_int32_array<arrow::Int8Array>(*chunk);
   }
 
   return nullptr;
