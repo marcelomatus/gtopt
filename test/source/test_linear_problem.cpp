@@ -394,6 +394,142 @@ TEST_CASE("Linear problem to_flat row ordering")
   CHECK(flat.matval[4] == 6.0);
 }
 
+TEST_CASE("Linear problem to_flat column and row names")
+{
+  gtopt::LinearProblem lp("names_test");
+
+  const auto c0 = lp.add_col(gtopt::SparseCol {.name = "alpha"});
+  const auto c1 = lp.add_col(gtopt::SparseCol {.name = "beta"});
+  const auto c2 = lp.add_col(gtopt::SparseCol {.name = "gamma"});
+
+  auto r0 = lp.add_row(gtopt::SparseRow {.name = "con1"});
+  auto r1 = lp.add_row(gtopt::SparseRow {.name = "con2"});
+
+  lp.set_coeff(r0, c0, 1.0);
+  lp.set_coeff(r0, c2, 2.0);
+  lp.set_coeff(r1, c1, 3.0);
+
+  SUBCASE("col_with_names only")
+  {
+    const auto flat = lp.to_flat({.col_with_names = true});
+
+    REQUIRE(flat.colnm.size() == 3);
+    CHECK(flat.colnm[0] == "alpha");
+    CHECK(flat.colnm[1] == "beta");
+    CHECK(flat.colnm[2] == "gamma");
+
+    CHECK(flat.rownm.empty());
+    CHECK(flat.colmp.empty());
+    CHECK(flat.rowmp.empty());
+  }
+
+  SUBCASE("row_with_names only")
+  {
+    const auto flat = lp.to_flat({.row_with_names = true});
+
+    CHECK(flat.colnm.empty());
+
+    REQUIRE(flat.rownm.size() == 2);
+    CHECK(flat.rownm[0] == "con1");
+    CHECK(flat.rownm[1] == "con2");
+
+    CHECK(flat.colmp.empty());
+    CHECK(flat.rowmp.empty());
+  }
+
+  SUBCASE("both names enabled")
+  {
+    const auto flat = lp.to_flat({
+        .col_with_names = true,
+        .row_with_names = true,
+    });
+
+    REQUIRE(flat.colnm.size() == 3);
+    CHECK(flat.colnm[0] == "alpha");
+    CHECK(flat.colnm[1] == "beta");
+    CHECK(flat.colnm[2] == "gamma");
+
+    REQUIRE(flat.rownm.size() == 2);
+    CHECK(flat.rownm[0] == "con1");
+    CHECK(flat.rownm[1] == "con2");
+
+    CHECK(flat.colmp.empty());
+    CHECK(flat.rowmp.empty());
+  }
+
+  SUBCASE("col_with_name_map implies colnm populated")
+  {
+    const auto flat = lp.to_flat({.col_with_name_map = true});
+
+    REQUIRE(flat.colnm.size() == 3);
+    CHECK(flat.colnm[0] == "alpha");
+    CHECK(flat.colnm[1] == "beta");
+    CHECK(flat.colnm[2] == "gamma");
+
+    REQUIRE(flat.colmp.size() == 3);
+    CHECK(flat.colmp.at("alpha") == 0);
+    CHECK(flat.colmp.at("beta") == 1);
+    CHECK(flat.colmp.at("gamma") == 2);
+
+    CHECK(flat.rownm.empty());
+    CHECK(flat.rowmp.empty());
+  }
+
+  SUBCASE("row_with_name_map implies rownm populated")
+  {
+    const auto flat = lp.to_flat({.row_with_name_map = true});
+
+    CHECK(flat.colnm.empty());
+    CHECK(flat.colmp.empty());
+
+    REQUIRE(flat.rownm.size() == 2);
+    CHECK(flat.rownm[0] == "con1");
+    CHECK(flat.rownm[1] == "con2");
+
+    REQUIRE(flat.rowmp.size() == 2);
+    CHECK(flat.rowmp.at("con1") == 0);
+    CHECK(flat.rowmp.at("con2") == 1);
+  }
+
+  SUBCASE("all names and maps enabled")
+  {
+    const auto flat = lp.to_flat({
+        .col_with_names = true,
+        .row_with_names = true,
+        .col_with_name_map = true,
+        .row_with_name_map = true,
+    });
+
+    REQUIRE(flat.colnm.size() == 3);
+    CHECK(flat.colnm[0] == "alpha");
+    CHECK(flat.colnm[1] == "beta");
+    CHECK(flat.colnm[2] == "gamma");
+
+    REQUIRE(flat.rownm.size() == 2);
+    CHECK(flat.rownm[0] == "con1");
+    CHECK(flat.rownm[1] == "con2");
+
+    REQUIRE(flat.colmp.size() == 3);
+    CHECK(flat.colmp.at("alpha") == 0);
+    CHECK(flat.colmp.at("beta") == 1);
+    CHECK(flat.colmp.at("gamma") == 2);
+
+    REQUIRE(flat.rowmp.size() == 2);
+    CHECK(flat.rowmp.at("con1") == 0);
+    CHECK(flat.rowmp.at("con2") == 1);
+  }
+
+  SUBCASE("no names requested")
+  {
+    const auto flat = lp.to_flat();
+
+    CHECK(flat.colnm.empty());
+    CHECK(flat.rownm.empty());
+    CHECK(flat.colmp.empty());
+    CHECK(flat.rowmp.empty());
+  }
+}
+
 TEST_CASE("Linear problem to_flat with epsilon filtering")
 {
   gtopt::LinearProblem lp("eps_test");
