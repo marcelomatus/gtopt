@@ -35,7 +35,7 @@ public:
   /// Class name constant used for labeling LP elements
   static constexpr LPClassName ClassName {"GeneratorProfile", "gpr"};
 
-  explicit GeneratorProfileLP(GeneratorProfile pgenerator_profile,
+  explicit GeneratorProfileLP(const GeneratorProfile& pgenerator_profile,
                               InputContext& ic);
 
   [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
