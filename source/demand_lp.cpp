@@ -16,8 +16,8 @@
 namespace gtopt
 {
 
-DemandLP::DemandLP(Demand pdemand, const InputContext& ic)
-    : CapacityBase(std::move(pdemand), ic, ClassName)
+DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
+    : CapacityBase(pdemand, ic, ClassName)
     , lmax(ic, ClassName, id(), std::move(object().lmax))
     , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
     , fcost(ic, ClassName, id(), std::move(object().fcost))

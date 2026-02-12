@@ -38,7 +38,7 @@ public:
    * @param pturbine The turbine to represent
    * @param ic Input context containing system configuration
    */
-  explicit TurbineLP(Turbine pturbine, InputContext& ic);
+  explicit TurbineLP(const Turbine& pturbine, InputContext& ic);
 
   [[nodiscard]] constexpr auto&& turbine(this auto&& self) noexcept
   {

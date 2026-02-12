@@ -77,7 +77,7 @@ class LinearParser
         expr,
         std::back_inserter(result),
         [](char c) noexcept
-        { return !std::isspace(static_cast<unsigned char>(c)); });
+        { return std::isspace(static_cast<unsigned char>(c)) == 0; });
     return result;
   }
 

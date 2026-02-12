@@ -19,8 +19,8 @@
 namespace gtopt
 {
 
-BatteryLP::BatteryLP(Battery pbattery, const InputContext& ic)
-    : StorageBase(std::move(pbattery), ic, ClassName)
+BatteryLP::BatteryLP(const Battery& pbattery, const InputContext& ic)
+    : StorageBase(pbattery, ic, ClassName)
     , input_efficiency(
           ic, ClassName, id(), std::move(object().input_efficiency))
     , output_efficiency(
