@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include <gtopt/field_sched.hpp>
 #include <gtopt/mvector_traits.hpp>
 #include <gtopt/overload.hpp>  // Add Overload include
@@ -67,19 +69,41 @@ struct InputTraits : UidTraits
             throw std::runtime_error("Null chunk in array");
           }
 
-          if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
-            throw std::runtime_error(
-                std::format("Type mismatch: expected {} got {}",
-                            ArrowTraits<Type>::Type::type_name(),
-                            chunk->type()->ToString()));
+          if constexpr (std::is_integral_v<Type>
+                        && sizeof(Type) >= sizeof(int32_t))
+          {
+            if (!is_compatible_int32_type(chunk->type_id())) {
+              throw std::runtime_error(
+                  std::format("Type mismatch: expected {} got {}",
+                              ArrowTraits<Type>::Type::type_name(),
+                              chunk->type()->ToString()));
+            }
+
+            auto array_value = cast_to_int32_array(chunk);
+            if (!array_value) {
+              throw std::runtime_error("Failed to cast column to int32");
+            }
+
+            return RType {
+                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+            };
+          } else {
+            if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
+              throw std::runtime_error(
+                  std::format("Type mismatch: expected {} got {}",
+                              ArrowTraits<Type>::Type::type_name(),
+                              chunk->type()->ToString()));
+            }
+
+            using array_value_type = arrow::CTypeTraits<Type>::ArrayType;
+            auto array_value =
+                std::static_pointer_cast<array_value_type>(chunk);
+
+            return RType {
+                access_oper(
+                    array_value, a_uid_idx, std::make_tuple(uid...)),
+            };
           }
-
-          using array_value_type = arrow::CTypeTraits<Type>::ArrayType;
-          auto array_value = std::static_pointer_cast<array_value_type>(chunk);
-
-          return RType {
-              access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
-          };
         },
     };
 

@@ -10,6 +10,7 @@
 #include <gtopt/schedule.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/uididx_traits.hpp>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
@@ -249,5 +250,106 @@ TEST_CASE("Parquet file write and read test")
       REQUIRE(std::filesystem::remove(filename));
       REQUIRE(std::filesystem::remove(dirname));
     }
+  }
+}
+
+TEST_CASE("Parquet writing uses int32 for all integer types")
+{
+  using namespace gtopt;
+
+  SUBCASE("ArrowTraits type functions return int32")
+  {
+    CHECK(ArrowTraits<Uid>::type()->id() == arrow::Type::INT32);
+    CHECK(ArrowTraits<int>::type()->id() == arrow::Type::INT32);
+    CHECK(ArrowTraits<int16_t>::type()->id() == arrow::Type::INT32);
+    CHECK(ArrowTraits<int8_t>::type()->id() == arrow::Type::INT32);
+  }
+
+  SUBCASE("Uid fields are written as int32")
+  {
+    const std::vector<Uid> stage_data = {1, 2, 3};
+
+    arrow::Int32Builder builder;
+    REQUIRE(builder.AppendValues(stage_data).ok());
+    std::shared_ptr<arrow::Array> stage_array;
+    REQUIRE(builder.Finish(&stage_array).ok());
+
+    auto schema = arrow::schema(
+        {arrow::field("stage", ArrowTraits<Uid>::type())});
+    auto table = arrow::Table::Make(schema, {stage_array});
+
+    CHECK(table->schema()->field(0)->type()->id() == arrow::Type::INT32);
+  }
+}
+
+TEST_CASE("Parquet read int16 columns as int32")
+{
+  using namespace gtopt;
+
+  const std::string dirname = "input/test_int16/";
+  const std::string filename = dirname + "field.parquet";
+  std::filesystem::create_directories(dirname);
+
+  SUBCASE("Write parquet with int16 columns and read back")
+  {
+    // 4 rows with varying scenario/stage combinations to test uid index
+    // building from int16 columns that should be cast to int32
+    const std::vector<int16_t> scenario_data = {1, 1, 2, 2};
+    const std::vector<int16_t> stage_data = {1, 2, 1, 2};
+    const std::vector<int16_t> block_data = {1, 1, 1, 1};
+    const std::vector<double> value_data = {10.0, 20.0, 30.0, 40.0};
+
+    arrow::Int16Builder scenario_builder;
+    arrow::Int16Builder stage_builder;
+    arrow::Int16Builder block_builder;
+    arrow::DoubleBuilder value_builder;
+
+    REQUIRE(scenario_builder.AppendValues(scenario_data).ok());
+    REQUIRE(stage_builder.AppendValues(stage_data).ok());
+    REQUIRE(block_builder.AppendValues(block_data).ok());
+    REQUIRE(value_builder.AppendValues(value_data).ok());
+
+    std::shared_ptr<arrow::Array> scenario_array;
+    std::shared_ptr<arrow::Array> stage_array;
+    std::shared_ptr<arrow::Array> block_array;
+    std::shared_ptr<arrow::Array> value_array;
+
+    REQUIRE(scenario_builder.Finish(&scenario_array).ok());
+    REQUIRE(stage_builder.Finish(&stage_array).ok());
+    REQUIRE(block_builder.Finish(&block_array).ok());
+    REQUIRE(value_builder.Finish(&value_array).ok());
+
+    auto schema = arrow::schema({
+        arrow::field("scenario", arrow::int16()),
+        arrow::field("stage", arrow::int16()),
+        arrow::field("block", arrow::int16()),
+        arrow::field("value", arrow::float64()),
+    });
+
+    auto table = arrow::Table::Make(
+        schema, {scenario_array, stage_array, block_array, value_array});
+    REQUIRE(table != nullptr);
+
+    // Verify columns are int16
+    CHECK(table->schema()->field(0)->type()->id() == arrow::Type::INT16);
+    CHECK(table->schema()->field(1)->type()->id() == arrow::Type::INT16);
+    CHECK(table->schema()->field(2)->type()->id() == arrow::Type::INT16);
+
+    // Use make_uid_column which should handle int16 -> int32 conversion
+    using TestTraits = UidToArrowIdx<ScenarioUid, StageUid, BlockUid>;
+    auto result = TestTraits::make_arrow_uids_idx(table);
+    REQUIRE(result != nullptr);
+    CHECK(result->size() == 4);
+
+    // Verify the index was built correctly from int16 data
+    CHECK(result->at({ScenarioUid {1}, StageUid {1}, BlockUid {1}}) == 0);
+    CHECK(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {1}}) == 1);
+    CHECK(result->at({ScenarioUid {2}, StageUid {1}, BlockUid {1}}) == 2);
+    CHECK(result->at({ScenarioUid {2}, StageUid {2}, BlockUid {1}}) == 3);
+  }
+
+  SUBCASE("Cleanup")
+  {
+    std::filesystem::remove_all(dirname);
   }
 }
