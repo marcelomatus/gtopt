@@ -24,12 +24,11 @@ static po::variables_map parse_args(
   pos_desc.add("system-file", -1);
 
   po::variables_map vm;
-  po::store(po::command_line_parser(args)
-                .options(desc)
-                .allow_unregistered()
-                .positional(pos_desc)
-                .run(),
-            vm);
+  auto parser = po::command_line_parser(args)
+                    .options(desc)
+                    .allow_unregistered()
+                    .positional(pos_desc);
+  po::store(parser, vm);
   po::notify(vm);
   return vm;
 }
