@@ -53,7 +53,7 @@ template<typename T>
 {
   po::options_description desc("Gtoptp options");
   desc.add_options()("help,h", "describes arguments")  //
-      ("verbose,v", "activates maximun verbosity")  //
+      ("verbose,v", "activates maximum verbosity")  //
       ("quiet,q",
        po::value<bool>()->implicit_value(true),
        "do not log in the stdout")  //
