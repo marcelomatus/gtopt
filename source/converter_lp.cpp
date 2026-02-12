@@ -19,8 +19,8 @@
 namespace gtopt
 {
 
-ConverterLP::ConverterLP(Converter pconverter, InputContext& ic)
-    : CapacityBase(std::move(pconverter), ic, ClassName)
+ConverterLP::ConverterLP(const Converter& pconverter, InputContext& ic)
+    : CapacityBase(pconverter, ic, ClassName)
     , conversion_rate(
           ic, ClassName, id(), std::move(converter().conversion_rate))
 {

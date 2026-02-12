@@ -21,9 +21,9 @@
 
 namespace gtopt
 {
-GeneratorProfileLP::GeneratorProfileLP(GeneratorProfile pgenerator_profile,
+GeneratorProfileLP::GeneratorProfileLP(const GeneratorProfile& pgenerator_profile,
                                        InputContext& ic)
-    : ProfileObjectLP(std::move(pgenerator_profile), ic, ClassName)
+    : ProfileObjectLP(pgenerator_profile, ic, ClassName)
 {
 }
 

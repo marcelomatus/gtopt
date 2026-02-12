@@ -21,7 +21,7 @@ class WaterwayLP : public ObjectLP<Waterway>
 public:
   static constexpr LPClassName ClassName {"Waterway", "wwy"};
 
-  explicit WaterwayLP(Waterway pwaterway, const InputContext& ic);
+  explicit WaterwayLP(const Waterway& pwaterway, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& waterway(this auto&& self) noexcept
   {
