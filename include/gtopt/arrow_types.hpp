@@ -18,9 +18,10 @@ using ArrowChunkedArray = std::shared_ptr<arrow::ChunkedArray>;
 using ArrowColumnResult = arrow::Result<ArrowChunkedArray>;
 
 /// Get column by name with explicit error checking
-inline auto GetColumn(const ArrowTable& table, std::string_view name) -> ArrowColumnResult
+inline auto GetColumn(const ArrowTable& table, std::string_view name)
+    -> ArrowColumnResult
 {
-    return table->GetColumnByName(std::string(name));
+  return table->GetColumnByName(std::string(name));
 }
 
 template<typename Uid>
@@ -32,28 +33,28 @@ template<>
 struct ArrowTraits<int>
 {
   using Type = arrow::Int32Type;
-  static inline auto type() { return arrow::int32(); }
+  static constexpr auto type() { return arrow::int32(); }
 };
 
 template<>
 struct ArrowTraits<int16_t>
 {
   using Type = arrow::Int32Type;
-  static inline auto type() { return arrow::int16(); }
+  static constexpr auto type() { return arrow::int16(); }
 };
 
 template<>
 struct ArrowTraits<int8_t>
 {
   using Type = arrow::Int8Type;
-  static inline auto type() { return arrow::int8(); }
+  static constexpr auto type() { return arrow::int8(); }
 };
 
 template<>
 struct ArrowTraits<double>
 {
   using Type = arrow::DoubleType;
-  static inline auto type() { return arrow::float64(); }
+  static constexpr auto type() { return arrow::float64(); }
 };
 
 }  // namespace gtopt
