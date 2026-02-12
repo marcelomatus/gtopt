@@ -138,7 +138,7 @@ target_link_libraries(
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
 target_link_libraries(
-  ${PROJECT_NAME} PRIVATE Arrow::arrow_shared Parquet::parquet_shared
+  ${PROJECT_NAME} PUBLIC Arrow::arrow_shared Parquet::parquet_shared
 )
 
 target_include_directories(
