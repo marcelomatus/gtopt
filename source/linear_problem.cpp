@@ -28,50 +28,52 @@ auto LinearProblem::to_flat(const FlatOptions& opts) -> FlatLinearProblem
   }
 
   using fp_index_t = FlatLinearProblem::index_t;
-  std::vector<fp_index_t> matbeg(ncols + 1);
+  std::vector<fp_index_t> matbeg(ncols + 1, 0);
   std::vector<fp_index_t> matind;
   std::vector<double> matval;
 
-  size_t nnzero = 0;
+  // Two-pass approach avoids creating an intermediate SparseMatrix
+  // of ncols flat_maps, reducing memory allocations and sort overhead.
+
+  // Pass 1: count non-zeros per column to build matbeg
+  const auto eps = opts.eps;
+  for (const auto& row : rows) {
+    for (const auto& [j, v] : row.cmap) {
+      if (eps < 0 || std::abs(v) > eps) [[likely]] {
+        ++matbeg[static_cast<size_t>(j)];
+      }
+    }
+  }
+
+  // Convert counts to start offsets (exclusive prefix sum)
   {
-    SparseMatrix A(ncols);
-    if (opts.reserve_matrix) {
-      const auto avg_size = static_cast<size_t>(
-          (opts.reserve_factor * static_cast<double>(ncoeffs)
-           / static_cast<double>(ncols))
-          + 1);
-
-      for (auto& ai : A) {
-        map_reserve(ai, avg_size);
-      }
-
-      SPDLOG_TRACE(
-          fmt::format("reserving matrix with avg_size of {}", avg_size));
+    fp_index_t cumsum = 0;
+    for (size_t c = 0; c < ncols; ++c) {
+      const auto count = matbeg[c];
+      matbeg[c] = cumsum;
+      cumsum += count;
     }
+    matbeg[ncols] = cumsum;
 
-    const auto eps = opts.eps;
-    for (const auto& [i, row] : std::views::enumerate(rows)) {
-      for (const auto& [j, v] : row.cmap) {
-        if (eps < 0 || std::abs(v) > eps) [[likely]] {
-          A[j].emplace(std::piecewise_construct,
-                       std::forward_as_tuple(i),
-                       std::forward_as_tuple(v));
-          ++nnzero;
-        }
-      }
-    }
-
+    const auto nnzero = static_cast<size_t>(cumsum);
     matind.resize(nnzero);
     matval.resize(nnzero);
-    for (size_t ii = 0; const auto& [ic, ai] : std::views::enumerate(A)) {
-      matbeg[ic] = static_cast<fp_index_t>(ii);
-      for (const auto& [j, aij] : ai) {
-        matind[ii] = static_cast<fp_index_t>(j);
-        matval[ii] = aij;
-        ++ii;
+  }
+
+  // Pass 2: fill matind and matval using column offsets
+  // Use a working copy of matbeg as write cursors
+  std::vector<fp_index_t> colpos(matbeg.begin(), matbeg.begin() + ncols);
+
+  for (const auto& [i, row] : std::views::enumerate(rows)) {
+    for (const auto& [j, v] : row.cmap) {
+      if (eps < 0 || std::abs(v) > eps) [[likely]] {
+        const auto c = static_cast<size_t>(j);
+        const auto pos = static_cast<size_t>(colpos[c]);
+        matind[pos] = static_cast<fp_index_t>(i);
+        matval[pos] = v;
+        ++colpos[c];
       }
     }
-    matbeg[ncols] = static_cast<fp_index_t>(nnzero);
   }
 
   std::vector<double> rowlb(nrows);

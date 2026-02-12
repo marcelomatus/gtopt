@@ -226,4 +226,39 @@ TEST_SUITE("SparseRow")
     auto [indices, values] = row.to_flat(0.5);
     CHECK(indices.size() == 99);
   }
+
+  TEST_CASE("To Flat Fast Path No Filtering")
+  {
+    SparseRow row;
+    row.set_coeff(ColIndex {0}, 1.0);
+    row.set_coeff(ColIndex {2}, -3.5);
+    row.set_coeff(ColIndex {5}, 0.001);
+
+    // Default eps=0.0 takes the fast path (no filtering)
+    auto [indices, values] = row.to_flat();
+    CHECK(indices.size() == 3);
+    CHECK(values.size() == 3);
+    CHECK(indices[0] == 0);
+    CHECK(indices[1] == 2);
+    CHECK(indices[2] == 5);
+    CHECK(values[0] == 1.0);
+    CHECK(values[1] == -3.5);
+    CHECK(values[2] == 0.001);
+  }
+
+  TEST_CASE("To Flat Negative Epsilon Fast Path")
+  {
+    SparseRow row;
+    row.set_coeff(ColIndex {0}, 0.0);
+    row.set_coeff(ColIndex {1}, 1e-15);
+    row.set_coeff(ColIndex {2}, 1.0);
+
+    // Negative eps also takes the fast path
+    auto [indices, values] = row.to_flat(-1.0);
+    CHECK(indices.size() == 3);
+    CHECK(values.size() == 3);
+    CHECK(values[0] == 0.0);
+    CHECK(values[1] == 1e-15);
+    CHECK(values[2] == 1.0);
+  }
 }
