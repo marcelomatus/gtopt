@@ -45,6 +45,8 @@ CPMAddPackage("gh:doctest/doctest@2.4.12")
 
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
+find_package(Boost REQUIRED COMPONENTS program_options)
+
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake_local ${PROJECT_SOURCE_DIR}/../cmake)
 
 option(COIN_USE_CLP "Use Clp" OFF)
@@ -70,7 +72,7 @@ file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*
 
 add_executable(${PROJECT_NAME} ${sources})
 
-target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt)
+target_link_libraries(${PROJECT_NAME} doctest::doctest gtopt::gtopt Boost::program_options)
 
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
 target_link_libraries(
