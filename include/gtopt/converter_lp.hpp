@@ -32,7 +32,7 @@ public:
     return std::forward_like<decltype(self)>(self.object());
   }
 
-  explicit ConverterLP(Converter pconverter, InputContext& ic);
+  explicit ConverterLP(const Converter& pconverter, InputContext& ic);
 
   [[nodiscard]] constexpr auto battery_sid() const noexcept
   {

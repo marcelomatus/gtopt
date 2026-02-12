@@ -54,7 +54,7 @@ public:
    * @param ic Input context for parameter processing
    * @param pbattery Battery object to convert to LP representation
    */
-  explicit BatteryLP(Battery pbattery, const InputContext& ic);
+  explicit BatteryLP(const Battery& pbattery, const InputContext& ic);
 
   /**
    * @brief Adds battery variables and constraints to the linear problem

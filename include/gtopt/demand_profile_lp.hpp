@@ -21,7 +21,7 @@ class DemandProfileLP : public ProfileObjectLP<DemandProfile, DemandLP>
 public:
   static constexpr LPClassName ClassName {"DemandProfile", "dpr"};
 
-  explicit DemandProfileLP(DemandProfile pdemand_profile, InputContext& ic);
+  explicit DemandProfileLP(const DemandProfile& pdemand_profile, InputContext& ic);
 
   [[nodiscard]] constexpr auto&& demand_profile(this auto&& self) noexcept
   {
