@@ -212,12 +212,12 @@ public:
    */
   constexpr void set_coeff(RowIndex row, ColIndex col, double coeff)
   {
-    auto& rmap = rows[row].cmap;
-    auto it = rmap.find(col);
-    if (it != rmap.end()) {
+    auto& row_cmap = rows[row].cmap;
+    auto it = row_cmap.find(col);
+    if (it != row_cmap.end()) {
       it->second = coeff;
     } else {
-      rmap.emplace(col, coeff);
+      row_cmap.emplace(col, coeff);
       ++ncoeffs;
     }
   }
