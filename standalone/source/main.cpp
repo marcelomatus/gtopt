@@ -182,14 +182,13 @@ int main(int argc, char** argv)
 
     po::variables_map vm;
     try {
-      po::store(po::command_line_parser(argc, argv)
-                    .options(desc)
-                    .allow_unregistered()
-                    .positional(pos_desc)
-                    .run(),
-                vm);
+      auto parser = po::command_line_parser(argc, argv)
+                        .options(desc)
+                        .allow_unregistered()
+                        .positional(pos_desc);
+      po::store(parser, vm);
       po::notify(vm);
-    } catch (boost::program_options::error& e) {
+    } catch (po::parse_error& e) {
       std::cout << "ERROR: " << e.what() << "\n";
       std::cout << desc << "\n";
       return 1;
