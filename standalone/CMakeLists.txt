@@ -35,8 +35,6 @@ include(../cmake/CPM.cmake)
 
 CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 
-find_package(Boost REQUIRED COMPONENTS program_options)
-include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake_local ${PROJECT_SOURCE_DIR}/../cmake)
@@ -61,7 +59,7 @@ file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*
 
 add_executable(${PROJECT_NAME} ${sources})
 
-target_link_libraries(${PROJECT_NAME} gtopt::gtopt Boost::program_options)
+target_link_libraries(${PROJECT_NAME} gtopt::gtopt)
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
 
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
