@@ -16,7 +16,7 @@ Checks: "*,\
   -altera-*,\
   -boost-use-ranges,\
   -bugprone-easily-swappable-parameters,\
-  -bugprone-unchecked-optional-access,\
+  bugprone-unchecked-optional-access,\
   -bugprone-lambda-function-name,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -clang-analyzer-cplusplus.NewDeleteLeaks,\
