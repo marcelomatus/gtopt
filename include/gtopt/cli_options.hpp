@@ -92,9 +92,9 @@ private:
 
 struct option_definition
 {
-  std::string long_name;       // e.g. "help"
-  char short_name = '\0';      // e.g. 'h'
-  std::string description;     // help text
+  std::string long_name;  // e.g. "help"
+  char short_name = '\0';  // e.g. 'h'
+  std::string description;  // help text
 
   // Does this option accept a value argument?
   bool takes_value = false;
@@ -192,7 +192,7 @@ public:
     /// Option with a typed value.
     template<typename T>
     adder& operator()(const std::string& name_spec,
-                      typed_value<T> tv,
+                      const typed_value<T>& tv,
                       const std::string& desc)
     {
       option_definition def;
@@ -209,11 +209,13 @@ public:
       // Build the string→any parser for the value type
       if constexpr (std::is_same_v<T, std::vector<std::string>>) {
         def.multi_value = true;
-        def.parser = [](const std::string& s) -> std::any {
+        def.parser = [](const std::string& s) -> std::any
+        {
           return s;  // collected later
         };
       } else {
-        def.parser = [](const std::string& s) -> std::any {
+        def.parser = [](const std::string& s) -> std::any
+        {
           if constexpr (std::is_same_v<T, std::string>) {
             return s;
           } else if constexpr (std::is_same_v<T, bool>) {
@@ -252,7 +254,7 @@ public:
       }
     }
 
-    options_description& parent_;
+    options_description& parent_;  // NOLINT
   };
 
   adder add_options() { return adder(*this); }
@@ -293,7 +295,7 @@ public:
                                   const options_description& desc)
   {
     os << desc.caption_ << ":\n";
-    for (auto& opt : desc.options_) {
+    for (const auto& opt : desc.options_) {
       os << "  ";
       if (opt.short_name != '\0') {
         os << '-' << opt.short_name << " [ --" << opt.long_name << " ]";
@@ -432,7 +434,7 @@ public:
         }
       } else if (tok.starts_with("-") && tok.size() == 2) {
         // Short option
-        char sc = tok[1];
+        const char sc = tok[1];
         const auto* def = desc_->find_short(sc);
         if (def == nullptr) {
           if (allow_unregistered_) {
@@ -453,8 +455,8 @@ public:
           }
         } else {
           if (i + 1 >= tokens_.size()) {
-            throw parse_error(
-                std::format("option '-{}' requires a value", std::string(1, sc)));
+            throw parse_error(std::format("option '-{}' requires a value",
+                                          std::string(1, sc)));
           }
           ++i;
           store_value(vm, *def, tokens_[i], multi_tokens);
@@ -464,7 +466,8 @@ public:
         if (pos_ != nullptr && !pos_->name().empty()) {
           multi_tokens[pos_->name()].push_back(tok);
         } else if (!allow_unregistered_) {
-          throw parse_error(std::format("unexpected positional argument: '{}'", tok));
+          throw parse_error(
+              std::format("unexpected positional argument: '{}'", tok));
         }
       }
     }
@@ -479,11 +482,11 @@ public:
   }
 
 private:
-  void store_value(
+  static void store_value(
       variables_map& vm,
       const option_definition& def,
       const std::string& raw,
-      std::unordered_map<std::string, std::vector<std::string>>& multi) const
+      std::unordered_map<std::string, std::vector<std::string>>& multi)
   {
     if (def.multi_value) {
       multi[def.long_name].push_back(raw);
@@ -502,12 +505,12 @@ private:
 //  Convenience: store / notify  (no-ops for API compatibility)
 // -------------------------------------------------------------------
 
-inline void store(command_line_parser& parser, variables_map& vm)
+inline void store(const command_line_parser& parser, variables_map& vm)
 {
   parser.parse_into(vm);
 }
 
-inline void notify(variables_map& /*vm*/)
+inline void notify(const variables_map& /*vm*/)
 {
   // Nothing to do – kept for API compatibility.
 }
