@@ -15,10 +15,10 @@
 using namespace gtopt;
 
 // ---- Helper to parse command-line args into a variables_map ----
-
-static po::variables_map parse_args(
-    const std::vector<std::string>& args,
-    const po::options_description& desc)
+namespace
+{
+po::variables_map parse_args(const std::vector<std::string>& args,
+                             const po::options_description& desc)
 {
   po::positional_options_description pos_desc;
   pos_desc.add("system-file", -1);
@@ -32,7 +32,7 @@ static po::variables_map parse_args(
   po::notify(vm);
   return vm;
 }
-
+}  // namespace
 // ---- Tests for get_opt ----
 
 TEST_CASE("get_opt - returns value when present")
@@ -165,10 +165,22 @@ TEST_CASE("make_options_description - string options")
 {
   auto desc = make_options_description();
   auto vm = parse_args(
-      {"--input-directory", "/in", "--output-directory", "/out",
-       "--input-format", "parquet", "--output-format", "csv",
-       "--compression-format", "gzip", "--lp-file", "model.lp", "--json-file",
-       "model.json"},
+      {
+          "--input-directory",
+          "/in",
+          "--output-directory",
+          "/out",
+          "--input-format",
+          "parquet",
+          "--output-format",
+          "csv",
+          "--compression-format",
+          "gzip",
+          "--lp-file",
+          "model.lp",
+          "--json-file",
+          "model.json",
+      },
       desc);
 
   CHECK(get_opt<std::string>(vm, "input-directory").value() == "/in");
@@ -382,9 +394,20 @@ TEST_CASE("Integration - parse and extract all option types")
 {
   auto desc = make_options_description();
   auto vm = parse_args(
-      {"system.json", "--use-single-bus", "--use-lp-names", "2", "--matrix-eps",
-       "0.01", "--output-directory", "/results", "--output-format", "parquet",
-       "--compression-format", "zstd"},
+      {
+          "system.json",
+          "--use-single-bus",
+          "--use-lp-names",
+          "2",
+          "--matrix-eps",
+          "0.01",
+          "--output-directory",
+          "/results",
+          "--output-format",
+          "parquet",
+          "--compression-format",
+          "zstd",
+      },
       desc);
 
   auto use_single_bus = get_opt<bool>(vm, "use-single-bus");

@@ -274,8 +274,8 @@ TEST_CASE("Parquet writing uses int32 for all integer types")
     std::shared_ptr<arrow::Array> stage_array;
     REQUIRE(builder.Finish(&stage_array).ok());
 
-    auto schema = arrow::schema(
-        {arrow::field("stage", ArrowTraits<Uid>::type())});
+    auto schema =
+        arrow::schema({arrow::field("stage", ArrowTraits<Uid>::type())});
     auto table = arrow::Table::Make(schema, {stage_array});
 
     CHECK(table->schema()->field(0)->type()->id() == arrow::Type::INT32);
@@ -285,10 +285,6 @@ TEST_CASE("Parquet writing uses int32 for all integer types")
 TEST_CASE("Parquet read int16 columns as int32")
 {
   using namespace gtopt;
-
-  const std::string dirname = "input/test_int16/";
-  const std::string filename = dirname + "field.parquet";
-  std::filesystem::create_directories(dirname);
 
   SUBCASE("Write parquet with int16 columns and read back")
   {
@@ -346,10 +342,5 @@ TEST_CASE("Parquet read int16 columns as int32")
     CHECK(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {1}}) == 1);
     CHECK(result->at({ScenarioUid {2}, StageUid {1}, BlockUid {1}}) == 2);
     CHECK(result->at({ScenarioUid {2}, StageUid {2}, BlockUid {1}}) == 3);
-  }
-
-  SUBCASE("Cleanup")
-  {
-    std::filesystem::remove_all(dirname);
   }
 }

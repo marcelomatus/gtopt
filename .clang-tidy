@@ -5,6 +5,7 @@ Checks: "*,\
   bugprone-*, \
   hicpp-*, \
   modernize-use-ranges, \
+  -clang-diagnostic-deprecated-declarations, \
   -modernize-type-traits, \
   modernize-use-std-print, \
   modernize-use-starts-ends-with, \

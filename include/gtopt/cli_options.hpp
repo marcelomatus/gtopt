@@ -19,14 +19,10 @@
 #include <format>
 #include <functional>
 #include <iostream>
-#include <iterator>
-#include <optional>
 #include <ranges>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -357,14 +353,15 @@ public:
   command_line_parser(int argc, char** argv)
   {
     // Use std::span for safe array access and bounds checking
-    std::span args{argv, static_cast<std::size_t>(argc)};
-    
+    const std::span args {argv, static_cast<std::size_t>(argc)};
+
     // Skip the first element (program name) using subspan
     if (argc > 1) {
       auto arg_view = args.subspan(1);
-      tokens_ = arg_view | std::views::transform([](const char* arg) {
-                  return std::string(arg);
-                }) | std::ranges::to<std::vector<std::string>>();
+      tokens_ = arg_view
+          | std::views::transform([](const char* arg)
+                                  { return std::string(arg); })
+          | std::ranges::to<std::vector>();
     }
   }
 
