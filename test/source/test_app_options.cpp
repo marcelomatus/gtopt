@@ -255,13 +255,16 @@ TEST_CASE("apply_cli_options - all options applied")
          && *planning.options.input_format == "parquet"));
 
   REQUIRE(planning.options.output_directory.has_value());
-  CHECK(*planning.options.output_directory == "/output");
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "/output"));
 
   REQUIRE(planning.options.output_format.has_value());
-  CHECK(*planning.options.output_format == "csv");
+  CHECK((planning.options.output_format
+         && *planning.options.output_format == "csv"));
 
   REQUIRE(planning.options.compression_format.has_value());
-  CHECK(*planning.options.compression_format == "gzip");
+  CHECK((planning.options.compression_format
+         && *planning.options.compression_format == "gzip"));
 }
 
 TEST_CASE("apply_cli_options - partial options applied")
@@ -278,13 +281,15 @@ TEST_CASE("apply_cli_options - partial options applied")
                     std::nullopt);
 
   REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK(*planning.options.use_single_bus == true);
+  CHECK((planning.options.use_single_bus
+         && *planning.options.use_single_bus == true));
 
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
   CHECK_FALSE(planning.options.use_lp_names.has_value());
 
   REQUIRE(planning.options.output_directory.has_value());
-  CHECK(*planning.options.output_directory == "/output");
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "/output"));
 
   CHECK_FALSE(planning.options.input_directory.has_value());
 }
@@ -306,10 +311,12 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
                     std::nullopt);
 
   REQUIRE(planning.options.output_directory.has_value());
-  CHECK(*planning.options.output_directory == "original_dir");
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "original_dir"));
 
   REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK(*planning.options.use_kirchhoff == true);
+  CHECK((planning.options.use_kirchhoff
+         && *planning.options.use_kirchhoff == true));
 }
 
 TEST_CASE("apply_cli_options - overwrites existing when value provided")
@@ -328,7 +335,8 @@ TEST_CASE("apply_cli_options - overwrites existing when value provided")
                     std::nullopt);
 
   REQUIRE(planning.options.output_directory.has_value());
-  CHECK(*planning.options.output_directory == "new_dir");
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "new_dir"));
 }
 
 // ---- Tests for make_flat_options ----
@@ -457,7 +465,8 @@ TEST_CASE("Integration - parse and extract all option types")
                     compression_format);
 
   REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK(*planning.options.use_single_bus == true);
+  CHECK((planning.options.use_single_bus
+         && *planning.options.use_single_bus == true));
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
 
   // Build flat options
