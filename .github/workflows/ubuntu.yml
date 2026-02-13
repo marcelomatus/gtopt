@@ -45,7 +45,7 @@ jobs:
         run: sudo apt-get install -y -V coinor-libcbc-dev
 
       - name: install boost
-        run: sudo apt-get install -y -V libboost-all-dev
+        run: sudo apt-get install -y -V libboost-container-dev
 
       - name: configure
         run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
