@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.31.6)
 
 # ---- Project ----
 
-# Note: update this to your new project's name and version
 project(
   gtopt
   VERSION 1.0
@@ -24,34 +23,22 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
 endif()
 
 # ---- Add dependencies via CPM ----
-# see https://github.com/TheLartians/CPM.cmake for more info Set cache directory
-# (default is ${CMAKE_BINARY_DIR}/cmake) set(CPM_SOURCE_CACHE
-# "${CMAKE_BINARY_DIR}/.cpm_cache")
 
-# You can also set a global cache location for all projects
 set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/cpm")
-
-# Force cache usage (will fail if package not in cache)
 set(CPM_USE_LOCAL_PACKAGES ON)
-
-# Or make it fallback to download if not in cache
 set(CPM_DOWNLOAD_ALL ON)
 
 set(CPPCHECK_ARGS "--check-level=exhaustive" "--suppress=returnDanglingLifetime"
                   "--suppress=internalAstError"
 )
-#set(USE_STATIC_ANALYZER "cppcheck;clang-tidy")
 
-set(USE_CCACHE YES)
+option(USE_CCACHE "use ccache" YES)
 
 include(cmake/CPM.cmake)
 include(cmake/tools.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
-
-CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
-option(USE_CCACHE "use ccache" YES)
 
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
@@ -80,43 +67,7 @@ CPMAddPackage(
   SYSTEM YES
 )
 
-# ---- Add source files ----
-
-# Note: globbing sources is considered bad practice as CMake's generators may not
-# detect new files automatically. Keep that in mind when changing files, or
-# explicitly mention them here.
-file(GLOB_RECURSE headers CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/include/[a-zA-Z]*.hpp"
-)
-file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
-)
-
-# ---- Create library ----
-
-# Note: for header-only libraries change all PUBLIC flags to INTERFACE and create an
-# interface target: add_library(${PROJECT_NAME} INTERFACE)
-add_library(${PROJECT_NAME} ${headers} ${sources})
-
-# Set experimental flag to enable `import std` support from CMake. This must be
-# enabled before C++ language support.
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
-    # This specific value changes as experimental support evolves. See
-    # `Help/dev/experimental.rst` in the CMake source corresponding to
-    # your CMake build for the exact value to use.
-    "0e5b6991-d74f-4b3d-a41c-cf096e0b2508"
-)
-
-# being a cross-platform target, we enforce standards conformance on MSVC
-target_compile_options(
-  ${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->"
-)
-
-# Link dependencies
-
-target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog)
-target_link_libraries(${PROJECT_NAME} PUBLIC daw::daw-json-link)
-target_link_libraries(${PROJECT_NAME} PUBLIC strong_type::strong_type)
+# ---- Solver configuration ----
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
 
@@ -130,15 +81,28 @@ set(COIN_ROOT_DIR
 )
 include(cmake_local/Solver.cmake)
 
-target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
-target_link_libraries(
-  ${PROJECT_NAME} PUBLIC "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
-)
+# ---- External packages ----
 
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
-target_link_libraries(
-  ${PROJECT_NAME} PUBLIC Arrow::arrow_shared Parquet::parquet_shared
+find_package(Boost REQUIRED COMPONENTS container serialization)
+
+# ---- Add source files ----
+
+file(GLOB_RECURSE headers CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/[a-zA-Z]*.hpp"
+)
+file(GLOB_RECURSE sources CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
+)
+
+# ---- Create library ----
+
+add_library(${PROJECT_NAME} ${headers} ${sources})
+
+# being a cross-platform target, we enforce standards conformance on MSVC
+target_compile_options(
+  ${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->"
 )
 
 target_include_directories(
@@ -147,9 +111,22 @@ target_include_directories(
          $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
 
-find_package(Boost REQUIRED COMPONENTS container serialization)
-target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PUBLIC Boost::container Boost::serialization)
+target_include_directories(
+  ${PROJECT_NAME} SYSTEM
+  PUBLIC "${COIN_INCLUDE_DIRS}" ${Boost_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+  ${PROJECT_NAME}
+  PUBLIC spdlog::spdlog
+         daw::daw-json-link
+         strong_type::strong_type
+         "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
+         Arrow::arrow_shared
+         Parquet::parquet_shared
+         Boost::container
+         Boost::serialization
+)
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
