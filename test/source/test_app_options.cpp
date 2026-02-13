@@ -42,7 +42,7 @@ TEST_CASE("get_opt - returns value when present")
 
   auto result = get_opt<std::string>(vm, "output-directory");
   REQUIRE(result.has_value());
-  CHECK(*result == "/tmp/out");
+  CHECK(*result == "/tmp/out");  // NOLINT
 }
 
 TEST_CASE("get_opt - returns nullopt when absent")
@@ -61,7 +61,7 @@ TEST_CASE("get_opt - works with bool type")
 
   auto result = get_opt<bool>(vm, "use-single-bus");
   REQUIRE(result.has_value());
-  CHECK(*result == true);
+  CHECK(*result == true);  // NOLINT
 }
 
 TEST_CASE("get_opt - works with int type")
@@ -71,7 +71,7 @@ TEST_CASE("get_opt - works with int type")
 
   auto result = get_opt<int>(vm, "use-lp-names");
   REQUIRE(result.has_value());
-  CHECK(*result == 2);
+  CHECK(*result == 2);  // NOLINT
 }
 
 TEST_CASE("get_opt - works with double type")
@@ -81,7 +81,7 @@ TEST_CASE("get_opt - works with double type")
 
   auto result = get_opt<double>(vm, "matrix-eps");
   REQUIRE(result.has_value());
-  CHECK(*result == doctest::Approx(0.001));
+  CHECK(*result == doctest::Approx(0.001));  // NOLINT
 }
 
 TEST_CASE("get_opt - implicit bool value")
@@ -91,7 +91,7 @@ TEST_CASE("get_opt - implicit bool value")
 
   auto result = get_opt<bool>(vm, "use-kirchhoff");
   REQUIRE(result.has_value());
-  CHECK(*result == true);
+  CHECK(*result == true);  // NOLINT
 }
 
 TEST_CASE("get_opt - implicit int value")
@@ -101,7 +101,7 @@ TEST_CASE("get_opt - implicit int value")
 
   auto result = get_opt<int>(vm, "use-lp-names");
   REQUIRE(result.has_value());
-  CHECK(*result == 1);
+  CHECK(*result == 1);  // NOLINT
 }
 
 // ---- Tests for make_options_description ----
@@ -183,13 +183,17 @@ TEST_CASE("make_options_description - string options")
       },
       desc);
 
-  CHECK(get_opt<std::string>(vm, "input-directory").value() == "/in");
-  CHECK(get_opt<std::string>(vm, "output-directory").value() == "/out");
-  CHECK(get_opt<std::string>(vm, "input-format").value() == "parquet");
-  CHECK(get_opt<std::string>(vm, "output-format").value() == "csv");
-  CHECK(get_opt<std::string>(vm, "compression-format").value() == "gzip");
-  CHECK(get_opt<std::string>(vm, "lp-file").value() == "model.lp");
-  CHECK(get_opt<std::string>(vm, "json-file").value() == "model.json");
+  CHECK(get_opt<std::string>(vm, "input-directory").value()  // NOLINT
+        == "/in");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "output-directory").value()  // NOLINT
+        == "/out");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "input-format").value()  // NOLINT
+        == "parquet");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "output-format").value() == "csv");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "compression-format").value()  // NOLINT
+        == "gzip");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "lp-file").value() == "model.lp");  // NOLINT
+  CHECK(get_opt<std::string>(vm, "json-file").value_or("") == "model.json");
 }
 
 // ---- Tests for apply_cli_options ----
@@ -231,19 +235,24 @@ TEST_CASE("apply_cli_options - all options applied")
                     std::optional<std::string>("gzip"));
 
   REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK(*planning.options.use_single_bus == true);
+  CHECK((planning.options.use_single_bus
+         && *planning.options.use_single_bus == true));
 
   REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK(*planning.options.use_kirchhoff == false);
+  CHECK((planning.options.use_kirchhoff
+         && *planning.options.use_kirchhoff == false));
 
   REQUIRE(planning.options.use_lp_names.has_value());
-  CHECK(*planning.options.use_lp_names == true);
+  CHECK((planning.options.use_lp_names
+         && *planning.options.use_lp_names == true));
 
   REQUIRE(planning.options.input_directory.has_value());
-  CHECK(*planning.options.input_directory == "/input");
+  CHECK((planning.options.input_directory
+         && *planning.options.input_directory == "/input"));
 
   REQUIRE(planning.options.input_format.has_value());
-  CHECK(*planning.options.input_format == "parquet");
+  CHECK((planning.options.input_format
+         && *planning.options.input_format == "parquet"));
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK(*planning.options.output_directory == "/output");
