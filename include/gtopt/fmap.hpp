@@ -31,7 +31,8 @@ using hash_type = tuple_hash;
 template<typename key_type, typename value_type>
 using flat_map = std::unordered_map<key_type, value_type, hash_type>;
 
-void map_reserve(auto& map, auto n)
+template<typename Map, typename Size>
+void map_reserve(Map& map, Size n)
 {
   map.reserve(n);
 }
@@ -52,7 +53,8 @@ namespace gtopt
 template<typename key_type, typename value_type>
 using flat_map = boost::container::flat_map<key_type, value_type>;
 
-void map_reserve(auto& map, auto n)
+template<typename Map, typename Size>
+void map_reserve(Map& map, Size n)
 {
   map.reserve(n);
 }

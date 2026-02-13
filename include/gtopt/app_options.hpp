@@ -113,7 +113,7 @@ template<typename T>
  * @param compression_format Optional compression format string
  */
 inline void apply_cli_options(
-    Planning& planning,
+    Planning& planning,  // NOLINT(misc-const-correctness)
     const std::optional<bool>& use_single_bus,
     const std::optional<bool>& use_kirchhoff,
     const std::optional<int>& use_lp_names,
