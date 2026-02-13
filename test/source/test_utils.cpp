@@ -108,8 +108,8 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt);
-    CHECK((*opt)->first == 2);
-    CHECK((*opt)->second == "two");
+    CHECK((*opt)->first == 2);  // NOLINT
+    CHECK((*opt)->second == "two");  // NOLINT
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2);
@@ -119,7 +119,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue(test_map, 3);
     REQUIRE(opt);
-    CHECK(*opt == "three");
+    CHECK(*opt == "three");  // NOLINT
 
     auto opt2 = get_optvalue(test_map, 42);
     CHECK_FALSE(opt2);
@@ -129,7 +129,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");
+    CHECK(*opt == "two");  // NOLINT
 
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
     CHECK_FALSE(opt2);
@@ -190,7 +190,7 @@ TEST_CASE("C++23 optional monadic operations")
     // and_then chains optional-returning functions
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");
+    CHECK(*opt == "two");  // NOLINT
 
     // with nullopt key
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
