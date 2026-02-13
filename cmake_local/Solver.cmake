@@ -7,8 +7,10 @@ find_package(COIN)
 # COIN_SOLVER chooses which LP/MIP back-end to use through the COIN-OR Osi
 # layer.  Accepted values:
 #
-#   AUTO  – probe for installed solvers in order CPX → CBC → CLP and pick the
-#           first one found (default).
+#   AUTO  – probe for installed solvers in order CPX → CLP → CBC and pick the
+#           first one found (default).  CLP is preferred over CBC because it
+#           is the primary LP solver; CBC is a MIP solver built on top of CLP
+#           and its OsiCbcSolverInterface is not suited for pure LP use.
 #   CLP   – use Clp  (COIN-OR LP solver).
 #   CBC   – use Cbc  (COIN-OR MIP solver, implies Clp).
 #   CPX   – use IBM ILOG CPLEX.
@@ -43,15 +45,15 @@ if(_COIN_SOLVER_UPPER STREQUAL "AUTO")
     set(_COIN_SOLVER_UPPER "CPX")
     message(STATUS "COIN_SOLVER=AUTO: detected CPLEX")
   else()
-    _coin_probe_cbc()
-    if(_CBC_AVAILABLE)
-      set(_COIN_SOLVER_UPPER "CBC")
-      message(STATUS "COIN_SOLVER=AUTO: detected CBC")
+    _coin_probe_clp()
+    if(_CLP_AVAILABLE)
+      set(_COIN_SOLVER_UPPER "CLP")
+      message(STATUS "COIN_SOLVER=AUTO: detected CLP")
     else()
-      _coin_probe_clp()
-      if(_CLP_AVAILABLE)
-        set(_COIN_SOLVER_UPPER "CLP")
-        message(STATUS "COIN_SOLVER=AUTO: detected CLP")
+      _coin_probe_cbc()
+      if(_CBC_AVAILABLE)
+        set(_COIN_SOLVER_UPPER "CBC")
+        message(STATUS "COIN_SOLVER=AUTO: detected CBC")
       else()
         set(_COIN_SOLVER_UPPER "NONE")
         message(STATUS "COIN_SOLVER=AUTO: no solver found")
