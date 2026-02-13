@@ -1,43 +1,114 @@
+include_guard(GLOBAL)
+
 find_package(COIN)
 
-if(COIN_USE_CPX)
+# ---- Solver selection ----
+#
+# COIN_SOLVER chooses which LP/MIP back-end to use through the COIN-OR Osi
+# layer.  Accepted values:
+#
+#   AUTO  – probe for installed solvers in order CPX → CLP → CBC and pick the
+#           first one found (default).  CLP is preferred over CBC because it
+#           is the primary LP solver; CBC is a MIP solver built on top of CLP
+#           and its OsiCbcSolverInterface is not suited for pure LP use.
+#   CLP   – use Clp  (COIN-OR LP solver).
+#   CBC   – use Cbc  (COIN-OR MIP solver, implies Clp).
+#   CPX   – use IBM ILOG CPLEX.
+#
+set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX)")
+set_property(CACHE COIN_SOLVER PROPERTY STRINGS AUTO CLP CBC CPX)
+
+string(TOUPPER "${COIN_SOLVER}" _COIN_SOLVER_UPPER)
+
+# --- helper: try to locate a solver and record success in _<NAME>_AVAILABLE --
+
+macro(_coin_probe_cpx)
+  find_package(CPLEX QUIET)
+  set(_CPX_AVAILABLE ${CPLEX_FOUND})
+endmacro()
+
+macro(_coin_probe_cbc)
+  find_package(Cbc QUIET)
+  set(_CBC_AVAILABLE ${CBC_FOUND})
+endmacro()
+
+macro(_coin_probe_clp)
+  find_package(Clp QUIET)
+  set(_CLP_AVAILABLE ${CLP_FOUND})
+endmacro()
+
+# --- AUTO: probe in priority order and pick the first available solver --------
+
+if(_COIN_SOLVER_UPPER STREQUAL "AUTO")
+  _coin_probe_cpx()
+  if(_CPX_AVAILABLE)
+    set(_COIN_SOLVER_UPPER "CPX")
+    message(STATUS "COIN_SOLVER=AUTO: detected CPLEX")
+  else()
+    _coin_probe_clp()
+    if(_CLP_AVAILABLE)
+      set(_COIN_SOLVER_UPPER "CLP")
+      message(STATUS "COIN_SOLVER=AUTO: detected CLP")
+    else()
+      _coin_probe_cbc()
+      if(_CBC_AVAILABLE)
+        set(_COIN_SOLVER_UPPER "CBC")
+        message(STATUS "COIN_SOLVER=AUTO: detected CBC")
+      else()
+        set(_COIN_SOLVER_UPPER "NONE")
+        message(STATUS "COIN_SOLVER=AUTO: no solver found")
+      endif()
+    endif()
+  endif()
+endif()
+
+# --- Configure the selected solver -------------------------------------------
+
+if(_COIN_SOLVER_UPPER STREQUAL "CPX")
   find_package(CPLEX)
   if(CPLEX_FOUND)
-    set(SOLVER_LIBRARIES "${SOLVER_LIBRARIES};${CPLEX_LIBRARIES}")
+    list(APPEND SOLVER_LIBRARIES ${CPLEX_LIBRARIES})
 
     find_package(OsiCpx)
     if(OSICPX_FOUND)
-      set(COIN_OSI_LIBRARIES "${COIN_OSICPX_LIBRARY};${COIN_OSI_LIBRARIES}")
+      list(INSERT COIN_OSI_LIBRARIES 0 ${COIN_OSICPX_LIBRARY})
     endif()
 
     add_compile_definitions(COIN_USE_CPX)
+    message(STATUS "COIN solver: CPLEX")
   endif()
-endif()
 
-if(COIN_USE_CLP)
-  find_package(Clp)
-  if(CLP_FOUND)
-    set(SOLVER_LIBRARIES "${SOLVER_LIBRARIES};${COIN_CLP_LIBRARIES}")
-
-    find_package(OsiClp)
-    if(OSICLP_FOUND)
-      set(COIN_OSI_LIBRARIES "${COIN_OSICLP_LIBRARY};${COIN_OSI_LIBRARIES}")
-    endif()
-
-    add_compile_definitions(COIN_USE_CLP)
-  endif()
-endif()
-
-if(COIN_USE_CBC)
+elseif(_COIN_SOLVER_UPPER STREQUAL "CBC")
   find_package(Cbc)
   if(CBC_FOUND)
-    set(SOLVER_LIBRARIES "${SOLVER_LIBRARIES};${COIN_CBC_LIBRARIES}")
+    list(APPEND SOLVER_LIBRARIES ${COIN_CBC_LIBRARIES})
 
     find_package(OsiCbc)
     if(OSICBC_FOUND)
-      set(COIN_OSI_LIBRARIES "${COIN_OSICBC_LIBRARY};${COIN_OSI_LIBRARIES}")
+      list(INSERT COIN_OSI_LIBRARIES 0 ${COIN_OSICBC_LIBRARY})
     endif()
 
     add_compile_definitions(COIN_USE_CBC)
+    message(STATUS "COIN solver: CBC")
   endif()
+
+elseif(_COIN_SOLVER_UPPER STREQUAL "CLP")
+  find_package(Clp)
+  if(CLP_FOUND)
+    list(APPEND SOLVER_LIBRARIES ${COIN_CLP_LIBRARIES})
+
+    find_package(OsiClp)
+    if(OSICLP_FOUND)
+      list(INSERT COIN_OSI_LIBRARIES 0 ${COIN_OSICLP_LIBRARY})
+    endif()
+
+    add_compile_definitions(COIN_USE_CLP)
+    message(STATUS "COIN solver: CLP")
+  endif()
+
+elseif(_COIN_SOLVER_UPPER STREQUAL "NONE")
+  message(STATUS "COIN solver: none configured")
+
+else()
+  message(FATAL_ERROR "Unknown COIN_SOLVER value: '${COIN_SOLVER}'. Use AUTO, CLP, CBC, or CPX.")
 endif()

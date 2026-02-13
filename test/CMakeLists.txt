@@ -44,10 +44,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake_local
                       ${CMAKE_CURRENT_LIST_DIR}/../cmake
 )
 
-option(COIN_USE_CLP "Use Clp" OFF)
-option(COIN_USE_CBC "Use Cbc" OFF)
-option(COIN_USE_CPX "Use Cplex" ON)
-
 set(COIN_ROOT_DIR
   "/opt/coinor"
   CACHE PATH "Coinor root directory"
@@ -56,6 +52,8 @@ set(CPLEX_ROOT_DIR
   "/opt/cplex"
   CACHE PATH "CPLEX root directory"
 )
+# Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
+set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(../cmake_local/Solver.cmake)
 
 
