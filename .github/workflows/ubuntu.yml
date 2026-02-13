@@ -15,6 +15,9 @@ env:
   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
