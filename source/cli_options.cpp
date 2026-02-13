@@ -76,20 +76,17 @@ const option_definition* options_description::find_short(char c) const
 
 std::ostream& operator<<(std::ostream& os, const options_description& desc)
 {
-  os << desc.caption_ << ":\n";
+  os << std::format("{}:\n", desc.caption_);
   for (const auto& opt : desc.options_) {
-    os << "  ";
-    if (opt.short_name != '\0') {
-      os << '-' << opt.short_name << " [ --" << opt.long_name << " ]";
-    } else {
-      os << "     --" << opt.long_name;
-    }
-    if (opt.takes_value && !opt.has_implicit) {
-      os << " arg";
-    } else if (opt.takes_value && opt.has_implicit) {
-      os << " [=arg]";
-    }
-    os << "  " << opt.description << '\n';
+    const auto name_part = (opt.short_name != '\0')
+        ? std::format("-{} [ --{} ]", opt.short_name, opt.long_name)
+        : std::format("     --{}", opt.long_name);
+
+    const auto value_part = (opt.takes_value && !opt.has_implicit) ? " arg"
+        : (opt.takes_value && opt.has_implicit)                    ? " [=arg]"
+                                                                   : "";
+
+    os << std::format("  {}{}  {}\n", name_part, value_part, opt.description);
   }
   return os;
 }

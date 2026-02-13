@@ -171,7 +171,7 @@ constexpr auto parquet_write_table(const auto& fpath,
                                    const auto& zfmt)
 {
   arrow::Status status;
-  const auto filename = fpath.string() + ".parquet";
+  const auto filename = std::format("{}.parquet", fpath.string());
   PARQUET_ASSIGN_OR_THROW(auto output,
                           arrow::io::FileOutputStream::Open(filename));
 
@@ -208,7 +208,7 @@ constexpr auto csv_write_table(const auto& fpath,
                                const auto& /* zfmt */)
 {
   arrow::Status status;
-  const auto filename = fpath.string() + ".csv";
+  const auto filename = std::format("{}.csv", fpath.string());
   ARROW_ASSIGN_OR_RAISE(auto output,
                         arrow::io::FileOutputStream::Open(filename));
 

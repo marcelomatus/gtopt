@@ -47,7 +47,7 @@ void LinearInterface::open_log_handler(const int log_level)
   }
 
   if (!log_file_ptr) {
-    auto file = log_file + ".log";
+    auto file = std::format("{}.log", log_file);
     log_file_ptr = log_file_ptr_t(std::fopen(file.c_str(), "ae"));
 
     if (!log_file_ptr) {

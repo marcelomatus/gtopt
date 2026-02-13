@@ -84,6 +84,7 @@ class Collection
    * @return A strongly-typed index to the element
    */
   template<typename FirstMap, typename Key>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& first_map,
                                           Key&& key) noexcept(false)
   {
@@ -94,6 +95,7 @@ class Collection
    * @brief Overload for retrieving an element index by name
    */
   template<typename FirstMap, typename SecondMap>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& /* first_map */,
                                           const SecondMap& second_map,
                                           const Name& name) noexcept(false)
@@ -105,6 +107,7 @@ class Collection
    * @brief Overload for retrieving an element index by UID
    */
   template<typename FirstMap, typename SecondMap>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& first_map,
                                           const SecondMap& /* second_map */,
                                           const Uid& uid) noexcept(false)
@@ -117,6 +120,7 @@ class Collection
    * Attempts to find the element first by UID, then by name if not found
    */
   template<typename FirstMap, typename SecondMap>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& first_map,
                                           const SecondMap& second_map,
                                           const Id& id) noexcept(false)
@@ -134,6 +138,7 @@ class Collection
    * Uses either the UID or name based on which is contained in the SingleId
    */
   template<typename FirstMap, typename SecondMap>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& first_map,
                                           const SecondMap& second_map,
                                           const SingleId& id) noexcept(false)
@@ -147,6 +152,7 @@ class Collection
    * This overload allows passing an existing IndexType directly
    */
   template<typename FirstMap, typename SecondMap>
+  [[nodiscard]]
   constexpr static auto get_element_index(const FirstMap& /*first_map*/,
                                           const SecondMap& /*second_map*/,
                                           const IndexType& id) noexcept
