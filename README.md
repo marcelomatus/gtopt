@@ -18,7 +18,7 @@ Use the following command to build and run the executable target.
 ```bash
 cmake -S standalone -B build/standalone
 cmake --build build/standalone
-./build/standalone/Greeter --help
+./build/standalone/gtopt --help
 ```
 
 ### Build and run test suite
@@ -31,7 +31,7 @@ cmake --build build/test
 CTEST_OUTPUT_ON_FAILURE=1 cmake --build build/test --target test
 
 # or simply call the executable:
-./build/test/GreeterTests
+./build/test/GtoptTests
 ```
 
 To collect code coverage information, run CMake with the `-DENABLE_TEST_COVERAGE=1` option.
