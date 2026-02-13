@@ -32,7 +32,8 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(;; ----------------------------------------------------------------
+   '(
+     ;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
      ;; `M-m f e R' (Emacs style) to install them.
@@ -56,7 +57,7 @@ This function should only modify configuration layer settings."
      git
      helm
      ;; ivy
-     (lsp :variables lsp-clients-clangd-args '("--j=4" "--log=error"
+     (lsp :variables lsp-clients-clangd-args '("--j=8" "--log=error"
                                                "--header-insertion=never"
                                                "--background-index"
                                                "--clang-tidy"
@@ -112,9 +113,9 @@ This function should only modify configuration layer settings."
                                                  aidermacs-use-architect-mode nil
                                                  aidermacs-use-default-model t
                                                  aidermacs-watch-files t
-                                                 aidermacs-weak-model "deepseek/deepseek-chat"
-                                                 aidermacs-architect-model "deepseek/deepseek-coder"
-                                                 aidermacs-default-model "deepseek/deepseek-coder")
+                                                 aidermacs-weak-model "openai/claude-opus-4.6"
+                                                 aidermacs-architect-model "openai/claude-opus-4.6"
+                                                 aidermacs-default-model "openai/claude-opus-4.6")
                                       gptel
                                       )
 
@@ -283,9 +284,12 @@ It should only modify the values of Spacemacs settings."
    ;; a non-negative integer (pixel size), or a floating-point (point size).
    ;; Point size is recommended, because it's device independent. (default 10.0)
    dotspacemacs-default-font '("Source Code Pro"
-                               :size 9.0
+                               :size 16.0
                                :weight normal
                                :width normal)
+
+   ;; Default icons font, it can be `all-the-icons' or `nerd-icons'.
+   dotspacemacs-default-icons-font 'all-the-icons
 
    ;; The leader key (default "SPC")
    dotspacemacs-leader-key "SPC"
@@ -373,6 +377,14 @@ It should only modify the values of Spacemacs settings."
    ;; displays the buffer in a same-purpose window even if the buffer can be
    ;; displayed in the current window. (default nil)
    dotspacemacs-switch-to-buffer-prefers-purpose nil
+
+   ;; Make consecutive tab key presses after commands such as
+   ;; `spacemacs/alternate-buffer' (SPC TAB) cycle through previous
+   ;; buffers/windows/etc. Please see the option's docstring for more information.
+   ;; Set the option to t in order to enable cycling for all current and
+   ;; future cycling commands. Alternatively, choose a subset of the currently
+   ;; supported commands: '(alternate-buffer alternate-window). (default nil)
+   dotspacemacs-enable-cycling nil
 
    ;; Whether side windows (such as those created by treemacs or neotree)
    ;; are kept or minimized by `spacemacs/toggle-maximize-window' (SPC w m).
@@ -484,7 +496,7 @@ It should only modify the values of Spacemacs settings."
    ;; If non-nil pressing the closing parenthesis `)' key in insert mode passes
    ;; over any automatically added closing parenthesis, bracket, quote, etc...
    ;; This can be temporary disabled by pressing `C-q' before `)'. (default nil)
-   dotspacemacs-smart-closing-parenthesis t
+   dotspacemacs-smart-closing-parenthesis nil
 
    ;; Select a scope to highlight delimiters. Possible values are `any',
    ;; `current', `all' or `nil'. Default is `all' (highlight any scope and
@@ -507,16 +519,15 @@ It should only modify the values of Spacemacs settings."
    dotspacemacs-persistent-server nil
 
    ;; List of search tool executable names. Spacemacs uses the first installed
-   ;; tool of the list. Supported tools are `rg', `ag', `pt', `ack' and `grep'.
-   ;; (default '("rg" "ag" "pt" "ack" "grep"))
-   dotspacemacs-search-tools '("rg" "ag" "pt" "ack" "grep")
+   ;; tool of the list. Supported tools are `rg', `ag', `ack' and `grep'.
+   ;; (default '("rg" "ag" "ack" "grep"))
+   dotspacemacs-search-tools '("rg" "ag" "ack" "grep")
 
    ;; The backend used for undo/redo functionality. Possible values are
-   ;; `undo-fu', `undo-redo' and `undo-tree' see also `evil-undo-system'.
+   ;; `undo-redo', `undo-fu' and `undo-tree' see also `evil-undo-system'.
    ;; Note that saved undo history does not get transferred when changing
-   ;; your undo system. The default is currently `undo-fu' as `undo-tree'
-   ;; is not maintained anymore and `undo-redo' is very basic."
-   dotspacemacs-undo-system 'undo-fu
+   ;; your undo system from or to undo-tree. (default `undo-redo')
+   dotspacemacs-undo-system 'undo-redo
 
    ;; Format specification for setting the frame title.
    ;; %a - the `abbreviated-file-name', or `buffer-name'
@@ -594,19 +605,19 @@ It should only modify the values of Spacemacs settings."
 
 (defun dotspacemacs/user-env ()
   "Environment variables setup.
-   This function defines the environment variables for your Emacs session. By
-   default it calls `spacemacs/load-spacemacs-env' which loads the environment
-   variables declared in `~/.spacemacs.env' or `~/.spacemacs.d/.spacemacs.env'.
-   See the header of this file for more information."
+This function defines the environment variables for your Emacs session. By
+default it calls `spacemacs/load-spacemacs-env' which loads the environment
+variables declared in `~/.spacemacs.env' or `~/.spacemacs.d/.spacemacs.env'.
+See the header of this file for more information."
   (spacemacs/load-spacemacs-env)
   )
 
 (defun dotspacemacs/user-init ()
   "Initialization for user code:
-   This function is called immediately after `dotspacemacs/init', before layer
-   configuration.
-   It is mostly for variables that should be set before packages are loaded.
-   If you are unsure, try setting them in `dotspacemacs/user-config' first."
+This function is called immediately after `dotspacemacs/init', before layer
+configuration.
+It is mostly for variables that should be set before packages are loaded.
+If you are unsure, try setting them in `dotspacemacs/user-config' first."
   )
 
 (defun dotspacemacs/user-config ()
@@ -630,41 +641,7 @@ It should only modify the values of Spacemacs settings."
     :ensure t
     :after (request org markdown-mode))
 
-  ;; gptel configuration for Claude
-  (use-package gptel
-    :ensure t
-    :config
-    ;; Set your Anthropic API key
-
-    ;; Configure for Claude
-    :init (setq gptel-backend (gptel-make-anthropic
-                                  "Claude"
-                                :models '("claude-3-7-sonnet-20250219"
-                                          "claude-3-5-sonnet-20240620"
-                                          "claude-3-opus-20240229")
-                                :stream t
-                                :key gptel-api-key))
-
-    (setq gptel-model "claude-3-7-sonnet-20250219")
-
-
-    ;; DeepSeek configuration
-    :init (setq gptel-backend (gptel-make-deepseek "DeepSeek"
-                                :stream t
-                                :models '("deepseek-coder"
-                                          "deepseek-reasoner"
-                                          "deepseek-chat")
-                                :key gptel-api-key))
-
-    (setq gptel-model "deepseek-coder")
-
-
-    ;; Optional: Set up keybindings in Spacemacs style
-    (spacemacs/set-leader-keys "aig" 'gptel)
-    (spacemacs/set-leader-keys "ais" 'gptel-send)
-    )
   )
-
 
 ;; Do not write anything past this comment. This is where Emacs will
 ;; auto-generate custom variable definitions.
@@ -673,8 +650,8 @@ It should only modify the values of Spacemacs settings."
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(aidermacs-architect-model "deepseek/deepseek-coder")
- '(aidermacs-default-model "deepseek/deepseek-coder")
+ '(aidermacs-architect-model "openai/claude-opus-4.6")
+ '(aidermacs-default-model "openai/claude-opus-4.6")
  '(package-selected-packages
    '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
               auto-highlight-symbol auto-yasnippet blacken browse-at-remote
@@ -728,15 +705,18 @@ This function is called at the very end of Spacemacs initialization."
    ;; If you edit it by hand, you could mess it up, so be careful.
    ;; Your init file should contain only one such instance.
    ;; If there is more than one, they won't work right.
-   '(aidermacs-architect-model "deepseek/deepseek-coder")
-   '(aidermacs-default-model "deepseek/deepseek-coder")
-   '(lsp-dired-mode nil)
+   '(aidermacs-architect-model "openai/claude-opus-4.6")
+   '(aidermacs-default-model "openai/claude-opus-4.6")
+   '(blink-cursor-mode nil)
+   '(column-number-mode t)
+   '(lsp-dired-mode nil nil (lsp-dired))
    '(lsp-pylsp-plugins-autopep8-enabled t)
    '(lsp-pylsp-plugins-black-enabled t)
    '(lsp-pylsp-plugins-jedi-completion-fuzzy t)
    '(lsp-pylsp-plugins-mypy-enabled nil)
    '(lsp-pylsp-plugins-ruff-enabled nil)
    '(lsp-treemacs-sync-mode t)
+   '(menu-bar-mode nil)
    '(package-selected-packages
      '(ace-link aggressive-indent aidermacs all-the-icons auto-compile
                 auto-highlight-symbol auto-yasnippet blacken browse-at-remote
@@ -772,11 +752,13 @@ This function is called at the very end of Spacemacs initialization."
                 term-cursor terminal-here toml-mode undo-fu undo-fu-session unfill
                 vi-tilde-fringe volatile-highlights vundo web-beautify wgrep
                 which-key winum writeroom-mode ws-butler yaml-mode
-                yasnippet-snippets)))
+                yasnippet-snippets))
+   '(show-paren-mode nil)
+   '(tool-bar-mode nil))
   (custom-set-faces
    ;; custom-set-faces was added by Custom.
    ;; If you edit it by hand, you could mess it up, so be careful.
    ;; Your init file should contain only one such instance.
    ;; If there is more than one, they won't work right.
-   )
+   '(default ((t (:family "Source Code Pro" :foundry "ADBO" :slant normal :weight medium :height 158 :width normal)))))
   )
