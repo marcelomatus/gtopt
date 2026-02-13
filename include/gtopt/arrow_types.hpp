@@ -63,10 +63,10 @@ struct ArrowTraits<double>
  * @param type_id The Arrow type id to check
  * @return true if the type is int8, int16, or int32
  */
-inline constexpr auto is_compatible_int32_type(arrow::Type::type type_id) -> bool
+constexpr auto is_compatible_int32_type(arrow::Type::type type_id) -> bool
 {
   return type_id == arrow::Type::INT8 || type_id == arrow::Type::INT16
-         || type_id == arrow::Type::INT32;
+      || type_id == arrow::Type::INT32;
 }
 
 /**

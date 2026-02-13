@@ -55,7 +55,7 @@ template<typename T>
   desc.add_options()("help,h", "describes arguments")  //
       ("verbose,v", "activates maximum verbosity")  //
       ("quiet,q",
-       po::value<bool>().implicit_value(true),
+       po::value<bool>().implicit_value(/*v=*/true),
        "do not log in the stdout")  //
       ("version,V", "shows program version")  //
       ("system-file,s",
@@ -77,10 +77,10 @@ template<typename T>
        po::value<std::string>(),
        "compression format in parquet [uncompressed, gzip, zstd, lzo]")  //
       ("use-single-bus,b",
-       po::value<bool>().implicit_value(true),
+       po::value<bool>().implicit_value(/*v=*/true),
        "use single bus mode")  //
       ("use-kirchhoff,k",
-       po::value<bool>().implicit_value(true),
+       po::value<bool>().implicit_value(/*v=*/true),
        "use kirchhoff mode")  //
       ("use-lp-names,n",
        po::value<int>().implicit_value(1),
@@ -89,10 +89,10 @@ template<typename T>
        po::value<double>(),
        "eps value to define A matrix non-zero values")  //
       ("just-create,c",
-       po::value<bool>().implicit_value(true),
+       po::value<bool>().implicit_value(/*v=*/true),
        "just create the problem, then exit")  //
       ("fast-parsing,p",
-       po::value<bool>().implicit_value(true),
+       po::value<bool>().implicit_value(/*v=*/true),
        "use fast (non strict) json parsing");
   return desc;
 }

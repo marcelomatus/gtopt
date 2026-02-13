@@ -1,6 +1,7 @@
 /**
  * @file      test_cli_options.cpp
- * @brief     Unit tests for the modern C++ command-line parser (cli_options.hpp)
+ * @brief     Unit tests for the modern C++ command-line parser
+ * (cli_options.hpp)
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -22,7 +23,7 @@ using namespace gtopt::cli;
 
 TEST_CASE("cli variables_map - empty map contains nothing")
 {
-  variables_map vm;
+  const variables_map vm;
   CHECK_FALSE(vm.contains("any-key"));
 }
 
@@ -48,7 +49,7 @@ TEST_CASE("cli variables_map - contains returns false for set-but-empty")
 
 TEST_CASE("cli option_value - empty by default")
 {
-  option_value ov;
+  const option_value ov;
   CHECK(ov.empty());
 }
 
@@ -78,8 +79,8 @@ TEST_CASE("cli option_value - bad cast throws")
 {
   option_value ov;
   ov.set(std::any(42));
-  CHECK_THROWS_AS(
-      [[maybe_unused]] auto v = ov.as<std::string>(), std::bad_any_cast);
+  CHECK_THROWS_AS([[maybe_unused]] auto v = ov.as<std::string>(),
+                  std::bad_any_cast);
 }
 
 // ---- options_description tests ----
@@ -89,7 +90,7 @@ TEST_CASE("cli options_description - add flag option")
   options_description desc("Test");
   desc.add_options()("help,h", "show help");
 
-  auto* opt = desc.find_long("help");
+  const auto* opt = desc.find_long("help");
   REQUIRE(opt != nullptr);
   CHECK(opt->long_name == "help");
   CHECK(opt->short_name == 'h');
@@ -102,7 +103,7 @@ TEST_CASE("cli options_description - add valued option")
   options_description desc;
   desc.add_options()("count,c", value<int>(), "a count");
 
-  auto* opt = desc.find_long("count");
+  const auto* opt = desc.find_long("count");
   REQUIRE(opt != nullptr);
   CHECK(opt->takes_value);
   CHECK_FALSE(opt->has_implicit);
@@ -113,9 +114,9 @@ TEST_CASE("cli options_description - add option with implicit value")
 {
   options_description desc;
   desc.add_options()(
-      "verbose,v", value<bool>().implicit_value(true), "be verbose");
+      "verbose,v", value<bool>().implicit_value(/*v=*/true), "be verbose");
 
-  auto* opt = desc.find_long("verbose");
+  const auto* opt = desc.find_long("verbose");
   REQUIRE(opt != nullptr);
   CHECK(opt->takes_value);
   CHECK(opt->has_implicit);
@@ -127,7 +128,7 @@ TEST_CASE("cli options_description - find by short name")
   options_description desc;
   desc.add_options()("output,o", value<std::string>(), "output file");
 
-  auto* opt = desc.find_short('o');
+  const auto* opt = desc.find_short('o');
   REQUIRE(opt != nullptr);
   CHECK(opt->long_name == "output");
 }
@@ -146,7 +147,7 @@ TEST_CASE("cli options_description - option without short name")
   options_description desc;
   desc.add_options()("long-only", "no shortcut");
 
-  auto* opt = desc.find_long("long-only");
+  const auto* opt = desc.find_long("long-only");
   REQUIRE(opt != nullptr);
   CHECK(opt->short_name == '\0');
 }
@@ -157,7 +158,7 @@ TEST_CASE("cli options_description - multi-value vector option")
   desc.add_options()(
       "files,f", value<std::vector<std::string>>(), "input files");
 
-  auto* opt = desc.find_long("files");
+  const auto* opt = desc.find_long("files");
   REQUIRE(opt != nullptr);
   CHECK(opt->multi_value);
 }
@@ -165,8 +166,7 @@ TEST_CASE("cli options_description - multi-value vector option")
 TEST_CASE("cli options_description - streaming output")
 {
   options_description desc("My Options");
-  desc.add_options()("help,h", "show help")(
-      "count,c", value<int>(), "a count");
+  desc.add_options()("help,h", "show help")("count,c", value<int>(), "a count");
 
   std::ostringstream oss;
   oss << desc;
@@ -186,8 +186,8 @@ TEST_CASE("cli parser - parse long flag option")
   desc.add_options()("help,h", "help");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--help"}).options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--help"}).options(desc);
   store(parser, vm);
 
   CHECK(vm.contains("help"));
@@ -199,8 +199,8 @@ TEST_CASE("cli parser - parse short flag option")
   desc.add_options()("help,h", "help");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"-h"}).options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"-h"}).options(desc);
   store(parser, vm);
 
   CHECK(vm.contains("help"));
@@ -212,9 +212,9 @@ TEST_CASE("cli parser - parse long option with value")
   desc.add_options()("name,n", value<std::string>(), "name");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--name", "alice"})
-            .options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--name", "alice"})
+          .options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("name"));
@@ -227,9 +227,8 @@ TEST_CASE("cli parser - parse long option with equals syntax")
   desc.add_options()("name,n", value<std::string>(), "name");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--name=bob"})
-            .options(desc);
+  auto parser = command_line_parser(std::vector<std::string> {"--name=bob"})
+                    .options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("name"));
@@ -242,8 +241,8 @@ TEST_CASE("cli parser - parse short option with value")
   desc.add_options()("count,c", value<int>(), "count");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"-c", "5"}).options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"-c", "5"}).options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("count"));
@@ -256,9 +255,8 @@ TEST_CASE("cli parser - parse double value")
   desc.add_options()("eps,e", value<double>(), "epsilon");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--eps", "0.001"})
-            .options(desc);
+  auto parser = command_line_parser(std::vector<std::string> {"--eps", "0.001"})
+                    .options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("eps"));
@@ -269,11 +267,11 @@ TEST_CASE("cli parser - implicit bool value without argument")
 {
   options_description desc;
   desc.add_options()(
-      "verbose,v", value<bool>().implicit_value(true), "verbose");
+      "verbose,v", value<bool>().implicit_value(/*v=*/true), "verbose");
 
   variables_map vm;
-  auto parser = command_line_parser(std::vector<std::string> {"--verbose"})
-                    .options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--verbose"}).options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("verbose"));
@@ -286,8 +284,8 @@ TEST_CASE("cli parser - implicit int value without argument")
   desc.add_options()("level,l", value<int>().implicit_value(1), "level");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--level"}).options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--level"}).options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("level"));
@@ -300,9 +298,8 @@ TEST_CASE("cli parser - implicit value overridden by explicit argument")
   desc.add_options()("level,l", value<int>().implicit_value(1), "level");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--level", "3"})
-            .options(desc);
+  auto parser = command_line_parser(std::vector<std::string> {"--level", "3"})
+                    .options(desc);
   store(parser, vm);
 
   REQUIRE(vm.contains("level"));
@@ -318,11 +315,10 @@ TEST_CASE("cli parser - positional arguments")
   pos.add("files", -1);
 
   variables_map vm;
-  auto parser
-      = command_line_parser(
-            std::vector<std::string> {"file1.txt", "file2.txt"})
-            .options(desc)
-            .positional(pos);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"file1.txt", "file2.txt"})
+          .options(desc)
+          .positional(pos);
   store(parser, vm);
 
   REQUIRE(vm.contains("files"));
@@ -343,7 +339,10 @@ TEST_CASE("cli parser - mixed positional and named arguments")
 
   variables_map vm;
   auto parser = command_line_parser(std::vector<std::string> {
-                                        "input.txt", "--output", "/tmp/out"})
+                                        "input.txt",
+                                        "--output",
+                                        "/tmp/out",
+                                    })
                     .options(desc)
                     .positional(pos);
   store(parser, vm);
@@ -363,10 +362,10 @@ TEST_CASE("cli parser - allow_unregistered skips unknown options")
   desc.add_options()("known", "known option");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--known", "--unknown"})
-            .options(desc)
-            .allow_unregistered();
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--known", "--unknown"})
+          .options(desc)
+          .allow_unregistered();
   CHECK_NOTHROW(store(parser, vm));
   CHECK(vm.contains("known"));
 }
@@ -377,9 +376,8 @@ TEST_CASE("cli parser - unknown option throws without allow_unregistered")
   desc.add_options()("known", "known option");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--unknown"})
-            .options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--unknown"}).options(desc);
   CHECK_THROWS_AS(store(parser, vm), parse_error);
 }
 
@@ -389,8 +387,8 @@ TEST_CASE("cli parser - missing required value throws")
   desc.add_options()("name,n", value<std::string>(), "name");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--name"}).options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--name"}).options(desc);
   CHECK_THROWS_AS(store(parser, vm), parse_error);
 }
 
@@ -401,9 +399,8 @@ TEST_CASE("cli parser - bool value parsing true variants")
 
   for (const auto& tv : {"true", "1", "yes"}) {
     variables_map vm;
-    auto parser
-        = command_line_parser(std::vector<std::string> {"--flag", tv})
-              .options(desc);
+    auto parser = command_line_parser(std::vector<std::string> {"--flag", tv})
+                      .options(desc);
     store(parser, vm);
     REQUIRE(vm.contains("flag"));
     CHECK(vm["flag"].as<bool>() == true);
@@ -417,9 +414,8 @@ TEST_CASE("cli parser - bool value parsing false variants")
 
   for (const auto& fv : {"false", "0", "no"}) {
     variables_map vm;
-    auto parser
-        = command_line_parser(std::vector<std::string> {"--flag", fv})
-              .options(desc);
+    auto parser = command_line_parser(std::vector<std::string> {"--flag", fv})
+                      .options(desc);
     store(parser, vm);
     REQUIRE(vm.contains("flag"));
     CHECK(vm["flag"].as<bool>() == false);
@@ -432,9 +428,9 @@ TEST_CASE("cli parser - invalid bool value throws")
   desc.add_options()("flag,f", value<bool>(), "flag");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {"--flag", "maybe"})
-            .options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--flag", "maybe"})
+          .options(desc);
   CHECK_THROWS_AS(store(parser, vm), parse_error);
 }
 
@@ -444,8 +440,7 @@ TEST_CASE("cli parser - empty args produces empty map")
   desc.add_options()("help,h", "help");
 
   variables_map vm;
-  auto parser
-      = command_line_parser(std::vector<std::string> {}).options(desc);
+  auto parser = command_line_parser(std::vector<std::string> {}).options(desc);
   store(parser, vm);
 
   CHECK_FALSE(vm.contains("help"));
@@ -457,9 +452,9 @@ TEST_CASE("cli parser - multiple flags at once")
   desc.add_options()("alpha,a", "a")("beta,b", "b")("gamma,g", "g");
 
   variables_map vm;
-  auto parser = command_line_parser(
-                    std::vector<std::string> {"--alpha", "-b", "--gamma"})
-                    .options(desc);
+  auto parser =
+      command_line_parser(std::vector<std::string> {"--alpha", "-b", "--gamma"})
+          .options(desc);
   store(parser, vm);
 
   CHECK(vm.contains("alpha"));
@@ -473,12 +468,12 @@ TEST_CASE("cli parser - argc/argv constructor")
   desc.add_options()("verbose,v", "verbose");
 
   // Simulate argc/argv (argv[0] is program name, should be skipped)
-  const char* argv[] = {"program", "--verbose"};
-  int argc = 2;
+  const char* argv[] = {"program", "--verbose"};  // NOLINT
+  const int argc = 2;
 
   variables_map vm;
-  auto parser
-      = command_line_parser(argc, const_cast<char**>(argv)).options(desc);
+  auto parser = command_line_parser(argc, const_cast<char**>(argv))  // NOLINT
+                    .options(desc);  // NOLINT
   store(parser, vm);
 
   CHECK(vm.contains("verbose"));
@@ -488,7 +483,7 @@ TEST_CASE("cli parser - argc/argv constructor")
 
 TEST_CASE("cli notify - does not throw")
 {
-  variables_map vm;
+  const variables_map vm;
   CHECK_NOTHROW(notify(vm));
 }
 
