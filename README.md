@@ -43,7 +43,7 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 
 ### Dependencies
 
-* **C++26** compiler
+* **C++26** compiler (i.e., g++14 or clang++22)
 * **Boost**: program_options, filesystem: See https://www.boost.org/doc/user-guide/getting-started.html
 * **Apache Arrow**: Parquet support: See https://arrow.apache.org/install/
 * **Solver**: (e.g., HiGHS, Clp, CPLEX, Gurobi)
