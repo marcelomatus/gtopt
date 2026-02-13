@@ -131,20 +131,16 @@ struct typed_value
 
 /// Helper trait to detect std::vector types.
 template<typename T>
-struct is_vector : std::false_type
-{
-};
+inline constexpr bool is_vector_v = false;
 
 template<typename T, typename A>
-struct is_vector<std::vector<T, A>> : std::true_type
-{
-};
+inline constexpr bool is_vector_v<std::vector<T, A>> = true;
 
 /// Create a typed value descriptor for option definitions.
 template<typename T>
-typed_value<T> value()
+[[nodiscard]] typed_value<T> value()
 {
-  if constexpr (is_vector<T>::value) {
+  if constexpr (is_vector_v<T>) {
     typed_value<T> tv;
     tv.multi = true;
     return tv;
@@ -237,7 +233,7 @@ public:
     options_description& parent_;  // NOLINT
   };
 
-  adder add_options() { return adder(*this); }
+  [[nodiscard]] adder add_options() { return adder(*this); }
 
   void add(option_definition def);
 
@@ -276,8 +272,8 @@ public:
   /// @param count Maximum positional slots (-1 = unlimited).
   void add(const std::string& name, int count);
 
-  [[nodiscard]] const std::string& name() const { return name_; }
-  [[nodiscard]] int count() const { return count_; }
+  [[nodiscard]] const std::string& name() const noexcept { return name_; }
+  [[nodiscard]] int count() const noexcept { return count_; }
 
 private:
   std::string name_;

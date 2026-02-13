@@ -1,11 +1,13 @@
 /**
  * @file      capacity_object_lp.cpp
- * @brief     Header of
+ * @brief     Implementation of capacity-constrained object LP formulation
  * @date      Sat May 31 09:00:14 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the linear programming formulation for objects
+ * with capacity constraints, including capacity expansion, cost tracking,
+ * and output generation.
  */
 
 #include <gtopt/capacity_object_lp.hpp>
