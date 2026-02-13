@@ -1,11 +1,12 @@
 /**
  * @file      system.cpp<gtopt>
- * @brief     Header of
+ * @brief     Header of System class methods
  * @date      Sun Mar 30 16:04:21 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module implements the methods of the System class, which represents the
+ * core data.
  */
 
 #include <gtopt/options_lp.hpp>
