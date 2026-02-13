@@ -19,7 +19,10 @@
 #include <format>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <optional>
+#include <ranges>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -353,8 +356,17 @@ public:
   /// Construct from argc/argv (skips argv[0]).
   command_line_parser(int argc, char** argv)
   {
-    for (int i = 1; i < argc; ++i) {
-      tokens_.emplace_back(argv[i]);
+    // Use std::span for safe array access and bounds checking
+    std::span args{argv, static_cast<std::size_t>(argc)};
+    
+    // Skip the first element (program name) using subspan
+    if (argc > 1) {
+      auto arg_view = args.subspan(1);
+      tokens_.reserve(arg_view.size());
+      std::ranges::copy(arg_view | std::views::transform([](const char* arg) {
+                          return std::string(arg);
+                        }),
+                        std::back_inserter(tokens_));
     }
   }
 
