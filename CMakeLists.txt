@@ -71,14 +71,12 @@ CPMAddPackage(
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
 
-option(COIN_USE_CLP "Use Clp" ON)
-option(COIN_USE_CBC "Use Cbc" OFF)
-option(COIN_USE_CPX "Use Cplex" OFF)
-
 set(COIN_ROOT_DIR
     "/opt/coinor"
     CACHE PATH "Coinor root directory"
 )
+# Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
+set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(cmake_local/Solver.cmake)
 
 # ---- External packages ----
