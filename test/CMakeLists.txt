@@ -52,6 +52,8 @@ set(CPLEX_ROOT_DIR
   "/opt/cplex"
   CACHE PATH "CPLEX root directory"
 )
+# Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
+set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(../cmake_local/Solver.cmake)
 
 
