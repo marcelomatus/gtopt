@@ -9,9 +9,41 @@ a new C++ generation and transmission planning project.
 - Optimizes
 
 ## Usage
-- With care
+1. [Build the standalone target](building-the-standalone-target)
+2. Run the binary as it follows:
+   ```bash
+   ./build/standalone/gtopt input_file
+   ```
+### Options Reference
+| Short Flag | Long Flag | Argument | Description |
+| :--- | :--- | :--- | :--- |
+| `-h` | `--help` | | Describes arguments |
+| `-v` | `--verbose` | | Activates maximum verbosity |
+| `-q` | `--quiet` | `[=arg]` | Do not log in the stdout |
+| `-V` | `--version` | | Shows program version |
+| `-s` | `--system-file` | `arg` | Name of the system file |
+| `-l` | `--lp-file` | `arg` | Name of the lp file to save |
+| `-j` | `--json-file` | `arg` | Name of the json file to save |
+| `-D` | `--input-directory` | `arg` | Input directory |
+| `-F` | `--input-format` | `arg` | Input format |
+| `-d` | `--output-directory` | `arg` | Output directory |
+| `-f` | `--output-format` | `arg` | Output format `[parquet, csv]` |
+| `-C` | `--compression-format` | `arg` | Compression format in parquet `[uncompressed, gzip, zstd, lzo]` |
+| `-b` | `--use-single-bus` | `[=arg]` | Use single bus mode |
+| `-k` | `--use-kirchhoff` | `[=arg]` | Use kirchhoff mode |
+| `-n` | `--use-lp-names` | `[=arg]` | Use real col/row names in the lp file |
+| `-e` | `--matrix-eps` | `arg` | Eps value to define A matrix non-zero values |
+| `-c` | `--just-create` | `[=arg]` | Just create the problem, then exit |
+| `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) json parsing |
 
-### Build and run the standalone target
+## Building from Source
+### Dependencies (WIP)
+#### Boost
+See https://www.boost.org/doc/user-guide/getting-started.html
+#### Arrow
+See https://arrow.apache.org/install/
+
+### Building the standalone target
 
 Use the following command to build and run the executable target.
 
@@ -21,7 +53,7 @@ cmake --build build/standalone
 ./build/standalone/gtopt --help
 ```
 
-### Build and run test suite
+### Building and run test suite
 
 Use the following commands from the project's root directory to run the test suite.
 
@@ -108,9 +140,3 @@ Additional arguments can be passed to the analyzers by setting the `CLANG_TIDY_A
 
 #### Ccache
 Ccache can be enabled by configuring with `-DUSE_CCACHE=<ON | OFF>`.
-
-### Dependencies
-#### Boost
-See https://www.boost.org/doc/user-guide/getting-started.html
-#### Arrow
-See https://arrow.apache.org/install/
