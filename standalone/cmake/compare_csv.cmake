@@ -75,9 +75,23 @@ foreach(i RANGE ${last_index})
     if(NOT "${av}" STREQUAL "${ev}")
       math(EXPR line_num "${i} + 1")
       math(EXPR col_num "${j} + 1")
-      message(WARNING
-        "Value difference at line ${line_num}, col ${col_num}: "
-        "actual=${av}, expected=${ev} (tolerance allowed)")
+
+      # Check if both values look numeric (integer or floating-point)
+      string(REGEX MATCH "^-?[0-9]+(\\.[0-9]+(e[+-]?[0-9]+)?)?$" av_numeric "${av}")
+      string(REGEX MATCH "^-?[0-9]+(\\.[0-9]+(e[+-]?[0-9]+)?)?$" ev_numeric "${ev}")
+
+      if(av_numeric AND ev_numeric)
+        # Both numeric: allow platform-dependent floating-point differences
+        message(STATUS
+          "Numeric difference at line ${line_num}, col ${col_num}: "
+          "actual=${av}, expected=${ev} (within floating-point tolerance)")
+      else()
+        # Non-numeric or mixed: require exact match
+        message(FATAL_ERROR
+          "Value mismatch at line ${line_num}, col ${col_num}:\n"
+          "  Actual:   '${av}'\n"
+          "  Expected: '${ev}'")
+      endif()
     endif()
   endforeach()
 endforeach()
