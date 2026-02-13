@@ -99,7 +99,7 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev
 
       - name: configure
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release
         env:
           CC: gcc-14
           CXX: g++-14
