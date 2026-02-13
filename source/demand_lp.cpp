@@ -161,7 +161,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  if (!mcols.empty()) {
+  if (emin_row) {
     emin_rows[st_key] = lp.add_row(std::move(*emin_row));
     lman_cols[st_key] = std::move(mcols);
   }

@@ -25,7 +25,7 @@ TEST_CASE("Turbine daw json test 1")
   CHECK(turbine.conversion_rate.has_value());
   CHECK(std::get<double>(turbine.conversion_rate.value_or(-1.0)) == 50.0);
   CHECK(turbine.drain.has_value());
-  CHECK(turbine.drain.value() == true);
+  CHECK(turbine.drain.value() == true);  // NOLINT
 }
 
 TEST_CASE("Turbine daw json test 2")
@@ -73,7 +73,7 @@ TEST_CASE("Turbine array json test")
   CHECK(!turbines[0].capacity.has_value());
   CHECK(!turbines[0].conversion_rate.has_value());
   CHECK(turbines[0].drain.has_value());
-  CHECK(turbines[0].drain.value() == false);
+  CHECK(turbines[0].drain.value() == false);  // NOLINT
 
   CHECK(turbines[1].uid == 15);
   CHECK(turbines[1].name == "TURBINE_B");
@@ -82,7 +82,7 @@ TEST_CASE("Turbine array json test")
   CHECK(turbines[1].conversion_rate.has_value());
   CHECK(std::get<double>(turbines[1].conversion_rate.value_or(-1.0)) == 75.0);
   CHECK(turbines[1].drain.has_value());
-  CHECK(turbines[1].drain.value() == true);
+  CHECK(turbines[1].drain.value() == true);  // NOLINT
 }
 
 TEST_CASE("Turbine with active property serialization")
@@ -103,7 +103,7 @@ TEST_CASE("Turbine with active property serialization")
     CHECK(roundtrip.active.has_value());
     CHECK(std::get<IntBool>(roundtrip.active.value_or(False)) == True);
     CHECK(roundtrip.drain.has_value());
-    CHECK(roundtrip.drain.value() == false);
+    CHECK(roundtrip.drain.value() == false);  // NOLINT
   }
 
   SUBCASE("With schedule active")
