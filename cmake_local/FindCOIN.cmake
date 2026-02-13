@@ -15,7 +15,7 @@ if(COIN_INCLUDE_DIR
   set(COIN_OSI_LIBRARIES "${COIN_OSI_LIBRARY};${COIN_COIN_UTILS_LIBRARY}")
   set(COIN_LIBRARIES "${COIN_OSI_LIBRARIES}")
 
-else(COIN_INCLUDE_DIR)
+else()
 
   find_path(COIN_INCLUDE_DIR coin/CoinUtilsConfig.h HINTS ${COIN_ROOT_DIR}/include)
 
@@ -48,9 +48,16 @@ else(COIN_INCLUDE_DIR)
 
 endif()
 
-include_directories(SYSTEM "${COIN_INCLUDE_DIR}")
-
+# Save and restore CMAKE_CXX_STANDARD around find_package(LAPACK) because its
+# internal try_compile inherits the global standard, and CXX26 may not yet be
+# supported by the compiler for simple C-linkage checks. C++17 is used as it
+# is widely supported by all modern compilers.
+set(_COIN_SAVED_CXX_STANDARD ${CMAKE_CXX_STANDARD})
+set(CMAKE_CXX_STANDARD 17)
 find_package(LAPACK)
+set(CMAKE_CXX_STANDARD ${_COIN_SAVED_CXX_STANDARD})
+unset(_COIN_SAVED_CXX_STANDARD)
+
 find_package(ZLIB)
 find_package(Threads)
 find_package(LibM)
@@ -62,4 +69,4 @@ set(COIN_OSI_LIBRARIES
 message(STATUS "COIN OSi Libs: ${COIN_OSI_LIBRARIES}")
 
 # Mark as advanced options in ccmake:
-mark_as_advanced(COIN_INCLUDE_DIRS COIN_OSI_LIBRARES COIN_LIBRARIES)
+mark_as_advanced(COIN_INCLUDE_DIRS COIN_OSI_LIBRARIES COIN_LIBRARIES)
