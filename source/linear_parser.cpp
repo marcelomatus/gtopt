@@ -1,5 +1,8 @@
 #include <array>
+#include <format>
 #include <iostream>
+#include <ranges>
+
 #include "gtopt/linear_parser.hpp"
 
 namespace gtopt
@@ -9,31 +12,32 @@ void LinearParser::printResult(const ParseResult& result)
 {
   std::cout << "Coefficients: ";
   for (const auto& [var, coeff] : result.coefficients) {
-    std::cout << var << ":" << coeff << " ";
+    std::cout << std::format("{}:{} ", var, coeff);
   }
 
   if (result.constraint_type == ConstraintType::RANGE) {
-    std::cout << "\n";
-    std::cout << "Lower bound: " << result.lower_bound.value_or(0) << "\n";
-    std::cout << "Upper bound: " << result.upper_bound.value_or(0) << "\n";
-    std::cout << "Constraint: RANGE";
+    std::cout << std::format(
+        "\nLower bound: {}\nUpper bound: {}\nConstraint: RANGE",
+        result.lower_bound.value_or(0),
+        result.upper_bound.value_or(0));
   } else {
-    std::cout << "\n";
-    std::cout << "RHS: " << result.rhs << "\n";
-    std::cout << "Constraint: ";
-    switch (result.constraint_type) {
-      case ConstraintType::LESS_EQUAL:
-        std::cout << "<=";
-        break;
-      case ConstraintType::EQUAL:
-        std::cout << "=";
-        break;
-      case ConstraintType::GREATER_EQUAL:
-        std::cout << ">=";
-        break;
-      case ConstraintType::RANGE:
-        break;  // Already handled above
-    }
+    constexpr auto constraint_str =
+        [](ConstraintType ct) noexcept -> std::string_view
+    {
+      switch (ct) {
+        case ConstraintType::LESS_EQUAL:
+          return "<=";
+        case ConstraintType::EQUAL:
+          return "=";
+        case ConstraintType::GREATER_EQUAL:
+          return ">=";
+        case ConstraintType::RANGE:
+          return "";
+      }
+      return "";
+    };
+    std::cout << std::format(
+        "\nRHS: {}\nConstraint: {}", result.rhs, constraint_str(result.constraint_type));
   }
   std::cout << "\n\n";
 }
@@ -53,7 +57,7 @@ int LinearParser::do_main()
   };
 
   for (const auto& expr : test_expressions) {
-    std::cout << "Expression: " << expr << "\n";
+    std::cout << std::format("Expression: {}\n", expr);
     try {
       auto result = LinearParser::parse(expr);
       LinearParser::printResult(result);
@@ -63,16 +67,16 @@ int LinearParser::do_main()
       if (!vars.empty()) {
         auto coeff_vector = result.getCoefficientsVector(vars);
         std::cout << "Coefficient vector [";
-        for (std::size_t i = 0; i < coeff_vector.size(); ++i) {
-          std::cout << coeff_vector[i];
-          if (i < (coeff_vector.size() - 1)) {
+        for (const auto& [i, val] : std::views::enumerate(coeff_vector)) {
+          if (i > 0) {
             std::cout << ", ";
           }
+          std::cout << val;
         }
         std::cout << "]\n\n";
       }
     } catch (const std::exception& e) {
-      std::cout << "Error: " << e.what() << "\n\n";
+      std::cout << std::format("Error: {}\n\n", e.what());
     }
   }
 

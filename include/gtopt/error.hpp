@@ -30,6 +30,18 @@ struct Error
   ErrorCode code {ErrorCode::Success};
   std::string message {};
   int status {0};  // Optional status code for additional context
+
+  /// Returns true if the error code indicates success
+  [[nodiscard]] constexpr bool is_success() const noexcept
+  {
+    return code == ErrorCode::Success;
+  }
+
+  /// Returns true if the error code indicates a failure
+  [[nodiscard]] constexpr bool is_error() const noexcept
+  {
+    return code != ErrorCode::Success;
+  }
 };
 
 }  // namespace gtopt

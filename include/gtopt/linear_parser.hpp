@@ -1,7 +1,21 @@
+/**
+ * @file      linear_parser.hpp
+ * @brief     Parser for linear constraint expressions
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module provides a parser for linear constraint expressions such as
+ * "3*x - 2*y <= 20" or "10 <= 3*x + 2*y <= 30", supporting single and
+ * range constraints with various operator forms.
+ */
+
+#pragma once
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -37,29 +51,21 @@ struct ParseResult
   [[nodiscard]] std::vector<double> getCoefficientsVector(
       const std::vector<std::string>& variable_order) const
   {
-    std::vector<double> result;
-    result.reserve(variable_order.size());
-
-    for (const auto& var : variable_order) {
-      if (auto it = coefficients.find(var); it != coefficients.end()) {
-        result.push_back(it->second);
-      } else {
-        result.push_back(0.0);
-      }
-    }
-    return result;
+    return variable_order
+        | std::views::transform(
+               [this](const std::string& var) -> double
+               {
+                 auto it = coefficients.find(var);
+                 return (it != coefficients.end()) ? it->second : 0.0;
+               })
+        | std::ranges::to<std::vector>();
   }
 
   // Get all variable names in sorted order
   [[nodiscard]] std::vector<std::string> getVariableNames() const
   {
-    std::vector<std::string> names;
-    names.reserve(coefficients.size());
-
-    for (const auto& [var, coeff] : coefficients) {
-      names.push_back(var);
-    }
-
+    auto names = coefficients | std::views::keys
+        | std::ranges::to<std::vector<std::string>>();
     std::ranges::sort(names);
     return names;
   }
@@ -186,8 +192,8 @@ class LinearParser
         coefficient = std::stod(std::string {cleaned});
         return {negative ? -coefficient : coefficient, std::string {}};
       } catch (const std::exception&) {
-        throw std::invalid_argument(std::string {"Invalid constant term: "}
-                                    + std::string {term});
+        throw std::invalid_argument(
+            std::format("Invalid constant term: {}", term));
       }
     }
 
@@ -209,7 +215,7 @@ class LinearParser
         coefficient = std::stod(std::string {coeff_part});
       } catch (const std::exception&) {
         throw std::invalid_argument(
-            std::string {"Invalid coefficient in term: "} + std::string {term});
+            std::format("Invalid coefficient in term: {}", term));
       }
     }
 
@@ -320,14 +326,9 @@ public:
 
       const double final_rhs = right_const - left_const;
 
-      // Remove zero coefficients using erase_if (C++20)
-      for (auto it = final_coeffs.begin(); it != final_coeffs.end();) {
-        if (std::abs(it->second) < 1e-10) {
-          it = final_coeffs.erase(it);
-        } else {
-          ++it;
-        }
-      }
+      // Remove zero coefficients using std::erase_if (C++20)
+      std::erase_if(final_coeffs,
+                    [](const auto& p) { return std::abs(p.second) < 1e-10; });
 
       return ParseResult {
           .coefficients = std::move(final_coeffs),
@@ -395,14 +396,9 @@ public:
             "Range constraint must have variables in exactly one part");
       }
 
-      // Remove zero coefficients using erase_if (C++20)
-      for (auto it = final_coeffs.begin(); it != final_coeffs.end();) {
-        if (std::abs(it->second) < 1e-10) {
-          it = final_coeffs.erase(it);
-        } else {
-          ++it;
-        }
-      }
+      // Remove zero coefficients using std::erase_if (C++20)
+      std::erase_if(final_coeffs,
+                    [](const auto& p) { return std::abs(p.second) < 1e-10; });
 
       return ParseResult {
           .coefficients = std::move(final_coeffs),

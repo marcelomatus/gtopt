@@ -27,7 +27,7 @@ using namespace gtopt;
 [[nodiscard]] constexpr auto csv_read_table(const std::filesystem::path& fpath)
     -> std::expected<ArrowTable, std::string>
 {
-  const auto filename = fpath.string() + ".csv";
+  const auto filename = std::format("{}.csv", fpath.string());
 
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (!maybe_infile.ok()) {
@@ -72,7 +72,7 @@ using namespace gtopt;
     const std::filesystem::path& fpath)
     -> std::expected<ArrowTable, std::string>
 {
-  const auto filename = fpath.string() + ".parquet";
+  const auto filename = std::format("{}.parquet", fpath.string());
 
   std::shared_ptr<arrow::io::RandomAccessFile> input;
   {
