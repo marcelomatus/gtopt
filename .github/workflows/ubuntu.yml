@@ -15,6 +15,9 @@ env:
   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -63,3 +66,48 @@ jobs:
 
       - name: collect code coverage
         run: # bash <(curl -s https://codecov.io/bash) || echo "Codecov did not collect coverage reports"
+
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v3
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install gcc-14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+
+      - name: install parquet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-container-dev
+
+      - name: configure
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build
+        run: cmake --build build -j4
+
+      - name: integration test
+        run: |
+          cd build
+          ctest --build-config Debug
