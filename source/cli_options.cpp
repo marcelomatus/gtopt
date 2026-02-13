@@ -82,9 +82,9 @@ std::ostream& operator<<(std::ostream& os, const options_description& desc)
         ? std::format("-{} [ --{} ]", opt.short_name, opt.long_name)
         : std::format("     --{}", opt.long_name);
 
-    const auto value_part = (opt.takes_value && !opt.has_implicit) ? " arg"
-        : (opt.takes_value && opt.has_implicit)                    ? " [=arg]"
-                                                                   : "";
+    const auto value_part = (opt.takes_value && !opt.has_implicit)  // NOLINT
+        ? " arg"
+        : ((opt.takes_value && opt.has_implicit) ? " [=arg]" : "");  // NOLINT
 
     os << std::format("  {}{}  {}\n", name_part, value_part, opt.description);
   }
@@ -112,8 +112,8 @@ command_line_parser::command_line_parser(int argc, char** argv)
   if (argc > 1) {
     auto arg_view = args.subspan(1);
     tokens_ = arg_view
-        | std::views::transform(
-              [](const char* arg) { return std::string(arg); })
+        | std::views::transform([](const char* arg)
+                                { return std::string(arg); })
         | std::ranges::to<std::vector>();
   }
 }
@@ -210,8 +210,8 @@ void command_line_parser::parse_into(variables_map& vm) const
         }
       } else {
         if (i + 1 >= tokens_.size()) {
-          throw parse_error(std::format("option '-{}' requires a value",
-                                        std::string(1, sc)));
+          throw parse_error(
+              std::format("option '-{}' requires a value", std::string(1, sc)));
         }
         ++i;
         store_value(vm, *def, tokens_[i], multi_tokens);
