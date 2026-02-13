@@ -1,6 +1,7 @@
 #include <array>
 #include <format>
 #include <iostream>
+#include <ranges>
 
 #include "gtopt/linear_parser.hpp"
 
