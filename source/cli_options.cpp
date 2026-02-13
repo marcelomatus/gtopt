@@ -9,7 +9,6 @@
  * See cli_options.hpp for the public interface and template definitions.
  */
 
-#include <algorithm>
 #include <iostream>
 #include <ranges>
 #include <span>
