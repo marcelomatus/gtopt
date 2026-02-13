@@ -12,6 +12,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/app_options.hpp>
 
+#include <optional>
+#include <string>
+#include <vector>
+
 using namespace gtopt;
 
 // ---- Helper to parse command-line args into a variables_map ----
