@@ -77,7 +77,7 @@ enable_testing()
 set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
 set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-include(${CMAKE_SCRIPTS_DIR}/AddE2ECase.cmake)
+include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
