@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.14)
+
 # compare_csv.cmake - Compare two CSV files allowing floating-point tolerance
 #
 # Usage:
