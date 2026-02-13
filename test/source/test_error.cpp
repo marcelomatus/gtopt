@@ -50,4 +50,26 @@ TEST_SUITE("Error")
     CHECK(err2.message == "bad input");
     CHECK(err2.status == 42);
   }
+
+  TEST_CASE("Error is_success and is_error")
+  {
+    const Error success_err {};
+    CHECK(success_err.is_success());
+    CHECK_FALSE(success_err.is_error());
+
+    const Error solver_err {
+        .code = ErrorCode::SolverError,
+        .message = "failed",
+    };
+    CHECK_FALSE(solver_err.is_success());
+    CHECK(solver_err.is_error());
+
+    const Error io_err {
+        .code = ErrorCode::FileIOError,
+        .message = "disk full",
+        .status = -1,
+    };
+    CHECK_FALSE(io_err.is_success());
+    CHECK(io_err.is_error());
+  }
 }
