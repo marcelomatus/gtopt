@@ -1,34 +1,33 @@
-# FindLibM.cmake: Check for the presence of the LibM headers and libraries
-#
-# Copyright 2010-2013 AstroFloyd - astrofloyd.org
-#
-# This is free software: you can redistribute it and/or modify it under the terms of
-# the GNU General Public License as published by the Free Software Foundation, either
-# version 3 of the License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but WITHOUT ANY
-# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-# PARTICULAR PURPOSE.  See the GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along with this
-# code.  If not, see <http://www.gnu.org/licenses/>.
-#
-# This CMake module defines the following variables:
-#   LibM_FOUND        =  Libraries and headers found; TRUE/FALSE
-#   LibM_INCLUDES     =  Path to the LibM header files
-#   LibM_LIBRARIES    =  Path to all parts of the LibM libraries
-#   LibM_LIBRARY_DIR  =  Path to the directory containing the LibM libraries
+#[=======================================================================[.rst:
+FindLibM
+--------
 
-# Check for the header files:
+Find the C math library (``libm``).
+
+Imported variables
+^^^^^^^^^^^^^^^^^^
+
+``LibM_FOUND``
+  True if libm was found.
+
+``LibM_INCLUDES``
+  Path to the ``math.h`` header.
+
+``LibM_LIBRARIES``
+  Libraries to link against.
+
+``LibM_LIBRARY_DIR``
+  Directory containing the library.
+
+#]=======================================================================]
+
+include_guard(GLOBAL)
+
 find_path(
   LibM_INCLUDES
   NAMES math.h
   PATHS ${include_locations} ${lib_locations}
-  PATH_SUFFIXES
 )
-
-# Check for the libraries:
-set(LibM_LIBRARIES "")
 
 find_library(
   LibM_LIBRARY
@@ -36,40 +35,15 @@ find_library(
   PATHS ${LibM_LIBRARY_DIR}
 )
 
-# Libraries found?
-if(LibM_LIBRARY)
-  list(APPEND LibM_LIBRARIES ${LibM_LIBRARY})
-  get_filename_component(LibM_LIBRARY_DIR ${LibM_LIBRARY} PATH)
-endif()
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(
+  LibM
+  REQUIRED_VARS LibM_INCLUDES LibM_LIBRARY
+)
 
-# Headers AND libraries found?
-if(LibM_INCLUDES AND LibM_LIBRARIES)
-  set(LibM_FOUND TRUE)
-else()
-  set(LibM_FOUND FALSE)
-
-  if(NOT LibM_FIND_QUIETLY)
-    if(NOT LibM_INCLUDES)
-      message(STATUS "!! Unable to find LibM header files!")
-    endif()
-    if(NOT LibM_LIBRARIES)
-      message(STATUS "!! Unable to find LibM library files!")
-    endif()
-  endif()
-endif()
-
-# Headers AND libraries found!
 if(LibM_FOUND)
-  if(NOT LibM_FIND_QUIETLY)
-    message(STATUS "Found components for LibM:")
-    message(STATUS "* LibM_INCLUDES  = ${LibM_INCLUDES}")
-    message(STATUS "* LibM_LIBRARIES = ${LibM_LIBRARIES}")
-  endif()
-else()
-  if(LibM_FIND_REQUIRED)
-    message(FATAL_ERROR "!! Could not find LibM headers or libraries!")
-  endif()
+  set(LibM_LIBRARIES "${LibM_LIBRARY}")
+  get_filename_component(LibM_LIBRARY_DIR "${LibM_LIBRARY}" DIRECTORY)
 endif()
 
-# Mark as advanced options in ccmake:
 mark_as_advanced(LibM_INCLUDES LibM_LIBRARIES LibM_LIBRARY LibM_LIBRARY_DIR)
