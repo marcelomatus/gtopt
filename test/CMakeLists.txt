@@ -78,12 +78,12 @@ target_link_libraries(
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(${PROJECT_NAME} PUBLIC -D_GLIBCXX_CISO646 -Wall -Wpedantic -Wextra -Werror -Wno-c2y-extensions -Wno-deprecated-declarations)
-  elseif(MSVC)
-    target_compile_options(${PROJECT_NAME} PUBLIC /W4 /WX)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
-  endif()
+  include(../cmake/CompilerWarnings.cmake)
+  target_set_warnings(${PROJECT_NAME})
+  target_compile_definitions(
+    ${PROJECT_NAME}
+    PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:DOCTEST_CONFIG_USE_STD_HEADERS>"
+  )
 endif()
 
 # ---- Add gtoptTests ----
