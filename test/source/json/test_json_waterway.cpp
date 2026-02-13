@@ -89,7 +89,8 @@ TEST_CASE("Waterway JSON with active schedule")
   Waterway waterway = daw::json::from_json<Waterway>(json_data);
 
   REQUIRE(waterway.active.has_value());
-  const auto& active = std::get<std::vector<IntBool>>(waterway.active.value());
+  const auto& active =
+      std::get<std::vector<IntBool>>(waterway.active.value());  // NOLINT
   REQUIRE(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);
@@ -115,7 +116,7 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_b) == 2);
   REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(std::get<double>(roundtrip.capacity.value()) == 100.0);
+  REQUIRE(std::get<double>(roundtrip.capacity.value_or(0.0)) == 100.0);
 }
 
 TEST_CASE("Waterway with empty optional fields")
