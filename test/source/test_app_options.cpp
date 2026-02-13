@@ -20,7 +20,7 @@ namespace
 po::variables_map parse_args(const std::vector<std::string>& args,
                              const po::options_description& desc)
 {
-  po::positional_options_description pos_desc;
+  po::positional_options_description pos_desc;  // NOLINT(misc-const-correctness)
   pos_desc.add("system-file", -1);
 
   po::variables_map vm;
@@ -435,22 +435,22 @@ TEST_CASE("Integration - parse and extract all option types")
   auto compression_format = get_opt<std::string>(vm, "compression-format");
 
   REQUIRE(use_single_bus.has_value());
-  CHECK(*use_single_bus == true);
+  CHECK((use_single_bus && *use_single_bus == true));
 
   REQUIRE(use_lp_names.has_value());
-  CHECK(*use_lp_names == 2);
+  CHECK((use_lp_names && *use_lp_names == 2));
 
   REQUIRE(matrix_eps.has_value());
-  CHECK(*matrix_eps == doctest::Approx(0.01));
+  CHECK((matrix_eps && *matrix_eps == doctest::Approx(0.01)));
 
   REQUIRE(output_directory.has_value());
-  CHECK(*output_directory == "/results");
+  CHECK((output_directory && *output_directory == "/results"));
 
   REQUIRE(output_format.has_value());
-  CHECK(*output_format == "parquet");
+  CHECK((output_format && *output_format == "parquet"));
 
   REQUIRE(compression_format.has_value());
-  CHECK(*compression_format == "zstd");
+  CHECK((compression_format && *compression_format == "zstd"));
 
   // Apply to planning
   Planning planning {};
