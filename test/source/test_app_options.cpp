@@ -9,12 +9,12 @@
  * get_opt, make_options_description, apply_cli_options, and make_flat_options.
  */
 
-#include <doctest/doctest.h>
-#include <gtopt/app_options.hpp>
-
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/app_options.hpp>
 
 using namespace gtopt;
 
@@ -24,7 +24,8 @@ namespace
 po::variables_map parse_args(const std::vector<std::string>& args,
                              const po::options_description& desc)
 {
-  po::positional_options_description pos_desc;  // NOLINT(misc-const-correctness)
+  po::positional_options_description
+      pos_desc;  // NOLINT(misc-const-correctness)
   pos_desc.add("system-file", -1);
 
   po::variables_map vm;
@@ -46,7 +47,7 @@ TEST_CASE("get_opt - returns value when present")
 
   auto result = get_opt<std::string>(vm, "output-directory");
   REQUIRE(result.has_value());
-  CHECK(*result == "/tmp/out");  // NOLINT
+  CHECK((result && *result == "/tmp/out"));
 }
 
 TEST_CASE("get_opt - returns nullopt when absent")
@@ -65,7 +66,7 @@ TEST_CASE("get_opt - works with bool type")
 
   auto result = get_opt<bool>(vm, "use-single-bus");
   REQUIRE(result.has_value());
-  CHECK(*result == true);  // NOLINT
+  CHECK((result && *result == true));
 }
 
 TEST_CASE("get_opt - works with int type")
