@@ -362,11 +362,9 @@ public:
     // Skip the first element (program name) using subspan
     if (argc > 1) {
       auto arg_view = args.subspan(1);
-      tokens_.reserve(arg_view.size());
-      std::ranges::copy(arg_view | std::views::transform([](const char* arg) {
-                          return std::string(arg);
-                        }),
-                        std::back_inserter(tokens_));
+      tokens_ = arg_view | std::views::transform([](const char* arg) {
+                  return std::string(arg);
+                }) | std::ranges::to<std::vector<std::string>>();
     }
   }
 
