@@ -260,7 +260,8 @@ solving.
 
 ### Quick Start with gtopt_gui
 
-The easiest way to launch the GUI is with the `gtopt_gui` command:
+The easiest way to launch the GUI is with the `gtopt_gui` command, which provides
+a complete integrated environment for editing, solving, and viewing optimization cases:
 
 ```bash
 # Install guiservice (independent of gtopt binary)
@@ -270,15 +271,28 @@ sudo cmake --install build-gui
 # Install Python dependencies
 pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 
-# Launch interactively (opens browser in kiosk mode)
+# Launch interactively (opens browser, auto-starts webservice)
 gtopt_gui
 
 # Or with a specific configuration file
 gtopt_gui system_c0.json
 ```
 
-This opens a web browser with a standalone GUI interface for editing cases.
-For detailed usage, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
+**Fully Integrated Workflow:**
+- Opens a web browser with a standalone GUI interface
+- Automatically starts local webservice (if installed) for solving cases
+- Automatically detects gtopt binary
+- Complete workflow: Edit → Submit for Solving → Monitor → View Results
+- Zero configuration required
+
+**In the browser:**
+1. Upload or create a case
+2. Edit system elements (buses, generators, storage, demands)
+3. Click "Submit for Solving" - runs on auto-started local webservice
+4. Monitor job progress in real-time
+5. View results with interactive charts and tables
+
+For detailed usage and options, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
 
 ### Quick Start with gtopt_guisrv
 
