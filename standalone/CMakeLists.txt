@@ -80,45 +80,6 @@ configure_install_rpath(${PROJECT_NAME} gtopt)
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 
-# ---- Install guiservice ----
-# Install the web-based GUI service alongside the binary
-
-# Install guiservice Python files and assets
-install(
-  DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/../guiservice/
-  DESTINATION share/gtopt/guiservice
-  FILES_MATCHING
-  PATTERN "*.py"
-  PATTERN "*.txt"  # requirements.txt
-  PATTERN "*.md"
-  PATTERN "static/*"
-  PATTERN "templates/*"
-  PATTERN "__pycache__" EXCLUDE
-  PATTERN "tests" EXCLUDE
-  PATTERN ".pytest_cache" EXCLUDE
-  PATTERN "*.pyc" EXCLUDE
-  PATTERN "gtopt_gui.sh" EXCLUDE  # Handled separately below
-  PATTERN "gtopt_gui.bat" EXCLUDE  # Handled separately below
-)
-
-# Install the gtopt_gui launcher script (Unix-like systems)
-if(UNIX)
-  install(
-    PROGRAMS ${CMAKE_CURRENT_LIST_DIR}/../guiservice/gtopt_gui.sh
-    DESTINATION bin
-    RENAME gtopt_gui
-  )
-endif()
-
-# Install the gtopt_gui launcher script (Windows)
-if(WIN32)
-  install(
-    PROGRAMS ${CMAKE_CURRENT_LIST_DIR}/../guiservice/gtopt_gui.bat
-    DESTINATION bin
-    RENAME gtopt_gui.bat
-  )
-endif()
-
 # ---- End-to-end integration tests ----
 
 enable_testing()
