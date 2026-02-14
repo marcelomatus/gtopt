@@ -299,6 +299,28 @@ For detailed installation and deployment instructions, see
 gtopt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
+### Quick Start with gtopt_websrv
+
+Install and run the web service using the `gtopt_websrv` command:
+
+```bash
+# Install webservice (independent of gtopt binary)
+cmake -S webservice -B build-web
+sudo cmake --install build-web
+
+# Install Node.js dependencies
+cd /usr/local/share/gtopt/webservice
+npm install --production
+npm run build
+
+# Launch the web service
+gtopt_websrv
+
+# Or with options
+gtopt_websrv --port 8080
+gtopt_websrv --gtopt-bin /path/to/gtopt
+```
+
 For detailed installation and deployment instructions, see [webservice/INSTALL.md](webservice/INSTALL.md).
 
 ## License
