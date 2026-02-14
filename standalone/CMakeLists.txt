@@ -68,7 +68,15 @@ target_link_libraries(
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
+# ---- RPATH configuration ----
+# Ensure non-system shared libraries (Arrow, Parquet, COIN-OR, etc.) can be
+# found at runtime after installation.
+
+include(InstallRpath)
+configure_install_rpath(${PROJECT_NAME} gtopt)
+
 # ---- Install ----
+# Only install the binary (and needed runtime libraries), not headers.
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 

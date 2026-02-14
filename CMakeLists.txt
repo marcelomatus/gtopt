@@ -133,12 +133,13 @@ target_set_warnings(${PROJECT_NAME})
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
+# When included as a subproject (e.g. from standalone), only the namespaced
+# alias and version header are created; install rules are skipped.
 
-# the location where the project's version header will be placed should match the
-# project's regular header paths
-string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
+string(TOLOWER ${PROJECT_NAME}/version.hpp VERSION_HEADER_LOCATION)
 
-packageProject(
+include(cmake_local/PackageTarget.cmake)
+package_target(
   NAME ${PROJECT_NAME}
   VERSION ${PROJECT_VERSION}
   NAMESPACE ${PROJECT_NAME}
