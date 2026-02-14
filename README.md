@@ -122,3 +122,48 @@ if __name__ == "__main__":
     run_all_scenarios("cases/c0/")
 
 ```
+
+## Web Service
+
+gtopt includes a web service that lets you upload optimization cases, run the
+solver, and download results — all through a browser or REST API.
+
+### Quick Start
+
+```bash
+# 1. Build and install gtopt (see "Building from Source" above)
+sudo cmake --install build
+
+# 2. Build the web service
+cd webservice
+npm ci
+npm run build
+
+# 3. Start the service
+GTOPT_BIN=/usr/local/bin/gtopt npm run start
+```
+
+The service will be available at `http://localhost:3000`.
+
+### How It Works
+
+1. **Upload** a `.zip` archive containing a system JSON file and its data
+   directory (e.g., `system_c0.json` + `system_c0/`).
+2. **Submit** the job and receive a unique **token**.
+3. **Check status** using the token — the solver runs asynchronously.
+4. **Download results** as a `.zip` once the job completes.
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/jobs` | Upload a case archive and start a job |
+| `GET` | `/api/jobs` | List all submitted jobs |
+| `GET` | `/api/jobs/:token` | Check job status |
+| `GET` | `/api/jobs/:token/download` | Download results |
+
+### Deployment Guide
+
+For complete instructions on server setup, production deployment with systemd,
+nginx reverse proxy, TLS, and troubleshooting, see
+**[INSTALL_WEBSERVICE.md](INSTALL_WEBSERVICE.md)**.
