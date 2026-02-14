@@ -15,11 +15,14 @@ cd gtopt
 cmake -S webservice -B build-web
 sudo cmake --install build-web
 
-# Install Node.js dependencies
+# Install Node.js dependencies (including build dependencies)
 cd /usr/local/share/gtopt/webservice
-npm install --production
+npm install
 npm run build
 ```
+
+**Note**: We use `npm install` (not `--production`) because TypeScript and other
+devDependencies are required for the build step (`npm run build`).
 
 ### Option 2: Install with standalone gtopt binary
 
@@ -36,9 +39,9 @@ sudo cmake --install build
 cmake -S webservice -B build-web
 sudo cmake --install build-web
 
-# Install Node.js dependencies
+# Install Node.js dependencies (including build dependencies)
 cd /usr/local/share/gtopt/webservice
-npm install --production
+npm install
 npm run build
 ```
 
@@ -229,8 +232,11 @@ Install Node.js dependencies first:
 
 ```bash
 cd /usr/local/share/gtopt/webservice
-npm install --production
+npm install
 ```
+
+**Note**: Use `npm install` (not `--production`) to include TypeScript and other
+devDependencies required for building.
 
 ### "Error: Production build not found"
 

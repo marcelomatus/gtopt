@@ -142,9 +142,9 @@ endif()
 # Post-install message
 install(CODE "
   message(STATUS \"To run the gtopt web service:\")
-  message(STATUS \"  1. Install Node.js dependencies:\")
+  message(STATUS \"  1. Install Node.js dependencies and build:\")
   message(STATUS \"     cd \${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
-  message(STATUS \"     npm install --production\")
+  message(STATUS \"     npm install\")
   message(STATUS \"     npm run build\")
   message(STATUS \"  2. Run the gtopt_websrv command:\")
   message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_websrv\")
