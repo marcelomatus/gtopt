@@ -14,6 +14,7 @@ import tempfile
 import zipfile
 
 import pandas as pd
+import requests as http_requests
 from flask import (
     Flask,
     jsonify,
@@ -24,6 +25,9 @@ from flask import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+
+# Default webservice URL (can be overridden via env or API)
+_webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000")
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +567,175 @@ def upload_results():
 
     results = _parse_results_zip(f.read())
     return jsonify(results)
+
+
+# ---------------------------------------------------------------------------
+# Webservice integration routes
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/solve/config", methods=["GET"])
+def get_solve_config():
+    """Return the current webservice URL configuration."""
+    global _webservice_url
+    return jsonify({"webservice_url": _webservice_url})
+
+
+@app.route("/api/solve/config", methods=["POST"])
+def set_solve_config():
+    """Update the webservice URL at runtime."""
+    global _webservice_url
+    data = request.get_json()
+    if not data or "webservice_url" not in data:
+        return jsonify({"error": "webservice_url is required"}), 400
+    url = data["webservice_url"].rstrip("/")
+    if not url:
+        return jsonify({"error": "webservice_url cannot be empty"}), 400
+    _webservice_url = url
+    return jsonify({"webservice_url": _webservice_url})
+
+
+@app.route("/api/solve/submit", methods=["POST"])
+def submit_solve():
+    """Build case ZIP and submit it to the gtopt webservice for solving.
+
+    The webservice expects POST /api/jobs with multipart form data:
+      - file: the ZIP archive
+      - systemFile: name of the system JSON inside the archive
+    It returns {"token": "...", "status": "pending", "message": "..."}.
+    """
+    global _webservice_url
+    case_data = request.get_json()
+    if not case_data:
+        return jsonify({"error": "No case data provided"}), 400
+
+    # Build the ZIP
+    zip_buf = _build_zip(case_data)
+    case_name = case_data.get("case_name", "case")
+    system_file = f"{case_name}.json"
+
+    # Forward to webservice POST /api/jobs
+    try:
+        resp = http_requests.post(
+            f"{_webservice_url}/api/jobs",
+            files={"file": (f"{case_name}.zip", zip_buf, "application/zip")},
+            data={"systemFile": system_file},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        body = ""
+        if e.response is not None:
+            try:
+                body = e.response.json().get("error", e.response.text)
+            except Exception:
+                body = e.response.text
+        return jsonify(
+            {"error": f"Webservice error ({e.response.status_code}): {body}"}
+        ), 502
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/status/<token>", methods=["GET"])
+def get_solve_status(token):
+    """Poll the webservice for the status of a submitted job.
+
+    Proxies to GET /api/jobs/:token which returns:
+    {"token", "status", "createdAt", "completedAt", "systemFile", "error"}
+    where status is one of: pending, running, completed, failed.
+    """
+    global _webservice_url
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/jobs/{token}",
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/results/<token>", methods=["GET"])
+def get_solve_results(token):
+    """Retrieve and parse results from the webservice for a completed job.
+
+    Proxies to GET /api/jobs/:token/download which returns a ZIP containing:
+      - output/  (solver output CSV/Parquet files)
+      - stdout.log, stderr.log, job.json
+    """
+    global _webservice_url
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/jobs/{token}/download",
+            timeout=120,
+        )
+        resp.raise_for_status()
+
+        # The webservice returns a ZIP with results
+        results = _parse_results_zip(resp.content)
+        return jsonify(results)
+    except http_requests.ConnectionError:
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/jobs", methods=["GET"])
+def list_solve_jobs():
+    """List all jobs from the webservice.
+
+    Proxies to GET /api/jobs which returns {"jobs": [...]}.
+    """
+    global _webservice_url
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/jobs",
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
 def main():
