@@ -1,0 +1,901 @@
+"""Tests for the gtopt GUI Service application."""
+
+import io
+import json
+import zipfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from guiservice.app import app, _build_case_json, _build_zip, _parse_uploaded_zip
+
+
+@pytest.fixture
+def client():
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+# ---------------------------------------------------------------------------
+# Unit tests – helper functions
+# ---------------------------------------------------------------------------
+
+
+def _sample_case_data():
+    return {
+        "case_name": "test_case",
+        "options": {
+            "annual_discount_rate": 0.1,
+            "output_format": "csv",
+            "input_directory": "test_case",
+            "input_format": "csv",
+            "demand_fail_cost": 1000,
+        },
+        "simulation": {
+            "block_array": [
+                {"uid": 1, "duration": 1},
+                {"uid": 2, "duration": 2},
+            ],
+            "stage_array": [
+                {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
+                {"uid": 2, "first_block": 1, "count_block": 1, "active": 1},
+            ],
+            "scenario_array": [{"uid": 1, "probability_factor": 1}],
+        },
+        "system": {
+            "bus": [
+                {"uid": 1, "name": "b1"},
+            ],
+            "generator": [
+                {"uid": 1, "name": "g1", "bus": "b1", "gcost": 100, "capacity": 20},
+            ],
+            "demand": [
+                {"uid": 1, "name": "d1", "bus": "b1", "lmax": 10},
+            ],
+        },
+        "data_files": {},
+    }
+
+
+class TestBuildCaseJson:
+    def test_basic_structure(self):
+        data = _sample_case_data()
+        result = _build_case_json(data)
+
+        assert "options" in result
+        assert "simulation" in result
+        assert "system" in result
+        assert result["system"]["name"] == "test_case"
+
+    def test_system_arrays(self):
+        data = _sample_case_data()
+        result = _build_case_json(data)
+
+        assert "bus_array" in result["system"]
+        assert "generator_array" in result["system"]
+        assert "demand_array" in result["system"]
+        assert len(result["system"]["bus_array"]) == 1
+        assert result["system"]["bus_array"][0]["name"] == "b1"
+
+    def test_empty_arrays_excluded(self):
+        data = _sample_case_data()
+        result = _build_case_json(data)
+
+        assert "line_array" not in result["system"]
+        assert "battery_array" not in result["system"]
+
+    def test_null_fields_stripped(self):
+        data = _sample_case_data()
+        data["system"]["generator"][0]["expcap"] = None
+        data["system"]["generator"][0]["expmod"] = ""
+        result = _build_case_json(data)
+
+        gen = result["system"]["generator_array"][0]
+        assert "expcap" not in gen
+        assert "expmod" not in gen
+
+    def test_options_included(self):
+        data = _sample_case_data()
+        result = _build_case_json(data)
+
+        assert result["options"]["annual_discount_rate"] == 0.1
+        assert result["options"]["demand_fail_cost"] == 1000
+
+
+class TestBuildZip:
+    def test_zip_contains_json(self):
+        data = _sample_case_data()
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            names = zf.namelist()
+            assert "test_case.json" in names
+
+    def test_zip_json_valid(self):
+        data = _sample_case_data()
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            content = json.loads(zf.read("test_case.json"))
+            assert content["system"]["name"] == "test_case"
+
+    def test_zip_with_csv_data_file(self):
+        data = _sample_case_data()
+        data["data_files"]["Demand/lmax"] = {
+            "columns": ["scenario", "stage", "block", "uid:1"],
+            "data": [[1, 1, 1, 10], [1, 2, 2, 15]],
+        }
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            names = zf.namelist()
+            assert "test_case/Demand/lmax.csv" in names
+            content = zf.read("test_case/Demand/lmax.csv").decode()
+            assert "scenario" in content
+            assert "10" in content
+
+    def test_zip_with_parquet_data_file(self):
+        data = _sample_case_data()
+        data["options"]["input_format"] = "parquet"
+        data["data_files"]["Demand/lmax"] = {
+            "columns": ["scenario", "stage", "block", "uid:1"],
+            "data": [[1, 1, 1, 10], [1, 2, 2, 15]],
+        }
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            names = zf.namelist()
+            assert "test_case/Demand/lmax.parquet" in names
+
+
+class TestParseUploadedZip:
+    def test_parse_basic_case(self):
+        # Create a zip
+        buf = io.BytesIO()
+        case_json = {
+            "options": {"annual_discount_rate": 0.1},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "stage_array": [
+                    {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
+                ],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "parsed_case",
+                "bus_array": [{"uid": 1, "name": "b1"}],
+            },
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("parsed_case.json", json.dumps(case_json))
+        buf.seek(0)
+
+        result = _parse_uploaded_zip(buf.read())
+        assert result["case_name"] == "parsed_case"
+        assert result["options"]["annual_discount_rate"] == 0.1
+        assert len(result["system"]["bus"]) == 1
+        assert result["system"]["bus"][0]["name"] == "b1"
+
+    def test_parse_with_csv_data(self):
+        buf = io.BytesIO()
+        case_json = {
+            "options": {"input_directory": "data"},
+            "system": {"name": "case_csv"},
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("case_csv.json", json.dumps(case_json))
+            zf.writestr(
+                "data/Demand/lmax.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n',
+            )
+        buf.seek(0)
+
+        result = _parse_uploaded_zip(buf.read())
+        assert "Demand/lmax" in result["data_files"]
+        assert result["data_files"]["Demand/lmax"]["columns"][0] == "scenario"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests – Flask routes
+# ---------------------------------------------------------------------------
+
+
+class TestRoutes:
+    def test_index(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert b"gtopt Case Editor" in resp.data
+
+    def test_schemas(self, client):
+        resp = client.get("/api/schemas")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "bus" in data
+        assert "generator" in data
+        assert "demand" in data
+        assert "line" in data
+        assert data["bus"]["label"] == "Bus"
+
+    def test_preview(self, client):
+        resp = client.post(
+            "/api/case/preview",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "system" in data
+        assert data["system"]["name"] == "test_case"
+
+    def test_download(self, client):
+        resp = client.post(
+            "/api/case/download",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.content_type == "application/zip"
+
+        with zipfile.ZipFile(io.BytesIO(resp.data), "r") as zf:
+            assert "test_case.json" in zf.namelist()
+
+    def test_upload(self, client):
+        buf = io.BytesIO()
+        case_json = {
+            "options": {"annual_discount_rate": 0.05},
+            "system": {
+                "name": "uploaded",
+                "bus_array": [{"uid": 1, "name": "bus1"}],
+                "generator_array": [
+                    {"uid": 1, "name": "gen1", "bus": "bus1", "capacity": 50}
+                ],
+            },
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("uploaded.json", json.dumps(case_json))
+        buf.seek(0)
+
+        resp = client.post(
+            "/api/case/upload",
+            data={"file": (buf, "uploaded.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["case_name"] == "uploaded"
+        assert len(data["system"]["bus"]) == 1
+        assert len(data["system"]["generator"]) == 1
+
+    def test_upload_no_file(self, client):
+        resp = client.post("/api/case/upload")
+        assert resp.status_code == 400
+
+    def test_download_no_data(self, client):
+        resp = client.post("/api/case/download")
+        assert resp.status_code in (400, 415)
+
+    def test_results_upload(self, client):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("solution.csv", "obj_value,123.45\nstatus,0\n")
+            zf.writestr(
+                "Generator/generation_sol.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n1,2,2,20\n',
+            )
+        buf.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (buf, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["solution"]["obj_value"] == "123.45"
+        assert "Generator/generation_sol.csv" in data["outputs"]
+
+
+class TestRoundTrip:
+    """Test that a case can be downloaded and re-uploaded without data loss."""
+
+    def test_download_and_upload(self, client):
+        original = _sample_case_data()
+
+        # Download
+        resp = client.post(
+            "/api/case/download",
+            data=json.dumps(original),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        # Upload the same ZIP
+        resp2 = client.post(
+            "/api/case/upload",
+            data={"file": (io.BytesIO(resp.data), "test_case.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp2.status_code == 200
+        loaded = resp2.get_json()
+
+        assert loaded["case_name"] == "test_case"
+        assert loaded["options"]["annual_discount_rate"] == 0.1
+        assert len(loaded["system"]["bus"]) == 1
+        assert len(loaded["system"]["generator"]) == 1
+        assert len(loaded["system"]["demand"]) == 1
+        assert loaded["system"]["bus"][0]["name"] == "b1"
+
+
+# ---------------------------------------------------------------------------
+# Webservice integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestSolveConfig:
+    def test_get_config(self, client):
+        resp = client.get("/api/solve/config")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "webservice_url" in data
+
+    def test_set_config(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": "http://example.com:3000"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["webservice_url"] == "http://example.com:3000"
+
+    def test_set_config_strips_trailing_slash(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": "http://example.com:3000/"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["webservice_url"] == "http://example.com:3000"
+
+    def test_set_config_missing_url(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_set_config_empty_url(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": ""}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+
+class TestSolveSubmit:
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_success(self, mock_post, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = {
+            "token": "abc-123",
+            "status": "pending",
+            "message": "Job submitted successfully.",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["token"] == "abc-123"
+        assert data["status"] == "pending"
+
+        # Verify the webservice was called with correct endpoint and fields
+        call_args = mock_post.call_args
+        assert "/api/jobs" in call_args[0][0]
+        assert "files" in call_args[1]
+        assert "data" in call_args[1]
+        assert call_args[1]["data"]["systemFile"] == "test_case.json"
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_connection_error(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.ConnectionError("refused")
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+        assert "Cannot connect" in resp.get_json()["error"]
+
+    def test_submit_no_data(self, client):
+        resp = client.post("/api/solve/submit")
+        assert resp.status_code in (400, 415)
+
+
+class TestSolveStatus:
+    @patch("guiservice.app.http_requests.get")
+    def test_status_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "token": "abc-123",
+            "status": "completed",
+            "createdAt": "2025-01-01T00:00:00Z",
+            "completedAt": "2025-01-01T00:01:00Z",
+            "systemFile": "test.json",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/status/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "completed"
+        assert data["token"] == "abc-123"
+
+        # Verify correct webservice URL was called
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs/abc-123" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/status/abc-123")
+        assert resp.status_code == 502
+
+
+class TestSolveResults:
+    @patch("guiservice.app.http_requests.get")
+    def test_results_success(self, mock_get, client):
+        # Create a mock results ZIP
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
+            zf.writestr(
+                "output/Generator/generation_sol.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n',
+            )
+        buf.seek(0)
+
+        mock_resp = MagicMock()
+        mock_resp.content = buf.getvalue()
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/results/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["solution"]["obj_value"] == "42.0"
+
+        # Verify correct webservice URL
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs/abc-123/download" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/results/abc-123")
+        assert resp.status_code == 502
+
+
+class TestSolveJobsList:
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "jobs": [
+                {
+                    "token": "job-1",
+                    "status": "completed",
+                    "createdAt": "2025-01-01T00:00:00Z",
+                    "systemFile": "system.json",
+                },
+                {
+                    "token": "job-2",
+                    "status": "running",
+                    "createdAt": "2025-01-02T00:00:00Z",
+                    "systemFile": "other.json",
+                },
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["jobs"]) == 2
+        assert data["jobs"][0]["token"] == "job-1"
+
+        # Verify correct webservice URL
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# End-to-end webservice connection and workflow tests
+# ---------------------------------------------------------------------------
+
+
+class TestWebserviceEndToEnd:
+    """Test the full connection and functionality of sending/receiving cases
+    and simulation results to/from the webservice."""
+
+    @patch("guiservice.app.http_requests.get")
+    @patch("guiservice.app.http_requests.post")
+    def test_full_solve_workflow(self, mock_post, mock_get, client):
+        """End-to-end: configure → submit case → poll status → get results."""
+        # Step 1: Configure webservice URL
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": "http://testserver:3000"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["webservice_url"] == "http://testserver:3000"
+
+        # Step 2: Submit case
+        mock_submit_resp = MagicMock()
+        mock_submit_resp.status_code = 201
+        mock_submit_resp.json.return_value = {
+            "token": "workflow-token-001",
+            "status": "pending",
+            "message": "Job submitted successfully.",
+        }
+        mock_submit_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_submit_resp
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        submit_data = resp.get_json()
+        assert submit_data["token"] == "workflow-token-001"
+        assert submit_data["status"] == "pending"
+        token = submit_data["token"]
+
+        # Verify submit called webservice with correct URL
+        call_args = mock_post.call_args
+        assert "http://testserver:3000/api/jobs" == call_args[0][0]
+        assert call_args[1]["data"]["systemFile"] == "test_case.json"
+
+        # Step 3: Poll status – first pending, then running, then completed
+        mock_pending = MagicMock()
+        mock_pending.json.return_value = {
+            "token": token,
+            "status": "pending",
+            "createdAt": "2025-06-01T10:00:00Z",
+            "systemFile": "test_case.json",
+        }
+        mock_pending.raise_for_status.return_value = None
+
+        mock_running = MagicMock()
+        mock_running.json.return_value = {
+            "token": token,
+            "status": "running",
+            "createdAt": "2025-06-01T10:00:00Z",
+            "systemFile": "test_case.json",
+        }
+        mock_running.raise_for_status.return_value = None
+
+        mock_completed = MagicMock()
+        mock_completed.json.return_value = {
+            "token": token,
+            "status": "completed",
+            "createdAt": "2025-06-01T10:00:00Z",
+            "completedAt": "2025-06-01T10:01:30Z",
+            "systemFile": "test_case.json",
+        }
+        mock_completed.raise_for_status.return_value = None
+
+        # Simulate progression: pending → running → completed
+        mock_get.side_effect = [mock_pending, mock_running, mock_completed]
+
+        resp1 = client.get(f"/api/solve/status/{token}")
+        assert resp1.status_code == 200
+        assert resp1.get_json()["status"] == "pending"
+
+        resp2 = client.get(f"/api/solve/status/{token}")
+        assert resp2.status_code == 200
+        assert resp2.get_json()["status"] == "running"
+
+        resp3 = client.get(f"/api/solve/status/{token}")
+        assert resp3.status_code == 200
+        assert resp3.get_json()["status"] == "completed"
+
+        # Verify all status calls used the correct URL
+        for call in mock_get.call_args_list:
+            assert call[0][0] == f"http://testserver:3000/api/jobs/{token}"
+
+        # Step 4: Retrieve results
+        mock_get.reset_mock()
+        mock_get.side_effect = None
+        results_zip = io.BytesIO()
+        with zipfile.ZipFile(results_zip, "w") as zf:
+            zf.writestr("output/solution.csv", "obj_value,99.5\nstatus,0\n")
+            zf.writestr(
+                "output/Generator/generation_sol.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,15\n1,2,2,18\n',
+            )
+            zf.writestr(
+                "output/Bus/marginal_cost_sol.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,50.0\n1,2,2,55.0\n',
+            )
+        results_zip.seek(0)
+
+        mock_results_resp = MagicMock()
+        mock_results_resp.content = results_zip.getvalue()
+        mock_results_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_results_resp
+
+        resp = client.get(f"/api/solve/results/{token}")
+        assert resp.status_code == 200
+        results = resp.get_json()
+
+        # Verify solution data
+        assert results["solution"]["obj_value"] == "99.5"
+        assert results["solution"]["status"] == "0"
+
+        # Verify output data
+        assert "Generator/generation_sol.csv" in results["outputs"]
+        assert "Bus/marginal_cost_sol.csv" in results["outputs"]
+        gen_data = results["outputs"]["Generator/generation_sol.csv"]
+        assert gen_data["columns"] == ["scenario", "stage", "block", "uid:1"]
+        assert len(gen_data["data"]) == 2
+
+        # Verify download called correct URL
+        assert (
+            mock_get.call_args[0][0]
+            == f"http://testserver:3000/api/jobs/{token}/download"
+        )
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_and_receive_case_zip_contents(self, mock_post, client):
+        """Verify the ZIP sent to the webservice contains the correct files."""
+        captured_files = {}
+
+        def capture_post(url, files=None, data=None, timeout=None):
+            # Capture the ZIP file content sent to the webservice
+            if files and "file" in files:
+                fname, fobj, ftype = files["file"]
+                captured_files["name"] = fname
+                captured_files["type"] = ftype
+                captured_files["data"] = data
+                fobj.seek(0)
+                captured_files["content"] = fobj.read()
+            resp = MagicMock()
+            resp.status_code = 201
+            resp.json.return_value = {
+                "token": "zip-test-token",
+                "status": "pending",
+                "message": "OK",
+            }
+            resp.raise_for_status.return_value = None
+            return resp
+
+        mock_post.side_effect = capture_post
+
+        case_data = _sample_case_data()
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(case_data),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        # Verify ZIP was sent
+        assert captured_files["name"] == "test_case.zip"
+        assert captured_files["type"] == "application/zip"
+        assert captured_files["data"]["systemFile"] == "test_case.json"
+
+        # Verify ZIP contents
+        with zipfile.ZipFile(io.BytesIO(captured_files["content"]), "r") as zf:
+            names = zf.namelist()
+            assert "test_case.json" in names
+
+            # Verify system JSON content
+            system_json = json.loads(zf.read("test_case.json"))
+            assert system_json["system"]["name"] == "test_case"
+            assert "bus_array" in system_json["system"]
+            assert len(system_json["system"]["bus_array"]) == 1
+            assert system_json["system"]["bus_array"][0]["name"] == "b1"
+            assert "generator_array" in system_json["system"]
+            assert system_json["system"]["generator_array"][0]["name"] == "g1"
+            assert "demand_array" in system_json["system"]
+            assert system_json["system"]["demand_array"][0]["name"] == "d1"
+
+    def test_results_parsing_with_multiple_outputs(self, client):
+        """Verify results with multiple output types are correctly parsed."""
+        results_zip = io.BytesIO()
+        with zipfile.ZipFile(results_zip, "w") as zf:
+            zf.writestr(
+                "solution.csv", "obj_value,1234.56\nstatus,0\nsolver_time,5.2\n"
+            )
+            zf.writestr(
+                "Generator/generation_sol.csv",
+                '"scenario","stage","block","uid:1","uid:2"\n'
+                "1,1,1,10,20\n1,1,2,12,22\n1,2,1,15,25\n",
+            )
+            zf.writestr(
+                "Bus/marginal_cost_sol.csv",
+                '"scenario","stage","block","uid:1"\n'
+                "1,1,1,50.0\n1,1,2,52.0\n1,2,1,48.0\n",
+            )
+            zf.writestr(
+                "Demand/demand_sol.csv",
+                '"scenario","stage","block","uid:1"\n'
+                "1,1,1,10\n1,1,2,10\n1,2,1,10\n",
+            )
+        results_zip.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (results_zip, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        # Verify solution metadata
+        assert data["solution"]["obj_value"] == "1234.56"
+        assert data["solution"]["status"] == "0"
+        assert data["solution"]["solver_time"] == "5.2"
+
+        # Verify multiple output files parsed
+        assert "Generator/generation_sol.csv" in data["outputs"]
+        assert "Bus/marginal_cost_sol.csv" in data["outputs"]
+        assert "Demand/demand_sol.csv" in data["outputs"]
+
+        # Verify generator output has multiple columns and rows
+        gen = data["outputs"]["Generator/generation_sol.csv"]
+        assert gen["columns"] == ["scenario", "stage", "block", "uid:1", "uid:2"]
+        assert len(gen["data"]) == 3
+
+        # Verify bus marginal cost output
+        bus = data["outputs"]["Bus/marginal_cost_sol.csv"]
+        assert bus["columns"] == ["scenario", "stage", "block", "uid:1"]
+        assert len(bus["data"]) == 3
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_with_data_files(self, mock_post, client):
+        """Verify cases with CSV data files are correctly transmitted."""
+        captured_content = {}
+
+        def capture_post(url, files=None, data=None, timeout=None):
+            if files and "file" in files:
+                fname, fobj, ftype = files["file"]
+                fobj.seek(0)
+                captured_content["zip"] = fobj.read()
+            resp = MagicMock()
+            resp.status_code = 201
+            resp.json.return_value = {"token": "t1", "status": "pending", "message": "OK"}
+            resp.raise_for_status.return_value = None
+            return resp
+
+        mock_post.side_effect = capture_post
+
+        case_data = _sample_case_data()
+        case_data["data_files"]["Demand/lmax"] = {
+            "columns": ["scenario", "stage", "block", "uid:1"],
+            "data": [[1, 1, 1, 10], [1, 2, 2, 15]],
+        }
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(case_data),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        # Verify the ZIP sent includes data files
+        with zipfile.ZipFile(io.BytesIO(captured_content["zip"]), "r") as zf:
+            names = zf.namelist()
+            assert "test_case.json" in names
+            assert "test_case/Demand/lmax.csv" in names
+
+            # Verify CSV data content
+            csv_content = zf.read("test_case/Demand/lmax.csv").decode()
+            assert "scenario" in csv_content
+            assert "10" in csv_content
+
+    @patch("guiservice.app.http_requests.post")
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_timeout_handling(self, mock_get, mock_post, client):
+        """Verify proper handling of timeout during each stage."""
+        import requests
+
+        # Timeout on submit
+        mock_post.side_effect = requests.Timeout("timed out")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+        # Timeout on status poll
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/status/some-token")
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+        # Timeout on results retrieval
+        resp = client.get("/api/solve/results/some-token")
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+        # Timeout on jobs list
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+    @patch("guiservice.app.http_requests.post")
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_http_error_handling(self, mock_get, mock_post, client):
+        """Verify proper error propagation from webservice HTTP errors."""
+        import requests
+
+        # HTTP error on submit (e.g., 400 Bad Request)
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        error_resp.text = "Bad Request"
+        error_resp.json.return_value = {"error": "Missing systemFile"}
+        http_error = requests.HTTPError(response=error_resp)
+        mock_post.side_effect = http_error
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+        assert "Missing systemFile" in resp.get_json()["error"]
+
+        # HTTP error on status (e.g., 404 Not Found)
+        error_resp_404 = MagicMock()
+        error_resp_404.status_code = 404
+        http_error_404 = requests.HTTPError(response=error_resp_404)
+        mock_get.side_effect = http_error_404
+
+        resp = client.get("/api/solve/status/invalid-token")
+        assert resp.status_code == 502
+        assert "404" in resp.get_json()["error"]
+
+        # HTTP error on results (e.g., 409 Conflict – job not finished)
+        error_resp_409 = MagicMock()
+        error_resp_409.status_code = 409
+        http_error_409 = requests.HTTPError(response=error_resp_409)
+        mock_get.side_effect = http_error_409
+
+        resp = client.get("/api/solve/results/some-token")
+        assert resp.status_code == 502
+        assert "409" in resp.get_json()["error"]
