@@ -131,6 +131,19 @@ Download job results as a zip file.
 | `GTOPT_DATA_DIR` | `./data` | Directory for job data storage |
 | `PORT` | `3000` | HTTP port |
 
+## Testing
+
+An integration test script validates the full workflow using a mock gtopt
+binary. It starts the server, submits a case, waits for completion, downloads
+and verifies results, and tests error handling.
+
+```bash
+# Requires a prior build: npm run build
+npm test
+# or directly:
+bash test/integration_test.sh [port]
+```
+
 ## Project Structure
 
 ```
@@ -153,5 +166,7 @@ webservice/
 │   │                   └── route.ts   # GET /api/jobs/:token/download
 │   └── lib/
 │       └── jobs.ts         # Job management logic
+├── test/
+│   └── integration_test.sh # End-to-end integration test
 └── README.md
 ```
