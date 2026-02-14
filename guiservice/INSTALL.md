@@ -4,7 +4,7 @@ This guide covers setting up a server, installing the gtopt GUI service, and
 running it in development or production. The GUI service provides a web-based
 graphical interface for creating, editing, and visualizing gtopt optimization
 cases, with integrated connectivity to the
-[gtopt webservice](INSTALL_WEBSERVICE.md) for remote solving.
+[gtopt webservice](../webservice/INSTALL.md) for remote solving.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ cases, with integrated connectivity to the
 | Ubuntu | 22.04 LTS | Server OS (other Linux distros work with adjustments) |
 | Python | 3.10 | Runtime for the Flask application |
 | pip | 22 | Python package manager |
-| (Optional) gtopt webservice | — | Remote solver (see [INSTALL_WEBSERVICE.md](INSTALL_WEBSERVICE.md)) |
+| (Optional) gtopt webservice | — | Remote solver (see [webservice/INSTALL.md](../webservice/INSTALL.md)) |
 
 ## 1. Server Setup
 
@@ -275,7 +275,7 @@ sudo certbot --nginx -d your-domain.com
 
 The GUI service can submit cases to the gtopt webservice for solving. This
 requires a running webservice instance (see
-[INSTALL_WEBSERVICE.md](INSTALL_WEBSERVICE.md)).
+[webservice/INSTALL.md](../webservice/INSTALL.md)).
 
 ### From the GUI
 
