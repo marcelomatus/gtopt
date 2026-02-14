@@ -136,11 +136,11 @@ target_set_warnings(${PROJECT_NAME})
 # Skip when included as a subproject (e.g. from standalone) to avoid installing
 # headers and cmake package files that are not needed.
 
-if(PROJECT_IS_TOP_LEVEL)
-  # the location where the project's version header will be placed should match the
-  # project's regular header paths
-  string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
+# the location where the project's version header will be placed should match the
+# project's regular header paths
+string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 
+if(PROJECT_IS_TOP_LEVEL)
   packageProject(
     NAME ${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
@@ -151,5 +151,22 @@ if(PROJECT_IS_TOP_LEVEL)
     VERSION_HEADER "${VERSION_HEADER_LOCATION}"
     COMPATIBILITY SameMajorVersion
     DEPENDENCIES "spdlog 1.17.0" "strong_type 15" "daw 3.31.0"
+  )
+else()
+  # packageProject() creates the namespaced alias and version header when
+  # top-level; provide them ourselves so that subprojects (standalone, tests)
+  # can use gtopt::gtopt and #include <gtopt/version.h>.
+  add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
+
+  set(_VERSION_INCLUDE_DIR "${PROJECT_BINARY_DIR}/PackageProjectInclude")
+  string(TOUPPER ${PROJECT_NAME} _UPPERCASE_PROJECT_NAME)
+  string(REGEX REPLACE [^a-zA-Z0-9] _ _UPPERCASE_PROJECT_NAME ${_UPPERCASE_PROJECT_NAME})
+  set(UPPERCASE_PROJECT_NAME ${_UPPERCASE_PROJECT_NAME})
+  configure_file(
+    "${PACKAGE_PROJECT_ROOT_PATH}/version.h.in"
+    "${_VERSION_INCLUDE_DIR}/${VERSION_HEADER_LOCATION}" @ONLY
+  )
+  target_include_directories(
+    ${PROJECT_NAME} PUBLIC "$<BUILD_INTERFACE:${_VERSION_INCLUDE_DIR}>"
   )
 endif()
