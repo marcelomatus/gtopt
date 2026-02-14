@@ -1,0 +1,84 @@
+name: Webservice E2E
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+
+permissions:
+  contents: read
+
+jobs:
+  webservice-e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      # ---- Build the real gtopt binary ----
+
+      - name: install gcc-14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+
+      - name: install parquet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-container-dev
+
+      - name: configure gtopt
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build gtopt
+        run: cmake --build build -j4
+
+      # ---- Build the web service ----
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: webservice/package-lock.json
+
+      - name: install webservice dependencies
+        working-directory: webservice
+        run: npm ci
+
+      - name: build webservice
+        working-directory: webservice
+        run: npm run build
+
+      # ---- Run end-to-end test ----
+
+      - name: e2e test
+        working-directory: webservice
+        run: bash test/e2e_test.sh
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/standalone/gtopt
