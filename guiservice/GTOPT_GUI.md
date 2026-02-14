@@ -49,12 +49,14 @@ After installation:
 - Python 3.10 or later
 - Python packages: Flask, pandas, pyarrow, requests (see `guiservice/requirements.txt`)
 - A web browser (Chrome/Chromium recommended for app mode)
+- (Optional) Webservice for running optimizations - auto-started if installed
+- (Optional) gtopt binary for solving cases - automatically detected if installed
 
 ## Usage
 
-### Basic usage
+### Basic usage - Fully Integrated Experience
 
-Launch the GUI without a config file:
+Launch the GUI with auto-start webservice:
 
 ```bash
 gtopt_gui
@@ -64,8 +66,15 @@ This opens your web browser to the GUI interface where you can:
 - Create a new case from scratch
 - Upload an existing case ZIP file
 - Edit system elements, simulation parameters, and options
+- **Submit cases for optimization** (uses auto-started webservice)
+- **View optimization results** (retrieved from webservice)
 - Download the case as a ZIP file
-- Upload and view results
+
+**Zero Configuration Required**: If you have installed both guiservice and webservice:
+- The webservice is automatically started in the background
+- The gtopt binary is automatically detected
+- All components work together seamlessly
+- Clean shutdown when you press Ctrl+C
 
 ### With a configuration file
 
@@ -73,15 +82,34 @@ This opens your web browser to the GUI interface where you can:
 gtopt_gui system_c0.json
 ```
 
-This starts the GUI and displays instructions for uploading your configuration
-file. The GUI will show the path to your config file so you can easily locate
-it in the file picker.
+This starts the GUI (and webservice) and displays instructions for uploading your
+configuration file. The GUI will show the path to your config file so you can
+easily locate it in the file picker.
 
-### Specify a custom port
+### Advanced Options
+
+#### Specify custom ports
 
 ```bash
-gtopt_gui --port 5001
+gtopt_gui --port 5001                    # GUI on port 5001
+gtopt_gui --webservice-port 8080         # Webservice on port 8080
 ```
+
+#### Disable webservice auto-start
+
+If you want to use an external webservice or don't need solve functionality:
+
+```bash
+gtopt_gui --no-webservice
+```
+
+#### Use an external webservice
+
+```bash
+gtopt_gui --webservice-url http://remote-server:3000
+```
+
+This connects the GUI to a webservice running on a different machine.
 
 ### Run without opening a browser
 
@@ -106,23 +134,68 @@ Runs Flask in debug mode with auto-reload for development.
 gtopt_gui [options] [config_file]
 
 Positional arguments:
-  config_file          Path to gtopt configuration JSON file (optional)
+  config_file              Path to gtopt configuration JSON file (optional)
 
 Options:
-  --port PORT          Port for the web service (default: auto-select)
-  --no-browser         Don't open a web browser automatically
-  --app-mode           Try to open browser in app/kiosk mode (default: True)
-  --debug              Run Flask in debug mode with auto-reload
-  -h, --help           Show help message
+  --port PORT              Port for the GUI service (default: auto-select)
+  --webservice-port PORT   Port for the webservice (default: 3000)
+  --no-browser             Don't open a web browser automatically
+  --no-app-mode            Don't try to open browser in app/kiosk mode
+  --no-webservice          Don't auto-start the webservice
+  --webservice-url URL     Use external webservice at this URL
+  --debug                  Run Flask in debug mode with auto-reload
+  -h, --help               Show help message
 ```
 
 ## Features
 
+- **Fully Integrated**: Auto-starts webservice for solving optimization cases
+- **Zero Configuration**: Automatically detects gtopt binary and webservice
 - **Standalone operation**: Runs entirely in user space, no root required
-- **Auto port selection**: Automatically finds an available port if not specified
+- **Auto port selection**: Automatically finds available ports if not specified
 - **Browser app mode**: Opens in app mode on Chrome/Chromium for a cleaner interface
-- **Graceful shutdown**: Press Ctrl+C to stop the service cleanly
+- **Graceful shutdown**: Press Ctrl+C to stop all services cleanly
 - **Cross-platform**: Works on Ubuntu, macOS, and WSL
+- **Modular**: Webservice runs in separate process, clean separation of concerns
+
+## Complete Workflow - Edit, Solve, View Results
+
+With the integrated webservice, you can now complete the entire workflow without
+leaving the GUI:
+
+### 1. Create or Upload a Case
+
+```bash
+gtopt_gui
+```
+
+- Click "Upload Case" to import an existing case ZIP
+- Or create a new case from scratch using the GUI forms
+
+### 2. Edit the Case
+
+- Add/edit buses, generators, storage, demands, etc.
+- Configure simulation parameters (horizon, intervals, etc.)
+- Set solver options
+
+### 3. Submit for Optimization
+
+- Click "Submit for Solving" button
+- The case is automatically sent to the local webservice
+- You receive a job token to track progress
+
+### 4. Monitor Progress
+
+- The GUI polls the webservice automatically
+- View job status: pending → running → completed/failed
+
+### 5. View Results
+
+- Once completed, results are automatically retrieved
+- View generation schedules, storage levels, demand fulfillment
+- See charts and tables in the GUI
+
+All of this happens seamlessly without any manual configuration!
 
 ## Working with Config Files
 
@@ -135,15 +208,31 @@ Instead, it provides a web interface where you can:
 2. **Edit the case**: Use the web interface to modify system elements,
    simulation settings, and options.
 
-3. **Download the case**: Click "Download ZIP" to save your work.
+3. **Solve the case**: Click "Submit for Solving" to run optimization
+   (requires webservice - auto-started by default).
 
-4. **View results**: If you have run `gtopt` on your config file and have
-   results in the output directory, you can zip the output directory and
-   upload it via "View Results" to see charts and tables.
+4. **View results**: Once solving completes, view results directly in the GUI
+   with interactive charts and tables.
+
+5. **Download**: Click "Download ZIP" to save your case or results.
 
 ## Examples
 
-### Basic workflow
+### Complete workflow with integrated services
+
+```bash
+# Start GUI with webservice
+gtopt_gui
+
+# In the browser:
+# 1. Upload or create a case
+# 2. Edit system elements
+# 3. Click "Submit for Solving"
+# 4. Wait for completion
+# 5. View results
+```
+
+### Basic workflow without solving
 
 ```bash
 # 1. Start the GUI
@@ -187,7 +276,92 @@ gtopt_gui --port 8080 --no-browser
 # http://your-machine-ip:8080
 ```
 
+
 ## Troubleshooting
+
+### "Webservice not available. Solve functionality disabled."
+
+This message appears when the webservice is not installed or failed to start.
+
+**Solutions:**
+1. Install the webservice:
+   ```bash
+   cmake -S webservice -B build-web
+   sudo cmake --install build-web
+   cd /usr/local/share/gtopt/webservice
+   npm install && npm run build
+   ```
+
+2. Or use an external webservice:
+   ```bash
+   gtopt_gui --webservice-url http://localhost:3000
+   ```
+
+### "Warning: gtopt binary not found"
+
+The webservice will start but solving will fail without the gtopt binary.
+
+**Solutions:**
+1. Install gtopt standalone:
+   ```bash
+   cmake -S standalone -B build
+   cmake --build build
+   sudo cmake --install build
+   ```
+
+2. Or set the binary location:
+   ```bash
+   export GTOPT_BIN=/path/to/gtopt
+   gtopt_gui
+   ```
+
+### Webservice fails to start
+
+If you see "Failed to start webservice", check:
+
+1. Node.js and npm are installed:
+   ```bash
+   node --version
+   npm --version
+   ```
+
+2. Webservice is built:
+   ```bash
+   ls -la /usr/local/share/gtopt/webservice/.next
+   ```
+
+3. Port 3000 is not already in use:
+   ```bash
+   gtopt_gui --webservice-port 8080
+   ```
+
+### Browser doesn't open in app mode
+
+App mode requires Chrome or Chromium. If not available:
+- The browser opens in a regular tab instead
+- Use `--no-app-mode` to suppress the warning
+
+## Architecture
+
+The integrated `gtopt_gui` consists of three components:
+
+1. **GUI Service (Flask)**: Provides the web interface and API for case editing
+   - Runs on auto-selected port (or specified with `--port`)
+   - Located in guiservice/
+
+2. **Webservice (Next.js)**: Handles job submission and execution
+   - Runs on port 3000 (or specified with `--webservice-port`)
+   - Auto-started by gtopt_gui (unless `--no-webservice`)
+   - Located in webservice/
+
+3. **gtopt Binary**: The optimization solver
+   - Auto-detected in PATH or common locations
+   - Called by webservice to solve cases
+
+All three components are automatically started and coordinated by `gtopt_gui`.
+On exit (Ctrl+C), all processes are cleanly terminated.
+
+## Platform Support
 
 ### "Required Python packages are not installed"
 
