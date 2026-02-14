@@ -166,6 +166,8 @@ function addBlock() {
 function updateBlock(i, field, value) {
   if (field === "name") {
     caseData.simulation.block_array[i][field] = value || undefined;
+  } else if (field === "uid") {
+    caseData.simulation.block_array[i][field] = parseInt(value, 10);
   } else {
     caseData.simulation.block_array[i][field] = Number(value);
   }
@@ -216,7 +218,7 @@ function updateStage(i, field, value) {
   } else if (field === "discount_factor") {
     caseData.simulation.stage_array[i][field] = value ? Number(value) : undefined;
   } else {
-    caseData.simulation.stage_array[i][field] = Number(value);
+    caseData.simulation.stage_array[i][field] = parseInt(value, 10);
   }
 }
 
@@ -254,8 +256,10 @@ function addScenario() {
 function updateScenario(i, field, value) {
   if (field === "name") {
     caseData.simulation.scenario_array[i][field] = value || undefined;
-  } else {
+  } else if (field === "probability_factor") {
     caseData.simulation.scenario_array[i][field] = Number(value);
+  } else {
+    caseData.simulation.scenario_array[i][field] = parseInt(value, 10);
   }
 }
 
