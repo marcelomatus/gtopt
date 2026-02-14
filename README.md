@@ -139,7 +139,7 @@ python app.py
 ```
 
 For detailed installation and deployment instructions, see
-[INSTALL_GUISERVICE.md](INSTALL_GUISERVICE.md).
+[guiservice/INSTALL.md](guiservice/INSTALL.md).
 
 ### Running the tests
 

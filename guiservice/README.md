@@ -31,7 +31,7 @@ A web-based graphical user interface for creating, editing, and visualizing
   remote solving
 
 For detailed installation, deployment, and production setup instructions, see
-[INSTALL_GUISERVICE.md](../INSTALL_GUISERVICE.md).
+[INSTALL.md](INSTALL.md).
 
 ## Quick Start
 
