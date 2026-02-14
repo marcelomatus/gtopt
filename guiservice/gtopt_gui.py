@@ -67,7 +67,11 @@ def get_webservice_dir():
         Path to webservice directory, or None if not found
     """
     # Check if gtopt_websrv launcher exists (indicates webservice is installed)
+    # Start with the directory where this script is installed
+    script_dir = Path(__file__).resolve().parent
+    
     possible_bin_locations = [
+        script_dir,  # Same directory as this script
         Path(sys.prefix) / "bin",
         Path("/usr/local/bin"),
         Path("/usr/bin"),
@@ -103,7 +107,9 @@ def find_gtopt_binary():
         return Path(gtopt_path)
     
     # Try common installation locations
+    script_dir = Path(__file__).resolve().parent
     possible_locations = [
+        script_dir / "gtopt",  # Same directory as this script
         Path(sys.prefix) / "bin" / "gtopt",
         Path("/usr/local/bin/gtopt"),
         Path("/usr/bin/gtopt"),
