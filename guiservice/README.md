@@ -33,7 +33,29 @@ A web-based graphical user interface for creating, editing, and visualizing
 For detailed installation, deployment, and production setup instructions, see
 [INSTALL.md](INSTALL.md).
 
+For the standalone `gtopt_gui` command-line launcher, see
+[GTOPT_GUI.md](GTOPT_GUI.md).
+
 ## Quick Start
+
+### Using gtopt_gui (Recommended)
+
+If you've installed gtopt via CMake, you can use the `gtopt_gui` launcher:
+
+```bash
+# Install dependencies (one-time)
+pip3 install -r requirements.txt
+
+# Launch the GUI
+gtopt_gui
+
+# Or with a specific config file
+gtopt_gui system_c0.json
+```
+
+See [GTOPT_GUI.md](GTOPT_GUI.md) for full documentation.
+
+### Running directly
 
 ```bash
 cd guiservice
