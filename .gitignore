@@ -12,3 +12,8 @@ TAGS
 *.egg-info
 __pycache__
 test/build/
+
+# Web service
+webservice/node_modules/
+webservice/.next/
+webservice/data/
