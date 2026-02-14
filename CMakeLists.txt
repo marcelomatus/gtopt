@@ -58,6 +58,7 @@ CPMAddPackage(
   GITHUB_REPOSITORY beached/daw_json_link
   VERSION 3.31.0
   SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
@@ -65,6 +66,7 @@ CPMAddPackage(
   GITHUB_REPOSITORY rollbear/strong_type
   VERSION 15
   SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 # ---- Solver configuration ----
