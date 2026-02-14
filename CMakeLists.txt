@@ -150,5 +150,5 @@ package_target(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "spdlog 1.17.0"
+  DEPENDENCIES "spdlog 1.17.0" "strong_type 15" "daw 3.31.0"
 )
