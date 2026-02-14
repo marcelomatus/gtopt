@@ -9,6 +9,9 @@ let currentTab = "options";
 let currentElementType = null;
 let resultsData = null;
 let resultsChart = null;
+let solverJobId = null;
+let solverPollTimer = null;
+let webserviceUrl = "";
 
 const caseData = {
   case_name: "my_case",
@@ -39,6 +42,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   updateBadges();
+
+  // Load webservice config
+  try {
+    const cfgResp = await fetch("/api/solve/config");
+    const cfg = await cfgResp.json();
+    webserviceUrl = cfg.webservice_url || "";
+    const wsInput = document.getElementById("wsUrl");
+    if (wsInput) wsInput.value = webserviceUrl;
+  } catch (e) {
+    // Ignore – config endpoint may not be available
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -64,6 +78,8 @@ function switchTab(tab) {
     renderSimulation();
   } else if (tab === "results") {
     showPanel("panel-results");
+  } else if (tab === "solver") {
+    showPanel("panel-solver");
   } else if (schemas[tab]) {
     currentElementType = tab;
     document.getElementById("panel-element").style.display = "block";
@@ -496,6 +512,280 @@ async function previewJSON() {
 
 function closeModal() {
   document.getElementById("jsonModal").style.display = "none";
+}
+
+// ---------------------------------------------------------------------------
+// Solver / Webservice integration
+// ---------------------------------------------------------------------------
+
+async function saveWsConfig() {
+  const url = document.getElementById("wsUrl").value.trim();
+  if (!url) {
+    alert("Please enter a webservice URL.");
+    return;
+  }
+  try {
+    const resp = await fetch("/api/solve/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ webservice_url: url }),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      webserviceUrl = data.webservice_url;
+      setWsStatus("ok", "Configuration saved.");
+    } else {
+      setWsStatus("fail", data.error || "Failed to save.");
+    }
+  } catch (e) {
+    setWsStatus("fail", "Error: " + e.message);
+  }
+}
+
+async function testWsConnection() {
+  const url = document.getElementById("wsUrl").value.trim();
+  if (!url) {
+    setWsStatus("fail", "Please enter a URL first.");
+    return;
+  }
+  // Save first, then test by listing jobs
+  await saveWsConfig();
+  setWsStatus("", "Testing connection…");
+  try {
+    const resp = await fetch("/api/solve/jobs");
+    if (resp.ok) {
+      const data = await resp.json();
+      const count = (data.jobs || []).length;
+      setWsStatus("ok", `Connected! ${count} job(s) found.`);
+      updateWsDot(true);
+      renderJobsList(data.jobs || []);
+    } else {
+      const data = await resp.json();
+      setWsStatus("fail", data.error || "Connection failed.");
+      updateWsDot(false);
+    }
+  } catch (e) {
+    setWsStatus("fail", "Connection failed: " + e.message);
+    updateWsDot(false);
+  }
+}
+
+function setWsStatus(cls, msg) {
+  const el = document.getElementById("wsConnectionStatus");
+  el.className = "ws-connection-status" + (cls ? " " + cls : "");
+  el.textContent = msg;
+}
+
+function updateWsDot(connected) {
+  const dot = document.getElementById("wsStatusDot");
+  if (dot) {
+    dot.className = "ws-status-dot" + (connected ? " connected" : " error");
+  }
+}
+
+async function solveCase() {
+  const data = buildFullCaseData();
+
+  setSolverStatus("Submitting case to webservice…");
+  showSolverProgress(true, 10, "Submitting…");
+
+  try {
+    const resp = await fetch("/api/solve/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const result = await resp.json();
+
+    if (!resp.ok) {
+      showSolverProgress(true, 100, "Submission failed: " + (result.error || "Unknown error"), true);
+      updateWsDot(false);
+      return;
+    }
+
+    solverJobId = result.token;
+    updateWsDot(true);
+    showSolverProgress(true, 20, "Job submitted. Token: " + solverJobId);
+    switchTab("solver");
+
+    // Start polling
+    startPolling();
+  } catch (e) {
+    showSolverProgress(true, 100, "Submission failed: " + e.message, true);
+  }
+}
+
+function startPolling() {
+  if (solverPollTimer) clearInterval(solverPollTimer);
+  solverPollTimer = setInterval(pollStatus, 3000);
+  // Also poll immediately
+  pollStatus();
+}
+
+async function pollStatus() {
+  if (!solverJobId) {
+    if (solverPollTimer) clearInterval(solverPollTimer);
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/solve/status/${encodeURIComponent(solverJobId)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showSolverProgress(true, 100, "Status check failed: " + (data.error || ""), true);
+      clearInterval(solverPollTimer);
+      return;
+    }
+
+    const status = data.status;
+
+    if (status === "pending") {
+      showSolverProgress(true, 30, "Job pending…");
+    } else if (status === "running") {
+      showSolverProgress(true, 60, "Solver is running…");
+    } else if (status === "completed") {
+      clearInterval(solverPollTimer);
+      solverPollTimer = null;
+      showSolverProgress(true, 100, "Completed!", false, true);
+      document.getElementById("solverActions").style.display = "block";
+    } else if (status === "failed") {
+      clearInterval(solverPollTimer);
+      solverPollTimer = null;
+      const errMsg = data.error || "Unknown error";
+      showSolverProgress(true, 100, "Failed: " + errMsg, true);
+    }
+  } catch (e) {
+    // Don't stop polling on transient errors
+  }
+}
+
+function setSolverStatus(msg) {
+  const el = document.getElementById("solverStatus");
+  el.innerHTML = `<p>${escapeHtml(msg)}</p>`;
+}
+
+function showSolverProgress(show, percent, text, isError, isComplete) {
+  const container = document.getElementById("solverProgress");
+  const fill = document.getElementById("progressFill");
+  const label = document.getElementById("solverStatusText");
+
+  container.style.display = show ? "block" : "none";
+  fill.style.width = percent + "%";
+  fill.className = "progress-fill" + (isComplete ? " complete" : "") + (isError ? " error" : "");
+  label.textContent = text || "";
+
+  if (isError || isComplete) {
+    setSolverStatus(text);
+  }
+}
+
+async function loadSolverResults() {
+  if (!solverJobId) {
+    alert("No completed job to load.");
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/solve/results/${encodeURIComponent(solverJobId)}`);
+    if (!resp.ok) {
+      const data = await resp.json();
+      alert("Failed to load results: " + (data.error || "Unknown error"));
+      return;
+    }
+    resultsData = await resp.json();
+    switchTab("results");
+    renderResults();
+  } catch (e) {
+    alert("Failed to load results: " + e.message);
+  }
+}
+
+async function refreshJobsList() {
+  try {
+    const resp = await fetch("/api/solve/jobs");
+    if (resp.ok) {
+      const data = await resp.json();
+      renderJobsList(data.jobs || []);
+      updateWsDot(true);
+    } else {
+      const data = await resp.json();
+      alert(data.error || "Failed to list jobs.");
+      updateWsDot(false);
+    }
+  } catch (e) {
+    alert("Failed to list jobs: " + e.message);
+  }
+}
+
+function renderJobsList(jobs) {
+  const tbody = document.querySelector("#jobsTable tbody");
+  tbody.innerHTML = "";
+
+  if (!jobs.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="5" class="help-text">No jobs found.</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const job of jobs) {
+    const tr = document.createElement("tr");
+    const shortToken = job.token ? job.token.substring(0, 8) + "…" : "";
+    const created = job.createdAt ? new Date(job.createdAt).toLocaleString() : "";
+    const statusClass = job.status === "completed" ? "status-ok" :
+                        job.status === "failed" ? "status-fail" :
+                        job.status === "running" ? "status-running" : "";
+
+    const tdToken = document.createElement("td");
+    tdToken.title = job.token || "";
+    tdToken.textContent = shortToken;
+
+    const tdFile = document.createElement("td");
+    tdFile.textContent = job.systemFile || "";
+
+    const tdStatus = document.createElement("td");
+    const statusSpan = document.createElement("span");
+    statusSpan.className = "status-badge " + statusClass;
+    statusSpan.textContent = job.status || "";
+    tdStatus.appendChild(statusSpan);
+
+    const tdCreated = document.createElement("td");
+    tdCreated.textContent = created;
+
+    const tdActions = document.createElement("td");
+    if (job.status === "completed" && job.token) {
+      const btn = document.createElement("button");
+      btn.className = "btn-sm";
+      btn.textContent = "Load Results";
+      btn.addEventListener("click", () => loadJobResults(job.token));
+      tdActions.appendChild(btn);
+    }
+
+    tr.appendChild(tdToken);
+    tr.appendChild(tdFile);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdCreated);
+    tr.appendChild(tdActions);
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadJobResults(token) {
+  try {
+    const safeToken = encodeURIComponent(token);
+    const resp = await fetch(`/api/solve/results/${safeToken}`);
+    if (!resp.ok) {
+      const data = await resp.json();
+      alert("Failed to load results: " + (data.error || "Unknown error"));
+      return;
+    }
+    resultsData = await resp.json();
+    switchTab("results");
+    renderResults();
+  } catch (e) {
+    alert("Failed to load results: " + e.message);
+  }
 }
 
 // ---------------------------------------------------------------------------

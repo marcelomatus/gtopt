@@ -16,6 +16,7 @@
       <input type="file" id="uploadCaseInput" accept=".zip" style="display:none" onchange="uploadCase(this)">
       <button class="primary" onclick="downloadCase()">Download ZIP</button>
       <button onclick="previewJSON()">Preview JSON</button>
+      <button class="solve-btn" onclick="solveCase()">⚡ Solve</button>
       <button onclick="document.getElementById('uploadResultsInput').click()">View Results</button>
       <input type="file" id="uploadResultsInput" accept=".zip" style="display:none" onchange="uploadResults(this)">
     </div>
@@ -51,6 +52,10 @@
       <a href="#" class="nav-link" data-tab="demand_profile">Dem. Profiles <span class="badge" id="badge-demand_profile">0</span></a>
       <a href="#" class="nav-link" data-tab="reserve_zone">Reserve Zones <span class="badge" id="badge-reserve_zone">0</span></a>
       <a href="#" class="nav-link" data-tab="reserve_provision">Reserve Prov. <span class="badge" id="badge-reserve_provision">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>Solver</h3>
+      <a href="#" class="nav-link" data-tab="solver">Webservice <span class="ws-status-dot" id="wsStatusDot"></span></a>
     </div>
     <div class="nav-section">
       <h3>Results</h3>
@@ -127,6 +132,47 @@
         <button class="primary" id="addElementBtn" onclick="addElement()">+ Add</button>
       </div>
       <div id="elementList"></div>
+    </div>
+
+    <!-- Solver Tab -->
+    <div class="tab-panel" id="panel-solver">
+      <h2>Webservice Connection</h2>
+      <div class="solver-config">
+        <div class="form-grid">
+          <label>Webservice URL
+            <div class="input-group">
+              <input type="text" id="wsUrl" placeholder="http://localhost:3000">
+              <button class="btn-sm" onclick="saveWsConfig()">Save</button>
+              <button class="btn-sm" onclick="testWsConnection()">Test</button>
+            </div>
+          </label>
+        </div>
+        <div id="wsConnectionStatus" class="ws-connection-status"></div>
+      </div>
+
+      <div class="solver-status-section">
+        <h3>Current Job</h3>
+        <div id="solverStatus" class="solver-status">
+          <p class="help-text">No active job. Click "⚡ Solve" to submit the current case to the webservice.</p>
+        </div>
+        <div id="solverProgress" class="solver-progress" style="display:none">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <p id="solverStatusText"></p>
+        </div>
+        <div id="solverActions" style="display:none">
+          <button class="primary" onclick="loadSolverResults()">Load Results</button>
+        </div>
+      </div>
+
+      <div class="solver-jobs-section">
+        <h3>Recent Jobs <button class="btn-sm" onclick="refreshJobsList()">Refresh</button></h3>
+        <table id="jobsTable">
+          <thead><tr><th>Token</th><th>System File</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Results Tab -->

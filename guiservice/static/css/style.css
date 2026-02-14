@@ -311,3 +311,93 @@ button {
   nav#mainNav { width: 180px; }
   main#mainContent { margin-left: 180px; padding: 16px; }
 }
+
+/* Solver */
+.solve-btn {
+  background: var(--success) !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 600;
+}
+.solve-btn:hover { opacity: 0.9; }
+
+.ws-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;
+  margin-left: 4px;
+}
+.ws-status-dot.connected { background: var(--success); }
+.ws-status-dot.error { background: var(--danger); }
+
+.solver-config { margin-bottom: 24px; }
+.input-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.input-group input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+}
+.ws-connection-status {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  min-height: 20px;
+}
+.ws-connection-status.ok { color: var(--success); }
+.ws-connection-status.fail { color: var(--danger); }
+
+.solver-status-section { margin-top: 16px; }
+.solver-status-section h3 { margin-bottom: 12px; font-size: 1rem; }
+.solver-status {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.solver-progress { margin-bottom: 16px; }
+.progress-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+.progress-fill.complete { background: var(--success); }
+.progress-fill.error { background: var(--danger); }
+
+/* Jobs table */
+.solver-jobs-section { margin-top: 24px; }
+.solver-jobs-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.status-badge.status-ok { background: #dcfce7; color: #166534; }
+.status-badge.status-fail { background: #fee2e2; color: #991b1b; }
+.status-badge.status-running { background: #dbeafe; color: #1e40af; }

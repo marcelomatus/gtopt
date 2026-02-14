@@ -1,7 +1,8 @@
 # gtopt GUI Service
 
 A web-based graphical user interface for creating, editing, and visualizing
-**gtopt** optimization cases.
+**gtopt** optimization cases, with integrated connectivity to the
+[gtopt webservice](../webservice/README.md) for remote solving.
 
 ## Features
 
@@ -15,13 +16,19 @@ A web-based graphical user interface for creating, editing, and visualizing
 - **ZIP Download** – Download the complete case as a ZIP file ready for use with
   the gtopt solver or the gtopt webservice.
 - **Case Upload** – Upload an existing case ZIP file for further editing.
-- **Results Visualization** – Upload results ZIP files to view output data in
-  spreadsheet tables and interactive time-series charts.
+- **Webservice Integration** – Submit cases directly to the gtopt webservice for
+  solving, monitor job progress in real-time, and retrieve results automatically
+  when the solver finishes.
+- **Results Visualization** – View optimization results in spreadsheet tables
+  and interactive time-series charts (Chart.js). Results can be loaded from
+  uploaded ZIP files or retrieved directly from the webservice.
 
 ## Requirements
 
 - Python 3.10+
 - Dependencies listed in `requirements.txt`
+- (Optional) A running [gtopt webservice](../webservice/README.md) instance for
+  remote solving
 
 ## Quick Start
 
@@ -33,16 +40,35 @@ python app.py
 
 The GUI will be available at `http://localhost:5001`.
 
+### Connecting to the Webservice
+
+1. Start the gtopt webservice (default: `http://localhost:3000`)
+2. Open the GUI and navigate to the **Solver → Webservice** panel
+3. Enter the webservice URL and click **Test** to verify the connection
+4. Use the **⚡ Solve** button in the header to submit cases
+
+The webservice URL can also be set via environment variable:
+
+```bash
+GTOPT_WEBSERVICE_URL=http://my-server:3000 python app.py
+```
+
 ## API Endpoints
 
-| Method | Path                   | Description |
-|--------|------------------------|-------------|
-| GET    | `/`                    | Main GUI page |
-| GET    | `/api/schemas`         | Element field schemas |
-| POST   | `/api/case/download`   | Generate and download case ZIP |
-| POST   | `/api/case/upload`     | Upload a case ZIP for editing |
-| POST   | `/api/case/preview`    | Preview the generated JSON |
-| POST   | `/api/results/upload`  | Upload results ZIP for viewing |
+| Method | Path                         | Description |
+|--------|------------------------------|-------------|
+| GET    | `/`                          | Main GUI page |
+| GET    | `/api/schemas`               | Element field schemas |
+| POST   | `/api/case/download`         | Generate and download case ZIP |
+| POST   | `/api/case/upload`           | Upload a case ZIP for editing |
+| POST   | `/api/case/preview`          | Preview the generated JSON |
+| POST   | `/api/results/upload`        | Upload results ZIP for viewing |
+| GET    | `/api/solve/config`          | Get webservice URL configuration |
+| POST   | `/api/solve/config`          | Set webservice URL |
+| POST   | `/api/solve/submit`          | Submit case to webservice for solving |
+| GET    | `/api/solve/status/<token>`  | Poll job status from webservice |
+| GET    | `/api/solve/results/<token>` | Retrieve and parse results from webservice |
+| GET    | `/api/solve/jobs`            | List all jobs from webservice |
 
 ## Input Data Documentation
 

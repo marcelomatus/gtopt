@@ -3,6 +3,7 @@
 import io
 import json
 import zipfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -324,3 +325,214 @@ class TestRoundTrip:
         assert len(loaded["system"]["generator"]) == 1
         assert len(loaded["system"]["demand"]) == 1
         assert loaded["system"]["bus"][0]["name"] == "b1"
+
+
+# ---------------------------------------------------------------------------
+# Webservice integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestSolveConfig:
+    def test_get_config(self, client):
+        resp = client.get("/api/solve/config")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "webservice_url" in data
+
+    def test_set_config(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": "http://example.com:3000"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["webservice_url"] == "http://example.com:3000"
+
+    def test_set_config_strips_trailing_slash(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": "http://example.com:3000/"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["webservice_url"] == "http://example.com:3000"
+
+    def test_set_config_missing_url(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_set_config_empty_url(self, client):
+        resp = client.post(
+            "/api/solve/config",
+            data=json.dumps({"webservice_url": ""}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+
+class TestSolveSubmit:
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_success(self, mock_post, client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = {
+            "token": "abc-123",
+            "status": "pending",
+            "message": "Job submitted successfully.",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["token"] == "abc-123"
+        assert data["status"] == "pending"
+
+        # Verify the webservice was called with correct endpoint and fields
+        call_args = mock_post.call_args
+        assert "/api/jobs" in call_args[0][0]
+        assert "files" in call_args[1]
+        assert "data" in call_args[1]
+        assert call_args[1]["data"]["systemFile"] == "test_case.json"
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_connection_error(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.ConnectionError("refused")
+
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+        assert "Cannot connect" in resp.get_json()["error"]
+
+    def test_submit_no_data(self, client):
+        resp = client.post("/api/solve/submit")
+        assert resp.status_code in (400, 415)
+
+
+class TestSolveStatus:
+    @patch("guiservice.app.http_requests.get")
+    def test_status_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "token": "abc-123",
+            "status": "completed",
+            "createdAt": "2025-01-01T00:00:00Z",
+            "completedAt": "2025-01-01T00:01:00Z",
+            "systemFile": "test.json",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/status/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "completed"
+        assert data["token"] == "abc-123"
+
+        # Verify correct webservice URL was called
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs/abc-123" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/status/abc-123")
+        assert resp.status_code == 502
+
+
+class TestSolveResults:
+    @patch("guiservice.app.http_requests.get")
+    def test_results_success(self, mock_get, client):
+        # Create a mock results ZIP
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
+            zf.writestr(
+                "output/Generator/generation_sol.csv",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n',
+            )
+        buf.seek(0)
+
+        mock_resp = MagicMock()
+        mock_resp.content = buf.getvalue()
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/results/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["solution"]["obj_value"] == "42.0"
+
+        # Verify correct webservice URL
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs/abc-123/download" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/results/abc-123")
+        assert resp.status_code == 502
+
+
+class TestSolveJobsList:
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "jobs": [
+                {
+                    "token": "job-1",
+                    "status": "completed",
+                    "createdAt": "2025-01-01T00:00:00Z",
+                    "systemFile": "system.json",
+                },
+                {
+                    "token": "job-2",
+                    "status": "running",
+                    "createdAt": "2025-01-02T00:00:00Z",
+                    "systemFile": "other.json",
+                },
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["jobs"]) == 2
+        assert data["jobs"][0]["token"] == "job-1"
+
+        # Verify correct webservice URL
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 502
