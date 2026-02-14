@@ -109,6 +109,7 @@ install(DIRECTORY "${WEBSERVICE_DIR}/"
   PATTERN "*.tsx"
   PATTERN "*.json"
   PATTERN "*.md"
+  PATTERN "*.css"  # CSS files
   PATTERN "*.service"  # systemd service file
   PATTERN "src/*"
   PATTERN "public/*"
