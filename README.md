@@ -11,11 +11,17 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 
 ## Usage
 
-1. [Build the standalone target](building-the-standalone-target)
-2. Run the binary as follows:
+1. Build and install the standalone binary
+In Ubuntu:
 ```bash
-./build/standalone/gtopt --input-directory data/ --system-file config.json
+cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
+sudo cmake --build build --target install -j$(nproc)
+```
+2. Run the binary as follows:
 
+In Ubuntu:
+```bash
+gtopt --input-directory data_dir --system-file config.json
 ```
 
 
@@ -46,21 +52,21 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 * **C++26** compiler (i.e., g++14 or clang++22)
 
 In Ubuntu:
-```
+```bash
 sudo apt-get update
 sudo apt-get install -y gcc-14 g++-14
 ```
 * **Boost**: program_options, filesystem: See https://www.boost.org/doc/user-guide/getting-started.html
 
 In Ubuntu:
-```
+```bash
 sudo apt-get install -y -V libboost-container-dev
 ```
 
 * **Apache Arrow**: Parquet support: See https://arrow.apache.org/install/
 
 In Ubuntu:
-```
+```bash
 sudo apt-get install -y -V ca-certificates lsb-release wget
 wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
@@ -71,17 +77,16 @@ sudo apt-get install -y -V libarrow-dev libparquet-dev
 * **Solver**: (e.g., HiGHS, Clp, CPLEX, Gurobi)
 
 In Ubuntu:
-```
+```bash
 sudo apt-get install -y -V coinor-libcbc-dev
 ```
 
 ### Building the standalone target
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-./build/standalone/gtopt --help
-
+./build/gtopt --help
 ```
 
 ### Building and run test suite
@@ -111,7 +116,7 @@ def run_all_scenarios(folder):
     # find scenario files
     for f in Path(folder).glob("*.json"):
         # run gtopt for each system file
-        subprocess.run(["./build/standalone/gtopt", "-s", f.name, "-D", folder])
+        subprocess.run(["gtopt", "-s", f.name, "-D", folder])
 
 if __name__ == "__main__":
     run_all_scenarios("cases/c0/")
