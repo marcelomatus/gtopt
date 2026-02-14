@@ -69,48 +69,11 @@ target_link_libraries(
 )
 
 # ---- RPATH configuration ----
-# Collect the directories of non-system shared libraries that the executable
-# links against (transitively through gtopt::gtopt) so the installed binary
-# can find them at runtime.
-# Arrow and Parquet imported targets live in the gtopt sub-project scope, so
-# we query the gtopt library target's transitive link libraries instead.
+# Ensure non-system shared libraries (Arrow, Parquet, COIN-OR, etc.) can be
+# found at runtime after installation.
 
-set(_system_lib_dirs "^(/usr/lib|/usr/lib64|/lib|/lib64|/usr/lib/x86_64-linux-gnu)$")
-set(_install_rpaths "")
-get_target_property(_gtopt_libs gtopt LINK_LIBRARIES)
-foreach(_item ${_gtopt_libs})
-  if(TARGET ${_item})
-    get_target_property(_type ${_item} TYPE)
-    if(_type MATCHES "SHARED_LIBRARY|UNKNOWN_LIBRARY")
-      get_target_property(_loc ${_item} IMPORTED_LOCATION)
-      if(NOT _loc)
-        get_target_property(_configs ${_item} IMPORTED_CONFIGURATIONS)
-        if(_configs)
-          list(GET _configs 0 _first_cfg)
-          string(TOUPPER "${_first_cfg}" _uc)
-          get_target_property(_loc ${_item} IMPORTED_LOCATION_${_uc})
-        endif()
-      endif()
-      if(_loc AND EXISTS "${_loc}")
-        get_filename_component(_dir "${_loc}" DIRECTORY)
-        if(NOT _dir MATCHES "${_system_lib_dirs}")
-          list(APPEND _install_rpaths "${_dir}")
-        endif()
-      endif()
-    endif()
-  elseif(_item AND EXISTS "${_item}")
-    # Plain library path (e.g. /opt/coinor/lib/libOsiClp.so)
-    get_filename_component(_dir "${_item}" DIRECTORY)
-    if(NOT _dir MATCHES "${_system_lib_dirs}")
-      list(APPEND _install_rpaths "${_dir}")
-    endif()
-  endif()
-endforeach()
-list(REMOVE_DUPLICATES _install_rpaths)
-
-if(_install_rpaths)
-  set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH "${_install_rpaths}")
-endif()
+include(InstallRpath)
+configure_install_rpath(${PROJECT_NAME} gtopt)
 
 # ---- Install ----
 # Only install the binary (and needed runtime libraries), not headers.
