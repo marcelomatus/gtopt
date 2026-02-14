@@ -267,10 +267,10 @@ The easiest way to launch the GUI is with the `gtopt_gui` command:
 cmake -S guiservice -B build-gui
 sudo cmake --install build-gui
 
-# Install Python dependencies (one-time setup)
+# Install Python dependencies
 pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 
-# Launch the GUI
+# Launch interactively (opens browser in kiosk mode)
 gtopt_gui
 
 # Or with a specific configuration file
@@ -279,6 +279,21 @@ gtopt_gui system_c0.json
 
 This opens a web browser with a standalone GUI interface for editing cases.
 For detailed usage, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
+
+### Quick Start with gtopt_guisrv
+
+For running the GUI service as a web server (without opening a browser):
+
+```bash
+# Start GUI service on default port 5001
+gtopt_guisrv
+
+# Or with custom options
+gtopt_guisrv --port 8080
+gtopt_guisrv --debug
+```
+
+For detailed usage and systemd service setup, see [guiservice/GTOPT_GUISRV.md](guiservice/GTOPT_GUISRV.md).
 
 ### Manual Start
 
