@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gtopt Case Editor</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header>
+    <h1>gtopt Case Editor</h1>
+    <div class="header-actions">
+      <input type="text" id="caseName" placeholder="Case name" value="my_case">
+      <button onclick="newCase()">New Case</button>
+      <button onclick="document.getElementById('uploadCaseInput').click()">Upload Case</button>
+      <input type="file" id="uploadCaseInput" accept=".zip" style="display:none" onchange="uploadCase(this)">
+      <button class="primary" onclick="downloadCase()">Download ZIP</button>
+      <button onclick="previewJSON()">Preview JSON</button>
+      <button onclick="document.getElementById('uploadResultsInput').click()">View Results</button>
+      <input type="file" id="uploadResultsInput" accept=".zip" style="display:none" onchange="uploadResults(this)">
+    </div>
+  </header>
+
+  <nav id="mainNav">
+    <div class="nav-section">
+      <h3>Case Setup</h3>
+      <a href="#" class="nav-link active" data-tab="options">Options</a>
+      <a href="#" class="nav-link" data-tab="simulation">Simulation</a>
+    </div>
+    <div class="nav-section">
+      <h3>Electrical</h3>
+      <a href="#" class="nav-link" data-tab="bus">Buses <span class="badge" id="badge-bus">0</span></a>
+      <a href="#" class="nav-link" data-tab="generator">Generators <span class="badge" id="badge-generator">0</span></a>
+      <a href="#" class="nav-link" data-tab="demand">Demands <span class="badge" id="badge-demand">0</span></a>
+      <a href="#" class="nav-link" data-tab="line">Lines <span class="badge" id="badge-line">0</span></a>
+      <a href="#" class="nav-link" data-tab="battery">Batteries <span class="badge" id="badge-battery">0</span></a>
+      <a href="#" class="nav-link" data-tab="converter">Converters <span class="badge" id="badge-converter">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>Hydraulic</h3>
+      <a href="#" class="nav-link" data-tab="junction">Junctions <span class="badge" id="badge-junction">0</span></a>
+      <a href="#" class="nav-link" data-tab="waterway">Waterways <span class="badge" id="badge-waterway">0</span></a>
+      <a href="#" class="nav-link" data-tab="reservoir">Reservoirs <span class="badge" id="badge-reservoir">0</span></a>
+      <a href="#" class="nav-link" data-tab="turbine">Turbines <span class="badge" id="badge-turbine">0</span></a>
+      <a href="#" class="nav-link" data-tab="flow">Flows <span class="badge" id="badge-flow">0</span></a>
+      <a href="#" class="nav-link" data-tab="filtration">Filtrations <span class="badge" id="badge-filtration">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>Profiles &amp; Reserves</h3>
+      <a href="#" class="nav-link" data-tab="generator_profile">Gen. Profiles <span class="badge" id="badge-generator_profile">0</span></a>
+      <a href="#" class="nav-link" data-tab="demand_profile">Dem. Profiles <span class="badge" id="badge-demand_profile">0</span></a>
+      <a href="#" class="nav-link" data-tab="reserve_zone">Reserve Zones <span class="badge" id="badge-reserve_zone">0</span></a>
+      <a href="#" class="nav-link" data-tab="reserve_provision">Reserve Prov. <span class="badge" id="badge-reserve_provision">0</span></a>
+    </div>
+    <div class="nav-section">
+      <h3>Results</h3>
+      <a href="#" class="nav-link" data-tab="results">Results Viewer</a>
+    </div>
+  </nav>
+
+  <main id="mainContent">
+    <!-- Options Tab -->
+    <div class="tab-panel active" id="panel-options">
+      <h2>Options</h2>
+      <div class="form-grid">
+        <label>Annual Discount Rate <input type="number" step="any" id="opt-annual_discount_rate" value="0.1"></label>
+        <label>Demand Fail Cost <input type="number" step="any" id="opt-demand_fail_cost" value="1000"></label>
+        <label>Reserve Fail Cost <input type="number" step="any" id="opt-reserve_fail_cost"></label>
+        <label>Scale Objective <input type="number" step="any" id="opt-scale_objective" value="1000"></label>
+        <label>Scale Theta <input type="number" step="any" id="opt-scale_theta"></label>
+        <label>Kirchhoff Threshold <input type="number" step="any" id="opt-kirchhoff_threshold"></label>
+        <label>Use Line Losses <select id="opt-use_line_losses"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Use Kirchhoff <select id="opt-use_kirchhoff"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Use Single Bus <select id="opt-use_single_bus"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Use LP Names <select id="opt-use_lp_names"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Input Directory <input type="text" id="opt-input_directory"></label>
+        <label>Input Format
+          <select id="opt-input_format">
+            <option value="">—</option>
+            <option value="csv">CSV</option>
+            <option value="parquet">Parquet</option>
+          </select>
+        </label>
+        <label>Output Directory <input type="text" id="opt-output_directory"></label>
+        <label>Output Format
+          <select id="opt-output_format">
+            <option value="csv">CSV</option>
+            <option value="parquet">Parquet</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Simulation Tab -->
+    <div class="tab-panel" id="panel-simulation">
+      <h2>Simulation</h2>
+
+      <div class="sim-section">
+        <h3>Blocks <button class="btn-sm" onclick="addBlock()">+ Add Block</button></h3>
+        <table id="blocksTable">
+          <thead><tr><th>UID</th><th>Name</th><th>Duration</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="sim-section">
+        <h3>Stages <button class="btn-sm" onclick="addStage()">+ Add Stage</button></h3>
+        <table id="stagesTable">
+          <thead><tr><th>UID</th><th>Name</th><th>First Block</th><th>Count Block</th><th>Discount Factor</th><th>Active</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="sim-section">
+        <h3>Scenarios <button class="btn-sm" onclick="addScenario()">+ Add Scenario</button></h3>
+        <table id="scenariosTable">
+          <thead><tr><th>UID</th><th>Name</th><th>Probability Factor</th><th>Active</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Element Tabs (generated dynamically) -->
+    <div class="tab-panel" id="panel-element" style="display:none">
+      <div class="element-header">
+        <h2 id="elementTitle">Elements</h2>
+        <button class="primary" id="addElementBtn" onclick="addElement()">+ Add</button>
+      </div>
+      <div id="elementList"></div>
+    </div>
+
+    <!-- Results Tab -->
+    <div class="tab-panel" id="panel-results">
+      <h2>Results Viewer</h2>
+      <p class="help-text">Upload a results ZIP file to view optimization outputs.</p>
+
+      <div id="resultsSolution" style="display:none">
+        <h3>Solution Summary</h3>
+        <table id="solutionTable">
+          <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="resultsOutputs" style="display:none">
+        <h3>Output Data</h3>
+        <div class="results-controls">
+          <select id="resultsSelector" onchange="showResultsTable()">
+            <option value="">Select output…</option>
+          </select>
+          <button onclick="showResultsChart()">Show Chart</button>
+        </div>
+        <div id="resultsTableContainer"></div>
+        <canvas id="resultsChart" style="display:none; max-height:400px"></canvas>
+      </div>
+    </div>
+
+    <!-- JSON Preview Modal -->
+    <div id="jsonModal" class="modal" style="display:none">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>JSON Preview</h3>
+          <button onclick="closeModal()">&times;</button>
+        </div>
+        <pre id="jsonPreview"></pre>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
