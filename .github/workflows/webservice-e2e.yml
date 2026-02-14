@@ -59,6 +59,9 @@ jobs:
       - name: build gtopt
         run: cmake --build build -j4
 
+      - name: install gtopt
+        run: cmake --install build --prefix build/install
+
       # ---- Build the web service ----
 
       - uses: actions/setup-node@v4
@@ -81,4 +84,4 @@ jobs:
         working-directory: webservice
         run: bash test/e2e_test.sh
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/standalone/gtopt
+          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
