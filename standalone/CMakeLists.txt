@@ -68,6 +68,10 @@ target_link_libraries(
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
+# ---- Install ----
+
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+
 # ---- End-to-end integration tests ----
 
 enable_testing()
