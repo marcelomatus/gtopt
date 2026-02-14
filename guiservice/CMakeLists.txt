@@ -108,6 +108,7 @@ install(
   PATTERN "*.py"
   PATTERN "*.txt"  # requirements.txt
   PATTERN "*.md"
+  PATTERN "*.service"  # systemd service file
   PATTERN "static/*"
   PATTERN "templates/*"
   PATTERN "__pycache__" EXCLUDE
@@ -116,6 +117,8 @@ install(
   PATTERN "*.pyc" EXCLUDE
   PATTERN "gtopt_gui.sh" EXCLUDE  # Handled separately below
   PATTERN "gtopt_gui.bat" EXCLUDE  # Handled separately below
+  PATTERN "gtopt_guisrv.sh" EXCLUDE  # Handled separately below
+  PATTERN "gtopt_guisrv.bat" EXCLUDE  # Handled separately below
 )
 
 # Install the gtopt_gui launcher script (Unix-like systems)
@@ -136,13 +139,32 @@ if(WIN32)
   )
 endif()
 
+# Install the gtopt_guisrv launcher script (Unix-like systems)
+if(UNIX)
+  install(
+    PROGRAMS "${GUISERVICE_DIR}/gtopt_guisrv.sh"
+    DESTINATION bin
+    RENAME gtopt_guisrv
+  )
+endif()
+
+# Install the gtopt_guisrv launcher script (Windows)
+if(WIN32)
+  install(
+    PROGRAMS "${GUISERVICE_DIR}/gtopt_guisrv.bat"
+    DESTINATION bin
+    RENAME gtopt_guisrv.bat
+  )
+endif()
+
 # Post-install message
 install(CODE "
   message(STATUS \"To run the gtopt GUI service:\")
   message(STATUS \"  1. Install Python dependencies:\")
   message(STATUS \"     python3 -m pip install -r \${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice/requirements.txt\")
-  message(STATUS \"  2. Run the gtopt_gui command:\")
-  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_gui\")
+  message(STATUS \"  2. Run one of the following commands:\")
+  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_gui      # Interactive kiosk mode\")
+  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_guisrv   # Web server mode\")
   message(STATUS \"  Or run the service directly:\")
   message(STATUS \"     cd \${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
   message(STATUS \"     python3 app.py\")
