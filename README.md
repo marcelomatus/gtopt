@@ -253,14 +253,36 @@ gtopt system_c0.json --output-directory /tmp/c0_results
 For a full description of the system file format, input data layout, output
 files, and advanced examples, see **[USAGE.md](USAGE.md)**.
 
+## GUI Service
+
+A web-based graphical interface for creating, editing, and visualizing gtopt
+cases. The GUI service also connects to the gtopt webservice for remote
+solving.
+
+### Quick Start
+
+```bash
+pip install -r guiservice/requirements.txt
+cd guiservice
+python app.py
+# Open http://localhost:5001 in your browser
+```
+
+For detailed installation and deployment instructions, see
+[guiservice/INSTALL.md](guiservice/INSTALL.md).
+
+### Running the tests
+
+```bash
+pip install pytest
+python -m pytest guiservice/tests/test_app.py -v
+```
+
 ## Web Service
 
 gtopt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
-### Quick Start
-
-```bash
 # 1. Build and install gtopt (see above)
 sudo cmake --install build
 
