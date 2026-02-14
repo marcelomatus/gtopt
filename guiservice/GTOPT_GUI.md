@@ -5,24 +5,44 @@ web interface for editing gtopt configuration files.
 
 ## Installation
 
-The `gtopt_gui` command is installed automatically when you build and install
-the standalone gtopt binary:
+### Option 1: Install guiservice only (Recommended)
+
+Install just the GUI service without the gtopt binary:
 
 ```bash
-# Build and install gtopt
+# Build and install guiservice
 cd gtopt
+cmake -S guiservice -B build-gui
+sudo cmake --install build-gui
+
+# Install Python dependencies for the GUI
+pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
+```
+
+### Option 2: Install with standalone gtopt binary
+
+If you've already built the standalone gtopt binary, you can install it first,
+then install guiservice separately:
+
+```bash
+# Build and install gtopt standalone binary
 CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 sudo cmake --install build
 
+# Then install guiservice
+cmake -S guiservice -B build-gui
+sudo cmake --install build-gui
+
 # Install Python dependencies for the GUI
-pip3 install -r guiservice/requirements.txt
+pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 ```
 
 After installation:
 - The `gtopt_gui` launcher is installed to `/usr/local/bin/gtopt_gui`
 - The GUI service files are installed to `/usr/local/share/gtopt/guiservice`
 - No modification to your shell or Python environment is required
+- The guiservice installation is completely independent of the gtopt binary
 
 ## Requirements
 

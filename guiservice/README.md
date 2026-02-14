@@ -38,13 +38,31 @@ For the standalone `gtopt_gui` command-line launcher, see
 
 ## Quick Start
 
-### Using gtopt_gui (Recommended)
+### Using CMake (Recommended for System-wide Installation)
 
-If you've installed gtopt via CMake, you can use the `gtopt_gui` launcher:
+Install the guiservice and `gtopt_gui` launcher system-wide:
+
+```bash
+# Install guiservice
+cmake -S guiservice -B build-gui
+sudo cmake --install build-gui
+
+# Install Python dependencies
+pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
+
+# Launch the GUI
+gtopt_gui
+```
+
+The guiservice can be installed independently of the gtopt binary.
+
+### Using gtopt_gui (After Installation)
+
+If you've installed via CMake, you can use the `gtopt_gui` launcher:
 
 ```bash
 # Install dependencies (one-time)
-pip3 install -r requirements.txt
+pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 
 # Launch the GUI
 gtopt_gui
@@ -55,7 +73,7 @@ gtopt_gui system_c0.json
 
 See [GTOPT_GUI.md](GTOPT_GUI.md) for full documentation.
 
-### Running directly
+### Running directly (Development)
 
 ```bash
 cd guiservice
