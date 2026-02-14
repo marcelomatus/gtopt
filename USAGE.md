@@ -2,6 +2,8 @@
 
 Detailed usage instructions, examples, and reference for the gtopt solver.
 
+> **Note**: This guide assumes gtopt is already installed. If you need build instructions, see [BUILDING.md](BUILDING.md). For detailed input data structure specifications, see [INPUT_DATA.md](INPUT_DATA.md).
+
 ## Table of Contents
 
 - [Basic Usage](#basic-usage)
