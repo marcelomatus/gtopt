@@ -119,4 +119,3 @@ jobs:
           # Show logs if there were issues
           echo "=== Service logs ==="
           cat /tmp/gtopt_guisrv.log || true
-
