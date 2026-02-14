@@ -741,7 +741,8 @@ def list_solve_jobs():
 def main():
     """Run the guiservice development server."""
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(host="0.0.0.0", port=5001, debug=debug)
+    port = int(os.environ.get("GTOPT_GUI_PORT", "5001"))
+    app.run(host="0.0.0.0", port=port, debug=debug)
 
 
 if __name__ == "__main__":

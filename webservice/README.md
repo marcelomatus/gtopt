@@ -15,6 +15,32 @@ Node.js full-stack framework).
 
 ## Quick Start
 
+### Using gtopt_websrv Launcher (Recommended)
+
+After installing via CMake:
+
+```bash
+# Install webservice
+cmake -S webservice -B build-web
+sudo cmake --install build-web
+
+# Install Node dependencies (including build dependencies)
+cd /usr/local/share/gtopt/webservice
+npm install
+npm run build
+
+# Launch the web service
+gtopt_websrv
+
+# Or with options
+gtopt_websrv --port 8080
+gtopt_websrv --gtopt-bin /path/to/gtopt
+gtopt_websrv --help
+```
+
+**Note**: We use `npm install` (not `--production`) because TypeScript and other
+devDependencies are required for the build step (`npm run build`).
+
 ### Prerequisites
 
 - Node.js 18+ and npm
