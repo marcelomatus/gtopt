@@ -80,7 +80,7 @@ jobs:
       - name: Install Node dependencies in installed location
         run: |
           cd $HOME/gtopt-install/share/gtopt/webservice
-          npm install --production
+          npm install
 
       - name: Build webservice in installed location
         run: |

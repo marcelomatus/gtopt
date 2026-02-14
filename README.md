@@ -323,9 +323,9 @@ Install and run the web service using the `gtopt_websrv` command:
 cmake -S webservice -B build-web
 sudo cmake --install build-web
 
-# Install Node.js dependencies
+# Install Node.js dependencies (including build dependencies)
 cd /usr/local/share/gtopt/webservice
-npm install --production
+npm install
 npm run build
 
 # Launch the web service
