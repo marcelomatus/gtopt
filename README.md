@@ -14,7 +14,6 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 - [Building from Source](#building-from-source)
 - [Running the Sample Case](#running-the-sample-case)
 - [Web Service](#web-service)
-- [Project Structure](#project-structure)
 - [License](#license)
 
 ## Features
@@ -267,83 +266,15 @@ cd guiservice
 python app.py
 # Open http://localhost:5001 in your browser
 ```
-
 For detailed installation and deployment instructions, see
 [guiservice/INSTALL.md](guiservice/INSTALL.md).
-
-### Running the tests
-
-```bash
-pip install pytest
-python -m pytest guiservice/tests/test_app.py -v
-```
 
 ## Web Service
 
 gtopt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
-# 1. Build and install gtopt (see above)
-sudo cmake --install build
-
-# 2. Build the web service
-cd webservice
-npm ci
-npm run build
-
-# 3. Start the service
-GTOPT_BIN=/usr/local/bin/gtopt npm run start
-```
-
-The service will be available at `http://localhost:3000`.
-
-### How It Works
-
-1. **Upload** a `.zip` archive containing a system JSON file and its data
-   directory (e.g., `system_c0.json` + `system_c0/`).
-2. **Submit** the job and receive a unique **token**.
-3. **Check status** using the token — the solver runs asynchronously.
-4. **Download results** as a `.zip` once the job completes.
-
-### API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/jobs` | Upload a case archive and start a job |
-| `GET` | `/api/jobs` | List all submitted jobs |
-| `GET` | `/api/jobs/:token` | Check job status |
-| `GET` | `/api/jobs/:token/download` | Download results |
-
-### Deployment Guide
-
-For complete instructions on server setup, production deployment with systemd,
-nginx reverse proxy, TLS, and troubleshooting, see
-**[INSTALL_WEBSERVICE.md](INSTALL_WEBSERVICE.md)**.
-
-## Project Structure
-
-```
-gtopt/
-├── CMakeLists.txt              # Library build configuration
-├── include/gtopt/              # Public C++ headers
-├── source/                     # Library source files
-├── standalone/                 # Standalone binary (cmake -S standalone)
-│   ├── CMakeLists.txt
-│   └── source/
-├── test/                       # Unit tests (cmake -S test)
-│   └── CMakeLists.txt
-├── cases/                      # Sample optimization cases
-│   └── c0/                     # Sample case with reference output
-├── webservice/                 # Next.js web service
-│   ├── src/app/                # UI and API routes
-│   ├── test/                   # Integration and e2e tests
-│   └── README.md               # Webservice-specific docs
-├── cmake/                      # CMake modules (CPM, tools)
-├── cmake_local/                # Solver detection modules
-├── USAGE.md                    # Detailed usage guide and examples
-├── INSTALL_WEBSERVICE.md       # Webservice deployment guide
-└── README.md                   # This file
-```
+For detailed installation and deployment instructions, see [webservice/INSTALL.md](guiservice/INSTALL_WEBSERVICE.md).
 
 ## License
 
