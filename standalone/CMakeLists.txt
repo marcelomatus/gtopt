@@ -97,14 +97,27 @@ install(
   PATTERN "tests" EXCLUDE
   PATTERN ".pytest_cache" EXCLUDE
   PATTERN "*.pyc" EXCLUDE
+  PATTERN "gtopt_gui.sh" EXCLUDE  # Handled separately below
+  PATTERN "gtopt_gui.bat" EXCLUDE  # Handled separately below
 )
 
-# Install the gtopt_gui launcher script
-install(
-  PROGRAMS ${CMAKE_CURRENT_LIST_DIR}/../guiservice/gtopt_gui.sh
-  DESTINATION bin
-  RENAME gtopt_gui
-)
+# Install the gtopt_gui launcher script (Unix-like systems)
+if(UNIX)
+  install(
+    PROGRAMS ${CMAKE_CURRENT_LIST_DIR}/../guiservice/gtopt_gui.sh
+    DESTINATION bin
+    RENAME gtopt_gui
+  )
+endif()
+
+# Install the gtopt_gui launcher script (Windows)
+if(WIN32)
+  install(
+    PROGRAMS ${CMAKE_CURRENT_LIST_DIR}/../guiservice/gtopt_gui.bat
+    DESTINATION bin
+    RENAME gtopt_gui.bat
+  )
+endif()
 
 # ---- End-to-end integration tests ----
 

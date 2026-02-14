@@ -213,7 +213,22 @@ The `gtopt_gui` command:
 - **Ubuntu / Debian**: Fully supported
 - **macOS**: Fully supported
 - **WSL (Windows Subsystem for Linux)**: Fully supported
-- **Windows**: Not directly supported, but can run via WSL
+- **Windows**: Supported via `gtopt_gui.bat` (requires Python installation)
+
+### Windows Usage
+
+On Windows (not WSL), use the batch script:
+
+```cmd
+gtopt_gui.bat
+gtopt_gui.bat system_c0.json
+```
+
+The batch script (`gtopt_gui.bat`) provides the same functionality as the Unix
+shell script and is installed alongside the gtopt binary on Windows.
+
+**Note**: On Windows, make sure Python is installed and available in your PATH.
+Download Python from [python.org](https://www.python.org/) if needed.
 
 ## Security Notes
 
