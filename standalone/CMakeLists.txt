@@ -68,7 +68,14 @@ target_link_libraries(
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
+# ---- RPATH configuration ----
+# Preserve the linker search paths so that shared libraries (e.g. libOsiClp.so)
+# can be found at runtime after installation.
+
+set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_RPATH_USE_LINK_RPATH TRUE)
+
 # ---- Install ----
+# Only install the binary (and needed runtime libraries), not headers.
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 
