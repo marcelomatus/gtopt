@@ -33,14 +33,17 @@ A web-based graphical user interface for creating, editing, and visualizing
 For detailed installation, deployment, and production setup instructions, see
 [INSTALL.md](INSTALL.md).
 
-For the standalone `gtopt_gui` command-line launcher, see
+For the standalone `gtopt_gui` command-line launcher (interactive kiosk mode), see
 [GTOPT_GUI.md](GTOPT_GUI.md).
+
+For the `gtopt_guisrv` web server launcher (daemon/service mode), see
+[GTOPT_GUISRV.md](GTOPT_GUISRV.md).
 
 ## Quick Start
 
 ### Using CMake (Recommended for System-wide Installation)
 
-Install the guiservice and `gtopt_gui` launcher system-wide:
+Install the guiservice and launchers system-wide:
 
 ```bash
 # Install guiservice
@@ -50,21 +53,22 @@ sudo cmake --install build-gui
 # Install Python dependencies
 pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 
-# Launch the GUI
+# Launch interactively (opens browser)
 gtopt_gui
+
+# Or launch as web server (no browser)
+gtopt_guisrv
 ```
 
 The guiservice can be installed independently of the gtopt binary.
 
-### Using gtopt_gui (After Installation)
+### Using gtopt_gui (Interactive Mode)
 
-If you've installed via CMake, you can use the `gtopt_gui` launcher:
+If you've installed via CMake, you can use the `gtopt_gui` launcher for
+interactive kiosk mode:
 
 ```bash
-# Install dependencies (one-time)
-pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
-
-# Launch the GUI
+# Launch the GUI (opens browser automatically)
 gtopt_gui
 
 # Or with a specific config file
@@ -72,6 +76,25 @@ gtopt_gui system_c0.json
 ```
 
 See [GTOPT_GUI.md](GTOPT_GUI.md) for full documentation.
+
+### Using gtopt_guisrv (Web Server Mode)
+
+For running as a daemon or web server without opening a browser:
+
+```bash
+# Start web server on default port 5001
+gtopt_guisrv
+
+# Custom port
+gtopt_guisrv --port 8080
+
+# Run as systemd service
+sudo cp /usr/local/share/gtopt/guiservice/gtopt-guiservice.service \
+        /etc/systemd/system/
+sudo systemctl enable --now gtopt-guiservice
+```
+
+See [GTOPT_GUISRV.md](GTOPT_GUISRV.md) for full documentation.
 
 ### Running directly (Development)
 

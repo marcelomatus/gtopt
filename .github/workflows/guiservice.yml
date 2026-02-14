@@ -34,7 +34,7 @@ jobs:
       - name: Run tests
         run: python -m pytest guiservice/tests/test_app.py -v
 
-  install-and-test-gtopt-gui:
+  install-and-test-launchers:
     runs-on: ubuntu-latest
     
     steps:
@@ -62,29 +62,44 @@ jobs:
         run: |
           pip install -r $HOME/gtopt-install/share/gtopt/guiservice/requirements.txt
 
-      - name: Verify gtopt_gui launcher is installed
+      - name: Verify both launchers are installed
         run: |
           test -f $HOME/gtopt-install/bin/gtopt_gui
           test -x $HOME/gtopt-install/bin/gtopt_gui
-          echo "gtopt_gui launcher found and is executable"
+          echo "✓ gtopt_gui launcher found and is executable"
+          test -f $HOME/gtopt-install/bin/gtopt_guisrv
+          test -x $HOME/gtopt-install/bin/gtopt_guisrv
+          echo "✓ gtopt_guisrv launcher found and is executable"
 
       - name: Test gtopt_gui help
         run: |
           cd $HOME/gtopt-install/bin
-          ./gtopt_gui --help
+          ./gtopt_gui --help | grep -q "Launch the gtopt GUI service"
+          echo "✓ gtopt_gui help works"
 
-      - name: Test gtopt_gui starts and serves API
+      - name: Test gtopt_guisrv help
         run: |
           cd $HOME/gtopt-install/bin
-          # Start gtopt_gui in background
-          timeout 30 ./gtopt_gui --no-browser --port 5099 > /tmp/gtopt_gui.log 2>&1 &
+          ./gtopt_guisrv --help | grep -q "gtopt_guisrv"
+          echo "✓ gtopt_guisrv help works"
+
+      - name: Verify systemd service file is installed
+        run: |
+          test -f $HOME/gtopt-install/share/gtopt/guiservice/gtopt-guiservice.service
+          echo "✓ Systemd service file installed"
+
+      - name: Test gtopt_guisrv starts and serves API
+        run: |
+          cd $HOME/gtopt-install/bin
+          # Start gtopt_guisrv in background
+          timeout 30 ./gtopt_guisrv --port 5099 > /tmp/gtopt_guisrv.log 2>&1 &
           GUI_PID=$!
           
           # Wait for service to start
           echo "Waiting for service to start..."
           for i in {1..30}; do
             if curl -s http://localhost:5099/api/schemas > /dev/null; then
-              echo "Service is up!"
+              echo "✓ Service is up!"
               break
             fi
             sleep 1
@@ -103,5 +118,5 @@ jobs:
           
           # Show logs if there were issues
           echo "=== Service logs ==="
-          cat /tmp/gtopt_gui.log || true
+          cat /tmp/gtopt_guisrv.log || true
 
