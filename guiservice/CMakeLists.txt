@@ -7,6 +7,10 @@ CMake configuration for building and installing the gtopt GUI service.
 The GUI service is a Flask web application that provides a browser-based
 interface for creating, editing, and visualizing gtopt optimization cases.
 
+**Note**: This CMake configuration is independent of the main gtopt library
+and standalone binary. The GUI service can be installed separately without
+building the C++ gtopt solver.
+
 Build targets:
 
 ``guiservice-install``
@@ -25,6 +29,17 @@ Configuration variables:
 
 ``GTOPT_WEBSERVICE_URL``
   URL of the gtopt webservice for remote solving (default: http://localhost:3000).
+
+Installation:
+
+To install the GUI service system-wide::
+
+  cmake -S guiservice -B build-gui
+  sudo cmake --install build-gui
+
+This installs:
+- ``gtopt_gui`` launcher script to ``bin/gtopt_gui``
+- GUI service files to ``share/gtopt/guiservice/``
 
 #]=======================================================================]
 
