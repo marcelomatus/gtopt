@@ -116,12 +116,14 @@ def open_browser(url, app_mode=False):
     webbrowser.open(url, new=1)
 
 
-def create_initial_case_url(config_file, port):
-    """Create a URL that will load the specified config file.
+def create_gui_url(port):
+    """Create the URL for the GUI interface.
     
-    Note: This creates a URL that the user can use to upload the case.
-    The guiservice doesn't support direct file loading via URL parameters,
-    so we'll just open the main page and display instructions.
+    Args:
+        port: The port number where the Flask service is running
+    
+    Returns:
+        The base URL for the GUI interface (e.g., http://localhost:5001/)
     """
     return f"http://localhost:{port}/"
 
@@ -248,7 +250,7 @@ file, use the "Upload Case" button in the interface.
     print("Service is ready!")
     
     # Create URL
-    url = create_initial_case_url(config_path, port)
+    url = create_gui_url(port)
     
     # Open browser
     if not args.no_browser:
