@@ -260,12 +260,15 @@ solving.
 
 ### Quick Start with gtopt_gui
 
-The easiest way to launch the GUI is with the `gtopt_gui` command, which is
-installed alongside the `gtopt` binary:
+The easiest way to launch the GUI is with the `gtopt_gui` command:
 
 ```bash
+# Install guiservice (independent of gtopt binary)
+cmake -S guiservice -B build-gui
+sudo cmake --install build-gui
+
 # Install Python dependencies (one-time setup)
-pip3 install -r guiservice/requirements.txt
+pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 
 # Launch the GUI
 gtopt_gui
