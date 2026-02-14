@@ -258,7 +258,28 @@ A web-based graphical interface for creating, editing, and visualizing gtopt
 cases. The GUI service also connects to the gtopt webservice for remote
 solving.
 
-### Quick Start
+### Quick Start with gtopt_gui
+
+The easiest way to launch the GUI is with the `gtopt_gui` command, which is
+installed alongside the `gtopt` binary:
+
+```bash
+# Install Python dependencies (one-time setup)
+pip3 install -r guiservice/requirements.txt
+
+# Launch the GUI
+gtopt_gui
+
+# Or with a specific configuration file
+gtopt_gui system_c0.json
+```
+
+This opens a web browser with a standalone GUI interface for editing cases.
+For detailed usage, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
+
+### Manual Start
+
+You can also run the GUI service directly:
 
 ```bash
 pip install -r guiservice/requirements.txt
@@ -266,6 +287,7 @@ cd guiservice
 python app.py
 # Open http://localhost:5001 in your browser
 ```
+
 For detailed installation and deployment instructions, see
 [guiservice/INSTALL.md](guiservice/INSTALL.md).
 
