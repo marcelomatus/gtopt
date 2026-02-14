@@ -274,7 +274,7 @@ For detailed installation and deployment instructions, see
 gtopt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
-For detailed installation and deployment instructions, see [webservice/INSTALL.md](guiservice/INSTALL_WEBSERVICE.md).
+For detailed installation and deployment instructions, see [webservice/INSTALL.md](webservice/INSTALL.md).
 
 ## License
 
