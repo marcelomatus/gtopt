@@ -136,7 +136,7 @@ target_set_warnings(${PROJECT_NAME})
 # When included as a subproject (e.g. from standalone), only the namespaced
 # alias and version header are created; install rules are skipped.
 
-string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
+string(TOLOWER ${PROJECT_NAME}/version.hpp VERSION_HEADER_LOCATION)
 
 include(cmake_local/PackageTarget.cmake)
 package_target(
