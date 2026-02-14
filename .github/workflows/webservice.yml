@@ -37,3 +37,55 @@ jobs:
       - name: integration test
         working-directory: webservice
         run: npm test
+
+  install-and-test-gtopt-websrv:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install CMake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Configure webservice with CMake
+        run: |
+          cmake -S webservice -B build-webservice
+
+      - name: Install webservice
+        run: |
+          cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Verify gtopt_websrv launcher is installed
+        run: |
+          test -f $HOME/gtopt-install/bin/gtopt_websrv
+          test -x $HOME/gtopt-install/bin/gtopt_websrv
+          echo "✓ gtopt_websrv launcher found and is executable"
+
+      - name: Test gtopt_websrv help
+        run: |
+          $HOME/gtopt-install/bin/gtopt_websrv --help | grep -q "gtopt_websrv - Launcher for gtopt web service"
+          echo "✓ Help command works"
+
+      - name: Verify systemd service file is included
+        run: |
+          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
+          echo "✓ Systemd service file installed"
+
+      - name: Install Node dependencies in installed location
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          npm install
+
+      - name: Build webservice in installed location
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          npm run build
+          test -d .next
+          echo "✓ Production build successful"
+
