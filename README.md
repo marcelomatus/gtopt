@@ -122,3 +122,28 @@ if __name__ == "__main__":
     run_all_scenarios("cases/c0/")
 
 ```
+
+## GUI Service
+
+A web-based graphical interface for creating, editing, and visualizing gtopt
+cases. The GUI service also connects to the gtopt webservice for remote
+solving.
+
+### Quick Start
+
+```bash
+pip install -r guiservice/requirements.txt
+cd guiservice
+python app.py
+# Open http://localhost:5001 in your browser
+```
+
+For detailed installation and deployment instructions, see
+[INSTALL_GUISERVICE.md](INSTALL_GUISERVICE.md).
+
+### Running the tests
+
+```bash
+pip install pytest
+python -m pytest guiservice/tests/test_app.py -v
+```

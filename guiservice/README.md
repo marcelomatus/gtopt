@@ -30,6 +30,9 @@ A web-based graphical user interface for creating, editing, and visualizing
 - (Optional) A running [gtopt webservice](../webservice/README.md) instance for
   remote solving
 
+For detailed installation, deployment, and production setup instructions, see
+[INSTALL_GUISERVICE.md](../INSTALL_GUISERVICE.md).
+
 ## Quick Start
 
 ```bash
