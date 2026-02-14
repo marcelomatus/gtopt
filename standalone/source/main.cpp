@@ -9,7 +9,7 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/version.h>
+#include <gtopt/version.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG

@@ -55,21 +55,31 @@ function(package_target)
   string(REGEX REPLACE [^a-zA-Z0-9] _ _upper_name ${_upper_name})
   set(UPPERCASE_PROJECT_NAME ${_upper_name})
 
-  if(NOT DEFINED PROJECT_VERSION_MAJOR)
-    set(PROJECT_VERSION_MAJOR 0)
-  endif()
-  if(NOT DEFINED PROJECT_VERSION_MINOR)
+  # Parse the version string passed via VERSION into its components so that
+  # the generated header always contains correct numeric values, regardless
+  # of whether the calling project() specified all four components.
+  string(REPLACE "." ";" _version_parts "${PT_VERSION}")
+  list(LENGTH _version_parts _version_len)
+  list(GET _version_parts 0 PROJECT_VERSION_MAJOR)
+  if(_version_len GREATER 1)
+    list(GET _version_parts 1 PROJECT_VERSION_MINOR)
+  else()
     set(PROJECT_VERSION_MINOR 0)
   endif()
-  if(NOT DEFINED PROJECT_VERSION_PATCH)
+  if(_version_len GREATER 2)
+    list(GET _version_parts 2 PROJECT_VERSION_PATCH)
+  else()
     set(PROJECT_VERSION_PATCH 0)
   endif()
-  if(NOT DEFINED PROJECT_VERSION_TWEAK)
+  if(_version_len GREATER 3)
+    list(GET _version_parts 3 PROJECT_VERSION_TWEAK)
+  else()
     set(PROJECT_VERSION_TWEAK 0)
   endif()
+  set(PROJECT_VERSION "${PT_VERSION}")
 
   configure_file(
-    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.h.in"
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.hpp.in"
     "${_version_include_dir}/${PT_VERSION_HEADER}" @ONLY
   )
   target_include_directories(
