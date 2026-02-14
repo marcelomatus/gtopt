@@ -75,5 +75,5 @@ GTOPT_WEBSERVICE_URL=http://my-server:3000 python app.py
 
 ## Input Data Documentation
 
-See [INPUT_DATA.md](INPUT_DATA.md) for a comprehensive description of the gtopt
+See [INPUT_DATA.md](../INPUT_DATA.md) for a comprehensive description of the gtopt
 input data structure, including all element types and their fields.
