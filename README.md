@@ -44,9 +44,36 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 ### Dependencies
 
 * **C++26** compiler (i.e., g++14 or clang++22)
+
+In Ubuntu:
+```
+sudo apt-get update
+sudo apt-get install -y gcc-14 g++-14
+```
 * **Boost**: program_options, filesystem: See https://www.boost.org/doc/user-guide/getting-started.html
+
+In Ubuntu:
+```
+sudo apt-get install -y -V libboost-container-dev
+```
+
 * **Apache Arrow**: Parquet support: See https://arrow.apache.org/install/
+
+In Ubuntu:
+```
+sudo apt-get install -y -V ca-certificates lsb-release wget
+wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+sudo apt-get update
+sudo apt-get install -y -V libarrow-dev libparquet-dev
+```
+
 * **Solver**: (e.g., HiGHS, Clp, CPLEX, Gurobi)
+
+In Ubuntu:
+```
+sudo apt-get install -y -V coinor-libcbc-dev
+```
 
 ### Building the standalone target
 
