@@ -69,25 +69,56 @@ Or specify an input directory and system file separately:
 gtopt --input-directory data_dir --system-file config.json
 ```
 
+Common options:
+
+```bash
+# Output results to a specific directory
+gtopt system_c0.json --output-directory results/
+
+# Output in Parquet format with gzip compression
+gtopt system_c0.json --output-format parquet --compression-format gzip
+
+# Single-bus mode (ignore network topology)
+gtopt system_c0.json --use-single-bus
+
+# Enable DC power flow (Kirchhoff's laws)
+gtopt system_c0.json --use-kirchhoff
+
+# Export the LP model to a file
+gtopt system_c0.json --lp-file model.lp
+
+# Build the LP model without solving
+gtopt system_c0.json --lp-file model.lp --just-create
+
+# Merge multiple system files
+gtopt base_system.json additional_generators.json
+```
+
 ### Options Reference
 
 | Short | Long Flag | Argument | Description |
 | ----- | --------- | -------- | ----------- |
-| `-h` | `--help` | | Show help message |
-| `-v` | `--verbose` | | Activate maximum verbosity |
-| `-q` | `--quiet` | `[=arg]` | Do not log to stdout |
-| `-V` | `--version` | | Show program version |
-| `-s` | `--system-file` | `arg` | Name of the system file |
-| `-l` | `--lp-file` | `arg` | Name of the LP file to save |
-| `-j` | `--json-file` | `arg` | Name of the JSON file to save |
-| `-D` | `--input-directory` | `arg` | Input directory |
-| | `--output-directory` | `arg` | Output directory |
+| `-h` | `--help` | | Show help message and exit |
+| `-V` | `--version` | | Show program version and exit |
+| `-v` | `--verbose` | | Activate maximum verbosity (trace-level logging) |
+| `-q` | `--quiet` | `[=arg]` | Suppress log output to stdout |
+| `-s` | `--system-file` | `arg` | System JSON file(s) (also accepted as positional args) |
+| `-D` | `--input-directory` | `arg` | Override input data directory |
+| `-F` | `--input-format` | `arg` | Input data format: `parquet`, `csv` |
+| `-d` | `--output-directory` | `arg` | Directory for output files |
 | `-f` | `--output-format` | `arg` | Output format: `parquet`, `csv` |
-| `-C` | `--compression` | `arg` | Parquet compression: `uncompressed`, `gzip`, `zstd`, `lzo` |
-| `-b` | `--use-single-bus` | `[=arg]` | Use single bus mode |
-| `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff mode |
+| `-C` | `--compression-format` | `arg` | Parquet compression: `uncompressed`, `gzip`, `zstd`, `lzo` |
+| `-b` | `--use-single-bus` | `[=arg]` | Use single-bus mode (ignore network) |
+| `-k` | `--use-kirchhoff` | `[=arg]` | Use Kirchhoff (DC power flow) mode |
+| `-n` | `--use-lp-names` | `[=arg]` | Use named rows/columns in LP (0=off, 1=names, 2=names+map) |
+| `-l` | `--lp-file` | `arg` | Save LP model to a file |
+| `-j` | `--json-file` | `arg` | Save merged system configuration to JSON |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity |
-| `-c` | `--just-create` | `[=arg]` | Build model and exit without solving |
+| `-c` | `--just-create` | `[=arg]` | Build LP model and exit without solving |
+| `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
+
+For detailed usage instructions, system file format, input/output file
+descriptions, and more examples, see **[USAGE.md](USAGE.md)**.
 
 ## Building from Source
 
@@ -177,36 +208,50 @@ cmake --build build --target fix-format
 
 ## Running the Sample Case
 
-The repository includes a sample case in `cases/c0/`. To run it:
+The repository includes a sample case in `cases/c0/` — a single-bus system
+with one generator and one demand with capacity expansion over 5 stages.
 
 ```bash
 cd cases/c0
 gtopt system_c0.json
 ```
 
-This reads the system configuration from `system_c0.json` (which references
-input data in the `system_c0/` subdirectory) and writes output files to the
-current directory.
+The solver produces output files organized by component type:
 
-To specify a separate output directory:
+```
+output/
+├── solution.csv                    # Objective value and solver status
+├── Generator/
+│   ├── generation_sol.csv          # Dispatch (MW) per stage/block
+│   └── generation_cost.csv         # Generation cost
+├── Demand/
+│   ├── load_sol.csv                # Served load per stage/block
+│   ├── fail_sol.csv                # Unserved demand (load shedding)
+│   ├── capainst_sol.csv            # Installed capacity per stage
+│   ├── expmod_sol.csv              # Expansion decisions
+│   └── ...                         # Cost and dual files
+└── Bus/
+    └── balance_dual.csv            # Nodal prices (marginal cost of energy)
+```
+
+The `solution.csv` reports the optimization result:
+
+```
+obj_value,23.163424133184083
+    kappa,1
+   status,0
+```
+
+A status of `0` indicates an optimal solution was found.
+
+To write output to a separate directory:
 
 ```bash
-gtopt system_c0.json --output-directory /tmp/c0_output
+gtopt system_c0.json --output-directory /tmp/c0_results
 ```
 
-### Batch execution (Python)
-
-```python
-import subprocess
-from pathlib import Path
-
-def run_all_scenarios(folder):
-    for f in Path(folder).glob("*.json"):
-        subprocess.run(["gtopt", "-s", f.name, "-D", folder])
-
-if __name__ == "__main__":
-    run_all_scenarios("cases/c0/")
-```
+For a full description of the system file format, input data layout, output
+files, and advanced examples, see **[USAGE.md](USAGE.md)**.
 
 ## Web Service
 
@@ -273,6 +318,7 @@ gtopt/
 │   └── README.md               # Webservice-specific docs
 ├── cmake/                      # CMake modules (CPM, tools)
 ├── cmake_local/                # Solver detection modules
+├── USAGE.md                    # Detailed usage guide and examples
 ├── INSTALL_WEBSERVICE.md       # Webservice deployment guide
 └── README.md                   # This file
 ```
