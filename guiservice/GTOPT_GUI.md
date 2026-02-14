@@ -239,6 +239,6 @@ Download Python from [python.org](https://www.python.org/) if needed.
 
 ## See Also
 
-- [guiservice/README.md](guiservice/README.md) - Full GUI service documentation
-- [guiservice/INSTALL.md](guiservice/INSTALL.md) - Detailed installation guide
-- [USAGE.md](../USAGE.md) - gtopt command-line usage
+- [README.md](README.md) - Full GUI service documentation
+- [INSTALL.md](INSTALL.md) - Detailed installation guide
+- [../USAGE.md](../USAGE.md) - gtopt command-line usage

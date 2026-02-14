@@ -138,9 +138,13 @@ Examples:
   gtopt_gui                    # Start GUI without a specific config file
   gtopt_gui system_c0.json     # Start GUI (config file can be uploaded via UI)
   gtopt_gui --port 5001        # Use a specific port
+  gtopt_gui --no-app-mode      # Open in regular browser window (not app mode)
 
 The GUI will open in your default web browser. To upload your configuration
 file, use the "Upload Case" button in the interface.
+
+By default, the browser opens in app/kiosk mode (Chrome/Chromium only) for a
+cleaner interface. Use --no-app-mode to disable this.
         """,
     )
     
@@ -164,10 +168,9 @@ file, use the "Upload Case" button in the interface.
     )
     
     parser.add_argument(
-        "--app-mode",
+        "--no-app-mode",
         action="store_true",
-        default=True,
-        help="Try to open browser in app/kiosk mode (default: True)",
+        help="Don't try to open browser in app/kiosk mode",
     )
     
     parser.add_argument(
@@ -260,7 +263,9 @@ file, use the "Upload Case" button in the interface.
             print("  1. Click the 'Upload Case' button")
             print(f"  2. Navigate to and select: {config_path}")
             print("  3. Or create a ZIP file containing your config and data files")
-        open_browser(url, app_mode=args.app_mode)
+        # Use app mode by default unless --no-app-mode is specified
+        app_mode = not args.no_app_mode
+        open_browser(url, app_mode=app_mode)
     else:
         print(f"\nGUI service is running at: {url}")
     
