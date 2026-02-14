@@ -11,8 +11,8 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 - [Features](#features)
 - [Quick Install (Ubuntu)](#quick-install-ubuntu)
 - [Usage](#usage)
-- [Building from Source](#building-from-source)
 - [Running the Sample Case](#running-the-sample-case)
+- [GUI Service](#gui-service)
 - [Web Service](#web-service)
 - [License](#license)
 
@@ -53,6 +53,8 @@ sudo cmake --install build
 # 4. Verify
 gtopt --version
 ```
+
+For detailed build instructions, alternative platforms, troubleshooting, and build options, see **[BUILDING.md](BUILDING.md)**.
 
 ## Usage
 
@@ -118,92 +120,6 @@ gtopt base_system.json additional_generators.json
 
 For detailed usage instructions, system file format, input/output file
 descriptions, and more examples, see **[USAGE.md](USAGE.md)**.
-
-## Building from Source
-
-### Dependencies
-
-| Dependency | Purpose | Ubuntu Package |
-|-----------|---------|----------------|
-| GCC 14+ | C++26 compiler | `gcc-14 g++-14` |
-| CMake 3.31+ | Build system | `cmake` (or install from [cmake.org](https://cmake.org/download/)) |
-| Boost | Container library | `libboost-container-dev` |
-| Apache Arrow | Parquet I/O | `libarrow-dev libparquet-dev` |
-| COIN-OR CBC | LP/MIP solver | `coinor-libcbc-dev` |
-
-#### Installing dependencies on Ubuntu
-
-**GCC 14:**
-```bash
-sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14
-```
-
-**Boost:**
-```bash
-sudo apt-get install -y -V libboost-container-dev
-```
-
-**Apache Arrow / Parquet:**
-```bash
-sudo apt-get install -y -V ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-sudo apt-get update
-sudo apt-get install -y -V libarrow-dev libparquet-dev
-```
-
-**Solver** (CBC — open-source; alternatives: HiGHS, Clp, CPLEX, Gurobi):
-```bash
-sudo apt-get install -y -V coinor-libcbc-dev
-```
-
-### Building the standalone binary
-
-```bash
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-./build/gtopt --help
-```
-
-### Installing system-wide
-
-```bash
-sudo cmake --install build
-# Installs to /usr/local/bin/gtopt by default
-```
-
-To install to a custom prefix:
-
-```bash
-cmake --install build --prefix /opt/gtopt
-# Binary will be at /opt/gtopt/bin/gtopt
-```
-
-### Building and running the test suite
-
-```bash
-CC=gcc-14 CXX=g++-14 cmake -S test -B build/test
-cmake --build build/test -j$(nproc)
-ctest --test-dir build/test
-```
-
-### End-to-end integration tests
-
-The standalone build includes end-to-end tests that run gtopt against the
-sample case in `cases/c0/` and validate output against reference results:
-
-```bash
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-ctest --test-dir build
-```
-
-### Formatting and linting
-
-```bash
-cmake --build build --target fix-format
-```
 
 ## Running the Sample Case
 
