@@ -995,8 +995,10 @@ async function viewJobLogs(token) {
     if (data.stdout) { text += "=== stdout ===\n" + data.stdout + "\n"; }
     if (data.stderr) { text += "=== stderr ===\n" + data.stderr + "\n"; }
     if (!text) { text = "No terminal output available for this job."; }
-    // Show in results tab terminal output area
-    if (!resultsData) { resultsData = { solution: {}, outputs: {}, terminal_output: "" }; }
+    // Update terminal output in the results view; preserve existing data
+    if (!resultsData) {
+      resultsData = { solution: {}, outputs: {}, terminal_output: "" };
+    }
     resultsData.terminal_output = text;
     switchTab("results");
     renderResults();
