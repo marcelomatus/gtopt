@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import signal
 import tempfile
 import zipfile
 from collections import deque
@@ -927,15 +928,13 @@ def shutdown_service():
     Sends SIGTERM to the current process so that the gtopt_gui cleanup handler
     can terminate both the guiservice and the webservice.
     """
-    import signal as _signal
-
     app.logger.info("Shutdown requested via /api/shutdown")
     func = request.environ.get("werkzeug.server.shutdown")
     if func is not None:
         func()
         return jsonify({"status": "shutting_down"})
     # For newer Werkzeug / production servers, kill the process
-    os.kill(os.getpid(), _signal.SIGTERM)
+    os.kill(os.getpid(), signal.SIGTERM)
     return jsonify({"status": "shutting_down"})
 
 
