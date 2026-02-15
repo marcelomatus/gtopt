@@ -111,3 +111,21 @@ jobs:
         run: |
           cd build
           ctest --build-config Debug
+
+      - name: install gtopt
+        run: cmake --install build --prefix build/install
+
+      - name: verify installed binary has no missing shared libraries
+        run: |
+          echo "=== ldd output ==="
+          ldd build/install/bin/gtopt
+          if ldd build/install/bin/gtopt | grep -q "not found"; then
+            echo "::error::Installed gtopt binary has missing shared libraries"
+            exit 1
+          fi
+          echo "✓ All shared libraries resolved"
+
+      - name: verify installed binary runs
+        run: |
+          build/install/bin/gtopt --version
+          echo "✓ Installed gtopt --version works"
