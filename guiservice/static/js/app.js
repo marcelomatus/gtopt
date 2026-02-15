@@ -12,7 +12,7 @@ let resultsChart = null;
 let solverJobId = null;
 let solverPollTimer = null;
 let webserviceUrl = "";
-const SCHEMA_RETRY_ATTEMPTS = 5;
+const SCHEMA_RETRY_BUDGET_MS = 2000;
 const SCHEMA_RETRY_DELAY_MS = 400;
 
 const caseData = {
@@ -31,16 +31,18 @@ const caseData = {
 // Initialization
 // ---------------------------------------------------------------------------
 
-async function fetchSchemasWithRetry(attempts = SCHEMA_RETRY_ATTEMPTS, delayMs = SCHEMA_RETRY_DELAY_MS) {
-  for (let i = 0; i < attempts; i++) {
+async function fetchSchemasWithRetry(budgetMs = SCHEMA_RETRY_BUDGET_MS, delayMs = SCHEMA_RETRY_DELAY_MS) {
+  const deadline = Date.now() + Math.max(0, budgetMs);
+  do {
     try {
       const resp = await fetch("/api/schemas");
       if (resp.ok) return await resp.json();
     } catch (e) {
       // Retry while service is still warming up.
     }
+    if (Date.now() >= deadline) break;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
+  } while (true);
   return {};
 }
 
