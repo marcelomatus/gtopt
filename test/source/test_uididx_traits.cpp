@@ -224,6 +224,21 @@ TEST_SUITE("cast_to_int32_array")
     CHECK(result->Value(2) == 3);
   }
 
+  TEST_CASE("cast int64 array to int32")
+  {
+    arrow::Int64Builder builder;
+    REQUIRE(builder.AppendValues({100, 200, 300}).ok());
+    std::shared_ptr<arrow::Array> array;
+    REQUIRE(builder.Finish(&array).ok());
+
+    auto result = cast_to_int32_array(array);
+    REQUIRE(result != nullptr);
+    CHECK(result->length() == 3);
+    CHECK(result->Value(0) == 100);
+    CHECK(result->Value(1) == 200);
+    CHECK(result->Value(2) == 300);
+  }
+
   TEST_CASE("cast incompatible type returns nullptr")
   {
     arrow::DoubleBuilder builder;
@@ -249,11 +264,11 @@ TEST_SUITE("is_compatible_int32_type")
     CHECK(is_compatible_int32_type(arrow::Type::INT8));
     CHECK(is_compatible_int32_type(arrow::Type::INT16));
     CHECK(is_compatible_int32_type(arrow::Type::INT32));
+    CHECK(is_compatible_int32_type(arrow::Type::INT64));
   }
 
   TEST_CASE("incompatible types")
   {
-    CHECK_FALSE(is_compatible_int32_type(arrow::Type::INT64));
     CHECK_FALSE(is_compatible_int32_type(arrow::Type::DOUBLE));
     CHECK_FALSE(is_compatible_int32_type(arrow::Type::STRING));
   }
@@ -318,6 +333,25 @@ TEST_SUITE("make_uid_column with int16/int8 columns")
     CHECK((*result)->Value(2) == 6);
   }
 
+  TEST_CASE("make_uid_column reads int64 column as int32")
+  {
+    using TestTraits = ArrowUidTraits<StageUid>;
+
+    arrow::Int64Builder stage_builder;
+    REQUIRE(stage_builder.AppendValues({7, 8, 9}).ok());
+    std::shared_ptr<arrow::Array> stage_array;
+    REQUIRE(stage_builder.Finish(&stage_array).ok());
+
+    auto schema = arrow::schema({arrow::field("stage", arrow::int64())});
+    auto table = arrow::Table::Make(schema, {stage_array});
+
+    auto result = TestTraits::make_uid_column(table, "stage");
+    REQUIRE(result.has_value());
+    CHECK((*result)->Value(0) == 7);
+    CHECK((*result)->Value(1) == 8);
+    CHECK((*result)->Value(2) == 9);
+  }
+
   TEST_CASE("make_uid_column rejects incompatible type")
   {
     using TestTraits = ArrowUidTraits<StageUid>;
@@ -352,6 +386,26 @@ TEST_SUITE("make_uid_column with int16/int8 columns")
     CHECK(result->at({StageUid {1}}) == 0);
     CHECK(result->at({StageUid {2}}) == 1);
     CHECK(result->at({StageUid {3}}) == 2);
+  }
+
+  TEST_CASE("UidToArrowIdx with int64 columns")
+  {
+    using TestTraits = UidToArrowIdx<StageUid>;
+
+    arrow::Int64Builder stage_builder;
+    REQUIRE(stage_builder.AppendValues({10, 20, 30}).ok());
+    std::shared_ptr<arrow::Array> stage_array;
+    REQUIRE(stage_builder.Finish(&stage_array).ok());
+
+    auto schema = arrow::schema({arrow::field("stage", arrow::int64())});
+    auto table = arrow::Table::Make(schema, {stage_array});
+
+    auto result = TestTraits::make_arrow_uids_idx(table);
+    REQUIRE(result != nullptr);
+    CHECK(result->size() == 3);
+    CHECK(result->at({StageUid {10}}) == 0);
+    CHECK(result->at({StageUid {20}}) == 1);
+    CHECK(result->at({StageUid {30}}) == 2);
   }
 }
 

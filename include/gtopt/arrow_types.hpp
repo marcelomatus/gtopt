@@ -59,19 +59,19 @@ struct ArrowTraits<double>
 
 /**
  * @brief Check if an Arrow type is a compatible integer type that can be
- *        widened to int32
+ *        cast to int32
  * @param type_id The Arrow type id to check
- * @return true if the type is int8, int16, or int32
+ * @return true if the type is int8, int16, int32, or int64
  */
 constexpr auto is_compatible_int32_type(arrow::Type::type type_id) -> bool
 {
   return type_id == arrow::Type::INT8 || type_id == arrow::Type::INT16
-      || type_id == arrow::Type::INT32;
+      || type_id == arrow::Type::INT32 || type_id == arrow::Type::INT64;
 }
 
 /**
- * @brief Cast an Arrow array chunk to Int32Array, handling int8/int16
- *        widening
+ * @brief Cast an Arrow array chunk to Int32Array, handling int8/int16/int64
+ *        conversion
  * @param chunk The Arrow array chunk to cast
  * @return A shared pointer to an Int32Array, or nullptr if the type is
  *         incompatible
@@ -125,6 +125,10 @@ inline auto cast_to_int32_array(const std::shared_ptr<arrow::Array>& chunk)
 
   if (tid == arrow::Type::INT8) {
     return detail::widen_to_int32_array<arrow::Int8Array>(*chunk);
+  }
+
+  if (tid == arrow::Type::INT64) {
+    return detail::widen_to_int32_array<arrow::Int64Array>(*chunk);
   }
 
   return nullptr;

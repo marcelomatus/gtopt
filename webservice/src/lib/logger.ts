@@ -53,3 +53,26 @@ export function createLogger(component: string) {
     debug: (msg: string) => writeLog("debug", component, msg),
   };
 }
+
+/**
+ * Return the path to the log file, or empty string if file logging is disabled.
+ */
+export function getLogFilePath(): string {
+  if (!LOG_DIR) return "";
+  return path.join(LOG_DIR, "gtopt-webservice.log");
+}
+
+/**
+ * Read the last N lines from the log file.
+ */
+export async function readLogTail(lines: number = 200): Promise<string[]> {
+  const logFile = getLogFilePath();
+  if (!logFile) return [];
+  try {
+    const content = await fs.readFile(logFile, "utf-8");
+    const allLines = content.split("\n").filter((l) => l.length > 0);
+    return allLines.slice(-lines);
+  } catch {
+    return [];
+  }
+}

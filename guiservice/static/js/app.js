@@ -447,13 +447,20 @@ function destroySpreadsheet() {
   }
 }
 
-function renderSpreadsheet() {
+function renderSpreadsheet(retryCount) {
   destroySpreadsheet();
   var container = document.getElementById("spreadsheetContainer");
   container.innerHTML = "";
 
   if (typeof jspreadsheet === "undefined") {
-    container.innerHTML = '<p class="help-text" style="padding:16px">Spreadsheet library is loading… Please try again shortly.</p>';
+    var attempt = retryCount || 0;
+    if (attempt < 5) {
+      container.innerHTML = '<p class="help-text" style="padding:16px">Spreadsheet library is loading… Retrying (' + (attempt + 1) + '/5)…</p>';
+      setTimeout(function () { renderSpreadsheet(attempt + 1); }, 1000);
+    } else {
+      container.innerHTML = '<p class="help-text" style="padding:16px">Spreadsheet library failed to load. '
+        + 'Check your network connection or try reloading the page.</p>';
+    }
     return;
   }
 
@@ -1136,6 +1143,52 @@ async function refreshLogs() {
     output.textContent = lines.length ? lines.join("\n") : "No logs available yet.";
   } catch (e) {
     output.textContent = "Failed to load logs: " + e.message;
+  }
+}
+
+async function refreshWebserviceLogs() {
+  const output = document.getElementById("wsLogsOutput");
+  if (!output) return;
+  output.textContent = "Loading webservice logs…";
+  try {
+    const resp = await fetch("/api/solve/logs?lines=300");
+    if (!resp.ok) {
+      const data = await resp.json().catch(function () { return {}; });
+      output.textContent = "Failed to load webservice logs: " + (data.error || resp.statusText);
+      return;
+    }
+    const data = await resp.json();
+    const lines = data.lines || [];
+    const logFile = data.log_file || "";
+    var header = logFile ? "Log file: " + logFile + "\n\n" : "";
+    output.textContent = lines.length ? header + lines.join("\n") : "No webservice logs available yet.";
+  } catch (e) {
+    output.textContent = "Failed to load webservice logs: " + e.message;
+  }
+}
+
+async function pingWebservice() {
+  setWsStatus("", "Pinging webservice…");
+  try {
+    const resp = await fetch("/api/solve/ping");
+    if (!resp.ok) {
+      const data = await resp.json().catch(function () { return {}; });
+      setWsStatus("fail", data.error || "Ping failed.");
+      updateWsDot(false);
+      document.getElementById("wsPingInfo").style.display = "none";
+      return;
+    }
+    const data = await resp.json();
+    setWsStatus("ok", "Webservice is running (" + data.service + ")");
+    updateWsDot(true);
+    document.getElementById("wsPingInfo").style.display = "block";
+    document.getElementById("pingGtoptBin").textContent = data.gtopt_bin || "—";
+    document.getElementById("pingGtoptVersion").textContent = data.gtopt_version || "—";
+    document.getElementById("pingLogFile").textContent = data.log_file || "(console only)";
+  } catch (e) {
+    setWsStatus("fail", "Ping failed: " + e.message);
+    updateWsDot(false);
+    document.getElementById("wsPingInfo").style.display = "none";
   }
 }
 
