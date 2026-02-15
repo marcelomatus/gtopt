@@ -59,19 +59,30 @@ struct ArrowTraits<double>
 
 /**
  * @brief Check if an Arrow type is a compatible integer type that can be
- *        widened to int32
+ *        cast to int32
  * @param type_id The Arrow type id to check
- * @return true if the type is int8, int16, or int32
+ * @return true if the type is int8, int16, int32, or int64
  */
 constexpr auto is_compatible_int32_type(arrow::Type::type type_id) -> bool
 {
   return type_id == arrow::Type::INT8 || type_id == arrow::Type::INT16
-      || type_id == arrow::Type::INT32;
+      || type_id == arrow::Type::INT32 || type_id == arrow::Type::INT64;
 }
 
 /**
- * @brief Cast an Arrow array chunk to Int32Array, handling int8/int16
- *        widening
+ * @brief Check if an Arrow type is a compatible floating-point type that can
+ *        be cast to double
+ * @param type_id The Arrow type id to check
+ * @return true if the type is float or double
+ */
+constexpr auto is_compatible_double_type(arrow::Type::type type_id) -> bool
+{
+  return type_id == arrow::Type::FLOAT || type_id == arrow::Type::DOUBLE;
+}
+
+/**
+ * @brief Cast an Arrow array chunk to Int32Array, handling int8/int16/int64
+ *        conversion
  * @param chunk The Arrow array chunk to cast
  * @return A shared pointer to an Int32Array, or nullptr if the type is
  *         incompatible
@@ -104,6 +115,31 @@ inline auto widen_to_int32_array(const arrow::Array& chunk)
   return std::static_pointer_cast<arrow::Int32Array>(result);
 }
 
+template<typename SourceArrayType>
+inline auto widen_to_double_array(const arrow::Array& chunk)
+    -> std::shared_ptr<arrow::DoubleArray>
+{
+  const auto& src = static_cast<const SourceArrayType&>(chunk);  // NOLINT
+  arrow::DoubleBuilder builder;
+  auto st = builder.Reserve(chunk.length());
+  if (!st.ok()) {
+    return nullptr;
+  }
+  for (int64_t i = 0; i < chunk.length(); ++i) {
+    if (src.IsNull(i)) {
+      builder.UnsafeAppendNull();
+    } else {
+      builder.UnsafeAppend(static_cast<double>(src.Value(i)));
+    }
+  }
+  std::shared_ptr<arrow::Array> result;
+  st = builder.Finish(&result);
+  if (!st.ok()) {
+    return nullptr;
+  }
+  return std::static_pointer_cast<arrow::DoubleArray>(result);
+}
+
 }  // namespace detail
 
 inline auto cast_to_int32_array(const std::shared_ptr<arrow::Array>& chunk)
@@ -125,6 +161,36 @@ inline auto cast_to_int32_array(const std::shared_ptr<arrow::Array>& chunk)
 
   if (tid == arrow::Type::INT8) {
     return detail::widen_to_int32_array<arrow::Int8Array>(*chunk);
+  }
+
+  if (tid == arrow::Type::INT64) {
+    return detail::widen_to_int32_array<arrow::Int64Array>(*chunk);
+  }
+
+  return nullptr;
+}
+
+/**
+ * @brief Cast an Arrow array chunk to DoubleArray, handling float32 widening
+ * @param chunk The Arrow array chunk to cast
+ * @return A shared pointer to a DoubleArray, or nullptr if the type is
+ *         incompatible
+ */
+inline auto cast_to_double_array(const std::shared_ptr<arrow::Array>& chunk)
+    -> std::shared_ptr<arrow::DoubleArray>
+{
+  if (!chunk) {
+    return nullptr;
+  }
+
+  const auto tid = chunk->type_id();
+
+  if (tid == arrow::Type::DOUBLE) {
+    return std::static_pointer_cast<arrow::DoubleArray>(chunk);
+  }
+
+  if (tid == arrow::Type::FLOAT) {
+    return detail::widen_to_double_array<arrow::FloatArray>(*chunk);
   }
 
   return nullptr;

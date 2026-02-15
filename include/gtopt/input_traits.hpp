@@ -87,6 +87,24 @@ struct InputTraits : UidTraits
             return RType {
                 access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
             };
+          } else if constexpr (std::is_floating_point_v<Type>
+                               && sizeof(Type) >= sizeof(double))
+          {
+            if (!is_compatible_double_type(chunk->type_id())) {
+              throw std::runtime_error(
+                  std::format("Type mismatch: expected {} got {}",
+                              ArrowTraits<Type>::Type::type_name(),
+                              chunk->type()->ToString()));
+            }
+
+            auto array_value = cast_to_double_array(chunk);
+            if (!array_value) {
+              throw std::runtime_error("Failed to cast column to double");
+            }
+
+            return RType {
+                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+            };
           } else {
             if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
               throw std::runtime_error(

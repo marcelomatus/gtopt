@@ -203,6 +203,24 @@ else
   fail "POST /api/jobs without file did not return error: $BODY"
 fi
 
+# ---- Test 10: GET /api/ping — health check ----
+BODY=$(curl -s "$BASE_URL/api/ping")
+PING_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+if [ "$PING_STATUS" = "ok" ]; then
+  pass "GET /api/ping returns status ok"
+else
+  fail "GET /api/ping unexpected response: $BODY"
+fi
+
+# ---- Test 11: GET /api/logs — log retrieval ----
+BODY=$(curl -s "$BASE_URL/api/logs?lines=10")
+LOG_CHECK=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'lines' in d else 'bad')" 2>/dev/null || true)
+if [ "$LOG_CHECK" = "ok" ]; then
+  pass "GET /api/logs returns log lines"
+else
+  fail "GET /api/logs unexpected response: $BODY"
+fi
+
 # ---- Summary ----
 echo ""
 echo "==============================="
