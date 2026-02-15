@@ -996,3 +996,257 @@ class TestWebserviceLogs:
         resp = client.get("/api/solve/logs")
         assert resp.status_code == 502
         assert "Cannot connect" in resp.get_json()["error"]
+
+
+class TestJobLogs:
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "token": "abc-123",
+            "status": "completed",
+            "stdout": "Solving model...\nOptimal solution found.\n",
+            "stderr": "",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/job_logs/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["token"] == "abc-123"
+        assert "Solving model" in data["stdout"]
+
+        # Verify correct webservice URL was called
+        call_url = mock_get.call_args[0][0]
+        assert "/api/jobs/abc-123/logs" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/job_logs/abc-123")
+        assert resp.status_code == 502
+        assert "Cannot connect" in resp.get_json()["error"]
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_not_found(self, mock_get, client):
+        import requests
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(
+            response=mock_resp
+        )
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/job_logs/nonexistent")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/job_logs/abc-123")
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+
+class TestResultsWithTerminalOutput:
+    def test_results_zip_with_terminal_log(self):
+        """Verify _parse_results_zip extracts terminal output."""
+        from guiservice.app import _parse_results_zip
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
+            )
+            zf.writestr(
+                "output/gtopt_terminal.log",
+                "Solving model...\nOptimal solution found.\n",
+            )
+        buf.seek(0)
+
+        results = _parse_results_zip(buf.getvalue())
+        assert "terminal_output" in results
+        assert "Solving model" in results["terminal_output"]
+        assert "Optimal solution found" in results["terminal_output"]
+        assert results["solution"]["obj_value"] == "42.0"
+
+    def test_results_zip_with_stdout_stderr_logs(self):
+        """Verify _parse_results_zip extracts stdout.log and stderr.log."""
+        from guiservice.app import _parse_results_zip
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("stdout.log", "iteration 1\niteration 2\n")
+            zf.writestr("stderr.log", "warning: something\n")
+        buf.seek(0)
+
+        results = _parse_results_zip(buf.getvalue())
+        assert "iteration 1" in results["terminal_output"]
+        assert "warning: something" in results["terminal_output"]
+
+    def test_results_zip_without_terminal_output(self):
+        """Verify _parse_results_zip works when no log files are present."""
+        from guiservice.app import _parse_results_zip
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "output/solution.csv", "obj_value,10.0\nstatus,0\n"
+            )
+        buf.seek(0)
+
+        results = _parse_results_zip(buf.getvalue())
+        assert results["terminal_output"] == ""
+        assert results["solution"]["obj_value"] == "10.0"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_endpoint_includes_terminal_output(self, mock_get, client):
+        """Verify /api/solve/results includes terminal output in response."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
+            )
+            zf.writestr(
+                "output/gtopt_terminal.log",
+                "gtopt solver output line 1\ngtopt solver output line 2\n",
+            )
+        buf.seek(0)
+
+        mock_resp = MagicMock()
+        mock_resp.content = buf.getvalue()
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/results/abc-123")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["solution"]["obj_value"] == "42.0"
+        assert "terminal_output" in data
+        assert "gtopt solver output line 1" in data["terminal_output"]
+
+    def test_results_upload_includes_terminal_output(self, client):
+        """Verify /api/results/upload includes terminal output."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "output/solution.csv", "obj_value,99.9\nstatus,0\n"
+            )
+            zf.writestr(
+                "stdout.log", "Starting optimization...\nDone.\n"
+            )
+        buf.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (buf, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "terminal_output" in data
+        assert "Starting optimization" in data["terminal_output"]
+
+
+class TestWebserviceConnectivity:
+    """Tests verifying the guiservice can properly connect to webservice endpoints."""
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_returns_all_expected_fields(self, mock_get, client):
+        """Ping response should contain all service metadata fields."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "service": "gtopt-webservice",
+            "gtopt_bin": "/usr/bin/gtopt",
+            "gtopt_version": "gtopt 2.0",
+            "log_file": "/var/log/gtopt.log",
+            "timestamp": "2025-06-01T00:00:00Z",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "ok"
+        assert data["service"] == "gtopt-webservice"
+        assert data["gtopt_bin"] == "/usr/bin/gtopt"
+        assert data["gtopt_version"] == "gtopt 2.0"
+        assert data["log_file"] == "/var/log/gtopt.log"
+        assert "timestamp" in data
+
+    @patch("guiservice.app.http_requests.get")
+    def test_logs_returns_correct_structure(self, mock_get, client):
+        """Webservice logs response should have log_file and lines."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "log_file": "/var/log/gtopt-webservice.log",
+            "lines": ["[INFO] line 1", "[INFO] line 2"],
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/logs?lines=50")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "log_file" in data
+        assert "lines" in data
+        assert isinstance(data["lines"], list)
+
+        # Verify correct params forwarded
+        call_kwargs = mock_get.call_args[1]
+        assert call_kwargs.get("params", {}).get("lines") == 50
+
+    @patch("guiservice.app.http_requests.get")
+    def test_jobs_list_returns_correct_structure(self, mock_get, client):
+        """Jobs listing should return an array of job objects."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "jobs": [
+                {
+                    "token": "abc-123",
+                    "status": "completed",
+                    "createdAt": "2025-01-01T00:00:00Z",
+                    "systemFile": "case.json",
+                },
+                {
+                    "token": "def-456",
+                    "status": "running",
+                    "createdAt": "2025-01-01T01:00:00Z",
+                    "systemFile": "case2.json",
+                },
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["jobs"]) == 2
+        assert data["jobs"][0]["token"] == "abc-123"
+        assert data["jobs"][1]["status"] == "running"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_http_error_reports_status(self, mock_get, client):
+        """HTTP errors from the webservice should be reported correctly."""
+        import requests
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(
+            response=mock_resp
+        )
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+        data = resp.get_json()
+        assert "error" in data
+        assert "404" in data["error"]
