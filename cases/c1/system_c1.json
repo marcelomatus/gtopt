@@ -7,7 +7,7 @@
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
     "use_kirchhoff": true,
-    "input_directory": "system_c0",
+    "input_directory": "system_c1",
     "input_format": "parquet"
   },
   "simulation": {
