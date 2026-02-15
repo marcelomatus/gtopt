@@ -946,6 +946,14 @@ function renderJobsList(jobs) {
       btn.addEventListener("click", () => loadJobResults(job.token));
       tdActions.appendChild(btn);
     }
+    if ((job.status === "completed" || job.status === "failed") && job.token) {
+      const logBtn = document.createElement("button");
+      logBtn.className = "btn-sm";
+      logBtn.textContent = "View Logs";
+      logBtn.style.marginLeft = "4px";
+      logBtn.addEventListener("click", () => viewJobLogs(job.token));
+      tdActions.appendChild(logBtn);
+    }
 
     tr.appendChild(tdToken);
     tr.appendChild(tdFile);
@@ -970,6 +978,30 @@ async function loadJobResults(token) {
     renderResults();
   } catch (e) {
     alert("Failed to load results: " + e.message);
+  }
+}
+
+async function viewJobLogs(token) {
+  try {
+    var safeToken = encodeURIComponent(token);
+    var resp = await fetch("/api/solve/job_logs/" + safeToken);
+    if (!resp.ok) {
+      var errData = await resp.json().catch(function () { return {}; });
+      alert("Failed to load job logs: " + (errData.error || "Unknown error"));
+      return;
+    }
+    var data = await resp.json();
+    var text = "";
+    if (data.stdout) { text += "=== stdout ===\n" + data.stdout + "\n"; }
+    if (data.stderr) { text += "=== stderr ===\n" + data.stderr + "\n"; }
+    if (!text) { text = "No terminal output available for this job."; }
+    // Show in results tab terminal output area
+    if (!resultsData) { resultsData = { solution: {}, outputs: {}, terminal_output: "" }; }
+    resultsData.terminal_output = text;
+    switchTab("results");
+    renderResults();
+  } catch (e) {
+    alert("Failed to load job logs: " + e.message);
   }
 }
 
@@ -1020,6 +1052,17 @@ function renderResults() {
     }
   }
 
+  // Terminal output
+  var termDiv = document.getElementById("resultsTerminalOutput");
+  var termContent = document.getElementById("terminalOutputContent");
+  if (resultsData.terminal_output) {
+    termDiv.style.display = "block";
+    termContent.textContent = resultsData.terminal_output;
+  } else {
+    termDiv.style.display = "none";
+    termContent.textContent = "";
+  }
+
   // Outputs selector
   const outputsDiv = document.getElementById("resultsOutputs");
   const selector = document.getElementById("resultsSelector");
@@ -1034,6 +1077,11 @@ function renderResults() {
       selector.appendChild(opt);
     }
   }
+}
+
+function toggleTerminalOutput() {
+  var el = document.getElementById("terminalOutputContent");
+  el.style.display = el.style.display === "none" ? "block" : "none";
 }
 
 function showResultsTable() {
