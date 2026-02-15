@@ -40,8 +40,9 @@ async function fetchSchemasWithRetry(budgetMs = SCHEMA_RETRY_BUDGET_MS, delayMs 
     } catch (e) {
       // Retry while service is still warming up.
     }
-    if (Date.now() >= deadline) break;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, remainingMs)));
   } while (true);
   return {};
 }

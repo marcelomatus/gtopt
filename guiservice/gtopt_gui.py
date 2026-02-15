@@ -425,6 +425,7 @@ an external webservice.
                     print(f"Webservice starting at: {webservice_url}")
                     # Give webservice a moment to start
                     time.sleep(2)
+                    # If our child exited but the port is open, another instance is already serving.
                     if webservice_process.poll() is not None and is_port_open(args.webservice_port):
                         print(
                             f"Detected existing process on port {args.webservice_port}; using {webservice_url}"
