@@ -158,6 +158,31 @@ if(WIN32)
   )
 endif()
 
+# Post-install verification: ensure all critical files were installed
+install(CODE "
+  set(_guiservice_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
+  set(_missing_files)
+  foreach(_file
+      app.py
+      requirements.txt
+      static/css/style.css
+      static/js/app.js
+      templates/index.html
+  )
+    if(NOT EXISTS \"\${_guiservice_dir}/\${_file}\")
+      list(APPEND _missing_files \"\${_file}\")
+    endif()
+  endforeach()
+  if(_missing_files)
+    message(FATAL_ERROR
+      \"Guiservice installation is incomplete. Missing files:\\n\"
+      \"\${_missing_files}\\n\"
+      \"in \${_guiservice_dir}\")
+  else()
+    message(STATUS \"Guiservice installation verified: all critical files present\")
+  endif()
+")
+
 # Post-install message
 install(CODE "
   message(STATUS \"To run the gtopt GUI service:\")
