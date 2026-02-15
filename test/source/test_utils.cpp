@@ -323,6 +323,12 @@ TEST_CASE("annual_discount_factor")
     CHECK(annual_discount_factor(-0.05, hours_per_year)
           == doctest::Approx(1.05263157895));
   }
+
+  SUBCASE("very small discount rate")
+  {
+    CHECK(annual_discount_factor(1e-9, hours_per_year)
+          == doctest::Approx(0.999999999));
+  }
 }
 
 TEST_CASE("enumerate empty range")
