@@ -1,4 +1,3 @@
-#include <cmath>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -328,7 +327,7 @@ TEST_CASE("annual_discount_factor")
   SUBCASE("very small discount rate")
   {
     CHECK(annual_discount_factor(1e-9, hours_per_year)
-          == doctest::Approx(std::exp(-std::log1p(1e-9))));
+          == doctest::Approx(0.999999999));
   }
 }
 
