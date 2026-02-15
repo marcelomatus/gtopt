@@ -14,6 +14,13 @@ log_launcher() {
     fi
 }
 
+TMP_GUISERVICE_DIR=""
+cleanup_tmp_guiservice_dir() {
+    if [ -n "$TMP_GUISERVICE_DIR" ] && [ -d "$TMP_GUISERVICE_DIR" ]; then
+        rm -rf "$TMP_GUISERVICE_DIR"
+    fi
+}
+
 # Find the guiservice directory
 # When installed, it should be in the same prefix under share/gtopt/guiservice
 if [ -f "$SCRIPT_DIR/../share/gtopt/guiservice/gtopt_gui.py" ]; then
@@ -43,6 +50,7 @@ if [ ! -w "$GUISERVICE_DIR" ]; then
         exit 1
     fi
     GUISERVICE_DIR="$TMP_GUISERVICE_DIR"
+    trap cleanup_tmp_guiservice_dir EXIT
     log_launcher "Using temporary GUISERVICE_DIR=$GUISERVICE_DIR"
 fi
 
@@ -93,4 +101,5 @@ fi
 
 # Run the Python launcher
 log_launcher "Executing: $PYTHON $GUISERVICE_DIR/gtopt_gui.py $*"
-exec "$PYTHON" "$GUISERVICE_DIR/gtopt_gui.py" "$@"
+"$PYTHON" "$GUISERVICE_DIR/gtopt_gui.py" "$@"
+exit $?
