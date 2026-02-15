@@ -441,3 +441,42 @@ button {
 .status-badge.status-ok { background: #dcfce7; color: #166534; }
 .status-badge.status-fail { background: #fee2e2; color: #991b1b; }
 .status-badge.status-running { background: #dbeafe; color: #1e40af; }
+
+/* View toggle */
+.view-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.btn-toggle {
+  padding: 6px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: none;
+  border-right: 1px solid var(--border);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.btn-toggle:last-child { border-right: none; }
+.btn-toggle:hover { background: #f1f5f9; }
+.btn-toggle.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Spreadsheet container */
+#spreadsheetContainer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: auto;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+#spreadsheetContainer .jexcel_content { font-size: 0.8125rem; }
+#spreadsheetContainer td.readonly {
+  background: #f8fafc;
+  color: var(--text-muted);
+}
