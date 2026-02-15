@@ -153,6 +153,25 @@ def is_port_open(port, host="127.0.0.1", timeout=0.5):
         return sock.connect_ex((host, port)) == 0
 
 
+def query_webservice_ping(webservice_url, timeout=5):
+    """Query the webservice /api/ping endpoint for version and status info.
+
+    Returns:
+        dict with ping response, or None on failure.
+    """
+    import urllib.request
+    import urllib.error
+
+    url = f"{webservice_url}/api/ping"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if response.status == 200:
+                return json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, ConnectionRefusedError, OSError, json.JSONDecodeError):
+        pass
+    return None
+
+
 def resolve_python_executable(cli_python=None):
     """Resolve Python executable used to launch the Flask guiservice process."""
     env_python = os.environ.get("GTOPT_GUI_PYTHON")
@@ -220,6 +239,9 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
     
     if data_dir:
         env["GTOPT_DATA_DIR"] = str(data_dir)
+    
+    if log_file:
+        env["GTOPT_LOG_DIR"] = str(Path(log_file).parent)
     
     # Use Node.js to start the webservice
     # The webservice should already be built (npm run build was executed during install)
@@ -530,8 +552,22 @@ an external webservice.
     # Show status summary
     print("\n" + "=" * 60)
     print("gtopt GUI is running. Press Ctrl+C to stop.")
+    print(f"GUI service logs: {guiservice_log_file}")
     if webservice_url:
         print(f"Webservice available at: {webservice_url}")
+        print(f"Webservice logs: {webservice_log_file}")
+        # Ping webservice for version info
+        ping_info = query_webservice_ping(webservice_url)
+        if ping_info:
+            gtopt_version = ping_info.get("gtopt_version", "")
+            gtopt_bin = ping_info.get("gtopt_bin", "")
+            ws_log_file = ping_info.get("log_file", "")
+            if gtopt_version:
+                print(f"gtopt version: {gtopt_version}")
+            if gtopt_bin:
+                print(f"gtopt binary: {gtopt_bin}")
+            if ws_log_file:
+                print(f"Webservice log file: {ws_log_file}")
         print("You can now edit cases, submit them for solving, and view results.")
     else:
         print("Note: Webservice not available. Solve functionality disabled.")
