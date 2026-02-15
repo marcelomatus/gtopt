@@ -146,6 +146,23 @@ def wait_for_service(port, timeout=30):
     return False
 
 
+def is_port_open(port, host="127.0.0.1", timeout=0.5):
+    """Check whether a TCP port is accepting connections."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex((host, port)) == 0
+
+
+def resolve_python_executable(cli_python=None):
+    """Resolve Python executable used to launch the Flask guiservice process."""
+    env_python = os.environ.get("GTOPT_GUI_PYTHON")
+    if cli_python:
+        return cli_python, "cli"
+    if env_python:
+        return env_python, "env"
+    return sys.executable, "current"
+
+
 def open_browser(url, app_mode=False):
     """Open a web browser with the specified URL.
     
@@ -331,6 +348,13 @@ an external webservice.
         action="store_true",
         help="Run Flask in debug mode with auto-reload",
     )
+
+    parser.add_argument(
+        "--python",
+        type=str,
+        default=None,
+        help="Python executable for launching guiservice app.py (default: current interpreter or GTOPT_GUI_PYTHON)",
+    )
     
     args = parser.parse_args()
     
@@ -363,43 +387,55 @@ an external webservice.
     print(f"Logs directory: {log_dir}")
 
     if not args.no_webservice and not webservice_url:
-        # Try to start webservice automatically
-        webservice_dir = get_webservice_dir()
-        
-        if webservice_dir:
-            print(f"Found webservice at: {webservice_dir}")
-            
-            # Find gtopt binary
-            gtopt_bin = find_gtopt_binary()
-            if gtopt_bin:
-                print(f"Found gtopt binary at: {gtopt_bin}")
-            else:
-                print("Warning: gtopt binary not found. Webservice will start but solving may fail.")
-                print("Install gtopt or set GTOPT_BIN environment variable.")
-            
-            # Create temporary data directory for webservice jobs
-            data_dir = tempfile.mkdtemp(prefix="gtopt_gui_jobs_")
-            
-            # Start webservice
-            print(f"Starting webservice on port {args.webservice_port}...")
-            webservice_process = start_webservice(
-                webservice_dir,
-                args.webservice_port,
-                gtopt_bin=gtopt_bin,
-                data_dir=data_dir,
-                log_file=str(webservice_log_file),
+        if is_port_open(args.webservice_port):
+            webservice_url = f"http://localhost:{args.webservice_port}"
+            print(
+                f"Detected existing process on port {args.webservice_port}; reusing webservice at {webservice_url}"
             )
-            
-            if webservice_process:
-                webservice_url = f"http://localhost:{args.webservice_port}"
-                print(f"Webservice starting at: {webservice_url}")
-                # Give webservice a moment to start
-                time.sleep(2)
-            else:
-                print("Warning: Failed to start webservice. Solve functionality will not be available.")
         else:
-            print("Warning: Webservice not found. Solve functionality will not be available.")
-            print("Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web")
+            # Try to start webservice automatically
+            webservice_dir = get_webservice_dir()
+            
+            if webservice_dir:
+                print(f"Found webservice at: {webservice_dir}")
+                
+                # Find gtopt binary
+                gtopt_bin = find_gtopt_binary()
+                if gtopt_bin:
+                    print(f"Found gtopt binary at: {gtopt_bin}")
+                else:
+                    print("Warning: gtopt binary not found. Webservice will start but solving may fail.")
+                    print("Install gtopt or set GTOPT_BIN environment variable.")
+                
+                # Create temporary data directory for webservice jobs
+                data_dir = tempfile.mkdtemp(prefix="gtopt_gui_jobs_")
+                
+                # Start webservice
+                print(f"Starting webservice on port {args.webservice_port}...")
+                webservice_process = start_webservice(
+                    webservice_dir,
+                    args.webservice_port,
+                    gtopt_bin=gtopt_bin,
+                    data_dir=data_dir,
+                    log_file=str(webservice_log_file),
+                )
+                
+                if webservice_process:
+                    webservice_url = f"http://localhost:{args.webservice_port}"
+                    print(f"Webservice starting at: {webservice_url}")
+                    # Give webservice a moment to start
+                    time.sleep(2)
+                    # If our child exited but the port is open, another instance is already serving.
+                    if webservice_process.poll() is not None and is_port_open(args.webservice_port):
+                        print(
+                            f"Detected existing process on port {args.webservice_port}; using {webservice_url}"
+                        )
+                        webservice_process = None
+                else:
+                    print("Warning: Failed to start webservice. Solve functionality will not be available.")
+            else:
+                print("Warning: Webservice not found. Solve functionality will not be available.")
+                print("Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web")
     
     # Determine port for GUI
     port = args.port if args.port else find_free_port()
@@ -417,8 +453,9 @@ an external webservice.
         env["GTOPT_WEBSERVICE_URL"] = webservice_url
         print(f"Configured to use webservice at: {webservice_url}")
     
-    # Use python from current environment
-    python_exe = sys.executable
+    # Use configured python executable for the Flask process
+    python_exe, python_source = resolve_python_executable(args.python)
+    print(f"Using Python executable ({python_source}): {python_exe}")
     
     flask_log_handle = open(guiservice_log_file, "a")
     flask_process = subprocess.Popen(

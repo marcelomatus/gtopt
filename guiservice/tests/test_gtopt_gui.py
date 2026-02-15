@@ -12,7 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from gtopt_gui import (
     find_free_port,
     get_guiservice_dir,
+    is_port_open,
     open_browser,
+    resolve_python_executable,
 )
 
 
@@ -99,3 +101,30 @@ def test_open_browser_app_mode_falls_back_to_webbrowser(monkeypatch):
     open_browser("http://localhost:5001", app_mode=True)
 
     assert calls == [("http://localhost:5001", 1)]
+
+
+def test_is_port_open_detects_listening_socket():
+    """is_port_open should return True only while a socket is listening."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        assert is_port_open(port)
+
+    assert not is_port_open(port)
+
+
+def test_resolve_python_executable_prefers_cli_then_env(monkeypatch):
+    """CLI override should win over environment variable."""
+    monkeypatch.setenv("GTOPT_GUI_PYTHON", "/env/python")
+    python_exe, source = resolve_python_executable("/cli/python")
+    assert python_exe == "/cli/python"
+    assert source == "cli"
+
+
+def test_resolve_python_executable_uses_env(monkeypatch):
+    """Environment override should be used when CLI is not provided."""
+    monkeypatch.setenv("GTOPT_GUI_PYTHON", "/env/python")
+    python_exe, source = resolve_python_executable()
+    assert python_exe == "/env/python"
+    assert source == "env"
