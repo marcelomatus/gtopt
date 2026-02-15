@@ -12,12 +12,14 @@
  *     --port PORT          Port for the web service (default: 3000)
  *     --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
  *     --data-dir PATH      Directory for job data storage (default: ./data)
+ *     --log-dir PATH       Directory for log files (default: logs to console only)
  *     --help               Show this help message
  * 
  * Environment Variables:
  *     PORT                 Web service port (default: 3000)
  *     GTOPT_BIN            Path to gtopt binary
  *     GTOPT_DATA_DIR       Directory for job data storage
+ *     GTOPT_LOG_DIR        Directory for log files
  */
 
 const fs = require('fs');
@@ -35,6 +37,7 @@ Options:
   --port PORT          Port for the web service (default: 3000)
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
+  --log-dir PATH       Directory for log files (default: console only)
   --dev                Run in development mode
   --help               Show this help message
 
@@ -42,11 +45,13 @@ Environment Variables:
   PORT                 Web service port (default: 3000)
   GTOPT_BIN            Path to gtopt binary
   GTOPT_DATA_DIR       Directory for job data storage
+  GTOPT_LOG_DIR        Directory for log files
 
 Examples:
   gtopt_websrv                           # Start on default port 3000
   gtopt_websrv --port 8080               # Start on port 8080
   gtopt_websrv --gtopt-bin /usr/bin/gtopt  # Use specific gtopt binary
+  gtopt_websrv --log-dir /var/log/gtopt  # Write logs to directory
   gtopt_websrv --dev                     # Run in development mode
 `);
 }
@@ -115,6 +120,7 @@ function parseArgs() {
     port: process.env.PORT || '3000',
     gtoptBin: process.env.GTOPT_BIN || null,
     dataDir: process.env.GTOPT_DATA_DIR || null,
+    logDir: process.env.GTOPT_LOG_DIR || null,
     dev: false,
     help: false,
   };
@@ -133,6 +139,9 @@ function parseArgs() {
         break;
       case '--data-dir':
         config.dataDir = args[++i];
+        break;
+      case '--log-dir':
+        config.logDir = args[++i];
         break;
       case '--dev':
         config.dev = true;
@@ -190,6 +199,11 @@ function main() {
   
   if (config.dataDir) {
     env.GTOPT_DATA_DIR = config.dataDir;
+  }
+
+  if (config.logDir) {
+    env.GTOPT_LOG_DIR = config.logDir;
+    console.log(`Log directory: ${config.logDir}`);
   }
   
   // Check if node_modules exists

@@ -155,6 +155,7 @@ Download job results as a zip file.
 |---------------------|---------|-------------|
 | `GTOPT_BIN` | `../build/gtopt` | Path to the gtopt binary |
 | `GTOPT_DATA_DIR` | `./data` | Directory for job data storage |
+| `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
 | `PORT` | `3000` | HTTP port |
 
 ## Testing

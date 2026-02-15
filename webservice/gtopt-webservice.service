@@ -12,6 +12,8 @@ WorkingDirectory=/usr/local/share/gtopt/webservice
 # Environment variables
 Environment="PORT=3000"
 Environment="GTOPT_BIN=/usr/local/bin/gtopt"
+Environment="GTOPT_DATA_DIR=/var/lib/gtopt/data"
+Environment="GTOPT_LOG_DIR=/var/log/gtopt"
 Environment="NODE_ENV=production"
 
 # Start the service using the installed launcher

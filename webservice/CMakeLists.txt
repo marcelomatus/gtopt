@@ -111,13 +111,13 @@ install(DIRECTORY "${WEBSERVICE_DIR}/"
   PATTERN "*.md"
   PATTERN "*.css"  # CSS files
   PATTERN "*.service"  # systemd service file
+  PATTERN "*.sh"  # test scripts
   PATTERN "src/*"
   PATTERN "public/*"
   PATTERN "CMakeLists.txt" EXCLUDE
   PATTERN "node_modules" EXCLUDE
   PATTERN ".next" EXCLUDE
   PATTERN "data" EXCLUDE
-  PATTERN "test" EXCLUDE
   PATTERN "gtopt_websrv.sh" EXCLUDE  # Handled separately below
   PATTERN "gtopt_websrv.bat" EXCLUDE  # Handled separately below
 )

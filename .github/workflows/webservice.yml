@@ -89,3 +89,8 @@ jobs:
           test -d .next
           echo "✓ Production build successful"
 
+      - name: Test webservice runs after installation
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          bash test/install_test.sh
+
