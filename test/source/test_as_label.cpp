@@ -3,6 +3,8 @@
 
 using namespace gtopt;
 
+static_assert(detail::to_lower_char('A') == 'a');
+
 TEST_CASE("as_label basic functionality")
 {
   SUBCASE("empty input")
