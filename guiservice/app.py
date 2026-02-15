@@ -539,9 +539,9 @@ def _parse_results_zip(zip_bytes):
             elif name.endswith(".parquet"):
                 try:
                     df = pd.read_parquet(io.BytesIO(zf.read(name)))
-                    pbase = os.path.splitext(os.path.basename(name))[0]
+                    base_no_ext = os.path.splitext(os.path.basename(name))[0]
                     parent = os.path.basename(os.path.dirname(name))
-                    key = f"{parent}/{pbase}" if parent else pbase
+                    key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                     results["outputs"][key] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
