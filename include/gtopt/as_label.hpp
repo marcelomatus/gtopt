@@ -34,7 +34,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <format>
 #include <iterator>
 #include <string>
@@ -49,10 +48,12 @@ namespace gtopt
 namespace detail
 {
 
-[[nodiscard]] inline char to_lower_char(char c) noexcept
+[[nodiscard]] constexpr char to_lower_char(char c) noexcept
 {
-  return static_cast<char>(
-      std::tolower(static_cast<unsigned char>(c)));
+  if (c >= 'A' && c <= 'Z') {
+    return static_cast<char>(c + ('a' - 'A'));
+  }
+  return c;
 }
 
 // Improved concept for string-like types
