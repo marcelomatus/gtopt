@@ -438,9 +438,8 @@ function renderCurrentElementView() {
 
 function destroySpreadsheet() {
   if (spreadsheetInstance) {
-    var el = document.getElementById("spreadsheetContainer");
-    // jspreadsheet-ce attaches to the container; clear it
-    if (el && typeof jspreadsheet !== "undefined" && spreadsheetInstance.destroy) {
+    var container = document.getElementById("spreadsheetContainer");
+    if (container && typeof jspreadsheet !== "undefined" && spreadsheetInstance.destroy) {
       spreadsheetInstance.destroy();
     }
     spreadsheetInstance = null;
@@ -466,7 +465,7 @@ function renderSpreadsheet() {
     var col = { title: field.name, width: 120 };
     if (field.type === "boolean") {
       col.type = "dropdown";
-      col.source = ["", "true", "false"];
+      col.source = ["—", "true", "false"];
       col.width = 80;
     } else if (field.type === "integer") {
       col.type = "numeric";
@@ -485,7 +484,9 @@ function renderSpreadsheet() {
   var data = elements.map(function (el) {
     return schema.fields.map(function (field) {
       var val = el[field.name];
-      if (val === null || val === undefined) return "";
+      if (val === null || val === undefined) {
+        return field.type === "boolean" ? "—" : "";
+      }
       if (field.type === "boolean") return String(val);
       return val;
     });
