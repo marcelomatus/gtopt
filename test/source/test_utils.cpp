@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -322,6 +323,12 @@ TEST_CASE("annual_discount_factor")
     // 1/(1 + (-0.05))^1 = 1/0.95 ≈ 1.05263157895
     CHECK(annual_discount_factor(-0.05, hours_per_year)
           == doctest::Approx(1.05263157895));
+  }
+
+  SUBCASE("very small discount rate")
+  {
+    CHECK(annual_discount_factor(1e-9, hours_per_year)
+          == doctest::Approx(std::exp(-std::log1p(1e-9))));
   }
 }
 
