@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from gtopt_gui import (
     find_free_port,
     get_guiservice_dir,
+    open_browser,
 )
 
 
@@ -64,3 +65,37 @@ def test_gtopt_binary_detection():
     # Should return None or Path, not raise error
     result = find_gtopt_binary()
     assert result is None or isinstance(result, Path)
+
+
+def test_open_browser_regular_mode_uses_webbrowser(monkeypatch):
+    """Regular mode should always use default browser opener."""
+    calls = []
+
+    def fake_open(url, new=1):
+        calls.append((url, new))
+        return True
+
+    monkeypatch.setattr("webbrowser.open", fake_open)
+    open_browser("http://localhost:5001", app_mode=False)
+
+    assert calls == [("http://localhost:5001", 1)]
+
+
+def test_open_browser_app_mode_falls_back_to_webbrowser(monkeypatch):
+    """App mode should fall back gracefully when app launchers are unavailable."""
+    calls = []
+
+    def fake_open(url, new=1):
+        calls.append((url, new))
+        return True
+
+    def raise_file_not_found(*args, **kwargs):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr("webbrowser.open", fake_open)
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr("subprocess.Popen", raise_file_not_found)
+
+    open_browser("http://localhost:5001", app_mode=True)
+
+    assert calls == [("http://localhost:5001", 1)]

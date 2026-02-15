@@ -206,6 +206,9 @@ class TestRoutes:
         resp = client.get("/")
         assert resp.status_code == 200
         assert b"gtopt Case Editor" in resp.data
+        assert b'id="mainNav"' in resp.data
+        assert b'/static/js/app.js' in resp.data
+        assert b"Quick Assistant" in resp.data
 
     def test_schemas(self, client):
         resp = client.get("/api/schemas")
@@ -216,6 +219,13 @@ class TestRoutes:
         assert "demand" in data
         assert "line" in data
         assert data["bus"]["label"] == "Bus"
+
+    def test_logs_endpoint(self, client):
+        resp = client.get("/api/logs?lines=20")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "logs" in data
+        assert isinstance(data["logs"], list)
 
     def test_preview(self, client):
         resp = client.post(
