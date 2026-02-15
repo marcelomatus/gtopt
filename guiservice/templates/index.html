@@ -60,6 +60,7 @@
     <div class="nav-section">
       <h3>Results</h3>
       <a href="#" class="nav-link" data-tab="results">Results Viewer</a>
+      <a href="#" class="nav-link" data-tab="logs">Logs</a>
     </div>
   </nav>
 
@@ -201,6 +202,15 @@
       </div>
     </div>
 
+    <div class="tab-panel" id="panel-logs">
+      <h2>Service Logs</h2>
+      <p class="help-text">Recent backend logs for debugging initialization and runtime issues.</p>
+      <div class="results-controls">
+        <button class="btn-sm" onclick="refreshLogs()">Refresh</button>
+      </div>
+      <pre id="logsOutput" class="logs-output">No logs loaded yet.</pre>
+    </div>
+
     <!-- JSON Preview Modal -->
     <div id="jsonModal" class="modal" style="display:none">
       <div class="modal-content">
@@ -212,6 +222,14 @@
       </div>
     </div>
   </main>
+  <aside class="assistant-card">
+    <h3>✨ Quick Assistant</h3>
+    <p>Need a starting point? Create a case, then open Webservice settings to test connection.</p>
+    <div class="assistant-actions">
+      <button class="btn-sm" onclick="newCase()">New Case</button>
+      <button class="btn-sm" onclick="switchTab('solver')">Webservice</button>
+    </div>
+  </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
   <script src="/static/js/app.js"></script>

@@ -9,9 +9,11 @@ case management and a browser-based GUI for interactive case creation.
 import csv
 import io
 import json
+import logging
 import os
 import tempfile
 import zipfile
+from collections import deque
 
 import pandas as pd
 import requests as http_requests
@@ -25,6 +27,44 @@ from flask import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+
+MAX_LOG_ENTRIES = 500
+DEFAULT_LOG_LINES = 200
+_recent_logs = deque(maxlen=MAX_LOG_ENTRIES)
+
+
+class _RecentLogHandler(logging.Handler):
+    """Keep recent logs in memory for GUI log viewer."""
+
+    def emit(self, record):
+        _recent_logs.append(self.format(record))
+
+
+def _configure_logging():
+    """Configure guiservice logging for file + in-memory viewing."""
+    log_file = os.environ.get(
+        "GTOPT_GUI_LOG_FILE",
+        os.path.join(tempfile.gettempdir(), "gtopt_guiservice.log"),
+    )
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
+    app.logger.setLevel(logging.INFO)
+
+    if not any(isinstance(h, _RecentLogHandler) for h in app.logger.handlers):
+        recent_handler = _RecentLogHandler()
+        recent_handler.setFormatter(formatter)
+        app.logger.addHandler(recent_handler)
+
+    if not any(isinstance(h, logging.FileHandler) for h in app.logger.handlers):
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        app.logger.addHandler(file_handler)
+
+    app.logger.info("guiservice logging initialized (log_file=%s)", log_file)
+
+
+_configure_logging()
 
 # Default webservice URL (can be overridden via env or API)
 _webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000")
@@ -510,7 +550,16 @@ def index():
 @app.route("/api/schemas", methods=["GET"])
 def get_schemas():
     """Return the element schemas for use by the GUI."""
+    app.logger.debug("Serving schemas")
     return jsonify(ELEMENT_SCHEMAS)
+
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    """Return recent backend logs for GUI diagnostics."""
+    lines = request.args.get("lines", default=DEFAULT_LOG_LINES, type=int)
+    lines = max(1, min(lines, MAX_LOG_ENTRIES))
+    return jsonify({"logs": list(_recent_logs)[-lines:]})
 
 
 @app.route("/api/case/download", methods=["POST"])
@@ -625,10 +674,12 @@ def submit_solve():
         resp.raise_for_status()
         return jsonify(resp.json())
     except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on submit: %s", _webservice_url)
         return jsonify(
             {"error": f"Cannot connect to webservice at {_webservice_url}"}
         ), 502
     except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on submit")
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         body = ""
@@ -637,10 +688,12 @@ def submit_solve():
                 body = e.response.json().get("error", e.response.text)
             except Exception:
                 body = e.response.text
+        app.logger.warning("Webservice HTTP error on submit: %s", body)
         return jsonify(
             {"error": f"Webservice error ({e.response.status_code}): {body}"}
         ), 502
     except Exception as e:
+        app.logger.exception("Unexpected error on submit")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
@@ -661,17 +714,21 @@ def get_solve_status(token):
         resp.raise_for_status()
         return jsonify(resp.json())
     except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on status token=%s", token)
         return jsonify(
             {"error": f"Cannot connect to webservice at {_webservice_url}"}
         ), 502
     except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on status token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on status token=%s status=%s", token, status)
         return jsonify(
             {"error": f"Webservice error: {status}"}
         ), 502
     except Exception as e:
+        app.logger.exception("Unexpected error on status token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
@@ -695,17 +752,21 @@ def get_solve_results(token):
         results = _parse_results_zip(resp.content)
         return jsonify(results)
     except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on results token=%s", token)
         return jsonify(
             {"error": f"Cannot connect to webservice at {_webservice_url}"}
         ), 502
     except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on results token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on results token=%s status=%s", token, status)
         return jsonify(
             {"error": f"Webservice error: {status}"}
         ), 502
     except Exception as e:
+        app.logger.exception("Unexpected error on results token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
@@ -724,17 +785,21 @@ def list_solve_jobs():
         resp.raise_for_status()
         return jsonify(resp.json())
     except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on jobs list")
         return jsonify(
             {"error": f"Cannot connect to webservice at {_webservice_url}"}
         ), 502
     except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on jobs list")
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on jobs list status=%s", status)
         return jsonify(
             {"error": f"Webservice error: {status}"}
         ), 502
     except Exception as e:
+        app.logger.exception("Unexpected error on jobs list")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 

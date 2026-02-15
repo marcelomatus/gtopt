@@ -140,7 +140,8 @@ Options:
   --port PORT              Port for the GUI service (default: auto-select)
   --webservice-port PORT   Port for the webservice (default: 3000)
   --no-browser             Don't open a web browser automatically
-  --no-app-mode            Don't try to open browser in app/kiosk mode
+  --no-app-mode            Deprecated alias for regular browser mode
+  --app-mode               Try to open browser in app/kiosk mode
   --no-webservice          Don't auto-start the webservice
   --webservice-url URL     Use external webservice at this URL
   --debug                  Run Flask in debug mode with auto-reload
@@ -153,7 +154,7 @@ Options:
 - **Zero Configuration**: Automatically detects gtopt binary and webservice
 - **Standalone operation**: Runs entirely in user space, no root required
 - **Auto port selection**: Automatically finds available ports if not specified
-- **Browser app mode**: Opens in app mode on Chrome/Chromium for a cleaner interface
+- **Browser compatibility first**: Opens in regular browser mode by default; `--app-mode` is available for kiosk-style launch
 - **Graceful shutdown**: Press Ctrl+C to stop all services cleanly
 - **Cross-platform**: Works on Ubuntu, macOS, and WSL
 - **Modular**: Webservice runs in separate process, clean separation of concerns
@@ -337,9 +338,9 @@ If you see "Failed to start webservice", check:
 
 ### Browser doesn't open in app mode
 
-App mode requires Chrome or Chromium. If not available:
+App mode requires Chrome or Chromium and is only used when `--app-mode` is set. If not available:
 - The browser opens in a regular tab instead
-- Use `--no-app-mode` to suppress the warning
+- Omit `--app-mode` (default behavior) for maximum compatibility
 
 ## Architecture
 
