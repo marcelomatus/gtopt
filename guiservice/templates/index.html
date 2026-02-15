@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>gtopt Case Editor</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.css">
 </head>
 <body>
   <header>
@@ -130,9 +132,14 @@
     <div class="tab-panel" id="panel-element" style="display:none">
       <div class="element-header">
         <h2 id="elementTitle">Elements</h2>
+        <div class="view-toggle">
+          <button class="btn-toggle active" id="btnCardView" onclick="setElementView('card')">Card View</button>
+          <button class="btn-toggle" id="btnSpreadsheetView" onclick="setElementView('spreadsheet')">Spreadsheet View</button>
+        </div>
         <button class="primary" id="addElementBtn" onclick="addElement()">+ Add</button>
       </div>
       <div id="elementList"></div>
+      <div id="spreadsheetContainer" style="display:none"></div>
     </div>
 
     <!-- Solver Tab -->
@@ -232,6 +239,8 @@
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>
