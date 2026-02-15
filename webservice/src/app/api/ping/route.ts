@@ -23,7 +23,7 @@ export async function GET() {
   } catch (err) {
     log.error(`GET /api/ping error: ${err}`);
     return NextResponse.json({
-      status: "ok",
+      status: "error",
       service: "gtopt-webservice",
       gtopt_bin: "",
       gtopt_version: "",
