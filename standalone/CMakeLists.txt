@@ -48,6 +48,16 @@ set(CPLEX_ROOT_DIR
 set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(../cmake_local/Solver.cmake)
 
+# ---- RPATH configuration ----
+# Ensure non-system shared libraries (Arrow, Parquet, COIN-OR, etc.) can be
+# found at runtime after installation.
+# INSTALL_RPATH_USE_LINK_PATH automatically adds linker search directories to
+# the installed binary's RPATH so that libraries in non-standard locations
+# (e.g. /usr/local/lib, /opt/coinor/lib) are found.
+# Set the variable BEFORE add_executable so the property is propagated.
+
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 # ---- Create standalone executable ----
 
 file(GLOB sources CONFIGURE_DEPENDS
@@ -68,14 +78,9 @@ target_link_libraries(
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
-# ---- RPATH configuration ----
-# Ensure non-system shared libraries (Arrow, Parquet, COIN-OR, etc.) can be
-# found at runtime after installation.
-# CMAKE_INSTALL_RPATH_USE_LINK_PATH automatically adds linker search
-# directories to the installed binary's RPATH so that libraries in
-# non-standard locations (e.g. /usr/local/lib, /opt/coinor/lib) are found.
-
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+# configure_install_rpath walks the link-library tree of the gtopt library
+# target, resolves imported-target locations, and sets INSTALL_RPATH so that
+# shared libraries in non-standard directories are found after install.
 
 include(InstallRpath)
 configure_install_rpath(${PROJECT_NAME} gtopt)

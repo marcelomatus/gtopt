@@ -62,6 +62,17 @@ jobs:
       - name: install gtopt
         run: cmake --install build --prefix build/install
 
+      - name: verify installed gtopt binary
+        run: |
+          echo "=== ldd output ==="
+          ldd build/install/bin/gtopt
+          if ldd build/install/bin/gtopt | grep -q "not found"; then
+            echo "::error::Installed gtopt binary has missing shared libraries"
+            exit 1
+          fi
+          build/install/bin/gtopt --version
+          echo "✓ Installed gtopt binary works"
+
       # ---- Build the web service ----
 
       - uses: actions/setup-node@v4
