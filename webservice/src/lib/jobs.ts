@@ -120,11 +120,20 @@ export async function runGtopt(token: string): Promise<void> {
     let stderr = "";
 
     proc.stdout.on("data", (data: Buffer) => {
-      stdout += data.toString();
+      const text = data.toString();
+      stdout += text;
+      // Log each line of terminal output for real-time visibility
+      for (const line of text.split("\n").filter((l: string) => l.length > 0)) {
+        log.info(`Job ${token} [stdout]: ${line}`);
+      }
     });
 
     proc.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      for (const line of text.split("\n").filter((l: string) => l.length > 0)) {
+        log.warn(`Job ${token} [stderr]: ${line}`);
+      }
     });
 
     proc.on("close", async (code) => {
@@ -137,12 +146,19 @@ export async function runGtopt(token: string): Promise<void> {
         job.error = stderr || stdout || `Process exited with code ${code}`;
         log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
-      // Save logs
+      // Save logs to job directory
       try {
         await fs.writeFile(path.join(getJobDir(token), "stdout.log"), stdout);
         await fs.writeFile(path.join(getJobDir(token), "stderr.log"), stderr);
       } catch {
         // Ignore log write errors
+      }
+      // Also save terminal output inside the output directory so it is
+      // included in the results ZIP downloaded by the GUI.
+      try {
+        await fs.writeFile(path.join(outputDir, "gtopt_terminal.log"), stdout + stderr);
+      } catch {
+        // Ignore write errors
       }
       await updateJob(job);
       resolve();
@@ -208,6 +224,28 @@ export async function listJobs(): Promise<JobInfo[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Read saved stdout/stderr logs for a job.
+ */
+export async function getJobLogs(
+  token: string
+): Promise<{ stdout: string; stderr: string } | null> {
+  const jobDir = getJobDir(token);
+  let stdout = "";
+  let stderr = "";
+  try {
+    stdout = await fs.readFile(path.join(jobDir, "stdout.log"), "utf-8");
+  } catch {
+    // file may not exist yet
+  }
+  try {
+    stderr = await fs.readFile(path.join(jobDir, "stderr.log"), "utf-8");
+  } catch {
+    // file may not exist yet
+  }
+  return { stdout, stderr };
 }
 
 /**
