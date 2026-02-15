@@ -85,10 +85,30 @@ jobs:
           ./gtopt_guisrv --help | grep -q "gtopt_guisrv"
           echo "✓ gtopt_guisrv help works"
 
-      - name: Verify systemd service file is installed
+      - name: Verify all critical files are installed
         run: |
-          test -f $HOME/gtopt-install/share/gtopt/guiservice/gtopt-guiservice.service
-          echo "✓ Systemd service file installed"
+          INSTALL_DIR=$HOME/gtopt-install/share/gtopt/guiservice
+          MISSING=0
+          for f in \
+            app.py \
+            requirements.txt \
+            gtopt-guiservice.service \
+            static/css/style.css \
+            static/js/app.js \
+            templates/index.html \
+          ; do
+            if [ -f "$INSTALL_DIR/$f" ]; then
+              echo "✓ $f installed"
+            else
+              echo "✗ $f MISSING"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::Some critical guiservice files were not installed"
+            exit 1
+          fi
+          echo "✓ All critical guiservice files verified"
 
       - name: Test gtopt_guisrv starts and serves API
         run: |
