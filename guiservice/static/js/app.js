@@ -7,6 +7,8 @@
 let schemas = {};
 let currentTab = "options";
 let currentElementType = null;
+let currentElementView = "card";
+let spreadsheetInstance = null;
 let resultsData = null;
 let resultsChart = null;
 let solverJobId = null;
@@ -106,7 +108,7 @@ function switchTab(tab) {
     document.getElementById("panel-element").classList.add("active");
     document.getElementById("elementTitle").textContent = schemas[tab].label + "s";
     document.getElementById("addElementBtn").textContent = "+ Add " + schemas[tab].label;
-    renderElements();
+    renderCurrentElementView();
   }
 }
 
@@ -327,13 +329,13 @@ function addElement() {
     else newEl[field.name] = null;
   }
   elements.push(newEl);
-  renderElements();
+  renderCurrentElementView();
   updateBadges();
 }
 
 function removeElement(i) {
   getElements().splice(i, 1);
-  renderElements();
+  renderCurrentElementView();
   updateBadges();
 }
 
@@ -408,6 +410,161 @@ function renderElements() {
     card.innerHTML = headerHtml + fieldsHtml;
     container.appendChild(card);
   });
+}
+
+// ---------------------------------------------------------------------------
+// View toggle & Spreadsheet view
+// ---------------------------------------------------------------------------
+
+function setElementView(view) {
+  currentElementView = view;
+  document.getElementById("btnCardView").classList.toggle("active", view === "card");
+  document.getElementById("btnSpreadsheetView").classList.toggle("active", view === "spreadsheet");
+  renderCurrentElementView();
+}
+
+function renderCurrentElementView() {
+  if (currentElementView === "spreadsheet") {
+    document.getElementById("elementList").style.display = "none";
+    document.getElementById("spreadsheetContainer").style.display = "block";
+    renderSpreadsheet();
+  } else {
+    document.getElementById("elementList").style.display = "block";
+    document.getElementById("spreadsheetContainer").style.display = "none";
+    destroySpreadsheet();
+    renderElements();
+  }
+}
+
+function destroySpreadsheet() {
+  if (spreadsheetInstance) {
+    var el = document.getElementById("spreadsheetContainer");
+    // jspreadsheet-ce attaches to the container; clear it
+    if (el && typeof jspreadsheet !== "undefined" && spreadsheetInstance.destroy) {
+      spreadsheetInstance.destroy();
+    }
+    spreadsheetInstance = null;
+    document.getElementById("spreadsheetContainer").innerHTML = "";
+  }
+}
+
+function renderSpreadsheet() {
+  destroySpreadsheet();
+  var container = document.getElementById("spreadsheetContainer");
+  container.innerHTML = "";
+
+  if (typeof jspreadsheet === "undefined") {
+    container.innerHTML = '<p class="help-text" style="padding:16px">Spreadsheet library is loading… Please try again shortly.</p>';
+    return;
+  }
+
+  var elements = getElements();
+  var schema = schemas[currentElementType];
+  if (!schema) return;
+
+  var columns = schema.fields.map(function (field) {
+    var col = { title: field.name, width: 120 };
+    if (field.type === "boolean") {
+      col.type = "dropdown";
+      col.source = ["", "true", "false"];
+      col.width = 80;
+    } else if (field.type === "integer") {
+      col.type = "numeric";
+      col.mask = "#,##0";
+      col.decimal = ".";
+    } else if (field.type === "number") {
+      col.type = "numeric";
+      col.decimal = ".";
+    } else {
+      col.type = "text";
+    }
+    return col;
+  });
+
+  // Build data rows from existing elements
+  var data = elements.map(function (el) {
+    return schema.fields.map(function (field) {
+      var val = el[field.name];
+      if (val === null || val === undefined) return "";
+      if (field.type === "boolean") return String(val);
+      return val;
+    });
+  });
+
+  // Ensure at least one empty row when no elements exist
+  if (data.length === 0) {
+    data = [schema.fields.map(function () { return ""; })];
+  }
+
+  spreadsheetInstance = jspreadsheet(container, {
+    data: data,
+    columns: columns,
+    minDimensions: [schema.fields.length, 1],
+    allowInsertRow: true,
+    allowDeleteRow: true,
+    allowInsertColumn: false,
+    allowDeleteColumn: false,
+    columnSorting: true,
+    tableOverflow: true,
+    tableWidth: "100%",
+    tableHeight: "600px",
+    onchange: function (instance, cell, colIndex, rowIndex, value) {
+      syncSpreadsheetToData();
+    },
+    oninsertrow: function () {
+      syncSpreadsheetToData();
+    },
+    ondeleterow: function () {
+      syncSpreadsheetToData();
+    },
+    onpaste: function () {
+      // Defer to allow jspreadsheet to finish processing the paste
+      setTimeout(function () { syncSpreadsheetToData(); }, 0);
+    },
+  });
+}
+
+function syncSpreadsheetToData() {
+  if (!spreadsheetInstance || !currentElementType) return;
+  var schema = schemas[currentElementType];
+  if (!schema) return;
+
+  var tableData = spreadsheetInstance.getData();
+  var newElements = [];
+
+  for (var r = 0; r < tableData.length; r++) {
+    var row = tableData[r];
+    // Skip completely empty rows
+    var allEmpty = row.every(function (cell) { return cell === "" || cell === null || cell === undefined; });
+    if (allEmpty) continue;
+
+    var el = {};
+    for (var c = 0; c < schema.fields.length; c++) {
+      var field = schema.fields[c];
+      var val = row[c];
+
+      if (val === "" || val === null || val === undefined) {
+        el[field.name] = null;
+      } else if (field.type === "integer") {
+        el[field.name] = parseInt(val, 10);
+        if (isNaN(el[field.name])) el[field.name] = null;
+      } else if (field.type === "number") {
+        el[field.name] = Number(val);
+        if (isNaN(el[field.name])) el[field.name] = null;
+      } else if (field.type === "boolean") {
+        el[field.name] = val === "true" ? true : val === "false" ? false : null;
+      } else if (field.type === "number_or_file") {
+        var num = Number(val);
+        el[field.name] = isNaN(num) ? val : num;
+      } else {
+        el[field.name] = val || null;
+      }
+    }
+    newElements.push(el);
+  }
+
+  caseData.system[currentElementType] = newElements;
+  updateBadges();
 }
 
 // ---------------------------------------------------------------------------
