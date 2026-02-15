@@ -12,6 +12,8 @@ let resultsChart = null;
 let solverJobId = null;
 let solverPollTimer = null;
 let webserviceUrl = "";
+const SCHEMA_RETRY_ATTEMPTS = 5;
+const SCHEMA_RETRY_DELAY_MS = 400;
 
 const caseData = {
   case_name: "my_case",
@@ -29,11 +31,22 @@ const caseData = {
 // Initialization
 // ---------------------------------------------------------------------------
 
-document.addEventListener("DOMContentLoaded", async () => {
-  const resp = await fetch("/api/schemas");
-  schemas = await resp.json();
+async function fetchSchemasWithRetry(attempts = SCHEMA_RETRY_ATTEMPTS, delayMs = SCHEMA_RETRY_DELAY_MS) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const resp = await fetch("/api/schemas");
+      if (resp.ok) return await resp.json();
+    } catch (e) {
+      // Retry while service is still warming up.
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return {};
+}
 
-  // Set up nav clicks
+document.addEventListener("DOMContentLoaded", async () => {
+  // Set up nav clicks first so static tabs remain responsive even if schema
+  // loading is delayed during service startup.
   document.querySelectorAll(".nav-link").forEach((link) => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
@@ -41,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
+  schemas = await fetchSchemasWithRetry();
   updateBadges();
 
   // Load webservice config
@@ -78,6 +92,9 @@ function switchTab(tab) {
     renderSimulation();
   } else if (tab === "results") {
     showPanel("panel-results");
+  } else if (tab === "logs") {
+    showPanel("panel-logs");
+    refreshLogs();
   } else if (tab === "solver") {
     showPanel("panel-solver");
   } else if (schemas[tab]) {
@@ -941,6 +958,24 @@ function showResultsChart() {
       },
     },
   });
+}
+
+async function refreshLogs() {
+  const output = document.getElementById("logsOutput");
+  if (!output) return;
+  output.textContent = "Loading logs…";
+  try {
+    const resp = await fetch("/api/logs?lines=300");
+    if (!resp.ok) {
+      output.textContent = "Failed to load logs.";
+      return;
+    }
+    const data = await resp.json();
+    const lines = data.logs || [];
+    output.textContent = lines.length ? lines.join("\n") : "No logs available yet.";
+  } catch (e) {
+    output.textContent = "Failed to load logs: " + e.message;
+  }
 }
 
 // ---------------------------------------------------------------------------

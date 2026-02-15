@@ -183,7 +183,7 @@ def open_browser(url, app_mode=False):
     webbrowser.open(url, new=1)
 
 
-def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None):
+def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_file=None):
     """Start the webservice in a subprocess.
     
     Args:
@@ -215,18 +215,26 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None):
         return None
     
     # Start with 'npm start' which runs the production server
+    log_handle = None
     try:
+        if log_file:
+            log_handle = open(log_file, "a")
+        stdout_target = log_handle if log_handle else subprocess.PIPE
         process = subprocess.Popen(
             ["npm", "start"],
             cwd=str(webservice_dir),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=stdout_target,
+            stderr=subprocess.STDOUT,
             text=True,
         )
+        if log_handle:
+            process._gtopt_log_handle = log_handle
         return process
     except FileNotFoundError:
         print("Error: npm not found. Please install Node.js and npm.", file=sys.stderr)
+        if log_handle:
+            log_handle.close()
         return None
 
 
@@ -252,14 +260,14 @@ Examples:
   gtopt_gui                    # Start GUI without a specific config file
   gtopt_gui system_c0.json     # Start GUI (config file can be uploaded via UI)
   gtopt_gui --port 5001        # Use a specific port
-  gtopt_gui --no-app-mode      # Open in regular browser window (not app mode)
+  gtopt_gui --app-mode         # Open in Chrome/Chromium app window mode
   gtopt_gui --no-webservice    # Don't auto-start webservice
 
 The GUI will open in your default web browser. To upload your configuration
 file, use the "Upload Case" button in the interface.
 
-By default, the browser opens in app/kiosk mode (Chrome/Chromium only) for a
-cleaner interface. Use --no-app-mode to disable this.
+By default, the browser opens in a regular window for best compatibility.
+Use --app-mode to request Chrome/Chromium app/kiosk mode.
 
 The GUI automatically starts a local webservice instance for running
 optimizations. Use --no-webservice to disable auto-start if you want to use
@@ -296,7 +304,13 @@ an external webservice.
     parser.add_argument(
         "--no-app-mode",
         action="store_true",
-        help="Don't try to open browser in app/kiosk mode",
+        help="Deprecated alias for regular browser mode",
+    )
+
+    parser.add_argument(
+        "--app-mode",
+        action="store_true",
+        help="Try to open browser in app/kiosk mode (Chrome/Chromium only)",
     )
     
     parser.add_argument(
@@ -343,6 +357,11 @@ an external webservice.
     webservice_process = None
     webservice_url = args.webservice_url
     
+    log_dir = tempfile.mkdtemp(prefix="gtopt_gui_logs_")
+    guiservice_log_file = Path(log_dir) / "guiservice.log"
+    webservice_log_file = Path(log_dir) / "webservice.log"
+    print(f"Logs directory: {log_dir}")
+
     if not args.no_webservice and not webservice_url:
         # Try to start webservice automatically
         webservice_dir = get_webservice_dir()
@@ -367,7 +386,8 @@ an external webservice.
                 webservice_dir,
                 args.webservice_port,
                 gtopt_bin=gtopt_bin,
-                data_dir=data_dir
+                data_dir=data_dir,
+                log_file=str(webservice_log_file),
             )
             
             if webservice_process:
@@ -390,6 +410,7 @@ an external webservice.
     env = os.environ.copy()
     env["FLASK_DEBUG"] = "1" if args.debug else "0"
     env["GTOPT_GUI_PORT"] = str(port)
+    env["GTOPT_GUI_LOG_FILE"] = str(guiservice_log_file)
     
     # Set webservice URL if we have one
     if webservice_url:
@@ -399,14 +420,16 @@ an external webservice.
     # Use python from current environment
     python_exe = sys.executable
     
+    flask_log_handle = open(guiservice_log_file, "a")
     flask_process = subprocess.Popen(
         [python_exe, "-u", "app.py"],
         cwd=str(guiservice_dir),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=flask_log_handle,
+        stderr=subprocess.STDOUT,
         text=True,
     )
+    flask_process._gtopt_log_handle = flask_log_handle
     
     # Register cleanup handler
     def cleanup():
@@ -426,6 +449,10 @@ an external webservice.
                 webservice_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 webservice_process.kill()
+        if hasattr(flask_process, "_gtopt_log_handle"):
+            flask_process._gtopt_log_handle.close()
+        if webservice_process and hasattr(webservice_process, "_gtopt_log_handle"):
+            webservice_process._gtopt_log_handle.close()
     
     atexit.register(cleanup)
     
@@ -457,8 +484,8 @@ an external webservice.
             print("  1. Click the 'Upload Case' button")
             print(f"  2. Navigate to and select: {config_path}")
             print("  3. Or create a ZIP file containing your config and data files")
-        # Use app mode by default unless --no-app-mode is specified
-        app_mode = not args.no_app_mode
+        # Use regular browser mode by default for better compatibility.
+        app_mode = args.app_mode and not args.no_app_mode
         open_browser(url, app_mode=app_mode)
     else:
         print(f"\nGUI service is running at: {url}")
@@ -478,28 +505,15 @@ an external webservice.
         while True:
             if flask_process.poll() is not None:
                 print("\nFlask process terminated unexpectedly", file=sys.stderr)
-                # Print any error output
-                stderr_output = flask_process.stderr.read()
-                if stderr_output:
-                    print("Error output:", file=sys.stderr)
-                    print(stderr_output, file=sys.stderr)
+                print(f"Check logs: {guiservice_log_file}", file=sys.stderr)
                 sys.exit(1)
             
             # Also check webservice if it's running
             if webservice_process and webservice_process.poll() is not None:
                 print("\nWebservice terminated unexpectedly", file=sys.stderr)
-                stderr_output = webservice_process.stderr.read()
-                if stderr_output:
-                    print("Webservice error output:", file=sys.stderr)
-                    print(stderr_output, file=sys.stderr)
+                print(f"Check logs: {webservice_log_file}", file=sys.stderr)
                 # Continue running GUI even if webservice dies
-            
-            # Read and display logs
-            line = flask_process.stdout.readline()
-            if line:
-                print(line.rstrip())
-            else:
-                time.sleep(0.1)
+            time.sleep(0.1)
     
     except KeyboardInterrupt:
         pass
