@@ -89,3 +89,40 @@ jobs:
           test -d .next
           echo "✓ Production build successful"
 
+      - name: Test webservice runs after installation
+        run: |
+          # Create a mock gtopt binary for the run test
+          MOCK_BIN=$(mktemp)
+          cat > "$MOCK_BIN" << 'MOCK'
+          #!/bin/bash
+          echo "mock gtopt"
+          exit 0
+          MOCK
+          chmod +x "$MOCK_BIN"
+
+          # Start the webservice from the installed location
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          GTOPT_BIN="$MOCK_BIN" PORT=3097 node_modules/.bin/next start -p 3097 &
+          SERVER_PID=$!
+
+          # Wait for the server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3097 >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          # Verify the server responds
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3097/)
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
+          rm -f "$MOCK_BIN"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ Webservice responds with HTTP 200 after installation"
+          else
+            echo "✗ Webservice returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+

@@ -104,16 +104,16 @@ sudo apt-get install -y -V libboost-container-dev
 
 ## 3. Build and Install gtopt
 
-Clone the repository and build the standalone solver:
+Clone the repository, build, and install:
 
 ```bash
-git clone https://github.com/marcelomatus/gtopt.git
-cd gtopt
+git clone https://github.com/marcelomatus/gtopt.git /tmp/gtopt-build
+cd /tmp/gtopt-build
 
 # Configure
-cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
 export CC=gcc-14
 export CXX=g++-14
+cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
 
 # Build
 cmake --build build -j$(nproc)
@@ -138,48 +138,39 @@ cmake --install build --prefix /opt/gtopt
 
 ## 4. Install the Web Service
 
-From the repository root:
+From the cloned repository (the source tree is only needed for installation,
+not for running the service):
 
 ```bash
-cd webservice
+cd /tmp/gtopt-build
 
-# Install Node.js dependencies
-npm ci
+# Configure and install the webservice via CMake
+cmake -S webservice -B build-web
+sudo cmake --install build-web
 
-# Build the Next.js application for production
-npm run build
+# Install Node.js dependencies and build in the installed location
+cd /usr/local/share/gtopt/webservice
+sudo npm install
+sudo npm run build
 ```
 
-### Using CMake (alternative)
+The source tree (`/tmp/gtopt-build`) can be removed after installation.
 
-If building from the standalone CMake tree:
-
-```bash
-# From repository root
-cmake --build build --target webservice-install
-cmake --build build --target webservice-build
-```
+After installation:
+- The `gtopt_websrv` launcher is at `/usr/local/bin/gtopt_websrv`
+- The web service files are at `/usr/local/share/gtopt/webservice/`
 
 ## 5. Configure the Web Service
 
-The web service is configured through environment variables:
+The `gtopt_websrv` launcher accepts command-line options and environment
+variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GTOPT_BIN` | `../build/gtopt` | Absolute path to the gtopt binary |
-| `GTOPT_DATA_DIR` | `./data` | Directory for uploaded cases and results |
-| `PORT` | `3000` | HTTP port the web service listens on |
-
-Create a `.env.local` file in the `webservice/` directory for persistent
-configuration:
-
-```bash
-cat > webservice/.env.local << 'EOF'
-GTOPT_BIN=/usr/local/bin/gtopt
-GTOPT_DATA_DIR=/var/lib/gtopt/data
-PORT=3000
-EOF
-```
+| Option / Variable | Default | Description |
+|-------------------|---------|-------------|
+| `--port` / `PORT` | `3000` | HTTP port the web service listens on |
+| `--gtopt-bin` / `GTOPT_BIN` | auto-detect | Absolute path to the gtopt binary |
+| `--data-dir` / `GTOPT_DATA_DIR` | `./data` | Directory for uploaded cases and results |
+| `--log-dir` / `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
 
 Ensure the data directory exists and is writable:
 
@@ -188,60 +179,59 @@ sudo mkdir -p /var/lib/gtopt/data
 sudo chown $USER:$USER /var/lib/gtopt/data
 ```
 
+Optionally create a log directory:
+
+```bash
+sudo mkdir -p /var/log/gtopt
+sudo chown $USER:$USER /var/log/gtopt
+```
+
 ## 6. Run the Web Service
+
+### Using gtopt_websrv (recommended)
+
+```bash
+# Basic start (auto-detects gtopt binary)
+gtopt_websrv
+
+# With explicit options
+gtopt_websrv --port 8080 --gtopt-bin /usr/local/bin/gtopt
+
+# With data and log directories
+gtopt_websrv --data-dir /var/lib/gtopt/data --log-dir /var/log/gtopt
+```
 
 ### Development mode (with hot reload)
 
 ```bash
-cd webservice
-GTOPT_BIN=/usr/local/bin/gtopt npm run dev
+gtopt_websrv --dev
 ```
 
-### Production mode
+### Using npm directly from the installed location
 
 ```bash
-cd webservice
+cd /usr/local/share/gtopt/webservice
 GTOPT_BIN=/usr/local/bin/gtopt npm run start
 ```
 
 The service will be available at `http://localhost:3000` (or whatever port you
 configured).
 
-### Using CMake
-
-```bash
-cmake --build build --target webservice-start
-```
-
 ## 7. Run as a System Service
 
 For production deployments, use systemd to run the web service as a background
 service that starts on boot.
 
-### Create a systemd unit file
+### Copy the systemd unit file
+
+A service file template is included with the installation:
 
 ```bash
-sudo tee /etc/systemd/system/gtopt-webservice.service << 'EOF'
-[Unit]
-Description=gtopt Web Service
-After=network.target
+sudo cp /usr/local/share/gtopt/webservice/gtopt-webservice.service \
+        /etc/systemd/system/
 
-[Service]
-Type=simple
-User=gtopt
-Group=gtopt
-WorkingDirectory=/home/gtopt/gtopt/webservice
-Environment=NODE_ENV=production
-Environment=GTOPT_BIN=/usr/local/bin/gtopt
-Environment=GTOPT_DATA_DIR=/var/lib/gtopt/data
-Environment=PORT=3000
-ExecStart=/usr/bin/npm run start
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Edit the service file if needed (e.g., change port, user, paths)
+sudo nano /etc/systemd/system/gtopt-webservice.service
 ```
 
 ### Create a dedicated service user (recommended)
@@ -249,8 +239,8 @@ EOF
 ```bash
 sudo useradd -r -m -s /bin/bash gtopt
 sudo mkdir -p /var/lib/gtopt/data
-sudo chown -R gtopt:gtopt /var/lib/gtopt
-# Copy or clone the repo under /home/gtopt/gtopt and build there
+sudo mkdir -p /var/log/gtopt
+sudo chown -R gtopt:gtopt /var/lib/gtopt /var/log/gtopt
 ```
 
 ### Enable and start the service
@@ -321,7 +311,7 @@ sudo certbot --nginx -d your-domain.com
 These tests use a mock solver to validate the web service API:
 
 ```bash
-cd webservice
+cd /usr/local/share/gtopt/webservice
 npm test
 ```
 
@@ -331,7 +321,7 @@ These tests use the real gtopt binary and validate solver output against
 reference results from `cases/c0`:
 
 ```bash
-cd webservice
+cd /usr/local/share/gtopt/webservice
 GTOPT_BIN=/usr/local/bin/gtopt npm run test:e2e
 ```
 
@@ -408,11 +398,12 @@ Returns a binary `.zip` file containing:
 
 ### "gtopt binary not found"
 
-Ensure `GTOPT_BIN` points to the correct path:
+Ensure `GTOPT_BIN` points to the correct path or is installed in `/usr/local/bin`:
 
 ```bash
 which gtopt                    # if installed system-wide
 ls -la /usr/local/bin/gtopt    # check the binary exists and is executable
+gtopt_websrv --gtopt-bin /usr/local/bin/gtopt  # specify explicitly
 ```
 
 ### Web service won't start
@@ -427,9 +418,9 @@ npm --version
 Rebuild if needed:
 
 ```bash
-cd webservice
+cd /usr/local/share/gtopt/webservice
 rm -rf node_modules .next
-npm ci
+npm install
 npm run build
 ```
 
@@ -446,8 +437,8 @@ Check server logs:
 # If running with systemd:
 sudo journalctl -u gtopt-webservice -n 50
 
-# If running directly:
-# Check the terminal output or server.log
+# If using --log-dir:
+tail -f /var/log/gtopt/gtopt-webservice.log
 ```
 
 ### Port already in use

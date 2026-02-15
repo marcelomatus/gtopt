@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "bash test/integration_test.sh",
-    "test:e2e": "bash test/e2e_test.sh"
+    "test:e2e": "bash test/e2e_test.sh",
+    "test:install": "bash test/install_test.sh"
   },
   "dependencies": {
     "archiver": "^7.0.1",

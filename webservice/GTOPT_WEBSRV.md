@@ -98,6 +98,9 @@ GTOPT_BIN=/usr/local/bin/gtopt gtopt_websrv
 
 # Set data directory
 GTOPT_DATA_DIR=/var/lib/gtopt/jobs gtopt_websrv
+
+# Set log directory
+GTOPT_LOG_DIR=/var/log/gtopt gtopt_websrv
 ```
 
 ## Options
@@ -109,6 +112,7 @@ Options:
   --port PORT          Port for the web service (default: 3000)
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
+  --log-dir PATH       Directory for log files (default: console only)
   --dev                Run in development mode with hot reload
   --help               Show help message
 ```
