@@ -498,16 +498,28 @@ def _parse_uploaded_zip(zip_bytes):
 
 def _parse_results_zip(zip_bytes):
     """Parse a results ZIP or directory structure into viewable data."""
-    results = {"solution": {}, "outputs": {}}
+    results = {"solution": {}, "outputs": {}, "terminal_output": ""}
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         for name in zf.namelist():
+            # Collect terminal / log files so they can be shown in the GUI
+            base = os.path.basename(name)
+            if base in ("gtopt_terminal.log", "stdout.log", "stderr.log"):
+                try:
+                    content = zf.read(name).decode("utf-8", errors="replace")
+                    if content.strip():
+                        if results["terminal_output"]:
+                            results["terminal_output"] += "\n"
+                        results["terminal_output"] += content
+                except Exception:
+                    pass
+                continue
+
             if name.endswith(".csv"):
                 try:
                     content = zf.read(name).decode("utf-8")
                     reader = csv.reader(io.StringIO(content))
                     rows = list(reader)
-                    base = os.path.basename(name)
                     parent = os.path.basename(os.path.dirname(name))
 
                     if base == "solution.csv":
@@ -527,9 +539,9 @@ def _parse_results_zip(zip_bytes):
             elif name.endswith(".parquet"):
                 try:
                     df = pd.read_parquet(io.BytesIO(zf.read(name)))
-                    base = os.path.splitext(os.path.basename(name))[0]
+                    pbase = os.path.splitext(os.path.basename(name))[0]
                     parent = os.path.basename(os.path.dirname(name))
-                    key = f"{parent}/{base}" if parent else base
+                    key = f"{parent}/{pbase}" if parent else pbase
                     results["outputs"][key] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
@@ -872,6 +884,39 @@ def get_webservice_logs():
         ), 502
     except Exception as e:
         app.logger.exception("Unexpected error on logs")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/job_logs/<token>", methods=["GET"])
+def get_job_logs(token):
+    """Retrieve terminal output (stdout/stderr) for a specific job.
+
+    Proxies to GET /api/jobs/:token/logs on the webservice.
+    """
+    global _webservice_url
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/jobs/{token}/logs",
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on job_logs token=%s", token)
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on job_logs token=%s", token)
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on job_logs token=%s status=%s", token, status)
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        app.logger.exception("Unexpected error on job_logs token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
