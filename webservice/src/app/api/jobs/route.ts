@@ -8,7 +8,10 @@ import {
   runGtopt,
   listJobs,
 } from "@/lib/jobs";
+import { createLogger } from "@/lib/logger";
 import extractZip from "extract-zip";
+
+const log = createLogger("api/jobs");
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +25,7 @@ export async function POST(request: NextRequest) {
     const systemFile = formData.get("systemFile") as string | null;
 
     if (!file) {
+      log.warn("POST /api/jobs: no file uploaded");
       return NextResponse.json(
         { error: "No file uploaded. Please upload a zip file." },
         { status: 400 }
@@ -29,6 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!systemFile) {
+      log.warn("POST /api/jobs: no systemFile specified");
       return NextResponse.json(
         {
           error:
@@ -42,6 +47,7 @@ export async function POST(request: NextRequest) {
     if (
       !file.name.endsWith(".zip")
     ) {
+      log.warn(`POST /api/jobs: invalid file type: ${file.name}`);
       return NextResponse.json(
         {
           error:
@@ -50,6 +56,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    log.info(`POST /api/jobs: received file=${file.name} systemFile=${systemFile}`);
 
     // Create job
     const job = await createJob(systemFile);
@@ -65,6 +73,7 @@ export async function POST(request: NextRequest) {
     try {
       await extractZip(zipPath, { dir: inputDir });
     } catch (err) {
+      log.error(`POST /api/jobs: zip extraction failed: ${err instanceof Error ? err.message : String(err)}`);
       return NextResponse.json(
         {
           error: `Failed to extract zip file: ${err instanceof Error ? err.message : String(err)}`,
@@ -81,6 +90,7 @@ export async function POST(request: NextRequest) {
     try {
       await fs.access(systemFilePath);
     } catch {
+      log.error(`POST /api/jobs: system file '${systemFile}' not found in archive`);
       return NextResponse.json(
         {
           error: `System file '${systemFile}' not found in uploaded archive.`,
@@ -91,9 +101,10 @@ export async function POST(request: NextRequest) {
 
     // Start the job asynchronously
     runGtopt(job.token).catch((err) => {
-      console.error(`Job ${job.token} failed:`, err);
+      log.error(`Job ${job.token} failed: ${err}`);
     });
 
+    log.info(`POST /api/jobs: job submitted token=${job.token}`);
     return NextResponse.json(
       {
         token: job.token,
@@ -104,7 +115,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (err) {
-    console.error("Job submission error:", err);
+    log.error(`POST /api/jobs: internal error: ${err}`);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -115,10 +126,11 @@ export async function POST(request: NextRequest) {
 // GET /api/jobs - List all jobs
 export async function GET() {
   try {
+    log.info("GET /api/jobs: listing jobs");
     const allJobs = await listJobs();
     return NextResponse.json({ jobs: allJobs });
   } catch (err) {
-    console.error("List jobs error:", err);
+    log.error(`GET /api/jobs: internal error: ${err}`);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

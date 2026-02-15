@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJob } from "@/lib/jobs";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/jobs/token");
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +15,10 @@ export async function GET(
   const job = await getJob(token);
 
   if (!job) {
+    log.warn(`GET /api/jobs/${token}: job not found`);
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
+  log.info(`GET /api/jobs/${token}: status=${job.status}`);
   return NextResponse.json(job);
 }

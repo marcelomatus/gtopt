@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJob, getJobOutputDir, getJobDir } from "@/lib/jobs";
+import { createLogger } from "@/lib/logger";
 import archiver from "archiver";
 import { promises as fs } from "fs";
 import { PassThrough } from "stream";
+
+const log = createLogger("api/jobs/download");
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +18,12 @@ export async function GET(
   const job = await getJob(token);
 
   if (!job) {
+    log.warn(`GET /api/jobs/${token}/download: job not found`);
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
   if (job.status !== "completed" && job.status !== "failed") {
+    log.info(`GET /api/jobs/${token}/download: job not finished (status=${job.status})`);
     return NextResponse.json(
       {
         error: "Job is not finished yet",
@@ -80,6 +85,7 @@ export async function GET(
   }
   const zipBuffer = Buffer.concat(chunks);
 
+  log.info(`GET /api/jobs/${token}/download: sending zip (${zipBuffer.length} bytes)`);
   return new NextResponse(zipBuffer, {
     status: 200,
     headers: {
