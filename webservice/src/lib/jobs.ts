@@ -2,6 +2,9 @@ import { promises as fs } from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { spawn } from "child_process";
+import { createLogger } from "./logger";
+
+const log = createLogger("jobs");
 
 export interface JobInfo {
   token: string;
@@ -57,6 +60,7 @@ export async function createJob(systemFile: string): Promise<JobInfo> {
     JSON.stringify(job, null, 2)
   );
 
+  log.info(`Job created: token=${token} systemFile=${systemFile}`);
   return job;
 }
 
@@ -100,6 +104,7 @@ export async function runGtopt(token: string): Promise<void> {
   await fs.mkdir(outputDir, { recursive: true });
 
   const gtoptBin = await resolveGtoptBinary();
+  log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile} inputDir=${inputDir} outputDir=${outputDir}`);
 
   return new Promise<void>((resolve) => {
     const proc = spawn(
@@ -126,9 +131,11 @@ export async function runGtopt(token: string): Promise<void> {
       if (code === 0) {
         job.status = "completed";
         job.completedAt = new Date().toISOString();
+        log.info(`Job ${token}: gtopt completed successfully`);
       } else {
         job.status = "failed";
         job.error = stderr || stdout || `Process exited with code ${code}`;
+        log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
       // Save logs
       try {
@@ -144,6 +151,7 @@ export async function runGtopt(token: string): Promise<void> {
     proc.on("error", async (err) => {
       job.status = "failed";
       job.error = `Failed to start gtopt: ${err.message}`;
+      log.error(`Job ${token}: failed to start gtopt: ${err.message}`);
       await updateJob(job);
       resolve();
     });
@@ -154,6 +162,7 @@ async function resolveGtoptBinary(): Promise<string> {
   // Check configured path first
   try {
     await fs.access(GTOPT_BIN, fs.constants.X_OK);
+    log.info(`Using configured gtopt binary: ${GTOPT_BIN}`);
     return GTOPT_BIN;
   } catch {
     // Fall through
@@ -169,6 +178,7 @@ async function resolveGtoptBinary(): Promise<string> {
   for (const candidate of candidates) {
     try {
       await fs.access(candidate, fs.constants.X_OK);
+      log.info(`Found gtopt binary at: ${candidate}`);
       return candidate;
     } catch {
       continue;
@@ -176,6 +186,7 @@ async function resolveGtoptBinary(): Promise<string> {
   }
 
   // Default: hope it's on PATH
+  log.warn("gtopt binary not found in configured paths, falling back to PATH lookup");
   return "gtopt";
 }
 
