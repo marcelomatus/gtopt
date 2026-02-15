@@ -152,10 +152,20 @@
               <input type="text" id="wsUrl" placeholder="http://localhost:3000">
               <button class="btn-sm" onclick="saveWsConfig()">Save</button>
               <button class="btn-sm" onclick="testWsConnection()">Test</button>
+              <button class="btn-sm" onclick="pingWebservice()">Ping</button>
             </div>
           </label>
         </div>
         <div id="wsConnectionStatus" class="ws-connection-status"></div>
+        <div id="wsPingInfo" class="ws-ping-info" style="display:none">
+          <table class="ping-table">
+            <tbody>
+              <tr><td><strong>gtopt binary</strong></td><td id="pingGtoptBin">—</td></tr>
+              <tr><td><strong>gtopt version</strong></td><td id="pingGtoptVersion">—</td></tr>
+              <tr><td><strong>Log file</strong></td><td id="pingLogFile">—</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="solver-status-section">
@@ -212,10 +222,12 @@
     <div class="tab-panel" id="panel-logs">
       <h2>Service Logs</h2>
       <p class="help-text">Recent backend logs for debugging initialization and runtime issues.</p>
-      <div class="results-controls">
-        <button class="btn-sm" onclick="refreshLogs()">Refresh</button>
-      </div>
+
+      <h3>GUI Service Logs <button class="btn-sm" onclick="refreshLogs()">Refresh</button></h3>
       <pre id="logsOutput" class="logs-output">No logs loaded yet.</pre>
+
+      <h3>Webservice Logs <button class="btn-sm" onclick="refreshWebserviceLogs()">Refresh</button></h3>
+      <pre id="wsLogsOutput" class="logs-output">No webservice logs loaded yet.</pre>
     </div>
 
     <!-- JSON Preview Modal -->
@@ -241,6 +253,36 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.js"></script>
+  <script>
+    /* Fallback: if CDN scripts failed to load, try reloading them dynamically */
+    (function() {
+      function loadScript(src) {
+        return new Promise(function(resolve, reject) {
+          var s = document.createElement('script');
+          s.src = src;
+          s.onload = resolve;
+          s.onerror = reject;
+          document.body.appendChild(s);
+        });
+      }
+      if (typeof jsuites === 'undefined' || typeof jspreadsheet === 'undefined') {
+        var chain = Promise.resolve();
+        if (typeof jsuites === 'undefined') {
+          chain = chain.then(function() {
+            return loadScript('https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.js');
+          });
+        }
+        if (typeof jspreadsheet === 'undefined') {
+          chain = chain.then(function() {
+            return loadScript('https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.js');
+          });
+        }
+        chain.catch(function() {
+          console.warn('Spreadsheet libraries could not be loaded from CDN.');
+        });
+      }
+    })();
+  </script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>
