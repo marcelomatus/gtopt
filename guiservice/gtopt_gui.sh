@@ -30,6 +30,22 @@ log_launcher "PATH=$PATH"
 log_launcher "GTOPT_GUI_PYTHON=${GTOPT_GUI_PYTHON:-<unset>}"
 log_launcher "GTOPT_WEBSERVICE_URL=${GTOPT_WEBSERVICE_URL:-<unset>}"
 
+# If guiservice files are not user-writable (e.g. installed under /usr/local),
+# run from a user-owned temporary copy.
+if [ ! -w "$GUISERVICE_DIR" ]; then
+    TMP_GUISERVICE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gtopt_gui_XXXXXX")"
+    if [ -z "$TMP_GUISERVICE_DIR" ] || [ ! -d "$TMP_GUISERVICE_DIR" ]; then
+        echo "Error: Failed to create temporary guiservice directory" >&2
+        exit 1
+    fi
+    if ! cp -a "$GUISERVICE_DIR/." "$TMP_GUISERVICE_DIR/"; then
+        echo "Error: Failed to copy guiservice files to temporary directory" >&2
+        exit 1
+    fi
+    GUISERVICE_DIR="$TMP_GUISERVICE_DIR"
+    log_launcher "Using temporary GUISERVICE_DIR=$GUISERVICE_DIR"
+fi
+
 # Find Python 3
 PYTHON="${GTOPT_GUI_PYTHON:-}"
 if [ -n "$PYTHON" ]; then
