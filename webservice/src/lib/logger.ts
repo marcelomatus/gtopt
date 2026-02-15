@@ -17,8 +17,8 @@ async function appendToFile(filePath: string, line: string): Promise<void> {
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.appendFile(filePath, line + "\n");
-  } catch {
-    // Ignore file write errors to avoid disrupting the service
+  } catch (err) {
+    console.error(`Failed to write to log file ${filePath}: ${err}`);
   }
 }
 
