@@ -429,3 +429,69 @@ TEST_SUITE("ArrowTraits int types use int32")
     CHECK(std::is_same_v<ArrowTraits<int8_t>::Type, arrow::Int32Type>);
   }
 }
+
+TEST_SUITE("is_compatible_double_type")
+{
+  TEST_CASE("compatible types")
+  {
+    CHECK(is_compatible_double_type(arrow::Type::FLOAT));
+    CHECK(is_compatible_double_type(arrow::Type::DOUBLE));
+  }
+
+  TEST_CASE("incompatible types")
+  {
+    CHECK_FALSE(is_compatible_double_type(arrow::Type::INT32));
+    CHECK_FALSE(is_compatible_double_type(arrow::Type::INT64));
+    CHECK_FALSE(is_compatible_double_type(arrow::Type::STRING));
+  }
+}
+
+TEST_SUITE("cast_to_double_array")
+{
+  TEST_CASE("cast double array passthrough")
+  {
+    arrow::DoubleBuilder builder;
+    REQUIRE(builder.AppendValues({1.5, 2.5, 3.5}).ok());
+    std::shared_ptr<arrow::Array> array;
+    REQUIRE(builder.Finish(&array).ok());
+
+    auto result = cast_to_double_array(array);
+    REQUIRE(result != nullptr);
+    CHECK(result->length() == 3);
+    CHECK(result->Value(0) == doctest::Approx(1.5));
+    CHECK(result->Value(1) == doctest::Approx(2.5));
+    CHECK(result->Value(2) == doctest::Approx(3.5));
+  }
+
+  TEST_CASE("cast float array to double")
+  {
+    arrow::FloatBuilder builder;
+    REQUIRE(builder.AppendValues({10.0f, 20.0f, 30.0f}).ok());
+    std::shared_ptr<arrow::Array> array;
+    REQUIRE(builder.Finish(&array).ok());
+
+    auto result = cast_to_double_array(array);
+    REQUIRE(result != nullptr);
+    CHECK(result->length() == 3);
+    CHECK(result->Value(0) == doctest::Approx(10.0));
+    CHECK(result->Value(1) == doctest::Approx(20.0));
+    CHECK(result->Value(2) == doctest::Approx(30.0));
+  }
+
+  TEST_CASE("cast incompatible type returns nullptr")
+  {
+    arrow::Int32Builder builder;
+    REQUIRE(builder.AppendValues({1, 2}).ok());
+    std::shared_ptr<arrow::Array> array;
+    REQUIRE(builder.Finish(&array).ok());
+
+    auto result = cast_to_double_array(array);
+    CHECK(result == nullptr);
+  }
+
+  TEST_CASE("cast null chunk returns nullptr")
+  {
+    auto result = cast_to_double_array(nullptr);
+    CHECK(result == nullptr);
+  }
+}
