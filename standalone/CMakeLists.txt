@@ -71,6 +71,11 @@ target_link_libraries(
 # ---- RPATH configuration ----
 # Ensure non-system shared libraries (Arrow, Parquet, COIN-OR, etc.) can be
 # found at runtime after installation.
+# CMAKE_INSTALL_RPATH_USE_LINK_PATH automatically adds linker search
+# directories to the installed binary's RPATH so that libraries in
+# non-standard locations (e.g. /usr/local/lib, /opt/coinor/lib) are found.
+
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 include(InstallRpath)
 configure_install_rpath(${PROJECT_NAME} gtopt)
