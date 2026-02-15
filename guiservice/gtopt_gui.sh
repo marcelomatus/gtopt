@@ -6,6 +6,13 @@
 
 # Get the directory where this script is installed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAUNCHER_DEBUG="${GTOPT_GUI_DEBUG:-0}"
+
+log_launcher() {
+    if [ "$LAUNCHER_DEBUG" = "1" ]; then
+        echo "[gtopt_gui.sh] $*" >&2
+    fi
+}
 
 # Find the guiservice directory
 # When installed, it should be in the same prefix under share/gtopt/guiservice
@@ -17,24 +24,42 @@ else
     echo "Error: Cannot find guiservice directory" >&2
     exit 1
 fi
+log_launcher "SCRIPT_DIR=$SCRIPT_DIR"
+log_launcher "GUISERVICE_DIR=$GUISERVICE_DIR"
+log_launcher "PATH=$PATH"
+log_launcher "GTOPT_GUI_PYTHON=${GTOPT_GUI_PYTHON:-<unset>}"
+log_launcher "GTOPT_WEBSERVICE_URL=${GTOPT_WEBSERVICE_URL:-<unset>}"
 
 # Find Python 3
-PYTHON=""
-for cmd in python3 python; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        # Check if it's Python 3
-        if "$cmd" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
-            PYTHON="$cmd"
-            break
-        fi
+PYTHON="${GTOPT_GUI_PYTHON:-}"
+if [ -n "$PYTHON" ]; then
+    log_launcher "Trying GTOPT_GUI_PYTHON override: $PYTHON"
+    if ! command -v "$PYTHON" >/dev/null 2>&1; then
+        echo "Error: GTOPT_GUI_PYTHON is set but not executable on PATH: $PYTHON" >&2
+        exit 1
     fi
-done
+    if ! "$PYTHON" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
+        echo "Error: GTOPT_GUI_PYTHON must point to Python 3.10 or later: $PYTHON" >&2
+        exit 1
+    fi
+else
+    for cmd in python3 python; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            # Check if it's Python 3
+            if "$cmd" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
+                PYTHON="$cmd"
+                break
+            fi
+        fi
+    done
+fi
 
 if [ -z "$PYTHON" ]; then
     echo "Error: Python 3.10 or later is required" >&2
     echo "Please install Python 3.10+ and ensure it's in your PATH" >&2
     exit 1
 fi
+log_launcher "Using PYTHON=$PYTHON"
 
 # Check if required Python packages are installed
 if ! "$PYTHON" -c "import flask, pandas, pyarrow, requests" 2>/dev/null; then
@@ -51,4 +76,5 @@ if ! "$PYTHON" -c "import flask, pandas, pyarrow, requests" 2>/dev/null; then
 fi
 
 # Run the Python launcher
+log_launcher "Executing: $PYTHON $GUISERVICE_DIR/gtopt_gui.py $*"
 exec "$PYTHON" "$GUISERVICE_DIR/gtopt_gui.py" "$@"
