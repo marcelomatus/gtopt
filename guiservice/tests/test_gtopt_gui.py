@@ -150,20 +150,27 @@ def test_launcher_uses_temp_copy_for_non_writable_guiservice_dir(tmp_path):
     fake_bin = tmp_path / "fakebin"
     fake_bin.mkdir()
     fake_python = fake_bin / "python3"
-    fake_python.write_text("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then exit 0; fi\nexit 0\n")
+    fake_python.write_text("#!/bin/sh\nexit 0\n")
     fake_python.chmod(0o755)
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
     env["GTOPT_GUI_DEBUG"] = "1"
 
-    result = subprocess.run(
-        [str(launcher)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [str(launcher)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    finally:
+        guiservice_dir.chmod(0o755)
 
     assert result.returncode == 0
-    assert "Using temporary GUISERVICE_DIR=" in result.stderr
+    marker = "Using temporary GUISERVICE_DIR="
+    assert marker in result.stderr
+    temp_dir = result.stderr.split(marker, 1)[1].splitlines()[0].strip()
+    assert temp_dir.startswith("/tmp/")
+    assert temp_dir != str(guiservice_dir)
