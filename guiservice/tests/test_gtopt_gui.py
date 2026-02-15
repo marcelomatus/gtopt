@@ -14,6 +14,7 @@ from gtopt_gui import (
     get_guiservice_dir,
     is_port_open,
     open_browser,
+    query_webservice_ping,
     resolve_python_executable,
 )
 
@@ -128,3 +129,9 @@ def test_resolve_python_executable_uses_env(monkeypatch):
     python_exe, source = resolve_python_executable()
     assert python_exe == "/env/python"
     assert source == "env"
+
+
+def test_query_webservice_ping_returns_none_on_failure():
+    """query_webservice_ping should return None when webservice is unreachable."""
+    result = query_webservice_ping("http://127.0.0.1:19999", timeout=1)
+    assert result is None
