@@ -112,6 +112,7 @@ install(
   PATTERN "*.css"  # static/css/style.css
   PATTERN "*.js"   # static/js/app.js
   PATTERN "*.html" # templates/index.html
+  PATTERN "CMakeLists.txt" EXCLUDE
   PATTERN "__pycache__" EXCLUDE
   PATTERN "tests" EXCLUDE
   PATTERN ".pytest_cache" EXCLUDE
