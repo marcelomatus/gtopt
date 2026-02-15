@@ -1285,7 +1285,7 @@ async function checkServer() {
       // Also update the webservice logs panel
       const wsOutput = document.getElementById("wsLogsOutput");
       if (wsOutput && count > 0) {
-        var header = l.log_file ? "Log file: " + l.log_file + "\n\n" : "";
+        const header = l.log_file ? "Log file: " + l.log_file + "\n\n" : "";
         wsOutput.textContent = header + l.lines.join("\n");
       }
     } else {
@@ -1302,7 +1302,7 @@ async function checkServer() {
       parts.push("❌ Jobs: " + (data.jobs ? data.jobs.error : "unavailable"));
     }
 
-    var allOk = (data.ping && data.ping.status === "ok") &&
+    const allOk = (data.ping && data.ping.status === "ok") &&
                 (data.logs && data.logs.status === "ok") &&
                 (data.jobs && data.jobs.status === "ok");
     setWsStatus(allOk ? "ok" : "fail", parts.join("  |  "));
