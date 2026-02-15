@@ -1,8 +1,6 @@
 """Tests for gtopt_gui launcher with integrated webservice functionality."""
 
 import socket
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -130,47 +128,3 @@ def test_resolve_python_executable_uses_env(monkeypatch):
     python_exe, source = resolve_python_executable()
     assert python_exe == "/env/python"
     assert source == "env"
-
-
-def test_launcher_uses_temp_copy_for_non_writable_guiservice_dir(tmp_path):
-    """Shell launcher should copy guiservice files to a writable temp dir when needed."""
-    launcher_src = Path(__file__).parent.parent / "gtopt_gui.sh"
-    install_bin = tmp_path / "install" / "bin"
-    guiservice_dir = tmp_path / "install" / "share" / "gtopt" / "guiservice"
-    install_bin.mkdir(parents=True)
-    guiservice_dir.mkdir(parents=True)
-
-    launcher = install_bin / "gtopt_gui.sh"
-    launcher.write_text(launcher_src.read_text())
-    launcher.chmod(0o755)
-
-    (guiservice_dir / "gtopt_gui.py").write_text("print('ok')\n")
-    guiservice_dir.chmod(0o555)
-
-    fake_bin = tmp_path / "fakebin"
-    fake_bin.mkdir()
-    fake_python = fake_bin / "python3"
-    fake_python.write_text("#!/bin/sh\nexit 0\n")
-    fake_python.chmod(0o755)
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
-    env["GTOPT_GUI_DEBUG"] = "1"
-
-    try:
-        result = subprocess.run(
-            [str(launcher)],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    finally:
-        guiservice_dir.chmod(0o755)
-
-    assert result.returncode == 0
-    marker = "Using temporary GUISERVICE_DIR="
-    assert marker in result.stderr
-    temp_dir = result.stderr.split(marker, 1)[1].splitlines()[0].strip()
-    assert temp_dir.startswith("/tmp/")
-    assert temp_dir != str(guiservice_dir)

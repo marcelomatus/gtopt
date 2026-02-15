@@ -109,8 +109,9 @@ install(
   PATTERN "*.txt"  # requirements.txt
   PATTERN "*.md"
   PATTERN "*.service"  # systemd service file
-  PATTERN "static/*"
-  PATTERN "templates/*"
+  PATTERN "*.css"  # static/css/style.css
+  PATTERN "*.js"   # static/js/app.js
+  PATTERN "*.html" # templates/index.html
   PATTERN "__pycache__" EXCLUDE
   PATTERN "tests" EXCLUDE
   PATTERN ".pytest_cache" EXCLUDE
