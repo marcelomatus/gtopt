@@ -37,9 +37,6 @@ option(USE_CCACHE "use ccache" YES)
 include(cmake/CPM.cmake)
 include(cmake/tools.cmake)
 
-# PackageProject.cmake will be used to make our target installable
-CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
-
 CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 
 # External libraries
@@ -110,7 +107,6 @@ target_compile_options(
 target_include_directories(
   ${PROJECT_NAME}
   PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-         $<INSTALL_INTERFACE:include/${PROJECT_NAME}-${PROJECT_VERSION}>
 )
 
 target_include_directories(

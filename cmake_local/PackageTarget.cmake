@@ -2,8 +2,7 @@
 PackageTarget
 -------------
 
-Create a namespaced alias and version header for a library target, and
-optionally install it via ``packageProject()``.
+Create a namespaced alias and version header for a library target.
 
 Usage::
 
@@ -20,15 +19,11 @@ Usage::
     [DEPENDENCIES <dep> ...]
   )
 
-The function always:
+The function:
 
 * creates an ``ALIAS`` target ``<namespace>::<name>``
 * generates a version header at ``<version_header>`` and adds the
   containing directory to the target's ``BUILD_INTERFACE`` includes
-
-When ``PROJECT_IS_TOP_LEVEL`` is true the function also forwards all
-arguments to ``packageProject()`` so that ``cmake --install`` sets up
-the library for downstream ``find_package()`` consumption.
 
 #]=======================================================================]
 
@@ -87,17 +82,8 @@ function(package_target)
   )
 
   # ---- Install (top-level only) ----
-  if(PROJECT_IS_TOP_LEVEL)
-    packageProject(
-      NAME ${PT_NAME}
-      VERSION ${PT_VERSION}
-      NAMESPACE ${PT_NAMESPACE}
-      BINARY_DIR ${PT_BINARY_DIR}
-      INCLUDE_DIR ${PT_INCLUDE_DIR}
-      INCLUDE_DESTINATION ${PT_INCLUDE_DESTINATION}
-      VERSION_HEADER "${PT_VERSION_HEADER}"
-      COMPATIBILITY ${PT_COMPATIBILITY}
-      DEPENDENCIES ${PT_DEPENDENCIES}
-    )
-  endif()
+  # The gtopt library is only used as a build-time dependency by the
+  # standalone binary; it is not installed as a separate package.
+  # packageProject() is intentionally not called so that libgtopt.a,
+  # its headers and CMake config files are kept out of the install tree.
 endfunction()
