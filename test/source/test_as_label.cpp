@@ -31,6 +31,7 @@ TEST_CASE("as_label basic functionality")
     CHECK(as_label<'-'>("a", "b", "c") == "a-b-c");
     CHECK(as_label<' '>("Hello", "world") == "hello world");
     CHECK(as_label<','>(1, 2, 3) == "1,2,3");
+    CHECK(as_label<'X'>("A", "B") == "axb");
   }
 
   SUBCASE("mixed types")
