@@ -2,6 +2,8 @@
 
 import io
 import json
+import os
+import signal
 import zipfile
 from unittest.mock import MagicMock, patch
 
@@ -1250,3 +1252,143 @@ class TestWebserviceConnectivity:
         data = resp.get_json()
         assert "error" in data
         assert "404" in data["error"]
+
+
+class TestCheckServer:
+    """Tests for the /api/check_server endpoint."""
+
+    @patch("guiservice.app.http_requests.get")
+    def test_check_server_all_ok(self, mock_get, client):
+        """All three checks (ping, logs, jobs) succeed."""
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            if "/api/ping" in url:
+                resp.json.return_value = {
+                    "status": "ok",
+                    "service": "gtopt-webservice",
+                    "gtopt_bin": "/usr/bin/gtopt",
+                    "gtopt_version": "1.0",
+                    "log_file": "/tmp/ws.log",
+                    "timestamp": "2025-01-01T00:00:00Z",
+                }
+            elif "/api/logs" in url:
+                resp.json.return_value = {
+                    "log_file": "/tmp/ws.log",
+                    "lines": ["[INFO] line1"],
+                }
+            elif "/api/jobs" in url:
+                resp.json.return_value = {"jobs": []}
+            return resp
+
+        mock_get.side_effect = side_effect
+
+        resp = client.get("/api/check_server")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ping"]["status"] == "ok"
+        assert data["logs"]["status"] == "ok"
+        assert data["jobs"]["status"] == "ok"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_check_server_ping_fails(self, mock_get, client):
+        """Ping fails but logs and jobs succeed."""
+        import requests
+
+        def side_effect(url, **kwargs):
+            if "/api/ping" in url:
+                raise requests.ConnectionError("refused")
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            if "/api/logs" in url:
+                resp.json.return_value = {"log_file": "", "lines": []}
+            elif "/api/jobs" in url:
+                resp.json.return_value = {"jobs": []}
+            return resp
+
+        mock_get.side_effect = side_effect
+
+        resp = client.get("/api/check_server")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ping"]["status"] == "error"
+        assert data["logs"]["status"] == "ok"
+        assert data["jobs"]["status"] == "ok"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_check_server_all_fail(self, mock_get, client):
+        """All three checks fail."""
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+
+        resp = client.get("/api/check_server")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ping"]["status"] == "error"
+        assert data["logs"]["status"] == "error"
+        assert data["jobs"]["status"] == "error"
+
+
+class TestShutdownEndpoint:
+    """Tests for the /api/shutdown endpoint."""
+
+    @patch("os.kill")
+    def test_shutdown_returns_status(self, mock_kill, client):
+        """Shutdown endpoint should return shutting_down status."""
+        resp = client.post("/api/shutdown")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "shutting_down"
+        mock_kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+
+    def test_shutdown_rejects_get(self, client):
+        """Shutdown endpoint should only accept POST."""
+        resp = client.get("/api/shutdown")
+        assert resp.status_code == 405
+
+
+class TestPingWebserviceSavesConfig:
+    """Verify that ping and logs proxy correctly through the guiservice."""
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_uses_configured_url(self, mock_get, client):
+        """Ping should use the configured webservice URL."""
+        # First set a custom URL
+        client.post(
+            "/api/solve/config",
+            json={"webservice_url": "http://myhost:4000"},
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "service": "gtopt-webservice"}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 200
+
+        # Verify it called the custom URL
+        call_url = mock_get.call_args[0][0]
+        assert "myhost:4000" in call_url
+        assert "/api/ping" in call_url
+
+    @patch("guiservice.app.http_requests.get")
+    def test_logs_uses_configured_url(self, mock_get, client):
+        """Webservice logs should use the configured webservice URL."""
+        client.post(
+            "/api/solve/config",
+            json={"webservice_url": "http://myhost:4000"},
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"log_file": "/tmp/ws.log", "lines": ["line1"]}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/logs?lines=50")
+        assert resp.status_code == 200
+
+        call_url = mock_get.call_args[0][0]
+        assert "myhost:4000" in call_url
+        assert "/api/logs" in call_url

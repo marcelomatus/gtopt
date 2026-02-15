@@ -1,8 +1,12 @@
 """Tests for gtopt_gui launcher with integrated webservice functionality."""
 
+import os
+import signal
 import socket
+import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -135,3 +139,53 @@ def test_query_webservice_ping_returns_none_on_failure():
     """query_webservice_ping should return None when webservice is unreachable."""
     result = query_webservice_ping("http://127.0.0.1:19999", timeout=1)
     assert result is None
+
+
+def test_start_webservice_uses_new_session():
+    """start_webservice should create the subprocess with start_new_session=True."""
+    from gtopt_gui import start_webservice
+
+    with patch("subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        webservice_dir = Path("/fake/webservice")
+        # Create a fake .next directory so the function doesn't bail out
+        with patch.object(Path, "exists", return_value=True):
+            start_webservice(webservice_dir, 3000)
+
+        # Verify start_new_session was passed
+        call_kwargs = mock_popen.call_args[1]
+        assert call_kwargs.get("start_new_session") is True
+
+
+def test_query_webservice_ping_returns_data_on_success():
+    """query_webservice_ping should return parsed JSON on success."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    ping_data = {"status": "ok", "service": "gtopt-webservice"}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(ping_data).encode())
+
+        def log_message(self, format, *args):
+            pass  # suppress logging
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    result = query_webservice_ping(f"http://127.0.0.1:{port}", timeout=5)
+    assert result is not None
+    assert result["status"] == "ok"
+    assert result["service"] == "gtopt-webservice"
+
+    server.server_close()
