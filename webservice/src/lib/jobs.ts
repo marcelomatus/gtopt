@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { spawn } from "child_process";
+import { spawn, execFile } from "child_process";
 import { createLogger } from "./logger";
 
 const log = createLogger("jobs");
@@ -158,7 +158,7 @@ export async function runGtopt(token: string): Promise<void> {
   });
 }
 
-async function resolveGtoptBinary(): Promise<string> {
+export async function resolveGtoptBinary(): Promise<string> {
   // Check configured path first
   try {
     await fs.access(GTOPT_BIN, fs.constants.X_OK);
@@ -208,4 +208,22 @@ export async function listJobs(): Promise<JobInfo[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Query the gtopt binary for its version string.
+ */
+export async function getGtoptVersion(): Promise<string> {
+  const gtoptBin = await resolveGtoptBinary();
+  return new Promise<string>((resolve) => {
+    execFile(gtoptBin, ["--version"], { timeout: 5000 }, (err, stdout, stderr) => {
+      if (err) {
+        log.warn(`Failed to get gtopt version: ${err.message}`);
+        resolve("");
+        return;
+      }
+      const output = (stdout || stderr || "").trim();
+      resolve(output);
+    });
+  });
 }

@@ -399,6 +399,10 @@ def _build_zip(case_data):
         for file_path, file_content in data_files.items():
             if input_format == "parquet":
                 df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
+                # Downcast int64 columns to int32 so gtopt C++ reads them correctly
+                for col in df.columns:
+                    if df[col].dtype == "int64":
+                        df[col] = df[col].astype("int32")
                 parquet_buf = io.BytesIO()
                 df.to_parquet(parquet_buf, index=False)
                 zf.writestr(
@@ -800,6 +804,74 @@ def list_solve_jobs():
         ), 502
     except Exception as e:
         app.logger.exception("Unexpected error on jobs list")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/ping", methods=["GET"])
+def ping_webservice():
+    """Ping the webservice to check connectivity and retrieve gtopt version.
+
+    Proxies to GET /api/ping which returns service status and gtopt version info.
+    """
+    global _webservice_url
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/ping",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on ping")
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on ping")
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on ping status=%s", status)
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        app.logger.exception("Unexpected error on ping")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/logs", methods=["GET"])
+def get_webservice_logs():
+    """Retrieve logs from the webservice.
+
+    Proxies to GET /api/logs on the webservice to retrieve its log content.
+    """
+    global _webservice_url
+    lines = request.args.get("lines", default=DEFAULT_LOG_LINES, type=int)
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/logs",
+            params={"lines": lines},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on logs")
+        return jsonify(
+            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+        ), 502
+    except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on logs")
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on logs status=%s", status)
+        return jsonify(
+            {"error": f"Webservice error: {status}"}
+        ), 502
+    except Exception as e:
+        app.logger.exception("Unexpected error on logs")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 

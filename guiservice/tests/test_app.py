@@ -148,6 +148,26 @@ class TestBuildZip:
             names = zf.namelist()
             assert "test_case/Demand/lmax.parquet" in names
 
+    def test_parquet_integer_columns_are_int32(self):
+        """Verify that integer columns in parquet files are written as int32."""
+        import pandas as pd
+
+        data = _sample_case_data()
+        data["options"]["input_format"] = "parquet"
+        data["data_files"]["Demand/lmax"] = {
+            "columns": ["scenario", "stage", "block", "uid:1"],
+            "data": [[1, 1, 1, 10], [1, 2, 2, 15]],
+        }
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            parquet_bytes = zf.read("test_case/Demand/lmax.parquet")
+            df = pd.read_parquet(io.BytesIO(parquet_bytes))
+            for col in ["scenario", "stage", "block"]:
+                assert df[col].dtype.name == "int32", (
+                    f"Column '{col}' should be int32 but got {df[col].dtype}"
+                )
+
 
 class TestParseUploadedZip:
     def test_parse_basic_case(self):
@@ -909,3 +929,70 @@ class TestWebserviceEndToEnd:
         resp = client.get("/api/solve/results/some-token")
         assert resp.status_code == 502
         assert "409" in resp.get_json()["error"]
+
+
+class TestPingWebservice:
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "status": "ok",
+            "service": "gtopt-webservice",
+            "gtopt_bin": "/usr/local/bin/gtopt",
+            "gtopt_version": "gtopt 1.0",
+            "log_file": "/tmp/gtopt-webservice.log",
+            "timestamp": "2025-01-01T00:00:00Z",
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "ok"
+        assert data["gtopt_version"] == "gtopt 1.0"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+        assert "Cannot connect" in resp.get_json()["error"]
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+
+class TestWebserviceLogs:
+    @patch("guiservice.app.http_requests.get")
+    def test_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "log_file": "/tmp/gtopt-webservice.log",
+            "lines": ["[INFO] test log line 1", "[INFO] test log line 2"],
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        resp = client.get("/api/solve/logs?lines=100")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "lines" in data
+        assert len(data["lines"]) == 2
+
+    @patch("guiservice.app.http_requests.get")
+    def test_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 502
+        assert "Cannot connect" in resp.get_json()["error"]
