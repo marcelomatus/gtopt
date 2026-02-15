@@ -14,13 +14,6 @@ log_launcher() {
     fi
 }
 
-TMP_GUISERVICE_DIR=""
-cleanup_tmp_guiservice_dir() {
-    if [ -n "$TMP_GUISERVICE_DIR" ] && [ -d "$TMP_GUISERVICE_DIR" ]; then
-        rm -rf "$TMP_GUISERVICE_DIR"
-    fi
-}
-
 # Find the guiservice directory
 # When installed, it should be in the same prefix under share/gtopt/guiservice
 if [ -f "$SCRIPT_DIR/../share/gtopt/guiservice/gtopt_gui.py" ]; then
@@ -36,23 +29,6 @@ log_launcher "GUISERVICE_DIR=$GUISERVICE_DIR"
 log_launcher "PATH=$PATH"
 log_launcher "GTOPT_GUI_PYTHON=${GTOPT_GUI_PYTHON:-<unset>}"
 log_launcher "GTOPT_WEBSERVICE_URL=${GTOPT_WEBSERVICE_URL:-<unset>}"
-
-# If guiservice files are not user-writable (e.g. installed under /usr/local),
-# run from a user-owned temporary copy.
-if [ ! -w "$GUISERVICE_DIR" ]; then
-    TMP_GUISERVICE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gtopt_gui_XXXXXX")"
-    if [ -z "$TMP_GUISERVICE_DIR" ] || [ ! -d "$TMP_GUISERVICE_DIR" ]; then
-        echo "Error: Failed to create temporary guiservice directory" >&2
-        exit 1
-    fi
-    if ! cp -a "$GUISERVICE_DIR/." "$TMP_GUISERVICE_DIR/"; then
-        echo "Error: Failed to copy guiservice files to temporary directory" >&2
-        exit 1
-    fi
-    GUISERVICE_DIR="$TMP_GUISERVICE_DIR"
-    trap cleanup_tmp_guiservice_dir EXIT
-    log_launcher "Using temporary GUISERVICE_DIR=$GUISERVICE_DIR"
-fi
 
 # Find Python 3
 PYTHON="${GTOPT_GUI_PYTHON:-}"
@@ -101,5 +77,4 @@ fi
 
 # Run the Python launcher
 log_launcher "Executing: $PYTHON $GUISERVICE_DIR/gtopt_gui.py $*"
-"$PYTHON" "$GUISERVICE_DIR/gtopt_gui.py" "$@"
-exit $?
+exec "$PYTHON" "$GUISERVICE_DIR/gtopt_gui.py" "$@"
