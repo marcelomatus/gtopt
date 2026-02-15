@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -46,6 +47,14 @@ namespace gtopt
 
 namespace detail
 {
+
+[[nodiscard]] constexpr char to_lower_char(char c) noexcept
+{
+  if (c >= 'A' && c <= 'Z') {
+    return static_cast<char>(c + ('a' - 'A'));
+  }
+  return c;
+}
 
 // Improved concept for string-like types
 template<typename T>
@@ -194,14 +203,12 @@ template<char sep = '_', typename... Args>
       continue;
     }
     if (needs_sep) {
-      result.push_back(sep);
+      result.push_back(detail::to_lower_char(sep));
     }
-    result.append(view);
+    std::ranges::transform(
+        view, std::back_inserter(result), detail::to_lower_char);
     needs_sep = true;
   }
-
-  std::ranges::transform(
-      result, result.begin(), [](auto c) { return std::tolower(c); });
 
   return result;
 }

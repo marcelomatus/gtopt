@@ -251,8 +251,8 @@ template<std::ranges::range Range, typename Pred>
 constexpr double annual_discount_factor(double annual_discount_rate,
                                         double time_hours) noexcept
 {
-  return std::pow(1.0 / (1.0 + annual_discount_rate),
-                  time_hours / hours_per_year);
+  return std::exp(-std::log1p(annual_discount_rate)
+                  * (time_hours / hours_per_year));
 }
 
 template<typename... Args>
