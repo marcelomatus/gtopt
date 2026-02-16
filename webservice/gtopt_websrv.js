@@ -221,7 +221,7 @@ async function verifyApi(port, logDir, timeout) {
 
   // Also check /api/ping
   const pingResult = await httpGet(`${baseUrl}/api/ping`, 5000);
-  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status) {
+  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status === 'ok') {
     const info = pingResult.body;
     logMessage(`API verification PASSED: GET /api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
     if (info.gtopt_version) {
