@@ -8,7 +8,7 @@ export async function GET() {
     status: "ok",
     service: "gtopt-webservice",
     endpoints: [
-      "GET  /api          - This index",
+      "GET  /api          - Service info and endpoint list",
       "GET  /api/ping     - Health check with version info",
       "POST /api/jobs     - Submit a new optimization job",
       "GET  /api/jobs     - List all jobs",
