@@ -247,14 +247,22 @@
       </div>
     </div>
   </main>
-  <aside class="assistant-card">
-    <h3>✨ Quick Assistant</h3>
-    <p>Need a starting point? Create a case, then open Webservice settings to test connection.</p>
-    <div class="assistant-actions">
-      <button class="btn-sm" onclick="newCase()">New Case</button>
-      <button class="btn-sm" onclick="switchTab('solver')">Webservice</button>
-      <button class="btn-sm" onclick="checkServer()">Check Server</button>
-      <button class="btn-sm btn-danger" onclick="shutdownService()">Kill</button>
+  <aside id="assistantCard" class="assistant-card">
+    <div class="assistant-header" id="assistantHeader">
+      <h3>✨ Quick Assistant</h3>
+      <div class="assistant-controls">
+        <button class="assistant-ctrl-btn" onclick="minimizeAssistant()" title="Minimize">&#x2013;</button>
+        <button class="assistant-ctrl-btn" onclick="closeAssistant()" title="Close">&times;</button>
+      </div>
+    </div>
+    <div class="assistant-body" id="assistantBody">
+      <p>Need a starting point? Create a case, then open Webservice settings to test connection.</p>
+      <div class="assistant-actions">
+        <button class="btn-sm" onclick="newCase()">New Case</button>
+        <button class="btn-sm" onclick="switchTab('solver')">Webservice</button>
+        <button class="btn-sm" onclick="checkServer()">Check Server</button>
+        <button class="btn-sm btn-danger" onclick="shutdownService()">Kill</button>
+      </div>
     </div>
   </aside>
 
