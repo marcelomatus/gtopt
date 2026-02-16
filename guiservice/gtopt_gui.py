@@ -450,9 +450,10 @@ an external webservice.
                 )
             else:
                 print(
-                    f"Port {args.webservice_port} is in use but does not appear to be a gtopt webservice."
+                    f"Port {args.webservice_port} is in use but does not appear to be a gtopt webservice.",
+                    file=sys.stderr,
                 )
-                print("Use --webservice-port to choose a different port.")
+                print("Use --webservice-port to choose a different port.", file=sys.stderr)
         else:
             # Try to start webservice automatically
             webservice_dir = get_webservice_dir()
