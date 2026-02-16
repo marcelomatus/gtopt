@@ -15,6 +15,25 @@ const log = createLogger("api/jobs");
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Recursively list all files under a directory, returning paths relative to
+ * the base directory.
+ */
+async function listDirRecursive(dir: string, base?: string): Promise<string[]> {
+  const root = base ?? dir;
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listDirRecursive(full, root)));
+    } else {
+      files.push(path.relative(root, full));
+    }
+  }
+  return files;
+}
+
 // POST /api/jobs - Upload a case zip and start a job
 export async function POST(request: NextRequest) {
   try {
@@ -57,23 +76,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    log.info(`POST /api/jobs: received file=${file.name} systemFile=${systemFile}`);
+    log.info(`POST /api/jobs: received file=${file.name} (${file.size} bytes) systemFile=${systemFile}`);
 
     // Create job
     const job = await createJob(systemFile);
     const inputDir = getJobInputDir(job.token);
     await fs.mkdir(inputDir, { recursive: true });
+    log.info(`Job ${job.token}: created dedicated job directory inputDir=${inputDir}`);
 
     // Save uploaded file
     const buffer = Buffer.from(await file.arrayBuffer());
     const zipPath = path.join(inputDir, "upload.zip");
     await fs.writeFile(zipPath, buffer);
+    log.info(`Job ${job.token}: saved uploaded zip (${buffer.length} bytes) to ${zipPath}`);
 
-    // Extract zip
+    // Extract zip into the dedicated job input directory
     try {
       await extractZip(zipPath, { dir: inputDir });
+      log.info(`Job ${job.token}: zip extracted successfully to ${inputDir}`);
     } catch (err) {
-      log.error(`POST /api/jobs: zip extraction failed: ${err instanceof Error ? err.message : String(err)}`);
+      log.error(`Job ${job.token}: zip extraction failed in ${inputDir}: ${err instanceof Error ? err.message : String(err)}`);
       return NextResponse.json(
         {
           error: `Failed to extract zip file: ${err instanceof Error ? err.message : String(err)}`,
@@ -85,12 +107,24 @@ export async function POST(request: NextRequest) {
     // Clean up zip file after extraction
     await fs.unlink(zipPath);
 
+    // Log the contents of the extracted directory
+    try {
+      const extractedFiles = await listDirRecursive(inputDir);
+      log.info(`Job ${job.token}: extracted ${extractedFiles.length} file(s) in ${inputDir}:`);
+      for (const f of extractedFiles) {
+        log.info(`Job ${job.token}:   ${f}`);
+      }
+    } catch {
+      // Non-critical: proceed even if listing fails
+    }
+
     // Verify system file exists
     const systemFilePath = path.join(inputDir, systemFile);
     try {
       await fs.access(systemFilePath);
+      log.info(`Job ${job.token}: system file '${systemFile}' found at ${systemFilePath}`);
     } catch {
-      log.error(`POST /api/jobs: system file '${systemFile}' not found in archive`);
+      log.error(`Job ${job.token}: system file '${systemFile}' not found in archive at ${systemFilePath}`);
       return NextResponse.json(
         {
           error: `System file '${systemFile}' not found in uploaded archive.`,
@@ -100,11 +134,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Start the job asynchronously
+    log.info(`Job ${job.token}: starting gtopt asynchronously, cwd=${inputDir}`);
     runGtopt(job.token).catch((err) => {
       log.error(`Job ${job.token} failed: ${err}`);
     });
 
-    log.info(`POST /api/jobs: job submitted token=${job.token}`);
+    log.info(`Job ${job.token}: job submitted successfully`);
     return NextResponse.json(
       {
         token: job.token,
