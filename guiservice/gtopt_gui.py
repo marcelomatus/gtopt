@@ -327,7 +327,7 @@ def verify_webservice_api(webservice_url, log_file=None):
     if api_ok:
         _log(f"API verification PASSED: webservice API is responding at {webservice_url}")
     else:
-        _log(f"API verification FAILED: GET {webservice_url}/api did not respond")
+        _log(f"API verification FAILED: webservice API endpoints did not respond at {webservice_url}")
 
     # Also check /api/ping for detailed info
     ping_info = query_webservice_ping(webservice_url, timeout=5)
