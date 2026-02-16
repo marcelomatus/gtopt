@@ -36,14 +36,20 @@ log()  { echo "  [INFO] $*"; }
 pass() { echo "  [PASS] $*"; PASS=$((PASS + 1)); }
 fail() { echo "  [FAIL] $*"; FAIL=$((FAIL + 1)); }
 
-# ---- Create mock gtopt binary ----
-MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
-cat > "$MOCK_BIN" << 'MOCK'
+# ---- Resolve the gtopt binary ----
+if [ -n "${GTOPT_BIN:-}" ] && [ -x "${GTOPT_BIN}" ]; then
+  log "Using real gtopt binary: $GTOPT_BIN"
+else
+  log "GTOPT_BIN not set; creating mock binary for local testing"
+  MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
+  cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
 echo "mock gtopt"
 exit 0
 MOCK
-chmod +x "$MOCK_BIN"
+  chmod +x "$MOCK_BIN"
+  GTOPT_BIN="$MOCK_BIN"
+fi
 
 # ---- Verify required files exist ----
 if [ ! -d "$WEBSERVICE_DIR/node_modules" ]; then
@@ -65,7 +71,7 @@ fi
 # ---- Start the web service ----
 log "Starting web service on port $PORT from $WEBSERVICE_DIR ..."
 cd "$WEBSERVICE_DIR"
-GTOPT_BIN="$MOCK_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" \
+GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" \
   node_modules/.bin/next start -p "$PORT" \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
