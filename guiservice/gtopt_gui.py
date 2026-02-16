@@ -186,6 +186,29 @@ def is_gtopt_webservice(webservice_url, timeout=3):
     return info is not None and info.get("service") == "gtopt-webservice"
 
 
+def check_webservice_api(webservice_url, timeout=5):
+    """Verify that the webservice API root is reachable and responding.
+
+    Sends a GET request to ``<webservice_url>/api`` and checks for a
+    successful JSON response containing ``"status": "ok"``.
+
+    Returns:
+        True if the API root responds correctly.
+    """
+    import urllib.request
+    import urllib.error
+
+    url = f"{webservice_url}/api"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                return data.get("status") == "ok"
+    except (urllib.error.URLError, ConnectionRefusedError, OSError, json.JSONDecodeError):
+        pass
+    return False
+
+
 def wait_for_webservice(webservice_url, timeout=30):
     """Wait until the webservice responds to a ping request.
 
@@ -503,6 +526,16 @@ an external webservice.
                 print("Warning: Webservice not found. Solve functionality will not be available.")
                 print("Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web")
     
+    # Initial check: verify the webservice API is responding
+    if webservice_url:
+        if check_webservice_api(webservice_url):
+            print(f"Webservice API check passed: {webservice_url}/api is responding.")
+        else:
+            print(
+                f"Warning: Webservice API check failed: {webservice_url}/api is not responding.",
+                file=sys.stderr,
+            )
+
     # Determine port for GUI
     port = args.port if args.port else find_free_port()
     
