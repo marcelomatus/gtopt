@@ -24,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { spawn } = require('child_process');
 
 function showHelp() {
@@ -39,6 +40,7 @@ Options:
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
   --dev                Run in development mode
+  --check-api          Check if the API is responding on the given port and exit
   --help               Show this help message
 
 Environment Variables:
@@ -53,6 +55,8 @@ Examples:
   gtopt_websrv --gtopt-bin /usr/bin/gtopt  # Use specific gtopt binary
   gtopt_websrv --log-dir /var/log/gtopt  # Write logs to directory
   gtopt_websrv --dev                     # Run in development mode
+  gtopt_websrv --check-api               # Check API on port 3000
+  gtopt_websrv --check-api --port 8080   # Check API on port 8080
 `);
 }
 
@@ -123,6 +127,7 @@ function parseArgs() {
     logDir: process.env.GTOPT_LOG_DIR || null,
     dev: false,
     help: false,
+    checkApi: false,
   };
   
   for (let i = 0; i < args.length; i++) {
@@ -146,6 +151,9 @@ function parseArgs() {
       case '--dev':
         config.dev = true;
         break;
+      case '--check-api':
+        config.checkApi = true;
+        break;
       default:
         console.error(`Unknown option: ${args[i]}`);
         process.exit(1);
@@ -155,12 +163,95 @@ function parseArgs() {
   return config;
 }
 
+function logMessage(msg, logDir) {
+  console.log(msg);
+  if (logDir) {
+    const logFile = path.join(logDir, 'gtopt-webservice.log');
+    try {
+      fs.mkdirSync(path.dirname(logFile), { recursive: true });
+      fs.appendFileSync(logFile, msg + '\n');
+    } catch (_) {
+      // ignore write errors
+    }
+  }
+}
+
+function httpGet(url, timeout) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch (_) {
+          resolve({ status: res.statusCode, body: null });
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function verifyApi(port, logDir, timeout) {
+  const maxWait = timeout || 30;
+  const baseUrl = `http://localhost:${port}`;
+  const startTime = Date.now();
+
+  logMessage('Verifying API endpoints...', logDir);
+
+  // Poll until the API responds or timeout
+  let apiResult = null;
+  while ((Date.now() - startTime) / 1000 < maxWait) {
+    apiResult = await httpGet(`${baseUrl}/api`, 5000);
+    if (apiResult && apiResult.status === 200 && apiResult.body && apiResult.body.status === 'ok') {
+      break;
+    }
+    apiResult = null;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  if (apiResult) {
+    logMessage(`API verification PASSED: GET /api returned status "ok"`, logDir);
+  } else {
+    logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s`, logDir);
+    return false;
+  }
+
+  // Also check /api/ping
+  const pingResult = await httpGet(`${baseUrl}/api/ping`, 5000);
+  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status) {
+    const info = pingResult.body;
+    logMessage(`API verification PASSED: GET /api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
+    if (info.gtopt_version) {
+      logMessage(`  gtopt version: ${info.gtopt_version}`, logDir);
+    }
+    if (info.gtopt_bin) {
+      logMessage(`  gtopt binary: ${info.gtopt_bin}`, logDir);
+    }
+  } else {
+    logMessage(`API verification WARNING: GET /api/ping did not return expected response`, logDir);
+  }
+
+  logMessage('API verification complete.', logDir);
+  return true;
+}
+
 function main() {
   const config = parseArgs();
   
   if (config.help) {
     showHelp();
     process.exit(0);
+  }
+
+  // --check-api mode: verify API on the given port and exit
+  if (config.checkApi) {
+    verifyApi(config.port, config.logDir, 5).then((ok) => {
+      process.exit(ok ? 0 : 1);
+    });
+    return;
   }
   
   // Find webservice directory
@@ -268,6 +359,13 @@ function main() {
   process.on('SIGTERM', () => {
     console.log('\nReceived SIGTERM, shutting down...');
     proc.kill('SIGTERM');
+  });
+
+  // Verify API is working after server starts
+  verifyApi(config.port, config.logDir, 30).then((ok) => {
+    if (!ok) {
+      console.error('Warning: API verification failed. The service may not be working correctly.');
+    }
   });
 }
 

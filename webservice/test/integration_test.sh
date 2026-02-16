@@ -102,6 +102,15 @@ else
   fail "GET / returned $HTTP_CODE (expected 200)"
 fi
 
+# ---- Test 1b: GET /api — API root health check ----
+BODY=$(curl -s "$BASE_URL/api")
+API_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+if [ "$API_STATUS" = "ok" ]; then
+  pass "GET /api returns status ok"
+else
+  fail "GET /api unexpected response: $BODY"
+fi
+
 # ---- Test 2: GET /api/jobs — empty list ----
 BODY=$(curl -s "$BASE_URL/api/jobs")
 if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d['jobs'], list)" 2>/dev/null; then
@@ -219,6 +228,13 @@ if [ "$LOG_CHECK" = "ok" ]; then
   pass "GET /api/logs returns log lines"
 else
   fail "GET /api/logs unexpected response: $BODY"
+fi
+
+# ---- Test 12: --check-api via gtopt_websrv.js ----
+if node "$WEBSERVICE_DIR/gtopt_websrv.js" --check-api --port "$PORT" >/dev/null 2>&1; then
+  pass "gtopt_websrv.js --check-api succeeds against running server"
+else
+  fail "gtopt_websrv.js --check-api failed against running server"
 fi
 
 # ---- Summary ----

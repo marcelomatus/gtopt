@@ -16,12 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from gtopt_gui import (
     check_webservice_api,
     find_free_port,
+    find_websrv_script,
     get_guiservice_dir,
     is_gtopt_webservice,
     is_port_open,
     open_browser,
     query_webservice_ping,
     resolve_python_executable,
+    verify_webservice_api,
     wait_for_webservice,
 )
 
@@ -331,3 +333,56 @@ def test_check_webservice_api_returns_false_on_bad_status():
 
     assert check_webservice_api(f"http://127.0.0.1:{port}", timeout=5) is False
     server.server_close()
+
+
+def test_find_websrv_script_returns_none_or_path():
+    """find_websrv_script should return None or a valid Path."""
+    result = find_websrv_script()
+    assert result is None or isinstance(result, Path)
+
+
+def test_verify_webservice_api_returns_true_on_success(tmp_path):
+    """verify_webservice_api should return True and write to log file."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            data = {"status": "ok", "service": "gtopt-webservice"}
+            self.wfile.write(json.dumps(data).encode())
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    log_file = str(tmp_path / "verify.log")
+    result = verify_webservice_api(f"http://127.0.0.1:{port}", log_file=log_file)
+    assert result is True
+
+    # Verify log file was written
+    with open(log_file) as f:
+        log_content = f.read()
+    assert "API verification PASSED" in log_content
+    assert "API verification complete." in log_content
+
+    server.shutdown()
+    server.server_close()
+
+
+def test_verify_webservice_api_returns_false_on_failure(tmp_path):
+    """verify_webservice_api should return False when service is unreachable."""
+    log_file = str(tmp_path / "verify.log")
+    result = verify_webservice_api("http://127.0.0.1:19999", log_file=log_file)
+    assert result is False
+
+    with open(log_file) as f:
+        log_content = f.read()
+    assert "API verification FAILED" in log_content
