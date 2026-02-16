@@ -35,15 +35,18 @@ export async function GET(
 
   const outputDir = getJobOutputDir(token);
   const jobDir = getJobDir(token);
+  log.info(`GET /api/jobs/${token}/download: preparing results, jobDir=${jobDir} outputDir=${outputDir}`);
 
   // Check if output directory exists
   try {
     await fs.access(outputDir);
   } catch {
+    log.info(`GET /api/jobs/${token}/download: no output directory found, checking for job logs`);
     // If no output dir, include logs at minimum
     try {
       await fs.access(jobDir);
     } catch {
+      log.warn(`GET /api/jobs/${token}/download: no output or job directory found`);
       return NextResponse.json(
         { error: "No output available" },
         { status: 404 }
@@ -61,8 +64,9 @@ export async function GET(
   try {
     await fs.access(outputDir);
     archive.directory(outputDir, "output");
+    log.info(`GET /api/jobs/${token}/download: adding output/ directory to zip`);
   } catch {
-    // No output directory
+    log.info(`GET /api/jobs/${token}/download: no output directory to include`);
   }
 
   // Add log files
@@ -71,6 +75,7 @@ export async function GET(
     try {
       await fs.access(logPath);
       archive.file(logPath, { name: logFile });
+      log.info(`GET /api/jobs/${token}/download: adding ${logFile} to zip`);
     } catch {
       // Log file doesn't exist
     }

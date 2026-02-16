@@ -6,6 +6,25 @@ import { createLogger } from "./logger";
 
 const log = createLogger("jobs");
 
+/**
+ * Recursively list all files under a directory, returning paths relative to
+ * the base directory.
+ */
+async function listDirRecursive(dir: string, base?: string): Promise<string[]> {
+  const root = base ?? dir;
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listDirRecursive(full, root)));
+    } else {
+      files.push(path.relative(root, full));
+    }
+  }
+  return files;
+}
+
 export interface JobInfo {
   token: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -104,7 +123,20 @@ export async function runGtopt(token: string): Promise<void> {
   await fs.mkdir(outputDir, { recursive: true });
 
   const gtoptBin = await resolveGtoptBinary();
-  log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile} inputDir=${inputDir} outputDir=${outputDir}`);
+  log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile}`);
+  log.info(`Job ${token}: working directory (cwd)=${inputDir}`);
+  log.info(`Job ${token}: output directory=${outputDir}`);
+
+  // Log input directory contents before execution
+  try {
+    const inputFiles = await listDirRecursive(inputDir);
+    log.info(`Job ${token}: input directory contains ${inputFiles.length} file(s):`);
+    for (const f of inputFiles) {
+      log.info(`Job ${token}:   input: ${f}`);
+    }
+  } catch {
+    log.warn(`Job ${token}: could not list input directory contents`);
+  }
 
   return new Promise<void>((resolve) => {
     const proc = spawn(
@@ -140,18 +172,32 @@ export async function runGtopt(token: string): Promise<void> {
       if (code === 0) {
         job.status = "completed";
         job.completedAt = new Date().toISOString();
-        log.info(`Job ${token}: gtopt completed successfully`);
+        log.info(`Job ${token}: gtopt completed successfully (exit code 0)`);
       } else {
         job.status = "failed";
         job.error = stderr || stdout || `Process exited with code ${code}`;
         log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
+
+      // Log output directory contents after execution
+      try {
+        const outputFiles = await listDirRecursive(outputDir);
+        log.info(`Job ${token}: output directory contains ${outputFiles.length} file(s):`);
+        for (const f of outputFiles) {
+          log.info(`Job ${token}:   output: ${f}`);
+        }
+      } catch {
+        log.warn(`Job ${token}: could not list output directory contents`);
+      }
+
       // Save logs to job directory
       try {
-        await fs.writeFile(path.join(getJobDir(token), "stdout.log"), stdout);
-        await fs.writeFile(path.join(getJobDir(token), "stderr.log"), stderr);
+        const jobDir = getJobDir(token);
+        await fs.writeFile(path.join(jobDir, "stdout.log"), stdout);
+        await fs.writeFile(path.join(jobDir, "stderr.log"), stderr);
+        log.info(`Job ${token}: saved stdout.log (${stdout.length} bytes) and stderr.log (${stderr.length} bytes)`);
       } catch {
-        // Ignore log write errors
+        log.warn(`Job ${token}: failed to save log files`);
       }
       // Also save terminal output inside the output directory so it is
       // included in the results ZIP downloaded by the GUI.
