@@ -10,6 +10,10 @@ on:
       - master
       - main
 
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
 permissions:
   contents: read
 
@@ -19,6 +23,66 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      # ---- Build the real gtopt binary ----
+
+      - name: install gcc-14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+
+      - name: install parquet
+        run: |
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-container-dev
+
+      - name: setup ccache
+        run: sudo apt-get install -y ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ github.workflow }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ github.workflow }}-ccache-
+
+      - name: configure gtopt
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build gtopt
+        run: cmake --build build -j4
+
+      - name: install gtopt
+        run: cmake --install build --prefix build/install
+
+      - name: verify gtopt binary
+        run: |
+          ldd build/install/bin/gtopt
+          if ldd build/install/bin/gtopt | grep -q "not found"; then
+            echo "::error::Installed gtopt binary has missing shared libraries"
+            exit 1
+          fi
+          build/install/bin/gtopt --version
+          echo "✓ Installed gtopt binary works"
+
+      # ---- Build the web service ----
 
       - uses: actions/setup-node@v4
         with:
@@ -34,24 +98,77 @@ jobs:
         working-directory: webservice
         run: npm run build
 
+      # ---- Run tests with the real gtopt binary ----
+
       - name: integration test
         working-directory: webservice
         run: npm test
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
+
+      - name: e2e test
+        working-directory: webservice
+        run: npm run test:e2e
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
 
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-install-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      # ---- Build the real gtopt binary ----
+
+      - name: install gcc-14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+
+      - name: install parquet
+        run: |
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-container-dev
+
+      - name: setup ccache
+        run: sudo apt-get install -y ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ github.workflow }}-install-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ github.workflow }}-install-ccache-
+
+      - name: configure gtopt
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build gtopt
+        run: cmake --build build -j4
+
+      - name: install gtopt
+        run: cmake --install build --prefix $HOME/gtopt-install
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Install CMake
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
 
       - name: Configure webservice with CMake
         run: |
@@ -93,4 +210,42 @@ jobs:
         run: |
           cd $HOME/gtopt-install/share/gtopt/webservice
           bash test/install_test.sh
+        env:
+          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
 
+      - name: Verify API with --check-api flag
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+
+          # Start the server with the real gtopt binary
+          GTOPT_BIN=$HOME/gtopt-install/bin/gtopt GTOPT_DATA_DIR=$(mktemp -d) \
+            node_modules/.bin/next start -p 3096 > /tmp/check_api_server.log 2>&1 &
+          SERVER_PID=$!
+
+          # Wait for server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3096 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+          # Run --check-api
+          if node gtopt_websrv.js --check-api --port 3096; then
+            echo "✓ --check-api passed"
+          else
+            echo "✗ --check-api failed"
+            cat /tmp/check_api_server.log
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Verify --check-api fails on a closed port
+          if node gtopt_websrv.js --check-api --port 19999 2>/dev/null; then
+            echo "✗ --check-api should have failed on closed port"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          else
+            echo "✓ --check-api correctly fails on closed port"
+          fi
+
+          kill $SERVER_PID 2>/dev/null || true
+          echo "✓ All --check-api tests passed"

@@ -3,6 +3,12 @@
 #
 # This script is installed alongside the gtopt binary and provides
 # a convenient way to launch the web service.
+#
+# Usage:
+#   gtopt_websrv [options]
+#
+# The --check-api flag verifies whether the API is responding on the
+# given port (default 3000) and exits with 0 on success or 1 on failure.
 
 # Get the directory where this script is installed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +22,70 @@ else
     echo "Error: Cannot find webservice directory" >&2
     exit 1
 fi
+
+# ---- Helper functions for API verification ----
+
+# Check a single API endpoint. Returns 0 on success.
+#   gtopt_websrv_check_endpoint URL
+gtopt_websrv_check_endpoint() {
+    local url="$1"
+    local body
+    body=$(curl -s --max-time 5 "$url" 2>/dev/null) || return 1
+    echo "$body" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if d.get('status') == 'ok':
+        sys.exit(0)
+    sys.exit(1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
+}
+
+# Verify the webservice API on a given port.  Checks /api and /api/ping.
+# Prints results and returns 0 when both checks pass, 1 otherwise.
+#   gtopt_websrv_verify_api PORT [LOG_FILE]
+gtopt_websrv_verify_api() {
+    local port="${1:-3000}"
+    local log_file="${2:-}"
+    local base_url="http://localhost:${port}"
+    local ok=0
+
+    _log_verify() {
+        echo "$1"
+        if [ -n "$log_file" ]; then
+            echo "$1" >> "$log_file" 2>/dev/null || true
+        fi
+    }
+
+    _log_verify "Verifying API endpoints on port ${port}..."
+
+    if gtopt_websrv_check_endpoint "${base_url}/api"; then
+        _log_verify "API verification PASSED: GET /api returned status \"ok\""
+    else
+        _log_verify "API verification FAILED: GET /api did not respond"
+        ok=1
+    fi
+
+    if gtopt_websrv_check_endpoint "${base_url}/api/ping"; then
+        local ping_body
+        ping_body=$(curl -s --max-time 5 "${base_url}/api/ping" 2>/dev/null)
+        local service
+        service=$(echo "$ping_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service',''))" 2>/dev/null || true)
+        local version
+        version=$(echo "$ping_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('gtopt_version',''))" 2>/dev/null || true)
+        _log_verify "API verification PASSED: GET /api/ping returned service=\"${service}\""
+        [ -n "$version" ] && _log_verify "  gtopt version: ${version}"
+    else
+        _log_verify "API verification WARNING: GET /api/ping did not return expected response"
+    fi
+
+    _log_verify "API verification complete."
+    return $ok
+}
+
+# ---- Main ----
 
 # Find Node.js
 NODE=""

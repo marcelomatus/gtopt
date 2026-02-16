@@ -95,6 +95,29 @@ def get_webservice_dir():
     return None
 
 
+def find_websrv_script():
+    """Find the gtopt_websrv.sh launcher script.
+
+    Returns:
+        Path to the launcher script, or None if not found.
+    """
+    guiservice_dir = Path(__file__).resolve().parent
+    install_prefix = guiservice_dir.parent.parent.parent
+
+    possible_locations = [
+        install_prefix / "bin" / "gtopt_websrv",
+        Path(sys.prefix) / "bin" / "gtopt_websrv",
+        Path("/usr/local/bin/gtopt_websrv"),
+        Path("/usr/bin/gtopt_websrv"),
+        Path.home() / ".local" / "bin" / "gtopt_websrv",
+    ]
+
+    for loc in possible_locations:
+        if loc.exists():
+            return loc
+    return None
+
+
 def find_gtopt_binary():
     """Find the gtopt binary in common locations.
     
@@ -274,6 +297,54 @@ def open_browser(url, app_mode=False):
     webbrowser.open(url, new=1)
 
 
+def verify_webservice_api(webservice_url, log_file=None):
+    """Verify the webservice API and log the results.
+
+    Checks ``/api`` and ``/api/ping`` and writes the outcome to *log_file*
+    (when provided) and to stdout/stderr so the verification appears in the
+    service log that is visible to operators.
+
+    Returns:
+        True if the API root responds with ``"status": "ok"``.
+    """
+    import urllib.request
+    import urllib.error
+
+    def _log(msg):
+        print(msg)
+        if log_file:
+            try:
+                with open(log_file, "a") as fh:
+                    fh.write(msg + "\n")
+            except OSError:
+                pass
+
+    _log("Verifying API endpoints...")
+
+    api_ok = check_webservice_api(webservice_url, timeout=5)
+    if api_ok:
+        _log(f'API verification PASSED: GET {webservice_url}/api returned status "ok"')
+    else:
+        _log(f"API verification FAILED: GET {webservice_url}/api did not respond")
+
+    # Also check /api/ping for detailed info
+    ping_info = query_webservice_ping(webservice_url, timeout=5)
+    if ping_info and ping_info.get("status"):
+        svc = ping_info.get("service", "")
+        _log(f'API verification PASSED: GET {webservice_url}/api/ping returned service="{svc}"')
+        gtopt_version = ping_info.get("gtopt_version", "")
+        if gtopt_version:
+            _log(f"  gtopt version: {gtopt_version}")
+        gtopt_bin_path = ping_info.get("gtopt_bin", "")
+        if gtopt_bin_path:
+            _log(f"  gtopt binary: {gtopt_bin_path}")
+    else:
+        _log(f"API verification WARNING: GET {webservice_url}/api/ping did not return expected response")
+
+    _log("API verification complete.")
+    return api_ok
+
+
 def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_file=None):
     """Start the webservice in a subprocess.
     
@@ -282,6 +353,7 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
         port: Port to run webservice on
         gtopt_bin: Path to gtopt binary (optional)
         data_dir: Path to data directory for job storage (optional)
+        log_file: Path to log file (optional)
     
     Returns:
         subprocess.Popen object for the webservice process
@@ -298,24 +370,33 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
     if log_file:
         env["GTOPT_LOG_DIR"] = str(Path(log_file).parent)
     
-    # Use Node.js to start the webservice
-    # The webservice should already be built (npm run build was executed during install)
-    node_exe = "node"
-    
     # Check if .next directory exists (production build)
     next_dir = webservice_dir / ".next"
     if not next_dir.exists():
         print(f"Warning: Webservice not built. Run 'npm run build' in {webservice_dir}", file=sys.stderr)
         return None
-    
-    # Start with 'npm start' which runs the production server
+
+    # Prefer gtopt_websrv.js launcher (includes built-in API verification)
+    websrv_js = webservice_dir / "gtopt_websrv.js"
+    if websrv_js.exists():
+        cmd = ["node", str(websrv_js), "--port", str(port)]
+        if gtopt_bin:
+            cmd += ["--gtopt-bin", str(gtopt_bin)]
+        if data_dir:
+            cmd += ["--data-dir", str(data_dir)]
+        if log_file:
+            cmd += ["--log-dir", str(Path(log_file).parent)]
+    else:
+        cmd = ["npm", "start"]
+
+    # Start the webservice
     log_handle = None
     try:
         if log_file:
             log_handle = open(log_file, "a")
         stdout_target = log_handle if log_handle else subprocess.PIPE
         process = subprocess.Popen(
-            ["npm", "start"],
+            cmd,
             cwd=str(webservice_dir),
             env=env,
             stdout=stdout_target,
@@ -327,7 +408,7 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
             process._gtopt_log_handle = log_handle
         return process
     except FileNotFoundError:
-        print("Error: npm not found. Please install Node.js and npm.", file=sys.stderr)
+        print("Error: node/npm not found. Please install Node.js and npm.", file=sys.stderr)
         if log_handle:
             log_handle.close()
         return None
@@ -527,9 +608,9 @@ an external webservice.
                 print("Warning: Webservice not found. Solve functionality will not be available.")
                 print("Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web")
     
-    # Initial check: verify the webservice API is responding
+    # Initial check: verify the webservice API is responding and log results
     if webservice_url:
-        if check_webservice_api(webservice_url):
+        if verify_webservice_api(webservice_url, log_file=str(webservice_log_file)):
             print(f"Webservice API check passed: {webservice_url}/api is responding.")
         else:
             print(

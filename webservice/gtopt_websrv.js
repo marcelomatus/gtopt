@@ -24,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { spawn } = require('child_process');
 
 function showHelp() {
@@ -39,6 +40,7 @@ Options:
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
   --dev                Run in development mode
+  --check-api          Check if the API is responding on the given port and exit
   --help               Show this help message
 
 Environment Variables:
@@ -53,6 +55,8 @@ Examples:
   gtopt_websrv --gtopt-bin /usr/bin/gtopt  # Use specific gtopt binary
   gtopt_websrv --log-dir /var/log/gtopt  # Write logs to directory
   gtopt_websrv --dev                     # Run in development mode
+  gtopt_websrv --check-api               # Check API on port 3000
+  gtopt_websrv --check-api --port 8080   # Check API on port 8080
 `);
 }
 
@@ -64,6 +68,7 @@ function getWebserviceDir() {
   const possibleLocations = [
     path.join(scriptDir, 'share', 'gtopt', 'webservice'),
     path.join(scriptDir, '..', 'share', 'gtopt', 'webservice'),
+    __dirname,           // Script is inside the webservice directory itself
     path.join(__dirname, '..'), // During development
   ];
   
@@ -123,6 +128,7 @@ function parseArgs() {
     logDir: process.env.GTOPT_LOG_DIR || null,
     dev: false,
     help: false,
+    checkApi: false,
   };
   
   for (let i = 0; i < args.length; i++) {
@@ -146,6 +152,9 @@ function parseArgs() {
       case '--dev':
         config.dev = true;
         break;
+      case '--check-api':
+        config.checkApi = true;
+        break;
       default:
         console.error(`Unknown option: ${args[i]}`);
         process.exit(1);
@@ -155,12 +164,95 @@ function parseArgs() {
   return config;
 }
 
+function logMessage(msg, logDir) {
+  console.log(msg);
+  if (logDir) {
+    const logFile = path.join(logDir, 'gtopt-webservice.log');
+    try {
+      fs.mkdirSync(path.dirname(logFile), { recursive: true });
+      fs.appendFileSync(logFile, msg + '\n');
+    } catch (_) {
+      // ignore write errors
+    }
+  }
+}
+
+function httpGet(url, timeout) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch (_) {
+          resolve({ status: res.statusCode, body: null });
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function verifyApi(port, logDir, timeout) {
+  const maxWait = timeout || 30;
+  const baseUrl = `http://localhost:${port}`;
+  const startTime = Date.now();
+
+  logMessage('Verifying API endpoints...', logDir);
+
+  // Poll until the API responds or timeout
+  let apiResult = null;
+  while ((Date.now() - startTime) / 1000 < maxWait) {
+    apiResult = await httpGet(`${baseUrl}/api`, 5000);
+    if (apiResult && apiResult.status === 200 && apiResult.body && apiResult.body.status === 'ok') {
+      break;
+    }
+    apiResult = null;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  if (apiResult) {
+    logMessage(`API verification PASSED: GET /api returned status "ok"`, logDir);
+  } else {
+    logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s`, logDir);
+    return false;
+  }
+
+  // Also check /api/ping
+  const pingResult = await httpGet(`${baseUrl}/api/ping`, 5000);
+  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status === 'ok') {
+    const info = pingResult.body;
+    logMessage(`API verification PASSED: GET /api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
+    if (info.gtopt_version) {
+      logMessage(`  gtopt version: ${info.gtopt_version}`, logDir);
+    }
+    if (info.gtopt_bin) {
+      logMessage(`  gtopt binary: ${info.gtopt_bin}`, logDir);
+    }
+  } else {
+    logMessage(`API verification WARNING: GET /api/ping did not return expected response`, logDir);
+  }
+
+  logMessage('API verification complete.', logDir);
+  return true;
+}
+
 function main() {
   const config = parseArgs();
   
   if (config.help) {
     showHelp();
     process.exit(0);
+  }
+
+  // --check-api mode: verify API on the given port and exit
+  if (config.checkApi) {
+    verifyApi(config.port, config.logDir, 5).then((ok) => {
+      process.exit(ok ? 0 : 1);
+    });
+    return;
   }
   
   // Find webservice directory
@@ -171,31 +263,32 @@ function main() {
   let gtoptBin = config.gtoptBin;
   if (!gtoptBin) {
     gtoptBin = findGtoptBinary();
-    if (!gtoptBin) {
-      console.error('Error: gtopt binary not found');
-      console.error('');
-      console.error('Please specify the gtopt binary location:');
-      console.error('  gtopt_websrv --gtopt-bin /path/to/gtopt');
-      console.error('  or set GTOPT_BIN environment variable');
-      process.exit(1);
-    }
   }
   
-  // Verify gtopt binary exists
-  if (!fs.existsSync(gtoptBin)) {
-    console.error(`Error: gtopt binary not found at: ${gtoptBin}`);
-    process.exit(1);
+  if (gtoptBin && !fs.existsSync(gtoptBin)) {
+    console.warn(`Warning: gtopt binary not found at: ${gtoptBin}`);
+    gtoptBin = null;
   }
-  
-  console.log(`Using gtopt binary: ${gtoptBin}`);
+
+  if (gtoptBin) {
+    console.log(`Using gtopt binary: ${gtoptBin}`);
+  } else {
+    console.warn('Warning: gtopt binary not found. The webservice will start but solving will not be available.');
+    console.warn('  Specify the gtopt binary location with: gtopt_websrv --gtopt-bin /path/to/gtopt');
+    console.warn('  or set the GTOPT_BIN environment variable.');
+  }
+
   console.log(`Starting web service on port ${config.port}...`);
   
   // Set up environment
   const env = {
     ...process.env,
     PORT: config.port,
-    GTOPT_BIN: gtoptBin,
   };
+  
+  if (gtoptBin) {
+    env.GTOPT_BIN = gtoptBin;
+  }
   
   if (config.dataDir) {
     env.GTOPT_DATA_DIR = config.dataDir;
@@ -268,6 +361,13 @@ function main() {
   process.on('SIGTERM', () => {
     console.log('\nReceived SIGTERM, shutting down...');
     proc.kill('SIGTERM');
+  });
+
+  // Verify API is working after server starts
+  verifyApi(config.port, config.logDir, 30).then((ok) => {
+    if (!ok) {
+      console.error('Warning: API verification failed. The service may not be working correctly.');
+    }
   });
 }
 

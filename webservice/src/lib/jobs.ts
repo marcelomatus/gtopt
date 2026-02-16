@@ -3,6 +3,7 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { spawn, execFile } from "child_process";
 import { createLogger } from "./logger";
+import { listDirRecursive } from "./files";
 
 const log = createLogger("jobs");
 
@@ -104,7 +105,20 @@ export async function runGtopt(token: string): Promise<void> {
   await fs.mkdir(outputDir, { recursive: true });
 
   const gtoptBin = await resolveGtoptBinary();
-  log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile} inputDir=${inputDir} outputDir=${outputDir}`);
+  log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile}`);
+  log.info(`Job ${token}: working directory (cwd)=${inputDir}`);
+  log.info(`Job ${token}: output directory=${outputDir}`);
+
+  // Log input directory contents before execution
+  try {
+    const inputFiles = await listDirRecursive(inputDir);
+    log.info(`Job ${token}: input directory contains ${inputFiles.length} file(s):`);
+    for (const f of inputFiles) {
+      log.info(`Job ${token}:   input: ${f}`);
+    }
+  } catch (err) {
+    log.warn(`Job ${token}: could not list input directory contents: ${err}`);
+  }
 
   return new Promise<void>((resolve) => {
     const proc = spawn(
@@ -140,18 +154,32 @@ export async function runGtopt(token: string): Promise<void> {
       if (code === 0) {
         job.status = "completed";
         job.completedAt = new Date().toISOString();
-        log.info(`Job ${token}: gtopt completed successfully`);
+        log.info(`Job ${token}: gtopt completed successfully (exit code 0)`);
       } else {
         job.status = "failed";
         job.error = stderr || stdout || `Process exited with code ${code}`;
         log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
+
+      // Log output directory contents after execution
+      try {
+        const outputFiles = await listDirRecursive(outputDir);
+        log.info(`Job ${token}: output directory contains ${outputFiles.length} file(s):`);
+        for (const f of outputFiles) {
+          log.info(`Job ${token}:   output: ${f}`);
+        }
+      } catch (err) {
+        log.warn(`Job ${token}: could not list output directory contents: ${err}`);
+      }
+
       // Save logs to job directory
       try {
-        await fs.writeFile(path.join(getJobDir(token), "stdout.log"), stdout);
-        await fs.writeFile(path.join(getJobDir(token), "stderr.log"), stderr);
+        const jobDir = getJobDir(token);
+        await fs.writeFile(path.join(jobDir, "stdout.log"), stdout);
+        await fs.writeFile(path.join(jobDir, "stderr.log"), stderr);
+        log.info(`Job ${token}: saved stdout.log (${stdout.length} bytes) and stderr.log (${stderr.length} bytes)`);
       } catch {
-        // Ignore log write errors
+        log.warn(`Job ${token}: failed to save log files`);
       }
       // Also save terminal output inside the output directory so it is
       // included in the results ZIP downloaded by the GUI.
