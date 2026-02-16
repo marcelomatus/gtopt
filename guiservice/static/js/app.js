@@ -1374,10 +1374,10 @@ function minimizeAssistant() {
     if (!isDragging) return;
     const card = document.getElementById("assistantCard");
     if (!card) return;
-    const x = e.clientX - offsetX;
-    const y = e.clientY - offsetY;
-    card.style.left = Math.max(0, x) + "px";
-    card.style.top = Math.max(0, y) + "px";
+    const x = Math.min(window.innerWidth - card.offsetWidth, Math.max(0, e.clientX - offsetX));
+    const y = Math.min(window.innerHeight - card.offsetHeight, Math.max(0, e.clientY - offsetY));
+    card.style.left = x + "px";
+    card.style.top = y + "px";
     card.style.right = "auto";
     card.style.bottom = "auto";
   }
