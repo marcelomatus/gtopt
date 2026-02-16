@@ -232,6 +232,20 @@ class TestRoutes:
         assert b'/static/js/app.js' in resp.data
         assert b"Quick Assistant" in resp.data
 
+    def test_assistant_has_controls(self, client):
+        """The Quick Assistant card should have move, minimize and close controls."""
+        resp = client.get("/")
+        html = resp.data
+        # Card is identifiable and has a draggable header
+        assert b'id="assistantCard"' in html
+        assert b'id="assistantHeader"' in html
+        # Minimize and close buttons are present
+        assert b"minimizeAssistant()" in html
+        assert b"closeAssistant()" in html
+        # Body section is wrapped for minimize toggle
+        assert b'id="assistantBody"' in html
+        assert b"assistant-controls" in html
+
     def test_schemas(self, client):
         resp = client.get("/api/schemas")
         assert resp.status_code == 200
