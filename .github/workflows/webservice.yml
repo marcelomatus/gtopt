@@ -94,3 +94,45 @@ jobs:
           cd $HOME/gtopt-install/share/gtopt/webservice
           bash test/install_test.sh
 
+      - name: Verify API with --check-api flag
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          
+          # Create mock gtopt binary
+          MOCK_BIN=$(mktemp)
+          printf '#!/bin/bash\necho "mock gtopt"\nexit 0\n' > "$MOCK_BIN"
+          chmod +x "$MOCK_BIN"
+          
+          # Start the server in the background
+          GTOPT_BIN="$MOCK_BIN" GTOPT_DATA_DIR=$(mktemp -d) \
+            node_modules/.bin/next start -p 3096 > /tmp/check_api_server.log 2>&1 &
+          SERVER_PID=$!
+          
+          # Wait for server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3096 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          
+          # Run --check-api
+          if node gtopt_websrv.js --check-api --port 3096; then
+            echo "✓ --check-api passed"
+          else
+            echo "✗ --check-api failed"
+            cat /tmp/check_api_server.log
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          
+          # Verify --check-api fails on a closed port
+          if node gtopt_websrv.js --check-api --port 19999 2>/dev/null; then
+            echo "✗ --check-api should have failed on closed port"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          else
+            echo "✓ --check-api correctly fails on closed port"
+          fi
+          
+          kill $SERVER_PID 2>/dev/null || true
+          echo "✓ All --check-api tests passed"
+
