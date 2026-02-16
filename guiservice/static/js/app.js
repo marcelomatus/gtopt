@@ -1337,3 +1337,64 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ---------------------------------------------------------------------------
+// Quick Assistant – move, minimize, close
+// ---------------------------------------------------------------------------
+
+function closeAssistant() {
+  const card = document.getElementById("assistantCard");
+  if (card) card.style.display = "none";
+}
+
+function minimizeAssistant() {
+  const card = document.getElementById("assistantCard");
+  if (!card) return;
+  card.classList.toggle("minimized");
+}
+
+/* Drag-to-move */
+(function initAssistantDrag() {
+  let isDragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  function onPointerDown(e) {
+    const card = document.getElementById("assistantCard");
+    if (!card) return;
+    isDragging = true;
+    const rect = card.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    card.style.transition = "none";
+    e.preventDefault();
+  }
+
+  function onPointerMove(e) {
+    if (!isDragging) return;
+    const card = document.getElementById("assistantCard");
+    if (!card) return;
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    card.style.left = Math.max(0, x) + "px";
+    card.style.top = Math.max(0, y) + "px";
+    card.style.right = "auto";
+    card.style.bottom = "auto";
+  }
+
+  function onPointerUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    const card = document.getElementById("assistantCard");
+    if (card) card.style.transition = "";
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const header = document.getElementById("assistantHeader");
+    if (header) {
+      header.addEventListener("pointerdown", onPointerDown);
+    }
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  });
+})();
