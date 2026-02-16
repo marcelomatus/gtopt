@@ -193,7 +193,8 @@ def check_webservice_api(webservice_url, timeout=5):
     successful JSON response containing ``"status": "ok"``.
 
     Returns:
-        True if the API root responds correctly.
+        bool: True if the API root responds with ``"status": "ok"``,
+        False on connection failure, timeout, or unexpected response.
     """
     import urllib.request
     import urllib.error
