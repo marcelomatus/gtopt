@@ -3,27 +3,9 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { spawn, execFile } from "child_process";
 import { createLogger } from "./logger";
+import { listDirRecursive } from "./files";
 
 const log = createLogger("jobs");
-
-/**
- * Recursively list all files under a directory, returning paths relative to
- * the base directory.
- */
-async function listDirRecursive(dir: string, base?: string): Promise<string[]> {
-  const root = base ?? dir;
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listDirRecursive(full, root)));
-    } else {
-      files.push(path.relative(root, full));
-    }
-  }
-  return files;
-}
 
 export interface JobInfo {
   token: string;
@@ -134,8 +116,8 @@ export async function runGtopt(token: string): Promise<void> {
     for (const f of inputFiles) {
       log.info(`Job ${token}:   input: ${f}`);
     }
-  } catch {
-    log.warn(`Job ${token}: could not list input directory contents`);
+  } catch (err) {
+    log.warn(`Job ${token}: could not list input directory contents: ${err}`);
   }
 
   return new Promise<void>((resolve) => {
@@ -186,8 +168,8 @@ export async function runGtopt(token: string): Promise<void> {
         for (const f of outputFiles) {
           log.info(`Job ${token}:   output: ${f}`);
         }
-      } catch {
-        log.warn(`Job ${token}: could not list output directory contents`);
+      } catch (err) {
+        log.warn(`Job ${token}: could not list output directory contents: ${err}`);
       }
 
       // Save logs to job directory

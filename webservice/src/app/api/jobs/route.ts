@@ -9,30 +9,12 @@ import {
   listJobs,
 } from "@/lib/jobs";
 import { createLogger } from "@/lib/logger";
+import { listDirRecursive } from "@/lib/files";
 import extractZip from "extract-zip";
 
 const log = createLogger("api/jobs");
 
 export const dynamic = "force-dynamic";
-
-/**
- * Recursively list all files under a directory, returning paths relative to
- * the base directory.
- */
-async function listDirRecursive(dir: string, base?: string): Promise<string[]> {
-  const root = base ?? dir;
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listDirRecursive(full, root)));
-    } else {
-      files.push(path.relative(root, full));
-    }
-  }
-  return files;
-}
 
 // POST /api/jobs - Upload a case zip and start a job
 export async function POST(request: NextRequest) {
@@ -114,8 +96,8 @@ export async function POST(request: NextRequest) {
       for (const f of extractedFiles) {
         log.info(`Job ${job.token}:   ${f}`);
       }
-    } catch {
-      // Non-critical: proceed even if listing fails
+    } catch (err) {
+      log.warn(`Job ${job.token}: could not list extracted files: ${err}`);
     }
 
     // Verify system file exists
