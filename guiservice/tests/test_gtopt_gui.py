@@ -14,6 +14,7 @@ import pytest
 # We need to handle the import carefully since it's a script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from gtopt_gui import (
+    check_webservice_api,
     find_free_port,
     get_guiservice_dir,
     is_gtopt_webservice,
@@ -275,3 +276,58 @@ def test_wait_for_webservice_returns_true_when_service_is_ready():
 def test_wait_for_webservice_returns_false_on_timeout():
     """wait_for_webservice should return False when service never becomes ready."""
     assert wait_for_webservice("http://127.0.0.1:19999", timeout=2) is False
+
+
+def test_check_webservice_api_returns_true_on_success():
+    """check_webservice_api should return True when /api responds with status ok."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    assert check_webservice_api(f"http://127.0.0.1:{port}", timeout=5) is True
+    server.server_close()
+
+
+def test_check_webservice_api_returns_false_on_failure():
+    """check_webservice_api should return False when the service is unreachable."""
+    assert check_webservice_api("http://127.0.0.1:19999", timeout=1) is False
+
+
+def test_check_webservice_api_returns_false_on_bad_status():
+    """check_webservice_api should return False when status is not ok."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "error"}).encode())
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    assert check_webservice_api(f"http://127.0.0.1:{port}", timeout=5) is False
+    server.server_close()
