@@ -266,6 +266,7 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
             stdout=stdout_target,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True,
         )
         if log_handle:
             process._gtopt_log_handle = log_handle
@@ -487,27 +488,36 @@ an external webservice.
         stdout=flask_log_handle,
         stderr=subprocess.STDOUT,
         text=True,
+        start_new_session=True,
     )
     flask_process._gtopt_log_handle = flask_log_handle
     
     # Register cleanup handler
+    def _kill_process_group(proc, label):
+        """Terminate a process and its entire process group."""
+        if proc.poll() is not None:
+            return
+        print(f"Shutting down {label}...")
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                proc.kill()
+            proc.wait(timeout=3)
+
     def cleanup():
         """Terminate Flask server and webservice on exit."""
-        if flask_process.poll() is None:
-            print("\nShutting down gtopt GUI service...")
-            flask_process.terminate()
-            try:
-                flask_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                flask_process.kill()
-        
-        if webservice_process and webservice_process.poll() is None:
-            print("Shutting down webservice...")
-            webservice_process.terminate()
-            try:
-                webservice_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                webservice_process.kill()
+        _kill_process_group(flask_process, "gtopt GUI service")
+        if webservice_process:
+            _kill_process_group(webservice_process, "webservice")
         if hasattr(flask_process, "_gtopt_log_handle"):
             flask_process._gtopt_log_handle.close()
         if webservice_process and hasattr(webservice_process, "_gtopt_log_handle"):

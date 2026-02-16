@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import signal
 import tempfile
 import zipfile
 from collections import deque
@@ -918,6 +919,67 @@ def get_job_logs(token):
     except Exception as e:
         app.logger.exception("Unexpected error on job_logs token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown_service():
+    """Shut down the guiservice (and its parent gtopt_gui launcher).
+
+    Sends SIGTERM to the current process so that the gtopt_gui cleanup handler
+    can terminate both the guiservice and the webservice.
+    """
+    app.logger.info("Shutdown requested via /api/shutdown")
+    func = request.environ.get("werkzeug.server.shutdown")
+    if func is not None:
+        func()
+        return jsonify({"status": "shutting_down"})
+    # For newer Werkzeug / production servers, kill the process
+    os.kill(os.getpid(), signal.SIGTERM)
+    return jsonify({"status": "shutting_down"})
+
+
+@app.route("/api/check_server", methods=["GET"])
+def check_server():
+    """Run comprehensive checks on the webservice and return aggregated results.
+
+    Performs ping, log retrieval, and job listing against the configured
+    webservice URL and returns all results in a single response.
+    """
+    global _webservice_url
+    results = {
+        "webservice_url": _webservice_url,
+        "ping": None,
+        "logs": None,
+        "jobs": None,
+    }
+
+    # --- Ping ---
+    try:
+        resp = http_requests.get(f"{_webservice_url}/api/ping", timeout=10)
+        resp.raise_for_status()
+        results["ping"] = {"status": "ok", "data": resp.json()}
+    except Exception as e:
+        results["ping"] = {"status": "error", "error": str(e)}
+
+    # --- Logs ---
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10
+        )
+        resp.raise_for_status()
+        results["logs"] = {"status": "ok", "data": resp.json()}
+    except Exception as e:
+        results["logs"] = {"status": "error", "error": str(e)}
+
+    # --- Jobs ---
+    try:
+        resp = http_requests.get(f"{_webservice_url}/api/jobs", timeout=10)
+        resp.raise_for_status()
+        results["jobs"] = {"status": "ok", "data": resp.json()}
+    except Exception as e:
+        results["jobs"] = {"status": "error", "error": str(e)}
+
+    return jsonify(results)
 
 
 def main():

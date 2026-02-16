@@ -1218,6 +1218,10 @@ async function refreshWebserviceLogs() {
 }
 
 async function pingWebservice() {
+  const url = document.getElementById("wsUrl").value.trim();
+  if (url) {
+    await saveWsConfig();
+  }
   setWsStatus("", "Pinging webservice…");
   try {
     const resp = await fetch("/api/solve/ping");
@@ -1240,6 +1244,88 @@ async function pingWebservice() {
     updateWsDot(false);
     document.getElementById("wsPingInfo").style.display = "none";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Check Server – aggregated health check
+// ---------------------------------------------------------------------------
+
+async function checkServer() {
+  switchTab("solver");
+  setWsStatus("", "Checking server…");
+  try {
+    const resp = await fetch("/api/check_server");
+    if (!resp.ok) {
+      setWsStatus("fail", "Check server request failed.");
+      updateWsDot(false);
+      return;
+    }
+    const data = await resp.json();
+    const parts = [];
+
+    // Ping
+    if (data.ping && data.ping.status === "ok") {
+      const p = data.ping.data || {};
+      parts.push("✅ Ping: " + (p.service || "ok") + (p.gtopt_version ? " (gtopt " + p.gtopt_version + ")" : ""));
+      updateWsDot(true);
+      document.getElementById("wsPingInfo").style.display = "block";
+      document.getElementById("pingGtoptBin").textContent = (p.gtopt_bin || "—");
+      document.getElementById("pingGtoptVersion").textContent = (p.gtopt_version || "—");
+      document.getElementById("pingLogFile").textContent = (p.log_file || "(console only)");
+    } else {
+      parts.push("❌ Ping: " + (data.ping ? data.ping.error : "unavailable"));
+      updateWsDot(false);
+    }
+
+    // Logs
+    if (data.logs && data.logs.status === "ok") {
+      const l = data.logs.data || {};
+      const count = (l.lines || []).length;
+      parts.push("✅ Logs: " + count + " line(s) available");
+      // Also update the webservice logs panel
+      const wsOutput = document.getElementById("wsLogsOutput");
+      if (wsOutput && count > 0) {
+        const header = l.log_file ? "Log file: " + l.log_file + "\n\n" : "";
+        wsOutput.textContent = header + l.lines.join("\n");
+      }
+    } else {
+      parts.push("❌ Logs: " + (data.logs ? data.logs.error : "unavailable"));
+    }
+
+    // Jobs
+    if (data.jobs && data.jobs.status === "ok") {
+      const j = data.jobs.data || {};
+      const count = (j.jobs || []).length;
+      parts.push("✅ Jobs: " + count + " job(s) found");
+      renderJobsList(j.jobs || []);
+    } else {
+      parts.push("❌ Jobs: " + (data.jobs ? data.jobs.error : "unavailable"));
+    }
+
+    const allOk = (data.ping && data.ping.status === "ok") &&
+                (data.logs && data.logs.status === "ok") &&
+                (data.jobs && data.jobs.status === "ok");
+    setWsStatus(allOk ? "ok" : "fail", parts.join("  |  "));
+  } catch (e) {
+    setWsStatus("fail", "Check server failed: " + e.message);
+    updateWsDot(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown
+// ---------------------------------------------------------------------------
+
+async function shutdownService() {
+  if (!confirm("Are you sure you want to shut down the gtopt GUI and all services?")) {
+    return;
+  }
+  try {
+    await fetch("/api/shutdown", { method: "POST" });
+  } catch (e) {
+    // Connection will likely be lost immediately – that's expected.
+  }
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748b"><h2>gtopt GUI has been shut down.</h2></div>';
 }
 
 // ---------------------------------------------------------------------------
