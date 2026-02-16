@@ -19,6 +19,7 @@
       <button class="primary" onclick="downloadCase()">Download ZIP</button>
       <button onclick="previewJSON()">Preview JSON</button>
       <button class="solve-btn" onclick="solveCase()">⚡ Solve</button>
+      <button onclick="checkServer()">🔍 Check Server</button>
       <button onclick="document.getElementById('uploadResultsInput').click()">View Results</button>
       <input type="file" id="uploadResultsInput" accept=".zip" style="display:none" onchange="uploadResults(this)">
     </div>
@@ -252,6 +253,8 @@
     <div class="assistant-actions">
       <button class="btn-sm" onclick="newCase()">New Case</button>
       <button class="btn-sm" onclick="switchTab('solver')">Webservice</button>
+      <button class="btn-sm" onclick="checkServer()">Check Server</button>
+      <button class="btn-sm btn-danger" onclick="shutdownService()">Kill</button>
     </div>
   </aside>
 
