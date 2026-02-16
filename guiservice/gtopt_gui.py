@@ -172,6 +172,37 @@ def query_webservice_ping(webservice_url, timeout=5):
     return None
 
 
+def is_gtopt_webservice(webservice_url, timeout=3):
+    """Check whether the given URL hosts a gtopt webservice.
+
+    Sends a ping and verifies the response contains the expected
+    ``service`` field so that unrelated services on the same port are
+    not mistaken for the gtopt webservice.
+
+    Returns:
+        True if the service identifies itself as ``gtopt-webservice``.
+    """
+    info = query_webservice_ping(webservice_url, timeout=timeout)
+    return info is not None and info.get("service") == "gtopt-webservice"
+
+
+def wait_for_webservice(webservice_url, timeout=30):
+    """Wait until the webservice responds to a ping request.
+
+    Polls the ``/api/ping`` endpoint every second until a valid response
+    is received or *timeout* seconds elapse.
+
+    Returns:
+        True if the webservice became ready within the timeout.
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_gtopt_webservice(webservice_url, timeout=2):
+            return True
+        time.sleep(1)
+    return False
+
+
 def resolve_python_executable(cli_python=None):
     """Resolve Python executable used to launch the Flask guiservice process."""
     env_python = os.environ.get("GTOPT_GUI_PYTHON")
@@ -411,10 +442,17 @@ an external webservice.
 
     if not args.no_webservice and not webservice_url:
         if is_port_open(args.webservice_port):
-            webservice_url = f"http://localhost:{args.webservice_port}"
-            print(
-                f"Detected existing process on port {args.webservice_port}; reusing webservice at {webservice_url}"
-            )
+            candidate_url = f"http://localhost:{args.webservice_port}"
+            if is_gtopt_webservice(candidate_url):
+                webservice_url = candidate_url
+                print(
+                    f"Detected existing gtopt webservice on port {args.webservice_port}; reusing at {webservice_url}"
+                )
+            else:
+                print(
+                    f"Port {args.webservice_port} is in use but does not appear to be a gtopt webservice."
+                )
+                print("Use --webservice-port to choose a different port.")
         else:
             # Try to start webservice automatically
             webservice_dir = get_webservice_dir()
@@ -446,8 +484,12 @@ an external webservice.
                 if webservice_process:
                     webservice_url = f"http://localhost:{args.webservice_port}"
                     print(f"Webservice starting at: {webservice_url}")
-                    # Give webservice a moment to start
-                    time.sleep(2)
+                    # Wait for the webservice to become ready
+                    print("Waiting for webservice to be ready...")
+                    if wait_for_webservice(webservice_url, timeout=30):
+                        print("Webservice is ready.")
+                    else:
+                        print("Warning: Webservice did not become ready within 30 seconds.", file=sys.stderr)
                     # If our child exited but the port is open, another instance is already serving.
                     if webservice_process.poll() is not None and is_port_open(args.webservice_port):
                         print(

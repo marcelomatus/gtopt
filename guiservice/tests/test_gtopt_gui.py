@@ -16,10 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from gtopt_gui import (
     find_free_port,
     get_guiservice_dir,
+    is_gtopt_webservice,
     is_port_open,
     open_browser,
     query_webservice_ping,
     resolve_python_executable,
+    wait_for_webservice,
 )
 
 
@@ -189,3 +191,87 @@ def test_query_webservice_ping_returns_data_on_success():
     assert result["service"] == "gtopt-webservice"
 
     server.server_close()
+
+
+def test_is_gtopt_webservice_returns_true_for_valid_service():
+    """is_gtopt_webservice should return True for a valid gtopt webservice."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    assert is_gtopt_webservice(f"http://127.0.0.1:{port}", timeout=5) is True
+    server.server_close()
+
+
+def test_is_gtopt_webservice_returns_false_for_wrong_service():
+    """is_gtopt_webservice should return False for a non-gtopt service."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    assert is_gtopt_webservice(f"http://127.0.0.1:{port}", timeout=5) is False
+    server.server_close()
+
+
+def test_is_gtopt_webservice_returns_false_on_connection_failure():
+    """is_gtopt_webservice should return False when the service is unreachable."""
+    assert is_gtopt_webservice("http://127.0.0.1:19999", timeout=1) is False
+
+
+def test_wait_for_webservice_returns_true_when_service_is_ready():
+    """wait_for_webservice should return True when service responds immediately."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode())
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    assert wait_for_webservice(f"http://127.0.0.1:{port}", timeout=5) is True
+    server.shutdown()
+    server.server_close()
+
+
+def test_wait_for_webservice_returns_false_on_timeout():
+    """wait_for_webservice should return False when service never becomes ready."""
+    assert wait_for_webservice("http://127.0.0.1:19999", timeout=2) is False
