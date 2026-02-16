@@ -189,7 +189,7 @@ jobs:
           
           # Test gtopt_gui starts with --no-webservice flag
           echo "Testing gtopt_gui with --no-webservice..."
-          timeout 10 ./gtopt_gui --no-webservice --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
+          timeout 10 ./gtopt_gui --no-webservice --no-browser --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
           GUI_NO_WEB_PID=$!
           sleep 3
           
@@ -207,32 +207,42 @@ jobs:
           
           # Test gtopt_gui with integrated webservice
           echo "Testing gtopt_gui with integrated webservice..."
-          timeout 30 ./gtopt_gui --webservice-port 3001 --port 5101 > /tmp/gtopt_gui_integrated.log 2>&1 &
+          timeout 120 ./gtopt_gui --webservice-port 3001 --no-browser --port 5101 > /tmp/gtopt_gui_integrated.log 2>&1 &
           GUI_INT_PID=$!
           
           # Wait for services to start
           echo "Waiting for services to start..."
-          for i in {1..30}; do
+          SERVICES_UP=false
+          for i in {1..60}; do
             if curl -s http://localhost:5101/api/schemas > /dev/null && \
                curl -s http://localhost:3001/api/jobs > /dev/null; then
               echo "✓ Both services are up!"
+              SERVICES_UP=true
               break
             fi
             sleep 1
           done
           
+          if [ "$SERVICES_UP" != "true" ]; then
+            echo "✗ Services did not start in time"
+            echo "=== GUI integrated logs ==="
+            cat /tmp/gtopt_gui_integrated.log || true
+            kill $GUI_INT_PID 2>/dev/null || true
+            exit 1
+          fi
+          
           # Test GUI API
           echo "Testing GUI API..."
-          GUI_SCHEMAS=$(curl -s http://localhost:5101/api/schemas | python3 -c "import sys, json; print(len(json.load(sys.stdin)))")
+          GUI_SCHEMAS=$(curl -sf http://localhost:5101/api/schemas | python3 -c "import sys, json; print(len(json.load(sys.stdin)))")
           echo "✓ GUI API working: $GUI_SCHEMAS element types available"
           
           # Test webservice API
           echo "Testing webservice API..."
-          curl -s http://localhost:3001/api/jobs | python3 -c "import sys, json; data = json.load(sys.stdin); assert 'jobs' in data, 'Invalid response'; print('✓ Webservice API working')"
+          curl -sf http://localhost:3001/api/jobs | python3 -c "import sys, json; data = json.load(sys.stdin); assert 'jobs' in data, 'Invalid response'; print('✓ Webservice API working')"
           
           # Test GUI web UI
           echo "Testing GUI web UI..."
-          curl -s http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
+          curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
           
           # Cleanup
           kill $GUI_INT_PID 2>/dev/null || true
@@ -243,4 +253,3 @@ jobs:
           
           echo ""
           echo "✅ All integrated gtopt_gui tests passed!"
-          cat /tmp/gtopt_guisrv.log || true

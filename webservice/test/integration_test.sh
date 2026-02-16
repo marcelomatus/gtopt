@@ -1,10 +1,13 @@
 #!/bin/bash
 # Integration test for the gtopt web service.
-# This script starts the web service with a mock gtopt binary,
-# submits a test case, checks status, and downloads results.
+# When GTOPT_BIN is set, uses the real gtopt binary; otherwise creates a
+# minimal mock so the test can still run locally without a full build.
 #
 # Usage:
 #   ./test/integration_test.sh [port]
+#
+# Environment:
+#   GTOPT_BIN  — path to the gtopt binary (optional; falls back to mock)
 #
 # The optional port argument defaults to 3099.
 
@@ -38,9 +41,14 @@ log()  { echo "  [INFO] $*"; }
 pass() { echo "  [PASS] $*"; PASS=$((PASS + 1)); }
 fail() { echo "  [FAIL] $*"; FAIL=$((FAIL + 1)); }
 
-# ---- Create mock gtopt binary ----
-MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
-cat > "$MOCK_BIN" << 'MOCK'
+# ---- Resolve the gtopt binary ----
+if [ -n "${GTOPT_BIN:-}" ] && [ -x "${GTOPT_BIN}" ]; then
+  log "Using real gtopt binary: $GTOPT_BIN"
+  USING_REAL_BINARY=true
+else
+  log "GTOPT_BIN not set or not executable; creating mock binary for local testing"
+  MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
+  cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
 SYSTEM_FILE="" OUTPUT_DIR=""
 while [[ $# -gt 0 ]]; do
@@ -60,7 +68,10 @@ echo "generator,stage,block,scenario,value" >  "$OUTPUT_DIR/Generator/generation
 echo "g1,1,1,1,10.0"                       >> "$OUTPUT_DIR/Generator/generation_sol.csv"
 exit 0
 MOCK
-chmod +x "$MOCK_BIN"
+  chmod +x "$MOCK_BIN"
+  GTOPT_BIN="$MOCK_BIN"
+  USING_REAL_BINARY=false
+fi
 
 # ---- Create test zip from cases/c0 ----
 TEST_ZIP="$TEST_TMPDIR/case_c0.zip"
@@ -75,7 +86,7 @@ fi
 
 log "Starting web service on port $PORT ..."
 cd "$WEBSERVICE_DIR"
-GTOPT_BIN="$MOCK_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" node_modules/.bin/next start -p "$PORT" \
+GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" node_modules/.bin/next start -p "$PORT" \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 
@@ -102,6 +113,15 @@ else
   fail "GET / returned $HTTP_CODE (expected 200)"
 fi
 
+# ---- Test 1b: GET /api — API root health check ----
+BODY=$(curl -s "$BASE_URL/api")
+API_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+if [ "$API_STATUS" = "ok" ]; then
+  pass "GET /api returns status ok"
+else
+  fail "GET /api unexpected response: $BODY"
+fi
+
 # ---- Test 2: GET /api/jobs — empty list ----
 BODY=$(curl -s "$BASE_URL/api/jobs")
 if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d['jobs'], list)" 2>/dev/null; then
@@ -122,8 +142,10 @@ else
 fi
 
 # ---- Test 4: Wait for job to complete ----
+# Real solver may take longer than mock
+JOB_TIMEOUT=120
 STATUS=""
-for i in $(seq 1 30); do
+for i in $(seq 1 $JOB_TIMEOUT); do
   BODY=$(curl -s "$BASE_URL/api/jobs/$TOKEN")
   STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])" 2>/dev/null || true)
   if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
@@ -138,7 +160,7 @@ elif [ "$STATUS" = "failed" ]; then
   ERROR=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','unknown'))" 2>/dev/null || true)
   fail "Job failed: $ERROR"
 else
-  fail "Job did not finish within 30s (status: $STATUS)"
+  fail "Job did not finish within ${JOB_TIMEOUT}s (status: $STATUS)"
 fi
 
 # ---- Test 5: GET /api/jobs/:token — status check ----
@@ -219,6 +241,13 @@ if [ "$LOG_CHECK" = "ok" ]; then
   pass "GET /api/logs returns log lines"
 else
   fail "GET /api/logs unexpected response: $BODY"
+fi
+
+# ---- Test 12: --check-api via gtopt_websrv.js ----
+if node "$WEBSERVICE_DIR/gtopt_websrv.js" --check-api --port "$PORT" >/dev/null 2>&1; then
+  pass "gtopt_websrv.js --check-api succeeds against running server"
+else
+  fail "gtopt_websrv.js --check-api failed against running server"
 fi
 
 # ---- Summary ----
