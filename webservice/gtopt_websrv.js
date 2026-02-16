@@ -68,6 +68,7 @@ function getWebserviceDir() {
   const possibleLocations = [
     path.join(scriptDir, 'share', 'gtopt', 'webservice'),
     path.join(scriptDir, '..', 'share', 'gtopt', 'webservice'),
+    __dirname,           // Script is inside the webservice directory itself
     path.join(__dirname, '..'), // During development
   ];
   
@@ -262,31 +263,32 @@ function main() {
   let gtoptBin = config.gtoptBin;
   if (!gtoptBin) {
     gtoptBin = findGtoptBinary();
-    if (!gtoptBin) {
-      console.error('Error: gtopt binary not found');
-      console.error('');
-      console.error('Please specify the gtopt binary location:');
-      console.error('  gtopt_websrv --gtopt-bin /path/to/gtopt');
-      console.error('  or set GTOPT_BIN environment variable');
-      process.exit(1);
-    }
   }
   
-  // Verify gtopt binary exists
-  if (!fs.existsSync(gtoptBin)) {
-    console.error(`Error: gtopt binary not found at: ${gtoptBin}`);
-    process.exit(1);
+  if (gtoptBin && !fs.existsSync(gtoptBin)) {
+    console.warn(`Warning: gtopt binary not found at: ${gtoptBin}`);
+    gtoptBin = null;
   }
-  
-  console.log(`Using gtopt binary: ${gtoptBin}`);
+
+  if (gtoptBin) {
+    console.log(`Using gtopt binary: ${gtoptBin}`);
+  } else {
+    console.warn('Warning: gtopt binary not found. The webservice will start but solving will not be available.');
+    console.warn('  Specify the gtopt binary location with: gtopt_websrv --gtopt-bin /path/to/gtopt');
+    console.warn('  or set the GTOPT_BIN environment variable.');
+  }
+
   console.log(`Starting web service on port ${config.port}...`);
   
   // Set up environment
   const env = {
     ...process.env,
     PORT: config.port,
-    GTOPT_BIN: gtoptBin,
   };
+  
+  if (gtoptBin) {
+    env.GTOPT_BIN = gtoptBin;
+  }
   
   if (config.dataDir) {
     env.GTOPT_DATA_DIR = config.dataDir;
