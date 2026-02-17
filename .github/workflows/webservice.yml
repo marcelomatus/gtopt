@@ -92,8 +92,21 @@ jobs:
           name: gtopt-binary
           path: gtopt-install
 
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coinor-libcbc-dev libboost-container-dev libspdlog-dev
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
       - name: make gtopt executable
-        run: chmod +x gtopt-install/bin/gtopt
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
 
       # ---- Build the web service ----
 
@@ -144,8 +157,21 @@ jobs:
           name: gtopt-binary
           path: ${{ github.workspace }}/gtopt-install
 
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coinor-libcbc-dev libboost-container-dev libspdlog-dev
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
       - name: make gtopt executable
-        run: chmod +x gtopt-install/bin/gtopt
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
 
       - name: verify only standalone gtopt binary is installed
         run: |
