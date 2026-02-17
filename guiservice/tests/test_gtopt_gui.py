@@ -335,6 +335,45 @@ def test_check_webservice_api_returns_false_on_bad_status():
     server.server_close()
 
 
+def test_check_webservice_api_falls_back_to_ping_when_api_is_404():
+    """check_webservice_api should accept /api/ping when /api is unavailable."""
+    import json
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/api":
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "not found"}).encode())
+                return
+            if self.path == "/api/ping":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({"status": "ok", "service": "gtopt-webservice"}).encode()
+                )
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    assert check_webservice_api(f"http://127.0.0.1:{port}", timeout=5) is True
+
+    server.shutdown()
+    server.server_close()
+
+
 def test_find_websrv_script_returns_none_or_path():
     """find_websrv_script should return None or a valid Path."""
     result = find_websrv_script()
