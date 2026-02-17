@@ -547,13 +547,15 @@ def _parse_results_zip(zip_bytes):
 
             elif name.endswith(".parquet"):
                 try:
-                    df = pd.read_parquet(io.BytesIO(zf.read(name)))
+                    raw = zf.read(name)
+                    df = pd.read_parquet(io.BytesIO(raw))
                     base_no_ext = os.path.splitext(os.path.basename(name))[0]
                     parent = os.path.basename(os.path.dirname(name))
                     key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                     results["outputs"][key] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
+                        "raw_parquet_b64": b64encode(raw).decode("ascii"),
                     }
                 except Exception:
                     pass
