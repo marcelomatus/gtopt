@@ -10,6 +10,10 @@ on:
       - master
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -140,9 +144,17 @@ jobs:
 
   test-integrated-gtopt-gui:
     runs-on: ubuntu-latest
-    
+
+    env:
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
