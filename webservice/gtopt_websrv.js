@@ -29,6 +29,8 @@ const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
 
+const STARTUP_TIMEOUT_MS = 30000;
+
 function showHelp() {
   console.log(`
 gtopt_websrv - Launcher for gtopt web service
@@ -454,15 +456,14 @@ function main() {
   });
 
   // Verify API is working after server signals readiness.
-  // Wait for the "Ready in" message from Next.js (up to 30 s) before
-  // polling the HTTP endpoints, so we avoid noisy ECONNREFUSED messages
-  // during startup.
-  const readyTimeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), 30000));
+  // Wait for the "Ready in" message from Next.js before polling the HTTP
+  // endpoints, so we avoid noisy ECONNREFUSED messages during startup.
+  const readyTimeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), STARTUP_TIMEOUT_MS));
   Promise.race([serverReadyPromise, readyTimeout]).then((result) => {
     if (result === 'timeout') {
-      logMessage('Warning: server did not signal readiness within 30s, attempting API verification anyway', config.logDir);
+      logMessage(`Warning: server did not signal readiness within ${STARTUP_TIMEOUT_MS / 1000}s, attempting API verification anyway`, config.logDir);
     }
-    return verifyApi(config.port, config.logDir, 30);
+    return verifyApi(config.port, config.logDir, STARTUP_TIMEOUT_MS / 1000);
   }).then((ok) => {
     if (!ok) {
       console.error('Warning: API verification failed. The service may not be working correctly.');
