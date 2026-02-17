@@ -217,6 +217,8 @@ async function verifyApi(port, logDir, timeout) {
     if (apiResult) {
       break;
     }
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    logMessage(`  ... waiting for API (${elapsed}s elapsed)`, logDir);
     await new Promise((r) => setTimeout(r, 1000));
   }
 
@@ -228,19 +230,32 @@ async function verifyApi(port, logDir, timeout) {
     return false;
   }
 
-  // Also check /api/ping
+  // Also check /api/ping — accept the response as long as the endpoint
+  // responds with HTTP 200 and the body contains service: "gtopt-webservice".
+  // The "status" field may be "ok" or "error" (e.g. when the gtopt binary is
+  // not found) — either way the *webservice* is healthy.
   const pingResult = await httpGet(`${apiBaseUrl}/api/ping`, 5000);
-  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status === 'ok') {
+  if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.service === 'gtopt-webservice') {
     const info = pingResult.body;
-    logMessage(`API verification PASSED: GET ${apiBaseUrl}/api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
+    logMessage(`API verification PASSED: GET ${apiBaseUrl}/api/ping returned status "${info.status}", service="${info.service}"`, logDir);
     if (info.gtopt_version) {
       logMessage(`  gtopt version: ${info.gtopt_version}`, logDir);
     }
     if (info.gtopt_bin) {
       logMessage(`  gtopt binary: ${info.gtopt_bin}`, logDir);
+    } else {
+      logMessage(`  gtopt binary: not found (solving will not be available until configured)`, logDir);
+    }
+    if (info.log_file) {
+      logMessage(`  log file: ${info.log_file}`, logDir);
     }
   } else {
-    logMessage(`API verification WARNING: GET /api/ping did not return expected response`, logDir);
+    logMessage(`API verification WARNING: GET ${apiBaseUrl}/api/ping did not return expected response`, logDir);
+    if (pingResult) {
+      logMessage(`  HTTP status: ${pingResult.status}, body: ${JSON.stringify(pingResult.body)}`, logDir);
+    } else {
+      logMessage(`  No response received from /api/ping`, logDir);
+    }
   }
 
   logMessage('API verification complete.', logDir);

@@ -54,6 +54,16 @@ export function createLogger(component: string) {
   };
 }
 
+// Log startup environment once when module is first loaded
+const startupLog = createLogger("startup");
+startupLog.info(`gtopt-webservice initializing`);
+startupLog.info(`  NODE_ENV=${process.env.NODE_ENV || "(not set)"}`);
+startupLog.info(`  GTOPT_BIN=${process.env.GTOPT_BIN || "(not set)"}`);
+startupLog.info(`  GTOPT_DATA_DIR=${process.env.GTOPT_DATA_DIR || "(not set)"}`);
+startupLog.info(`  GTOPT_LOG_DIR=${LOG_DIR || "(not set — logging to console only)"}`);
+startupLog.info(`  PORT=${process.env.PORT || "(not set)"}`);
+startupLog.info(`  cwd=${process.cwd()}`);
+
 /**
  * Return the path to the log file, or empty string if file logging is disabled.
  */

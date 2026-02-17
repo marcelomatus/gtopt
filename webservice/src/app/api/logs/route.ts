@@ -11,10 +11,11 @@ export async function GET(request: NextRequest) {
   const linesParam = searchParams.get("lines");
   const lines = Math.max(1, Math.min(parseInt(linesParam || "200", 10) || 200, 5000));
 
-  log.info(`GET /api/logs lines=${lines}`);
+  log.info(`GET /api/logs called (lines=${lines})`);
   try {
     const logFile = getLogFilePath();
     const logLines = await readLogTail(lines);
+    log.info(`GET /api/logs: returning ${logLines.length} log lines from ${logFile || "(console only)"}`);
     return NextResponse.json({
       log_file: logFile,
       lines: logLines,

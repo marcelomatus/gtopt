@@ -50,6 +50,11 @@ else
   MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
   cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
+# Handle --version flag
+if [ "$1" = "--version" ]; then
+  echo "gtopt mock 0.0.0 (test)"
+  exit 0
+fi
 SYSTEM_FILE="" OUTPUT_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,7 +91,10 @@ fi
 
 log "Starting web service on port $PORT ..."
 cd "$WEBSERVICE_DIR"
-GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" node_modules/.bin/next start -p "$PORT" \
+LOG_DIR="$TEST_TMPDIR/logs"
+mkdir -p "$LOG_DIR"
+GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
+  node_modules/.bin/next start -p "$PORT" \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 
@@ -249,6 +257,52 @@ if node "$WEBSERVICE_DIR/gtopt_websrv.js" --check-api --port "$PORT" >/dev/null 
 else
   fail "gtopt_websrv.js --check-api failed against running server"
 fi
+
+# ---- Test 13: Log file exists and contains expected entries ----
+LOG_FILE="$LOG_DIR/gtopt-webservice.log"
+if [ -f "$LOG_FILE" ]; then
+  pass "Log file created at $LOG_FILE"
+else
+  fail "Log file not found at $LOG_FILE"
+fi
+
+# ---- Test 14: Log file contains startup environment info ----
+if grep -q "\[startup\]" "$LOG_FILE" 2>/dev/null; then
+  pass "Log file contains startup environment info"
+else
+  fail "Log file missing startup environment info"
+fi
+
+# ---- Test 15: Log file contains API request entries ----
+if grep -q "GET /api/ping" "$LOG_FILE" 2>/dev/null; then
+  pass "Log file contains API ping request log"
+else
+  fail "Log file missing API ping request log"
+fi
+
+# ---- Test 16: Log file contains job lifecycle entries ----
+if grep -q "Job.*created" "$LOG_FILE" 2>/dev/null; then
+  pass "Log file contains job creation log"
+else
+  fail "Log file missing job creation log"
+fi
+
+# ---- Test 17: Fetch logs via /api/logs endpoint and verify content ----
+BODY=$(curl -s "$BASE_URL/api/logs?lines=50")
+LOG_LINES=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('lines',[])))" 2>/dev/null || echo "0")
+if [ "$LOG_LINES" -gt 0 ] 2>/dev/null; then
+  pass "GET /api/logs returns $LOG_LINES log lines with content"
+else
+  fail "GET /api/logs returned no log lines"
+fi
+
+# ---- Test 18: Dump server log and webservice log for analysis ----
+log "--- Server stdout/stderr (server.log) ---"
+tail -30 "$TEST_TMPDIR/server.log" 2>/dev/null || true
+log "--- Webservice log file ($LOG_FILE) ---"
+tail -30 "$LOG_FILE" 2>/dev/null || true
+log "--- End of logs ---"
+pass "Logs dumped for analysis"
 
 # ---- Summary ----
 echo ""
