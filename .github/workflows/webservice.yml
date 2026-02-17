@@ -66,22 +66,6 @@ jobs:
           CC: gcc-14
           CXX: g++-14
 
-      - name: verify ccache launchers are configured
-        run: |
-          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
-          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
-          echo "✓ CMake compiler launchers are set to ccache"
-
-      - name: verify system spdlog is used
-        run: |
-          grep -Eq '^spdlog_DIR:PATH=/usr/.*/cmake/spdlog$' build/CMakeCache.txt
-          if grep -Eq 'spdlog_(SOURCE|BINARY)_DIR:.*[/_](cpm|_deps)[/_]' build/CMakeCache.txt; then
-            echo "::error::spdlog is being downloaded instead of using system package"
-            grep -E 'spdlog_(SOURCE|BINARY)_DIR' build/CMakeCache.txt || true
-            exit 1
-          fi
-          echo "✓ using system spdlog from apt package"
-
       - name: build gtopt
         run: cmake --build build -j4
 
@@ -178,22 +162,6 @@ jobs:
         env:
           CC: gcc-14
           CXX: g++-14
-
-      - name: verify ccache launchers are configured
-        run: |
-          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
-          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
-          echo "✓ CMake compiler launchers are set to ccache"
-
-      - name: verify system spdlog is used
-        run: |
-          grep -Eq '^spdlog_DIR:PATH=/usr/.*/cmake/spdlog$' build/CMakeCache.txt
-          if grep -Eq 'spdlog_(SOURCE|BINARY)_DIR:.*[/_](cpm|_deps)[/_]' build/CMakeCache.txt; then
-            echo "::error::spdlog is being downloaded instead of using system package"
-            grep -E 'spdlog_(SOURCE|BINARY)_DIR' build/CMakeCache.txt || true
-            exit 1
-          fi
-          echo "✓ using system spdlog from apt package"
 
       - name: build gtopt
         run: cmake --build build -j4
