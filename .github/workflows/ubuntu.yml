@@ -14,7 +14,6 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 permissions:
   contents: read
@@ -51,14 +50,9 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        run: sudo apt-get install -y ccache
-
-      - uses: actions/cache@v4
+        uses: hendrikmuhs/ccache-action@v4
         with:
-          path: .ccache
-          key: ${{ github.workflow }}-build-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ github.workflow }}-build-ccache-
+          key: ${{ github.workflow }}-build
 
       - name: configure
         run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -68,9 +62,6 @@ jobs:
 
       - name: build
         run: cmake --build build -j4
-
-      - name: show ccache stats
-        run: ccache --show-stats
 
       - name: test
         run: |
@@ -112,14 +103,9 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        run: sudo apt-get install -y ccache
-
-      - uses: actions/cache@v4
+        uses: hendrikmuhs/ccache-action@v4
         with:
-          path: .ccache
-          key: ${{ github.workflow }}-integration-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ github.workflow }}-integration-ccache-
+          key: ${{ github.workflow }}-integration
 
       - name: configure
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -129,9 +115,6 @@ jobs:
 
       - name: build
         run: cmake --build build -j4
-
-      - name: show ccache stats
-        run: ccache --show-stats
 
       - name: integration test
         run: |
