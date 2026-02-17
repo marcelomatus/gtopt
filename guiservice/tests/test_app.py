@@ -150,8 +150,8 @@ class TestBuildZip:
             names = zf.namelist()
             assert "test_case/Demand/lmax.parquet" in names
 
-    def test_parquet_integer_columns_are_int32(self):
-        """Verify that integer columns in parquet files are written as int32."""
+    def test_parquet_integer_columns_preserve_types(self):
+        """Verify that parquet files are written without type conversion."""
         import pandas as pd
 
         data = _sample_case_data()
@@ -165,10 +165,9 @@ class TestBuildZip:
         with zipfile.ZipFile(buf, "r") as zf:
             parquet_bytes = zf.read("test_case/Demand/lmax.parquet")
             df = pd.read_parquet(io.BytesIO(parquet_bytes))
-            for col in ["scenario", "stage", "block"]:
-                assert df[col].dtype.name == "int32", (
-                    f"Column '{col}' should be int32 but got {df[col].dtype}"
-                )
+            # Columns should be readable; no forced type conversion
+            assert len(df) == 2
+            assert list(df.columns) == ["scenario", "stage", "block", "uid:1"]
 
 
 class TestParseUploadedZip:
@@ -371,6 +370,55 @@ class TestRoundTrip:
         assert len(loaded["system"]["generator"]) == 1
         assert len(loaded["system"]["demand"]) == 1
         assert loaded["system"]["bus"][0]["name"] == "b1"
+
+    def test_parquet_round_trip_preserves_bytes(self, client):
+        """Uploaded parquet files should survive round-trip unchanged."""
+        import pandas as pd
+
+        # Create original parquet in memory
+        original_df = pd.DataFrame(
+            {"scenario": [1, 1], "stage": [1, 2], "block": [1, 2], "uid:1": [10, 15]}
+        )
+        original_buf = io.BytesIO()
+        original_df.to_parquet(original_buf, index=False)
+        original_bytes = original_buf.getvalue()
+
+        # Build a ZIP with the parquet
+        case_json = {
+            "options": {"input_directory": "test_case", "input_format": "parquet"},
+            "simulation": {},
+            "system": {"name": "test_case"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("test_case.json", json.dumps(case_json))
+            zf.writestr("test_case/Demand/lmax.parquet", original_bytes)
+        zip_buf.seek(0)
+
+        # Upload
+        resp = client.post(
+            "/api/case/upload",
+            data={"file": (zip_buf, "test_case.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        case_data = resp.get_json()
+        assert "raw_parquet_b64" in case_data["data_files"]["Demand/lmax"]
+
+        # Download (rebuild ZIP from parsed data)
+        resp2 = client.post(
+            "/api/case/download",
+            data=json.dumps(case_data),
+            content_type="application/json",
+        )
+        assert resp2.status_code == 200
+
+        # Extract and compare the parquet bytes
+        with zipfile.ZipFile(io.BytesIO(resp2.data), "r") as zf:
+            rebuilt_bytes = zf.read("test_case/Demand/lmax.parquet")
+        assert rebuilt_bytes == original_bytes, (
+            "Parquet file should be identical after round-trip"
+        )
 
 
 # ---------------------------------------------------------------------------

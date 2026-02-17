@@ -14,6 +14,7 @@ import os
 import signal
 import tempfile
 import zipfile
+from base64 import b64decode, b64encode
 from collections import deque
 
 import pandas as pd
@@ -399,17 +400,22 @@ def _build_zip(case_data):
         data_files = case_data.get("data_files", {})
         for file_path, file_content in data_files.items():
             if input_format == "parquet":
-                df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
-                # Downcast int64 columns to int32 so gtopt C++ reads them correctly
-                for col in df.columns:
-                    if df[col].dtype == "int64":
-                        df[col] = df[col].astype("int32")
-                parquet_buf = io.BytesIO()
-                df.to_parquet(parquet_buf, index=False)
-                zf.writestr(
-                    f"{input_dir}/{file_path}.parquet",
-                    parquet_buf.getvalue(),
-                )
+                # Use original raw bytes when available to avoid any
+                # data conversion; only re-encode when creating new data.
+                raw_b64 = file_content.get("raw_parquet_b64")
+                if raw_b64:
+                    zf.writestr(
+                        f"{input_dir}/{file_path}.parquet",
+                        b64decode(raw_b64),
+                    )
+                else:
+                    df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
+                    parquet_buf = io.BytesIO()
+                    df.to_parquet(parquet_buf, index=False)
+                    zf.writestr(
+                        f"{input_dir}/{file_path}.parquet",
+                        parquet_buf.getvalue(),
+                    )
             else:
                 output = io.StringIO()
                 writer = csv.writer(output)
@@ -486,10 +492,12 @@ def _parse_uploaded_zip(zip_bytes):
                 if rel.endswith(".parquet"):
                     rel = rel[:-8]
                 try:
-                    df = pd.read_parquet(io.BytesIO(zf.read(name)))
+                    raw = zf.read(name)
+                    df = pd.read_parquet(io.BytesIO(raw))
                     case_data["data_files"][rel] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
+                        "raw_parquet_b64": b64encode(raw).decode("ascii"),
                     }
                 except Exception:
                     pass
