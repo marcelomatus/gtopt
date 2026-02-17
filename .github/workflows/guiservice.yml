@@ -194,8 +194,7 @@ jobs:
 
       - name: install gtopt binary
         run: |
-          mkdir -p $HOME/gtopt-install/bin
-          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+          cmake --install build --prefix $HOME/gtopt-install
           $HOME/gtopt-install/bin/gtopt --version
           echo "✓ Real gtopt binary built and installed"
 

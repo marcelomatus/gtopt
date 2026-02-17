@@ -176,9 +176,7 @@ jobs:
         run: ccache --show-stats
 
       - name: install gtopt binary only
-        run: |
-          mkdir -p $HOME/gtopt-install/bin
-          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+        run: cmake --install build --prefix $HOME/gtopt-install
 
       - name: verify only standalone gtopt binary is installed
         run: |
