@@ -62,7 +62,9 @@ startupLog.info(`  GTOPT_BIN=${process.env.GTOPT_BIN || "(not set)"}`);
 startupLog.info(`  GTOPT_DATA_DIR=${process.env.GTOPT_DATA_DIR || "(not set)"}`);
 startupLog.info(`  GTOPT_LOG_DIR=${LOG_DIR || "(not set — logging to console only)"}`);
 startupLog.info(`  PORT=${process.env.PORT || "(not set)"}`);
+startupLog.info(`  GTOPT_HOSTNAME=${process.env.GTOPT_HOSTNAME || "(not set)"}`);
 startupLog.info(`  cwd=${process.cwd()}`);
+startupLog.info(`  platform=${process.platform}, arch=${process.arch}, node=${process.version}`);
 
 /**
  * Return the path to the log file, or empty string if file logging is disabled.

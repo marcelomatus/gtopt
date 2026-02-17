@@ -44,12 +44,13 @@ except Exception:
 }
 
 # Verify the webservice API on a given port.  Checks /api and /api/ping.
+# Tries both localhost and 127.0.0.1 to handle IPv6/IPv4 differences (WSL).
 # Prints results and returns 0 when both checks pass, 1 otherwise.
 #   gtopt_websrv_verify_api PORT [LOG_FILE]
 gtopt_websrv_verify_api() {
     local port="${1:-3000}"
     local log_file="${2:-}"
-    local base_url="http://localhost:${port}"
+    local base_urls=("http://127.0.0.1:${port}" "http://localhost:${port}")
     local ok=0
 
     _log_verify() {
@@ -61,16 +62,25 @@ gtopt_websrv_verify_api() {
 
     _log_verify "Verifying API endpoints on port ${port}..."
 
-    if gtopt_websrv_check_endpoint "${base_url}/api"; then
-        _log_verify "API verification PASSED: GET /api returned status \"ok\""
-    else
-        _log_verify "API verification FAILED: GET /api did not respond"
+    local api_ok=false
+    local working_url=""
+    for base_url in "${base_urls[@]}"; do
+        if gtopt_websrv_check_endpoint "${base_url}/api"; then
+            _log_verify "API verification PASSED: GET ${base_url}/api returned status \"ok\""
+            api_ok=true
+            working_url="$base_url"
+            break
+        fi
+    done
+    if [ "$api_ok" = false ]; then
+        _log_verify "API verification FAILED: GET /api did not respond on ${base_urls[*]}"
         ok=1
     fi
 
-    if gtopt_websrv_check_endpoint "${base_url}/api/ping"; then
+    local ping_url="${working_url:-${base_urls[0]}}"
+    if gtopt_websrv_check_endpoint "${ping_url}/api/ping"; then
         local ping_body
-        ping_body=$(curl -s --max-time 5 "${base_url}/api/ping" 2>/dev/null)
+        ping_body=$(curl -s --max-time 5 "${ping_url}/api/ping" 2>/dev/null)
         local service
         service=$(echo "$ping_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service',''))" 2>/dev/null || true)
         local version
