@@ -372,7 +372,7 @@ class TestRoundTrip:
         assert loaded["system"]["bus"][0]["name"] == "b1"
 
     def test_parquet_round_trip_preserves_bytes(self, client):
-        """Uploaded parquet files should survive round-trip unchanged."""
+        """Uploaded ZIP should be preserved for passthrough submission."""
         import pandas as pd
 
         # Create original parquet in memory
@@ -394,8 +394,10 @@ class TestRoundTrip:
             zf.writestr("test_case.json", json.dumps(case_json))
             zf.writestr("test_case/Demand/lmax.parquet", original_bytes)
         zip_buf.seek(0)
+        original_zip_bytes = zip_buf.getvalue()
 
         # Upload
+        zip_buf.seek(0)
         resp = client.post(
             "/api/case/upload",
             data={"file": (zip_buf, "test_case.zip")},
@@ -403,22 +405,16 @@ class TestRoundTrip:
         )
         assert resp.status_code == 200
         case_data = resp.get_json()
-        assert "raw_parquet_b64" in case_data["data_files"]["Demand/lmax"]
 
-        # Download (rebuild ZIP from parsed data)
-        resp2 = client.post(
-            "/api/case/download",
-            data=json.dumps(case_data),
-            content_type="application/json",
-        )
-        assert resp2.status_code == 200
+        # The original ZIP is preserved for passthrough
+        assert "_uploaded_zip_b64" in case_data
+        assert "_system_file" in case_data
 
-        # Extract and compare the parquet bytes
-        with zipfile.ZipFile(io.BytesIO(resp2.data), "r") as zf:
-            rebuilt_bytes = zf.read("test_case/Demand/lmax.parquet")
-        assert rebuilt_bytes == original_bytes, (
-            "Parquet file should be identical after round-trip"
-        )
+        # Decode the stored ZIP and verify it matches
+        from base64 import b64decode
+
+        stored_zip = b64decode(case_data["_uploaded_zip_b64"])
+        assert stored_zip == original_zip_bytes
 
 
 # ---------------------------------------------------------------------------

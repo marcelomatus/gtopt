@@ -381,7 +381,12 @@ def _build_case_json(case_data):
 
 
 def _build_zip(case_data):
-    """Build a ZIP file containing the full case configuration."""
+    """Build a ZIP file containing the full case configuration.
+
+    This is used when creating cases from the GUI editor.  When a case
+    was loaded via upload, ``submit_solve`` forwards the original ZIP
+    instead of calling this function.
+    """
     case_name = case_data.get("case_name", "case")
     case_json = _build_case_json(case_data)
 
@@ -400,22 +405,13 @@ def _build_zip(case_data):
         data_files = case_data.get("data_files", {})
         for file_path, file_content in data_files.items():
             if input_format == "parquet":
-                # Use original raw bytes when available to avoid any
-                # data conversion; only re-encode when creating new data.
-                raw_b64 = file_content.get("raw_parquet_b64")
-                if raw_b64:
-                    zf.writestr(
-                        f"{input_dir}/{file_path}.parquet",
-                        b64decode(raw_b64),
-                    )
-                else:
-                    df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
-                    parquet_buf = io.BytesIO()
-                    df.to_parquet(parquet_buf, index=False)
-                    zf.writestr(
-                        f"{input_dir}/{file_path}.parquet",
-                        parquet_buf.getvalue(),
-                    )
+                df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
+                parquet_buf = io.BytesIO()
+                df.to_parquet(parquet_buf, index=False)
+                zf.writestr(
+                    f"{input_dir}/{file_path}.parquet",
+                    parquet_buf.getvalue(),
+                )
             else:
                 output = io.StringIO()
                 writer = csv.writer(output)
@@ -432,7 +428,11 @@ def _build_zip(case_data):
 
 
 def _parse_uploaded_zip(zip_bytes):
-    """Parse an uploaded ZIP file into case data structure."""
+    """Parse an uploaded ZIP file into case data structure.
+
+    The original ZIP bytes are preserved (base64-encoded) so that
+    ``submit_solve`` can forward them to the webservice unchanged.
+    """
     case_data = {
         "case_name": "uploaded_case",
         "options": {},
@@ -462,7 +462,8 @@ def _parse_uploaded_zip(zip_bytes):
             if array_key in system_raw:
                 case_data["system"][elem_type] = system_raw[array_key]
 
-        # Parse data files (CSV and Parquet)
+        # Parse data files (CSV and Parquet) into JSON for GUI display;
+        # original ZIP bytes are preserved separately for submission.
         for name in zf.namelist():
             if name.endswith(".csv") and not name.endswith(".json"):
                 rel = name
@@ -497,10 +498,15 @@ def _parse_uploaded_zip(zip_bytes):
                     case_data["data_files"][rel] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
-                        "raw_parquet_b64": b64encode(raw).decode("ascii"),
                     }
                 except Exception:
                     pass
+
+        # Store the system file name for passthrough submission
+        case_data["_system_file"] = main_json_name
+
+    # Preserve the original ZIP so submit can forward it unmodified
+    case_data["_uploaded_zip_b64"] = b64encode(zip_bytes).decode("ascii")
 
     return case_data
 
@@ -555,7 +561,6 @@ def _parse_results_zip(zip_bytes):
                     results["outputs"][key] = {
                         "columns": list(df.columns),
                         "data": df.values.tolist(),
-                        "raw_parquet_b64": b64encode(raw).decode("ascii"),
                     }
                 except Exception:
                     pass
@@ -673,7 +678,11 @@ def set_solve_config():
 
 @app.route("/api/solve/submit", methods=["POST"])
 def submit_solve():
-    """Build case ZIP and submit it to the gtopt webservice for solving.
+    """Submit a case to the gtopt webservice for solving.
+
+    When the case was loaded via ``/api/case/upload``, the original ZIP
+    is forwarded unchanged (passthrough).  Otherwise a new ZIP is built
+    from the JSON case data.
 
     The webservice expects POST /api/jobs with multipart form data:
       - file: the ZIP archive
@@ -685,10 +694,16 @@ def submit_solve():
     if not case_data:
         return jsonify({"error": "No case data provided"}), 400
 
-    # Build the ZIP
-    zip_buf = _build_zip(case_data)
     case_name = case_data.get("case_name", "case")
-    system_file = f"{case_name}.json"
+
+    # Prefer the original uploaded ZIP (passthrough, no modifications)
+    uploaded_zip_b64 = case_data.get("_uploaded_zip_b64")
+    if uploaded_zip_b64:
+        zip_buf = io.BytesIO(b64decode(uploaded_zip_b64))
+        system_file = case_data.get("_system_file", f"{case_name}.json")
+    else:
+        zip_buf = _build_zip(case_data)
+        system_file = f"{case_name}.json"
 
     # Forward to webservice POST /api/jobs
     try:
