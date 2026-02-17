@@ -40,15 +40,42 @@ fail() { echo "  [FAIL] $*"; FAIL=$((FAIL + 1)); }
 if [ -n "${GTOPT_BIN:-}" ] && [ -x "${GTOPT_BIN}" ]; then
   log "Using real gtopt binary: $GTOPT_BIN"
 else
-  log "GTOPT_BIN not set; creating mock binary for local testing"
-  MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
-  cat > "$MOCK_BIN" << 'MOCK'
+  # Try to find a pre-built gtopt binary
+  REPO_DIR="$(cd "$WEBSERVICE_DIR/.." && pwd)"
+  GTOPT_CANDIDATES=(
+    "$REPO_DIR/build/gtopt"
+    "$REPO_DIR/build/standalone/gtopt"
+    "$REPO_DIR/build/install/bin/gtopt"
+  )
+  FOUND_BUILT_BINARY=false
+  for candidate in "${GTOPT_CANDIDATES[@]}"; do
+    if [ -x "$candidate" ]; then
+      GTOPT_BIN="$candidate"
+      FOUND_BUILT_BINARY=true
+      break
+    fi
+  done
+
+  if [ "$FOUND_BUILT_BINARY" = true ]; then
+    log "Using pre-built gtopt binary: $GTOPT_BIN"
+  elif command -v gtopt >/dev/null 2>&1; then
+    GTOPT_BIN="$(command -v gtopt)"
+    log "Using gtopt binary from PATH: $GTOPT_BIN"
+  else
+    log "GTOPT_BIN not set; creating mock binary for local testing"
+    MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
+    cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
+if [ "$1" = "--version" ]; then
+  echo "gtopt mock 0.0.0 (test)"
+  exit 0
+fi
 echo "mock gtopt"
 exit 0
 MOCK
-  chmod +x "$MOCK_BIN"
-  GTOPT_BIN="$MOCK_BIN"
+    chmod +x "$MOCK_BIN"
+    GTOPT_BIN="$MOCK_BIN"
+  fi
 fi
 
 # ---- Verify required files exist ----
@@ -105,6 +132,16 @@ if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert is
   pass "GET /api/jobs returns a valid response"
 else
   fail "GET /api/jobs unexpected response: $BODY"
+fi
+
+# ---- Test 3: GET /api/ping — health check returns ok ----
+BODY=$(curl -s "$BASE_URL/api/ping")
+PING_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+PING_SERVICE=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service',''))" 2>/dev/null || true)
+if [ "$PING_STATUS" = "ok" ] && [ "$PING_SERVICE" = "gtopt-webservice" ]; then
+  pass "GET /api/ping returns status ok, service gtopt-webservice"
+else
+  fail "GET /api/ping unexpected response: $BODY"
 fi
 
 # ---- Summary ----

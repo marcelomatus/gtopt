@@ -150,8 +150,8 @@ class TestBuildZip:
             names = zf.namelist()
             assert "test_case/Demand/lmax.parquet" in names
 
-    def test_parquet_integer_columns_are_int32(self):
-        """Verify that integer columns in parquet files are written as int32."""
+    def test_parquet_integer_columns_preserve_types(self):
+        """Verify that parquet files are written without type conversion."""
         import pandas as pd
 
         data = _sample_case_data()
@@ -165,10 +165,9 @@ class TestBuildZip:
         with zipfile.ZipFile(buf, "r") as zf:
             parquet_bytes = zf.read("test_case/Demand/lmax.parquet")
             df = pd.read_parquet(io.BytesIO(parquet_bytes))
-            for col in ["scenario", "stage", "block"]:
-                assert df[col].dtype.name == "int32", (
-                    f"Column '{col}' should be int32 but got {df[col].dtype}"
-                )
+            # Columns should be readable; no forced type conversion
+            assert len(df) == 2
+            assert list(df.columns) == ["scenario", "stage", "block", "uid:1"]
 
 
 class TestParseUploadedZip:
@@ -216,6 +215,45 @@ class TestParseUploadedZip:
         result = _parse_uploaded_zip(buf.read())
         assert "Demand/lmax" in result["data_files"]
         assert result["data_files"]["Demand/lmax"]["columns"][0] == "scenario"
+
+    def test_parse_parquet_preserves_integer_types(self):
+        """Integer columns (int8/16/32/64) must remain ints after parsing."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": np.array([1, 2], dtype=np.int8),
+                "stage": np.array([10, 20], dtype=np.int16),
+                "block": np.array([100, 200], dtype=np.int32),
+                "uid": np.array([1000, 2000], dtype=np.int64),
+                "value": np.array([1.5, 2.5], dtype=np.float64),
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+        pq_bytes = pq_buf.getvalue()
+
+        case_json = {
+            "options": {"input_directory": "sys", "input_format": "parquet"},
+            "system": {"name": "case_int"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("case_int.json", json.dumps(case_json))
+            zf.writestr("sys/Demand/lmax.parquet", pq_bytes)
+        zip_buf.seek(0)
+
+        result = _parse_uploaded_zip(zip_buf.read())
+        data = result["data_files"]["Demand/lmax"]
+        row0 = data["data"][0]
+        # Integer columns must be Python int, not float
+        assert isinstance(row0[0], int), f"int8 became {type(row0[0])}"
+        assert isinstance(row0[1], int), f"int16 became {type(row0[1])}"
+        assert isinstance(row0[2], int), f"int32 became {type(row0[2])}"
+        assert isinstance(row0[3], int), f"int64 became {type(row0[3])}"
+        # Float column stays float
+        assert isinstance(row0[4], float), f"float became {type(row0[4])}"
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +409,51 @@ class TestRoundTrip:
         assert len(loaded["system"]["generator"]) == 1
         assert len(loaded["system"]["demand"]) == 1
         assert loaded["system"]["bus"][0]["name"] == "b1"
+
+    def test_parquet_round_trip_preserves_bytes(self, client):
+        """Uploaded ZIP should be preserved for passthrough submission."""
+        import pandas as pd
+
+        # Create original parquet in memory
+        original_df = pd.DataFrame(
+            {"scenario": [1, 1], "stage": [1, 2], "block": [1, 2], "uid:1": [10, 15]}
+        )
+        original_buf = io.BytesIO()
+        original_df.to_parquet(original_buf, index=False)
+        original_bytes = original_buf.getvalue()
+
+        # Build a ZIP with the parquet
+        case_json = {
+            "options": {"input_directory": "test_case", "input_format": "parquet"},
+            "simulation": {},
+            "system": {"name": "test_case"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("test_case.json", json.dumps(case_json))
+            zf.writestr("test_case/Demand/lmax.parquet", original_bytes)
+        zip_buf.seek(0)
+        original_zip_bytes = zip_buf.getvalue()
+
+        # Upload
+        zip_buf.seek(0)
+        resp = client.post(
+            "/api/case/upload",
+            data={"file": (zip_buf, "test_case.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        case_data = resp.get_json()
+
+        # The original ZIP is preserved for passthrough
+        assert "_uploaded_zip_b64" in case_data
+        assert "_system_file" in case_data
+
+        # Decode the stored ZIP and verify it matches
+        from base64 import b64decode
+
+        stored_zip = b64decode(case_data["_uploaded_zip_b64"])
+        assert stored_zip == original_zip_bytes
 
 
 # ---------------------------------------------------------------------------
