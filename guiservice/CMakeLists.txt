@@ -168,6 +168,10 @@ install(CODE "
       requirements.txt
       static/css/style.css
       static/js/app.js
+      static/vendor/jsuites/jsuites.js
+      static/vendor/jsuites/jsuites.css
+      static/vendor/jspreadsheet-ce/jspreadsheet.js
+      static/vendor/jspreadsheet-ce/jspreadsheet.css
       templates/index.html
   )
     if(NOT EXISTS \"\${_guiservice_dir}/\${_file}\")

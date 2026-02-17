@@ -270,6 +270,17 @@ class TestRoutes:
         assert b'/static/js/app.js' in resp.data
         assert b"Quick Assistant" in resp.data
 
+    def test_spreadsheet_libs_served_locally(self, client):
+        """Spreadsheet libraries must be served from local vendor files, not CDN."""
+        resp = client.get("/")
+        html = resp.data
+        # Local vendor references must be present
+        assert b'/static/vendor/jsuites/jsuites.' in html
+        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.' in html
+        # No CDN references for jsuites or jspreadsheet
+        assert b'cdn.jsdelivr.net/npm/jsuites' not in html
+        assert b'cdn.jsdelivr.net/npm/jspreadsheet' not in html
+
     def test_assistant_has_controls(self, client):
         """The Quick Assistant card should have move, minimize and close controls."""
         resp = client.get("/")
