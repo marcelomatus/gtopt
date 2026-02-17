@@ -258,6 +258,15 @@ async function verifyApi(port, logDir, timeout) {
       : 'no response received';
     logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s at ${baseUrls.join(' or ')}`, logDir);
     logMessage(`  ${errDetail}`, logDir);
+    // Additional diagnostics when API returns 404
+    if (lastError && lastError.status === 404) {
+      logMessage(`  Diagnosis: HTTP 404 means the server is running but the API route is not registered.`, logDir);
+      logMessage(`  Common causes:`, logDir);
+      logMessage(`    1. The .next build is stale or incomplete — rebuild with 'npm run build'`, logDir);
+      logMessage(`    2. The app-paths-manifest.json is missing critical routes`, logDir);
+      logMessage(`    3. The next.config file could not be loaded (check for .mjs/.js/.ts)`, logDir);
+      logMessage(`  Check the build diagnostics logged above for missing routes.`, logDir);
+    }
     logMessage('Hint (WSL): this check already tried 127.0.0.1 and localhost. If it still fails, check firewall/port-forwarding/port-collision settings (see GTOPT_WEBSRV.md).', logDir);
     return false;
   }
@@ -385,6 +394,47 @@ function main() {
     console.error('Or run in development mode:');
     console.error('  gtopt_websrv --dev');
     process.exit(1);
+  }
+
+  // Log build state diagnostics — helps pinpoint API 404 issues
+  if (!config.dev) {
+    const buildIdPath = path.join(nextDir, 'BUILD_ID');
+    const buildId = fs.existsSync(buildIdPath) ? fs.readFileSync(buildIdPath, 'utf-8').trim() : '(missing)';
+    logMessage(`Build ID: ${buildId}`, config.logDir);
+
+    const manifestPath = path.join(nextDir, 'server', 'app-paths-manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const routes = Object.keys(manifest);
+        logMessage(`Registered routes (${routes.length}): ${routes.join(', ')}`, config.logDir);
+        // Verify critical API routes are present
+        const critical = ['/api/route', '/api/ping/route', '/api/jobs/route'];
+        const missing = critical.filter((r) => !routes.includes(r));
+        if (missing.length > 0) {
+          logMessage(`WARNING: missing critical routes: ${missing.join(', ')} — rebuild with 'npm run build'`, config.logDir);
+        }
+      } catch (err) {
+        logMessage(`WARNING: failed to parse app-paths-manifest.json: ${err}`, config.logDir);
+      }
+    } else {
+      logMessage(`WARNING: app-paths-manifest.json not found — API routes will return 404`, config.logDir);
+      logMessage(`  expected at: ${manifestPath}`, config.logDir);
+      logMessage(`  rebuild with: cd ${webserviceDir} && npm run build`, config.logDir);
+    }
+
+    // Log which next.config file is being used
+    const configFiles = ['next.config.mjs', 'next.config.js', 'next.config.ts', 'next.config.cjs'];
+    const found = configFiles.filter((f) => fs.existsSync(path.join(webserviceDir, f)));
+    logMessage(`Next.js config: ${found.length > 0 ? found.join(', ') : '(none found)'}`, config.logDir);
+
+    // Log Next.js version
+    try {
+      const nextPkg = JSON.parse(fs.readFileSync(path.join(webserviceDir, 'node_modules', 'next', 'package.json'), 'utf-8'));
+      logMessage(`Next.js version: ${nextPkg.version}`, config.logDir);
+    } catch (_) {
+      logMessage(`Next.js version: (could not read)`, config.logDir);
+    }
   }
   
   // Start the web service — call next directly with --hostname so the
