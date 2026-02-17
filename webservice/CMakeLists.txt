@@ -141,16 +141,72 @@ if(WIN32)
   )
 endif()
 
-# Post-install message
+# Post-install: verify npm and build the webservice in the destination directory
 install(CODE "
+  set(_ws_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
+
+  # Check that npm is available
+  find_program(_npm_exe npm)
+  if(NOT _npm_exe)
+    message(WARNING \"npm was not found on this system. \
+Please install Node.js/npm and then run manually:\\n\
+  cd \${_ws_dir}\\n\
+  sudo npm install\\n\
+  sudo npm run build\")
+  else()
+    # Verify npm is working
+    execute_process(
+      COMMAND \${_npm_exe} --version
+      RESULT_VARIABLE _npm_ver_rc
+      OUTPUT_VARIABLE _npm_ver
+      ERROR_VARIABLE _npm_err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _npm_ver_rc EQUAL 0)
+      message(WARNING \"npm is installed but not working properly (\${_npm_err}). \
+Please fix npm and then run manually:\\n\
+  cd \${_ws_dir}\\n\
+  sudo npm install\\n\
+  sudo npm run build\")
+    else()
+      message(STATUS \"Found npm version \${_npm_ver}\")
+
+      # npm install
+      message(STATUS \"Running npm install in \${_ws_dir} ...\")
+      execute_process(
+        COMMAND \${_npm_exe} install
+        WORKING_DIRECTORY \${_ws_dir}
+        RESULT_VARIABLE _npm_install_rc
+      )
+      if(NOT _npm_install_rc EQUAL 0)
+        message(WARNING \"npm install failed (exit code \${_npm_install_rc}). \
+Please run manually:\\n\
+  cd \${_ws_dir}\\n\
+  sudo npm install\\n\
+  sudo npm run build\")
+      else()
+        # npm run build
+        message(STATUS \"Running npm run build in \${_ws_dir} ...\")
+        execute_process(
+          COMMAND \${_npm_exe} run build
+          WORKING_DIRECTORY \${_ws_dir}
+          RESULT_VARIABLE _npm_build_rc
+        )
+        if(NOT _npm_build_rc EQUAL 0)
+          message(WARNING \"npm run build failed (exit code \${_npm_build_rc}). \
+Please run manually:\\n\
+  cd \${_ws_dir}\\n\
+  sudo npm run build\")
+        else()
+          message(STATUS \"Web service built successfully in \${_ws_dir}\")
+        endif()
+      endif()
+    endif()
+  endif()
+
   message(STATUS \"To run the gtopt web service:\")
-  message(STATUS \"  1. Install Node.js dependencies and build:\")
-  message(STATUS \"     cd \${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
-  message(STATUS \"     npm install\")
-  message(STATUS \"     npm run build\")
-  message(STATUS \"  2. Run the gtopt_websrv command:\")
-  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_websrv\")
-  message(STATUS \"  Or set environment variables:\")
-  message(STATUS \"     GTOPT_BIN=\${CMAKE_INSTALL_PREFIX}/bin/gtopt gtopt_websrv\")
-  message(STATUS \"     PORT=8080 gtopt_websrv\")
+  message(STATUS \"  \${CMAKE_INSTALL_PREFIX}/bin/gtopt_websrv\")
+  message(STATUS \"Or set environment variables:\")
+  message(STATUS \"  GTOPT_BIN=\${CMAKE_INSTALL_PREFIX}/bin/gtopt gtopt_websrv\")
+  message(STATUS \"  PORT=8080 gtopt_websrv\")
 ")

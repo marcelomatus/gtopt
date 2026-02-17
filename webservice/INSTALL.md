@@ -147,12 +147,11 @@ cd /tmp/gtopt-build
 # Configure and install the webservice via CMake
 cmake -S webservice -B build-web
 sudo cmake --install build-web
-
-# Install Node.js dependencies and build in the installed location
-cd /usr/local/share/gtopt/webservice
-sudo npm install
-sudo npm run build
 ```
+
+The install step automatically runs `npm install` and `npm run build` in the
+destination directory. If npm is not available or the build fails, a warning is
+printed with manual instructions.
 
 The source tree (`/tmp/gtopt-build`) can be removed after installation.
 
