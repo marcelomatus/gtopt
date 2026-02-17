@@ -219,9 +219,8 @@ jobs:
           npm run build
 
       - name: Test gtopt_gui with integrated webservice
-        env:
-          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
         run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           cd $HOME/gtopt-install/bin
           
           # Test gtopt_gui starts with --no-webservice flag
@@ -304,6 +303,5 @@ jobs:
 
       - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
         run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"
-        env:
-          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt

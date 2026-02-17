@@ -230,10 +230,9 @@ jobs:
 
       - name: Test webservice runs after installation
         run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           cd $HOME/gtopt-install/share/gtopt/webservice
           bash test/install_test.sh
-        env:
-          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
 
       - name: Verify API with --check-api flag
         run: |
