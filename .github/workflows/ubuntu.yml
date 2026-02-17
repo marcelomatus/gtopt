@@ -66,8 +66,17 @@ jobs:
           CC: gcc-14
           CXX: g++-14
 
+      - name: verify ccache launchers are configured
+        run: |
+          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          echo "✓ CMake compiler launchers are set to ccache"
+
       - name: build
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: test
         run: |
@@ -124,8 +133,17 @@ jobs:
           CC: gcc-14
           CXX: g++-14
 
+      - name: verify ccache launchers are configured
+        run: |
+          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          echo "✓ CMake compiler launchers are set to ccache"
+
       - name: build
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: integration test
         run: |

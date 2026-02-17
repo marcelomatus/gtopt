@@ -66,8 +66,17 @@ jobs:
           CC: gcc-14
           CXX: g++-14
 
+      - name: verify ccache launchers are configured
+        run: |
+          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          echo "✓ CMake compiler launchers are set to ccache"
+
       - name: build gtopt
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: install gtopt
         run: cmake --install build --prefix build/install
@@ -160,11 +169,28 @@ jobs:
           CC: gcc-14
           CXX: g++-14
 
+      - name: verify ccache launchers are configured
+        run: |
+          grep -Eq '^CMAKE_C_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          grep -Eq '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' build/CMakeCache.txt
+          echo "✓ CMake compiler launchers are set to ccache"
+
       - name: build gtopt
         run: cmake --build build -j4
 
-      - name: install gtopt
-        run: cmake --install build --prefix $HOME/gtopt-install
+      - name: show ccache stats
+        run: ccache --show-stats
+
+      - name: install gtopt binary only
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+
+      - name: verify only standalone gtopt binary is installed
+        run: |
+          test -x $HOME/gtopt-install/bin/gtopt
+          test ! -f $HOME/gtopt-install/lib/libgtopt.a
+          echo "✓ standalone gtopt binary installed without libgtopt.a"
 
       - uses: actions/setup-node@v4
         with:
