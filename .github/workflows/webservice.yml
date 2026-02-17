@@ -189,7 +189,11 @@ jobs:
       - name: verify only standalone gtopt binary is installed
         run: |
           test -x $HOME/gtopt-install/bin/gtopt
-          test ! -f $HOME/gtopt-install/lib/libgtopt.a
+          if find "$HOME/gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
+            echo "::error::libgtopt.a was installed, expected binary-only installation"
+            find "$HOME/gtopt-install" -type f -name 'libgtopt.a'
+            exit 1
+          fi
           echo "✓ standalone gtopt binary installed without libgtopt.a"
 
       - uses: actions/setup-node@v4
