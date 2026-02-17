@@ -10,6 +10,9 @@ on:
       - master
       - main
 
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
 permissions:
   contents: read
 
@@ -183,14 +186,27 @@ jobs:
       - name: install boost
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
+      - name: setup ccache
+        run: sudo apt-get install -y ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ github.workflow }}-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ github.workflow }}-ccache-
+
       - name: configure gtopt
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: gcc-14
           CXX: g++-14
 
       - name: build gtopt
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: install gtopt binary
         run: |
