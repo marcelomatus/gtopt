@@ -48,7 +48,7 @@ jobs:
         run: sudo apt-get install -y -V coinor-libcbc-dev
 
       - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev
+        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         run: sudo apt-get install -y ccache
@@ -68,6 +68,9 @@ jobs:
 
       - name: build gtopt
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: install gtopt
         run: cmake --install build --prefix build/install
@@ -142,7 +145,7 @@ jobs:
         run: sudo apt-get install -y -V coinor-libcbc-dev
 
       - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev
+        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         run: sudo apt-get install -y ccache
@@ -163,8 +166,23 @@ jobs:
       - name: build gtopt
         run: cmake --build build -j4
 
-      - name: install gtopt
-        run: cmake --install build --prefix $HOME/gtopt-install
+      - name: show ccache stats
+        run: ccache --show-stats
+
+      - name: install gtopt binary only
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+
+      - name: verify only standalone gtopt binary is installed
+        run: |
+          test -x $HOME/gtopt-install/bin/gtopt
+          if find "$HOME/gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
+            echo "::error::libgtopt.a was installed, expected binary-only installation"
+            find "$HOME/gtopt-install" -type f -name 'libgtopt.a'
+            exit 1
+          fi
+          echo "✓ standalone gtopt binary installed without libgtopt.a"
 
       - uses: actions/setup-node@v4
         with:
