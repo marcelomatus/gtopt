@@ -199,17 +199,12 @@ jobs:
           test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
           echo "✓ Systemd service file installed"
 
-      - name: Install Node dependencies in installed location
+      - name: Verify webservice was built during installation
         run: |
-          cd $HOME/gtopt-install/share/gtopt/webservice
-          npm install
-
-      - name: Build webservice in installed location
-        run: |
-          cd $HOME/gtopt-install/share/gtopt/webservice
-          npm run build
-          test -d .next
-          echo "✓ Production build successful"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
 
       - name: Test webservice runs after installation
         run: |
