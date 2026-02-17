@@ -184,7 +184,7 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: configure gtopt
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug
         env:
           CC: gcc-14
           CXX: g++-14
