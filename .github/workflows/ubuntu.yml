@@ -48,7 +48,7 @@ jobs:
         run: sudo apt-get install -y -V coinor-libcbc-dev
 
       - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev
+        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         run: sudo apt-get install -y ccache
@@ -68,6 +68,9 @@ jobs:
 
       - name: build
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: test
         run: |
@@ -106,7 +109,7 @@ jobs:
         run: sudo apt-get install -y -V coinor-libcbc-dev
 
       - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev
+        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         run: sudo apt-get install -y ccache
@@ -126,6 +129,9 @@ jobs:
 
       - name: build
         run: cmake --build build -j4
+
+      - name: show ccache stats
+        run: ccache --show-stats
 
       - name: integration test
         run: |

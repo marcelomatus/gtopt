@@ -253,3 +253,7 @@ jobs:
           
           echo ""
           echo "✅ All integrated gtopt_gui tests passed!"
+
+      - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
+        run: |
+          bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"

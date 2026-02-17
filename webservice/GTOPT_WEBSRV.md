@@ -265,6 +265,27 @@ Use a different port:
 gtopt_websrv --port 8080
 ```
 
+### WSL: API verification fails even when Next.js is "Ready"
+
+If running on **WSL2 Ubuntu**, `localhost` networking can be affected by
+Windows-side port forwarding, existing host services, or firewall policy.
+
+Recommended checks:
+
+```bash
+# From WSL, verify API endpoints directly
+curl -i http://127.0.0.1:3000/api
+curl -i http://127.0.0.1:3000/api/ping
+
+# If needed, avoid port collisions
+gtopt_websrv --port 3001
+```
+
+If you access the service from Windows browser/tools, also verify:
+- `localhostForwarding=true` in `%UserProfile%\.wslconfig`
+- Windows Defender Firewall is not blocking WSL forwarded ports
+- No Windows process is already using the same port (3000 is common for dev servers)
+
 ## Platform Support
 
 - ✅ Ubuntu/Debian
