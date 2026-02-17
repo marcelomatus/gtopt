@@ -6,7 +6,6 @@ import type { NextRequest } from "next/server";
  * Helps pinpoint routing issues (e.g. API routes returning 404).
  */
 export function middleware(request: NextRequest) {
-  const start = Date.now();
   const response = NextResponse.next();
 
   // Log request path, method, and user-agent on every request.
