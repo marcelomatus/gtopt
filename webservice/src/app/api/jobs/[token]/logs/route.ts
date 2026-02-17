@@ -11,17 +11,21 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const startTime = Date.now();
   const { token } = await params;
+  log.info(`GET /api/jobs/${token}/logs: request received`);
   const job = await getJob(token);
 
   if (!job) {
-    log.warn(`GET /api/jobs/${token}/logs: job not found`);
+    log.warn(`GET /api/jobs/${token}/logs: job not found (${Date.now() - startTime}ms)`);
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
   const logs = await getJobLogs(token);
 
-  log.info(`GET /api/jobs/${token}/logs: returning logs`);
+  const stdoutLen = logs?.stdout?.length ?? 0;
+  const stderrLen = logs?.stderr?.length ?? 0;
+  log.info(`GET /api/jobs/${token}/logs: returning logs (stdout=${stdoutLen} bytes, stderr=${stderrLen} bytes) in ${Date.now() - startTime}ms`);
   return NextResponse.json({
     token,
     status: job.status,

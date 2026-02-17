@@ -7,8 +7,9 @@ export const dynamic = "force-dynamic";
 
 // GET /api - API index / health check
 export async function GET() {
+  const startTime = Date.now();
   log.info("GET /api called");
-  return NextResponse.json({
+  const response = NextResponse.json({
     status: "ok",
     service: "gtopt-webservice",
     endpoints: [
@@ -22,4 +23,6 @@ export async function GET() {
       "GET  /api/logs     - Retrieve service logs",
     ],
   });
+  log.info(`GET /api completed in ${Date.now() - startTime}ms`);
+  return response;
 }

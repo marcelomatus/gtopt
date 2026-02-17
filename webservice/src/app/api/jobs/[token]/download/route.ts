@@ -14,7 +14,9 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const startTime = Date.now();
   const { token } = await params;
+  log.info(`GET /api/jobs/${token}/download: request received`);
   const job = await getJob(token);
 
   if (!job) {
@@ -90,7 +92,7 @@ export async function GET(
   }
   const zipBuffer = Buffer.concat(chunks);
 
-  log.info(`GET /api/jobs/${token}/download: sending zip (${zipBuffer.length} bytes)`);
+  log.info(`GET /api/jobs/${token}/download: sending zip (${zipBuffer.length} bytes) in ${Date.now() - startTime}ms`);
   return new NextResponse(zipBuffer, {
     status: 200,
     headers: {
