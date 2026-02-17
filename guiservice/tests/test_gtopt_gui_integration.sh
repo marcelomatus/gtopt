@@ -133,7 +133,33 @@ for _ in $(seq 1 120); do
 done
 
 if [ "${STATUS}" != "completed" ]; then
-  cat "${TMPDIR}/gtopt_gui.log" || true
+  echo "=== Solve job failed (status=${STATUS}) - collecting diagnostics ===" >&2
+
+  # Fetch the error from the status endpoint
+  echo "--- Job status response ---" >&2
+  curl -sf "${GUI_URL}/api/solve/status/${TOKEN}" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(json.dumps(d, indent=2))
+except: pass
+" >&2 || true
+
+  # Fetch job logs from webservice
+  echo "--- Job logs from webservice ---" >&2
+  curl -sf "${GUI_URL}/api/solve/logs?lines=50" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    for line in d.get('lines', d.get('logs', [])):
+        print(line)
+except: pass
+" >&2 || true
+
+  # Dump the gtopt_gui log
+  echo "--- gtopt_gui log ---" >&2
+  cat "${TMPDIR}/gtopt_gui.log" >&2 || true
+
   echo "Solve job did not complete successfully (status=${STATUS})" >&2
   exit 1
 fi

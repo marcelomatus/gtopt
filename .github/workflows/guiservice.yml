@@ -291,8 +291,14 @@ jobs:
           echo "Testing GUI web UI..."
           curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
           
-          # Cleanup
+          # Cleanup - kill the process group to ensure webservice is also stopped
           kill $GUI_INT_PID 2>/dev/null || true
+          sleep 2
+          # Ensure no leftover processes on the ports
+          for port in 5101 3001; do
+            fuser -k $port/tcp 2>/dev/null || true
+          done
+          sleep 1
           
           # Show logs
           echo "=== GUI integrated logs ==="
@@ -304,4 +310,6 @@ jobs:
       - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
         run: |
           export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          export GUI_PORT=5102
+          export WEBSERVICE_PORT=3002
           bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"
