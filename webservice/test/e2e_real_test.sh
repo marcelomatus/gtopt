@@ -106,7 +106,7 @@ mkdir -p "$LOG_DIR"
 log "Starting web service on port $PORT with real gtopt binary..."
 cd "$WEBSERVICE_DIR"
 GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
-  node_modules/.bin/next start -p "$PORT" \
+  node_modules/.bin/next start -p "$PORT" --hostname 0.0.0.0 \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 

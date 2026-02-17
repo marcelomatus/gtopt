@@ -75,6 +75,9 @@ The service will be available at `http://localhost:3000`.
 # Use custom port
 gtopt_websrv --port 8080
 
+# Bind to a specific interface (default: 0.0.0.0)
+gtopt_websrv --hostname 127.0.0.1
+
 # Specify gtopt binary location
 gtopt_websrv --gtopt-bin /usr/local/bin/gtopt
 
@@ -93,6 +96,9 @@ You can also use environment variables:
 # Set port
 PORT=8080 gtopt_websrv
 
+# Set hostname/interface to bind to
+GTOPT_HOSTNAME=127.0.0.1 gtopt_websrv
+
 # Set gtopt binary
 GTOPT_BIN=/usr/local/bin/gtopt gtopt_websrv
 
@@ -110,6 +116,7 @@ gtopt_websrv [options]
 
 Options:
   --port PORT          Port for the web service (default: 3000)
+  --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
@@ -267,15 +274,27 @@ gtopt_websrv --port 8080
 
 ### WSL: API verification fails even when Next.js is "Ready"
 
-If running on **WSL2 Ubuntu**, `localhost` networking can be affected by
-Windows-side port forwarding, existing host services, or firewall policy.
+If running on **WSL2 Ubuntu** (especially 25.10+), `localhost` networking can be
+affected by IPv6 resolution, Windows-side port forwarding, or firewall policy.
+In particular, `localhost` may resolve to `::1` (IPv6 loopback) rather than
+`127.0.0.1`, causing connection failures when the server only listens on IPv4.
+
+The launcher now binds to `0.0.0.0` by default (all IPv4 interfaces), which
+works on most WSL configurations.
 
 Recommended checks:
 
 ```bash
-# From WSL, verify API endpoints directly
+# From WSL, verify API endpoints directly (IPv4)
 curl -i http://127.0.0.1:3000/api
 curl -i http://127.0.0.1:3000/api/ping
+
+# If localhost doesn't work, check how it resolves
+getent hosts localhost
+# If it shows ::1 (IPv6), that may be the issue
+
+# Force binding to a specific interface
+gtopt_websrv --hostname 127.0.0.1
 
 # If needed, avoid port collisions
 gtopt_websrv --port 3001
@@ -285,6 +304,22 @@ If you access the service from Windows browser/tools, also verify:
 - `localhostForwarding=true` in `%UserProfile%\.wslconfig`
 - Windows Defender Firewall is not blocking WSL forwarded ports
 - No Windows process is already using the same port (3000 is common for dev servers)
+
+#### Ubuntu 25.10+ IPv6 notes
+
+Ubuntu 25.10 enables `systemd-resolved` by default, which may map `localhost`
+to `::1` in `/etc/hosts`.  If the API verification repeatedly fails with
+connection errors, try:
+
+```bash
+# Check /etc/hosts for IPv6 localhost entry
+grep localhost /etc/hosts
+
+# If ::1 is mapped to localhost, you can either:
+# 1. Use --hostname 0.0.0.0 (the default, binds all IPv4)
+# 2. Use --hostname :: to also bind IPv6
+# 3. Edit /etc/hosts to ensure 127.0.0.1 is mapped to localhost
+```
 
 ## Platform Support
 
