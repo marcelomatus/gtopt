@@ -46,9 +46,35 @@ if [ -n "${GTOPT_BIN:-}" ] && [ -x "${GTOPT_BIN}" ]; then
   log "Using real gtopt binary: $GTOPT_BIN"
   USING_REAL_BINARY=true
 else
-  log "GTOPT_BIN not set or not executable; creating mock binary for local testing"
-  MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
-  cat > "$MOCK_BIN" << 'MOCK'
+  # Try to build the real gtopt binary from standalone/ CMake configuration
+  GTOPT_BUILD_DIR="$REPO_DIR/build"
+  GTOPT_CANDIDATES=(
+    "$REPO_DIR/build/gtopt"
+    "$REPO_DIR/build/standalone/gtopt"
+    "$REPO_DIR/build/install/bin/gtopt"
+  )
+  FOUND_BUILT_BINARY=false
+  for candidate in "${GTOPT_CANDIDATES[@]}"; do
+    if [ -x "$candidate" ]; then
+      GTOPT_BIN="$candidate"
+      FOUND_BUILT_BINARY=true
+      break
+    fi
+  done
+
+  if [ "$FOUND_BUILT_BINARY" = true ]; then
+    log "Using pre-built gtopt binary: $GTOPT_BIN"
+    USING_REAL_BINARY=true
+  elif command -v gtopt >/dev/null 2>&1; then
+    GTOPT_BIN="$(command -v gtopt)"
+    log "Using gtopt binary from PATH: $GTOPT_BIN"
+    USING_REAL_BINARY=true
+  else
+    log "GTOPT_BIN not set, no pre-built binary found, and gtopt not in PATH"
+    log "Falling back to mock binary for local testing"
+    log "Hint: set GTOPT_BIN or build gtopt first: cmake -Sstandalone -Bbuild && cmake --build build"
+    MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
+    cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
 # Handle --version flag
 if [ "$1" = "--version" ]; then
@@ -73,9 +99,10 @@ echo "generator,stage,block,scenario,value" >  "$OUTPUT_DIR/Generator/generation
 echo "g1,1,1,1,10.0"                       >> "$OUTPUT_DIR/Generator/generation_sol.csv"
 exit 0
 MOCK
-  chmod +x "$MOCK_BIN"
-  GTOPT_BIN="$MOCK_BIN"
-  USING_REAL_BINARY=false
+    chmod +x "$MOCK_BIN"
+    GTOPT_BIN="$MOCK_BIN"
+    USING_REAL_BINARY=false
+  fi
 fi
 
 # ---- Create test zip from cases/c0 ----

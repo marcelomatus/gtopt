@@ -163,6 +163,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake
 
+      # ---- Build the real gtopt binary ----
+
+      - name: install gcc-14
+        run: |
+          sudo apt-get install -y gcc-14 g++-14
+
+      - name: install parquet
+        run: |
+          sudo apt-get install -y -V ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y -V libarrow-dev libparquet-dev
+
+      - name: install cbc
+        run: sudo apt-get install -y -V coinor-libcbc-dev
+
+      - name: install boost
+        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
+
+      - name: configure gtopt
+        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build gtopt
+        run: cmake --build build -j4
+
+      - name: install gtopt binary
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+          $HOME/gtopt-install/bin/gtopt --version
+          echo "✓ Real gtopt binary built and installed"
+
       - name: Configure and install guiservice
         run: |
           cmake -S guiservice -B build-guiservice
@@ -184,6 +220,8 @@ jobs:
           npm run build
 
       - name: Test gtopt_gui with integrated webservice
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/gtopt
         run: |
           cd $HOME/gtopt-install/bin
           
@@ -240,6 +278,17 @@ jobs:
           echo "Testing webservice API..."
           curl -sf http://localhost:3001/api/jobs | python3 -c "import sys, json; data = json.load(sys.stdin); assert 'jobs' in data, 'Invalid response'; print('✓ Webservice API working')"
           
+          # Test webservice ping returns ok with real gtopt binary info
+          echo "Testing webservice ping with real gtopt binary..."
+          PING_RESPONSE=$(curl -sf http://localhost:3001/api/ping)
+          echo "$PING_RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert d['status'] == 'ok', f'Expected status ok, got {d[\"status\"]}'
+          assert d['service'] == 'gtopt-webservice', f'Expected gtopt-webservice, got {d[\"service\"]}'
+          print(f'✓ Webservice ping: status={d[\"status\"]}, gtopt_bin={d.get(\"gtopt_bin\",\"\")}, version={d.get(\"gtopt_version\",\"\")}')
+          "
+          
           # Test GUI web UI
           echo "Testing GUI web UI..."
           curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
@@ -257,3 +306,5 @@ jobs:
       - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
         run: |
           bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/gtopt
