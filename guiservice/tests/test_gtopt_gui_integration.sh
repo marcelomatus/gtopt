@@ -24,10 +24,39 @@ cleanup() {
 trap cleanup EXIT
 
 if [ -z "${GTOPT_BIN:-}" ] || [ ! -x "${GTOPT_BIN}" ]; then
-  MOCK_BIN_DIR="${TMPDIR}/mockbin"
-  mkdir -p "${MOCK_BIN_DIR}"
-  cat > "${MOCK_BIN_DIR}/gtopt" << 'MOCK'
+  # Try to find a pre-built gtopt binary
+  GTOPT_CANDIDATES=(
+    "${REPO_ROOT}/build/gtopt"
+    "${REPO_ROOT}/build/standalone/gtopt"
+    "${REPO_ROOT}/build/install/bin/gtopt"
+    "${INSTALL_PREFIX}/bin/gtopt"
+  )
+  FOUND_BUILT_BINARY=false
+  for candidate in "${GTOPT_CANDIDATES[@]}"; do
+    if [ -x "$candidate" ]; then
+      export GTOPT_BIN="$candidate"
+      FOUND_BUILT_BINARY=true
+      echo "Using pre-built gtopt binary: $GTOPT_BIN"
+      break
+    fi
+  done
+
+  if [ "$FOUND_BUILT_BINARY" = false ] && command -v gtopt >/dev/null 2>&1; then
+    export GTOPT_BIN="$(command -v gtopt)"
+    FOUND_BUILT_BINARY=true
+    echo "Using gtopt binary from PATH: $GTOPT_BIN"
+  fi
+
+  if [ "$FOUND_BUILT_BINARY" = false ]; then
+    echo "No real gtopt binary found; falling back to mock (set GTOPT_BIN to use real binary)"
+    MOCK_BIN_DIR="${TMPDIR}/mockbin"
+    mkdir -p "${MOCK_BIN_DIR}"
+    cat > "${MOCK_BIN_DIR}/gtopt" << 'MOCK'
 #!/bin/bash
+if [ "$1" = "--version" ]; then
+  echo "gtopt mock 0.0.0 (test)"
+  exit 0
+fi
 SYSTEM_FILE="" OUTPUT_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,8 +74,9 @@ echo "generator,stage,block,scenario,value" > "$OUTPUT_DIR/Generator/generation_
 echo "g1,1,1,1,10.0" >> "$OUTPUT_DIR/Generator/generation_sol.csv"
 exit 0
 MOCK
-  chmod +x "${MOCK_BIN_DIR}/gtopt"
-  export PATH="${MOCK_BIN_DIR}:${PATH}"
+    chmod +x "${MOCK_BIN_DIR}/gtopt"
+    export PATH="${MOCK_BIN_DIR}:${PATH}"
+  fi
 fi
 
 CASE_ZIP="${TMPDIR}/case_c0.zip"
