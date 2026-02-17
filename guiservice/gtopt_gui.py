@@ -332,7 +332,7 @@ def verify_webservice_api(webservice_url, log_file=None):
     # Also check /api/ping for detailed info
     ping_info = query_webservice_ping(webservice_url, timeout=5)
     ping_ok = ping_info is not None and ping_info.get("status") == "ok"
-    if ping_info and ping_info.get("status"):
+    if ping_ok:
         svc = ping_info.get("service", "")
         _log(f'API verification PASSED: GET {webservice_url}/api/ping returned service="{svc}"')
         gtopt_version = ping_info.get("gtopt_version", "")

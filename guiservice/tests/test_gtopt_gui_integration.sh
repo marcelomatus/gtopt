@@ -50,7 +50,14 @@ MOCK
 fi
 
 CASE_ZIP="${TMPDIR}/case_c0.zip"
-(cd "${REPO_ROOT}/cases/c0" && zip -r "${CASE_ZIP}" system_c0.json system_c0/) >/dev/null
+if [ ! -d "${REPO_ROOT}/cases/c0" ]; then
+  echo "Missing case directory: ${REPO_ROOT}/cases/c0" >&2
+  exit 1
+fi
+(cd "${REPO_ROOT}/cases/c0" && zip -r "${CASE_ZIP}" system_c0.json system_c0/) >/dev/null || {
+  echo "Failed to create cases/c0 zip archive" >&2
+  exit 1
+}
 
 timeout 120 "${INSTALL_PREFIX}/bin/gtopt_gui" \
   --webservice-port "${WEBSERVICE_PORT}" \
@@ -79,11 +86,16 @@ curl -sf -X POST "${GUI_URL}/api/case/upload" -F "file=@${CASE_ZIP}" > "${TMPDIR
 curl -sf -X POST "${GUI_URL}/api/solve/submit" \
   -H "Content-Type: application/json" \
   --data-binary @"${TMPDIR}/case.json" > "${TMPDIR}/submit.json"
-TOKEN="$(python3 -c "import json; print(json.load(open('${TMPDIR}/submit.json'))['token'])")"
+TOKEN="$(python3 -c "import json; d=json.load(open('${TMPDIR}/submit.json')); print(d.get('token',''))")"
+if [ -z "${TOKEN}" ]; then
+  echo "Solve submission did not return a token" >&2
+  cat "${TMPDIR}/submit.json" >&2 || true
+  exit 1
+fi
 
 STATUS=""
 for _ in $(seq 1 120); do
-  STATUS="$(curl -sf "${GUI_URL}/api/solve/status/${TOKEN}" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")"
+  STATUS="$(curl -sf "${GUI_URL}/api/solve/status/${TOKEN}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")"
   if [ "${STATUS}" = "completed" ] || [ "${STATUS}" = "failed" ]; then
     break
   fi
