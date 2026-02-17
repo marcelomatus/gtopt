@@ -210,14 +210,14 @@ def is_gtopt_webservice(webservice_url, timeout=3):
 
 
 def check_webservice_api(webservice_url, timeout=5):
-    """Verify that the webservice API root is reachable and responding.
+    """Verify that the webservice API is reachable and responding.
 
-    Sends a GET request to ``<webservice_url>/api`` and checks for a
-    successful JSON response containing ``"status": "ok"``.
+    First checks ``/api``. If that endpoint is unavailable (for example 404),
+    falls back to ``/api/ping``.
 
     Returns:
-        bool: True if the API root responds with ``"status": "ok"``,
-        False on connection failure, timeout, or unexpected response.
+        bool: True if ``/api`` or ``/api/ping`` responds with
+        ``"status": "ok"``, False otherwise.
     """
     import urllib.request
     import urllib.error
@@ -230,7 +230,9 @@ def check_webservice_api(webservice_url, timeout=5):
                 return data.get("status") == "ok"
     except (urllib.error.URLError, ConnectionRefusedError, OSError, json.JSONDecodeError):
         pass
-    return False
+
+    ping_info = query_webservice_ping(webservice_url, timeout=timeout)
+    return ping_info is not None and ping_info.get("status") == "ok"
 
 
 def wait_for_webservice(webservice_url, timeout=30):
@@ -305,7 +307,7 @@ def verify_webservice_api(webservice_url, log_file=None):
     service log that is visible to operators.
 
     Returns:
-        True if the API root responds with ``"status": "ok"``.
+        True if either ``/api`` or ``/api/ping`` reports ``"status": "ok"``.
     """
     import urllib.request
     import urllib.error
@@ -329,6 +331,7 @@ def verify_webservice_api(webservice_url, log_file=None):
 
     # Also check /api/ping for detailed info
     ping_info = query_webservice_ping(webservice_url, timeout=5)
+    ping_ok = ping_info is not None and ping_info.get("status") == "ok"
     if ping_info and ping_info.get("status"):
         svc = ping_info.get("service", "")
         _log(f'API verification PASSED: GET {webservice_url}/api/ping returned service="{svc}"')
@@ -342,7 +345,7 @@ def verify_webservice_api(webservice_url, log_file=None):
         _log(f"API verification WARNING: GET {webservice_url}/api/ping did not return expected response")
 
     _log("API verification complete.")
-    return api_ok
+    return api_ok or ping_ok
 
 
 def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_file=None):
