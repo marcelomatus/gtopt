@@ -274,9 +274,11 @@ class TestRoutes:
         """Spreadsheet libraries must be served from local vendor files, not CDN."""
         resp = client.get("/")
         html = resp.data
-        # Local vendor references must be present
-        assert b'/static/vendor/jsuites/jsuites.' in html
-        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.' in html
+        # Local vendor references must be present (both JS and CSS)
+        assert b'/static/vendor/jsuites/jsuites.js' in html
+        assert b'/static/vendor/jsuites/jsuites.css' in html
+        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.js' in html
+        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.css' in html
         # No CDN references for jsuites or jspreadsheet
         assert b'cdn.jsdelivr.net/npm/jsuites' not in html
         assert b'cdn.jsdelivr.net/npm/jspreadsheet' not in html
