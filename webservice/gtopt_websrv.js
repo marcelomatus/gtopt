@@ -10,6 +10,7 @@
  * 
  * Options:
  *     --port PORT          Port for the web service (default: 3000)
+ *     --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
  *     --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
  *     --data-dir PATH      Directory for job data storage (default: ./data)
  *     --log-dir PATH       Directory for log files (default: logs to console only)
@@ -17,6 +18,7 @@
  * 
  * Environment Variables:
  *     PORT                 Web service port (default: 3000)
+ *     GTOPT_HOSTNAME       Hostname/IP to bind to (default: 0.0.0.0)
  *     GTOPT_BIN            Path to gtopt binary
  *     GTOPT_DATA_DIR       Directory for job data storage
  *     GTOPT_LOG_DIR        Directory for log files
@@ -36,6 +38,7 @@ Usage:
 
 Options:
   --port PORT          Port for the web service (default: 3000)
+  --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
@@ -45,6 +48,7 @@ Options:
 
 Environment Variables:
   PORT                 Web service port (default: 3000)
+  GTOPT_HOSTNAME       Hostname/IP to bind to (default: 0.0.0.0)
   GTOPT_BIN            Path to gtopt binary
   GTOPT_DATA_DIR       Directory for job data storage
   GTOPT_LOG_DIR        Directory for log files
@@ -52,6 +56,7 @@ Environment Variables:
 Examples:
   gtopt_websrv                           # Start on default port 3000
   gtopt_websrv --port 8080               # Start on port 8080
+  gtopt_websrv --hostname 127.0.0.1      # Bind to localhost only
   gtopt_websrv --gtopt-bin /usr/bin/gtopt  # Use specific gtopt binary
   gtopt_websrv --log-dir /var/log/gtopt  # Write logs to directory
   gtopt_websrv --dev                     # Run in development mode
@@ -123,6 +128,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     port: process.env.PORT || '3000',
+    hostname: process.env.GTOPT_HOSTNAME || '0.0.0.0',
     gtoptBin: process.env.GTOPT_BIN || null,
     dataDir: process.env.GTOPT_DATA_DIR || null,
     logDir: process.env.GTOPT_LOG_DIR || null,
@@ -139,6 +145,9 @@ function parseArgs() {
         break;
       case '--port':
         config.port = args[++i];
+        break;
+      case '--hostname':
+        config.hostname = args[++i];
         break;
       case '--gtopt-bin':
         config.gtoptBin = args[++i];
@@ -184,14 +193,14 @@ function httpGet(url, timeout) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
+          resolve({ status: res.statusCode, body: JSON.parse(data), raw: data });
         } catch (_) {
-          resolve({ status: res.statusCode, body: null });
+          resolve({ status: res.statusCode, body: null, raw: data });
         }
       });
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', (err) => resolve({ error: err.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ error: 'timeout' }); });
   });
 }
 
@@ -205,6 +214,7 @@ async function verifyApi(port, logDir, timeout) {
   // Poll until the API responds or timeout
   let apiResult = null;
   let apiBaseUrl = null;
+  let lastError = null;
   while ((Date.now() - startTime) / 1000 < maxWait) {
     for (const baseUrl of baseUrls) {
       const result = await httpGet(`${baseUrl}/api`, 5000);
@@ -213,19 +223,29 @@ async function verifyApi(port, logDir, timeout) {
         apiBaseUrl = baseUrl;
         break;
       }
+      lastError = result;
     }
     if (apiResult) {
       break;
     }
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logMessage(`  ... waiting for API (${elapsed}s elapsed)`, logDir);
+    const errDetail = lastError
+      ? (lastError.error ? `error: ${lastError.error}` : `HTTP ${lastError.status}`)
+      : 'no response';
+    logMessage(`  ... waiting for API (${elapsed}s elapsed, last attempt: ${errDetail})`, logDir);
     await new Promise((r) => setTimeout(r, 1000));
   }
 
   if (apiResult) {
     logMessage(`API verification PASSED: GET ${apiBaseUrl}/api returned status "ok"`, logDir);
   } else {
+    const errDetail = lastError
+      ? (lastError.error
+          ? `last error: ${lastError.error}`
+          : `last HTTP status: ${lastError.status}, body: ${(lastError.raw || '').slice(0, 200)}`)
+      : 'no response received';
     logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s at ${baseUrls.join(' or ')}`, logDir);
+    logMessage(`  ${errDetail}`, logDir);
     logMessage('Hint (WSL): this check already tried 127.0.0.1 and localhost. If it still fails, check firewall/port-forwarding/port-collision settings (see GTOPT_WEBSRV.md).', logDir);
     return false;
   }
@@ -252,7 +272,11 @@ async function verifyApi(port, logDir, timeout) {
   } else {
     logMessage(`API verification WARNING: GET ${apiBaseUrl}/api/ping did not return expected response`, logDir);
     if (pingResult) {
-      logMessage(`  HTTP status: ${pingResult.status}, body: ${JSON.stringify(pingResult.body)}`, logDir);
+      if (pingResult.error) {
+        logMessage(`  Error: ${pingResult.error}`, logDir);
+      } else {
+        logMessage(`  HTTP status: ${pingResult.status}, body: ${(pingResult.raw || '').slice(0, 200)}`, logDir);
+      }
     } else {
       logMessage(`  No response received from /api/ping`, logDir);
     }
@@ -347,19 +371,25 @@ function main() {
     process.exit(1);
   }
   
-  // Start the web service
+  // Start the web service — call next directly with --hostname so the
+  // server binds to the requested interface.  Using next directly (rather
+  // than npm run start) avoids an extra process layer and allows us to
+  // pass --hostname and --port reliably on all platforms including WSL.
+  const nextBinBase = path.join(webserviceDir, 'node_modules', '.bin', 'next');
+  const nextBin = process.platform === 'win32' ? nextBinBase + '.cmd' : nextBinBase;
   const npmScript = config.dev ? 'dev' : 'start';
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   
   console.log('');
   console.log('='.repeat(60));
   console.log(`gtopt web service is starting (${config.dev ? 'development' : 'production'} mode)`);
   console.log(`URL: http://localhost:${config.port}`);
+  console.log(`Hostname: ${config.hostname}`);
   console.log('Press Ctrl+C to stop');
   console.log('='.repeat(60));
   console.log('');
   
-  const proc = spawn(npm, ['run', npmScript], {
+  const nextArgs = [npmScript, '--hostname', config.hostname, '--port', String(config.port)];
+  const proc = spawn(nextBin, nextArgs, {
     cwd: webserviceDir,
     env: env,
     stdio: 'inherit',
