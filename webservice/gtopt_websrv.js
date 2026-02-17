@@ -191,8 +191,12 @@ function httpGet(url, timeout) {
     // Force IPv4 for 'localhost' to avoid IPv6 ECONNREFUSED on systems where
     // localhost resolves to ::1 but the server only listens on 0.0.0.0 (IPv4).
     const opts = { timeout };
-    if (new URL(url).hostname === 'localhost') {
-      opts.family = 4;
+    try {
+      if (new URL(url).hostname === 'localhost') {
+        opts.family = 4;
+      }
+    } catch (_) {
+      // malformed URL — let http.get handle the error
     }
     const req = http.get(url, opts, (res) => {
       let data = '';
