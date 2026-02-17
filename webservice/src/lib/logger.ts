@@ -101,6 +101,7 @@ try {
 } catch (err) {
   startupLog.warn(`  build diagnostics failed: ${err}`);
 }
+
 /**
  * Return the path to the log file, or empty string if file logging is disabled.
  */
