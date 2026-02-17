@@ -12,7 +12,6 @@ on:
 
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 permissions:
   contents: read
@@ -51,14 +50,9 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        run: sudo apt-get install -y ccache
-
-      - uses: actions/cache@v4
+        uses: hendrikmuhs/ccache-action@v1
         with:
-          path: .ccache
-          key: ${{ github.workflow }}-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ github.workflow }}-ccache-
+          key: ${{ github.workflow }}-webservice
 
       - name: configure gtopt
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -68,9 +62,6 @@ jobs:
 
       - name: build gtopt
         run: cmake --build build -j4
-
-      - name: show ccache stats
-        run: ccache --show-stats
 
       - name: install gtopt
         run: cmake --install build --prefix build/install
@@ -154,14 +145,9 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        run: sudo apt-get install -y ccache
-
-      - uses: actions/cache@v4
+        uses: hendrikmuhs/ccache-action@v1
         with:
-          path: .ccache
-          key: ${{ github.workflow }}-install-ccache-${{ github.sha }}
-          restore-keys: |
-            ${{ github.workflow }}-install-ccache-
+          key: ${{ github.workflow }}-install
 
       - name: configure gtopt
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -171,9 +157,6 @@ jobs:
 
       - name: build gtopt
         run: cmake --build build -j4
-
-      - name: show ccache stats
-        run: ccache --show-stats
 
       - name: install gtopt binary only
         run: cmake --install build --prefix $HOME/gtopt-install
