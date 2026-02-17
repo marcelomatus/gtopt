@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 
 // POST /api/jobs - Upload a case zip and start a job
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
   try {
     await ensureDataDir();
 
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
       log.error(`Job ${job.token} failed: ${err}`);
     });
 
-    log.info(`Job ${job.token}: job submitted successfully`);
+    log.info(`Job ${job.token}: job submitted successfully (total request time: ${Date.now() - startTime}ms)`);
     return NextResponse.json(
       {
         token: job.token,
@@ -142,9 +143,11 @@ export async function POST(request: NextRequest) {
 
 // GET /api/jobs - List all jobs
 export async function GET() {
+  const startTime = Date.now();
   try {
     log.info("GET /api/jobs: listing jobs");
     const allJobs = await listJobs();
+    log.info(`GET /api/jobs: returning ${allJobs.length} job(s) in ${Date.now() - startTime}ms`);
     return NextResponse.json({ jobs: allJobs });
   } catch (err) {
     log.error(`GET /api/jobs: internal error: ${err}`);
