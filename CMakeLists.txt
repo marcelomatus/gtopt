@@ -44,7 +44,7 @@ CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.17.0
+  VERSION 1.15.3
   OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" # create an installable
   # target
   SYSTEM YES
@@ -146,5 +146,5 @@ package_target(
   INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
   VERSION_HEADER "${VERSION_HEADER_LOCATION}"
   COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "spdlog 1.17.0" "strong_type 15" "daw 3.31.0"
+  DEPENDENCIES "spdlog 1.15.0" "strong_type 15" "daw 3.31.0"
 )
