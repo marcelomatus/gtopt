@@ -85,7 +85,9 @@ fi
 # ---- Start the web service with the real gtopt binary ----
 log "Starting web service on port $PORT ..."
 cd "$WEBSERVICE_DIR"
-GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" \
+LOG_DIR="$TEST_TMPDIR/logs"
+mkdir -p "$LOG_DIR"
+GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
   node_modules/.bin/next start -p "$PORT" \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
@@ -280,6 +282,12 @@ if [ "$EXPECTED_CSV_COUNT" -eq 0 ]; then
 else
   pass "Compared $EXPECTED_CSV_COUNT expected CSV files"
 fi
+
+# ---- Dump logs for analysis ----
+LOG_FILE="$LOG_DIR/gtopt-webservice.log"
+log "--- Webservice log file ($LOG_FILE) ---"
+tail -40 "$LOG_FILE" 2>/dev/null || log "(no log file found)"
+log "--- End of logs ---"
 
 # ---- Summary ----
 echo ""

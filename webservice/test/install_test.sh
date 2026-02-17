@@ -44,6 +44,10 @@ else
   MOCK_BIN="$TEST_TMPDIR/mock_gtopt"
   cat > "$MOCK_BIN" << 'MOCK'
 #!/bin/bash
+if [ "$1" = "--version" ]; then
+  echo "gtopt mock 0.0.0 (test)"
+  exit 0
+fi
 echo "mock gtopt"
 exit 0
 MOCK
@@ -105,6 +109,16 @@ if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert is
   pass "GET /api/jobs returns a valid response"
 else
   fail "GET /api/jobs unexpected response: $BODY"
+fi
+
+# ---- Test 3: GET /api/ping — health check returns ok ----
+BODY=$(curl -s "$BASE_URL/api/ping")
+PING_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+PING_SERVICE=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service',''))" 2>/dev/null || true)
+if [ "$PING_STATUS" = "ok" ] && [ "$PING_SERVICE" = "gtopt-webservice" ]; then
+  pass "GET /api/ping returns status ok, service gtopt-webservice"
+else
+  fail "GET /api/ping unexpected response: $BODY"
 fi
 
 # ---- Summary ----
