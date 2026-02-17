@@ -50,7 +50,7 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v4
+        uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ github.workflow }}-build
 
@@ -103,7 +103,7 @@ jobs:
         run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v4
+        uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ github.workflow }}-integration
 
