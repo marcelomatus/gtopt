@@ -351,6 +351,20 @@ ELEMENT_TO_ARRAY_KEY = {
 # ---------------------------------------------------------------------------
 
 
+def _df_to_rows(df):
+    """Convert a DataFrame to a list of rows preserving column types.
+
+    Using ``df.values.tolist()`` coerces all columns to a single numpy
+    dtype (e.g. float64 when int and float columns are mixed), which
+    turns integer values into floats.  Converting per-row via
+    ``itertuples`` keeps each value in its native Python type.
+    """
+    return [
+        [x.item() if hasattr(x, "item") else x for x in row]
+        for row in df.itertuples(index=False, name=None)
+    ]
+
+
 def _build_case_json(case_data):
     """Build the gtopt-compatible JSON from the GUI case data."""
     options = case_data.get("options", {})
@@ -497,7 +511,7 @@ def _parse_uploaded_zip(zip_bytes):
                     df = pd.read_parquet(io.BytesIO(raw))
                     case_data["data_files"][rel] = {
                         "columns": list(df.columns),
-                        "data": df.values.tolist(),
+                        "data": _df_to_rows(df),
                     }
                 except Exception:
                     pass
@@ -560,7 +574,7 @@ def _parse_results_zip(zip_bytes):
                     key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                     results["outputs"][key] = {
                         "columns": list(df.columns),
-                        "data": df.values.tolist(),
+                        "data": _df_to_rows(df),
                     }
                 except Exception:
                     pass
