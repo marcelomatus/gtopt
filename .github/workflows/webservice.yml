@@ -115,6 +115,12 @@ jobs:
         env:
           GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
 
+      - name: full-stack e2e test (real components only)
+        working-directory: webservice
+        run: npm run test:e2e-real
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
+
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
 
@@ -170,9 +176,7 @@ jobs:
         run: ccache --show-stats
 
       - name: install gtopt binary only
-        run: |
-          mkdir -p $HOME/gtopt-install/bin
-          install -m 0755 build/gtopt $HOME/gtopt-install/bin/gtopt
+        run: cmake --install build --prefix $HOME/gtopt-install
 
       - name: verify only standalone gtopt binary is installed
         run: |
@@ -226,10 +230,9 @@ jobs:
 
       - name: Test webservice runs after installation
         run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           cd $HOME/gtopt-install/share/gtopt/webservice
           bash test/install_test.sh
-        env:
-          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
 
       - name: Verify API with --check-api flag
         run: |
