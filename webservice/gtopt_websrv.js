@@ -197,34 +197,42 @@ function httpGet(url, timeout) {
 
 async function verifyApi(port, logDir, timeout) {
   const maxWait = timeout || 30;
-  const baseUrl = `http://localhost:${port}`;
+  const baseUrls = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
   const startTime = Date.now();
 
   logMessage('Verifying API endpoints...', logDir);
 
   // Poll until the API responds or timeout
   let apiResult = null;
+  let apiBaseUrl = null;
   while ((Date.now() - startTime) / 1000 < maxWait) {
-    apiResult = await httpGet(`${baseUrl}/api`, 5000);
-    if (apiResult && apiResult.status === 200 && apiResult.body && apiResult.body.status === 'ok') {
+    for (const baseUrl of baseUrls) {
+      const result = await httpGet(`${baseUrl}/api`, 5000);
+      if (result && result.status === 200 && result.body && result.body.status === 'ok') {
+        apiResult = result;
+        apiBaseUrl = baseUrl;
+        break;
+      }
+    }
+    if (apiResult) {
       break;
     }
-    apiResult = null;
     await new Promise((r) => setTimeout(r, 1000));
   }
 
   if (apiResult) {
-    logMessage(`API verification PASSED: GET /api returned status "ok"`, logDir);
+    logMessage(`API verification PASSED: GET ${apiBaseUrl}/api returned status "ok"`, logDir);
   } else {
-    logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s`, logDir);
+    logMessage(`API verification FAILED: GET /api did not respond within ${maxWait}s at ${baseUrls.join(' or ')}`, logDir);
+    logMessage('Hint (WSL): this check already tried 127.0.0.1 and localhost. If it still fails, check firewall/port-forwarding/port-collision settings (see GTOPT_WEBSRV.md).', logDir);
     return false;
   }
 
   // Also check /api/ping
-  const pingResult = await httpGet(`${baseUrl}/api/ping`, 5000);
+  const pingResult = await httpGet(`${apiBaseUrl}/api/ping`, 5000);
   if (pingResult && pingResult.status === 200 && pingResult.body && pingResult.body.status === 'ok') {
     const info = pingResult.body;
-    logMessage(`API verification PASSED: GET /api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
+    logMessage(`API verification PASSED: GET ${apiBaseUrl}/api/ping returned status "${info.status}", service="${info.service || ''}"`, logDir);
     if (info.gtopt_version) {
       logMessage(`  gtopt version: ${info.gtopt_version}`, logDir);
     }
