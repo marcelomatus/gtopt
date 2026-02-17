@@ -298,9 +298,9 @@ fi
 
 # ---- Test 18: Dump server log and webservice log for analysis ----
 log "--- Server stdout/stderr (server.log) ---"
-tail -30 "$TEST_TMPDIR/server.log" 2>/dev/null || true
+tail -40 "$TEST_TMPDIR/server.log" 2>/dev/null || true
 log "--- Webservice log file ($LOG_FILE) ---"
-tail -30 "$LOG_FILE" 2>/dev/null || true
+tail -40 "$LOG_FILE" 2>/dev/null || true
 log "--- End of logs ---"
 pass "Logs dumped for analysis"
 
