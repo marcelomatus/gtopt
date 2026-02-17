@@ -13,12 +13,20 @@ on:
 permissions:
   contents: read
 
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+
 jobs:
   webservice:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-webservice-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       # ---- Build the real gtopt binary ----
 
@@ -103,6 +111,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-install-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       # ---- Build the real gtopt binary ----
 
