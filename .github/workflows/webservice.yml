@@ -10,6 +10,10 @@ on:
       - master
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -17,7 +21,7 @@ env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
 jobs:
-  webservice:
+  build-gtopt:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,9 +30,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-webservice-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
-
-      # ---- Build the real gtopt binary ----
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -46,7 +48,7 @@ jobs:
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-webservice
+          key: ${{ github.workflow }}-build-gtopt
 
       - name: configure gtopt
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -58,17 +60,40 @@ jobs:
         run: cmake --build build -j4
 
       - name: install gtopt
-        run: cmake --install build --prefix build/install
+        run: cmake --install build --prefix gtopt-install
 
       - name: verify gtopt binary
         run: |
-          ldd build/install/bin/gtopt
-          if ldd build/install/bin/gtopt | grep -q "not found"; then
+          ldd gtopt-install/bin/gtopt
+          if ldd gtopt-install/bin/gtopt | grep -q "not found"; then
             echo "::error::Installed gtopt binary has missing shared libraries"
             exit 1
           fi
-          build/install/bin/gtopt --version
+          gtopt-install/bin/gtopt --version
           echo "✓ Installed gtopt binary works"
+
+      - name: upload gtopt binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtopt-binary
+          path: gtopt-install/
+          retention-days: 1
+
+  webservice:
+    runs-on: ubuntu-latest
+    needs: build-gtopt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary
+          path: gtopt-install
+
+      - name: make gtopt executable
+        run: chmod +x gtopt-install/bin/gtopt
 
       # ---- Build the web service ----
 
@@ -92,69 +117,42 @@ jobs:
         working-directory: webservice
         run: npm test
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
 
       - name: e2e test
         working-directory: webservice
         run: npm run test:e2e
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
 
       - name: full-stack e2e test (real components only)
         working-directory: webservice
         run: npm run test:e2e-real
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/install/bin/gtopt
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
 
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
+    needs: build-gtopt
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/cache@v4
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
         with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-install-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          name: gtopt-binary
+          path: ${{ github.workspace }}/gtopt-install
 
-      # ---- Build the real gtopt binary ----
-
-      - name: install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev
-
-      - name: install parquet
-        run: |
-          sudo apt-get install -y -V ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y -V libarrow-dev libparquet-dev
-
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.workflow }}-install
-
-      - name: configure gtopt
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-        env:
-          CC: gcc-14
-          CXX: g++-14
-
-      - name: build gtopt
-        run: cmake --build build -j4
-
-      - name: install gtopt binary only
-        run: cmake --install build --prefix $HOME/gtopt-install
+      - name: make gtopt executable
+        run: chmod +x gtopt-install/bin/gtopt
 
       - name: verify only standalone gtopt binary is installed
         run: |
-          test -x $HOME/gtopt-install/bin/gtopt
-          if find "$HOME/gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
+          test -x gtopt-install/bin/gtopt
+          if find "gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
             echo "::error::libgtopt.a was installed, expected binary-only installation"
-            find "$HOME/gtopt-install" -type f -name 'libgtopt.a'
+            find "gtopt-install" -type f -name 'libgtopt.a'
             exit 1
           fi
           echo "✓ standalone gtopt binary installed without libgtopt.a"
@@ -193,6 +191,11 @@ jobs:
           echo "✓ npm install ran successfully during installation"
           test -d $HOME/gtopt-install/share/gtopt/webservice/.next
           echo "✓ npm run build ran successfully during installation"
+
+      - name: Copy gtopt binary to install prefix
+        run: |
+          cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: Test webservice runs after installation
         run: |
