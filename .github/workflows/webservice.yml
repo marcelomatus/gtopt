@@ -10,9 +10,6 @@ on:
       - master
       - main
 
-env:
-  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-
 permissions:
   contents: read
 
@@ -23,17 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/cache@v4
-        with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
-
       # ---- Build the real gtopt binary ----
 
-      - name: install gcc-14
+      - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14
+          sudo apt-get install -y gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev
 
       - name: install parquet
         run: |
@@ -42,12 +34,6 @@ jobs:
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y -V libarrow-dev libparquet-dev
-
-      - name: install cbc
-        run: sudo apt-get install -y -V coinor-libcbc-dev
-
-      - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -118,17 +104,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/cache@v4
-        with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-install-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
-
       # ---- Build the real gtopt binary ----
 
-      - name: install gcc-14
+      - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14
+          sudo apt-get install -y gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev
 
       - name: install parquet
         run: |
@@ -137,12 +118,6 @@ jobs:
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y -V libarrow-dev libparquet-dev
-
-      - name: install cbc
-        run: sudo apt-get install -y -V coinor-libcbc-dev
-
-      - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1

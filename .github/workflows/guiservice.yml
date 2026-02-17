@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,17 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install CMake
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
 
       - name: Configure guiservice with CMake
         run: |
@@ -60,9 +55,10 @@ jobs:
         run: |
           cmake --install build-guiservice --prefix $HOME/gtopt-install
 
-      - name: Install Python dependencies
+      - name: Verify Python dependencies were installed
         run: |
-          pip install -r $HOME/gtopt-install/share/gtopt/guiservice/requirements.txt
+          python3 -c "import flask; print(f'✓ Flask {flask.__version__} installed')"
+          python3 -c "import pandas; print(f'✓ pandas {pandas.__version__} installed')"
 
       - name: Verify both launchers are installed
         run: |
@@ -146,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -158,16 +154,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install CMake
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
-
       # ---- Build the real gtopt binary ----
 
-      - name: install gcc-14
+      - name: install dependencies
         run: |
-          sudo apt-get install -y gcc-14 g++-14
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14 cmake coinor-libcbc-dev libboost-container-dev libspdlog-dev
 
       - name: install parquet
         run: |
@@ -176,12 +168,6 @@ jobs:
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y -V libarrow-dev libparquet-dev
-
-      - name: install cbc
-        run: sudo apt-get install -y -V coinor-libcbc-dev
-
-      - name: install boost
-        run: sudo apt-get install -y -V libboost-container-dev libspdlog-dev
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -213,15 +199,12 @@ jobs:
           cmake -S webservice -B build-webservice
           cmake --install build-webservice --prefix $HOME/gtopt-install
 
-      - name: Install Python dependencies
+      - name: Verify webservice was built during installation
         run: |
-          pip install -r $HOME/gtopt-install/share/gtopt/guiservice/requirements.txt
-
-      - name: Install and build webservice
-        run: |
-          cd $HOME/gtopt-install/share/gtopt/webservice
-          npm install
-          npm run build
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
 
       - name: Test gtopt_gui with integrated webservice
         run: |
