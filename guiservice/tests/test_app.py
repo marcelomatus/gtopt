@@ -216,6 +216,45 @@ class TestParseUploadedZip:
         assert "Demand/lmax" in result["data_files"]
         assert result["data_files"]["Demand/lmax"]["columns"][0] == "scenario"
 
+    def test_parse_parquet_preserves_integer_types(self):
+        """Integer columns (int8/16/32/64) must remain ints after parsing."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": np.array([1, 2], dtype=np.int8),
+                "stage": np.array([10, 20], dtype=np.int16),
+                "block": np.array([100, 200], dtype=np.int32),
+                "uid": np.array([1000, 2000], dtype=np.int64),
+                "value": np.array([1.5, 2.5], dtype=np.float64),
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+        pq_bytes = pq_buf.getvalue()
+
+        case_json = {
+            "options": {"input_directory": "sys", "input_format": "parquet"},
+            "system": {"name": "case_int"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("case_int.json", json.dumps(case_json))
+            zf.writestr("sys/Demand/lmax.parquet", pq_bytes)
+        zip_buf.seek(0)
+
+        result = _parse_uploaded_zip(zip_buf.read())
+        data = result["data_files"]["Demand/lmax"]
+        row0 = data["data"][0]
+        # Integer columns must be Python int, not float
+        assert isinstance(row0[0], int), f"int8 became {type(row0[0])}"
+        assert isinstance(row0[1], int), f"int16 became {type(row0[1])}"
+        assert isinstance(row0[2], int), f"int32 became {type(row0[2])}"
+        assert isinstance(row0[3], int), f"int64 became {type(row0[3])}"
+        # Float column stays float
+        assert isinstance(row0[4], float), f"float became {type(row0[4])}"
+
 
 # ---------------------------------------------------------------------------
 # Integration tests – Flask routes
