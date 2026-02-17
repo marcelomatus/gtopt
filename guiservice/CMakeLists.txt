@@ -184,15 +184,59 @@ install(CODE "
   endif()
 ")
 
-# Post-install message
+# Post-install: install Python dependencies in the destination directory
 install(CODE "
+  set(_gs_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
+  set(_req_file \"\${_gs_dir}/requirements.txt\")
+
+  # Check that pip is available
+  find_program(_pip_exe pip3)
+  if(NOT _pip_exe)
+    find_program(_pip_exe pip)
+  endif()
+
+  if(NOT _pip_exe)
+    message(WARNING \"pip was not found on this system. \
+Please install Python/pip and then run manually:\\n\
+  pip install -r \${_req_file}\")
+  elseif(NOT EXISTS \"\${_req_file}\")
+    message(WARNING \"requirements.txt not found at \${_req_file}\")
+  else()
+    # Verify pip is working
+    execute_process(
+      COMMAND \${_pip_exe} --version
+      RESULT_VARIABLE _pip_ver_rc
+      OUTPUT_VARIABLE _pip_ver
+      ERROR_VARIABLE _pip_err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _pip_ver_rc EQUAL 0)
+      message(WARNING \"pip is installed but not working properly (\${_pip_err}). \
+Please fix pip and then run manually:\\n\
+  pip install -r \${_req_file}\")
+    else()
+      message(STATUS \"Found \${_pip_ver}\")
+
+      # pip install -r requirements.txt
+      message(STATUS \"Running pip install -r \${_req_file} ...\")
+      execute_process(
+        COMMAND \${_pip_exe} install -r \${_req_file}
+        RESULT_VARIABLE _pip_install_rc
+      )
+      if(NOT _pip_install_rc EQUAL 0)
+        message(WARNING \"pip install failed (exit code \${_pip_install_rc}). \
+Please run manually:\\n\
+  pip install -r \${_req_file}\")
+      else()
+        message(STATUS \"Python dependencies installed successfully\")
+      endif()
+    endif()
+  endif()
+
   message(STATUS \"To run the gtopt GUI service:\")
-  message(STATUS \"  1. Install Python dependencies:\")
-  message(STATUS \"     python3 -m pip install -r \${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice/requirements.txt\")
-  message(STATUS \"  2. Run one of the following commands:\")
-  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_gui      # Interactive kiosk mode\")
-  message(STATUS \"     \${CMAKE_INSTALL_PREFIX}/bin/gtopt_guisrv   # Web server mode\")
-  message(STATUS \"  Or run the service directly:\")
-  message(STATUS \"     cd \${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
-  message(STATUS \"     python3 app.py\")
+  message(STATUS \"  \${CMAKE_INSTALL_PREFIX}/bin/gtopt_gui      # Interactive kiosk mode\")
+  message(STATUS \"  \${CMAKE_INSTALL_PREFIX}/bin/gtopt_guisrv   # Web server mode\")
+  message(STATUS \"Or run the service directly:\")
+  message(STATUS \"  cd \${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
+  message(STATUS \"  python3 app.py\")
 ")
