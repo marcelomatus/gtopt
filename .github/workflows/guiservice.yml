@@ -220,7 +220,7 @@ jobs:
 
       - name: Test gtopt_gui with integrated webservice
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/gtopt
+          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
         run: |
           cd $HOME/gtopt-install/bin
           
@@ -306,4 +306,4 @@ jobs:
         run: |
           bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"
         env:
-          GTOPT_BIN: ${{ github.workspace }}/build/gtopt
+          GTOPT_BIN: $HOME/gtopt-install/bin/gtopt
