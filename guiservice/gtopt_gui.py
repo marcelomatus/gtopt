@@ -216,8 +216,9 @@ def check_webservice_api(webservice_url, timeout=5):
     falls back to ``/api/ping``.
 
     Returns:
-        bool: True if ``/api`` or ``/api/ping`` responds with
-        ``"status": "ok"``, False otherwise.
+        bool: True if the API root responds with ``"status": "ok"`` or,
+        for compatibility, if ``/api/ping`` responds with ``"status": "ok"``.
+        False on connection failure, timeout, or unexpected response.
     """
     import urllib.request
     import urllib.error
@@ -230,7 +231,6 @@ def check_webservice_api(webservice_url, timeout=5):
                 return data.get("status") == "ok"
     except (urllib.error.URLError, ConnectionRefusedError, OSError, json.JSONDecodeError):
         pass
-
     ping_info = query_webservice_ping(webservice_url, timeout=timeout)
     return ping_info is not None and ping_info.get("status") == "ok"
 
@@ -325,9 +325,9 @@ def verify_webservice_api(webservice_url, log_file=None):
 
     api_ok = check_webservice_api(webservice_url, timeout=5)
     if api_ok:
-        _log(f'API verification PASSED: GET {webservice_url}/api returned status "ok"')
+        _log(f"API verification PASSED: webservice API is responding at {webservice_url}")
     else:
-        _log(f"API verification FAILED: GET {webservice_url}/api did not respond")
+        _log(f"API verification FAILED: webservice API endpoints did not respond at {webservice_url}")
 
     # Also check /api/ping for detailed info
     ping_info = query_webservice_ping(webservice_url, timeout=5)
