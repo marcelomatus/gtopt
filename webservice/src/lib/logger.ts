@@ -1,4 +1,4 @@
-import { promises as fs } from "fs";
+import { promises as fs, existsSync, readFileSync } from "fs";
 import path from "path";
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
@@ -72,6 +72,35 @@ if (isWSL) {
   startupLog.info(`  WSL detected: distro=${process.env.WSL_DISTRO_NAME || "unknown"}`);
 }
 startupLog.info(`  log file: ${LOG_DIR ? path.join(LOG_DIR, "gtopt-webservice.log") : "(console only)"}`);
+
+// Log Next.js build state for diagnosing route loading issues (e.g. API 404)
+try {
+  const nextDir = path.join(process.cwd(), ".next");
+  if (existsSync(nextDir)) {
+    const buildIdPath = path.join(nextDir, "BUILD_ID");
+    const buildId = existsSync(buildIdPath) ? readFileSync(buildIdPath, "utf-8").trim() : "(missing)";
+    startupLog.info(`  .next/BUILD_ID=${buildId}`);
+
+    // Log registered app routes from the manifest
+    const manifestPath = path.join(nextDir, "server", "app-paths-manifest.json");
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      const routes = Object.keys(manifest);
+      startupLog.info(`  app-paths-manifest: ${routes.length} route(s): ${routes.join(", ")}`);
+    } else {
+      startupLog.warn(`  app-paths-manifest.json NOT FOUND — API routes will return 404`);
+    }
+
+    // Log config file type to help diagnose config loading issues
+    const configFiles = ["next.config.mjs", "next.config.js", "next.config.ts", "next.config.cjs"];
+    const found = configFiles.filter((f) => existsSync(path.join(process.cwd(), f)));
+    startupLog.info(`  next config file(s): ${found.length > 0 ? found.join(", ") : "(none found)"}`);
+  } else {
+    startupLog.warn(`  .next directory NOT FOUND in ${process.cwd()} — run 'npm run build' first`);
+  }
+} catch (err) {
+  startupLog.warn(`  build diagnostics failed: ${err}`);
+}
 
 /**
  * Return the path to the log file, or empty string if file logging is disabled.

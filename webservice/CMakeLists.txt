@@ -105,6 +105,7 @@ install(DIRECTORY "${WEBSERVICE_DIR}/"
   DESTINATION share/gtopt/webservice
   FILES_MATCHING
   PATTERN "*.js"
+  PATTERN "*.mjs"
   PATTERN "*.ts"
   PATTERN "*.tsx"
   PATTERN "*.json"
