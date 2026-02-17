@@ -29,6 +29,8 @@ const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
 
+const STARTUP_TIMEOUT_MS = 30000;
+
 function showHelp() {
   console.log(`
 gtopt_websrv - Launcher for gtopt web service
@@ -188,7 +190,17 @@ function logMessage(msg, logDir) {
 
 function httpGet(url, timeout) {
   return new Promise((resolve) => {
-    const req = http.get(url, { timeout }, (res) => {
+    // Force IPv4 for 'localhost' to avoid IPv6 ECONNREFUSED on systems where
+    // localhost resolves to ::1 but the server only listens on 0.0.0.0 (IPv4).
+    const opts = { timeout };
+    try {
+      if (new URL(url).hostname === 'localhost') {
+        opts.family = 4;
+      }
+    } catch (_) {
+      // malformed URL — let http.get handle the error
+    }
+    const req = http.get(url, opts, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
@@ -327,11 +339,15 @@ function main() {
 
   console.log(`Starting web service on port ${config.port}...`);
   
-  // Set up environment
+  // Set up environment — remove the system HOSTNAME variable so that
+  // Next.js does not accidentally use it as the listen address (on many
+  // Linux systems HOSTNAME is set to the machine name which is not a
+  // valid bind address).
   const env = {
     ...process.env,
     PORT: config.port,
   };
+  delete env.HOSTNAME;
   
   if (gtoptBin) {
     env.GTOPT_BIN = gtoptBin;
@@ -389,10 +405,33 @@ function main() {
   console.log('');
   
   const nextArgs = [npmScript, '--hostname', config.hostname, '--port', String(config.port)];
+  logMessage(`Launching: ${nextBin} ${nextArgs.join(' ')}`, config.logDir);
+  logMessage(`Working directory: ${webserviceDir}`, config.logDir);
+  logMessage(`Node.js: ${process.version}, platform: ${process.platform}, arch: ${process.arch}`, config.logDir);
   const proc = spawn(nextBin, nextArgs, {
     cwd: webserviceDir,
     env: env,
-    stdio: 'inherit',
+    stdio: ['inherit', 'pipe', 'pipe'],
+  });
+
+  // Detect when Next.js signals readiness (prints "Ready in" to stdout).
+  // Forward all output to the parent process so the user still sees it.
+  let serverReady = false;
+  let onServerReady = () => {};
+  const serverReadyPromise = new Promise((resolve) => { onServerReady = resolve; });
+  const launchTime = Date.now();
+
+  proc.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    if (!serverReady && chunk.toString().includes('Ready in')) {
+      serverReady = true;
+      logMessage(`Server ready (${((Date.now() - launchTime) / 1000).toFixed(1)}s after launch)`, config.logDir);
+      onServerReady();
+    }
+  });
+
+  proc.stderr.on('data', (chunk) => {
+    process.stderr.write(chunk);
   });
   
   proc.on('error', (err) => {
@@ -416,8 +455,16 @@ function main() {
     proc.kill('SIGTERM');
   });
 
-  // Verify API is working after server starts
-  verifyApi(config.port, config.logDir, 30).then((ok) => {
+  // Verify API is working after server signals readiness.
+  // Wait for the "Ready in" message from Next.js before polling the HTTP
+  // endpoints, so we avoid noisy ECONNREFUSED messages during startup.
+  const readyTimeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), STARTUP_TIMEOUT_MS));
+  Promise.race([serverReadyPromise, readyTimeout]).then((result) => {
+    if (result === 'timeout') {
+      logMessage(`Warning: server did not signal readiness within ${STARTUP_TIMEOUT_MS / 1000}s, attempting API verification anyway`, config.logDir);
+    }
+    return verifyApi(config.port, config.logDir, STARTUP_TIMEOUT_MS / 1000);
+  }).then((ok) => {
     if (!ok) {
       console.error('Warning: API verification failed. The service may not be working correctly.');
     }
