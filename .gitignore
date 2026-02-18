@@ -13,6 +13,8 @@ TAGS
 __pycache__
 test/build/
 
+.python-version
+
 # Web service
 webservice/node_modules/
 webservice/.next/
