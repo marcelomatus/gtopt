@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -52,7 +53,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
-  const System system = {
+  System system = {
       .name = "TwoBusSystem",
       .bus_array = bus_array,
       .demand_array = demand_array,
@@ -63,6 +64,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
   const OptionsLP options;
   SimulationLP simulation_lp(simulation, options);
 
+  system.setup_reference_bus(options);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp_interface = system_lp.linear_interface();
