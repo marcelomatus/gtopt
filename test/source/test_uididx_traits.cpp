@@ -466,13 +466,13 @@ TEST_SUITE("cast_to_double_array")
   TEST_CASE("cast float array to double")
   {
     arrow::FloatBuilder builder;
-    REQUIRE(builder.AppendValues({10.0f, 20.0f, 30.0f}).ok());
+    REQUIRE(builder.AppendValues({10.0F, 20.0F, 30.0F}).ok());
     std::shared_ptr<arrow::Array> array;
     REQUIRE(builder.Finish(&array).ok());
 
     auto result = cast_to_double_array(array);
     REQUIRE(result != nullptr);
-    CHECK(result->length() == 3);
+    CHECK(result->length() == 3);  //
     CHECK(result->Value(0) == doctest::Approx(10.0));
     CHECK(result->Value(1) == doctest::Approx(20.0));
     CHECK(result->Value(2) == doctest::Approx(30.0));
