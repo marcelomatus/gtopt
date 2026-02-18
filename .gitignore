@@ -15,6 +15,15 @@ test/build/
 
 .python-version
 
+# Coverage reports
+coverage-report/
+coverage-guiservice/
+coverage.info
+*.gcda
+*.gcno
+.coverage
+htmlcov/
+
 # Web service
 webservice/node_modules/
 webservice/.next/

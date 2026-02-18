@@ -66,3 +66,24 @@ python_files = "test_*.py"
 testpaths = ["scripts/plp2gtopt/tests"]
 addopts = "-v --import-mode=importlib"
 pythonpath = ["."]
+
+[tool.coverage.run]
+source = [
+    "scripts/plp2gtopt",
+    "guiservice",
+]
+omit = [
+    "*/test*",
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.",
+]
