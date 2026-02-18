@@ -105,15 +105,18 @@ jobs:
       - name: generate coverage summary
         if: always()
         run: |
-          # Extract coverage percentage for the job summary
-          COVERAGE_LINE=$(lcov --summary coverage.info --gcov-tool gcov-14 2>&1 | grep 'lines' | head -1)
-          COVERAGE_FUNC=$(lcov --summary coverage.info --gcov-tool gcov-14 2>&1 | grep 'functions' | head -1)
+          # Extract coverage percentages for the job summary
+          SUMMARY=$(lcov --summary coverage.info --gcov-tool gcov-14 --rc lcov_branch_coverage=1 2>&1)
+          COVERAGE_LINE=$(echo "$SUMMARY" | grep 'lines' | head -1 | sed 's/^ *//')
+          COVERAGE_FUNC=$(echo "$SUMMARY" | grep 'functions' | head -1 | sed 's/^ *//')
+          COVERAGE_BRANCH=$(echo "$SUMMARY" | grep 'branches' | head -1 | sed 's/^ *//')
           echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| $COVERAGE_LINE |" >> $GITHUB_STEP_SUMMARY
-          echo "| $COVERAGE_FUNC |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${COVERAGE_LINE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${COVERAGE_FUNC} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ${COVERAGE_BRANCH} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
 

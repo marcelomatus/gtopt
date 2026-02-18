@@ -18,15 +18,17 @@ services or proprietary platforms required.
 The C++ tests use GCC's built-in profiling instrumentation:
 
 1. **Build with coverage**: CMake option `-DENABLE_TEST_COVERAGE=1` adds
-   `-fprofile-arcs -ftest-coverage` compiler/linker flags.
+   `-fprofile-arcs -ftest-coverage` compiler/linker flags to **both** the
+   test binary and the `libgtopt` library.
 2. **Run tests**: `ctest` executes the doctest-based test binary, which writes
    `.gcda` profile data files.
 3. **Collect with lcov**: The `lcov` tool reads `.gcda`/`.gcno` files and
-   produces a `coverage.info` tracefile.
+   produces a `coverage.info` tracefile. The `--rc geninfo_unexecuted_blocks=1`
+   flag suppresses false warnings about unexecuted blocks in system headers.
 4. **Filter**: External code (system headers, third-party libraries, test files)
    is removed from the tracefile.
 5. **Generate HTML**: `genhtml` converts the tracefile into a browsable HTML
-   report with per-file/per-function line coverage.
+   report with per-file/per-function/per-branch line coverage.
 
 The HTML report is uploaded as a GitHub Actions artifact named
 **cpp-coverage-report** with 30-day retention.
@@ -57,21 +59,23 @@ percentages without downloading the full report.
 ### Locally (C++)
 
 ```bash
-# Configure with coverage
+# Configure with coverage (instruments both tests and libgtopt)
 cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
 
 # Build and test
 cmake --build build -j$(nproc)
 cd build && ctest && cd ..
 
-# Collect coverage
-lcov --capture --directory build --output-file coverage.info --gcov-tool gcov-14
+# Collect coverage (--rc geninfo_unexecuted_blocks=1 fixes system header warnings)
+lcov --capture --directory build --output-file coverage.info \
+     --gcov-tool gcov-14 --rc geninfo_unexecuted_blocks=1
 lcov --remove coverage.info '/usr/*' '*/cpm_modules/*' '*/test/*' \
-     '*/doctest/*' '*/daw/*' '*/strong_type/*' '*/spdlog/*' \
-     --output-file coverage.info
+     '*/daw/*' '*/strong_type/*' '*/spdlog/*' \
+     --output-file coverage.info --rc lcov_branch_coverage=1
 
-# Generate HTML report
-genhtml coverage.info --output-directory coverage-report
+# Generate HTML report with branch coverage
+genhtml coverage.info --output-directory coverage-report \
+       --rc genhtml_branch_coverage=1
 # Open coverage-report/index.html
 ```
 
