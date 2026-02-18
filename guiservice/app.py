@@ -419,13 +419,22 @@ def _build_zip(case_data):
         data_files = case_data.get("data_files", {})
         for file_path, file_content in data_files.items():
             if input_format == "parquet":
-                df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
-                parquet_buf = io.BytesIO()
-                df.to_parquet(parquet_buf, index=False)
-                zf.writestr(
-                    f"{input_dir}/{file_path}.parquet",
-                    parquet_buf.getvalue(),
-                )
+                raw_b64 = file_content.get("_raw_parquet_b64")
+                if raw_b64:
+                    zf.writestr(
+                        f"{input_dir}/{file_path}.parquet",
+                        b64decode(raw_b64),
+                    )
+                else:
+                    df = pd.DataFrame(
+                        file_content["data"], columns=file_content["columns"]
+                    )
+                    parquet_buf = io.BytesIO()
+                    df.to_parquet(parquet_buf, index=False)
+                    zf.writestr(
+                        f"{input_dir}/{file_path}.parquet",
+                        parquet_buf.getvalue(),
+                    )
             else:
                 output = io.StringIO()
                 writer = csv.writer(output)
@@ -507,11 +516,12 @@ def _parse_uploaded_zip(zip_bytes):
                 if rel.endswith(".parquet"):
                     rel = rel[:-8]
                 try:
-                    raw = zf.read(name)
-                    df = pd.read_parquet(io.BytesIO(raw))
+                    raw_bytes = zf.read(name)
+                    df = pd.read_parquet(io.BytesIO(raw_bytes))
                     case_data["data_files"][rel] = {
                         "columns": list(df.columns),
                         "data": _df_to_rows(df),
+                        "_raw_parquet_b64": b64encode(raw_bytes).decode("ascii"),
                     }
                 except Exception:
                     pass
