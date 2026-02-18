@@ -67,10 +67,13 @@ cmake --build build -j$(nproc)
 cd build && ctest && cd ..
 
 # Collect coverage
-# --ignore-errors mismatch,mismatch: suppress third-party header warnings
-# --rc unexecuted_blocks=1: fix system header warnings
+# --ignore-errors mismatch,mismatch: suppress third-party header mismatch warnings
+# --ignore-errors unexecuted,unexecuted: suppress unexecuted block warnings
+# --rc unexecuted_blocks=1: zero out counts on unexecuted non-branch lines
 lcov --capture --directory build --output-file coverage.info \
-     --gcov-tool gcov-14 --ignore-errors mismatch,mismatch \
+     --gcov-tool gcov-14 \
+     --ignore-errors mismatch,mismatch \
+     --ignore-errors unexecuted,unexecuted \
      --rc unexecuted_blocks=1
 lcov --remove coverage.info '/usr/*' '*/cpm_modules/*' '*/test/*' \
      '*/daw/*' '*/strong_type/*' '*/spdlog/*' \
