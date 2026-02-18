@@ -365,6 +365,97 @@ button {
 }
 #resultsTableContainer { margin-bottom: 20px; }
 #resultsTableContainer table { font-size: 0.8125rem; }
+#resultsOutputs { position: relative; }
+
+/* Chart Line Settings Popup */
+.chart-line-popup {
+  position: absolute;
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  min-width: 200px;
+}
+.chart-line-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.chart-line-popup-header button {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.chart-line-popup-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chart-line-popup-body label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  gap: 8px;
+}
+.chart-line-popup-body select,
+.chart-line-popup-body input[type="color"] {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+.chart-line-popup-body input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 2px;
+  cursor: pointer;
+}
+.chart-line-popup-body button.primary {
+  margin-top: 4px;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+}
+
+/* Chart Data Values Popup */
+.chart-data-popup-body {
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+}
+.chart-data-highlight {
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.chart-data-table {
+  width: 100%;
+  font-size: 0.75rem;
+  border-collapse: collapse;
+}
+.chart-data-table th,
+.chart-data-table td {
+  padding: 3px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.chart-data-table th {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.chart-data-active-row {
+  background: var(--primary);
+  color: #fff;
+}
+
 .logs-output {
   background: #0f172a;
   color: #e2e8f0;

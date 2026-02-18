@@ -11,6 +11,7 @@ let currentElementView = "card";
 let spreadsheetInstance = null;
 let resultsData = null;
 let resultsChart = null;
+let chartLinePopupIndex = -1;
 let solverJobId = null;
 let solverPollTimer = null;
 let webserviceUrl = "";
@@ -1158,10 +1159,14 @@ function showResultsChart() {
       borderColor: colors[colorIdx % colors.length],
       backgroundColor: colors[colorIdx % colors.length] + "33",
       fill: false,
-      tension: 0.3,
+      tension: 0,
     });
     colorIdx++;
   }
+
+  const enableZoom = labels.length > 50;
+  const zoomBtn = document.getElementById("resetZoomBtn");
+  zoomBtn.style.display = enableZoom ? "inline-block" : "none";
 
   resultsChart = new Chart(canvas, {
     type: "line",
@@ -1170,12 +1175,156 @@ function showResultsChart() {
       responsive: true,
       plugins: {
         title: { display: true, text: key },
+        zoom: enableZoom ? {
+          pan: {
+            enabled: true,
+            mode: "x",
+          },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: "x",
+          },
+        } : false,
+      },
+      onClick: function (e) {
+        handleChartLeftClick(e);
       },
       scales: {
         y: { beginAtZero: true },
       },
     },
   });
+
+  // Right-click on chart canvas opens the line settings popup
+  canvas.removeEventListener("contextmenu", handleChartContextMenu);
+  canvas.addEventListener("contextmenu", handleChartContextMenu);
+}
+
+function resetChartZoom() {
+  if (resultsChart) resultsChart.resetZoom();
+}
+
+function handleChartContextMenu(e) {
+  e.preventDefault();
+  if (!resultsChart) return;
+  // Find the nearest dataset element under the pointer
+  const points = resultsChart.getElementsAtEventForMode(
+    e, "nearest", { intersect: false }, false
+  );
+  if (points.length > 0) {
+    openChartLinePopup(points[0].datasetIndex, e);
+  }
+}
+
+function handleChartLeftClick(e) {
+  if (!resultsChart) return;
+  const points = resultsChart.getElementsAtEventForMode(
+    e.native, "nearest", { intersect: false }, false
+  );
+  if (points.length === 0) {
+    closeChartDataPopup();
+    return;
+  }
+  const pt = points[0];
+  const ds = resultsChart.data.datasets[pt.datasetIndex];
+  const label = resultsChart.data.labels[pt.index];
+  const value = ds.data[pt.index];
+
+  const popup = document.getElementById("chartDataPopup");
+  document.getElementById("chartDataPopupTitle").textContent = ds.label;
+  const body = document.getElementById("chartDataPopupBody");
+  body.innerHTML = "";
+
+  // Show clicked point prominently
+  const mainRow = document.createElement("div");
+  mainRow.className = "chart-data-highlight";
+  mainRow.textContent = label + ": " + value;
+  body.appendChild(mainRow);
+
+  // Show all values for this dataset
+  const table = document.createElement("table");
+  table.className = "chart-data-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  const th1 = document.createElement("th"); th1.textContent = "Point";
+  const th2 = document.createElement("th"); th2.textContent = "Value";
+  hr.appendChild(th1); hr.appendChild(th2);
+  thead.appendChild(hr); table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let i = 0; i < ds.data.length; i++) {
+    const tr = document.createElement("tr");
+    if (i === pt.index) tr.className = "chart-data-active-row";
+    const td1 = document.createElement("td");
+    td1.textContent = resultsChart.data.labels[i];
+    const td2 = document.createElement("td");
+    td2.textContent = ds.data[i];
+    tr.appendChild(td1); tr.appendChild(td2);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+
+  popup.style.display = "block";
+  const container = popup.parentElement;
+  const rect = container.getBoundingClientRect();
+  popup.style.left = (e.native.clientX - rect.left + 4) + "px";
+  popup.style.top = (e.native.clientY - rect.top + 4) + "px";
+}
+
+function closeChartDataPopup() {
+  document.getElementById("chartDataPopup").style.display = "none";
+}
+
+function openChartLinePopup(datasetIndex, mouseEvent) {
+  if (!resultsChart) return;
+  const ds = resultsChart.data.datasets[datasetIndex];
+  if (!ds) return;
+  chartLinePopupIndex = datasetIndex;
+
+  const popup = document.getElementById("chartLinePopup");
+  document.getElementById("chartLinePopupTitle").textContent = ds.label;
+  document.getElementById("clpColor").value = ds.borderColor.slice(0, 7);
+  document.getElementById("clpWidth").value = String(ds.borderWidth || 2);
+  document.getElementById("clpDash").value = (ds.borderDash || []).join(",");
+  const ps = ds.pointStyle === false ? "false" : (ds.pointStyle || "circle");
+  document.getElementById("clpPoint").value = ps;
+  document.getElementById("clpPointSize").value = String(ds.pointRadius || 3);
+
+  popup.style.display = "block";
+  const container = popup.parentElement;
+  const rect = container.getBoundingClientRect();
+  popup.style.left = (mouseEvent.clientX - rect.left + 4) + "px";
+  popup.style.top = (mouseEvent.clientY - rect.top + 4) + "px";
+}
+
+function closeChartLinePopup() {
+  document.getElementById("chartLinePopup").style.display = "none";
+  chartLinePopupIndex = -1;
+}
+
+function applyChartLineSettings() {
+  if (!resultsChart || chartLinePopupIndex < 0) return;
+  const ds = resultsChart.data.datasets[chartLinePopupIndex];
+  if (!ds) return;
+
+  const color = document.getElementById("clpColor").value;
+  ds.borderColor = color;
+  ds.backgroundColor = color + "33";
+
+  ds.borderWidth = Number(document.getElementById("clpWidth").value);
+
+  const dashVal = document.getElementById("clpDash").value;
+  ds.borderDash = dashVal ? dashVal.split(",").map(Number) : [];
+
+  const pointVal = document.getElementById("clpPoint").value;
+  ds.pointStyle = pointVal === "false" ? false : pointVal;
+
+  ds.pointRadius = Number(document.getElementById("clpPointSize").value);
+
+  resultsChart.update();
+  closeChartLinePopup();
 }
 
 async function refreshLogs() {
