@@ -15,4 +15,4 @@ lint-cmd:
 #pre-commit:
 #  - "pre-commit run --all-files"
 
-model: deepseek/deepseek-coder
+model: openai/claude-opus-4.6
