@@ -169,6 +169,85 @@ class TestBuildZip:
             assert len(df) == 2
             assert list(df.columns) == ["scenario", "stage", "block", "uid:1"]
 
+    def test_build_zip_preserves_raw_parquet_bytes(self):
+        """When raw parquet bytes are available, _build_zip must write them
+        unchanged instead of reconstructing from JSON data."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": np.array([1, 2], dtype=np.int8),
+                "stage": np.array([10, 20], dtype=np.int16),
+                "value": np.array([1.5, 2.5], dtype=np.float64),
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+        original_bytes = pq_buf.getvalue()
+
+        # Simulate an uploaded case with raw parquet bytes preserved
+        from base64 import b64encode
+
+        data = _sample_case_data()
+        data["options"]["input_format"] = "parquet"
+        data["data_files"]["Demand/lmax"] = {
+            "columns": ["scenario", "stage", "value"],
+            "data": [[1, 10, 1.5], [2, 20, 2.5]],
+            "_raw_parquet_b64": b64encode(original_bytes).decode("ascii"),
+        }
+        buf = _build_zip(data)
+
+        with zipfile.ZipFile(buf, "r") as zf:
+            rebuilt_bytes = zf.read("test_case/Demand/lmax.parquet")
+            assert rebuilt_bytes == original_bytes
+
+    def test_upload_download_parquet_round_trip_preserves_schema(self):
+        """Upload a ZIP with typed parquet, then _build_zip must produce
+        identical parquet bytes preserving the original schema."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": np.array([1, 2], dtype=np.int8),
+                "stage": np.array([10, 20], dtype=np.int16),
+                "block": np.array([100, 200], dtype=np.int32),
+                "uid": np.array([1000, 2000], dtype=np.int64),
+                "value": np.array([1.5, 2.5], dtype=np.float64),
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+        original_bytes = pq_buf.getvalue()
+
+        # Build a ZIP with the parquet
+        case_json = {
+            "options": {"input_directory": "test_case", "input_format": "parquet"},
+            "system": {"name": "test_case"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("test_case.json", json.dumps(case_json))
+            zf.writestr("test_case/Demand/lmax.parquet", original_bytes)
+        zip_buf.seek(0)
+
+        # Parse (upload) then rebuild (download)
+        parsed = _parse_uploaded_zip(zip_buf.read())
+        rebuilt_buf = _build_zip(parsed)
+
+        with zipfile.ZipFile(rebuilt_buf, "r") as zf:
+            rebuilt_bytes = zf.read("test_case/Demand/lmax.parquet")
+            assert rebuilt_bytes == original_bytes
+
+            # Verify schema is preserved
+            rebuilt_df = pd.read_parquet(io.BytesIO(rebuilt_bytes))
+            assert rebuilt_df["scenario"].dtype == np.int8
+            assert rebuilt_df["stage"].dtype == np.int16
+            assert rebuilt_df["block"].dtype == np.int32
+            assert rebuilt_df["uid"].dtype == np.int64
+            assert rebuilt_df["value"].dtype == np.float64
+
 
 class TestParseUploadedZip:
     def test_parse_basic_case(self):
