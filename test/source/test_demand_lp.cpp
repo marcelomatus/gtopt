@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -144,7 +145,9 @@ TEST_CASE("DemandLP - demand with expansion")
       .generator_array = generator_array,
   };
 
-  const OptionsLP options;
+  Options opts;
+  opts.demand_fail_cost = 1000.0;
+  const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

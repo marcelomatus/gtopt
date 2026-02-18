@@ -53,6 +53,9 @@ TEST_CASE("SystemLP with transmission line - two bus system")
       .scenario_array = {{.uid = Uid {0}}},
   };
 
+  Options opts;
+  opts.demand_fail_cost = 1000.0;
+
   System system = {
       .name = "TwoBusSystem",
       .bus_array = bus_array,
@@ -61,7 +64,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
       .line_array = line_array,
   };
 
-  const OptionsLP options;
+  const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
 
   system.setup_reference_bus(options);

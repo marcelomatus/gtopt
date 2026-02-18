@@ -105,6 +105,12 @@ jobs:
       - name: generate coverage summary
         if: always()
         run: |
+          if [ ! -f coverage.info ]; then
+            echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Coverage data not available (test or coverage collection step failed)." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
           # Extract coverage percentages for the job summary
           SUMMARY=$(lcov --summary coverage.info --gcov-tool gcov-14 --rc lcov_branch_coverage=1 2>&1)
           COVERAGE_LINE=$(echo "$SUMMARY" | grep 'lines' | head -1 | sed 's/^ *//')
