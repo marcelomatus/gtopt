@@ -68,25 +68,31 @@ jobs:
       - name: collect code coverage
         run: |
           # Capture coverage data with lcov
-          lcov --capture --directory build --output-file coverage.info \
-            --gcov-tool gcov-14 --ignore-errors mismatch
+          # --rc geninfo_unexecuted_blocks=1: fix warnings about unexecuted blocks
+          #   on non-branch lines in system headers (e.g. c++config.h:547)
+          # --rc lcov_branch_coverage=1: enable branch coverage tracking
+          lcov --capture --directory build --output-file coverage-raw.info \
+            --gcov-tool gcov-14 --ignore-errors mismatch \
+            --rc geninfo_unexecuted_blocks=1 \
+            --rc lcov_branch_coverage=1
           # Remove external/test/system files from coverage
-          lcov --remove coverage.info \
+          lcov --remove coverage-raw.info \
             '/usr/*' \
             '*/cpm_modules/*' \
             '*/test/*' \
-            '*/doctest/*' \
             '*/daw/*' \
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file coverage.info \
-            --gcov-tool gcov-14 --ignore-errors unused
+            --gcov-tool gcov-14 --ignore-errors unused \
+            --rc lcov_branch_coverage=1
           # Print summary to the job log
-          lcov --list coverage.info --gcov-tool gcov-14
+          lcov --list coverage.info --gcov-tool gcov-14 --rc lcov_branch_coverage=1
           # Generate HTML report
           genhtml coverage.info --output-directory coverage-report \
             --title "gtopt C++ Test Coverage" \
-            --legend --show-details
+            --legend --show-details \
+            --rc genhtml_branch_coverage=1
 
       - name: upload coverage report
         if: always()
