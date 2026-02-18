@@ -219,9 +219,65 @@
             <option value="">Select output…</option>
           </select>
           <button onclick="showResultsChart()">Show Chart</button>
+          <button id="resetZoomBtn" style="display:none" onclick="resetChartZoom()">Reset Zoom</button>
         </div>
         <div id="resultsTableContainer"></div>
         <canvas id="resultsChart" style="display:none; max-height:400px"></canvas>
+        <!-- Line Settings Popup -->
+        <div id="chartLinePopup" class="chart-line-popup" style="display:none">
+          <div class="chart-line-popup-header">
+            <strong id="chartLinePopupTitle">Line Settings</strong>
+            <button onclick="closeChartLinePopup()">&times;</button>
+          </div>
+          <div class="chart-line-popup-body">
+            <label>Color
+              <input type="color" id="clpColor" value="#2563eb">
+            </label>
+            <label>Width
+              <select id="clpWidth">
+                <option value="1">1 px</option>
+                <option value="2" selected>2 px</option>
+                <option value="3">3 px</option>
+                <option value="4">4 px</option>
+                <option value="5">5 px</option>
+              </select>
+            </label>
+            <label>Dash Style
+              <select id="clpDash">
+                <option value="">Solid</option>
+                <option value="5,5">Dashed</option>
+                <option value="2,2">Dotted</option>
+                <option value="10,5,2,5">Dash-Dot</option>
+              </select>
+            </label>
+            <label>Point Style
+              <select id="clpPoint">
+                <option value="circle">Circle</option>
+                <option value="rect">Square</option>
+                <option value="triangle">Triangle</option>
+                <option value="cross">Cross</option>
+                <option value="false">None</option>
+              </select>
+            </label>
+            <label>Point Size
+              <select id="clpPointSize">
+                <option value="2">2 px</option>
+                <option value="3" selected>3 px</option>
+                <option value="5">5 px</option>
+                <option value="7">7 px</option>
+              </select>
+            </label>
+            <button class="primary" onclick="applyChartLineSettings()">Apply</button>
+          </div>
+        </div>
+        <!-- Data Values Popup (left-click on line) -->
+        <div id="chartDataPopup" class="chart-line-popup" style="display:none">
+          <div class="chart-line-popup-header">
+            <strong id="chartDataPopupTitle">Data Values</strong>
+            <button onclick="closeChartDataPopup()">&times;</button>
+          </div>
+          <div id="chartDataPopupBody" class="chart-data-popup-body"></div>
+        </div>
       </div>
     </div>
 
@@ -267,6 +323,9 @@
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script>if (typeof Chart === "undefined") { document.write('<script src="/static/vendor/chartjs/chart.umd.min.js"><\/script>'); }</script>
+  <script src="/static/vendor/chartjs/hammer.min.js"></script>
+  <script src="/static/vendor/chartjs/chartjs-plugin-zoom.min.js"></script>
   <script src="/static/vendor/jsuites/jsuites.js"></script>
   <script src="/static/vendor/jspreadsheet-ce/jspreadsheet.js"></script>
   <script src="/static/js/app.js"></script>
