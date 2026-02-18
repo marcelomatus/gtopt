@@ -66,16 +66,19 @@ cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j$(nproc)
 cd build && ctest && cd ..
 
-# Collect coverage (--rc geninfo_unexecuted_blocks=1 fixes system header warnings)
+# Collect coverage
+# --ignore-errors mismatch,mismatch: suppress third-party header warnings
+# --rc unexecuted_blocks=1: fix system header warnings
 lcov --capture --directory build --output-file coverage.info \
-     --gcov-tool gcov-14 --rc geninfo_unexecuted_blocks=1
+     --gcov-tool gcov-14 --ignore-errors mismatch,mismatch \
+     --rc unexecuted_blocks=1
 lcov --remove coverage.info '/usr/*' '*/cpm_modules/*' '*/test/*' \
      '*/daw/*' '*/strong_type/*' '*/spdlog/*' \
-     --output-file coverage.info --rc lcov_branch_coverage=1
+     --output-file coverage.info --rc branch_coverage=1
 
 # Generate HTML report with branch coverage
 genhtml coverage.info --output-directory coverage-report \
-       --rc genhtml_branch_coverage=1
+       --rc branch_coverage=1
 # Open coverage-report/index.html
 ```
 
