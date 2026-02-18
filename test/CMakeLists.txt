@@ -104,4 +104,11 @@ if(ENABLE_TEST_COVERAGE)
     ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
   )
   target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
+
+  # Also instrument the gtopt library itself so that source/*.cpp files
+  # are included in the coverage report (not just the headers).
+  if(NOT TEST_INSTALLED_VERSION AND TARGET gtopt)
+    target_compile_options(gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage)
+    target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+  endif()
 endif()
