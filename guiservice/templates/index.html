@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>gtopt Case Editor</title>
   <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.css">
+  <link rel="stylesheet" href="/static/vendor/jsuites/jsuites.css">
+  <link rel="stylesheet" href="/static/vendor/jspreadsheet-ce/jspreadsheet.css">
 </head>
 <body>
   <header>
@@ -267,38 +267,8 @@
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.js"></script>
-  <script>
-    /* Fallback: if CDN scripts failed to load, try reloading them dynamically */
-    (function() {
-      function loadScript(src) {
-        return new Promise(function(resolve, reject) {
-          var s = document.createElement('script');
-          s.src = src;
-          s.onload = resolve;
-          s.onerror = reject;
-          document.body.appendChild(s);
-        });
-      }
-      if (typeof jsuites === 'undefined' || typeof jspreadsheet === 'undefined') {
-        var chain = Promise.resolve();
-        if (typeof jsuites === 'undefined') {
-          chain = chain.then(function() {
-            return loadScript('https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.min.js');
-          });
-        }
-        if (typeof jspreadsheet === 'undefined') {
-          chain = chain.then(function() {
-            return loadScript('https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.min.js');
-          });
-        }
-        chain.catch(function() {
-          console.warn('Spreadsheet libraries could not be loaded from CDN.');
-        });
-      }
-    })();
-  </script>
+  <script src="/static/vendor/jsuites/jsuites.js"></script>
+  <script src="/static/vendor/jspreadsheet-ce/jspreadsheet.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>
