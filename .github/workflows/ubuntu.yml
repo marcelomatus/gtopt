@@ -16,7 +16,6 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
-  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
 permissions:
@@ -37,7 +36,7 @@ jobs:
       - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev
+          sudo apt-get install -y gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev lcov
 
       - name: install parquet
         run: |
@@ -67,7 +66,50 @@ jobs:
           ctest --build-config Debug
 
       - name: collect code coverage
-        run: # bash <(curl -s https://codecov.io/bash) || echo "Codecov did not collect coverage reports"
+        run: |
+          # Capture coverage data with lcov
+          lcov --capture --directory build --output-file coverage.info \
+            --gcov-tool gcov-14 --ignore-errors mismatch
+          # Remove external/test/system files from coverage
+          lcov --remove coverage.info \
+            '/usr/*' \
+            '*/cpm_modules/*' \
+            '*/test/*' \
+            '*/doctest/*' \
+            '*/daw/*' \
+            '*/strong_type/*' \
+            '*/spdlog/*' \
+            --output-file coverage.info \
+            --gcov-tool gcov-14 --ignore-errors unused
+          # Print summary to the job log
+          lcov --list coverage.info --gcov-tool gcov-14
+          # Generate HTML report
+          genhtml coverage.info --output-directory coverage-report \
+            --title "gtopt C++ Test Coverage" \
+            --legend --show-details
+
+      - name: upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage-report
+          path: coverage-report/
+          retention-days: 30
+
+      - name: generate coverage summary
+        if: always()
+        run: |
+          # Extract coverage percentage for the job summary
+          COVERAGE_LINE=$(lcov --summary coverage.info --gcov-tool gcov-14 2>&1 | grep 'lines' | head -1)
+          COVERAGE_FUNC=$(lcov --summary coverage.info --gcov-tool gcov-14 2>&1 | grep 'functions' | head -1)
+          echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| $COVERAGE_LINE |" >> $GITHUB_STEP_SUMMARY
+          echo "| $COVERAGE_FUNC |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
 
   integration:
     runs-on: ubuntu-latest
