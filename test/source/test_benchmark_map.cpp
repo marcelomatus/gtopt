@@ -1,7 +1,7 @@
 /**
  * @file      test_benchmark_map.cpp
  * @brief     Benchmark comparing std::map vs flat_map
- * (boost::container::flat_map)
+ * (boost::container::flat_map and std::flat_map when available)
  * @date      Tue Feb 11 16:43:00 2026
  * @author    copilot
  * @copyright BSD-3-Clause
@@ -10,6 +10,7 @@
  * flat_map reserve impact for:
  *   - Small maps (4, 8, 12 elements) with sorted and random integer keys
  *   - Large maps (~500 elements) with sorted and random integer keys
+ *   - boost::flat_map vs std::flat_map reserve comparison (when available)
  */
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 
 #include <boost/container/flat_map.hpp>
 #include <doctest/doctest.h>
+#include <gtopt/fmap.hpp>
 
 namespace
 {
@@ -182,6 +184,41 @@ void report_reserve(const char* label, double no_reserve_ns, double reserved_ns)
   const double ratio = (reserved_ns > 0) ? (no_reserve_ns / reserved_ns) : 0.0;
   MESSAGE(label << ": no_reserve=" << no_reserve_ns << " ns, reserved="
                 << reserved_ns << " ns, ratio(no_rsv/rsv)=" << ratio);
+}
+
+template<typename Map>
+auto bench_insert_map_reserved(const std::vector<int>& keys, int iterations)
+    -> double
+{
+  const auto n = keys.size();
+
+  // warmup
+  for (int i = 0; i < kWarmupIterations; ++i) {
+    Map map;
+    gtopt::map_reserve(map, n);
+    insert_keys(map, keys);
+  }
+
+  auto start = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iterations; ++i) {
+    Map map;
+    gtopt::map_reserve(map, n);
+    insert_keys(map, keys);
+  }
+  auto end = std::chrono::high_resolution_clock::now();
+
+  auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+  return static_cast<double>(ns.count()) / iterations;
+}
+
+void report_boost_vs_std(const char* label,
+                         double boost_ns,
+                         double std_ns)
+{
+  const double ratio = (std_ns > 0) ? (boost_ns / std_ns) : 0.0;
+  MESSAGE(label << ": boost::flat_map=" << boost_ns
+                << " ns, std::flat_map=" << std_ns
+                << " ns, ratio(boost/std)=" << ratio);
 }
 
 }  // namespace
@@ -496,3 +533,123 @@ TEST_CASE("Benchmark - flat_map reserve effect with large random keys")
     CHECK(rsv_ns > 0);
   }
 }
+
+TEST_CASE("Benchmark - map_reserve for boost::flat_map")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+
+    SUBCASE(("map_reserve random n=" + std::to_string(n)).c_str())
+    {
+      auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
+      auto rsv_ns =
+          bench_insert_map_reserved<FlatMap>(keys, kSmallMapIterations);
+      report_reserve(("map_reserve random n=" + std::to_string(n)).c_str(),
+                     no_rsv_ns,
+                     rsv_ns);
+      CHECK(no_rsv_ns > 0);
+      CHECK(rsv_ns > 0);
+    }
+  }
+}
+
+#if __has_include(<flat_map>)
+
+using StdFlatMap = std::flat_map<int, int>;
+
+TEST_CASE("Benchmark - std::flat_map vs boost::flat_map insert")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+    const int iters = (n <= 12) ? kSmallMapIterations : kLargeMapIterations;
+
+    SUBCASE(("insert random n=" + std::to_string(n)).c_str())
+    {
+      auto boost_ns = bench_insert<FlatMap>(keys, iters);
+      auto std_ns = bench_insert<StdFlatMap>(keys, iters);
+      report_boost_vs_std(
+          ("insert random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+      CHECK(boost_ns > 0);
+      CHECK(std_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - std::flat_map vs boost::flat_map iterate")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+    const int iters = (n <= 12) ? kSmallMapIterations : kLargeMapIterations;
+
+    SUBCASE(("iterate random n=" + std::to_string(n)).c_str())
+    {
+      auto boost_ns = bench_iterate<FlatMap>(keys, iters);
+      auto std_ns = bench_iterate<StdFlatMap>(keys, iters);
+      report_boost_vs_std(
+          ("iterate random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+      CHECK(boost_ns > 0);
+      CHECK(std_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - std::flat_map vs boost::flat_map search")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+    auto search_keys = random_keys(n);
+    const int iters = (n <= 12) ? kSmallMapIterations : kLargeMapIterations;
+
+    SUBCASE(("search random n=" + std::to_string(n)).c_str())
+    {
+      auto boost_ns = bench_search<FlatMap>(keys, search_keys, iters);
+      auto std_ns = bench_search<StdFlatMap>(keys, search_keys, iters);
+      report_boost_vs_std(
+          ("search random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+      CHECK(boost_ns > 0);
+      CHECK(std_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - std::flat_map vs boost::flat_map reserve effect")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+    const int iters = (n <= 12) ? kSmallMapIterations : kLargeMapIterations;
+
+    SUBCASE(("reserve random n=" + std::to_string(n)).c_str())
+    {
+      auto boost_rsv_ns = bench_insert_reserved<FlatMap>(keys, iters);
+      auto std_rsv_ns = bench_insert_map_reserved<StdFlatMap>(keys, iters);
+      report_boost_vs_std(
+          ("reserve random n=" + std::to_string(n)).c_str(),
+          boost_rsv_ns,
+          std_rsv_ns);
+      CHECK(boost_rsv_ns > 0);
+      CHECK(std_rsv_ns > 0);
+    }
+  }
+}
+
+TEST_CASE("Benchmark - std::flat_map map_reserve effect")
+{
+  for (const int n : {4, 8, 12, 500}) {
+    auto keys = random_keys(n);
+    const int iters = (n <= 12) ? kSmallMapIterations : kLargeMapIterations;
+
+    SUBCASE(("std::flat_map reserve random n=" + std::to_string(n)).c_str())
+    {
+      auto no_rsv_ns = bench_insert<StdFlatMap>(keys, iters);
+      auto rsv_ns = bench_insert_map_reserved<StdFlatMap>(keys, iters);
+      report_reserve(
+          ("std::flat_map reserve random n=" + std::to_string(n)).c_str(),
+          no_rsv_ns,
+          rsv_ns);
+      CHECK(no_rsv_ns > 0);
+      CHECK(rsv_ns > 0);
+    }
+  }
+}
+
+#endif

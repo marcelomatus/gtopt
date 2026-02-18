@@ -70,9 +70,13 @@ namespace gtopt
 template<typename key_type, typename value_type>
 using flat_map = std::flat_map<key_type, value_type>;
 
-template<class Map>
-void map_reserve([[maybe_unused]] Map& map, [[maybe_unused]] size_t new_cap)
+template<class Map, typename Size>
+void map_reserve(Map& map, Size new_cap)
 {
+  auto containers = std::move(map).extract();
+  containers.keys.reserve(static_cast<size_t>(new_cap));
+  containers.values.reserve(static_cast<size_t>(new_cap));
+  map.replace(std::move(containers));
 }
 
 }  // namespace gtopt
