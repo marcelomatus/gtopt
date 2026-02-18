@@ -287,6 +287,74 @@ TEST_CASE("flat_map (unordered) - tuple_hash with different types")
 }
 #endif
 
+TEST_CASE("flat_map - map_reserve on empty map")
+{
+  flat_map<int, std::string> map;
+
+  map_reserve(map, 100);
+  CHECK(map.empty());
+
+  map[1] = "one";
+  map[2] = "two";
+  map[3] = "three";
+
+  CHECK(map.size() == 3);
+  CHECK(map[1] == "one");
+  CHECK(map[2] == "two");
+  CHECK(map[3] == "three");
+}
+
+TEST_CASE("flat_map - map_reserve on non-empty map")
+{
+  flat_map<int, std::string> map;
+
+  map[1] = "one";
+  map[2] = "two";
+
+  map_reserve(map, 100);
+
+  CHECK(map.size() == 2);
+  CHECK(map[1] == "one");
+  CHECK(map[2] == "two");
+
+  map[3] = "three";
+  map[4] = "four";
+
+  CHECK(map.size() == 4);
+  CHECK(map[3] == "three");
+  CHECK(map[4] == "four");
+}
+
+TEST_CASE("flat_map - map_reserve with zero")
+{
+  flat_map<int, std::string> map;
+
+  map_reserve(map, 0);
+  CHECK(map.empty());
+
+  map[1] = "one";
+  CHECK(map.size() == 1);
+  CHECK(map[1] == "one");
+}
+
+TEST_CASE("flat_map - map_reserve preserves order and lookup")
+{
+  flat_map<int, int> map;
+
+  for (int i = 0; i < 50; ++i) {
+    map[i * 2] = i;
+  }
+
+  map_reserve(map, 200);
+
+  CHECK(map.size() == 50);
+  for (int i = 0; i < 50; ++i) {
+    auto it = map.find(i * 2);
+    CHECK(it != map.end());
+    CHECK(it->second == i);
+  }
+}
+
 TEST_CASE("flat_map - Count and contains")
 {
   flat_map<int, std::string> map;
