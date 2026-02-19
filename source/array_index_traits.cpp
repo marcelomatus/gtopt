@@ -128,6 +128,11 @@ namespace gtopt
     fpath /= fname;
   }
 
+  SPDLOG_DEBUG("Reading input table: class='{}' field='{}' path='{}'",
+               cname,
+               fname,
+               fpath.string());
+
   const auto try_read = [&fpath](std::string_view format)
       -> std::expected<ArrowTable, std::string>
   {
@@ -158,7 +163,11 @@ namespace gtopt
     throw std::runtime_error(msg);
   }
 
-  SPDLOG_TRACE("Successfully loaded table for class {} field {}", cname, fname);
+  SPDLOG_DEBUG("Loaded table for class='{}' field='{}': {} rows, {} columns",
+               cname,
+               fname,
+               (*result)->num_rows(),
+               (*result)->num_columns());
   return *result;
 }
 

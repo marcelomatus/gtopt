@@ -3,6 +3,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -16,6 +17,7 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     , reactance(ic, ClassName, id(), std::move(line().reactance))
     , voltage(ic, ClassName, id(), std::move(line().voltage))
 {
+  SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
 }
 
 bool LineLP::add_to_lp(SystemContext& sc,
