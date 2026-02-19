@@ -38,7 +38,9 @@ else()
   # If the file exists, verify its hash
   file(SHA256 ${CPM_DOWNLOAD_LOCATION} CPM_EXISTING_HASH)
   if(NOT CPM_EXISTING_HASH STREQUAL CPM_HASH_SUM)
-    message(STATUS "CPM.cmake hash mismatch (cached: ${CPM_EXISTING_HASH}), re-downloading")
+    message(
+      STATUS "CPM.cmake hash mismatch (cached: ${CPM_EXISTING_HASH}), re-downloading"
+    )
     download_cpm()
   endif()
 endif()
