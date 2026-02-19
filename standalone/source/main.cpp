@@ -67,6 +67,8 @@ using namespace gtopt;
     for (auto&& planning_file : planning_files) {
       std::filesystem::path fpath(planning_file);
       fpath.replace_extension(".json");
+      // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak is in
+      // third-party daw_read_file.h
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {
@@ -276,7 +278,14 @@ int main(int argc, char** argv)
     }
     return result_value;
   } catch (const std::exception& ex) {
-    spdlog::critical(std::format("Exception: {}", ex.what()));
+    try {
+      spdlog::critical(std::format("Exception: {}", ex.what()));
+    } catch (...) {
+      spdlog::critical(ex.what());
+    }
+    return 1;
+  } catch (...) {
+    spdlog::critical("Unknown exception");
     return 1;
   }
 }
