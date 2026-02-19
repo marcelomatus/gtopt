@@ -8,15 +8,10 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
-option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 cmake_policy(SET CMP0167 NEW)
-set(CPPCHECK_ARGS
-    "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
-)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -89,12 +84,4 @@ configure_install_rpath(${PROJECT_NAME} gtopt)
 # Only install the binary (and needed runtime libraries), not headers.
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-
-# ---- Integration tests ----
-# End-to-end integration tests have been moved to the dedicated
-# gtopt/integration_test CMake configuration.  Configure and run them with:
-#
-#   cmake -S integration_test -B build/integration_test
-#   cmake --build build/integration_test
-#   ctest --test-dir build/integration_test
 
