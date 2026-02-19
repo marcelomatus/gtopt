@@ -52,10 +52,9 @@ namespace gtopt
  * @param fname     Field name, possibly containing an '@' separator.
  * @return          Resolved path (without file extension).
  */
-[[nodiscard]] std::filesystem::path build_table_path(
-    std::string_view input_dir,
-    std::string_view cname,
-    std::string_view fname);
+[[nodiscard]] std::filesystem::path build_table_path(std::string_view input_dir,
+                                                     std::string_view cname,
+                                                     std::string_view fname);
 
 /**
  * @brief Try to read a table, preferring @p format and falling back to the
