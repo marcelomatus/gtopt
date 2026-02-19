@@ -227,11 +227,11 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
           .name = "l1",
           .bus_a = Uid {1},
           .bus_b = Uid {2},
-          .capacity = 200.0,
-          .reactance = 0.1,
           .voltage = 220.0,
-          .tmax_ab = 200.0,
+          .reactance = 0.1,
           .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
       },
   };
 
@@ -293,10 +293,10 @@ TEST_CASE("LineLP - line losses (lossfactor > 0)")
           .name = "l1",
           .bus_a = Uid {1},
           .bus_b = Uid {2},
-          .capacity = 200.0,
-          .tmax_ab = 200.0,
-          .tmax_ba = 200.0,
           .lossfactor = 0.05,  // 5% losses → exercises has_loss branch
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
       },
   };
 

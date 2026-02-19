@@ -454,8 +454,8 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
           .uid = Uid {1},
           .name = "rz1",
           .urreq = 30.0,
-          .urcost = 800.0,
           .drreq = 20.0,
+          .urcost = 800.0,
           .drcost = 600.0,
       },
   };
@@ -467,8 +467,8 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
           .generator = Uid {1},
           .reserve_zones = "1",
           .ur_capacity_factor = 0.3,
-          .ur_provision_factor = 1.0,
           .dr_capacity_factor = 0.2,
+          .ur_provision_factor = 1.0,
           .dr_provision_factor = 1.0,
       },
   };

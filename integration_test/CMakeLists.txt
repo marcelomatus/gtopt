@@ -24,7 +24,7 @@ endif()
 
 # ---- No install rules ----
 
-set(CMAKE_SKIP_INSTALL_RULES TRUE)
+#set(CMAKE_SKIP_INSTALL_RULES TRUE)
 
 # --- Import tools ----
 
@@ -87,7 +87,7 @@ if(ENABLE_TEST_COVERAGE)
     target_compile_options(
       gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
       -fprofile-update=atomic
-    )
+    )                           #
     target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
   endif()
 endif()
@@ -109,3 +109,4 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 add_e2e_case(c0 system_c0.json)
 add_e2e_case(c1 system_c1.json)
 add_e2e_case(ieee_9b ieee_9b.json)
+add_e2e_case(ieee_14b ieee_14b.json)
