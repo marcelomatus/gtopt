@@ -46,6 +46,28 @@ Each CI run writes a coverage summary to the GitHub Actions **Job Summary**
 (visible on the workflow run page), so you can see the line/function coverage
 percentages without downloading the full report.
 
+### Latest analyzed run (PR #69)
+
+From merged PR **#69** workflow runs:
+
+- **Ubuntu** run `22163250333` (artifact: `cpp-coverage-report`)
+  - lines: **70.3%** (3099/4410)
+  - functions: **75.7%** (1295/1710)
+  - branches: **33.6%** (1887/5618)
+- **Guiservice** run `22163250340` (artifact: `python-guiservice-coverage-report`)
+  - total: **59.4%** (507/854 lines covered)
+  - `guiservice/app.py`: **84.3%**
+  - `guiservice/gtopt_gui.py`: **41.3%**
+  - `guiservice/gtopt_guisrv.py`: **0.0%**
+
+Lowest C++ per-file line coverage in the same run:
+
+- `source/line_lp.cpp`: 3.9%
+- `source/linear_problem.cpp`: 4.7%
+- `source/demand_lp.cpp`: 5.7%
+- `source/capacity_object_lp.cpp`: 6.4%
+- `source/converter_lp.cpp`: 6.4%
+
 ## Viewing Reports
 
 ### From GitHub Actions

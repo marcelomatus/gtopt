@@ -187,20 +187,17 @@ jobs:
       - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-14 g++-14 cmake coinor-libcbc-dev libboost-container-dev libspdlog-dev
-
-      - name: install parquet
-        run: |
-          sudo apt-get install -y -V ca-certificates lsb-release wget
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 cmake coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
           wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
-          sudo apt-get install -y -V libarrow-dev libparquet-dev
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ github.workflow }}-integrated
+          max-size: 2G
 
       - name: configure gtopt
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
