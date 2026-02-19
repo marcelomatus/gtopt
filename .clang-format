@@ -1,10 +1,4 @@
 ---
-Language: JavaScript
-DisableFormat: true
----
-Language: Json
-DisableFormat: true
----
 Language: Cpp
 # BasedOnStyle: Chromium
 AccessModifierOffset: -2
