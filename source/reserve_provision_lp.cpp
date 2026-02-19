@@ -109,7 +109,7 @@ constexpr auto make_rzone_indexes(const InputContext& ic,
   auto rzones = split(rzstr, ':');
 
   auto is_uid = [](const auto& s)
-  { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };
+  { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
   auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
 
   return rzones

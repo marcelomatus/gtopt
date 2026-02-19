@@ -46,9 +46,8 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
 
   // Check if any bus already has reference theta set
   const bool has_reference_bus =
-      std::any_of(buses.begin(),
-                  buses.end(),
-                  [](const auto& bus) { return bus.reference_theta; });
+      std::ranges::any_of(buses,
+                          [](const auto& bus) { return bus.reference_theta; });
 
   if (has_reference_bus) {
     return false;
@@ -56,10 +55,9 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
 
   // Check if any bus needs Kirchhoff according to the threshold
   const auto kirchhoff_threshold = options.kirchhoff_threshold();
-  return std::any_of(buses.begin(),
-                     buses.end(),
-                     [kirchhoff_threshold](const auto& bus)
-                     { return bus.needs_kirchhoff(kirchhoff_threshold); });
+  return std::ranges::any_of(buses,
+                             [kirchhoff_threshold](const auto& bus)
+                             { return bus.needs_kirchhoff(kirchhoff_threshold); });
 }
 
 }  // namespace
