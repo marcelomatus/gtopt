@@ -273,12 +273,19 @@ void OutputContext::write() const
   auto path_tables =
       create_tables(options().output_directory(), field_vector_map);
 
+  SPDLOG_INFO("Writing {} output tables to '{}' (format={}, compression={})",
+              path_tables.size(),
+              options().output_directory(),
+              fmt,
+              zfmt);
+
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
   for (auto& [path, table] : path_tables) {
     tasks.emplace_back(
         [path = std::move(path), table = std::move(table), fmt, zfmt]
         {
+          SPDLOG_DEBUG("Writing table to '{}'", path.string());
           if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
             auto msg = std::format("File write failed: {}", path.string());
             SPDLOG_CRITICAL(msg);
@@ -291,6 +298,11 @@ void OutputContext::write() const
 
   const auto sol_path =
       std::filesystem::path(options().output_directory()) / "solution.csv";
+
+  SPDLOG_INFO("Writing solution to '{}' (status={}, obj_value={})",
+              sol_path.string(),
+              sol_status,
+              sol_obj_value);
 
   std::ofstream sol_file(sol_path.string());
   sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
