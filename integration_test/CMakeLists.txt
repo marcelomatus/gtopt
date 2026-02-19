@@ -78,7 +78,7 @@ target_link_libraries(
 enable_testing()
 
 set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
-set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
+set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../standalone/cmake")
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
