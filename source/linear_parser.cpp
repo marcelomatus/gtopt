@@ -15,10 +15,9 @@ void LinearParser::printResult(const ParseResult& result)
   }
 
   if (result.constraint_type == ConstraintType::RANGE) {
-    std::print(
-        "\nLower bound: {}\nUpper bound: {}\nConstraint: RANGE",
-        result.lower_bound.value_or(0),
-        result.upper_bound.value_or(0));
+    std::print("\nLower bound: {}\nUpper bound: {}\nConstraint: RANGE",
+               result.lower_bound.value_or(0),
+               result.upper_bound.value_or(0));
   } else {
     constexpr auto constraint_str =
         [](ConstraintType ct) noexcept -> std::string_view
@@ -35,8 +34,9 @@ void LinearParser::printResult(const ParseResult& result)
       }
       return "";
     };
-    std::print(
-        "\nRHS: {}\nConstraint: {}", result.rhs, constraint_str(result.constraint_type));
+    std::print("\nRHS: {}\nConstraint: {}",
+               result.rhs,
+               constraint_str(result.constraint_type));
   }
   std::println("\n");
 }

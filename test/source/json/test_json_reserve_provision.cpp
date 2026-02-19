@@ -17,8 +17,7 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
     "drmax":30.0
   })";
 
-  ReserveProvision rp =
-      daw::json::from_json<ReserveProvision>(json_data);
+  ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
 
   CHECK(rp.uid == 1);
   CHECK(rp.name == "RPROV_A");
@@ -50,8 +49,7 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
     "drcost":800.0
   })";
 
-  ReserveProvision rp =
-      daw::json::from_json<ReserveProvision>(json_data);
+  ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
 
   CHECK(rp.uid == 2);
   CHECK(rp.name == "RPROV_B");
@@ -88,8 +86,7 @@ TEST_CASE("ReserveProvision daw json test - minimal fields")
     "reserve_zones":"Z1"
   })";
 
-  ReserveProvision rp =
-      daw::json::from_json<ReserveProvision>(json_data);
+  ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
 
   CHECK(rp.uid == 3);
   CHECK(rp.name == "RPROV_MINIMAL");
@@ -143,8 +140,7 @@ TEST_CASE("ReserveProvision round-trip serialization")
   rp.drcost = 3000.0;
 
   auto json = daw::json::to_json(rp);
-  ReserveProvision roundtrip =
-      daw::json::from_json<ReserveProvision>(json);
+  ReserveProvision roundtrip = daw::json::from_json<ReserveProvision>(json);
 
   CHECK(roundtrip.uid == rp.uid);
   CHECK(roundtrip.name == rp.name);

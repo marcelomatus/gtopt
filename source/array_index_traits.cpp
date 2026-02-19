@@ -175,10 +175,11 @@ namespace gtopt
       if (table) {
         return table;
       }
-      SPDLOG_WARN("read_arrow_table: parquet failed for '{}', "
-                  "falling back to CSV: {}",
-                  fpath.string(),
-                  table.error());
+      SPDLOG_WARN(
+          "read_arrow_table: parquet failed for '{}', "
+          "falling back to CSV: {}",
+          fpath.string(),
+          table.error());
       return csv_read_table(fpath);
     }
 
@@ -188,10 +189,11 @@ namespace gtopt
     if (table) {
       return table;
     }
-    SPDLOG_WARN("read_arrow_table: CSV failed for '{}', "
-                "falling back to parquet: {}",
-                fpath.string(),
-                table.error());
+    SPDLOG_WARN(
+        "read_arrow_table: CSV failed for '{}', "
+        "falling back to parquet: {}",
+        fpath.string(),
+        table.error());
     return parquet_read_table(fpath);
   };
 

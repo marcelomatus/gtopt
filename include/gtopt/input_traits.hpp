@@ -76,8 +76,7 @@ struct InputTraits : UidTraits
                        chunk->length());
 
           if constexpr (std::is_integral_v<Type>
-                        && sizeof(Type) >= sizeof(int32_t))
-          {
+                        && sizeof(Type) >= sizeof(int32_t)) {
             if (!is_compatible_int32_type(chunk->type_id())) {
               SPDLOG_ERROR(
                   "access_sched: type mismatch for int32 cast: "
@@ -125,10 +124,9 @@ struct InputTraits : UidTraits
             };
           } else {
             if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
-              SPDLOG_ERROR(
-                  "access_sched: type mismatch: expected {} got {}",
-                  ArrowTraits<Type>::Type::type_name(),
-                  chunk->type()->ToString());
+              SPDLOG_ERROR("access_sched: type mismatch: expected {} got {}",
+                           ArrowTraits<Type>::Type::type_name(),
+                           chunk->type()->ToString());
               throw std::runtime_error(
                   std::format("Type mismatch: expected {} got {}",
                               ArrowTraits<Type>::Type::type_name(),
@@ -140,8 +138,7 @@ struct InputTraits : UidTraits
                 std::static_pointer_cast<array_value_type>(chunk);
 
             return RType {
-                access_oper(
-                    array_value, a_uid_idx, std::make_tuple(uid...)),
+                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
             };
           }
         },

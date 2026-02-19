@@ -142,8 +142,8 @@ ReserveProvisionLP::Provision::Provision(const InputContext& ic,
 {
 }
 
-ReserveProvisionLP::ReserveProvisionLP(const ReserveProvision& preserve_provision,
-                                       const InputContext& ic)
+ReserveProvisionLP::ReserveProvisionLP(
+    const ReserveProvision& preserve_provision, const InputContext& ic)
     : Base(preserve_provision)
     , up(ic,
          ClassName,
