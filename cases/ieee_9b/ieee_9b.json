@@ -1,0 +1,406 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "use_single_bus": false,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "use_kirchhoff": true
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      },
+      {
+        "uid": 7,
+        "duration": 1
+      },
+      {
+        "uid": 8,
+        "duration": 1
+      },
+      {
+        "uid": 9,
+        "duration": 1
+      },
+      {
+        "uid": 10,
+        "duration": 1
+      },
+      {
+        "uid": 11,
+        "duration": 1
+      },
+      {
+        "uid": 12,
+        "duration": 1
+      },
+      {
+        "uid": 13,
+        "duration": 1
+      },
+      {
+        "uid": 14,
+        "duration": 1
+      },
+      {
+        "uid": 15,
+        "duration": 1
+      },
+      {
+        "uid": 16,
+        "duration": 1
+      },
+      {
+        "uid": 17,
+        "duration": 1
+      },
+      {
+        "uid": 18,
+        "duration": 1
+      },
+      {
+        "uid": 19,
+        "duration": 1
+      },
+      {
+        "uid": 20,
+        "duration": 1
+      },
+      {
+        "uid": 21,
+        "duration": 1
+      },
+      {
+        "uid": 22,
+        "duration": 1
+      },
+      {
+        "uid": 23,
+        "duration": 1
+      },
+      {
+        "uid": 24,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 24,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "ieee_9b",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      },
+      {
+        "uid": 5,
+        "name": "b5"
+      },
+      {
+        "uid": 6,
+        "name": "b6"
+      },
+      {
+        "uid": 7,
+        "name": "b7"
+      },
+      {
+        "uid": 8,
+        "name": "b8"
+      },
+      {
+        "uid": 9,
+        "name": "b9"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g1",
+        "bus": "b1",
+        "pmin": 10,
+        "pmax": 250,
+        "gcost": 20,
+        "capacity": 250
+      },
+      {
+        "uid": 2,
+        "name": "g2",
+        "bus": "b2",
+        "pmin": 10,
+        "pmax": 300,
+        "gcost": 35,
+        "capacity": 300
+      },
+      {
+        "uid": 3,
+        "name": "g3",
+        "bus": "b3",
+        "pmin": 0,
+        "pmax": 270,
+        "gcost": 0,
+        "capacity": 270
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": "b5",
+        "lmax": [
+          145.0,
+          139.2,
+          136.3,
+          136.3,
+          139.2,
+          150.8,
+          168.2,
+          197.2,
+          214.6,
+          223.3,
+          229.1,
+          232.0,
+          234.9,
+          232.0,
+          226.2,
+          220.4,
+          223.3,
+          229.1,
+          252.3,
+          269.7,
+          281.3,
+          290.0,
+          258.1,
+          240.7
+        ]
+      },
+      {
+        "uid": 2,
+        "name": "d2",
+        "bus": "b7",
+        "lmax": [
+          84.0,
+          79.8,
+          77.7,
+          77.7,
+          79.8,
+          88.2,
+          109.2,
+          138.6,
+          159.6,
+          172.2,
+          178.5,
+          182.7,
+          184.8,
+          180.6,
+          174.3,
+          168.0,
+          163.8,
+          168.0,
+          189.0,
+          201.6,
+          205.8,
+          210.0,
+          189.0,
+          174.3
+        ]
+      },
+      {
+        "uid": 3,
+        "name": "d3",
+        "bus": "b9",
+        "lmax": [
+          82.7,
+          78.8,
+          74.9,
+          74.9,
+          78.8,
+          88.7,
+          98.5,
+          114.3,
+          128.1,
+          134.0,
+          137.9,
+          141.8,
+          145.8,
+          141.8,
+          137.9,
+          134.0,
+          137.9,
+          153.7,
+          181.2,
+          193.1,
+          197.0,
+          197.0,
+          183.2,
+          173.4
+        ]
+      }
+    ],
+    "line_array": [
+      {
+        "uid": 1,
+        "name": "l1_4",
+        "bus_a": "b1",
+        "bus_b": "b4",
+        "reactance": 0.0576,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 2,
+        "name": "l2_7",
+        "bus_a": "b2",
+        "bus_b": "b7",
+        "reactance": 0.0625,
+        "tmax_ab": 300,
+        "tmax_ba": 300
+      },
+      {
+        "uid": 3,
+        "name": "l3_9",
+        "bus_a": "b3",
+        "bus_b": "b9",
+        "reactance": 0.0586,
+        "tmax_ab": 270,
+        "tmax_ba": 270
+      },
+      {
+        "uid": 4,
+        "name": "l4_5",
+        "bus_a": "b4",
+        "bus_b": "b5",
+        "reactance": 0.085,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 5,
+        "name": "l4_6",
+        "bus_a": "b4",
+        "bus_b": "b6",
+        "reactance": 0.092,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 6,
+        "name": "l5_7",
+        "bus_a": "b5",
+        "bus_b": "b7",
+        "reactance": 0.161,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 7,
+        "name": "l6_9",
+        "bus_a": "b6",
+        "bus_b": "b9",
+        "reactance": 0.17,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 8,
+        "name": "l7_8",
+        "bus_a": "b7",
+        "bus_b": "b8",
+        "reactance": 0.072,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      },
+      {
+        "uid": 9,
+        "name": "l8_9",
+        "bus_a": "b8",
+        "bus_b": "b9",
+        "reactance": 0.1008,
+        "tmax_ab": 250,
+        "tmax_ba": 250
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1,
+        "name": "gp_solar",
+        "generator": "g3",
+        "profile": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.05,
+          0.15,
+          0.35,
+          0.55,
+          0.75,
+          0.9,
+          1.0,
+          0.95,
+          0.85,
+          0.7,
+          0.5,
+          0.3,
+          0.1,
+          0.02,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  }
+}
