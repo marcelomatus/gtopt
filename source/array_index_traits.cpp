@@ -29,8 +29,12 @@ using namespace gtopt;
 {
   const auto filename = std::format("{}.csv", fpath.string());
 
+  SPDLOG_DEBUG("csv_read_table: opening file '{}'", filename);
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (!maybe_infile.ok()) {
+    SPDLOG_DEBUG("csv_read_table: failed to open '{}': {}",
+                 filename,
+                 maybe_infile.status().ToString());
     return std::unexpected(std::format("Can't open file {}", filename));
   }
 
@@ -51,20 +55,31 @@ using namespace gtopt;
       ArrowTraits<Uid>::type();
   convert_options.include_missing_columns = true;
 
+  SPDLOG_DEBUG("csv_read_table: creating CSV reader for '{}'", filename);
   auto maybe_reader = arrow::csv::TableReader::Make(
       io_context, infile, read_options, parse_options, convert_options);
   if (!maybe_reader.ok()) {
+    SPDLOG_DEBUG("csv_read_table: failed to create reader for '{}': {}",
+                 filename,
+                 maybe_reader.status().ToString());
     return std::unexpected(
         std::format("Can't create CSV reader for {}", filename));
   }
 
+  SPDLOG_DEBUG("csv_read_table: reading table from '{}'", filename);
   auto maybe_table = (*maybe_reader)->Read();
   if (!maybe_table.ok()) {
+    SPDLOG_DEBUG("csv_read_table: failed to read table from '{}': {}",
+                 filename,
+                 maybe_table.status().ToString());
     return std::unexpected(
         std::format("Can't read CSV table from {}", filename));
   }
 
-  SPDLOG_TRACE("Read table from file {}", filename);
+  SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
+               filename,
+               (*maybe_table)->num_rows(),
+               (*maybe_table)->num_columns());
   return *maybe_table;
 }
 
@@ -74,11 +89,15 @@ using namespace gtopt;
 {
   const auto filename = std::format("{}.parquet", fpath.string());
 
+  SPDLOG_DEBUG("parquet_read_table: opening file '{}'", filename);
   std::shared_ptr<arrow::io::RandomAccessFile> input;
   {
     auto&& ofile = arrow::io::ReadableFile::Open(filename);
     {
       if (not(ofile.ok())) {
+        SPDLOG_DEBUG("parquet_read_table: failed to open '{}': {}",
+                     filename,
+                     ofile.status().ToString());
         return std::unexpected(
             std::format("Arrow can't open file {}", filename));
       }
@@ -89,9 +108,15 @@ using namespace gtopt;
   auto* pool = arrow::default_memory_pool();
   std::unique_ptr<parquet::arrow::FileReader> reader;
   {
+    SPDLOG_DEBUG("parquet_read_table: creating Parquet reader for '{}'",
+                 filename);
     auto&& ofile = parquet::arrow::OpenFile(input, pool);
     {
       if (not(ofile.ok())) {
+        SPDLOG_DEBUG(
+            "parquet_read_table: failed to create Parquet reader for '{}': {}",
+            filename,
+            ofile.status().ToString());
         return std::unexpected(
             std::format("Arrow can't open file {}", filename));
       }
@@ -99,14 +124,21 @@ using namespace gtopt;
     reader = std::move(ofile).ValueUnsafe();
   }
 
+  SPDLOG_DEBUG("parquet_read_table: reading table from '{}'", filename);
   ArrowTable table;
   const arrow::Status st = reader->ReadTable(&table);
   if (!st.ok()) {
+    SPDLOG_DEBUG("parquet_read_table: failed to read table from '{}': {}",
+                 filename,
+                 st.ToString());
     return std::unexpected(
         std::format("Can't read Parquet table from {}", filename));
   }
 
-  SPDLOG_TRACE("Read table from file {}", filename);
+  SPDLOG_DEBUG("parquet_read_table: successfully read '{}' ({} rows, {} cols)",
+               filename,
+               table->num_rows(),
+               table->num_columns());
   return table;
 }
 
@@ -137,18 +169,29 @@ namespace gtopt
       -> std::expected<ArrowTable, std::string>
   {
     if (format == "parquet") {
+      SPDLOG_DEBUG("read_arrow_table: trying parquet format first for '{}'",
+                   fpath.string());
       auto table = parquet_read_table(fpath);
       if (table) {
         return table;
       }
-      SPDLOG_WARN(
-          std::format("Error reading table from parquet: {}", table.error()));
+      SPDLOG_WARN("read_arrow_table: parquet failed for '{}', "
+                  "falling back to CSV: {}",
+                  fpath.string(),
+                  table.error());
       return csv_read_table(fpath);
     }
 
-    if (auto table = csv_read_table(fpath); table) {
+    SPDLOG_DEBUG("read_arrow_table: trying CSV format first for '{}'",
+                 fpath.string());
+    auto table = csv_read_table(fpath);
+    if (table) {
       return table;
     }
+    SPDLOG_WARN("read_arrow_table: CSV failed for '{}', "
+                "falling back to parquet: {}",
+                fpath.string(),
+                table.error());
     return parquet_read_table(fpath);
   };
 
