@@ -103,19 +103,19 @@ int main(int argc, char** argv)
     //
     int result_value = 0;
     if (auto result = gtopt::gtopt_main(std::span {system_files},
-                           input_directory,
-                           input_format,
-                           output_directory,
-                           output_format,
-                           compression_format,
-                           use_single_bus,
-                           use_kirchhoff,
-                           lp_file,
-                           use_lp_names,
-                           matrix_eps,
-                           json_file,
-                           just_create,
-                           fast_parsing))
+                                        input_directory,
+                                        input_format,
+                                        output_directory,
+                                        output_format,
+                                        compression_format,
+                                        use_single_bus,
+                                        use_kirchhoff,
+                                        lp_file,
+                                        use_lp_names,
+                                        matrix_eps,
+                                        json_file,
+                                        just_create,
+                                        fast_parsing))
     {
       result_value = 0;
     } else {
