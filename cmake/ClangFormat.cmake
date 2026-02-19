@@ -22,10 +22,16 @@ if(CLANG_FORMAT_PROGRAM AND GIT_PROGRAM)
       "*.ipp" "*.inc" "*.inl"
   )
 
+  # Directories to exclude from formatting
+  set(_CF_EXCLUDE_DIRS "cmake/")
+
   # Build the git ls-files argument list
   set(_GIT_LS_CMD ${GIT_PROGRAM} ls-files -z)
   foreach(_g IN LISTS _CF_GLOBS)
     list(APPEND _GIT_LS_CMD "${_g}")
+  endforeach()
+  foreach(_d IN LISTS _CF_EXCLUDE_DIRS)
+    list(APPEND _GIT_LS_CMD ":(exclude)${_d}")
   endforeach()
 
   # We build a small shell one-liner so that the file list comes from

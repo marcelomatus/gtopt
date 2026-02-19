@@ -26,5 +26,5 @@ jobs:
 
       - name: check C++ format
         run: |
-          git ls-files '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' \
+          git ls-files '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' ':(exclude)cmake/' \
             | xargs -r clang-format --dry-run -Werror
