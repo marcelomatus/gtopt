@@ -10,6 +10,12 @@
 
 #pragma once
 
+#include <expected>
+#include <filesystem>
+#include <string>
+#include <string_view>
+
+#include <gtopt/arrow_types.hpp>
 #include <gtopt/as_label.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/input_traits.hpp>
@@ -17,6 +23,51 @@
 
 namespace gtopt
 {
+
+/**
+ * @brief Read an Arrow table from a CSV file.
+ *
+ * Configures the CSV reader to use typed columns for Scenario, Stage and
+ * Block UIDs.  Returns an error string on failure.
+ */
+[[nodiscard]] auto csv_read_table(const std::filesystem::path& fpath)
+    -> std::expected<ArrowTable, std::string>;
+
+/**
+ * @brief Read an Arrow table from a Parquet file.
+ *
+ * Returns an error string on failure.
+ */
+[[nodiscard]] auto parquet_read_table(const std::filesystem::path& fpath)
+    -> std::expected<ArrowTable, std::string>;
+
+/**
+ * @brief Build the filesystem path for an input table.
+ *
+ * If @p fname contains '@', the part before '@' is treated as an override
+ * class directory; otherwise @p cname is used.
+ *
+ * @param input_dir Root input directory.
+ * @param cname     Class name (used as sub-directory when '@' is absent).
+ * @param fname     Field name, possibly containing an '@' separator.
+ * @return          Resolved path (without file extension).
+ */
+[[nodiscard]] std::filesystem::path build_table_path(
+    std::string_view input_dir,
+    std::string_view cname,
+    std::string_view fname);
+
+/**
+ * @brief Try to read a table, preferring @p format and falling back to the
+ *        other format on failure.
+ *
+ * @param fpath   Path without extension.
+ * @param format  Preferred format: @c "parquet" or anything else (CSV).
+ * @return        Loaded table or an error description.
+ */
+[[nodiscard]] auto try_read_table(const std::filesystem::path& fpath,
+                                  std::string_view format)
+    -> std::expected<ArrowTable, std::string>;
 
 struct ArrayIndexBase
 {
