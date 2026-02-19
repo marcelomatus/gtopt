@@ -1,6 +1,5 @@
 #include <array>
-#include <format>
-#include <iostream>
+#include <print>
 #include <ranges>
 
 #include "gtopt/linear_parser.hpp"
@@ -10,13 +9,13 @@ namespace gtopt
 
 void LinearParser::printResult(const ParseResult& result)
 {
-  std::cout << "Coefficients: ";
+  std::print("Coefficients: ");
   for (const auto& [var, coeff] : result.coefficients) {
-    std::cout << std::format("{}:{} ", var, coeff);
+    std::print("{}:{} ", var, coeff);
   }
 
   if (result.constraint_type == ConstraintType::RANGE) {
-    std::cout << std::format(
+    std::print(
         "\nLower bound: {}\nUpper bound: {}\nConstraint: RANGE",
         result.lower_bound.value_or(0),
         result.upper_bound.value_or(0));
@@ -36,10 +35,10 @@ void LinearParser::printResult(const ParseResult& result)
       }
       return "";
     };
-    std::cout << std::format(
+    std::print(
         "\nRHS: {}\nConstraint: {}", result.rhs, constraint_str(result.constraint_type));
   }
-  std::cout << "\n\n";
+  std::println("\n");
 }
 
 int LinearParser::do_main()
@@ -57,7 +56,7 @@ int LinearParser::do_main()
   };
 
   for (const auto& expr : test_expressions) {
-    std::cout << std::format("Expression: {}\n", expr);
+    std::println("Expression: {}", expr);
     try {
       auto result = LinearParser::parse(expr);
       LinearParser::printResult(result);
@@ -66,17 +65,17 @@ int LinearParser::do_main()
       auto vars = result.getVariableNames();
       if (!vars.empty()) {
         auto coeff_vector = result.getCoefficientsVector(vars);
-        std::cout << "Coefficient vector [";
+        std::print("Coefficient vector [");
         for (const auto& [i, val] : std::views::enumerate(coeff_vector)) {
           if (i > 0) {
-            std::cout << ", ";
+            std::print(", ");
           }
-          std::cout << val;
+          std::print("{}", val);
         }
-        std::cout << "]\n\n";
+        std::println("]\n");
       }
     } catch (const std::exception& e) {
-      std::cout << std::format("Error: {}\n\n", e.what());
+      std::println("Error: {}\n", e.what());
     }
   }
 
