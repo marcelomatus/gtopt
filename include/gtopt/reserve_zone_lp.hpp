@@ -26,7 +26,8 @@ public:
 
   using Base = ObjectLP<ReserveZone>;
 
-  explicit ReserveZoneLP(const ReserveZone& preserve_zone, const InputContext& ic);
+  explicit ReserveZoneLP(const ReserveZone& preserve_zone,
+                         const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& reserve_zone(this auto&& self) noexcept
   {

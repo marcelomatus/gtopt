@@ -100,7 +100,10 @@ public:
    * @brief Get the unique identifier of the scene
    * @return The scene's unique identifier
    */
-  [[nodiscard]] constexpr auto uid() const noexcept { return SceneUid {m_scene_.uid}; }
+  [[nodiscard]] constexpr auto uid() const noexcept
+  {
+    return SceneUid {m_scene_.uid};
+  }
 
   /**
    * @brief Get all scenario elements associated with this scene
