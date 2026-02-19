@@ -122,9 +122,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ${COVERAGE_LINE} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ${COVERAGE_FUNC} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ${COVERAGE_BRANCH} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines | ${COVERAGE_LINE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Functions | ${COVERAGE_FUNC} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branches | ${COVERAGE_BRANCH} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
 
@@ -166,7 +166,7 @@ jobs:
       - name: integration test
         run: |
           cd build
-          ctest --build-config Debug
+          ctest --build-config Release
 
       - name: install gtopt
         run: cmake --install build --prefix build/install

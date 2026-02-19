@@ -28,3 +28,6 @@ htmlcov/
 webservice/node_modules/
 webservice/.next/
 webservice/data/
+
+# CodeQL
+_codeql_detected_source_root
