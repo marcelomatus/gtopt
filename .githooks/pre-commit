@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit
+#
+# Automatically runs clang-format on every staged C/C++ file before the
+# commit is recorded.  Any file that needs reformatting is formatted in-place
+# and re-staged, so the commit always contains properly formatted code.
+#
+# Installation (done automatically by CMake configure):
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+# C/C++ extensions that clang-format handles
+CF_EXTENSIONS="h|c|hpp|cpp|hxx|cxx|hh|cc|ipp|inc|inl"
+
+# Collect staged C/C++ files (added, copied or modified – not deleted)
+mapfile -t staged_files < <(
+  git diff --cached --name-only --diff-filter=ACM \
+    | grep -E "\.(${CF_EXTENSIONS})$" \
+    || true
+)
+
+if [[ ${#staged_files[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+# Locate clang-format
+CF=$(command -v clang-format 2>/dev/null || true)
+if [[ -z "$CF" ]]; then
+  echo "pre-commit: clang-format not found – skipping format check" >&2
+  exit 0
+fi
+
+echo "pre-commit: running clang-format on ${#staged_files[@]} staged file(s)..."
+
+reformatted=()
+for f in "${staged_files[@]}"; do
+  if [[ ! -f "$f" ]]; then
+    continue
+  fi
+  # Check whether the file needs reformatting
+  if ! "$CF" --dry-run -Werror "$f" &>/dev/null; then
+    "$CF" -i "$f"
+    git add "$f"
+    reformatted+=("$f")
+  fi
+done
+
+if [[ ${#reformatted[@]} -gt 0 ]]; then
+  echo "pre-commit: reformatted and re-staged ${#reformatted[@]} file(s):"
+  for f in "${reformatted[@]}"; do
+    echo "  $f"
+  done
+fi
+
+exit 0
