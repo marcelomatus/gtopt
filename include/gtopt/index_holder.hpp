@@ -10,12 +10,9 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
-#include <gtopt/block_lp.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/multi_array_2d.hpp>
 #include <gtopt/scenario_lp.hpp>
-#include <gtopt/stage_lp.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt

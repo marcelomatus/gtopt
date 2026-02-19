@@ -13,10 +13,8 @@
 #include <type_traits>
 
 #include <gtopt/field_sched.hpp>
-#include <gtopt/mvector_traits.hpp>
 #include <gtopt/overload.hpp>  // Add Overload include
 #include <gtopt/uid_traits.hpp>
-#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt

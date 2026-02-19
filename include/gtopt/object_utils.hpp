@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/state_variable.hpp>
 
