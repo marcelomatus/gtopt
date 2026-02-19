@@ -155,8 +155,8 @@ public:
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
-  constexpr auto add_state_variable(Key&& key, ColIndex col)
-      -> const StateVariable&
+  constexpr auto add_state_variable(Key&& key,
+                                    ColIndex col) -> const StateVariable&
   {
     auto&& map =
         m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];

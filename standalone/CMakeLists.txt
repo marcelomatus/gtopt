@@ -30,7 +30,7 @@ include(../cmake/CPM.cmake)
 
 CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 
-CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
+include(../cmake/ClangFormat.cmake)
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake_local
                       ${CMAKE_CURRENT_LIST_DIR}/../cmake

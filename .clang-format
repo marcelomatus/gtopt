@@ -1,7 +1,4 @@
 ---
-Language: Json
-BasedOnStyle: llvm
----
 Language: Cpp
 # BasedOnStyle: Chromium
 AccessModifierOffset: -2
