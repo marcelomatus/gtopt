@@ -47,7 +47,8 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
   // Check if any bus already has reference theta set
   const bool has_reference_bus =
       std::ranges::any_of(buses,
-                          [](const auto& bus) { return bus.reference_theta; });
+                          [](const auto& bus)
+                          { return bus.reference_theta.has_value(); });
 
   if (has_reference_bus) {
     return false;
