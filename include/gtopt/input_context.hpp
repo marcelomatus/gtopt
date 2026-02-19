@@ -11,14 +11,7 @@
 #pragma once
 
 #include <gtopt/array_index_traits.hpp>
-#include <gtopt/block.hpp>
-#include <gtopt/collection.hpp>
 #include <gtopt/element_context.hpp>
-#include <gtopt/field_sched.hpp>
-#include <gtopt/input_traits.hpp>
-#include <gtopt/scenario.hpp>
-#include <gtopt/single_id.hpp>
-#include <gtopt/stage.hpp>
 
 namespace gtopt
 {

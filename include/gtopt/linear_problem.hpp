@@ -17,8 +17,6 @@
 #include <string>
 #include <vector>
 
-#include <gtopt/fmap.hpp>
-#include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
 

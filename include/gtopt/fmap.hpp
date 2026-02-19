@@ -41,7 +41,11 @@ void map_reserve(Map& map, Size n)
 
 #else
 
-#  define GTOPT_USE_BOOST_FLAT_MAP
+// Default to boost::container::flat_map; define GTOPT_USE_STD_FLAT_MAP
+// before including this header to use std::flat_map instead.
+#  ifndef GTOPT_USE_STD_FLAT_MAP
+#    define GTOPT_USE_BOOST_FLAT_MAP
+#  endif
 
 #  ifdef GTOPT_USE_BOOST_FLAT_MAP
 
@@ -62,21 +66,20 @@ void map_reserve(Map& map, Size n)
 }  // namespace gtopt
 
 #  else
-namespace gtopt
-{
-template<typename Map, typename Size>
-void map_reserve(Map& map, Size n)
-{
-  map.reserve(n);
-}
-}  // namespace gtopt
 
 #    include <flat_map>
+
 namespace gtopt
 {
 
 template<typename key_type, typename value_type>
 using flat_map = std::flat_map<key_type, value_type>;
+
+template<typename Map, typename Size>
+void map_reserve(Map& map, Size n)
+{
+  map.reserve(n);
+}
 
 }  // namespace gtopt
 

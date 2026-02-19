@@ -12,11 +12,9 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object_utils.hpp>  // Include the new ObjectUtils
 #include <gtopt/single_id.hpp>
-#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {

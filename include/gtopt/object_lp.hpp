@@ -12,12 +12,8 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
-#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
-#include <gtopt/object_utils.hpp>
 #include <gtopt/schedule.hpp>
-#include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
@@ -70,10 +66,9 @@ public:
   }
 
   template<typename OT>
-  explicit constexpr ObjectLP(
-      OT&& pobject,
-      [[maybe_unused]] const InputContext& ic,
-      [[maybe_unused]] std::string_view cname) noexcept
+  explicit constexpr ObjectLP(OT&& pobject,
+                              [[maybe_unused]] const InputContext& ic,
+                              [[maybe_unused]] std::string_view cname) noexcept
       : m_object_(std::forward<OT>(pobject))
       , m_active_(ic, cname, id(), std::move(object().active))
   {

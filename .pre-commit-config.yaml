@@ -42,8 +42,3 @@ repos:
     hooks:
       - id: markdownlint
         args: [--config=.markdownlint.json]
-
-  - repo: https://github.com/cheshirekow/cmake_format.git
-    rev: v0.6.13
-    hooks:
-      - id: cmake-format

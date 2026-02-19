@@ -109,7 +109,7 @@ constexpr auto make_rzone_indexes(const InputContext& ic,
   auto rzones = split(rzstr, ':');
 
   auto is_uid = [](const auto& s)
-  { return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit); };
+  { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
   auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
 
   return rzones
@@ -142,8 +142,8 @@ ReserveProvisionLP::Provision::Provision(const InputContext& ic,
 {
 }
 
-ReserveProvisionLP::ReserveProvisionLP(const ReserveProvision& preserve_provision,
-                                       const InputContext& ic)
+ReserveProvisionLP::ReserveProvisionLP(
+    const ReserveProvision& preserve_provision, const InputContext& ic)
     : Base(preserve_provision)
     , up(ic,
          ClassName,
