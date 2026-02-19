@@ -462,6 +462,31 @@ TEST_CASE("cli parser - multiple flags at once")
   CHECK(vm.contains("gamma"));
 }
 
+TEST_CASE("cli parser - unexpected positional throws without positional options")
+{
+  options_description desc;
+  desc.add_options()("output,o", value<std::string>(), "output");
+
+  variables_map vm;
+  auto parser =
+      command_line_parser(std::vector<std::string> {"unexpected.txt"})
+          .options(desc);
+  CHECK_THROWS_AS(store(parser, vm), parse_error);
+}
+
+TEST_CASE("cli parser - positional argument is ignored when allow_unregistered")
+{
+  options_description desc;
+  desc.add_options()("name,n", value<std::string>(), "name");
+
+  variables_map vm;
+  auto parser = command_line_parser(std::vector<std::string> {"unknown_pos"})
+                    .options(desc)
+                    .allow_unregistered();
+  CHECK_NOTHROW(store(parser, vm));
+  CHECK_FALSE(vm.contains("name"));
+}
+
 TEST_CASE("cli parser - argc/argv constructor")
 {
   options_description desc;
