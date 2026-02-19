@@ -67,7 +67,8 @@ using namespace gtopt;
     for (auto&& planning_file : planning_files) {
       std::filesystem::path fpath(planning_file);
       fpath.replace_extension(".json");
-      // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak is in third-party daw_read_file.h
+      // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak is in
+      // third-party daw_read_file.h
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {

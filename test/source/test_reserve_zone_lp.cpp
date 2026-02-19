@@ -309,8 +309,7 @@ TEST_CASE("ReserveProvisionLP - capacity factor constraint")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE(
-    "ReserveZoneLP - reserve zone without requirement (no-op)")
+TEST_CASE("ReserveZoneLP - reserve zone without requirement (no-op)")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
