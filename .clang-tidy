@@ -22,6 +22,7 @@ Checks: "*,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -clang-analyzer-cplusplus.NewDeleteLeaks,\
   -clang-analyzer-security.ArrayBound,\
+  -clang-analyzer-unix.Stream,\
   -llvm-namespace-comment,\
   -misc-multiple-inheritance,\
   -fuchsia-statically-constructed-objects,\

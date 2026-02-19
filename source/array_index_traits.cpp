@@ -1,5 +1,5 @@
 /**
- * @file      input_traits.cpp
+ * @file      array_index_traits.cpp
  * @brief     Input data access implementation
  * @date      Mon Mar 24 00:00:36 2025
  * @author    marcelo
@@ -20,11 +20,10 @@
 #include <parquet/arrow/reader.h>
 #include <spdlog/spdlog.h>
 
-namespace
+namespace gtopt
 {
-using namespace gtopt;
 
-[[nodiscard]] constexpr auto csv_read_table(const std::filesystem::path& fpath)
+[[nodiscard]] auto csv_read_table(const std::filesystem::path& fpath)
     -> std::expected<ArrowTable, std::string>
 {
   const auto filename = std::format("{}.csv", fpath.string());
@@ -83,8 +82,7 @@ using namespace gtopt;
   return *maybe_table;
 }
 
-[[nodiscard]] constexpr auto parquet_read_table(
-    const std::filesystem::path& fpath)
+[[nodiscard]] auto parquet_read_table(const std::filesystem::path& fpath)
     -> std::expected<ArrowTable, std::string>
 {
   const auto filename = std::format("{}.parquet", fpath.string());
@@ -153,62 +151,68 @@ using namespace gtopt;
   return table;
 }
 
-}  // namespace
-
-namespace gtopt
+[[nodiscard]] std::filesystem::path build_table_path(std::string_view input_dir,
+                                                     std::string_view cname,
+                                                     std::string_view fname)
 {
-
-[[nodiscard]] ArrowTable ArrayIndexBase::read_arrow_table(
-    const SystemContext& sc, std::string_view cname, std::string_view fname)
-{
-  auto fpath = std::filesystem::path(sc.options().input_directory());
+  auto fpath = std::filesystem::path(input_dir);
 
   if (const auto pos = fname.find('@'); pos != std::string_view::npos) {
-    fpath /= fname.substr(0, pos);  // class name
+    fpath /= fname.substr(0, pos);  // override class directory
     fpath /= fname.substr(pos + 1);  // field name
   } else {
     fpath /= cname;
     fpath /= fname;
   }
 
+  return fpath;
+}
+
+[[nodiscard]] auto try_read_table(const std::filesystem::path& fpath,
+                                  std::string_view format)
+    -> std::expected<ArrowTable, std::string>
+{
+  if (format == "parquet") {
+    SPDLOG_DEBUG("try_read_table: trying parquet format first for '{}'",
+                 fpath.string());
+    auto table = parquet_read_table(fpath);
+    if (table) {
+      return table;
+    }
+    SPDLOG_WARN(
+        "try_read_table: parquet failed for '{}', "
+        "falling back to CSV: {}",
+        fpath.string(),
+        table.error());
+    return csv_read_table(fpath);
+  }
+
+  SPDLOG_DEBUG("try_read_table: trying CSV format first for '{}'",
+               fpath.string());
+  auto table = csv_read_table(fpath);
+  if (table) {
+    return table;
+  }
+  SPDLOG_WARN(
+      "try_read_table: CSV failed for '{}', "
+      "falling back to parquet: {}",
+      fpath.string(),
+      table.error());
+  return parquet_read_table(fpath);
+}
+
+[[nodiscard]] ArrowTable ArrayIndexBase::read_arrow_table(
+    const SystemContext& sc, std::string_view cname, std::string_view fname)
+{
+  const auto fpath =
+      build_table_path(sc.options().input_directory(), cname, fname);
+
   SPDLOG_DEBUG("Reading input table: class='{}' field='{}' path='{}'",
                cname,
                fname,
                fpath.string());
 
-  const auto try_read = [&fpath](std::string_view format)
-      -> std::expected<ArrowTable, std::string>
-  {
-    if (format == "parquet") {
-      SPDLOG_DEBUG("read_arrow_table: trying parquet format first for '{}'",
-                   fpath.string());
-      auto table = parquet_read_table(fpath);
-      if (table) {
-        return table;
-      }
-      SPDLOG_WARN(
-          "read_arrow_table: parquet failed for '{}', "
-          "falling back to CSV: {}",
-          fpath.string(),
-          table.error());
-      return csv_read_table(fpath);
-    }
-
-    SPDLOG_DEBUG("read_arrow_table: trying CSV format first for '{}'",
-                 fpath.string());
-    auto table = csv_read_table(fpath);
-    if (table) {
-      return table;
-    }
-    SPDLOG_WARN(
-        "read_arrow_table: CSV failed for '{}', "
-        "falling back to parquet: {}",
-        fpath.string(),
-        table.error());
-    return parquet_read_table(fpath);
-  };
-
-  const auto result = try_read(sc.options().input_format());
+  const auto result = try_read_table(fpath, sc.options().input_format());
   if (!result) {
     const auto msg =
         std::format("Can't read table for class '{}' field '{}': {}",
