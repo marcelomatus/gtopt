@@ -15,8 +15,7 @@ TEST_CASE("GeneratorProfile daw json test - basic fields")
     "profile":0.95
   })";
 
-  GeneratorProfile gp =
-      daw::json::from_json<GeneratorProfile>(json_data);
+  GeneratorProfile gp = daw::json::from_json<GeneratorProfile>(json_data);
 
   CHECK(gp.uid == 1);
   CHECK(gp.name == "GPROFILE_A");
@@ -36,8 +35,7 @@ TEST_CASE("GeneratorProfile daw json test - with cost and active")
     "scost":250.0
   })";
 
-  GeneratorProfile gp =
-      daw::json::from_json<GeneratorProfile>(json_data);
+  GeneratorProfile gp = daw::json::from_json<GeneratorProfile>(json_data);
 
   CHECK(gp.uid == 2);
   CHECK(gp.name == "GPROFILE_B");
@@ -82,8 +80,7 @@ TEST_CASE("GeneratorProfile round-trip serialization")
   gp.scost = 300.0;
 
   auto json = daw::json::to_json(gp);
-  GeneratorProfile roundtrip =
-      daw::json::from_json<GeneratorProfile>(json);
+  GeneratorProfile roundtrip = daw::json::from_json<GeneratorProfile>(json);
 
   CHECK(roundtrip.uid == gp.uid);
   CHECK(roundtrip.name == gp.name);
