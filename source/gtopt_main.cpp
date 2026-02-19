@@ -9,8 +9,6 @@
  * parsing, option application, LP construction, solving, and output writing.
  */
 
-#include <gtopt/gtopt_main.hpp>
-
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -20,6 +18,7 @@
 
 #include <daw/daw_read_file.h>
 #include <gtopt/app_options.hpp>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <spdlog/spdlog.h>
