@@ -40,7 +40,6 @@ jobs:
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
-          pip3 install cmake_format==0.6.13 pyyaml
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -55,4 +54,4 @@ jobs:
           CXX: g++-14
 
       - name: check style
-        run: cmake --build build --target check-format
+        run: cmake --build build --target check-clang-format
