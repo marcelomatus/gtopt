@@ -218,10 +218,10 @@ TEST_CASE("LinearInterface - set_col_sol with null span (no-op)")
   LinearInterface interface;
   interface.add_col("x1", 0.0, 10.0);
 
-  std::span<const double> null_span;
+  const std::span<const double> null_span;
   CHECK_NOTHROW(interface.set_col_sol(null_span));
 
-  std::span<const double> null_dual;
+  const std::span<const double> null_dual;
   CHECK_NOTHROW(interface.set_row_dual(null_dual));
 }
 
