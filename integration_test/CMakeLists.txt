@@ -21,6 +21,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
+# ---- No install rules ----
+
+set(CMAKE_SKIP_INSTALL_RULES TRUE)
+
 # --- Import tools ----
 
 include(../cmake/tools.cmake)
