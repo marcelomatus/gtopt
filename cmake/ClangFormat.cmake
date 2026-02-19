@@ -9,6 +9,10 @@
 # considered, and the set of extensions is limited to C/C++ to avoid running
 # clang-format on languages it does not fully support (JS, TS, JSON, …).
 
+if(TARGET format)
+  return()
+endif()
+
 find_program(CLANG_FORMAT_PROGRAM clang-format)
 find_program(GIT_PROGRAM git)
 
