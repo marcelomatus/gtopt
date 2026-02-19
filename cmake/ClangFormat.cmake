@@ -17,6 +17,17 @@ find_program(CLANG_FORMAT_PROGRAM clang-format)
 find_program(GIT_PROGRAM git)
 
 if(CLANG_FORMAT_PROGRAM AND GIT_PROGRAM)
+  # Determine the git repository root for correct working directory
+  execute_process(
+    COMMAND ${GIT_PROGRAM} rev-parse --show-toplevel
+    OUTPUT_VARIABLE _CF_GIT_ROOT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+  if(NOT _CF_GIT_ROOT)
+    set(_CF_GIT_ROOT ${CMAKE_SOURCE_DIR})
+  endif()
+
   # C/C++ extensions recognised by clang-format
   set(_CF_GLOBS
       "*.h" "*.c"
@@ -40,14 +51,21 @@ if(CLANG_FORMAT_PROGRAM AND GIT_PROGRAM)
 
   # We build a small shell one-liner so that the file list comes from
   # git ls-files at *build* time (not at configure time).
-  string(JOIN " " _GIT_LS_CMD_STR ${_GIT_LS_CMD})
+  # Each argument is single-quoted to protect pathspecs like :(exclude).
+  set(_GIT_LS_CMD_STR "")
+  foreach(_a IN LISTS _GIT_LS_CMD)
+    if(_GIT_LS_CMD_STR)
+      string(APPEND _GIT_LS_CMD_STR " ")
+    endif()
+    string(APPEND _GIT_LS_CMD_STR "'${_a}'")
+  endforeach()
 
   add_custom_target(
     format
     COMMAND bash -c "${_GIT_LS_CMD_STR} | xargs -0 ${CLANG_FORMAT_PROGRAM} -i"
     COMMENT "clang-format: formatting C/C++ files"
     VERBATIM
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${_CF_GIT_ROOT}
   )
 
   add_custom_target(
@@ -55,7 +73,7 @@ if(CLANG_FORMAT_PROGRAM AND GIT_PROGRAM)
     COMMAND bash -c "${_GIT_LS_CMD_STR} | xargs -0 ${CLANG_FORMAT_PROGRAM} --dry-run -Werror"
     COMMENT "clang-format: checking C/C++ files"
     VERBATIM
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${_CF_GIT_ROOT}
   )
 
   add_custom_target(
@@ -63,7 +81,7 @@ if(CLANG_FORMAT_PROGRAM AND GIT_PROGRAM)
     COMMAND bash -c "${_GIT_LS_CMD_STR} | xargs -0 ${CLANG_FORMAT_PROGRAM} -i"
     COMMENT "clang-format: fixing C/C++ files"
     VERBATIM
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${_CF_GIT_ROOT}
   )
 else()
   set(_NOT_FOUND_MSG "ClangFormat.cmake: clang-format and/or git not found")
