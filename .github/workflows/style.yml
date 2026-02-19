@@ -24,7 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: configure
+        run: cmake -S cmake/format -B build
+
       - name: check C++ format
-        run: |
-          git ls-files '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' ':(exclude)cmake/' \
-            | xargs -r clang-format --dry-run -Werror
+        run: cmake --build build --target check-format

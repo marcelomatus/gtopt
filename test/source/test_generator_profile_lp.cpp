@@ -127,8 +127,7 @@ TEST_CASE("GeneratorProfileLP - multi-stage generator profile")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE(
-    "GeneratorProfileLP - generator profile with spillover cost")
+TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
