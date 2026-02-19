@@ -133,17 +133,20 @@ TEST_SUITE("LinearParser")
 
   TEST_CASE("Error: empty expression")
   {
-    CHECK_THROWS_AS(LinearParser::parse(""), std::invalid_argument);
+    CHECK_THROWS_AS(static_cast<void>(LinearParser::parse("")),
+                    std::invalid_argument);
   }
 
   TEST_CASE("Error: no constraint operator")
   {
-    CHECK_THROWS_AS(LinearParser::parse("3*x + 2*y"), std::invalid_argument);
+    CHECK_THROWS_AS(static_cast<void>(LinearParser::parse("3*x + 2*y")),
+                    std::invalid_argument);
   }
 
   TEST_CASE("Error: empty side of constraint")
   {
-    CHECK_THROWS_AS(LinearParser::parse("<= 10"), std::invalid_argument);
+    CHECK_THROWS_AS(static_cast<void>(LinearParser::parse("<= 10")),
+                    std::invalid_argument);
   }
 
   TEST_CASE("ConstraintType enum values")

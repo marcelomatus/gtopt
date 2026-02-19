@@ -110,6 +110,7 @@ using namespace gtopt;
   {
     SPDLOG_DEBUG("parquet_read_table: creating Parquet reader for '{}'",
                  filename);
+#if ARROW_VERSION_MAJOR >= 19
     auto&& ofile = parquet::arrow::OpenFile(input, pool);
     {
       if (not(ofile.ok())) {
@@ -122,6 +123,16 @@ using namespace gtopt;
       }
     }
     reader = std::move(ofile).ValueUnsafe();
+#else
+    auto st = parquet::arrow::OpenFile(input, pool, &reader);
+    if (!st.ok()) {
+      SPDLOG_DEBUG(
+          "parquet_read_table: failed to create Parquet reader for '{}': {}",
+          filename,
+          st.ToString());
+      return std::unexpected(std::format("Arrow can't open file {}", filename));
+    }
+#endif
   }
 
   SPDLOG_DEBUG("parquet_read_table: reading table from '{}'", filename);
