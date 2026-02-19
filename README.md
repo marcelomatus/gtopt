@@ -2,7 +2,8 @@
 
 [![Ubuntu](https://github.com/marcelomatus/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/ubuntu.yml)
 [![Webservice](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml)
-[![Webservice E2E](https://github.com/marcelomatus/gtopt/actions/workflows/webservice-e2e.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/webservice-e2e.yml)
+[![Guiservice](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml)
+[![Style](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml)
 
 A high-performance C++ tool for **Generation and Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost of operation and expansion of electrical power systems.
 
