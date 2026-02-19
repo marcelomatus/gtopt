@@ -545,18 +545,17 @@ TEST_CASE("Benchmark - map_reserve for boost::flat_map")
 
 #if __has_include(<flat_map>)
 
+#  include <flat_map>
+
 using StdFlatMap = std::flat_map<int, int>;
 
 namespace
 {
-void report_boost_vs_std(const char* label,
-                         double boost_ns,
-                         double std_ns)
+void report_boost_vs_std(const char* label, double boost_ns, double std_ns)
 {
   const double ratio = (std_ns > 0) ? (boost_ns / std_ns) : 0.0;
-  MESSAGE(label << ": boost::flat_map=" << boost_ns
-                << " ns, std::flat_map=" << std_ns
-                << " ns, ratio(boost/std)=" << ratio);
+  MESSAGE(label << ": boost::flat_map=" << boost_ns << " ns, std::flat_map="
+                << std_ns << " ns, ratio(boost/std)=" << ratio);
 }
 }  // namespace
 
@@ -625,10 +624,9 @@ TEST_CASE("Benchmark - std::flat_map vs boost::flat_map reserve effect")
     {
       auto boost_rsv_ns = bench_insert_reserved<FlatMap>(keys, iters);
       auto std_rsv_ns = bench_insert_map_reserved<StdFlatMap>(keys, iters);
-      report_boost_vs_std(
-          ("reserve random n=" + std::to_string(n)).c_str(),
-          boost_rsv_ns,
-          std_rsv_ns);
+      report_boost_vs_std(("reserve random n=" + std::to_string(n)).c_str(),
+                          boost_rsv_ns,
+                          std_rsv_ns);
       CHECK(boost_rsv_ns > 0);
       CHECK(std_rsv_ns > 0);
     }
