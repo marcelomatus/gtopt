@@ -106,4 +106,5 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
 add_e2e_case(c0 system_c0.json)
 add_e2e_case(c1 system_c1.json)
+add_e2e_case(ieee_9b ieee_9b.json)
 
