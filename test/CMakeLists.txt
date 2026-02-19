@@ -78,7 +78,7 @@ target_link_libraries(
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
-  include(../cmake/CompilerWarnings.cmake)
+  include(../cmake_local/CompilerWarnings.cmake)
   target_set_warnings(${PROJECT_NAME})
   target_compile_definitions(
     ${PROJECT_NAME}

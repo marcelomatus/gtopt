@@ -90,21 +90,11 @@ configure_install_rpath(${PROJECT_NAME} gtopt)
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 
-# ---- End-to-end integration tests ----
-
-enable_testing()
-
-set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
-set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
-
-include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
-
-# ---- Register e2e test cases ----
-# To add a new case, place it under cases/<name>/ with a system JSON file and
-# an output/ directory containing the expected CSV results, then add a line:
-#   add_e2e_case(<name> <system_json>)
-
-add_e2e_case(c0 system_c0.json)
-add_e2e_case(c1 system_c1.json)
-add_e2e_case(ieee_9b ieee_9b.json)
+# ---- Integration tests ----
+# End-to-end integration tests have been moved to the dedicated
+# gtopt/integration_test CMake configuration.  Configure and run them with:
+#
+#   cmake -S integration_test -B build/integration_test
+#   cmake --build build/integration_test
+#   ctest --test-dir build/integration_test
 

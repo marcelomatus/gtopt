@@ -121,7 +121,7 @@ target_link_libraries(
 )
 
 # enable compiler warnings
-include(cmake/CompilerWarnings.cmake)
+include(cmake_local/CompilerWarnings.cmake)
 target_set_warnings(${PROJECT_NAME})
 
 # ---- Create an installable target ----
