@@ -41,13 +41,8 @@
 #include <utility>
 #include <vector>
 
-#include <gtopt/block_lp.hpp>
 #include <gtopt/index_holder.hpp>
-#include <gtopt/linear_problem.hpp>
-#include <gtopt/options_lp.hpp>
-#include <gtopt/scenario_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
-#include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
