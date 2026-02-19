@@ -57,8 +57,8 @@ TEST_SUITE("LinearParser")
     CHECK(result.coefficients.at("y") == doctest::Approx(2.0));
     CHECK(result.lower_bound.has_value());
     CHECK(result.upper_bound.has_value());
-    CHECK(result.lower_bound.value() == doctest::Approx(20.0));
-    CHECK(result.upper_bound.value() == doctest::Approx(30.0));
+    CHECK(result.lower_bound.value_or(0.0) == doctest::Approx(20.0));
+    CHECK(result.upper_bound.value_or(0.0) == doctest::Approx(30.0));
   }
 
   TEST_CASE("Parse range constraint with >=")
@@ -70,8 +70,8 @@ TEST_SUITE("LinearParser")
     CHECK(result.coefficients.at("b") == doctest::Approx(-1.0));
     CHECK(result.lower_bound.has_value());
     CHECK(result.upper_bound.has_value());
-    CHECK(result.lower_bound.value() == doctest::Approx(-10.0));
-    CHECK(result.upper_bound.value() == doctest::Approx(5.0));
+    CHECK(result.lower_bound.value_or(0.0) == doctest::Approx(-10.0));
+    CHECK(result.upper_bound.value_or(0.0) == doctest::Approx(5.0));
   }
 
   TEST_CASE("Parse constraint with multiple terms")
@@ -121,7 +121,12 @@ TEST_SUITE("LinearParser")
   {
     auto result = LinearParser::parse("3*x - 2*y + z <= 10");
 
-    std::vector<std::string> vars = {"x", "y", "z", "w"};
+    const std::vector<std::string> vars = {
+        "x",
+        "y",
+        "z",
+        "w",
+    };
     auto coeffs = result.getCoefficientsVector(vars);
 
     REQUIRE(coeffs.size() == 4);

@@ -101,8 +101,8 @@ void map_reserve(std::flat_map<key_type, value_type>& map, Size new_cap)
   containers.keys.reserve(static_cast<size_t>(new_cap));
   containers.values.reserve(static_cast<size_t>(new_cap));
 
-  map.replace(std::move(containers.keys),
-              std::move(containers.values));  // NOLINT
+  map.replace(std::move(containers.keys),  // NOLINT
+              std::move(containers.values));
 }
 
 }  // namespace gtopt

@@ -22,10 +22,12 @@ TEST_CASE("ReserveZone daw json test - basic fields")
   CHECK_FALSE(rz.active.has_value());
 
   REQUIRE(rz.urreq.has_value());
-  CHECK(std::get<double>(rz.urreq.value()) == doctest::Approx(100.0));
+  CHECK(std::get<double>(rz.urreq.value()) ==  // NOLINT
+        doctest::Approx(100.0));
 
   REQUIRE(rz.drreq.has_value());
-  CHECK(std::get<double>(rz.drreq.value()) == doctest::Approx(50.0));
+  CHECK(std::get<double>(rz.drreq.value()) ==  // NOLINT
+        doctest::Approx(50.0));
 }
 
 TEST_CASE("ReserveZone daw json test - with costs")
@@ -45,13 +47,15 @@ TEST_CASE("ReserveZone daw json test - with costs")
   CHECK(rz.uid == 2);
   CHECK(rz.name == "ZONE_B");
   REQUIRE(rz.active.has_value());
-  CHECK(std::get<IntBool>(rz.active.value()) == True);
+  CHECK(std::get<IntBool>(rz.active.value()) == True);  // NOLINT
 
   REQUIRE(rz.urcost.has_value());
-  CHECK(std::get<double>(rz.urcost.value()) == doctest::Approx(5000.0));
+  CHECK(std::get<double>(rz.urcost.value())  // NOLINT
+        == doctest::Approx(5000.0));
 
   REQUIRE(rz.drcost.has_value());
-  CHECK(std::get<double>(rz.drcost.value()) == doctest::Approx(3000.0));
+  CHECK(std::get<double>(rz.drcost.value())  // NOLINT
+        == doctest::Approx(3000.0));
 }
 
 TEST_CASE("ReserveZone daw json test - minimal fields")
@@ -61,7 +65,7 @@ TEST_CASE("ReserveZone daw json test - minimal fields")
     "name":"ZONE_MINIMAL"
   })";
 
-  ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
+  const ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
 
   CHECK(rz.uid == 3);
   CHECK(rz.name == "ZONE_MINIMAL");
@@ -111,7 +115,9 @@ TEST_CASE("ReserveZone round-trip serialization")
   CHECK(roundtrip.uid == rz.uid);
   CHECK(roundtrip.name == rz.name);
   REQUIRE(roundtrip.urreq.has_value());
-  CHECK(std::get<double>(roundtrip.urreq.value()) == doctest::Approx(150.0));
+  CHECK(std::get<double>(roundtrip.urreq.value())  // NOLINT
+        == doctest::Approx(150.0));
   REQUIRE(roundtrip.drreq.has_value());
-  CHECK(std::get<double>(roundtrip.drreq.value()) == doctest::Approx(75.0));
+  CHECK(std::get<double>(roundtrip.drreq.value())  // NOLINT
+        == doctest::Approx(75.0));
 }
