@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
+option(ENABLE_TEST_COVERAGE "Enable test coverage instrumentation" OFF)
 
 cmake_policy(SET CMP0167 NEW)
 
@@ -72,6 +73,24 @@ target_link_libraries(
   gtopt::gtopt
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
+
+# ---- Code coverage ----
+
+if(ENABLE_TEST_COVERAGE)
+  target_compile_options(
+    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
+    -fprofile-update=atomic
+  )
+  target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
+
+  if(TARGET gtopt)
+    target_compile_options(
+      gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
+      -fprofile-update=atomic
+    )
+    target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+  endif()
+endif()
 
 # ---- End-to-end integration tests ----
 

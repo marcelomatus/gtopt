@@ -166,7 +166,7 @@ jobs:
       - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 coinor-libcbc-dev libboost-container-dev libspdlog-dev lcov ca-certificates lsb-release wget
           wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
@@ -178,19 +178,14 @@ jobs:
           key: ${{ github.workflow }}-integration
           max-size: 2G
 
-      - name: configure
+      - name: configure standalone (Release, for install)
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: gcc-14
           CXX: g++-14
 
-      - name: build
+      - name: build standalone
         run: cmake --build build -j$(nproc)
-
-      - name: integration test
-        run: |
-          cd build
-          ctest --build-config Release
 
       - name: install gtopt
         run: cmake --install build --prefix build/install
@@ -209,3 +204,72 @@ jobs:
         run: |
           build/install/bin/gtopt --version
           echo "✓ Installed gtopt --version works"
+
+      - name: configure integration_test (Debug, with coverage)
+        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        env:
+          CC: gcc-14
+          CXX: g++-14
+
+      - name: build integration_test
+        run: cmake --build build-integration -j$(nproc)
+
+      - name: run integration tests
+        run: |
+          cd build-integration
+          ctest --build-config Debug --output-on-failure
+
+      - name: collect integration test coverage
+        run: |
+          lcov --capture --directory build-integration --output-file integration-coverage-raw.info \
+            --gcov-tool gcov-14 \
+            --ignore-errors mismatch,mismatch \
+            --ignore-errors unexecuted,unexecuted \
+            --ignore-errors negative,negative \
+            --rc geninfo_unexecuted_blocks=1 \
+            --rc branch_coverage=1
+          lcov --remove integration-coverage-raw.info \
+            '/usr/*' \
+            '*/cpm_modules/*' \
+            '*/test/*' \
+            '*/daw/*' \
+            '*/strong_type/*' \
+            '*/spdlog/*' \
+            --output-file integration-coverage.info \
+            --gcov-tool gcov-14 --ignore-errors unused \
+            --rc branch_coverage=1
+          lcov --list integration-coverage.info --gcov-tool gcov-14 --rc branch_coverage=1
+          genhtml integration-coverage.info --output-directory integration-coverage-report \
+            --title "gtopt Integration Test Coverage" \
+            --legend --show-details \
+            --rc branch_coverage=1
+
+      - name: upload integration coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage-report
+          path: integration-coverage-report/
+          retention-days: 30
+
+      - name: generate integration coverage summary
+        if: always()
+        run: |
+          if [ ! -f integration-coverage.info ]; then
+            echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Coverage data not available." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool gcov-14 --rc branch_coverage=1 2>&1)
+          LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
+          LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
+          FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)
+          FUNC_DETAIL=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '\(.*\)')
+          echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Coverage | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|----------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines | ${LINE_PCT} | ${LINE_DETAIL} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Functions | ${FUNC_PCT} | ${FUNC_DETAIL} |" >> $GITHUB_STEP_SUMMARY
+          echo "📥 Download the full HTML coverage report from the **integration-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
