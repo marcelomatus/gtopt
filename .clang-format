@@ -1,4 +1,7 @@
 ---
+Language: JavaScript
+DisableFormat: true
+---
 Language: Json
 BasedOnStyle: llvm
 ---
