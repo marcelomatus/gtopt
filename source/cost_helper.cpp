@@ -16,12 +16,10 @@ namespace gtopt
 
 auto CostHelper::block_icost_factors() const -> block_factor_matrix_t
 {
-  const auto active_scenarios =
-      enumerate_active<Index>(m_scenarios_.get())
+  const auto active_scenarios = enumerate_active<Index>(m_scenarios_.get())
       | std::ranges::to<std::vector>();
   const auto active_stages =
-      enumerate_active<Index>(m_stages_.get())
-      | std::ranges::to<std::vector>();
+      enumerate_active<Index>(m_stages_.get()) | std::ranges::to<std::vector>();
 
   block_factor_matrix_t factors(active_scenarios.size(), active_stages.size());
 
@@ -59,12 +57,10 @@ auto CostHelper::stage_icost_factors(double probability) const
 auto CostHelper::scenario_stage_icost_factors() const
     -> scenario_stage_factor_matrix_t
 {
-  const auto active_scenarios =
-      enumerate_active<Index>(m_scenarios_.get())
+  const auto active_scenarios = enumerate_active<Index>(m_scenarios_.get())
       | std::ranges::to<std::vector>();
   const auto active_stages =
-      enumerate_active<Index>(m_stages_.get())
-      | std::ranges::to<std::vector>();
+      enumerate_active<Index>(m_stages_.get()) | std::ranges::to<std::vector>();
 
   scenario_stage_factor_matrix_t factors(active_scenarios.size(),
                                          active_stages.size());

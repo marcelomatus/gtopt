@@ -37,7 +37,7 @@ option(USE_CCACHE "use ccache" YES)
 include(cmake/CPM.cmake)
 include(cmake/tools.cmake)
 
-CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
+include(cmake/ClangFormat.cmake)
 
 # External libraries
 

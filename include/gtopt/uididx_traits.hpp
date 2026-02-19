@@ -77,8 +77,7 @@ struct UidColumn
 
       auto result = cast_to_int32_array(chunk);
       if (!result) {
-        auto msg =
-            std::format("Failed to cast column '{}' to int32", name);
+        auto msg = std::format("Failed to cast column '{}' to int32", name);
         SPDLOG_ERROR(msg);
         return std::unexpected(std::move(msg));
       }
