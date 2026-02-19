@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt

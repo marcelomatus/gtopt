@@ -12,6 +12,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -24,6 +25,7 @@ DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
     , emin(ic, ClassName, id(), std::move(object().emin))
     , ecost(ic, ClassName, id(), std::move(object().ecost))
 {
+  SPDLOG_DEBUG("DemandLP created: uid={} name='{}'", id().first, id().second);
 }
 
 bool DemandLP::add_to_lp(SystemContext& sc,

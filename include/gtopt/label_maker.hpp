@@ -13,11 +13,8 @@
 
 #pragma once
 
-#include <gtopt/as_label.hpp>
-#include <gtopt/block_lp.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
-#include <gtopt/stage_lp.hpp>
 
 namespace gtopt
 {
@@ -47,9 +44,9 @@ public:
 
   template<typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
-      && (sizeof...(Types) >= 3)
-  [[nodiscard]] constexpr auto lp_label(StageLP&& stage, Types&&... args) const
-      -> std::string
+                 && (sizeof...(Types) >= 3)
+  [[nodiscard]] constexpr auto lp_label(StageLP&& stage,
+                                        Types&&... args) const -> std::string
   {
     if (dont_use_lp_names()) [[likely]] {
       return {};
@@ -60,8 +57,8 @@ public:
 
   template<typename ScenarioLP, typename StageLP, typename... Types>
     requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
-      && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
-      && (sizeof...(Types) >= 3)
+                 && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
+                 && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
                                         Types&&... args) const -> std::string
@@ -79,9 +76,9 @@ public:
            typename BlockLP,
            typename... Types>
     requires std::same_as<std::remove_cvref_t<ScenarioLP>, gtopt::ScenarioLP>
-      && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
-      && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
-      && (sizeof...(Types) >= 3)
+                 && std::same_as<std::remove_cvref_t<StageLP>, gtopt::StageLP>
+                 && std::same_as<std::remove_cvref_t<BlockLP>, gtopt::BlockLP>
+                 && (sizeof...(Types) >= 3)
   [[nodiscard]] constexpr auto lp_label(ScenarioLP&& scenario,
                                         StageLP&& stage,
                                         BlockLP&& block,

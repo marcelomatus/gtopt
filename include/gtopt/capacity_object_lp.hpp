@@ -29,12 +29,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
-#include <gtopt/index_holder.hpp>
-#include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
-#include <gtopt/object_utils.hpp>
-#include <gtopt/simulation_lp.hpp>
-#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {

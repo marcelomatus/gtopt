@@ -25,12 +25,8 @@
 
 #pragma once
 
-#include <gtopt/block_lp.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/options_lp.hpp>
-#include <gtopt/scenario_lp.hpp>
-#include <gtopt/stage_lp.hpp>
-#include <gtopt/utils.hpp>
 
 namespace gtopt::detail
 {

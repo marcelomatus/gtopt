@@ -46,26 +46,20 @@ CPMAddPackage(
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.0
   OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO" # create an installable
-  # target
-  SYSTEM YES
-  EXCLUDE_FROM_ALL YES
+          # target
+          SYSTEM YES EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
   NAME daw
-
   GITHUB_REPOSITORY beached/daw_json_link
-  VERSION 3.31.0
-  SYSTEM YES
-  EXCLUDE_FROM_ALL YES
+  VERSION 3.31.0 SYSTEM YES EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
   NAME strong_type
   GITHUB_REPOSITORY rollbear/strong_type
-  VERSION 15
-  SYSTEM YES
-  EXCLUDE_FROM_ALL YES
+  VERSION 15 SYSTEM YES EXCLUDE_FROM_ALL YES
 )
 
 # ---- Solver configuration ----
@@ -77,7 +71,10 @@ set(COIN_ROOT_DIR
     CACHE PATH "Coinor root directory"
 )
 # Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
-set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
+set(COIN_SOLVER
+    "AUTO"
+    CACHE STRING "COIN-OR solver back-end"
+)
 include(cmake_local/Solver.cmake)
 
 # ---- External packages ----
@@ -85,8 +82,6 @@ include(cmake_local/Solver.cmake)
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
 find_package(Boost REQUIRED COMPONENTS container)
-
-
 
 # ---- Add source files ----
 
@@ -107,13 +102,11 @@ target_compile_options(
 )
 
 target_include_directories(
-  ${PROJECT_NAME}
-  PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
 )
 
 target_include_directories(
-  ${PROJECT_NAME} SYSTEM
-  PUBLIC "${COIN_INCLUDE_DIRS}" ${Boost_INCLUDE_DIRS}
+  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}" ${Boost_INCLUDE_DIRS}
 )
 
 target_link_libraries(
@@ -132,21 +125,32 @@ include(cmake/CompilerWarnings.cmake)
 target_set_warnings(${PROJECT_NAME})
 
 # ---- Create an installable target ----
-# this allows users to install and find the library via `find_package()`.
-# When included as a subproject (e.g. from standalone), only the namespaced
-# alias and version header are created; install rules are skipped.
+# this allows users to install and find the library via `find_package()`. When
+# included as a subproject (e.g. from standalone), only the namespaced alias and
+# version header are created; install rules are skipped.
 
 string(TOLOWER ${PROJECT_NAME}/version.hpp VERSION_HEADER_LOCATION)
 
 include(cmake_local/PackageTarget.cmake)
 package_target(
-  NAME ${PROJECT_NAME}
-  VERSION ${PROJECT_VERSION}
-  NAMESPACE ${PROJECT_NAME}
-  BINARY_DIR ${PROJECT_BINARY_DIR}
-  INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
-  INCLUDE_DESTINATION include/${PROJECT_NAME}-${PROJECT_VERSION}
-  VERSION_HEADER "${VERSION_HEADER_LOCATION}"
-  COMPATIBILITY SameMajorVersion
-  DEPENDENCIES "spdlog 1.15.0" "strong_type 15" "daw 3.31.0"
+  NAME
+  ${PROJECT_NAME}
+  VERSION
+  ${PROJECT_VERSION}
+  NAMESPACE
+  ${PROJECT_NAME}
+  BINARY_DIR
+  ${PROJECT_BINARY_DIR}
+  INCLUDE_DIR
+  ${PROJECT_SOURCE_DIR}/include
+  INCLUDE_DESTINATION
+  include/${PROJECT_NAME}-${PROJECT_VERSION}
+  VERSION_HEADER
+  "${VERSION_HEADER_LOCATION}"
+  COMPATIBILITY
+  SameMajorVersion
+  DEPENDENCIES
+  "spdlog 1.15.0"
+  "strong_type 15"
+  "daw 3.31.0"
 )
