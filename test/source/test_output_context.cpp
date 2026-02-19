@@ -83,8 +83,8 @@ TEST_CASE("OutputContext - write output after solve (parquet)")
   // Check solution.csv content
   if (std::filesystem::exists(sol_file)) {
     std::ifstream f(sol_file);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                        std::istreambuf_iterator<char>());
+    const std::string content((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
     CHECK(content.find("obj_value") != std::string::npos);
     CHECK(content.find("kappa") != std::string::npos);
     CHECK(content.find("status") != std::string::npos);

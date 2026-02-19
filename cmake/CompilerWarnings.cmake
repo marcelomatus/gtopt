@@ -8,6 +8,7 @@ function(target_set_warnings target)
       -Wextra
       -Werror
       -Wno-deprecated-declarations
+      -Wno-c2y-extensions
   )
 
   set(MSVC_WARNINGS /W4 /WX)
