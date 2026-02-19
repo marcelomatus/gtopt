@@ -119,7 +119,7 @@ TEST_CASE("gtopt_main - fast_parsing path, just_create=true")
                            std::nullopt,
                            std::nullopt,
                            std::nullopt,
-                           std::optional<bool>(true),   // just_create
+                           std::optional<bool>(true),  // just_create
                            std::optional<bool>(true));  // fast_parsing
   REQUIRE(result.has_value());
   CHECK(*result == 0);

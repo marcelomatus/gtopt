@@ -383,7 +383,7 @@ TEST_CASE("ReserveZoneLP - down-reserve provision (dprov)")
       {
           .uid = Uid {1},
           .name = "rz1",
-          .drreq = 40.0,   // down-reserve requirement
+          .drreq = 40.0,  // down-reserve requirement
           .drcost = 500.0,
       },
   };

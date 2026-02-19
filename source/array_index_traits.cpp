@@ -152,8 +152,8 @@ namespace gtopt
 }
 
 [[nodiscard]] std::filesystem::path build_table_path(std::string_view input_dir,
-                                                      std::string_view cname,
-                                                      std::string_view fname)
+                                                     std::string_view cname,
+                                                     std::string_view fname)
 {
   auto fpath = std::filesystem::path(input_dir);
 
