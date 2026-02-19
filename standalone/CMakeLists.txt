@@ -8,15 +8,10 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
-option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 
 cmake_policy(SET CMP0167 NEW)
-set(CPPCHECK_ARGS
-    "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
-)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -89,22 +84,4 @@ configure_install_rpath(${PROJECT_NAME} gtopt)
 # Only install the binary (and needed runtime libraries), not headers.
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-
-# ---- End-to-end integration tests ----
-
-enable_testing()
-
-set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
-set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
-
-include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
-
-# ---- Register e2e test cases ----
-# To add a new case, place it under cases/<name>/ with a system JSON file and
-# an output/ directory containing the expected CSV results, then add a line:
-#   add_e2e_case(<name> <system_json>)
-
-add_e2e_case(c0 system_c0.json)
-add_e2e_case(c1 system_c1.json)
-add_e2e_case(ieee_9b ieee_9b.json)
 

@@ -39,6 +39,21 @@ include(cmake/tools.cmake)
 
 include(cmake/ClangFormat.cmake)
 
+# ---- Install git pre-commit hook (auto-formats staged C/C++ files) ----
+
+find_program(GIT_PROGRAM git)
+if(GIT_PROGRAM)
+  execute_process(
+    COMMAND ${GIT_PROGRAM} config core.hooksPath .githooks
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    RESULT_VARIABLE _hooks_result
+    ERROR_QUIET
+  )
+  if(_hooks_result EQUAL 0)
+    message(STATUS "git hooks path set to .githooks (pre-commit auto-format enabled)")
+  endif()
+endif()
+
 # External libraries
 
 CPMAddPackage(
@@ -121,7 +136,7 @@ target_link_libraries(
 )
 
 # enable compiler warnings
-include(cmake/CompilerWarnings.cmake)
+include(cmake_local/CompilerWarnings.cmake)
 target_set_warnings(${PROJECT_NAME})
 
 # ---- Create an installable target ----
