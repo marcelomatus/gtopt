@@ -44,14 +44,16 @@ CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
-  VERSION 1.15.3
-  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" # create an installable
+  VERSION 1.15.0
+  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO" # create an installable
   # target
   SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
   NAME daw
+
   GITHUB_REPOSITORY beached/daw_json_link
   VERSION 3.31.0
   SYSTEM YES
