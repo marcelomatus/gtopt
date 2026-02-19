@@ -22,19 +22,20 @@ namespace gtopt
 
 /**
  * @brief Configuration data for generator operational profiles
- * 
+ *
  * Contains all parameters needed to model a generator's operational
  * characteristics in the optimization problem.
  */
 struct GeneratorProfile
 {
-  Uid uid {unknown_uid};      ///< Unique identifier for this profile
-  Name name {};               ///< Human-readable name
-  OptActive active {};        ///< Activation status schedule
+  Uid uid {unknown_uid};  ///< Unique identifier for this profile
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status schedule
 
   SingleId generator {unknown_uid};  ///< Associated generator ID
-  STBRealFieldSched profile {};      ///< Generation profile schedule (per scenario/time/block)
-  OptTRealFieldSched scost {};       ///< Short-term cost schedule (optional)
+  STBRealFieldSched
+      profile {};  ///< Generation profile schedule (per scenario/time/block)
+  OptTRealFieldSched scost {};  ///< Short-term cost schedule (optional)
 };
 
 }  // namespace gtopt

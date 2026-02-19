@@ -131,8 +131,8 @@ struct ElementTraits<SystemContext, BusLP>
    * @param id The single ID of the `BusLP` element.
    * @return A reference to the `BusLP` element.
    */
-  [[nodiscard]] constexpr static auto&&
-  get_element(SystemContext& sc, const ObjectSingleId<BusLP>& id)
+  [[nodiscard]] constexpr static auto&& get_element(
+      SystemContext& sc, const ObjectSingleId<BusLP>& id)
   {
     return sc.get_bus(id);
   }
@@ -145,8 +145,8 @@ struct ElementTraits<SystemContext, BusLP>
    * @return A reference to the bus element.
    */
   template<typename BusType>
-  [[nodiscard]] constexpr static auto&&
-  get_element(SystemContext& sc, const ElementIndex<BusType>& id)
+  [[nodiscard]] constexpr static auto&& get_element(
+      SystemContext& sc, const ElementIndex<BusType>& id)
   {
     return sc.system().element(id);
   }

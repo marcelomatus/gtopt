@@ -3,7 +3,7 @@ Language: JavaScript
 DisableFormat: true
 ---
 Language: Json
-BasedOnStyle: llvm
+DisableFormat: true
 ---
 Language: Cpp
 # BasedOnStyle: Chromium

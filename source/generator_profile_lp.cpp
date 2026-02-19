@@ -21,8 +21,8 @@
 
 namespace gtopt
 {
-GeneratorProfileLP::GeneratorProfileLP(const GeneratorProfile& pgenerator_profile,
-                                       InputContext& ic)
+GeneratorProfileLP::GeneratorProfileLP(
+    const GeneratorProfile& pgenerator_profile, InputContext& ic)
     : ProfileObjectLP(pgenerator_profile, ic, ClassName)
 {
 }

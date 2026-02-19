@@ -48,8 +48,7 @@ constexpr auto make_collection(InputContext& input_context,
   return Collection<Out> {
       input
           | std::ranges::views::transform(
-              [&](const auto& element)
-              { return Out {element, input_context}; })
+              [&](const auto& element) { return Out {element, input_context}; })
           | std::ranges::to<std::vector<Out>>(),
   };
 }

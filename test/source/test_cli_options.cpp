@@ -462,15 +462,15 @@ TEST_CASE("cli parser - multiple flags at once")
   CHECK(vm.contains("gamma"));
 }
 
-TEST_CASE("cli parser - unexpected positional throws without positional options")
+TEST_CASE(
+    "cli parser - unexpected positional throws without positional options")
 {
   options_description desc;
   desc.add_options()("output,o", value<std::string>(), "output");
 
   variables_map vm;
-  auto parser =
-      command_line_parser(std::vector<std::string> {"unexpected.txt"})
-          .options(desc);
+  auto parser = command_line_parser(std::vector<std::string> {"unexpected.txt"})
+                    .options(desc);
   CHECK_THROWS_AS(store(parser, vm), parse_error);
 }
 
