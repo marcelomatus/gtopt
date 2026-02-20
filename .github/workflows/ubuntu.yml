@@ -79,7 +79,7 @@ jobs:
       - name: collect code coverage
         run: |
           # Create llvm-cov gcov wrapper for lcov compatibility
-          printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
+          printf '#!/bin/sh\nexec llvm-cov-21 gcov "$@"\n' > /tmp/llvm-gcov.sh
           chmod +x /tmp/llvm-gcov.sh
           # Capture coverage data with lcov
           # --ignore-errors mismatch,mismatch: fully suppress mismatch warnings
@@ -241,7 +241,7 @@ jobs:
       - name: collect integration test coverage
         run: |
           # Create llvm-cov gcov wrapper for lcov compatibility
-          printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
+          printf '#!/bin/sh\nexec llvm-cov-21 gcov "$@"\n' > /tmp/llvm-gcov.sh
           chmod +x /tmp/llvm-gcov.sh
           lcov --capture --directory build-integration --output-file integration-coverage-raw.info \
             --gcov-tool /tmp/llvm-gcov.sh \

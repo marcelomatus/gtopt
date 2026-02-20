@@ -18,6 +18,7 @@
 #include <map>
 #include <numeric>
 #include <random>
+#include <string_view>
 #include <vector>
 
 #include <boost/container/flat_map.hpp>
@@ -147,7 +148,7 @@ auto bench_search(const std::vector<int>& keys,
 using StdMap = std::map<int, int>;
 using FlatMap = boost::container::flat_map<int, int>;
 
-void report(const char* label, double std_map_ns, double flat_map_ns)
+void report(std::string_view label, double std_map_ns, double flat_map_ns)
 {
   const double ratio = (flat_map_ns > 0) ? (std_map_ns / flat_map_ns) : 0.0;
   MESSAGE(label << ": std::map=" << std_map_ns << " ns, flat_map="
@@ -179,7 +180,9 @@ auto bench_insert_reserved(const std::vector<int>& keys,
   return static_cast<double>(ns.count()) / iterations;
 }
 
-void report_reserve(const char* label, double no_reserve_ns, double reserved_ns)
+void report_reserve(std::string_view label,
+                    double no_reserve_ns,
+                    double reserved_ns)
 {
   const double ratio = (reserved_ns > 0) ? (no_reserve_ns / reserved_ns) : 0.0;
   MESSAGE(label << ": no_reserve=" << no_reserve_ns << " ns, reserved="
@@ -222,7 +225,7 @@ TEST_CASE("Benchmark - small maps with sorted keys")
     {
       auto std_ns = bench_insert<StdMap>(keys, kSmallMapIterations);
       auto flat_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
-      report(("insert sorted n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("insert sorted n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -231,8 +234,7 @@ TEST_CASE("Benchmark - small maps with sorted keys")
     {
       auto std_ns = bench_iterate<StdMap>(keys, kSmallMapIterations);
       auto flat_ns = bench_iterate<FlatMap>(keys, kSmallMapIterations);
-      report(
-          ("iterate sorted n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("iterate sorted n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -248,7 +250,7 @@ TEST_CASE("Benchmark - small maps with random keys")
     {
       auto std_ns = bench_insert<StdMap>(keys, kSmallMapIterations);
       auto flat_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
-      report(("insert random n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("insert random n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -257,8 +259,7 @@ TEST_CASE("Benchmark - small maps with random keys")
     {
       auto std_ns = bench_iterate<StdMap>(keys, kSmallMapIterations);
       auto flat_ns = bench_iterate<FlatMap>(keys, kSmallMapIterations);
-      report(
-          ("iterate random n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("iterate random n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -325,7 +326,7 @@ TEST_CASE("Benchmark - small maps random search with sorted keys")
           bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
       auto flat_ns =
           bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
-      report(("search sorted n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("search sorted n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -344,7 +345,7 @@ TEST_CASE("Benchmark - small maps random search with random keys")
           bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
       auto flat_ns =
           bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
-      report(("search random n=" + std::to_string(n)).c_str(), std_ns, flat_ns);
+      report(("search random n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -397,9 +398,7 @@ TEST_CASE("Benchmark - small maps sorted search with sorted keys")
           bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
       auto flat_ns =
           bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
-      report(("sorted search sorted n=" + std::to_string(n)).c_str(),
-             std_ns,
-             flat_ns);
+      report(("sorted search sorted n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -418,9 +417,7 @@ TEST_CASE("Benchmark - small maps sorted search with random keys")
           bench_search<StdMap>(keys, search_keys, kSmallMapIterations);
       auto flat_ns =
           bench_search<FlatMap>(keys, search_keys, kSmallMapIterations);
-      report(("sorted search random n=" + std::to_string(n)).c_str(),
-             std_ns,
-             flat_ns);
+      report(("sorted search random n=" + std::to_string(n)), std_ns, flat_ns);
       CHECK(std_ns > 0);
       CHECK(flat_ns > 0);
     }
@@ -471,7 +468,7 @@ TEST_CASE("Benchmark - flat_map reserve effect with small sorted keys")
       auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
       auto rsv_ns = bench_insert_reserved<FlatMap>(keys, kSmallMapIterations);
       report_reserve(
-          ("reserve sorted n=" + std::to_string(n)).c_str(), no_rsv_ns, rsv_ns);
+          ("reserve sorted n=" + std::to_string(n)), no_rsv_ns, rsv_ns);
       CHECK(no_rsv_ns > 0);
       CHECK(rsv_ns > 0);
     }
@@ -488,7 +485,7 @@ TEST_CASE("Benchmark - flat_map reserve effect with small random keys")
     auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
     auto rsv_ns = bench_insert_reserved<FlatMap>(keys, kSmallMapIterations);
     report_reserve(
-        ("reserve random n=" + std::to_string(n)).c_str(), no_rsv_ns, rsv_ns);
+        ("reserve random n=" + std::to_string(n)), no_rsv_ns, rsv_ns);
     CHECK(no_rsv_ns > 0);
     CHECK(rsv_ns > 0);
   }
@@ -534,9 +531,8 @@ TEST_CASE("Benchmark - map_reserve for boost::flat_map")
       auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
       auto rsv_ns =
           bench_insert_map_reserved<FlatMap>(keys, kSmallMapIterations);
-      report_reserve(("map_reserve random n=" + std::to_string(n)).c_str(),
-                     no_rsv_ns,
-                     rsv_ns);
+      report_reserve(
+          ("map_reserve random n=" + std::to_string(n)), no_rsv_ns, rsv_ns);
       CHECK(no_rsv_ns > 0);
       CHECK(rsv_ns > 0);
     }
@@ -551,7 +547,7 @@ using StdFlatMap = std::flat_map<int, int>;
 
 namespace
 {
-void report_boost_vs_std(const char* label, double boost_ns, double std_ns)
+void report_boost_vs_std(std::string_view label, double boost_ns, double std_ns)
 {
   const double ratio = (std_ns > 0) ? (boost_ns / std_ns) : 0.0;
   MESSAGE(label << ": boost::flat_map=" << boost_ns << " ns, std::flat_map="
@@ -570,7 +566,7 @@ TEST_CASE("Benchmark - std::flat_map vs boost::flat_map insert")
       auto boost_ns = bench_insert<FlatMap>(keys, iters);
       auto std_ns = bench_insert<StdFlatMap>(keys, iters);
       report_boost_vs_std(
-          ("insert random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+          ("insert random n=" + std::to_string(n)), boost_ns, std_ns);
       CHECK(boost_ns > 0);
       CHECK(std_ns > 0);
     }
@@ -588,7 +584,7 @@ TEST_CASE("Benchmark - std::flat_map vs boost::flat_map iterate")
       auto boost_ns = bench_iterate<FlatMap>(keys, iters);
       auto std_ns = bench_iterate<StdFlatMap>(keys, iters);
       report_boost_vs_std(
-          ("iterate random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+          ("iterate random n=" + std::to_string(n)), boost_ns, std_ns);
       CHECK(boost_ns > 0);
       CHECK(std_ns > 0);
     }
@@ -607,7 +603,7 @@ TEST_CASE("Benchmark - std::flat_map vs boost::flat_map search")
       auto boost_ns = bench_search<FlatMap>(keys, search_keys, iters);
       auto std_ns = bench_search<StdFlatMap>(keys, search_keys, iters);
       report_boost_vs_std(
-          ("search random n=" + std::to_string(n)).c_str(), boost_ns, std_ns);
+          ("search random n=" + std::to_string(n)), boost_ns, std_ns);
       CHECK(boost_ns > 0);
       CHECK(std_ns > 0);
     }
@@ -624,9 +620,8 @@ TEST_CASE("Benchmark - std::flat_map vs boost::flat_map reserve effect")
     {
       auto boost_rsv_ns = bench_insert_reserved<FlatMap>(keys, iters);
       auto std_rsv_ns = bench_insert_map_reserved<StdFlatMap>(keys, iters);
-      report_boost_vs_std(("reserve random n=" + std::to_string(n)).c_str(),
-                          boost_rsv_ns,
-                          std_rsv_ns);
+      report_boost_vs_std(
+          ("reserve random n=" + std::to_string(n)), boost_rsv_ns, std_rsv_ns);
       CHECK(boost_rsv_ns > 0);
       CHECK(std_rsv_ns > 0);
     }
@@ -643,10 +638,9 @@ TEST_CASE("Benchmark - std::flat_map map_reserve effect")
     {
       auto no_rsv_ns = bench_insert<StdFlatMap>(keys, iters);
       auto rsv_ns = bench_insert_map_reserved<StdFlatMap>(keys, iters);
-      report_reserve(
-          ("std::flat_map reserve random n=" + std::to_string(n)).c_str(),
-          no_rsv_ns,
-          rsv_ns);
+      report_reserve(("std::flat_map reserve random n=" + std::to_string(n)),
+                     no_rsv_ns,
+                     rsv_ns);
       CHECK(no_rsv_ns > 0);
       CHECK(rsv_ns > 0);
     }
