@@ -59,6 +59,7 @@ jobs:
 
       - name: test
         run: |
+          set -o pipefail
           cd build
           ctest --build-config Debug --output-on-failure 2>&1 | tee ctest_output.log
           echo ""

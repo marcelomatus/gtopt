@@ -71,18 +71,18 @@ namespace gtopt
       for (auto&& planning_file : planning_files) {
         try {
           std::filesystem::path fpath(planning_file);
+          fpath.replace_extension(".json");
 
-          // Filesystem operations can throw
-          try {
-            fpath.replace_extension(".json");
-          } catch (const std::filesystem::filesystem_error& ex) {
+          // Check existence before calling daw::read_file, which is noexcept
+          // and would call std::terminate via std::filesystem::file_size if
+          // the file is missing.
+          if (!std::filesystem::exists(fpath)) {
             return std::unexpected(
-                std::format("Filesystem error processing path '{}': {}",
-                            planning_file,
-                            ex.what()));
+                std::format("Input file '{}' does not exist", fpath.string()));
           }
 
-          // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak is in
+          // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak false
+          // positive in daw::read_file
           const auto json_result = daw::read_file(fpath.string());
 
           if (!json_result) {
