@@ -45,7 +45,7 @@ jobs:
       - name: install clang
         uses: egor-tensin/setup-clang@v2
         with:
-          version: latest
+          version: 21
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -183,7 +183,7 @@ jobs:
       - name: install clang
         uses: egor-tensin/setup-clang@v2
         with:
-          version: latest
+          version: 21
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1

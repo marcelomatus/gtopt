@@ -62,8 +62,8 @@ void AdaptiveWorkPool::shutdown()
     for (auto& task : active_tasks_) {
       task.future.wait();
     }
-    tasks_active_.store(0, std::memory_order_relaxed);
     active_tasks_.clear();
+    tasks_active_.store(0, std::memory_order_relaxed);
   }
 
   cpu_monitor_.stop();
