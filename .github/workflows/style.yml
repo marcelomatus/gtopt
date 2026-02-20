@@ -31,6 +31,18 @@ jobs:
         with:
           version: 21
 
+      - name: create LLVM tool symlinks
+        run: |
+          VER=$(clang --version | head -1 | grep -oP '\d+(?=\.\d+\.\d+)')
+          for tool in /usr/bin/llvm-*-${VER} /usr/bin/clang-apply-replacements-${VER} \
+                      /usr/bin/clang-check-${VER} /usr/bin/clang-extdef-mapping-${VER} \
+                      /usr/bin/clang-query-${VER} /usr/bin/clang-rename-${VER} \
+                      /usr/bin/clang-tblgen-${VER}; do
+            [ -f "$tool" ] || [ -L "$tool" ] || continue
+            base=$(basename "$tool" "-${VER}")
+            sudo update-alternatives --install /usr/bin/"$base" "$base" "$tool" 100
+          done
+
       - name: configure
         run: cmake -S cmake/format -B build
 
