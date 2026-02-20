@@ -54,10 +54,10 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
 
   // Check if any bus needs Kirchhoff according to the threshold
   const auto kirchhoff_threshold = options.kirchhoff_threshold();
-  return std::ranges::any_of(
-      buses,
-      [kirchhoff_threshold](const auto& bus)
-      { return bus.needs_kirchhoff(kirchhoff_threshold); });
+  return std::ranges::any_of(buses,
+                             [kirchhoff_threshold](const auto& bus) {
+                               return bus.needs_kirchhoff(kirchhoff_threshold);
+                             });
 }
 
 }  // namespace
