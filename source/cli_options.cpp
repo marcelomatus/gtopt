@@ -111,10 +111,10 @@ command_line_parser::command_line_parser(int argc, char** argv)
 
   if (argc > 1) {
     auto arg_view = args.subspan(1);
-    tokens_ = arg_view
+    tokens_ = std::ranges::to<std::vector>(
+        arg_view
         | std::views::transform([](const char* arg)
-                                { return std::string(arg); })
-        | std::ranges::to<std::vector>();
+                                { return std::string(arg); }));
   }
 }
 
