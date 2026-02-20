@@ -31,12 +31,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install clang
-        uses: egor-tensin/setup-clang@v2
+        uses: ./.github/actions/install-clang
         with:
           version: 21
-
-      - name: create LLVM tool symlinks
-        uses: ./.github/actions/setup-llvm-alternatives
 
       - name: Run clang-format on all tracked C/C++ files
         run: |
