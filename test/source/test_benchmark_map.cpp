@@ -18,6 +18,7 @@
 #include <map>
 #include <numeric>
 #include <random>
+#include <string_view>
 #include <vector>
 
 #include <boost/container/flat_map.hpp>
@@ -147,7 +148,7 @@ auto bench_search(const std::vector<int>& keys,
 using StdMap = std::map<int, int>;
 using FlatMap = boost::container::flat_map<int, int>;
 
-void report(const char* label, double std_map_ns, double flat_map_ns)
+void report(std::string_view label, double std_map_ns, double flat_map_ns)
 {
   const double ratio = (flat_map_ns > 0) ? (std_map_ns / flat_map_ns) : 0.0;
   MESSAGE(label << ": std::map=" << std_map_ns << " ns, flat_map="
@@ -179,7 +180,9 @@ auto bench_insert_reserved(const std::vector<int>& keys,
   return static_cast<double>(ns.count()) / iterations;
 }
 
-void report_reserve(const char* label, double no_reserve_ns, double reserved_ns)
+void report_reserve(std::string_view label,
+                    double no_reserve_ns,
+                    double reserved_ns)
 {
   const double ratio = (reserved_ns > 0) ? (no_reserve_ns / reserved_ns) : 0.0;
   MESSAGE(label << ": no_reserve=" << no_reserve_ns << " ns, reserved="
@@ -480,17 +483,18 @@ TEST_CASE("Benchmark - flat_map reserve effect with small sorted keys")
 
 TEST_CASE("Benchmark - flat_map reserve effect with small random keys")
 {
-  constexpr int n = 500;
-  auto keys = random_keys(n);
+  for (const int n : {4, 8, 12}) {
+    auto keys = random_keys(n);
 
-  SUBCASE(("reserve random n=" + std::to_string(n)).c_str())
-  {
-    auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
-    auto rsv_ns = bench_insert_reserved<FlatMap>(keys, kSmallMapIterations);
-    report_reserve(
-        ("reserve random n=" + std::to_string(n)).c_str(), no_rsv_ns, rsv_ns);
-    CHECK(no_rsv_ns > 0);
-    CHECK(rsv_ns > 0);
+    SUBCASE(("reserve random n=" + std::to_string(n)).c_str())
+    {
+      auto no_rsv_ns = bench_insert<FlatMap>(keys, kSmallMapIterations);
+      auto rsv_ns = bench_insert_reserved<FlatMap>(keys, kSmallMapIterations);
+      report_reserve(
+          ("reserve random n=" + std::to_string(n)).c_str(), no_rsv_ns, rsv_ns);
+      CHECK(no_rsv_ns > 0);
+      CHECK(rsv_ns > 0);
+    }
   }
 }
 
@@ -551,7 +555,7 @@ using StdFlatMap = std::flat_map<int, int>;
 
 namespace
 {
-void report_boost_vs_std(const char* label, double boost_ns, double std_ns)
+void report_boost_vs_std(std::string_view label, double boost_ns, double std_ns)
 {
   const double ratio = (std_ns > 0) ? (boost_ns / std_ns) : 0.0;
   MESSAGE(label << ": boost::flat_map=" << boost_ns << " ns, std::flat_map="
