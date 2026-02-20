@@ -34,14 +34,14 @@ namespace detail
   auto scenarios =
       scenario_array.subspan(scene.first_scenario, scene.count_scenario);
 
-  return enumerate_active<ScenarioIndex>(scenarios)
+  return std::ranges::to<std::vector>(
+      enumerate_active<ScenarioIndex>(scenarios)
       | std::ranges::views::transform(
-             [scene_index](const auto& is)
-             {
-               auto&& [scenario_index, scenario] = is;
-               return ScenarioLP {scenario, scenario_index, scene_index};
-             })
-      | std::ranges::to<std::vector>();
+          [scene_index](const auto& is)
+          {
+            auto&& [scenario_index, scenario] = is;
+            return ScenarioLP {scenario, scenario_index, scene_index};
+          }));
 }
 
 }  // namespace detail

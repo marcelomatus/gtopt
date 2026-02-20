@@ -36,7 +36,7 @@ public:
 
   [[nodiscard]] constexpr auto&& generator(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   [[nodiscard]]

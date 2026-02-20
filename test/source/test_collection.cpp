@@ -165,21 +165,20 @@ TEST_CASE("visit_elements with different collection types")
     int intCount = 0;
     int strCount = 0;
 
-    auto count =
-        visit_elements(collections,
-                       [&](auto&& elem)
-                       {
-                         using Type = std::decay_t<decltype(elem)>;
-                         if constexpr (std::is_same_v<Type, int>) {
-                           intCount++;
-                           return elem > 1;
-                         } else if constexpr (std::is_same_v<Type, std::string>)
-                         {
-                           strCount++;
-                           return elem.length() > 1;
-                         }
-                         return false;
-                       });
+    auto count = visit_elements(
+        collections,
+        [&](auto&& elem)
+        {
+          using Type = std::decay_t<decltype(elem)>;
+          if constexpr (std::is_same_v<Type, int>) {
+            intCount++;
+            return elem > 1;
+          } else if constexpr (std::is_same_v<Type, std::string>) {
+            strCount++;
+            return elem.length() > 1;
+          }
+          return false;
+        });
 
     CHECK(intCount == 3);  // All integers are visited
     CHECK(strCount == 3);  // All strings are visited

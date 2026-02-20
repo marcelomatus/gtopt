@@ -196,7 +196,9 @@ namespace gtopt
       const auto flat_opts = make_flat_options(use_lp_names, matrix_eps);
 
       spdlog::stopwatch sw;
-      PlanningLP planning_lp {std::move(planning), flat_opts};
+      PlanningLP planning_lp {
+          std::move(planning),
+          flat_opts};  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
       spdlog::info(std::format("creating lp {}s", sw));
 
       if (lp_file) {

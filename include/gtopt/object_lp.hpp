@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include <gtopt/object.hpp>
 #include <gtopt/schedule.hpp>
 
@@ -123,9 +125,26 @@ public:
    * @return Reference to the wrapped object
    */
 
-  [[nodiscard]] constexpr auto&& object(this auto&& self) noexcept
+  [[nodiscard]] constexpr ObjectType& object(this ObjectLP& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.m_object_);
+    return self.m_object_;
+  }
+
+  [[nodiscard]] constexpr const ObjectType& object(
+      this const ObjectLP& self) noexcept
+  {
+    return self.m_object_;
+  }
+
+  [[nodiscard]] constexpr ObjectType&& object(this ObjectLP&& self) noexcept
+  {
+    return std::move(self.m_object_);
+  }
+
+  [[nodiscard]] constexpr const ObjectType&& object(
+      this const ObjectLP&& self) noexcept
+  {
+    return std::move(self.m_object_);
   }
 };
 
