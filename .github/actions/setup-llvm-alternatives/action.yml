@@ -1,0 +1,28 @@
+name: Setup LLVM unversioned alternatives
+description: >
+  Registers every versioned llvm-*-N and selected clang-*-N binary installed
+  by egor-tensin/setup-clang as an unversioned update-alternatives entry.
+  Any conflicting pre-installed alternative (e.g. from llvm-18) is evicted
+  first, so tools like llvm-cov, llvm-profdata, clang-tidy, etc. are all
+  reachable without a version suffix.
+
+runs:
+  using: composite
+  steps:
+    - name: create LLVM tool symlinks
+      shell: bash
+      run: |
+        VER=$(clang --version | head -1 | grep -oP '(?<=version )\d+')
+        for versioned in /usr/bin/llvm-*-${VER} \
+                         /usr/bin/clang-apply-replacements-${VER} \
+                         /usr/bin/clang-check-${VER} \
+                         /usr/bin/clang-extdef-mapping-${VER} \
+                         /usr/bin/clang-query-${VER} \
+                         /usr/bin/clang-rename-${VER} \
+                         /usr/bin/clang-tblgen-${VER}; do
+          [ -e "$versioned" ] || continue
+          base=$(basename "$versioned" "-${VER}")
+          # Remove any pre-installed alternative (e.g. llvm-18) before registering
+          sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+          sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
+        done
