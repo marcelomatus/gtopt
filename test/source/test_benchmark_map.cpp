@@ -477,8 +477,8 @@ TEST_CASE("Benchmark - flat_map reserve effect with small sorted keys")
 
 TEST_CASE("Benchmark - flat_map reserve effect with small random keys")
 {
-  constexpr int n = 500;
-  auto keys = random_keys(n);
+  for (const int n : {4, 8, 12}) {
+    auto keys = random_keys(n);
 
   SUBCASE(("reserve random n=" + std::to_string(n)).c_str())
   {
