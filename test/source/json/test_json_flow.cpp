@@ -31,7 +31,7 @@ TEST_CASE("Flow JSON basic parsing")
   CHECK(flow.uid == 1);
   CHECK(flow.name == "inflow");
   REQUIRE(flow.direction.has_value());
-  CHECK(*flow.direction == 1);
+  CHECK(flow.direction.value_or(0) == 1);
   CHECK(std::get<Uid>(flow.junction) == 10);
   CHECK(std::get<Real>(flow.discharge) == doctest::Approx(25.5));
 }
@@ -68,7 +68,7 @@ TEST_CASE("Flow JSON round-trip serialization")
   CHECK(roundtrip.uid == 7);
   CHECK(roundtrip.name == "nat_inflow");
   REQUIRE(roundtrip.direction.has_value());
-  CHECK(*roundtrip.direction == -1);
+  CHECK(roundtrip.direction.value_or(0) == -1);
   CHECK(std::get<Uid>(roundtrip.junction) == 3);
   CHECK(std::get<Real>(roundtrip.discharge) == doctest::Approx(42.0));
 }
@@ -86,7 +86,7 @@ TEST_CASE("Flow JSON array parsing")
   CHECK(flows[0].uid == 1);
   CHECK(flows[1].uid == 2);
   REQUIRE(flows[1].direction.has_value());
-  CHECK(*flows[1].direction == -1);
+  CHECK(flows[1].direction.value_or(0) == -1);
 }
 
 TEST_CASE("Flow is_input method")
