@@ -62,8 +62,12 @@ concept AddToLP = requires(T obj,
                            const StageLP& stage,
                            LinearProblem& lp,
                            OutputContext& output_context) {
-  { obj.add_to_lp(system_context, scenario, stage, lp) } -> std::same_as<bool>;
-  { obj.add_to_output(output_context) } -> std::same_as<bool>;
+  {
+    obj.add_to_lp(system_context, scenario, stage, lp)
+  } -> std::same_as<bool>;
+  {
+    obj.add_to_output(output_context)
+  } -> std::same_as<bool>;
 };
 
 // Verify all required types satisfy AddToLP concept
