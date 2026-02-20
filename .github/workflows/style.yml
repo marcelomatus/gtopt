@@ -29,7 +29,7 @@ jobs:
       - name: install clang
         uses: egor-tensin/setup-clang@v2
         with:
-          version: latest
+          version: 21
 
       - name: configure
         run: cmake -S cmake/format -B build
