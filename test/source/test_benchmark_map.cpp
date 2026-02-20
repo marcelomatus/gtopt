@@ -156,8 +156,8 @@ void report(std::string_view label, double std_map_ns, double flat_map_ns)
 }
 
 template<typename Map>
-auto bench_insert_reserved(const std::vector<int>& keys,
-                           int iterations) -> double
+auto bench_insert_reserved(const std::vector<int>& keys, int iterations)
+    -> double
 {
   const auto n = keys.size();
 
@@ -190,8 +190,8 @@ void report_reserve(std::string_view label,
 }
 
 template<typename Map>
-auto bench_insert_map_reserved(const std::vector<int>& keys,
-                               int iterations) -> double
+auto bench_insert_map_reserved(const std::vector<int>& keys, int iterations)
+    -> double
 {
   const auto n = keys.size();
 
