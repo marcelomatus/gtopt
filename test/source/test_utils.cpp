@@ -401,3 +401,24 @@ TEST_CASE("merge_opt dest has value, source empty")
   merge_opt(a, b);
   CHECK(a == 42);
 }
+
+TEST_CASE("merge_opt noexcept and constexpr properties")
+{
+  SUBCASE("merge_opt is noexcept for nothrow-assignable types")
+  {
+    std::optional<int> a;
+    const std::optional<int> b = 1;
+    // optional<int> assignment is noexcept -> conditional noexcept fires
+    CHECK(noexcept(merge_opt(a, b)));
+  }
+
+  SUBCASE("get_optvalue runtime behavior")
+  {
+    // Runtime check using the actual get_optvalue function
+    const std::map<int, std::string> m {{1, "a"}, {2, "b"}};
+    const auto opt = get_optvalue(m, 1);
+    REQUIRE(opt.has_value());
+    CHECK(*opt == "a");
+    CHECK_FALSE(get_optvalue(m, 99).has_value());
+  }
+}

@@ -233,10 +233,9 @@ public:
   template<typename Projection,
            typename Value = Index,
            typename Factor = block_factor_matrix_t>
-  [[nodiscard]] constexpr auto flat(
-      const GSTBIndexHolder<Value>& hstb,
-      Projection proj,
-      const Factor& factor = Factor()) const noexcept
+  [[nodiscard]] constexpr auto flat(const GSTBIndexHolder<Value>& hstb,
+                                    Projection proj,
+                                    const Factor& factor = Factor()) const
   {
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
@@ -317,10 +316,9 @@ public:
   template<typename Projection,
            typename Value = Index,
            typename Factor = scenario_stage_factor_matrix_t>
-  [[nodiscard]] constexpr auto flat(
-      const STIndexHolder<Value>& hst,
-      Projection proj,
-      const Factor& factor = Factor()) const noexcept
+  [[nodiscard]] constexpr auto flat(const STIndexHolder<Value>& hst,
+                                    Projection proj,
+                                    const Factor& factor = Factor()) const
   {
     const auto size = m_active_scenarios_.size() * m_active_stages_.size();
     std::vector<double> values(size);
@@ -358,7 +356,7 @@ public:
            typename Factor = stage_factor_matrix_t>
   [[nodiscard]] constexpr auto flat(const TIndexHolder<Value>& ht,
                                     Projection proj = {},
-                                    const Factor& factor = {}) const noexcept
+                                    const Factor& factor = {}) const
   {
     const auto size = m_active_stages_.size();
     std::vector<double> values(size);

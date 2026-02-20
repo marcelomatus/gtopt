@@ -198,7 +198,8 @@ constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
  */
 template<typename OptA, typename OptB>
   requires requires(OptA& a, OptB&& b) { a = std::forward<OptB>(b); }
-constexpr auto& merge_opt(OptA& a, OptB&& b) noexcept
+constexpr auto& merge_opt(OptA& a, OptB&& b) noexcept(
+    noexcept(a = std::forward<OptB>(b)))
 {
   if (b) {
     a = std::forward<OptB>(b);

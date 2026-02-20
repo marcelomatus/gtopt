@@ -113,8 +113,7 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
     {
       auto result = pool.submit(
-          [&]
-          {
+          [&] {
             return resolve_scene_phases(scene_index, phase_systems, lp_opts);
           });
       futures.push_back(std::move(result.value()));
