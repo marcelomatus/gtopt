@@ -82,6 +82,14 @@ namespace gtopt
                             ex.what()));
           }
 
+          // Check existence before calling daw::read_file, which is noexcept
+          // and would call std::terminate via std::filesystem::file_size if
+          // the file is missing.
+          if (!std::filesystem::exists(fpath)) {
+            return std::unexpected(
+                std::format("Input file '{}' does not exist", fpath.string()));
+          }
+
           // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak is in
           const auto json_result = daw::read_file(fpath.string());
 
