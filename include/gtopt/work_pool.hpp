@@ -269,7 +269,7 @@ public:
     double current_cpu_load;
   };
 
-  Statistics get_statistics() const
+  Statistics get_statistics() const noexcept
   {
     std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
     std::unique_lock active_lock(active_mutex_, std::defer_lock);
