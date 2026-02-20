@@ -62,7 +62,7 @@ public:
   [[nodiscard]]
   constexpr auto&& junction(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   /// @return Whether this junction has drainage enabled

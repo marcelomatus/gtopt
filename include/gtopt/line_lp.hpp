@@ -37,7 +37,7 @@ public:
   [[nodiscard]] constexpr auto&& line(this auto&& self) noexcept
   {
     // Forward the object() call with same value category as self
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   [[nodiscard]] constexpr auto bus_a_sid() const noexcept -> BusLPSId

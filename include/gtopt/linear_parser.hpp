@@ -51,21 +51,21 @@ struct ParseResult
   [[nodiscard]] std::vector<double> getCoefficientsVector(
       const std::vector<std::string>& variable_order) const
   {
-    return variable_order
+    return std::ranges::to<std::vector>(
+        variable_order
         | std::views::transform(
-               [this](const std::string& var) -> double
-               {
-                 auto it = coefficients.find(var);
-                 return (it != coefficients.end()) ? it->second : 0.0;
-               })
-        | std::ranges::to<std::vector>();
+            [this](const std::string& var) -> double
+            {
+              auto it = coefficients.find(var);
+              return (it != coefficients.end()) ? it->second : 0.0;
+            }));
   }
 
   // Get all variable names in sorted order
   [[nodiscard]] std::vector<std::string> getVariableNames() const
   {
-    auto names = coefficients | std::views::keys
-        | std::ranges::to<std::vector<std::string>>();
+    auto names = std::ranges::to<std::vector<std::string>>(coefficients
+                                                           | std::views::keys);
     std::ranges::sort(names);
     return names;
   }

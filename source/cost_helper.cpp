@@ -16,10 +16,10 @@ namespace gtopt
 
 auto CostHelper::block_icost_factors() const -> block_factor_matrix_t
 {
-  const auto active_scenarios = enumerate_active<Index>(m_scenarios_.get())
-      | std::ranges::to<std::vector>();
+  const auto active_scenarios =
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_scenarios_.get()));
   const auto active_stages =
-      enumerate_active<Index>(m_stages_.get()) | std::ranges::to<std::vector>();
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_stages_.get()));
 
   block_factor_matrix_t factors(active_scenarios.size(), active_stages.size());
 
@@ -40,14 +40,14 @@ auto CostHelper::stage_icost_factors(double probability) const
 {
   auto&& active_stages = enumerate_active<Index>(m_stages_.get());
 
-  return active_stages
-      | std::views::transform(
-             [&](const auto& is)
-             {
-               const auto& [i, s] = is;
-               return 1.0 / cost_factor(s, probability);
-             })
-      | std::ranges::to<std::vector>();
+  return std::ranges::to<std::vector>(active_stages
+                                      | std::views::transform(
+                                          [&](const auto& is)
+                                          {
+                                            const auto& [i, s] = is;
+                                            return 1.0
+                                                / cost_factor(s, probability);
+                                          }));
 
   // return to_vector(active_stages,
   //                  [&](const auto& is)
@@ -57,10 +57,10 @@ auto CostHelper::stage_icost_factors(double probability) const
 auto CostHelper::scenario_stage_icost_factors() const
     -> scenario_stage_factor_matrix_t
 {
-  const auto active_scenarios = enumerate_active<Index>(m_scenarios_.get())
-      | std::ranges::to<std::vector>();
+  const auto active_scenarios =
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_scenarios_.get()));
   const auto active_stages =
-      enumerate_active<Index>(m_stages_.get()) | std::ranges::to<std::vector>();
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_stages_.get()));
 
   scenario_stage_factor_matrix_t factors(active_scenarios.size(),
                                          active_stages.size());

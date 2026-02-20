@@ -112,15 +112,15 @@ constexpr auto make_rzone_indexes(const InputContext& ic,
   { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
   auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
 
-  return rzones
+  return std::ranges::to<std::vector>(
+      rzones
       | std::views::transform(
-             [&](auto rz)
-             {
-               using RZoneId = ObjectSingleId<ReserveZoneLP>;
-               return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
-                                                  : RZoneId {std::move(rz)});
-             })
-      | std::ranges::to<std::vector>();
+          [&](auto rz)
+          {
+            using RZoneId = ObjectSingleId<ReserveZoneLP>;
+            return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
+                                               : RZoneId {std::move(rz)});
+          }));
 }
 
 }  // namespace

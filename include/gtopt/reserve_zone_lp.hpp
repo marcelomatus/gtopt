@@ -31,7 +31,7 @@ public:
 
   [[nodiscard]] constexpr auto&& reserve_zone(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,

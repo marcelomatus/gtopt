@@ -48,20 +48,20 @@ namespace detail
 {
   auto stages = stage_array.subspan(phase.first_stage, phase.count_stage);
 
-  return enumerate_active<StageIndex>(stages)
-      | std::ranges::views::transform(
-             [&](auto&& is)
-             {
-               const auto& [stage_index, stage] = is;
-               return StageLP {
-                   stage,
-                   all_blocks,
-                   options.annual_discount_rate(),
-                   stage_index,
-                   phase_index,
-               };
-             })
-      | std::ranges::to<std::vector>();
+  return std::ranges::to<std::vector>(enumerate_active<StageIndex>(stages)
+                                      | std::ranges::views::transform(
+                                          [&](auto&& is)
+                                          {
+                                            const auto& [stage_index, stage] =
+                                                is;
+                                            return StageLP {
+                                                stage,
+                                                all_blocks,
+                                                options.annual_discount_rate(),
+                                                stage_index,
+                                                phase_index,
+                                            };
+                                          }));
 }
 }  // namespace detail
 

@@ -107,27 +107,22 @@ class FlatHelper
 public:
   explicit FlatHelper(const SimulationLP& simulation)
       : m_simulation_(simulation)
-      , m_active_scenarios_(simulation.scenarios()
-                            | std::views::filter(&ScenarioLP::is_active)
-                            | std::views::transform(&ScenarioLP::uid)
-                            | std::ranges::to<std::vector>())
-      , m_active_stages_(simulation.stages()
-                         | std::views::filter(&StageLP::is_active)
-                         | std::views::transform(&StageLP::uid)
-                         | std::ranges::to<std::vector>())
-      , m_active_stage_blocks_(simulation.stages()
-                               | std::views::filter(&StageLP::is_active)
-                               | std::views::transform(
-                                   [](const StageLP& stage)
-                                   {
-                                     return stage.blocks()
-                                         | std::views::transform(&BlockLP::uid)
-                                         | std::ranges::to<std::vector>();
-                                   })
-                               | std::ranges::to<std::vector>())
-      , m_active_blocks_(simulation.blocks()
-                         | std::views::transform(&BlockLP::uid)
-                         | std::ranges::to<std::vector>())
+      , m_active_scenarios_(std::ranges::to<std::vector>(
+            simulation.scenarios() | std::views::filter(&ScenarioLP::is_active)
+            | std::views::transform(&ScenarioLP::uid)))
+      , m_active_stages_(std::ranges::to<std::vector>(
+            simulation.stages() | std::views::filter(&StageLP::is_active)
+            | std::views::transform(&StageLP::uid)))
+      , m_active_stage_blocks_(std::ranges::to<std::vector>(
+            simulation.stages() | std::views::filter(&StageLP::is_active)
+            | std::views::transform(
+                [](const StageLP& stage)
+                {
+                  return std::ranges::to<std::vector>(
+                      stage.blocks() | std::views::transform(&BlockLP::uid));
+                })))
+      , m_active_blocks_(std::ranges::to<std::vector>(
+            simulation.blocks() | std::views::transform(&BlockLP::uid)))
   {
   }
 

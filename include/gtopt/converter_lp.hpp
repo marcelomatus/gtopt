@@ -29,7 +29,7 @@ public:
 
   [[nodiscard]] constexpr auto&& converter(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   explicit ConverterLP(const Converter& pconverter, InputContext& ic);
