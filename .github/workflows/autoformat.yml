@@ -37,14 +37,19 @@ jobs:
 
       - name: create LLVM tool symlinks
         run: |
-          VER=$(clang --version | head -1 | grep -oP '\d+(?=\.\d+\.\d+)')
-          for tool in /usr/bin/llvm-*-${VER} /usr/bin/clang-apply-replacements-${VER} \
-                      /usr/bin/clang-check-${VER} /usr/bin/clang-extdef-mapping-${VER} \
-                      /usr/bin/clang-query-${VER} /usr/bin/clang-rename-${VER} \
-                      /usr/bin/clang-tblgen-${VER}; do
-            [ -f "$tool" ] || [ -L "$tool" ] || continue
-            base=$(basename "$tool" "-${VER}")
-            sudo update-alternatives --install /usr/bin/"$base" "$base" "$tool" 100
+          VER=$(clang --version | head -1 | grep -oP '(?<=version )\d+')
+          for versioned in /usr/bin/llvm-*-${VER} \
+                           /usr/bin/clang-apply-replacements-${VER} \
+                           /usr/bin/clang-check-${VER} \
+                           /usr/bin/clang-extdef-mapping-${VER} \
+                           /usr/bin/clang-query-${VER} \
+                           /usr/bin/clang-rename-${VER} \
+                           /usr/bin/clang-tblgen-${VER}; do
+            [ -e "$versioned" ] || continue
+            base=$(basename "$versioned" "-${VER}")
+            # Remove any pre-installed alternative (e.g. llvm-18) before registering
+            sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+            sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
           done
 
       - name: Run clang-format on all tracked C/C++ files
