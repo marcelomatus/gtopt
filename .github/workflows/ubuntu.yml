@@ -43,17 +43,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
       - name: install clang
-        uses: egor-tensin/setup-clang@v2
+        uses: ./.github/actions/install-clang
         with:
           version: 21
-
-      - name: create LLVM tool symlinks
-        uses: ./.github/actions/setup-llvm-alternatives
-
-      - name: install clang coverage runtime
-        run: |
-          VER=$(clang --version | head -1 | grep -oP '(?<=version )\d+')
-          sudo apt-get install -y --no-install-recommends libclang-rt-${VER}-dev
+          install-coverage-runtime: 'true'
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -102,6 +95,7 @@ jobs:
             --ignore-errors mismatch,mismatch \
             --ignore-errors unexecuted,unexecuted \
             --ignore-errors negative,negative \
+            --ignore-errors inconsistent,inconsistent \
             --rc geninfo_unexecuted_blocks=1 \
             --rc branch_coverage=1
           # Remove external/test/system files from coverage
@@ -190,17 +184,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
       - name: install clang
-        uses: egor-tensin/setup-clang@v2
+        uses: ./.github/actions/install-clang
         with:
           version: 21
-
-      - name: create LLVM tool symlinks
-        uses: ./.github/actions/setup-llvm-alternatives
-
-      - name: install clang coverage runtime
-        run: |
-          VER=$(clang --version | head -1 | grep -oP '(?<=version )\d+')
-          sudo apt-get install -y --no-install-recommends libclang-rt-${VER}-dev
+          install-coverage-runtime: 'true'
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -259,6 +246,7 @@ jobs:
             --ignore-errors mismatch,mismatch \
             --ignore-errors unexecuted,unexecuted \
             --ignore-errors negative,negative \
+            --ignore-errors inconsistent,inconsistent \
             --rc geninfo_unexecuted_blocks=1 \
             --rc branch_coverage=1
           lcov --remove integration-coverage-raw.info \

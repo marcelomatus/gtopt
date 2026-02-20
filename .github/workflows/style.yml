@@ -27,12 +27,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: install clang
-        uses: egor-tensin/setup-clang@v2
+        uses: ./.github/actions/install-clang
         with:
           version: 21
-
-      - name: create LLVM tool symlinks
-        uses: ./.github/actions/setup-llvm-alternatives
 
       - name: configure
         run: cmake -S cmake/format -B build
