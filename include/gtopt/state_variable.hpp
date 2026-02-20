@@ -157,7 +157,7 @@ public:
     return m_dependent_variables_;
   }
 
-  constexpr auto add_dependent_variable(LPKey lp_key, ColIndex col) noexcept
+  constexpr auto add_dependent_variable(LPKey lp_key, ColIndex col)
       -> const DependentVariable&
   {
     return m_dependent_variables_.emplace_back(lp_key, col);
@@ -166,7 +166,7 @@ public:
   template<typename ScenarioLP, typename StageLP>
   constexpr auto add_dependent_variable(const ScenarioLP& scenario,
                                         const StageLP& stage,
-                                        ColIndex col) noexcept
+                                        ColIndex col)
       -> const DependentVariable&
   {
     return add_dependent_variable(
