@@ -187,11 +187,16 @@ jobs:
       - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 cmake coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
           wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: install clang
+        uses: egor-tensin/setup-clang@v2
+        with:
+          version: latest
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -202,8 +207,8 @@ jobs:
       - name: configure gtopt
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: clang
+          CXX: clang++
 
       - name: build gtopt
         run: cmake --build build -j4
