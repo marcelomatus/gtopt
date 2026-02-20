@@ -51,9 +51,15 @@ public:
    * @return A reference to the SystemLP object, preserving const and value
    * category.
    */
-  [[nodiscard]] constexpr auto&& system_lp(this auto&& self) noexcept
+  [[nodiscard]] constexpr SystemLP_Type& system_lp(this auto& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.m_system_lp_.get());
+    return self.m_system_lp_.get();
+  }
+
+  [[nodiscard]] constexpr const SystemLP_Type& system_lp(
+      this const auto& self) noexcept
+  {
+    return self.m_system_lp_.get();
   }
 
   /**
