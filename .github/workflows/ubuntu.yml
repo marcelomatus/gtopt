@@ -47,6 +47,9 @@ jobs:
         with:
           version: 21
 
+      - name: install clang coverage runtime
+        run: sudo apt-get install -y --no-install-recommends libclang-rt-21-dev
+
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
@@ -184,6 +187,9 @@ jobs:
         uses: egor-tensin/setup-clang@v2
         with:
           version: 21
+
+      - name: install clang coverage runtime
+        run: sudo apt-get install -y --no-install-recommends libclang-rt-21-dev
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
