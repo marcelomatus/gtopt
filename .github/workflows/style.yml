@@ -26,8 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install clang-format
-        run: sudo apt-get install -y --no-install-recommends clang-format
+      - name: install clang
+        uses: egor-tensin/setup-clang@v2
+        with:
+          version: latest
 
       - name: configure
         run: cmake -S cmake/format -B build
