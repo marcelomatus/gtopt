@@ -74,7 +74,8 @@ struct InputTraits : UidTraits
                        chunk->length());
 
           if constexpr (std::is_integral_v<Type>
-                        && sizeof(Type) >= sizeof(int32_t)) {
+                        && sizeof(Type) >= sizeof(int32_t))
+          {
             if (!is_compatible_int32_type(chunk->type_id())) {
               SPDLOG_ERROR(
                   "access_sched: type mismatch for int32 cast: "

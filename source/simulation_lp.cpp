@@ -29,80 +29,79 @@ constexpr auto create_block_array(const Simulation& simulation)
 {
   auto index = BlockIndex {0};
 
-  return simulation.stage_array | std::views::filter(&Stage::is_active)
+  return std::ranges::to<std::vector>(
+      simulation.stage_array | std::views::filter(&Stage::is_active)
       | std::views::transform(
-             [&](const Stage& stage)
-             {
-               return std::span(simulation.block_array)
-                          .subspan(stage.first_block, stage.count_block)
-                   | std::views::transform([&](const Block& block)
-                                           { return BlockLP {block, index++}; })
-                   | std::ranges::to<std::vector>();
-             })
-      | std::views::join  // Flatten nested ranges
-      | std::ranges::to<std::vector>();
+          [&](const Stage& stage)
+          {
+            return std::ranges::to<std::vector>(
+                std::span(simulation.block_array)
+                    .subspan(stage.first_block, stage.count_block)
+                | std::views::transform([&](const Block& block)
+                                        { return BlockLP {block, index++}; }));
+          })
+      | std::views::join);
 }
 
 constexpr auto create_stage_array(const Simulation& simulation,
                                   const OptionsLP& options)
 {
-  return enumerate_active<StageIndex>(simulation.stage_array)
+  return std::ranges::to<std::vector>(
+      enumerate_active<StageIndex>(simulation.stage_array)
       | std::ranges::views::transform(
-             [&](auto&& is)
-             {
-               const auto& [index, stage] = is;
-               return StageLP {
-                   stage,
-                   simulation.block_array,
-                   options.annual_discount_rate(),
-                   index,
-               };
-             })
-      | std::ranges::to<std::vector>();
+          [&](auto&& is)
+          {
+            const auto& [index, stage] = is;
+            return StageLP {
+                stage,
+                simulation.block_array,
+                options.annual_discount_rate(),
+                index,
+            };
+          }));
 }
 
 constexpr auto create_scenario_array(const Simulation& simulation)
 {
   auto&& scenarios = simulation.scenario_array;
 
-  return enumerate_active<ScenarioIndex>(scenarios)
-      | std::ranges::views::transform(
-             [](const auto& is)
-             {
-               const auto& [index, scenario] = is;
-               return ScenarioLP {scenario, index};
-             })
-      | std::ranges::to<std::vector>();
+  return std::ranges::to<std::vector>(enumerate_active<ScenarioIndex>(scenarios)
+                                      | std::ranges::views::transform(
+                                          [](const auto& is)
+                                          {
+                                            const auto& [index, scenario] = is;
+                                            return ScenarioLP {scenario, index};
+                                          }));
 }
 
 constexpr auto create_phase_array(const Simulation& simulation,
                                   const OptionsLP& options)
 {
-  return enumerate_active<PhaseIndex>(simulation.phase_array)
+  return std::ranges::to<std::vector>(
+      enumerate_active<PhaseIndex>(simulation.phase_array)
       | std::ranges::views::transform(
-             [&](auto&& is)
-             {
-               const auto& [index, phase] = is;
-               return PhaseLP {
-                   phase,
-                   options,
-                   simulation,
-                   index,
-               };
-             })
-      | std::ranges::to<std::vector>();
+          [&](auto&& is)
+          {
+            const auto& [index, phase] = is;
+            return PhaseLP {
+                phase,
+                options,
+                simulation,
+                index,
+            };
+          }));
 }
 
 constexpr auto create_scene_array(const Simulation& simulation)
 {
-  return enumerate_active<SceneIndex>(simulation.scene_array)
+  return std::ranges::to<std::vector>(
+      enumerate_active<SceneIndex>(simulation.scene_array)
       | std::ranges::views::transform(
-             [&](const auto& si)
-             {
-               auto&& [index, scene] = si;
-               return SceneLP {scene, simulation, index};
-             })
-      | std::ranges::to<std::vector>();
+          [&](const auto& si)
+          {
+            auto&& [index, scene] = si;
+            return SceneLP {scene, simulation, index};
+          }));
 }
 
 }  // namespace
@@ -124,15 +123,14 @@ SimulationLP::SimulationLP(const Simulation& simulation,
     , m_phase_array_(create_phase_array(simulation, options))
     , m_scenario_array_(create_scenario_array(simulation))
     , m_scene_array_(create_scene_array(simulation))
-    , m_global_variable_map_(
+    , m_global_variable_map_(std::ranges::to<global_variable_map_t>(
           std::views::iota(0U, m_scene_array_.size())
           | std::views::transform(
               [&](const auto&)
               {
                 return StrongIndexVector<PhaseIndex, state_variable_map_t>(
                     m_phase_array_.size());
-              })
-          | std::ranges::to<global_variable_map_t>())
+              })))
 {
 }
 
