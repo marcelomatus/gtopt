@@ -42,7 +42,7 @@ public:
 
   [[nodiscard]] constexpr auto&& turbine(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   [[nodiscard]] constexpr auto waterway_sid() const noexcept

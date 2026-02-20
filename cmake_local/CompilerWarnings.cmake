@@ -8,6 +8,9 @@ function(target_set_warnings target)
       -Wextra
       -Werror
       -Wno-deprecated-declarations
+  )
+
+  set(GCC_WARNINGS
       -Wno-c2y-extensions
   )
 
@@ -16,6 +19,7 @@ function(target_set_warnings target)
   target_compile_options(
     ${target}
     PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:${CLANG_GCC_WARNINGS}>"
+           "$<$<COMPILE_LANG_AND_ID:CXX,GNU>:${GCC_WARNINGS}>"
            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${MSVC_WARNINGS}>"
   )
 

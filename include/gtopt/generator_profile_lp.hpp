@@ -40,7 +40,7 @@ public:
 
   [[nodiscard]] constexpr auto&& generator_profile(this auto&& self) noexcept
   {
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   [[nodiscard]] constexpr auto generator_sid() const noexcept

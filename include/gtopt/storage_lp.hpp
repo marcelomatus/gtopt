@@ -33,7 +33,7 @@ public:
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
     // Forward the object() call with same value category as self
-    return std::forward_like<decltype(self)>(self.object());
+    return self.object();
   }
 
   template<typename ObjectT>

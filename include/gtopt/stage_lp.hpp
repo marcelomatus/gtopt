@@ -29,10 +29,10 @@ namespace detail
 [[nodiscard]] constexpr auto create_block_array(
     std::span<const Block> block_array, const Stage& stage)
 {
-  return block_array.subspan(stage.first_block, stage.count_block)
+  return std::ranges::to<std::vector>(
+      block_array.subspan(stage.first_block, stage.count_block)
       | std::ranges::views::transform([](const Block& b)
-                                      { return BlockLP {b}; })
-      | std::ranges::to<std::vector>();
+                                      { return BlockLP {b}; }));
 }
 }  // namespace detail
 
