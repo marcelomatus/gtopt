@@ -62,6 +62,7 @@ void AdaptiveWorkPool::shutdown()
     for (auto& task : active_tasks_) {
       task.future.wait();
     }
+    tasks_active_.store(0, std::memory_order_relaxed);
     active_tasks_.clear();
   }
 
@@ -79,6 +80,7 @@ void AdaptiveWorkPool::cleanup_completed_tasks()
                        if (task.is_ready()) {
                          active_threads_ -= task.requirements.estimated_threads;
                          tasks_completed_++;
+                         tasks_active_.fetch_sub(1, std::memory_order_relaxed);
                          return true;
                        }
                        return false;
@@ -134,6 +136,8 @@ void AdaptiveWorkPool::schedule_next_task()
 
   task_queue_.pop();
 
+  tasks_pending_.fetch_sub(1, std::memory_order_relaxed);
+
   auto req = task.requirements();
   const auto threads_needed = req.estimated_threads;
   active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
@@ -157,6 +161,7 @@ void AdaptiveWorkPool::schedule_next_task()
         .requirements = std::move(req),
         .start_time = std::chrono::steady_clock::now(),
     });
+    tasks_active_.fetch_add(1, std::memory_order_relaxed);
 
   } catch (...) {
     active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);

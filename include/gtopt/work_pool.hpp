@@ -167,6 +167,8 @@ class AdaptiveWorkPool
 
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
+  std::atomic<size_t> tasks_pending_ {0};
+  std::atomic<size_t> tasks_active_ {0};
 
 public:
   AdaptiveWorkPool(AdaptiveWorkPool&&) = delete;
@@ -222,6 +224,7 @@ public:
         try {
           task_queue_.emplace([task]() { (*task)(); }, req);
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+          tasks_pending_.fetch_add(1, std::memory_order_relaxed);
         } catch (const std::bad_alloc&) {
           SPDLOG_ERROR("Failed to allocate memory for task queue");
           return std::unexpected(
@@ -271,14 +274,11 @@ public:
 
   Statistics get_statistics() const noexcept
   {
-    std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
-    std::unique_lock active_lock(active_mutex_, std::defer_lock);
-    std::lock(queue_lock, active_lock);
     return Statistics {
         .tasks_submitted = tasks_submitted_.load(),
         .tasks_completed = tasks_completed_.load(),
-        .tasks_pending = task_queue_.size(),
-        .tasks_active = active_tasks_.size(),
+        .tasks_pending = tasks_pending_.load(),
+        .tasks_active = tasks_active_.load(),
         .active_threads = active_threads_.load(),
         .current_cpu_load = cpu_monitor_.get_load(),
     };
