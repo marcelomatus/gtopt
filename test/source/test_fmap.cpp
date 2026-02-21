@@ -337,6 +337,23 @@ TEST_CASE("flat_map - map_reserve with zero")
   CHECK(map[1] == "one");
 }
 
+TEST_CASE("flat_map - map_reserve with zero on non-empty map")
+{
+  flat_map<int, std::string> map;
+  map[1] = "one";
+  map[2] = "two";
+
+  map_reserve(map, 0);
+
+  CHECK(map.size() == 2);
+  CHECK(map[1] == "one");
+  CHECK(map[2] == "two");
+
+  map[3] = "three";
+  CHECK(map.size() == 3);
+  CHECK(map[3] == "three");
+}
+
 TEST_CASE("flat_map - map_reserve preserves order and lookup")
 {
   flat_map<int, int> map;
