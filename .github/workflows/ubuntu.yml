@@ -243,33 +243,6 @@ jobs:
           key: ${{ github.workflow }}-${{ matrix.compiler }}-integration
           max-size: 2G
 
-      - name: configure standalone (Release, for install)
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-
-      - name: build standalone
-        run: cmake --build build -j$(nproc)
-
-      - name: install gtopt
-        run: cmake --install build --prefix build/install
-
-      - name: verify installed binary has no missing shared libraries
-        run: |
-          echo "=== ldd output ==="
-          ldd build/install/bin/gtopt
-          if ldd build/install/bin/gtopt | grep -q "not found"; then
-            echo "::error::Installed gtopt binary has missing shared libraries"
-            exit 1
-          fi
-          echo "✓ All shared libraries resolved"
-
-      - name: verify installed binary runs
-        run: |
-          build/install/bin/gtopt --version
-          echo "✓ Installed gtopt --version works"
-
       - name: configure integration_test (Debug, with coverage)
         run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
@@ -278,6 +251,21 @@ jobs:
 
       - name: build integration_test
         run: cmake --build build-integration -j$(nproc)
+
+      - name: verify binary has no missing shared libraries
+        run: |
+          echo "=== ldd output ==="
+          ldd build-integration/gtopt
+          if ldd build-integration/gtopt | grep -q "not found"; then
+            echo "::error::gtopt binary has missing shared libraries"
+            exit 1
+          fi
+          echo "✓ All shared libraries resolved"
+
+      - name: verify binary runs
+        run: |
+          build-integration/gtopt --version
+          echo "✓ gtopt --version works"
 
       - name: run integration tests
         run: |
