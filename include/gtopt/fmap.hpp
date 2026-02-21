@@ -56,7 +56,7 @@ void map_reserve(Map& map, Size n)
 
 }  // namespace gtopt
 
-#elif defined(GTOPT_USE_STD_MAP)
+#elifdef GTOPT_USE_STD_MAP
 #  include <map>
 
 namespace gtopt
