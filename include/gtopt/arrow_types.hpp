@@ -18,8 +18,8 @@ using ArrowChunkedArray = std::shared_ptr<arrow::ChunkedArray>;
 using ArrowColumnResult = arrow::Result<ArrowChunkedArray>;
 
 /// Get column by name with explicit error checking
-inline auto GetColumn(const ArrowTable& table,
-                      std::string_view name) -> ArrowColumnResult
+inline auto GetColumn(const ArrowTable& table, std::string_view name)
+    -> ArrowColumnResult
 {
   return table->GetColumnByName(std::string(name));
 }
