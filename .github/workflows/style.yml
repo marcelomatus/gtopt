@@ -29,7 +29,13 @@ jobs:
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 22
+          version: 21
+
+      - name: validate clang
+        run: |
+          clang --version
+          clang++ --version
+          clang-format --version
 
       - name: configure
         run: cmake -S cmake/format -B build
