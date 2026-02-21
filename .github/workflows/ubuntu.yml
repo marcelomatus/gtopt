@@ -18,15 +18,18 @@ concurrency:
 # ---- Compiler selection ----
 # Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
 #
-#   GCC 14 (default — ccache + coverage works best):
+#   GCC 14:
 #     ACTIVE_COMPILER: gcc
 #     CC: gcc-14  CXX: g++-14
-#     GCOV_TOOL: gcov-14  CLANG_COVERAGE_RUNTIME: 'false'
+#     GCOV_TOOL: gcov-14
 #
-#   Clang 21:
+#   Clang 21 (default):
 #     ACTIVE_COMPILER: clang
 #     CC: clang  CXX: clang++
-#     GCOV_TOOL: /tmp/llvm-gcov.sh  CLANG_COVERAGE_RUNTIME: 'true'
+#     GCOV_TOOL: /tmp/llvm-gcov.sh
+#
+# The Clang coverage runtime (libclang_rt.profile-*) is installed automatically
+# when ACTIVE_COMPILER==clang AND ENABLE_COVERAGE==true.
 #
 # ccache notes:
 #   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
@@ -43,7 +46,6 @@ env:
   CC: clang
   CXX: clang++
   GCOV_TOOL: /tmp/llvm-gcov.sh
-  CLANG_COVERAGE_RUNTIME: 'true'
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   ENABLE_COVERAGE: 'false'
@@ -105,7 +107,7 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: ${{ env.CLANG_COVERAGE_RUNTIME }}
+          install-coverage-runtime: ${{ env.ACTIVE_COMPILER == 'clang' && env.ENABLE_COVERAGE == 'true' }}
 
       - name: configure
         run: |
