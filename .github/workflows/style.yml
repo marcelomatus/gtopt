@@ -29,7 +29,7 @@ jobs:
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
 
       - name: validate clang
         run: |
