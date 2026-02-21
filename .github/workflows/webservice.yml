@@ -44,7 +44,7 @@ jobs:
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 22
+          version: 21
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
