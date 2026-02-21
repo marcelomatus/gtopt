@@ -1,15 +1,8 @@
 name: Webservice
 
 on:
-  push:
-    branches:
-      - master
-      - main
-  pull_request:
-    branches:
-      - master
-      - main
-  # Run after Ubuntu workflow builds and uploads the gtopt binary artifact
+  # Run only after Ubuntu workflow builds and uploads the gtopt binary artifact.
+  # To re-run manually: re-run the Ubuntu workflow; this will re-trigger Webservice.
   workflow_run:
     workflows: ["Ubuntu"]
     types: [completed]
@@ -31,7 +24,7 @@ env:
 jobs:
   webservice:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +90,7 @@ jobs:
 
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4

@@ -34,7 +34,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    name: build (${{ env.ACTIVE_COMPILER }})
+    name: build
 
     steps:
       - uses: actions/checkout@v4
