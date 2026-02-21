@@ -1,22 +1,23 @@
 name: Install Clang and LLVM
 description: >
   Installs Clang and LLVM from the official LLVM apt repository using the
-  llvm.sh installer script, then registers every clang-*-N and llvm-*-N
-  binary as an unversioned update-alternatives entry.  Any conflicting
-  pre-installed alternative (e.g. from the Ubuntu-bundled llvm-18) is evicted
-  first, so tools like clang, clang++, clang-format, clang-tidy, llvm-cov,
-  llvm-profdata, etc. are all reachable without a version suffix.
+  llvm.sh installer script (https://apt.llvm.org/llvm.sh), then registers
+  every clang-*-N and llvm-*-N binary as an unversioned update-alternatives
+  entry.  Any conflicting pre-installed alternative (e.g. from the
+  Ubuntu-bundled llvm-18) is evicted first, so tools like clang, clang++,
+  clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
+  without a version suffix.
 
-  NOTE on version availability: clang-22 packages are not yet available on
-  apt.llvm.org for the GitHub Actions Ubuntu runners, and the KyleMayes
-  install-llvm-action marketplace action (https://github.com/marketplace/actions/install-llvm-and-clang)
-  also does not provide Linux x64 binaries for clang-22 (latest is 21.x).
-  Use version 21 until clang-22 packages become available.
+  Clang 22 is installed via the LLVM nightly snapshot repository
+  (apt.llvm.org).  The KyleMayes install-llvm-action marketplace action does
+  not yet provide pre-built Linux x64 binaries for clang-22, but the llvm.sh
+  script reliably installs snapshot packages for clang-22 and later on
+  Ubuntu-based runners.
 
 inputs:
   version:
     description: LLVM major version to install
-    default: '21'
+    default: '22'
   install-coverage-runtime:
     description: >
       Set to 'true' to also install libclang-rt-N-dev, which provides
