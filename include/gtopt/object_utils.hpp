@@ -74,7 +74,7 @@ public:
   [[nodiscard]] constexpr auto lp_label(this const Self& self,
                                         SystemContext& sc,
                                         const StageLP& stage,
-                                        Args&&... args) noexcept
+                                        Args&&... args)
   {
     return sc.lp_label(
         stage, self.short_name(), std::forward<Args>(args)..., self.uid());
@@ -100,7 +100,7 @@ public:
                                         const ScenarioLP& scenario,
                                         const StageLP& stage,
                                         const BlockLP& block,
-                                        Args&&... args) noexcept
+                                        Args&&... args)
   {
     return sc.lp_label(scenario,
                        stage,
