@@ -9,9 +9,6 @@
  */
 
 #include <algorithm>
-#include <arrow/api.h>
-#include <arrow/io/api.h>
-#include <boost/container/flat_map.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -26,9 +23,6 @@
 #include <memory>
 #include <numeric>
 #include <optional>
-#include <parquet/arrow/reader.h>
-#include <parquet/arrow/writer.h>
-#include <parquet/exception.h>
 #include <random>
 #include <ranges>
 #include <sstream>
@@ -42,6 +36,9 @@
 #include <variant>
 #include <vector>
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
+#include <boost/container/flat_map.hpp>
 #include <doctest/doctest.h>
 #include <gtopt/app_options.hpp>
 #include <gtopt/array_index_traits.hpp>
@@ -114,7 +111,9 @@
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 #include <gtopt/work_pool.hpp>
-
+#include <parquet/arrow/reader.h>
+#include <parquet/arrow/writer.h>
+#include <parquet/exception.h>
 
 #include "test_app_options.hpp"
 #include "test_array_index_traits.hpp"
@@ -179,4 +178,3 @@
 #include "test_utils.hpp"
 #include "test_waterway.hpp"
 #include "test_work_pool.hpp"
-
