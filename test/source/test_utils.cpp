@@ -410,6 +410,11 @@ TEST_CASE("merge_opt noexcept and constexpr properties")
     const std::optional<int> b = 1;
     // optional<int> assignment is noexcept -> conditional noexcept fires
     CHECK(noexcept(merge_opt(a, b)));
+    CHECK(merge_opt(a, b));
+    CHECK(a.has_value());
+    CHECK(a.value_or(0) == 1);
+    a = 2;  // Reset for next check
+    CHECK(a.value_or(0) == 2);
   }
 
   SUBCASE("get_optvalue runtime behavior")
@@ -418,7 +423,7 @@ TEST_CASE("merge_opt noexcept and constexpr properties")
     const std::map<int, std::string> m {{1, "a"}, {2, "b"}};
     const auto opt = get_optvalue(m, 1);
     REQUIRE(opt.has_value());
-    CHECK(*opt == "a");
+    CHECK((opt.has_value() and (*opt == "a")));
     CHECK_FALSE(get_optvalue(m, 99).has_value());
   }
 }

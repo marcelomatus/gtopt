@@ -64,7 +64,7 @@ namespace gtopt
       spdlog::info("using fast json parsing");
     }
 
-    Planning planning;
+    Planning my_planning;
     {
       spdlog::stopwatch sw;
 
@@ -96,11 +96,11 @@ namespace gtopt
             if (strict_parsing) {
               auto plan = daw::json::from_json<Planning>(json_result.value(),
                                                          StrictParsePolicy);
-              planning.merge(std::move(plan));
+              my_planning.merge(std::move(plan));
             } else {
               auto plan = daw::json::from_json<Planning>(json_result.value(),
                                                          FastParsePolicy);
-              planning.merge(std::move(plan));
+              my_planning.merge(std::move(plan));
             }
           } catch (const daw::json::json_exception& jex) {
             return std::unexpected(std::format(
@@ -129,7 +129,7 @@ namespace gtopt
     // update the planning options
     //
     try {
-      apply_cli_options(planning,
+      apply_cli_options(my_planning,
                         use_single_bus,
                         use_kirchhoff,
                         use_lp_names,
@@ -168,7 +168,7 @@ namespace gtopt
         }
 
         try {
-          jfile << daw::json::to_json(planning) << '\n';
+          jfile << daw::json::to_json(my_planning) << '\n';
 
           if (!jfile) {
             return std::unexpected(std::format(
@@ -196,9 +196,8 @@ namespace gtopt
       const auto flat_opts = make_flat_options(use_lp_names, matrix_eps);
 
       spdlog::stopwatch sw;
-      PlanningLP planning_lp {
-          std::move(planning),
-          flat_opts};  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+      PlanningLP planning_lp {std::move(my_planning),  // NOLINT
+                              flat_opts};
       spdlog::info(std::format("creating lp {}s", sw));
 
       if (lp_file) {
