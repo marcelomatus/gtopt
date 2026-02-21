@@ -132,7 +132,7 @@ search, while tree traversal suffers from data-dependent branches.
 
 **Conclusion: always call `reserve()` for small maps when the final size is known.**
 The `gtopt::map_reserve()` wrapper in `fmap.hpp` handles this uniformly across all
-map backends (boost, std::flat_map, unordered_map).
+map backends (boost::container::flat_map, std::flat_map, and std::map).
 
 ## Recommendation for gtopt
 
