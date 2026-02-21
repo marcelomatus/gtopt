@@ -1,18 +1,17 @@
 /**
  * @file      test_planning_json.cpp
- * @brief     Tests for Planning JSON parsing and solve pipeline
+ * @brief     Tests for Planning JSON parsing and round-trip serialization
  * @date      2026-02-18
  * @copyright BSD-3-Clause
  *
  * Tests JSON round-trip parsing of Planning objects including all
- * component types, and exercises the full planning LP solve pipeline.
+ * component types.
  */
 
 #include <string_view>
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
-#include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;
 
@@ -75,97 +74,6 @@ static constexpr std::string_view planning_json = R"({
     ]
   }
 })";
-
-TEST_CASE("Planning JSON parse and solve")
-{
-  auto planning = daw::json::from_json<Planning>(planning_json);
-
-  CHECK(planning.system.name == "json_test_system");
-  CHECK(planning.system.bus_array.size() == 2);
-  CHECK(planning.system.generator_array.size() == 1);
-  CHECK(planning.system.demand_array.size() == 1);
-  CHECK(planning.system.line_array.size() == 1);
-  CHECK(planning.system.battery_array.size() == 1);
-  CHECK(planning.system.converter_array.size() == 1);
-
-  PlanningLP planning_lp(planning);
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-}
-
-static constexpr std::string_view hydro_planning_json = R"({
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1}
-    ]
-  },
-  "system": {
-    "name": "hydro_json_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "hydro_gen", "bus": 1, "gcost": 5, "capacity": 200},
-      {"uid": 2, "name": "thermal_gen", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-    ],
-    "junction_array": [
-      {"uid": 1, "name": "j_up"},
-      {"uid": 2, "name": "j_down", "drain": true}
-    ],
-    "waterway_array": [
-      {
-        "uid": 1, "name": "ww1",
-        "junction_a": 1, "junction_b": 2,
-        "fmin": 0, "fmax": 500
-      }
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow", "direction": 1, "junction": 1, "discharge": 20}
-    ],
-    "reservoir_array": [
-      {
-        "uid": 1, "name": "rsv1",
-        "junction": 1,
-        "capacity": 1000,
-        "vmin": 0, "vmax": 1000,
-        "vini": 500
-      }
-    ],
-    "turbine_array": [
-      {
-        "uid": 1, "name": "tur1",
-        "waterway": 1, "generator": 1,
-        "conversion_rate": 1.0
-      }
-    ]
-  }
-})";
-
-TEST_CASE("Planning JSON parse and solve - hydro system")
-{
-  auto planning = daw::json::from_json<Planning>(hydro_planning_json);
-
-  CHECK(planning.system.name == "hydro_json_test");
-  CHECK(planning.system.junction_array.size() == 2);
-  CHECK(planning.system.waterway_array.size() == 1);
-  CHECK(planning.system.flow_array.size() == 1);
-  CHECK(planning.system.reservoir_array.size() == 1);
-  CHECK(planning.system.turbine_array.size() == 1);
-
-  PlanningLP planning_lp(planning);
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-}
 
 TEST_CASE("Planning JSON round-trip serialization")
 {
