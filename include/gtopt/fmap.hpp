@@ -34,7 +34,27 @@ using flat_map = std::unordered_map<key_type, value_type, hash_type>;
 template<typename Map, typename Size>
 void map_reserve(Map& map, Size n)
 {
+  if (n == 0) {
+    return;
+  }
   map.reserve(n);
+}
+
+}  // namespace gtopt
+
+#elif defined(GTOPT_USE_STD_MAP)
+#  include <map>
+
+namespace gtopt
+{
+
+template<typename key_type, typename value_type>
+using flat_map = std::map<key_type, value_type>;
+
+template<typename Map, typename Size>
+void map_reserve(Map& /*map*/, Size /*n*/)
+{
+  // std::map does not support reserve(); this is intentionally a no-op.
 }
 
 }  // namespace gtopt
@@ -60,6 +80,9 @@ using flat_map = boost::container::flat_map<key_type, value_type>;
 template<typename Map, typename Size>
 void map_reserve(Map& map, Size n)
 {
+  if (n == 0) {
+    return;
+  }
   map.reserve(n);
 }
 
@@ -78,6 +101,9 @@ using flat_map = std::flat_map<key_type, value_type>;
 template<typename Map, typename Size>
 void map_reserve(Map& map, Size n)
 {
+  if (n == 0) {
+    return;
+  }
   map.reserve(n);
 }
 
@@ -97,6 +123,9 @@ namespace gtopt
 template<typename key_type, typename value_type, typename Size>
 void map_reserve(std::flat_map<key_type, value_type>& map, Size new_cap)
 {
+  if (new_cap == 0) {
+    return;
+  }
   auto containers = std::move(map).extract();
   containers.keys.reserve(static_cast<size_t>(new_cap));
   containers.values.reserve(static_cast<size_t>(new_cap));
