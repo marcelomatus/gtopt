@@ -70,7 +70,6 @@ TEST_CASE("Waterway JSON array parsing")
 
 TEST_CASE("Waterway JSON with active schedule")
 {
-
   std::string_view json_data = R"({
     "uid":1,
     "name":"CANAL_1",
@@ -113,7 +112,6 @@ TEST_CASE("Waterway JSON roundtrip serialization")
 
 TEST_CASE("Waterway with empty optional fields")
 {
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"RIVER_1",
@@ -134,4 +132,3 @@ TEST_CASE("Waterway with empty optional fields")
   CHECK(waterway.fmin.has_value() == false);
   CHECK(waterway.fmax.has_value() == false);
 }
-

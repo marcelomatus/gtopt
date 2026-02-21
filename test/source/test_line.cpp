@@ -2,10 +2,10 @@
 #include <gtopt/block.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/line.hpp>
-#include <gtopt/stage.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;

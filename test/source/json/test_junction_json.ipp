@@ -57,7 +57,6 @@ TEST_CASE("Junction JSON array parsing")
 
 TEST_CASE("Junction JSON with active schedule")
 {
-
   std::string_view json_data = R"({
     "uid":1,
     "name":"SCHED_JUNC",
@@ -92,4 +91,3 @@ TEST_CASE("Junction JSON roundtrip serialization")
   REQUIRE(roundtrip.drain.has_value());
   REQUIRE(roundtrip.drain.value() == true);  // NOLINT
 }
-

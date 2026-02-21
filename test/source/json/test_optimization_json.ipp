@@ -1,6 +1,5 @@
 TEST_CASE("JSON Planning - Serialize empty")
 {
-
   // Create empty planning
   const Planning opt {};
 
@@ -15,7 +14,6 @@ TEST_CASE("JSON Planning - Serialize empty")
 
 TEST_CASE("JSON Planning - Round trip serialization")
 {
-
   // Create planning with components
   const Options options {};
   const Simulation simulation {};
@@ -59,7 +57,6 @@ TEST_CASE("JSON Planning - Round trip serialization")
 
 TEST_CASE("JSON Planning - Partial filled objects")
 {
-
   // Create planning with only some components filled
   const Planning opt1 {
       .options = {},  // NOLINT
@@ -88,4 +85,3 @@ TEST_CASE("JSON Planning - Partial filled objects")
   // Check that partial filling works correctly
   CHECK(deserialized2.system.name == "TestSystem");
 }
-

@@ -69,7 +69,6 @@ TEST_CASE("Line JSON array parsing")
 
 TEST_CASE("Line JSON with active schedule")
 {
-
   std::string_view json_data = R"({
     "uid":1,
     "name":"LINE_1",
@@ -113,7 +112,6 @@ TEST_CASE("Line JSON roundtrip serialization")
 
 TEST_CASE("Line with empty optional fields")
 {
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"LINE_1",
@@ -134,4 +132,3 @@ TEST_CASE("Line with empty optional fields")
   CHECK(line.reactance.has_value() == false);
   CHECK(line.capacity.has_value() == false);
 }
-

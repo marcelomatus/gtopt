@@ -127,4 +127,3 @@ TEST_CASE("daw json gtopt basic types 2")
     REQUIRE(mc.f5 == f5);
   }
 }
-

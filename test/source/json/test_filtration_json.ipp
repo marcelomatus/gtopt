@@ -72,7 +72,6 @@ TEST_CASE("Filtration array json test")
 
 TEST_CASE("Filtration with active property serialization")
 {
-
   SUBCASE("With boolean active")
   {
     Filtration filt;
@@ -112,7 +111,6 @@ TEST_CASE("Filtration with active property serialization")
 
 TEST_CASE("Filtration with empty optional fields")
 {
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"FILTER_A",
@@ -128,4 +126,3 @@ TEST_CASE("Filtration with empty optional fields")
   CHECK(filt.slope == 0.0);  // null defaults to 0.0
   CHECK(filt.constant == 0.0);  // null defaults to 0.0
 }
-

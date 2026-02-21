@@ -113,4 +113,3 @@ TEST_CASE("ReserveZone round-trip serialization")
   CHECK(std::get<double>(roundtrip.drreq.value())  // NOLINT
         == doctest::Approx(75.0));
 }
-

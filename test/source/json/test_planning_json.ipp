@@ -176,4 +176,3 @@ TEST_CASE("Planning JSON round-trip serialization")
   CHECK(planning2.system.generator_array.size()
         == planning.system.generator_array.size());
 }
-

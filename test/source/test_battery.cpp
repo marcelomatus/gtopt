@@ -1,11 +1,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/battery.hpp>
+#include <gtopt/battery_lp.hpp>
 #include <gtopt/block.hpp>
 #include <gtopt/field_sched.hpp>
-#include <gtopt/stage.hpp>
-#include <gtopt/battery_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/stage.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -109,7 +109,6 @@ TEST_CASE("Battery field schedules")
   CHECK(*vmin_real_ptr == 10.0);
   CHECK(*vmax_real_ptr == 90.0);
 }
-
 
 // We'll use a simplified approach instead of mocks for now
 TEST_CASE("BatteryLP construction")

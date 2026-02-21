@@ -154,4 +154,3 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK_FALSE(res.vini.has_value());
   CHECK_FALSE(res.vfin.has_value());
 }
-

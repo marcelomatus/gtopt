@@ -156,4 +156,3 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(std::get<double>(roundtrip.drcost.value_or(0.0))
         == doctest::Approx(3000.0));
 }
-
