@@ -3,27 +3,26 @@
  */
 #include <expected>
 
-#include <spdlog/spdlog.h>
-
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace
 {
 using namespace gtopt;
 
 std::expected<void, Error> add_requirement(const std::string_view cname,
-                               const SystemContext& sc,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               LinearProblem& lp,
-                               const auto& blocks,
-                               const auto uid,
-                               auto& rr,
-                               const auto rname)
+                                           const SystemContext& sc,
+                                           const ScenarioLP& scenario,
+                                           const StageLP& stage,
+                                           LinearProblem& lp,
+                                           const auto& blocks,
+                                           const auto uid,
+                                           auto& rr,
+                                           const auto rname)
 {
   using STKey = STBIndexHolder<ColIndex>::key_type;
   if (!rr.req) {
@@ -117,17 +116,19 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  if (auto res =
-          add_requirement(cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq");
-      !res) {
+  if (auto res = add_requirement(
+          cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq");
+      !res)
+  {
     SPDLOG_WARN("add_requirement (ureq) failed for uid={}: {}",
                 uid(),
                 res.error().message);
     return false;
   }
-  if (auto res =
-          add_requirement(cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
-      !res) {
+  if (auto res = add_requirement(
+          cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+      !res)
+  {
     SPDLOG_WARN("add_requirement (dreq) failed for uid={}: {}",
                 uid(),
                 res.error().message);
