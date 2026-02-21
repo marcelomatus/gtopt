@@ -150,9 +150,12 @@ if(ENABLE_INTEGRATION_TESTS)
     "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
   )
 
+  # Always build with debug symbols so the binary is debuggable.
+  target_compile_options(gtopt PUBLIC -O0 -g)
+
   if(ENABLE_TEST_COVERAGE)
     target_compile_options(
-      gtopt PUBLIC -O0 -g -fprofile-arcs -ftest-coverage -fprofile-update=atomic
+      gtopt PUBLIC -fprofile-arcs -ftest-coverage -fprofile-update=atomic
     )
     target_link_options(gtopt PUBLIC -fprofile-arcs -ftest-coverage)
   endif()
