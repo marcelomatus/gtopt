@@ -42,6 +42,10 @@ Example
 include_guard(GLOBAL)
 
 function(add_e2e_case case_name system_json)
+  # Allow callers to override the target; default to ${PROJECT_NAME}
+  if(NOT DEFINED GTOPT_EXECUTABLE_TARGET)
+    set(GTOPT_EXECUTABLE_TARGET "${PROJECT_NAME}")
+  endif()
   set(case_dir "${CASES_DIR}/${case_name}")
   set(input_file "${case_dir}/${system_json}")
   set(expected_dir "${case_dir}/output")
@@ -61,7 +65,7 @@ function(add_e2e_case case_name system_json)
   add_test(
     NAME e2e_${case_name}_solve
     COMMAND ${CMAKE_COMMAND}
-      -DGTOPT_BINARY=$<TARGET_FILE:${PROJECT_NAME}>
+      -DGTOPT_BINARY=$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>
       -DINPUT_FILE=${input_file}
       -DOUTPUT_DIR=${test_output}
       -DWORKING_DIR=${case_dir}
