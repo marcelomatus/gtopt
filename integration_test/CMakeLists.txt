@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(../cmake/CompilerCheck.cmake)
+
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
 option(ENABLE_TEST_COVERAGE "Enable test coverage instrumentation" OFF)
