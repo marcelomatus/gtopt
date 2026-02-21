@@ -3,25 +3,27 @@
 
 function(target_set_warnings target)
   set(CLANG_GCC_WARNINGS
-      -Wall
-      -Wpedantic
-      -Wextra
-      -Werror
-      -Wno-c2y-extensions
-      -Wno-deprecated-declarations
+    -Wall
+    -Wpedantic
+    -Wextra
+    -Werror
+    -Wno-deprecated-declarations
   )
 
+  # Keep GCC-specific warnings here (do not add Clang-only flags to GCC).
   set(GCC_WARNINGS
-      -Wno-c2y-extensions
   )
 
   set(MSVC_WARNINGS /W4 /WX)
 
   target_compile_options(
     ${target}
-    PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:${CLANG_GCC_WARNINGS}>"
-           "$<$<COMPILE_LANG_AND_ID:CXX,GNU>:${GCC_WARNINGS}>"
-           "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${MSVC_WARNINGS}>"
+    PUBLIC
+    "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:${CLANG_GCC_WARNINGS}>"
+    "$<$<COMPILE_LANG_AND_ID:CXX,GNU>:${GCC_WARNINGS}>"
+    "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${MSVC_WARNINGS}>"
+    # Silence C2y extension warnings only on modern Clang (>= 23).
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,23>>:-Wno-c2y-extensions>"
   )
 
   target_compile_definitions(
