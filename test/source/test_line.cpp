@@ -122,16 +122,6 @@ TEST_CASE("Line time-block schedules")
   CHECK(*tmax_ab_real_ptr == 100.0);
 }
 
-/**
- * @file      test_line_lp.cpp
- * @brief     Unit tests for LineLP (transmission line LP formulation)
- * @date      2026-02-18
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("SystemLP with transmission line - two bus system")
 {
   const Array<Bus> bus_array = {

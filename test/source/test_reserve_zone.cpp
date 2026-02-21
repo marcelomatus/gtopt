@@ -111,16 +111,6 @@ TEST_CASE("ReserveZone with time-varying costs")
   CHECK((*drcost_vec_ptr)[3] == 750.0);
 }
 
-/**
- * @file      test_reserve_zone_lp.cpp
- * @brief     Unit tests for ReserveZoneLP and ReserveProvisionLP
- * @date      2026-02-19
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};

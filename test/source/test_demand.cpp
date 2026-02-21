@@ -28,14 +28,6 @@ TEST_CASE("Demand with capacity")
   CHECK(std::get<double>(demand.capacity.value()) == 100.0);
 }
 
-/**
- * @file      test_demand_lp.cpp
- * @brief     Unit tests for DemandLP (demand LP formulation)
- * @date      2026-02-18
- * @copyright BSD-3-Clause
- */
-
-
 using namespace gtopt;
 
 TEST_CASE("DemandLP - basic demand with capacity")

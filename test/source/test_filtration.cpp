@@ -56,16 +56,6 @@ TEST_CASE("Filtration with zero slope")
   CHECK(filtration.constant == doctest::Approx(5.0));
 }
 
-/**
- * @file      test_filtration_lp.cpp
- * @brief     Unit tests for FiltrationLP (filtration LP formulation)
- * @date      2026-02-19
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("FiltrationLP - basic filtration constraint")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};

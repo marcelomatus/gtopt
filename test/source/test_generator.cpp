@@ -55,16 +55,6 @@ TEST_CASE("Generator construction and attributes")
   CHECK(std::get<Uid>(gen.bus) == 5);
 }
 
-/**
- * @file      test_generator_lp.cpp
- * @brief     Unit tests for GeneratorLP (generator LP formulation)
- * @date      2026-02-18
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("GeneratorLP - basic generation")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};

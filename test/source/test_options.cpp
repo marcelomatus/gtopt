@@ -252,17 +252,6 @@ TEST_CASE("Options - Merging with empty options")
   }
 }
 
-/**
- * @file      test_options_lp.cpp
- * @brief     Unit tests for OptionsLP class
- * @date      Fri May  3 10:15:00 2025
- * @author    Claude
- * @copyright BSD-3-Clause
- *
- * This module contains unit tests for the OptionsLP class.
- */
-
-
 TEST_CASE("OptionsLP - Default construction")
 {
   using namespace gtopt;
