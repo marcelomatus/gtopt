@@ -115,8 +115,7 @@ std::vector<std::string> split(std::string_view str, char delim = ' ')
   return result;
 }
 
-auto make_rzone_indexes(const InputContext& ic,
-                        const std::string& rzstr)
+auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
 {
   auto rzones = split(rzstr, ':');
 
