@@ -34,8 +34,7 @@
 // GCC 15+: std::flat_map is available (guarded by __has_include)
 #    define GTOPT_USE_STD_FLAT_MAP
 
-#  elif (defined(__clang__) && __clang_major__ >= 23 \
-         && __has_include(<flat_map>))
+#  elif (defined(__clang__) && __clang_major__ >= 23 && __has_include(<flat_map>))
 // Clang 23+: std::flat_map is available (guarded by __has_include)
 #    define GTOPT_USE_STD_FLAT_MAP
 
