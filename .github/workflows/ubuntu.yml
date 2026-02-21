@@ -44,6 +44,9 @@ env:
   CXX: g++-14
   GCOV_TOOL: gcov-14
   CLANG_COVERAGE_RUNTIME: 'false'
+  # Set to 'true' to enable code coverage instrumentation and collection.
+  # Leave 'false' for faster builds without coverage overhead.
+  ENABLE_COVERAGE: 'false'
   # ccache configuration (applied globally to every step)
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_SLOPPINESS: gcno_file_location
@@ -105,7 +108,12 @@ jobs:
           install-coverage-runtime: ${{ env.CLANG_COVERAGE_RUNTIME }}
 
       - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: |
+          COVERAGE_FLAG=""
+          if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
+            COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
+          fi
+          cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -148,7 +156,7 @@ jobs:
           retention-days: 7
 
       - name: collect coverage (unit + integration)
-        if: always()
+        if: env.ENABLE_COVERAGE == 'true'
         run: |
           # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
           if [ "${{ env.ACTIVE_COMPILER }}" = "clang" ]; then
@@ -196,7 +204,7 @@ jobs:
             --ignore-errors inconsistent,inconsistent
 
       - name: upload coverage report
-        if: always()
+        if: env.ENABLE_COVERAGE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: cpp-coverage-report-${{ env.ACTIVE_COMPILER }}
@@ -204,7 +212,7 @@ jobs:
           retention-days: 30
 
       - name: generate coverage summary
-        if: always()
+        if: env.ENABLE_COVERAGE == 'true'
         run: |
           GCOV_TOOL="${{ env.GCOV_TOOL }}"
           if [ ! -f coverage.info ]; then
@@ -242,6 +250,65 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # clang-tidy static analysis job
+  # Uses clang-tidy-cache (https://github.com/matus-chochlik/ctcache) to avoid
+  # re-analyzing translation units that have not changed between runs.
+  # ---------------------------------------------------------------------------
+  clang-tidy:
+    runs-on: ubuntu-latest
+    name: clang-tidy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.workflow }}-clang-tidy
+          restore-keys: |
+            ${{ github.workflow }}-clang-tidy-
+          max-size: 2G
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install clang (full — clang-tidy required)
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+
+      - name: install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: set up clang-tidy-cache
+        uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
+
+      - name: configure (clang-tidy mode)
+        run: |
+          cmake -Stest -Bbuild \
+            -DENABLE_INTEGRATION_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
+        env:
+          CC: clang
+          CXX: clang++
+
+      - name: build with clang-tidy
+        run: cmake --build build -j$(nproc)
 
   webservice:
     runs-on: ubuntu-latest
