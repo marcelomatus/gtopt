@@ -161,16 +161,8 @@ jobs:
   test-integrated-gtopt-gui:
     runs-on: ubuntu-latest
 
-    env:
-      CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/cache@v4
-        with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -182,9 +174,9 @@ jobs:
         with:
           node-version: '20'
 
-      # ---- Build the real gtopt binary ----
+      # ---- Reuse the gtopt binary from the Ubuntu CI build ----
 
-      - name: install dependencies
+      - name: install gtopt runtime dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
@@ -193,31 +185,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
-      - name: install clang
-        uses: ./.github/actions/install-clang
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
         with:
-          version: 21
-
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.workflow }}-integrated
-          max-size: 2G
-
-      - name: configure gtopt
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-        env:
-          CC: clang
-          CXX: clang++
-
-      - name: build gtopt
-        run: cmake --build build -j4
+          name: gtopt-binary-debug
+          path: ${{ runner.temp }}/gtopt-bin
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
 
       - name: install gtopt binary
         run: |
-          cmake --install build --prefix $HOME/gtopt-install
+          mkdir -p $HOME/gtopt-install/bin
+          cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
           $HOME/gtopt-install/bin/gtopt --version
-          echo "✓ Real gtopt binary built and installed"
+          echo "✓ gtopt binary installed from CI artifact"
+
 
       - name: Configure and install guiservice
         run: |

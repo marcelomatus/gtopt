@@ -14,9 +14,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ---- Compiler selection ----
+# Change ACTIVE_COMPILER to 'gcc' to switch to the GCC build compiler.
+# The CC/CXX/GCOV_TOOL/CLANG_COVERAGE_RUNTIME variables below are set
+# automatically; do not change them directly.
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  ACTIVE_COMPILER: clang
+  CC: clang
+  CXX: clang++
+  GCOV_TOOL: /tmp/llvm-gcov.sh
+  CLANG_COVERAGE_RUNTIME: 'true'
 
 permissions:
   contents: read
@@ -25,25 +34,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [gcc, clang]
-        include:
-          - compiler: clang
-            cc: clang
-            cxx: clang++
-            coverage: 'true'
-            gcov_tool: /tmp/llvm-gcov.sh
-            clang_coverage_runtime: 'true'
-          - compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
-            coverage: 'true'
-            gcov_tool: gcov-14
-            clang_coverage_runtime: 'false'
-
-    name: build (${{ matrix.compiler }})
+    name: build (${{ env.ACTIVE_COMPILER }})
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +42,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -66,19 +57,19 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: ${{ matrix.clang_coverage_runtime }}
+          install-coverage-runtime: ${{ env.CLANG_COVERAGE_RUNTIME }}
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-build
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-build
           max-size: 2G
 
       - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          CC: ${{ env.CC }}
+          CXX: ${{ env.CXX }}
 
       - name: build
         run: cmake --build build -j$(nproc)
@@ -110,15 +101,22 @@ jobs:
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
+      - name: upload gtopt binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: build/gtopt
+          retention-days: 7
+
       - name: collect coverage (unit + integration)
-        if: matrix.coverage == 'true'
+        if: always()
         run: |
           # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
+          if [ "${{ env.ACTIVE_COMPILER }}" = "clang" ]; then
             printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
             chmod +x /tmp/llvm-gcov.sh
           fi
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
+          GCOV_TOOL="${{ env.GCOV_TOOL }}"
           # Capture coverage data with lcov
           # --ignore-errors mismatch,mismatch: fully suppress mismatch warnings
           #   from third-party headers (daw_json, boost, libstdc++)
@@ -159,17 +157,17 @@ jobs:
             --ignore-errors inconsistent
 
       - name: upload coverage report
-        if: always() && matrix.coverage == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cpp-coverage-report-${{ matrix.compiler }}
+          name: cpp-coverage-report-${{ env.ACTIVE_COMPILER }}
           path: coverage-report/
           retention-days: 30
 
       - name: generate coverage summary
-        if: always() && matrix.coverage == 'true'
+        if: always()
         run: |
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
+          GCOV_TOOL="${{ env.GCOV_TOOL }}"
           if [ ! -f coverage.info ]; then
             echo "## C++ Coverage (Unit + Integration)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
