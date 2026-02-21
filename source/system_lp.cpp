@@ -42,15 +42,16 @@ using namespace gtopt;
  * @return Collection of LP elements
  */
 template<typename Out, typename Inp, typename InputContext>
-constexpr auto make_collection(InputContext& input_context,
-                               const std::vector<Inp>& input) -> Collection<Out>
+auto make_collection(InputContext& input_context,
+                     const std::vector<Inp>& input) -> Collection<Out>
 {
   return Collection<Out> {
-      std::ranges::to<std::vector<Out>>(
-          input
-          | std::ranges::views::transform(
-              [&](const auto& element)
-              { return Out {element, input_context}; })),
+      std::ranges::to<std::vector<Out>>(input
+                                        | std::ranges::views::transform(
+                                            [&](const auto& element) {
+                                              return Out {element,
+                                                          input_context};
+                                            })),
   };
 }
 
@@ -68,8 +69,8 @@ constexpr auto make_collection(InputContext& input_context,
  * @return Collection of LP elements or empty collection if input is empty
  */
 template<typename Out, typename Inp, typename InputContext>
-constexpr auto make_collection(InputContext& input_context,
-                               const std::optional<std::vector<Inp>>& input)
+auto make_collection(InputContext& input_context,
+                     const std::optional<std::vector<Inp>>& input)
     -> Collection<Out>
 {
   if (input) [[likely]] {
@@ -144,7 +145,7 @@ constexpr auto create_linear_interface(auto& collections,
   return LinearInterface {lp.to_flat(flat_opts)};
 }
 
-constexpr auto create_collections(const auto& system_context, const auto& sys)
+auto create_collections(const auto& system_context, const auto& sys)
 {
   InputContext ic(system_context);
   SystemLP::collections_t colls;
