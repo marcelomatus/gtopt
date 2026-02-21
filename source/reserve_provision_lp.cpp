@@ -54,7 +54,11 @@ constexpr bool add_provision(const std::string_view cname,
     // create the provision col and row when needed and if possible, i.e.,
     // if there is a rmax provision defined for the stage and block
     //
-    const auto gcol = generation_cols.at(buid);
+    const auto gcol_it = generation_cols.find(buid);
+    if (gcol_it == generation_cols.end()) {
+      continue;
+    }
+    const auto gcol = gcol_it->second;
     auto block_rmax = rp.max.optval(stage.uid(), buid);
     if (!block_rmax) {
       if (use_capacity) {
@@ -84,8 +88,10 @@ constexpr bool add_provision(const std::string_view cname,
     //
     // add the reserve provision to the requirement balance
     //
-    const auto req_row = req_rows.at(buid);
-    lp.set_coeff(req_row, prov_col, stage_provision_factor.value());
+    const auto req_row_it = req_rows.find(buid);
+    if (req_row_it != req_rows.end()) {
+      lp.set_coeff(req_row_it->second, prov_col, stage_provision_factor.value());
+    }
   }
 
   return true;
