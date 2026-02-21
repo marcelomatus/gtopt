@@ -7,6 +7,7 @@ function(target_set_warnings target)
       -Wpedantic
       -Wextra
       -Werror
+      -Wno-c2y-extensions
       -Wno-deprecated-declarations
   )
 
