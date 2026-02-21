@@ -8,16 +8,15 @@ description: >
   clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
   without a version suffix.
 
-  Clang 22 is installed via the LLVM nightly snapshot repository
-  (apt.llvm.org).  The KyleMayes install-llvm-action marketplace action does
-  not yet provide pre-built Linux x64 binaries for clang-22, but the llvm.sh
-  script reliably installs snapshot packages for clang-22 and later on
-  Ubuntu-based runners.
+  NOTE: clang-22 packages are not yet available in the apt.llvm.org
+  repository.  The KyleMayes install-llvm-action marketplace action also does
+  not provide pre-built Linux x64 binaries for clang-22.  Use version 21
+  until clang-22 packages become available.
 
 inputs:
   version:
     description: LLVM major version to install
-    default: '22'
+    default: '21'
   install-coverage-runtime:
     description: >
       Set to 'true' to also install libclang-rt-N-dev, which provides
