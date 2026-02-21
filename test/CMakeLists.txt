@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
+option(ENABLE_INTEGRATION_TESTS "Build gtopt binary and run e2e integration tests" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
 option(USE_CCACHE "use ccache" YES)
@@ -115,4 +116,61 @@ if(ENABLE_TEST_COVERAGE)
     )
     target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
   endif()
+endif()
+
+# ---- Integration tests (e2e) ----
+#
+# When ENABLE_INTEGRATION_TESTS=ON the gtopt solver binary is built here,
+# reusing the gtopt::gtopt library already compiled above.  The four e2e
+# test cases are then registered so that `ctest` runs them alongside the
+# unit tests in a single pass.
+
+if(ENABLE_INTEGRATION_TESTS)
+  set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake_local
+                        ${CMAKE_CURRENT_LIST_DIR}/../cmake
+  )
+
+  set(COIN_ROOT_DIR "/opt/coinor" CACHE PATH "Coinor root directory")
+  set(CPLEX_ROOT_DIR "/opt/cplex" CACHE PATH "CPLEX root directory")
+  set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
+  include(../cmake_local/Solver.cmake)
+
+  # Build the gtopt solver executable, linked against the already-built library.
+  file(GLOB gtopt_sources CONFIGURE_DEPENDS
+       ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
+  )
+
+  add_executable(gtopt_app ${gtopt_sources})
+
+  set_target_properties(gtopt_app PROPERTIES OUTPUT_NAME "gtopt")
+
+  target_include_directories(gtopt_app SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+
+  target_link_libraries(
+    gtopt_app
+    gtopt::gtopt
+    "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
+  )
+
+  # Always build with debug symbols so the binary is debuggable.
+  target_compile_options(gtopt_app PUBLIC -O0 -g)
+
+  if(ENABLE_TEST_COVERAGE)
+    target_compile_options(
+      gtopt_app PUBLIC -fprofile-arcs -ftest-coverage -fprofile-update=atomic
+    )
+    target_link_options(gtopt_app PUBLIC -fprofile-arcs -ftest-coverage)
+  endif()
+
+  # Register e2e cases via the shared add_e2e_case helper.
+  set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
+  set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../integration_test/cmake")
+  set(GTOPT_EXECUTABLE_TARGET gtopt_app)
+
+  include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
+
+  add_e2e_case(c0 system_c0.json)
+  add_e2e_case(c1 system_c1.json)
+  add_e2e_case(ieee_9b ieee_9b.json)
+  add_e2e_case(ieee_14b ieee_14b.json)
 endif()

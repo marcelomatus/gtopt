@@ -144,10 +144,17 @@ constexpr auto create_linear_interface(auto& collections,
   return LinearInterface {lp.to_flat(flat_opts)};
 }
 
-auto create_collections(const auto& system_context, const auto& sys)
+void create_collections(const auto& system_context,
+                        const auto& sys,
+                        SystemLP::collections_t& colls)
 {
+  // NOTE: colls is system_lp.m_collections_, already default-constructed
+  // (valid but empty) before this function is called.  Each collection must
+  // be assigned before any later collection whose constructor looks it up via
+  // InputContext::element_index — that path goes back into
+  // system_lp.m_collections_ (i.e., colls), so the earlier entries must already
+  // be present.
   InputContext ic(system_context);
-  SystemLP::collections_t colls;
 
   std::get<Collection<BusLP>>(colls) =
       make_collection<BusLP>(ic, sys.bus_array);
@@ -191,8 +198,6 @@ auto create_collections(const auto& system_context, const auto& sys)
   std::get<Collection<DemandEmissionLP>>(colls) =
       make_collection<DemandEmissionLP>(ic, sys.demand_emissions);
 #endif
-
-  return colls;
 }
 
 }  // namespace
@@ -212,10 +217,16 @@ SystemLP::SystemLP(const System& system,
                    const FlatOptions& flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)
-    , m_collections_(create_collections(m_system_context_, system))
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
 {
+  // m_collections_ is default-constructed (valid, empty) before this point.
+  // Populate it in-place so that each sub-collection is visible to
+  // InputContext::element_index as soon as it is built, allowing later
+  // collections (e.g. ReserveProvisionLP) to look up earlier ones
+  // (e.g. GeneratorLP) without accessing uninitialized memory.
+  create_collections(m_system_context_, system, m_collections_);
+
   if (options().use_single_bus()) {
     const auto& buses = system.bus_array;
     if (!buses.empty()) {

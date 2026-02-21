@@ -72,7 +72,7 @@ std::expected<void, Error> add_provision(
       }
     }
 
-    const auto name = sc.lp_label(scenario, stage, block, cname, pname, uid);
+    auto name = sc.lp_label(scenario, stage, block, cname, pname, uid);
     const auto prov_col = lp.add_col({
         .name = name,
         .uppb = block_rmax.value(),
@@ -80,7 +80,6 @@ std::expected<void, Error> add_provision(
     });
 
     prov_cols[buid] = prov_col;
-    prov_rows[buid] = lp.add_row(provision_row(name, gcol, prov_col));
 
     if (use_capacity) {
       auto crow = SparseRow {.name = sc.lp_label("cap", name)}.greater_equal(0);
@@ -88,6 +87,9 @@ std::expected<void, Error> add_provision(
       crow[prov_col] = -1;
       cap_rows[buid] = lp.add_row(std::move(crow));
     }
+
+    prov_rows[buid] =
+        lp.add_row(provision_row(std::move(name), gcol, prov_col));
 
     //
     // add the reserve provision to the requirement balance
@@ -198,10 +200,10 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     const auto [stage_capacity, capacity_col] =
         generator_lp.capacity_and_col(stage, lp);
 
-    auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+    auto uprov_row = [&](std::string row_name, auto gcol, auto rcol)
     {
-      auto rrow =
-          SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
+      auto rrow = SparseRow {.name = std::move(row_name)}.less_equal(
+          lp.get_col_uppb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = 1;
 
@@ -212,10 +214,10 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       return rrow;
     };
 
-    auto dprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+    auto dprov_row = [&](std::string row_name, auto gcol, auto rcol)
     {
-      auto rrow =
-          SparseRow {.name = row_name}.greater_equal(lp.get_col_lowb(gcol));
+      auto rrow = SparseRow {.name = std::move(row_name)}.greater_equal(
+          lp.get_col_lowb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = -1;
       return rrow;
