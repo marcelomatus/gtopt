@@ -10,7 +10,6 @@ Checks: "*,\
   -modernize-type-traits, \
   modernize-use-std-print, \
   modernize-use-starts-ends-with, \
-  -cppcoreguidelines-slicing,\
   -cppcoreguidelines-macro-to-enum,\
   -modernize-macro-to-enum,\
   -bugprone-derived-method-shadowing-base-method,\
@@ -31,7 +30,6 @@ Checks: "*,\
   -constexpr_local_var_non_literal_type,\
   -cppcoreguidelines-avoid-magic-numbers,\
   -cppcoreguidelines-macro-usage,\
-  -cppcoreguidelines-slicing,\
   -fuchsia-default-arguments-calls,\
   -fuchsia-default-arguments-declarations,\
   -fuchsia-multiple-inheritance,\
