@@ -5,32 +5,32 @@
 #include <string_view>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace
 {
 
 using namespace gtopt;
 
-std::expected<void, Error> add_provision(const std::string_view cname,
-                             const SystemContext& sc,
-                             const ScenarioLP& scenario,
-                             const StageLP& stage,
-                             LinearProblem& lp,
-                             const std::vector<BlockLP>& blocks,
-                             auto capacity_col,
-                             const BIndexHolder<ColIndex>& generation_cols,
-                             const Uid uid,
-                             ReserveProvisionLP::Provision& rp,
-                             const std::string_view pname,
-                             const STBIndexHolder<RowIndex>& requirement_rows,
-                             auto provision_row)
+std::expected<void, Error> add_provision(
+    const std::string_view cname,
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const std::vector<BlockLP>& blocks,
+    auto capacity_col,
+    const BIndexHolder<ColIndex>& generation_cols,
+    const Uid uid,
+    ReserveProvisionLP::Provision& rp,
+    const std::string_view pname,
+    const STBIndexHolder<RowIndex>& requirement_rows,
+    auto provision_row)
 {
   const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
   if (!stage_provision_factor || (stage_provision_factor.value() <= 0.0)) {
@@ -94,7 +94,8 @@ std::expected<void, Error> add_provision(const std::string_view cname,
     //
     const auto req_row_it = req_rows.find(buid);
     if (req_row_it != req_rows.end()) {
-      lp.set_coeff(req_row_it->second, prov_col, stage_provision_factor.value());
+      lp.set_coeff(
+          req_row_it->second, prov_col, stage_provision_factor.value());
     }
   }
 
@@ -200,7 +201,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
     auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
     {
-      auto rrow = SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
+      auto rrow =
+          SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
       rrow[rcol] = rrow[gcol] = 1;
 
       if (capacity_col) {
@@ -240,7 +242,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    "uprov",
                                    reserve_zone.urequirement_rows(),
                                    uprov_row);
-          !res) {
+          !res)
+      {
         SPDLOG_WARN("add_provision (uprov) failed for uid={}: {}",
                     uid(),
                     res.error().message);
@@ -259,7 +262,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    "dprov",
                                    reserve_zone.drequirement_rows(),
                                    dprov_row);
-          !res) {
+          !res)
+      {
         SPDLOG_WARN("add_provision (dprov) failed for uid={}: {}",
                     uid(),
                     res.error().message);
