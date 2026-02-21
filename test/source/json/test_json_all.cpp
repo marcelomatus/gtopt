@@ -253,7 +253,6 @@ TEST_CASE("Bus daw json test 4")
 
 TEST_CASE("Bus with active property serialization")
 {
-  using namespace gtopt;
 
   SUBCASE("With boolean active")
   {
@@ -288,7 +287,6 @@ TEST_CASE("Bus with active property serialization")
 
 TEST_CASE("Bus with empty optional fields")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":5,
@@ -323,7 +321,6 @@ TEST_CASE("Demand daw json test")
   gtopt::Demand dem = daw::json::from_json<gtopt::Demand>(json_data);
 
   REQUIRE(dem.uid == 5);
-  REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(std::get<Uid>(dem.bus) == 10);
   if (dem.capacity) {
@@ -407,7 +404,6 @@ TEST_CASE("Demand daw json test 4")
 
 // === test_json_demand_profile.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("DemandProfile daw json test - basic fields")
 {
@@ -497,7 +493,6 @@ TEST_CASE("DemandProfile round-trip serialization")
 
 // === test_json_filtration.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("Filtration daw json test 1")
 {
@@ -573,7 +568,6 @@ TEST_CASE("Filtration array json test")
 
 TEST_CASE("Filtration with active property serialization")
 {
-  using namespace gtopt;
 
   SUBCASE("With boolean active")
   {
@@ -614,7 +608,6 @@ TEST_CASE("Filtration with active property serialization")
 
 TEST_CASE("Filtration with empty optional fields")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":5,
@@ -634,7 +627,6 @@ TEST_CASE("Filtration with empty optional fields")
 
 // === test_json_flow.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("Flow JSON basic parsing")
 {
@@ -778,7 +770,6 @@ TEST_CASE("Generator daw json test 2")
 
 // === test_json_generator_profile.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("GeneratorProfile daw json test - basic fields")
 {
@@ -927,7 +918,6 @@ TEST_CASE("Junction JSON array parsing")
 
 TEST_CASE("Junction JSON with active schedule")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":1,
@@ -1037,7 +1027,6 @@ TEST_CASE("Line JSON array parsing")
 
 TEST_CASE("Line JSON with active schedule")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":1,
@@ -1082,7 +1071,6 @@ TEST_CASE("Line JSON roundtrip serialization")
 
 TEST_CASE("Line with empty optional fields")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":5,
@@ -1109,7 +1097,6 @@ TEST_CASE("Line with empty optional fields")
 
 TEST_CASE("JSON Planning - Serialize empty")
 {
-  using namespace gtopt;
 
   // Create empty planning
   const Planning opt {};
@@ -1125,7 +1112,6 @@ TEST_CASE("JSON Planning - Serialize empty")
 
 TEST_CASE("JSON Planning - Round trip serialization")
 {
-  using namespace gtopt;
 
   // Create planning with components
   const Options options {};
@@ -1170,7 +1156,6 @@ TEST_CASE("JSON Planning - Round trip serialization")
 
 TEST_CASE("JSON Planning - Partial filled objects")
 {
-  using namespace gtopt;
 
   // Create planning with only some components filled
   const Planning opt1 {
@@ -1205,7 +1190,6 @@ TEST_CASE("JSON Planning - Partial filled objects")
 
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
-  using namespace gtopt;
 
   // JSON string representing Options
   const std::string json_string = R"({
@@ -1315,7 +1299,6 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 TEST_CASE(
     "json_options - Deserialization with missing fields (should use nulls)")
 {
-  using namespace gtopt;
 
   // JSON string with only some fields
   const std::string json_string = R"({
@@ -1361,7 +1344,6 @@ TEST_CASE(
 
 TEST_CASE("json_options - Round-trip serialization and deserialization")
 {
-  using namespace gtopt;
 
   // Create original Options
   Options original {
@@ -1402,7 +1384,6 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
 
 // === test_json_planning.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("Planning daw json test 1 - basic parsing")
 {
@@ -1509,7 +1490,6 @@ TEST_CASE("Planning daw json test 2 - large scale")
 
 // === test_json_reserve_provision.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("ReserveProvision daw json test - basic fields")
 {
@@ -1672,7 +1652,6 @@ TEST_CASE("ReserveProvision round-trip serialization")
 
 // === test_json_reserve_zone.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("ReserveZone daw json test - basic fields")
 {
@@ -1792,7 +1771,6 @@ TEST_CASE("ReserveZone round-trip serialization")
 
 // === test_json_reservoir.cpp ===
 
-using namespace gtopt;
 
 TEST_CASE("Reservoir basic fields deserialization")
 {
@@ -2267,7 +2245,6 @@ TEST_CASE("Turbine array json test")
 
 TEST_CASE("Turbine with active property serialization")
 {
-  using namespace gtopt;
 
   SUBCASE("With boolean active")
   {
@@ -2313,7 +2290,6 @@ TEST_CASE("Turbine with active property serialization")
 
 TEST_CASE("Turbine with empty optional fields")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":5,
@@ -2410,7 +2386,6 @@ TEST_CASE("Waterway JSON array parsing")
 
 TEST_CASE("Waterway JSON with active schedule")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":1,
@@ -2449,13 +2424,11 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_a) == 1);
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_b) == 2);
   REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(std::get<double>(roundtrip.capacity.value_or(0.0)) == 100.0);
 }
 
 TEST_CASE("Waterway with empty optional fields")
 {
-  using namespace gtopt;
 
   std::string_view json_data = R"({
     "uid":5,
