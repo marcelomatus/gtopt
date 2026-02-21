@@ -25,6 +25,26 @@
 #include <doctest/doctest.h>
 #include <gtopt/fmap.hpp>
 
+// this is only needed to mix std abd boost flat_map benchmarks in the same test
+// suite; if boost::flat_map is not
+#ifndef GTOPT_USE_BOOST_FLAT_MAP
+namespace gtopt
+{
+
+template<typename key_type, typename value_type, typename Size>
+void map_reserve(  // NOLINT
+    boost::container::flat_map<key_type, value_type>& map,
+    Size n)
+{
+  if (n == 0) {
+    return;
+  }
+  map.reserve(n);
+}
+
+}  // namespace gtopt
+#endif
+
 namespace
 {
 
