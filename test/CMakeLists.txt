@@ -140,29 +140,32 @@ if(ENABLE_INTEGRATION_TESTS)
        ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
   )
 
-  add_executable(gtopt ${gtopt_sources})
+  add_executable(gtopt_app ${gtopt_sources})
 
-  target_include_directories(gtopt SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
+  set_target_properties(gtopt_app PROPERTIES OUTPUT_NAME "gtopt")
+
+  target_include_directories(gtopt_app SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}")
 
   target_link_libraries(
-    gtopt
+    gtopt_app
     gtopt::gtopt
     "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
   )
 
   # Always build with debug symbols so the binary is debuggable.
-  target_compile_options(gtopt PUBLIC -O0 -g)
+  target_compile_options(gtopt_app PUBLIC -O0 -g)
 
   if(ENABLE_TEST_COVERAGE)
     target_compile_options(
-      gtopt PUBLIC -fprofile-arcs -ftest-coverage -fprofile-update=atomic
+      gtopt_app PUBLIC -fprofile-arcs -ftest-coverage -fprofile-update=atomic
     )
-    target_link_options(gtopt PUBLIC -fprofile-arcs -ftest-coverage)
+    target_link_options(gtopt_app PUBLIC -fprofile-arcs -ftest-coverage)
   endif()
 
   # Register e2e cases via the shared add_e2e_case helper.
   set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
   set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/../integration_test/cmake")
+  set(GTOPT_EXECUTABLE_TARGET gtopt_app)
 
   include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
