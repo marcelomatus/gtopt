@@ -45,7 +45,7 @@ jobs:
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
           install-coverage-runtime: 'true'
 
       - name: setup ccache
@@ -186,7 +186,7 @@ jobs:
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
           install-coverage-runtime: 'true'
 
       - name: setup ccache
