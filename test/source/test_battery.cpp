@@ -110,7 +110,6 @@ TEST_CASE("Battery field schedules")
   CHECK(*vmax_real_ptr == 90.0);
 }
 
-using namespace gtopt;
 
 // We'll use a simplified approach instead of mocks for now
 TEST_CASE("BatteryLP construction")

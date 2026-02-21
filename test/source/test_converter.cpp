@@ -80,16 +80,6 @@ TEST_CASE("Converter with inactive status")
   CHECK(std::get<IntBool>(converter.active.value()) == 0);
 }
 
-/**
- * @file      test_converter_lp.cpp
- * @brief     Unit tests for ConverterLP and battery+converter LP formulation
- * @date      2026-02-18
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("SystemLP with battery and converter")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};

@@ -53,16 +53,6 @@ TEST_CASE("DemandProfile with inactive status")
   CHECK(std::get<IntBool>(demand_profile.active.value()) == 0);
 }
 
-/**
- * @file      test_demand_profile_lp.cpp
- * @brief     Unit tests for DemandProfileLP (demand profile LP formulation)
- * @date      2026-02-19
- * @copyright BSD-3-Clause
- */
-
-
-using namespace gtopt;
-
 TEST_CASE("DemandProfileLP - basic demand profile with capacity")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
