@@ -24,7 +24,7 @@ function(target_set_warnings target)
     "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${MSVC_WARNINGS}>"
     # Silence C2y extension warnings only on modern Clang (>= 23).
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,23>>:-Wno-c2y-extensions>"
-    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,23>>:--Wno-invalid-constexpr>"
+    # "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,23>>:--Wno-invalid-constexpr>"
   )
 
   target_compile_definitions(
