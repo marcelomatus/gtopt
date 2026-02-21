@@ -39,11 +39,11 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  ACTIVE_COMPILER: gcc
-  CC: gcc-14
-  CXX: g++-14
-  GCOV_TOOL: gcov-14
-  CLANG_COVERAGE_RUNTIME: 'false'
+  ACTIVE_COMPILER: clang
+  CC: clang
+  CXX: clang++
+  GCOV_TOOL: /tmp/llvm-gcov.sh
+  CLANG_COVERAGE_RUNTIME: 'true'
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   ENABLE_COVERAGE: 'false'
