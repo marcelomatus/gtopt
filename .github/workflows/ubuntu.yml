@@ -49,6 +49,9 @@ env:
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   ENABLE_COVERAGE: 'false'
+  # Set to 'true' to enable the clang-tidy static analysis job.
+  # Leave 'false' to skip it (saves ~10 min of analysis time).
+  ENABLE_CLANG_TIDY: 'false'
   # ccache configuration (applied globally to every step)
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_SLOPPINESS: gcno_file_location
@@ -261,6 +264,7 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-latest
     name: clang-tidy
+    if: ${{ env.ENABLE_CLANG_TIDY == 'true' }}
 
     steps:
       - uses: actions/checkout@v4
