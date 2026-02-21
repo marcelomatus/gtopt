@@ -91,8 +91,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row[capainst_col] = -1;
 
   auto capacost_name = lp_label_p(sc, stage, "capacost");
-  const auto capacost_col = lp.add_col(
-      {.name = capacost_name, .cost = sc.stage_ecost(stage, 1.0)});
+  const auto capacost_col =
+      lp.add_col({.name = capacost_name, .cost = sc.stage_ecost(stage, 1.0)});
   sc.add_state_variable(sv_key_p(scenario, stage, "capacost"), capacost_col);
 
   SparseRow capacost_row {.name = std::move(capacost_name)};
