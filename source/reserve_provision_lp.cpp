@@ -38,13 +38,14 @@ constexpr bool add_provision(const std::string_view cname,
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
   const auto st_k = std::pair {scenario.uid(), stage.uid()};
-  const auto& req_rows = requirement_rows.at(st_k);
-  if (req_rows.empty()) {
+  const auto req_rows_it = requirement_rows.find(st_k);
+  if (req_rows_it == requirement_rows.end() || req_rows_it->second.empty()) {
     return true;
   }
-  auto& prov_cols = rp.provision_cols.at(st_k);
-  auto& prov_rows = rp.provision_rows.at(st_k);
-  auto& cap_rows = rp.capacity_rows.at(st_k);
+  const auto& req_rows = req_rows_it->second;
+  auto& prov_cols = rp.provision_cols[st_k];
+  auto& prov_rows = rp.provision_rows[st_k];
+  auto& cap_rows = rp.capacity_rows[st_k];
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
