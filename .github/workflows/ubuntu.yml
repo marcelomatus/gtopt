@@ -25,13 +25,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang, gcc]
+        include:
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+            coverage: 'true'
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            coverage: 'false'
+
+    name: build (${{ matrix.compiler }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -46,19 +62,19 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: 'true'
+          install-coverage-runtime: ${{ matrix.coverage }}
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-build
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-build
           max-size: 2G
 
       - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build
         run: cmake --build build -j$(nproc)
@@ -76,6 +92,7 @@ jobs:
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
       - name: collect code coverage
+        if: matrix.coverage == 'true'
         run: |
           # Create llvm-cov gcov wrapper for lcov compatibility
           printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
@@ -120,15 +137,15 @@ jobs:
             --ignore-errors inconsistent
 
       - name: upload coverage report
-        if: always()
+        if: always() && matrix.coverage == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: cpp-coverage-report
+          name: cpp-coverage-report-${{ matrix.compiler }}
           path: coverage-report/
           retention-days: 30
 
       - name: generate coverage summary
-        if: always()
+        if: always() && matrix.coverage == 'true'
         run: |
           if [ ! -f coverage.info ]; then
             echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
@@ -169,13 +186,29 @@ jobs:
   integration:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang, gcc]
+        include:
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+            coverage: 'true'
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            coverage: 'false'
+
+    name: integration (${{ matrix.compiler }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -190,19 +223,19 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: 'true'
+          install-coverage-runtime: ${{ matrix.coverage }}
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-integration
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-integration
           max-size: 2G
 
       - name: configure standalone (Release, for install)
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build standalone
         run: cmake --build build -j$(nproc)
@@ -226,10 +259,10 @@ jobs:
           echo "✓ Installed gtopt --version works"
 
       - name: configure integration_test (Debug, with coverage)
-        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build integration_test
         run: cmake --build build-integration -j$(nproc)
@@ -240,6 +273,7 @@ jobs:
           ctest --build-config Debug --output-on-failure
 
       - name: collect integration test coverage
+        if: matrix.coverage == 'true'
         run: |
           # Create llvm-cov gcov wrapper for lcov compatibility
           printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
@@ -271,15 +305,15 @@ jobs:
             --ignore-errors inconsistent
 
       - name: upload integration coverage report
-        if: always()
+        if: always() && matrix.coverage == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: integration-coverage-report
+          name: integration-coverage-report-${{ matrix.compiler }}
           path: integration-coverage-report/
           retention-days: 30
 
       - name: generate integration coverage summary
-        if: always()
+        if: always() && matrix.coverage == 'true'
         run: |
           if [ ! -f integration-coverage.info ]; then
             echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
