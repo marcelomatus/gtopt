@@ -2,9 +2,6 @@ name: Style
 
 on:
   push:
-    branches:
-      - master
-      - main
   pull_request:
     branches:
       - master
@@ -30,6 +27,17 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
+
+      - name: validate clang
+        run: |
+          clang --version
+          clang++ --version
+          clang-format --version
+          echo "## Clang Installation" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          clang --version >> $GITHUB_STEP_SUMMARY
+          clang-format --version >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: configure
         run: cmake -S cmake/format -B build

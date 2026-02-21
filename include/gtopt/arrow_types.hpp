@@ -33,28 +33,28 @@ template<>
 struct ArrowTraits<int>
 {
   using Type = arrow::Int32Type;
-  static constexpr auto type() { return arrow::int32(); }
+  static auto type() { return arrow::int32(); }
 };
 
 template<>
 struct ArrowTraits<int16_t>
 {
   using Type = arrow::Int32Type;
-  static constexpr auto type() { return arrow::int32(); }
+  static auto type() { return arrow::int32(); }
 };
 
 template<>
 struct ArrowTraits<int8_t>
 {
   using Type = arrow::Int32Type;
-  static constexpr auto type() { return arrow::int32(); }
+  static auto type() { return arrow::int32(); }
 };
 
 template<>
 struct ArrowTraits<double>
 {
   using Type = arrow::DoubleType;
-  static constexpr auto type() { return arrow::float64(); }
+  static auto type() { return arrow::float64(); }
 };
 
 /**

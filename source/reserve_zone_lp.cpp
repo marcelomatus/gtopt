@@ -1,28 +1,32 @@
 /*
  *
  */
+#include <expected>
+
+#include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace
 {
 using namespace gtopt;
 
-constexpr bool add_requirement(const std::string_view cname,
-                               const SystemContext& sc,
-                               const ScenarioLP& scenario,
-                               const StageLP& stage,
-                               LinearProblem& lp,
-                               const auto& blocks,
-                               const auto uid,
-                               auto& rr,
-                               const auto rname)
+std::expected<void, Error> add_requirement(const std::string_view cname,
+                                           const SystemContext& sc,
+                                           const ScenarioLP& scenario,
+                                           const StageLP& stage,
+                                           LinearProblem& lp,
+                                           const auto& blocks,
+                                           const auto uid,
+                                           auto& rr,
+                                           const auto rname)
 {
   using STKey = STBIndexHolder<ColIndex>::key_type;
   if (!rr.req) {
-    return true;
+    return {};
   }
 
   const auto stage_rcost = sc.reserve_fail_cost(stage, rr.cost);
@@ -66,7 +70,7 @@ constexpr bool add_requirement(const std::string_view cname,
   rr.requirement_cols[st_key] = std::move(rr_cols);
   rr.requirement_rows[st_key] = std::move(rr_rows);
 
-  return true;
+  return {};
 }
 }  // namespace
 
@@ -112,10 +116,25 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
 
-  return add_requirement(
-             cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq")
-      && add_requirement(
-             cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+  if (auto res = add_requirement(
+          cname, sc, scenario, stage, lp, blocks, uid(), ur, "ureq");
+      !res)
+  {
+    SPDLOG_WARN("add_requirement (ureq) failed for uid={}: {}",
+                uid(),
+                res.error().message);
+    return false;
+  }
+  if (auto res = add_requirement(
+          cname, sc, scenario, stage, lp, blocks, uid(), dr, "dreq");
+      !res)
+  {
+    SPDLOG_WARN("add_requirement (dreq) failed for uid={}: {}",
+                uid(),
+                res.error().message);
+    return false;
+  }
+  return true;
 }
 
 bool ReserveZoneLP::add_to_output(OutputContext& out) const

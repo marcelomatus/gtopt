@@ -24,11 +24,17 @@ function(target_set_warnings target)
     "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:${MSVC_WARNINGS}>"
     # Silence C2y extension warnings only on modern Clang (>= 23).
     "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,23>>:-Wno-c2y-extensions>"
-    # "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,23>>:--Wno-invalid-constexpr>"
+    # Clang < 23 raises -Winvalid-constexpr for C++26 constexpr patterns that are
+    # valid in standard C++26 but not fully supported in earlier Clang versions.
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,23>>:-Wno-invalid-constexpr>"
   )
 
   target_compile_definitions(
     ${target}
     PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:_GLIBCXX_CISO646>"
+    # Clang reports __cpp_concepts=201907L which is below the 202002L threshold
+    # required by libstdc++14 to enable std::expected.  Force the feature-test
+    # macro so that <expected> is available when compiling with Clang.
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>>:__cpp_lib_expected=202211L>"
   )
 endfunction()
