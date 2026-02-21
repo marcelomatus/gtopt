@@ -88,7 +88,8 @@ std::expected<void, Error> add_provision(
       cap_rows[buid] = lp.add_row(std::move(crow));
     }
 
-    prov_rows[buid] = lp.add_row(provision_row(std::move(name), gcol, prov_col));
+    prov_rows[buid] =
+        lp.add_row(provision_row(std::move(name), gcol, prov_col));
 
     //
     // add the reserve provision to the requirement balance
@@ -201,8 +202,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
     auto uprov_row = [&](std::string row_name, auto gcol, auto rcol)
     {
-      auto rrow =
-          SparseRow {.name = std::move(row_name)}.less_equal(lp.get_col_uppb(gcol));
+      auto rrow = SparseRow {.name = std::move(row_name)}.less_equal(
+          lp.get_col_uppb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = 1;
 
@@ -215,8 +216,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
     auto dprov_row = [&](std::string row_name, auto gcol, auto rcol)
     {
-      auto rrow =
-          SparseRow {.name = std::move(row_name)}.greater_equal(lp.get_col_lowb(gcol));
+      auto rrow = SparseRow {.name = std::move(row_name)}.greater_equal(
+          lp.get_col_lowb(gcol));
       rrow[gcol] = 1;
       rrow[rcol] = -1;
       return rrow;
