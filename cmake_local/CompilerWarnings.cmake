@@ -31,5 +31,9 @@ function(target_set_warnings target)
   target_compile_definitions(
     ${target}
     PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:_GLIBCXX_CISO646>"
+    # Clang reports __cpp_concepts=201907L which is below the 202002L threshold
+    # required by libstdc++14 to enable std::expected.  Force the feature-test
+    # macro so that <expected> is available when compiling with Clang.
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang>>:__cpp_lib_expected=202211L>"
   )
 endfunction()
