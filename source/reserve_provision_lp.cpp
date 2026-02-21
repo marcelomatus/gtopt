@@ -102,7 +102,7 @@ std::expected<void, Error> add_provision(
   return {};
 }
 
-constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
+std::vector<std::string> split(std::string_view str, char delim = ' ')
 {
   std::vector<std::string> result;
 
@@ -115,8 +115,8 @@ constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
   return result;
 }
 
-constexpr auto make_rzone_indexes(const InputContext& ic,
-                                  const std::string& rzstr)
+auto make_rzone_indexes(const InputContext& ic,
+                        const std::string& rzstr)
 {
   auto rzones = split(rzstr, ':');
 
