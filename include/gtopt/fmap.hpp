@@ -38,7 +38,7 @@
 // Clang 23+: std::flat_map is available (guarded by __has_include)
 #    define GTOPT_USE_STD_FLAT_MAP
 
-#  elif defined(__clang__)
+#  elifdef __clang__
 // Clang < 23: std::flat_map is not available, and
 // boost::container::flat_map triggers a debug assertion (m_ptr || !off) when
 // reserve(0) is called, causing SIGABRT in debug builds.  Fall back to
