@@ -9,6 +9,14 @@ on:
     branches:
       - master
       - main
+  # Run after Ubuntu workflow builds and uploads the gtopt binary artifact
+  workflow_run:
+    workflows: ["Ubuntu"]
+    types: [completed]
+    branches:
+      - master
+      - main
+      - 'copilot/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +31,7 @@ env:
 jobs:
   webservice:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +42,7 @@ jobs:
           name: gtopt-binary-debug
           path: gtopt-install/bin
           github-token: ${{ github.token }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: install gtopt runtime dependencies
         run: |
@@ -88,6 +97,7 @@ jobs:
 
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +108,7 @@ jobs:
           name: gtopt-binary-debug
           path: ${{ github.workspace }}/gtopt-install/bin
           github-token: ${{ github.token }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: install gtopt runtime dependencies
         run: |
