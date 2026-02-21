@@ -25,7 +25,7 @@ namespace gtopt
 
 namespace
 {
-constexpr auto create_block_array(const Simulation& simulation)
+auto create_block_array(const Simulation& simulation)
 {
   auto index = BlockIndex {0};
 
@@ -43,8 +43,7 @@ constexpr auto create_block_array(const Simulation& simulation)
       | std::views::join);
 }
 
-constexpr auto create_stage_array(const Simulation& simulation,
-                                  const OptionsLP& options)
+auto create_stage_array(const Simulation& simulation, const OptionsLP& options)
 {
   return std::ranges::to<std::vector>(
       enumerate_active<StageIndex>(simulation.stage_array)
@@ -61,7 +60,7 @@ constexpr auto create_stage_array(const Simulation& simulation,
           }));
 }
 
-constexpr auto create_scenario_array(const Simulation& simulation)
+auto create_scenario_array(const Simulation& simulation)
 {
   auto&& scenarios = simulation.scenario_array;
 
@@ -74,8 +73,7 @@ constexpr auto create_scenario_array(const Simulation& simulation)
                                           }));
 }
 
-constexpr auto create_phase_array(const Simulation& simulation,
-                                  const OptionsLP& options)
+auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
 {
   return std::ranges::to<std::vector>(
       enumerate_active<PhaseIndex>(simulation.phase_array)
@@ -92,7 +90,7 @@ constexpr auto create_phase_array(const Simulation& simulation,
           }));
 }
 
-constexpr auto create_scene_array(const Simulation& simulation)
+auto create_scene_array(const Simulation& simulation)
 {
   return std::ranges::to<std::vector>(
       enumerate_active<SceneIndex>(simulation.scene_array)
