@@ -74,10 +74,10 @@ public:
    * @param planning The power system planning data
    * @param flat_opts Configuration options (default empty)
    */
-  template<typename Planning>
-    requires(std::is_same_v<std::remove_cvref_t<Planning>, gtopt::Planning>)
-  explicit PlanningLP(Planning&& planning, const FlatOptions& flat_opts = {})
-      : m_planning_(std::forward<Planning>(planning))
+  template<typename PlanningT>
+    requires(std::is_same_v<std::remove_cvref_t<PlanningT>, gtopt::Planning>)
+  explicit PlanningLP(PlanningT&& planning, const FlatOptions& flat_opts = {})
+      : m_planning_(std::forward<PlanningT>(planning))  // NOLINT
       , m_options_(m_planning_.options)
       , m_simulation_(m_planning_.simulation, m_options_)
       , m_systems_(create_systems(
