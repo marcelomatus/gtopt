@@ -85,4 +85,3 @@ TEST_CASE("Flow is_input method")
   flow_default.direction = std::nullopt;
   CHECK(flow_default.is_input());  // defaults to input (1)
 }
-

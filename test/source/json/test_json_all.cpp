@@ -1,6 +1,7 @@
 /**
  * @file      test_json_all.cpp
- * @brief     JSON serialization/deserialization tests - includes all .ipp test files
+ * @brief     JSON serialization/deserialization tests - includes all .ipp test
+ * files
  * @date      2026-02-21
  * @copyright BSD-3-Clause
  *
@@ -62,4 +63,3 @@ using namespace gtopt;
 #include "test_system_json.ipp"
 #include "test_turbine_json.ipp"
 #include "test_waterway_json.ipp"
-

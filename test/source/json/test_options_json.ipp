@@ -1,6 +1,5 @@
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
-
   // JSON string representing Options
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -109,7 +108,6 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 TEST_CASE(
     "json_options - Deserialization with missing fields (should use nulls)")
 {
-
   // JSON string with only some fields
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -154,7 +152,6 @@ TEST_CASE(
 
 TEST_CASE("json_options - Round-trip serialization and deserialization")
 {
-
   // Create original Options
   Options original {
       .input_directory = "input_dir",
@@ -191,4 +188,3 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK_FALSE(deserialized.use_uid_fname.has_value());
   CHECK_FALSE(deserialized.annual_discount_rate.has_value());
 }
-

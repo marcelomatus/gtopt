@@ -47,4 +47,3 @@ TEST_CASE("Generator daw json test 2")
           == doctest::Approx(300));
   REQUIRE(std::get<double>(gen.pmax.value_or(-1.0)) == doctest::Approx(275.5));
 }
-

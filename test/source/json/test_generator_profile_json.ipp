@@ -83,4 +83,3 @@ TEST_CASE("GeneratorProfile round-trip serialization")
   CHECK(std::get<double>(roundtrip.scost.value()) ==  // NOLINT
         doctest::Approx(300.0));
 }
-

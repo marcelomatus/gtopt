@@ -81,7 +81,6 @@ TEST_CASE("Turbine array json test")
 
 TEST_CASE("Turbine with active property serialization")
 {
-
   SUBCASE("With boolean active")
   {
     Turbine turbine;
@@ -126,7 +125,6 @@ TEST_CASE("Turbine with active property serialization")
 
 TEST_CASE("Turbine with empty optional fields")
 {
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"TURBINE_A",
@@ -147,4 +145,3 @@ TEST_CASE("Turbine with empty optional fields")
   CHECK(!turbine.conversion_rate.has_value());
   CHECK(!turbine.drain.has_value());
 }
-

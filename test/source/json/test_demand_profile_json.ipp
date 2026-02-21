@@ -83,4 +83,3 @@ TEST_CASE("DemandProfile round-trip serialization")
   CHECK(std::get<double>(roundtrip.scost.value())  // NOLINT
         == doctest::Approx(100.0));
 }
-

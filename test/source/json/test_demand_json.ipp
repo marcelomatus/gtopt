@@ -92,4 +92,3 @@ TEST_CASE("Demand daw json test 4")
       std::get<std::vector<gtopt::IntBool>>(demand_a[0].active.value_or(empty))
       == active);
 }
-
