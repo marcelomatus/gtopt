@@ -23,10 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install clang
+      - name: install clang-format
         uses: ./.github/actions/install-clang
         with:
           version: 21
+          packages: clang-format
 
       - name: validate clang-format
         run: |
