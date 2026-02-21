@@ -33,7 +33,7 @@ constexpr auto get_uid<Id>(const Id& obj) -> Uid
 }
 
 template<>
-constexpr auto get_name<Id>(const Id& obj) -> const Name&
+constexpr auto get_name<Id>(const Id& obj)
 {
   return obj.second;
 }
