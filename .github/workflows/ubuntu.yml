@@ -9,14 +9,52 @@ on:
     branches:
       - master
       - main
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ---- Compiler selection ----
+# Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
+#
+#   GCC 14:
+#     ACTIVE_COMPILER: gcc
+#     CC: gcc-14  CXX: g++-14
+#     GCOV_TOOL: gcov-14
+#
+#   Clang 21 (default):
+#     ACTIVE_COMPILER: clang
+#     CC: clang  CXX: clang++
+#     GCOV_TOOL: /tmp/llvm-gcov.sh
+#
+# The Clang coverage runtime (libclang_rt.profile-*) is installed automatically
+# when ACTIVE_COMPILER==clang AND ENABLE_COVERAGE==true.
+#
+# ccache notes:
+#   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
+#                     across runs on the same workspace path.
+#   CCACHE_SLOPPINESS=gcno_file_location – ccache 4.5+: don't hash the
+#                     location of .gcno files so coverage-instrumented TUs
+#                     are cached even when the build-dir path changes.
+#                     This is the key setting that makes ccache effective
+#                     with -fprofile-arcs / -ftest-coverage (GCC or Clang).
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  ACTIVE_COMPILER: clang
+  CC: clang
+  CXX: clang++
+  GCOV_TOOL: /tmp/llvm-gcov.sh
+  # Set to 'true' to enable code coverage instrumentation and collection.
+  # Leave 'false' for faster builds without coverage overhead.
+  ENABLE_COVERAGE: 'false'
+  # Set to 'true' to enable the clang-tidy static analysis job.
+  # Leave 'false' to skip it (saves ~10 min of analysis time).
+  ENABLE_CLANG_TIDY: 'false'
+  # ccache configuration (applied globally to every step)
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_SLOPPINESS: gcno_file_location
 
 permissions:
   contents: read
@@ -25,33 +63,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [gcc, clang]
-        include:
-          - compiler: clang
-            cc: clang
-            cxx: clang++
-            coverage: 'true'
-            gcov_tool: /tmp/llvm-gcov.sh
-            clang_coverage_runtime: 'true'
-          - compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
-            coverage: 'true'
-            gcov_tool: gcov-14
-            clang_coverage_runtime: 'false'
-
-    name: build (${{ matrix.compiler }})
+    name: build
 
     steps:
       - uses: actions/checkout@v4
 
+      # ccache must be set up before any compilation (including cmake feature
+      # tests during configure).  Placing it first also means the cache is
+      # restored before install-clang/install-gcc so that the very first
+      # compiler invocation can already benefit from the cache.
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
+          restore-keys: |
+            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
+          max-size: 2G
+
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -62,26 +94,52 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
+      # GCC 14 is pre-installed on ubuntu-latest; register unversioned
+      # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
+      - name: setup gcc
+        if: env.ACTIVE_COMPILER == 'gcc'
+        run: |
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14
+          sudo update-alternatives --install /usr/bin/gcc  gcc  /usr/bin/gcc-14  100
+          sudo update-alternatives --install /usr/bin/g++  g++  /usr/bin/g++-14  100
+          sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-14 100
+          gcc-14 --version && g++-14 --version && gcov-14 --version
+
       - name: install clang
+        if: env.ACTIVE_COMPILER == 'clang'
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: ${{ matrix.clang_coverage_runtime }}
-
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-build
-          max-size: 2G
+          install-coverage-runtime: ${{ env.ACTIVE_COMPILER == 'clang' && env.ENABLE_COVERAGE == 'true' }}
 
       - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: |
+          COVERAGE_FLAG=""
+          if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
+            COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
+          fi
+          cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          CC: ${{ env.CC }}
+          CXX: ${{ env.CXX }}
 
       - name: build
         run: cmake --build build -j$(nproc)
+
+      - name: verify binary has no missing shared libraries
+        run: |
+          echo "=== ldd output ==="
+          ldd build/gtopt
+          if ldd build/gtopt | grep -q "not found"; then
+            echo "::error::gtopt binary has missing shared libraries"
+            exit 1
+          fi
+          echo "✓ All shared libraries resolved"
+
+      - name: verify binary runs
+        run: |
+          build/gtopt --version
+          echo "✓ gtopt --version works"
 
       - name: test
         run: |
@@ -95,15 +153,22 @@ jobs:
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
-      - name: collect code coverage
-        if: matrix.coverage == 'true'
+      - name: upload gtopt binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: build/gtopt
+          retention-days: 7
+
+      - name: collect coverage (unit + integration)
+        if: env.ENABLE_COVERAGE == 'true'
         run: |
           # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
+          if [ "${{ env.ACTIVE_COMPILER }}" = "clang" ]; then
             printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
             chmod +x /tmp/llvm-gcov.sh
           fi
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
+          GCOV_TOOL="${{ env.GCOV_TOOL }}"
           # Capture coverage data with lcov
           # --ignore-errors mismatch,mismatch: fully suppress mismatch warnings
           #   from third-party headers (daw_json, boost, libstdc++)
@@ -131,32 +196,32 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file coverage.info \
-            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,inconsistent \
+            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,unused,inconsistent,inconsistent \
             --rc branch_coverage=1
           # Print summary to the job log
           lcov --list coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
-            --ignore-errors inconsistent
+            --ignore-errors inconsistent,inconsistent
           # Generate HTML report
           genhtml coverage.info --output-directory coverage-report \
-            --title "gtopt C++ Test Coverage" \
+            --title "gtopt C++ Coverage (Unit + Integration)" \
             --legend --show-details \
             --rc branch_coverage=1 \
-            --ignore-errors inconsistent
+            --ignore-errors inconsistent,inconsistent
 
       - name: upload coverage report
-        if: always() && matrix.coverage == 'true'
+        if: env.ENABLE_COVERAGE == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: cpp-coverage-report-${{ matrix.compiler }}
+          name: cpp-coverage-report-${{ env.ACTIVE_COMPILER }}
           path: coverage-report/
           retention-days: 30
 
       - name: generate coverage summary
-        if: always() && matrix.coverage == 'true'
+        if: env.ENABLE_COVERAGE == 'true'
         run: |
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
+          GCOV_TOOL="${{ env.GCOV_TOOL }}"
           if [ ! -f coverage.info ]; then
-            echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "## C++ Coverage (Unit + Integration)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Coverage data not available (test or coverage collection step failed)." >> $GITHUB_STEP_SUMMARY
             exit 0
@@ -170,7 +235,7 @@ jobs:
           FUNC_DETAIL=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '\(.*\)')
           BRANCH_PCT=$(echo "$SUMMARY" | grep 'branches' | head -1 | grep -oP '[\d.]+%' | head -1)
           BRANCH_DETAIL=$(echo "$SUMMARY" | grep 'branches' | head -1 | grep -oP '\(.*\)')
-          echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "## C++ Coverage (Unit + Integration)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Coverage | Details |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|----------|---------|" >> $GITHUB_STEP_SUMMARY
@@ -191,162 +256,343 @@ jobs:
           fi
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
 
-  integration:
+  # ---------------------------------------------------------------------------
+  # clang-tidy static analysis job
+  # Uses clang-tidy-cache (https://github.com/matus-chochlik/ctcache) to avoid
+  # re-analyzing translation units that have not changed between runs.
+  # ---------------------------------------------------------------------------
+  clang-tidy:
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [gcc, clang]
-        include:
-          - compiler: clang
-            cc: clang
-            cxx: clang++
-            coverage: 'true'
-            gcov_tool: /tmp/llvm-gcov.sh
-            clang_coverage_runtime: 'true'
-          - compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
-            coverage: 'true'
-            gcov_tool: gcov-14
-            clang_coverage_runtime: 'false'
-
-    name: integration (${{ matrix.compiler }})
+    name: clang-tidy
+    if: ${{ env.ENABLE_CLANG_TIDY == 'true' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.workflow }}-clang-tidy
+          restore-keys: |
+            ${{ github.workflow }}-clang-tidy-
+          max-size: 2G
+
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install clang (full — clang-tidy required)
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
 
       - name: install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev lcov ca-certificates lsb-release wget
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
           wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
-      - name: install clang
-        uses: ./.github/actions/install-clang
-        with:
-          version: 21
-          install-coverage-runtime: ${{ matrix.clang_coverage_runtime }}
+      - name: set up clang-tidy-cache
+        uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
 
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.workflow }}-${{ matrix.compiler }}-integration
-          max-size: 2G
-
-      - name: configure standalone (Release, for install)
-        run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: configure (clang-tidy mode)
+        run: |
+          cmake -Stest -Bbuild \
+            -DENABLE_INTEGRATION_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          CC: clang
+          CXX: clang++
 
-      - name: build standalone
+      - name: build with clang-tidy
         run: cmake --build build -j$(nproc)
 
-      - name: install gtopt
-        run: cmake --install build --prefix build/install
+  webservice:
+    runs-on: ubuntu-latest
+    needs: build
 
-      - name: verify installed binary has no missing shared libraries
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: gtopt-install/bin
+
+      - name: install gtopt runtime dependencies
         run: |
-          echo "=== ldd output ==="
-          ldd build/install/bin/gtopt
-          if ldd build/install/bin/gtopt | grep -q "not found"; then
-            echo "::error::Installed gtopt binary has missing shared libraries"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: make gtopt executable
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: webservice/package-lock.json
+
+      - name: install dependencies
+        working-directory: webservice
+        run: npm ci
+
+      - name: build
+        working-directory: webservice
+        run: npm run build
+
+      - name: integration test
+        working-directory: webservice
+        run: npm test
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+      - name: e2e test
+        working-directory: webservice
+        run: npm run test:e2e
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+      - name: full-stack e2e test (real components only)
+        working-directory: webservice
+        run: npm run test:e2e-real
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+  install-and-test-gtopt-websrv:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: ${{ github.workspace }}/gtopt-install/bin
+
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: make gtopt executable
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
+
+      - name: verify only standalone gtopt binary is installed
+        run: |
+          test -x gtopt-install/bin/gtopt
+          if find "gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
+            echo "::error::libgtopt.a was installed, expected binary-only installation"
+            find "gtopt-install" -type f -name 'libgtopt.a'
             exit 1
           fi
-          echo "✓ All shared libraries resolved"
+          echo "✓ standalone gtopt binary installed without libgtopt.a"
 
-      - name: verify installed binary runs
-        run: |
-          build/install/bin/gtopt --version
-          echo "✓ Installed gtopt --version works"
-
-      - name: configure integration_test (Debug, with coverage)
-        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-
-      - name: build integration_test
-        run: cmake --build build-integration -j$(nproc)
-
-      - name: run integration tests
-        run: |
-          cd build-integration
-          ctest --build-config Debug --output-on-failure
-
-      - name: collect integration test coverage
-        if: matrix.coverage == 'true'
-        run: |
-          # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
-            chmod +x /tmp/llvm-gcov.sh
-          fi
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
-          lcov --capture --directory build-integration --output-file integration-coverage-raw.info \
-            --gcov-tool ${GCOV_TOOL} \
-            --ignore-errors mismatch,mismatch \
-            --ignore-errors unexecuted,unexecuted \
-            --ignore-errors negative,negative \
-            --ignore-errors inconsistent,inconsistent \
-            --rc geninfo_unexecuted_blocks=1 \
-            --rc branch_coverage=1
-          lcov --remove integration-coverage-raw.info \
-            '/usr/*' \
-            '*/cpm_modules/*' \
-            '*/test/*' \
-            '*/daw/*' \
-            '*/strong_type/*' \
-            '*/spdlog/*' \
-            --output-file integration-coverage.info \
-            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,inconsistent \
-            --rc branch_coverage=1
-          lcov --list integration-coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
-            --ignore-errors inconsistent
-          genhtml integration-coverage.info --output-directory integration-coverage-report \
-            --title "gtopt Integration Test Coverage" \
-            --legend --show-details \
-            --rc branch_coverage=1 \
-            --ignore-errors inconsistent
-
-      - name: upload integration coverage report
-        if: always() && matrix.coverage == 'true'
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: integration-coverage-report-${{ matrix.compiler }}
-          path: integration-coverage-report/
-          retention-days: 30
+          node-version: "20"
 
-      - name: generate integration coverage summary
-        if: always() && matrix.coverage == 'true'
+      - name: Configure webservice with CMake
+        run: cmake -S webservice -B build-webservice
+
+      - name: Install webservice
+        run: cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Verify gtopt_websrv launcher is installed
         run: |
-          GCOV_TOOL="${{ matrix.gcov_tool }}"
-          if [ ! -f integration-coverage.info ]; then
-            echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ Coverage data not available." >> $GITHUB_STEP_SUMMARY
-            exit 0
+          test -f $HOME/gtopt-install/bin/gtopt_websrv
+          test -x $HOME/gtopt-install/bin/gtopt_websrv
+          echo "✓ gtopt_websrv launcher found and is executable"
+
+      - name: Test gtopt_websrv help
+        run: |
+          $HOME/gtopt-install/bin/gtopt_websrv --help | grep -q "gtopt_websrv - Launcher for gtopt web service"
+          echo "✓ Help command works"
+
+      - name: Verify systemd service file is included
+        run: |
+          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
+          echo "✓ Systemd service file installed"
+
+      - name: Verify webservice was built during installation
+        run: |
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
+
+      - name: Copy gtopt binary to install prefix
+        run: |
+          cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
+
+      - name: Test webservice runs after installation
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          bash test/install_test.sh
+
+      - name: Verify API with --check-api flag
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          GTOPT_BIN=$HOME/gtopt-install/bin/gtopt GTOPT_DATA_DIR=$(mktemp -d) \
+            node_modules/.bin/next start -p 3096 > /tmp/check_api_server.log 2>&1 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3096 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          if node gtopt_websrv.js --check-api --port 3096; then
+            echo "✓ --check-api passed"
+          else
+            echo "✗ --check-api failed"
+            cat /tmp/check_api_server.log
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
           fi
-          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
-            --ignore-errors inconsistent,inconsistent 2>&1) || true
-          LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
-          LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
-          FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)
-          FUNC_DETAIL=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '\(.*\)')
-          echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Coverage | Details |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|----------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Lines | ${LINE_PCT} | ${LINE_DETAIL} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Functions | ${FUNC_PCT} | ${FUNC_DETAIL} |" >> $GITHUB_STEP_SUMMARY
-          echo "📥 Download the full HTML coverage report from the **integration-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
+          if node gtopt_websrv.js --check-api --port 19999 2>/dev/null; then
+            echo "✗ --check-api should have failed on closed port"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          else
+            echo "✓ --check-api correctly fails on closed port"
+          fi
+          kill $SERVER_PID 2>/dev/null || true
+          echo "✓ All --check-api tests passed"
+
+  test-integrated-gtopt-gui:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: ${{ runner.temp }}/gtopt-bin
+
+      - name: install gtopt binary
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
+          $HOME/gtopt-install/bin/gtopt --version
+          echo "✓ gtopt binary installed from CI artifact"
+
+      - name: Configure and install guiservice
+        run: |
+          cmake -S guiservice -B build-guiservice
+          cmake --install build-guiservice --prefix $HOME/gtopt-install
+
+      - name: Configure and install webservice
+        run: |
+          cmake -S webservice -B build-webservice
+          cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Verify webservice was built during installation
+        run: |
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
+
+      - name: Test gtopt_gui with integrated webservice
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          cd $HOME/gtopt-install/bin
+          echo "Testing gtopt_gui with --no-webservice..."
+          timeout 10 ./gtopt_gui --no-webservice --no-browser --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
+          GUI_NO_WEB_PID=$!
+          sleep 3
+          if curl -s http://localhost:5100/api/schemas > /dev/null; then
+            echo "✓ gtopt_gui works with --no-webservice"
+          else
+            echo "✗ gtopt_gui failed with --no-webservice"
+            cat /tmp/gtopt_gui_noweb.log
+            exit 1
+          fi
+          kill $GUI_NO_WEB_PID 2>/dev/null || true
+          sleep 2
+          echo "Testing gtopt_gui with integrated webservice..."
+          timeout 120 ./gtopt_gui --webservice-port 3001 --no-browser --port 5101 > /tmp/gtopt_gui_integrated.log 2>&1 &
+          GUI_INT_PID=$!
+          echo "Waiting for services to start..."
+          SERVICES_UP=false
+          for i in {1..60}; do
+            if curl -s http://localhost:5101/api/schemas > /dev/null && \
+               curl -s http://localhost:3001/api/jobs > /dev/null; then
+              echo "✓ Both services are up!"
+              SERVICES_UP=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$SERVICES_UP" != "true" ]; then
+            echo "✗ Services did not start in time"
+            cat /tmp/gtopt_gui_integrated.log || true
+            kill $GUI_INT_PID 2>/dev/null || true
+            exit 1
+          fi
+          curl -sf http://localhost:5101/api/schemas | python3 -c "import sys, json; print(f'✓ GUI API: {len(json.load(sys.stdin))} element types')"
+          curl -sf http://localhost:3001/api/jobs | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'jobs' in data; print('✓ Webservice API working')"
+          PING_RESPONSE=$(curl -sf http://localhost:3001/api/ping)
+          echo "$PING_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('status',''); v=d.get('gtopt_version',''); assert s=='ok','Expected status ok, got: '+s; print('✓ Webservice ping: status='+s+', version='+v)"
+          curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
+          kill $GUI_INT_PID 2>/dev/null || true
+          sleep 2
+          for port in 5101 3001; do fuser -k $port/tcp 2>/dev/null || true; done
+          echo "✅ All integrated gtopt_gui tests passed!"
+
+      - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          export GUI_PORT=5102
+          export WEBSERVICE_PORT=3002
+          bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"

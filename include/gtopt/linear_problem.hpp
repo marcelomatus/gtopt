@@ -113,7 +113,7 @@ public:
    */
   template<typename SparseCol = gtopt::SparseCol>
   [[nodiscard]]
-  constexpr ColIndex add_col(SparseCol&& col) noexcept
+  constexpr ColIndex add_col(SparseCol&& col)
   {
     const auto index = ColIndex {static_cast<Index>(cols.size())};
 
@@ -132,7 +132,7 @@ public:
    */
   template<typename SparseRow = gtopt::SparseRow>
   [[nodiscard]]
-  constexpr RowIndex add_row(SparseRow&& row) noexcept
+  constexpr RowIndex add_row(SparseRow&& row)
   {
     const auto index = RowIndex {static_cast<Index>(rows.size())};
 

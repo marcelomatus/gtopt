@@ -22,16 +22,47 @@ inputs:
       Set to 'true' to also install libclang-rt-N-dev, which provides
       libclang_rt.profile.a required for --coverage builds.
     default: 'false'
+  packages:
+    description: >
+      Space-separated list of LLVM tool names to install (without the version
+      suffix), e.g. "clang-format" or "clang-format clang-tidy".
+      When empty (default) the full LLVM suite is installed via
+      "llvm.sh VERSION all".  When non-empty, only the apt repo is set up
+      and only the listed packages (clang-format-VERSION, etc.) are installed.
+      Use this for workflows that only need a single tool such as clang-format
+      to avoid downloading the entire ~600 MB LLVM toolchain.
+    default: ''
 
 runs:
   using: composite
   steps:
-    - name: install LLVM packages via llvm.sh
+    - name: install LLVM packages via llvm.sh (full suite)
+      if: ${{ inputs.packages == '' }}
       shell: bash
       run: |
         wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
         chmod +x /tmp/llvm.sh
         sudo /tmp/llvm.sh ${{ inputs.version }} all
+
+    - name: set up LLVM apt repo and install specific packages
+      if: ${{ inputs.packages != '' }}
+      shell: bash
+      run: |
+        VER=${{ inputs.version }}
+        # Add the LLVM apt signing key and source list
+        wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+        sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
+        CODENAME=$(lsb_release -cs)
+        echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+          https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
+          | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
+        sudo apt-get update -q
+        # Install each requested package with the version suffix
+        PKGS=""
+        for pkg in ${{ inputs.packages }}; do
+          PKGS="$PKGS ${pkg}-${VER}"
+        done
+        sudo apt-get install -y --no-install-recommends $PKGS
 
     - name: register unversioned LLVM/Clang alternatives
       shell: bash
