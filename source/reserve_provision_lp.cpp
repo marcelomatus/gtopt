@@ -203,7 +203,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     {
       auto rrow =
           SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
-      rrow[rcol] = rrow[gcol] = 1;
+      rrow[gcol] = 1;
+      rrow[rcol] = 1;
 
       if (capacity_col) {
         rrow[*capacity_col] = -1;

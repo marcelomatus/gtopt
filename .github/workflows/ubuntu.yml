@@ -137,7 +137,8 @@ jobs:
             exit 0
           fi
           # Extract coverage percentages for the job summary
-          SUMMARY=$(lcov --summary coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 2>&1)
+          SUMMARY=$(lcov --summary coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 \
+            --ignore-errors inconsistent,inconsistent 2>&1) || true
           LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
           LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
           FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)
@@ -286,7 +287,8 @@ jobs:
             echo "⚠️ Coverage data not available." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 2>&1)
+          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 \
+            --ignore-errors inconsistent,inconsistent 2>&1) || true
           LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
           LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
           FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)
