@@ -15,17 +15,37 @@ concurrency:
   cancel-in-progress: true
 
 # ---- Compiler selection ----
-# Change ACTIVE_COMPILER to 'gcc' to switch to the GCC build compiler.
-# The CC/CXX/GCOV_TOOL/CLANG_COVERAGE_RUNTIME variables below are set
-# automatically; do not change them directly.
+# Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
+#
+#   GCC 14 (default — ccache + coverage works best):
+#     ACTIVE_COMPILER: gcc
+#     CC: gcc-14  CXX: g++-14
+#     GCOV_TOOL: gcov-14  CLANG_COVERAGE_RUNTIME: 'false'
+#
+#   Clang 21:
+#     ACTIVE_COMPILER: clang
+#     CC: clang  CXX: clang++
+#     GCOV_TOOL: /tmp/llvm-gcov.sh  CLANG_COVERAGE_RUNTIME: 'true'
+#
+# ccache notes:
+#   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
+#                     across runs on the same workspace path.
+#   CCACHE_SLOPPINESS=gcno_file_location – ccache 4.5+: don't hash the
+#                     location of .gcno files so coverage-instrumented TUs
+#                     are cached even when the build-dir path changes.
+#                     This is the key setting that makes ccache effective
+#                     with -fprofile-arcs / -ftest-coverage (GCC or Clang).
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  ACTIVE_COMPILER: clang
-  CC: clang
-  CXX: clang++
-  GCOV_TOOL: /tmp/llvm-gcov.sh
-  CLANG_COVERAGE_RUNTIME: 'true'
+  ACTIVE_COMPILER: gcc
+  CC: gcc-14
+  CXX: g++-14
+  GCOV_TOOL: gcov-14
+  CLANG_COVERAGE_RUNTIME: 'false'
+  # ccache configuration (applied globally to every step)
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_SLOPPINESS: gcno_file_location
 
 permissions:
   contents: read
@@ -38,6 +58,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # ccache must be set up before any compilation (including cmake feature
+      # tests during configure).  Placing it first also means the cache is
+      # restored before install-clang/install-gcc so that the very first
+      # compiler invocation can already benefit from the cache.
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
+          restore-keys: |
+            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
+          max-size: 2G
 
       - uses: actions/cache@v4
         with:
@@ -53,17 +85,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
 
+      # GCC 14 is pre-installed on ubuntu-latest; register unversioned
+      # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
+      - name: setup gcc
+        if: env.ACTIVE_COMPILER == 'gcc'
+        run: |
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14
+          sudo update-alternatives --install /usr/bin/gcc  gcc  /usr/bin/gcc-14  100
+          sudo update-alternatives --install /usr/bin/g++  g++  /usr/bin/g++-14  100
+          sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-14 100
+          gcc-14 --version && g++-14 --version && gcov-14 --version
+
       - name: install clang
+        if: env.ACTIVE_COMPILER == 'clang'
         uses: ./.github/actions/install-clang
         with:
           version: 21
           install-coverage-runtime: ${{ env.CLANG_COVERAGE_RUNTIME }}
-
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-build
-          max-size: 2G
 
       - name: configure
         run: cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -144,17 +182,17 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file coverage.info \
-            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,inconsistent \
+            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,unused,inconsistent,inconsistent \
             --rc branch_coverage=1
           # Print summary to the job log
           lcov --list coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
-            --ignore-errors inconsistent
+            --ignore-errors inconsistent,inconsistent
           # Generate HTML report
           genhtml coverage.info --output-directory coverage-report \
             --title "gtopt C++ Coverage (Unit + Integration)" \
             --legend --show-details \
             --rc branch_coverage=1 \
-            --ignore-errors inconsistent
+            --ignore-errors inconsistent,inconsistent
 
       - name: upload coverage report
         if: always()
