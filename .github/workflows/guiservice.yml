@@ -9,7 +9,7 @@ on:
     branches:
       - master
       - main
-  # Run after Ubuntu workflow builds and uploads the gtopt binary artifact
+  # test-integrated-gtopt-gui runs after Ubuntu to get the gtopt binary artifact
   workflow_run:
     workflows: ["Ubuntu"]
     types: [completed]
