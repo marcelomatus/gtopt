@@ -28,19 +28,57 @@ jobs:
         with:
           version: 21
 
-      - name: validate clang
+      - name: validate clang-format
         run: |
-          clang --version
-          clang++ --version
-          clang-format --version
-          echo "## Clang Installation" >> $GITHUB_STEP_SUMMARY
+          echo "## Clang-format version" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          clang --version >> $GITHUB_STEP_SUMMARY
           clang-format --version >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: configure
-        run: cmake -S cmake/format -B build
-
       - name: check C++ format
-        run: cmake --build build --target check-format
+        # Format violations are reported as warnings and annotations but do NOT
+        # fail the workflow — the Auto-format job will push a fixup commit on
+        # the next push.  Keeping this non-blocking means a Copilot or
+        # automated commit that used a different clang-format version never
+        # stalls an otherwise-green CI run.
+        run: |
+          set +e
+          VIOLATIONS=$(git ls-files -z \
+              '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' \
+              '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' \
+              ':(exclude)cmake/' \
+            | xargs -0 clang-format --dry-run -Werror 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$VIOLATIONS"
+
+            # Emit a single workflow-level warning annotation
+            echo "::warning title=clang-format::Some C++ files need formatting. \
+          The Auto-format workflow will push a fix automatically. \
+          To fix locally run: git ls-files -z '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' ':(exclude)cmake/' | xargs -0 clang-format -i"
+
+            # Parse violation lines and emit per-file annotations
+            echo "$VIOLATIONS" | grep ': error:' | while IFS= read -r line; do
+              FILE=$(echo "$line" | cut -d: -f1)
+              LINE=$(echo "$line" | cut -d: -f2)
+              echo "::warning file=$FILE,line=$LINE::clang-format violation"
+            done
+
+            # Summary
+            N=$(echo "$VIOLATIONS" | grep -c ': error:' || true)
+            echo "## ⚠️ clang-format: $N violation(s)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The **Auto-format** workflow will push a fixup commit automatically." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To fix locally:" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "git ls-files -z '*.h' '*.c' '*.hpp' '*.cpp' '*.hxx' '*.cxx' '*.hh' '*.cc' '*.ipp' '*.inc' '*.inl' ':(exclude)cmake/' \\" >> $GITHUB_STEP_SUMMARY
+            echo "  | xargs -0 clang-format -i" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ clang-format: no violations" >> $GITHUB_STEP_SUMMARY
+          fi
+          # Always exit 0 — violations are warnings, not errors
+          exit 0
