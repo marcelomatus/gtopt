@@ -10,6 +10,17 @@
 
 #pragma once
 
+// Clang < 23 does not ship std::flat_map, and boost::container::flat_map
+// triggers a debug-assertion (m_ptr || !off) in its vector iterator when
+// reserve(0) is called, causing SIGABRT in debug builds.  Automatically
+// fall back to std::unordered_map unless an explicit backend was chosen.
+#if defined(__clang__) && __clang_major__ < 23
+#  if !defined(GTOPT_USE_UNORDERED_MAP) && !defined(GTOPT_USE_STD_MAP) \
+      && !defined(GTOPT_USE_STD_FLAT_MAP)
+#    define GTOPT_USE_UNORDERED_MAP
+#  endif
+#endif
+
 #ifdef GTOPT_USE_UNORDERED_MAP
 #  include <unordered_map>
 
