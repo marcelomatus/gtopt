@@ -13,11 +13,14 @@
 // Clang < 23 does not ship std::flat_map, and boost::container::flat_map
 // triggers a debug-assertion (m_ptr || !off) in its vector iterator when
 // reserve(0) is called, causing SIGABRT in debug builds.  Automatically
-// fall back to std::unordered_map unless an explicit backend was chosen.
+// fall back to std::map (which requires only operator<, available on all key
+// types via strong::regular / operator<=>) unless an explicit backend was
+// chosen.  std::unordered_map is not used here because boost::hash_value is
+// not defined for strong::type<> index types nor for StateVariable::Key.
 #if defined(__clang__) && __clang_major__ < 23
 #  if !defined(GTOPT_USE_UNORDERED_MAP) && !defined(GTOPT_USE_STD_MAP) \
       && !defined(GTOPT_USE_STD_FLAT_MAP)
-#    define GTOPT_USE_UNORDERED_MAP
+#    define GTOPT_USE_STD_MAP
 #  endif
 #endif
 
