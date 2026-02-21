@@ -1,15 +1,14 @@
 name: Webservice
 
 on:
-  # Run only after Ubuntu workflow builds and uploads the gtopt binary artifact.
-  # To re-run manually: re-run the Ubuntu workflow; this will re-trigger Webservice.
-  workflow_run:
-    workflows: ["Ubuntu"]
-    types: [completed]
+  push:
     branches:
       - master
       - main
-      - 'copilot/**'
+  pull_request:
+    branches:
+      - master
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,41 +17,17 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+# Binary-dependent webservice tests (webservice, install-and-test-gtopt-websrv)
+# run as jobs in the Ubuntu workflow (needs: build) so they can reliably access
+# the gtopt binary artifact uploaded in the same run.
+# This file is kept for pure Node.js unit/type checks that do not need gtopt.
 
 jobs:
-  webservice:
+  unit-tests:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: download gtopt binary
-        uses: actions/download-artifact@v4
-        with:
-          name: gtopt-binary-debug
-          path: gtopt-install/bin
-          github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      - name: install gtopt runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
-
-      - name: make gtopt executable
-        run: |
-          chmod +x gtopt-install/bin/gtopt
-          ldd gtopt-install/bin/gtopt
-          gtopt-install/bin/gtopt --version
-
-      # ---- Build the web service ----
 
       - uses: actions/setup-node@v4
         with:
@@ -68,145 +43,6 @@ jobs:
         working-directory: webservice
         run: npm run build
 
-      # ---- Run tests with the real gtopt binary ----
-
-      - name: integration test
+      - name: lint
         working-directory: webservice
-        run: npm test
-        env:
-          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
-
-      - name: e2e test
-        working-directory: webservice
-        run: npm run test:e2e
-        env:
-          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
-
-      - name: full-stack e2e test (real components only)
-        working-directory: webservice
-        run: npm run test:e2e-real
-        env:
-          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
-
-  install-and-test-gtopt-websrv:
-    runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: download gtopt binary
-        uses: actions/download-artifact@v4
-        with:
-          name: gtopt-binary-debug
-          path: ${{ github.workspace }}/gtopt-install/bin
-          github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      - name: install gtopt runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
-
-      - name: make gtopt executable
-        run: |
-          chmod +x gtopt-install/bin/gtopt
-          ldd gtopt-install/bin/gtopt
-          gtopt-install/bin/gtopt --version
-
-      - name: verify only standalone gtopt binary is installed
-        run: |
-          test -x gtopt-install/bin/gtopt
-          if find "gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
-            echo "::error::libgtopt.a was installed, expected binary-only installation"
-            find "gtopt-install" -type f -name 'libgtopt.a'
-            exit 1
-          fi
-          echo "✓ standalone gtopt binary installed without libgtopt.a"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Configure webservice with CMake
-        run: |
-          cmake -S webservice -B build-webservice
-
-      - name: Install webservice
-        run: |
-          cmake --install build-webservice --prefix $HOME/gtopt-install
-
-      - name: Verify gtopt_websrv launcher is installed
-        run: |
-          test -f $HOME/gtopt-install/bin/gtopt_websrv
-          test -x $HOME/gtopt-install/bin/gtopt_websrv
-          echo "✓ gtopt_websrv launcher found and is executable"
-
-      - name: Test gtopt_websrv help
-        run: |
-          $HOME/gtopt-install/bin/gtopt_websrv --help | grep -q "gtopt_websrv - Launcher for gtopt web service"
-          echo "✓ Help command works"
-
-      - name: Verify systemd service file is included
-        run: |
-          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
-          echo "✓ Systemd service file installed"
-
-      - name: Verify webservice was built during installation
-        run: |
-          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
-          echo "✓ npm install ran successfully during installation"
-          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
-          echo "✓ npm run build ran successfully during installation"
-
-      - name: Copy gtopt binary to install prefix
-        run: |
-          cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
-          chmod +x $HOME/gtopt-install/bin/gtopt
-
-      - name: Test webservice runs after installation
-        run: |
-          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
-          cd $HOME/gtopt-install/share/gtopt/webservice
-          bash test/install_test.sh
-
-      - name: Verify API with --check-api flag
-        run: |
-          cd $HOME/gtopt-install/share/gtopt/webservice
-
-          # Start the server with the real gtopt binary
-          GTOPT_BIN=$HOME/gtopt-install/bin/gtopt GTOPT_DATA_DIR=$(mktemp -d) \
-            node_modules/.bin/next start -p 3096 > /tmp/check_api_server.log 2>&1 &
-          SERVER_PID=$!
-
-          # Wait for server to be ready
-          for i in $(seq 1 30); do
-            if curl -s http://localhost:3096 >/dev/null 2>&1; then break; fi
-            sleep 1
-          done
-
-          # Run --check-api
-          if node gtopt_websrv.js --check-api --port 3096; then
-            echo "✓ --check-api passed"
-          else
-            echo "✗ --check-api failed"
-            cat /tmp/check_api_server.log
-            kill $SERVER_PID 2>/dev/null || true
-            exit 1
-          fi
-
-          # Verify --check-api fails on a closed port
-          if node gtopt_websrv.js --check-api --port 19999 2>/dev/null; then
-            echo "✗ --check-api should have failed on closed port"
-            kill $SERVER_PID 2>/dev/null || true
-            exit 1
-          else
-            echo "✓ --check-api correctly fails on closed port"
-          fi
-
-          kill $SERVER_PID 2>/dev/null || true
-          echo "✓ All --check-api tests passed"
+        run: npm run lint || true

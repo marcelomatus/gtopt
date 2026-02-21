@@ -204,3 +204,288 @@ jobs:
           fi
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
 
+  webservice:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: gtopt-install/bin
+
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: make gtopt executable
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: webservice/package-lock.json
+
+      - name: install dependencies
+        working-directory: webservice
+        run: npm ci
+
+      - name: build
+        working-directory: webservice
+        run: npm run build
+
+      - name: integration test
+        working-directory: webservice
+        run: npm test
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+      - name: e2e test
+        working-directory: webservice
+        run: npm run test:e2e
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+      - name: full-stack e2e test (real components only)
+        working-directory: webservice
+        run: npm run test:e2e-real
+        env:
+          GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
+
+  install-and-test-gtopt-websrv:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: ${{ github.workspace }}/gtopt-install/bin
+
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: make gtopt executable
+        run: |
+          chmod +x gtopt-install/bin/gtopt
+          ldd gtopt-install/bin/gtopt
+          gtopt-install/bin/gtopt --version
+
+      - name: verify only standalone gtopt binary is installed
+        run: |
+          test -x gtopt-install/bin/gtopt
+          if find "gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
+            echo "::error::libgtopt.a was installed, expected binary-only installation"
+            find "gtopt-install" -type f -name 'libgtopt.a'
+            exit 1
+          fi
+          echo "✓ standalone gtopt binary installed without libgtopt.a"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Configure webservice with CMake
+        run: cmake -S webservice -B build-webservice
+
+      - name: Install webservice
+        run: cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Verify gtopt_websrv launcher is installed
+        run: |
+          test -f $HOME/gtopt-install/bin/gtopt_websrv
+          test -x $HOME/gtopt-install/bin/gtopt_websrv
+          echo "✓ gtopt_websrv launcher found and is executable"
+
+      - name: Test gtopt_websrv help
+        run: |
+          $HOME/gtopt-install/bin/gtopt_websrv --help | grep -q "gtopt_websrv - Launcher for gtopt web service"
+          echo "✓ Help command works"
+
+      - name: Verify systemd service file is included
+        run: |
+          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
+          echo "✓ Systemd service file installed"
+
+      - name: Verify webservice was built during installation
+        run: |
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
+
+      - name: Copy gtopt binary to install prefix
+        run: |
+          cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
+
+      - name: Test webservice runs after installation
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          bash test/install_test.sh
+
+      - name: Verify API with --check-api flag
+        run: |
+          cd $HOME/gtopt-install/share/gtopt/webservice
+          GTOPT_BIN=$HOME/gtopt-install/bin/gtopt GTOPT_DATA_DIR=$(mktemp -d) \
+            node_modules/.bin/next start -p 3096 > /tmp/check_api_server.log 2>&1 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3096 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          if node gtopt_websrv.js --check-api --port 3096; then
+            echo "✓ --check-api passed"
+          else
+            echo "✗ --check-api failed"
+            cat /tmp/check_api_server.log
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          if node gtopt_websrv.js --check-api --port 19999 2>/dev/null; then
+            echo "✗ --check-api should have failed on closed port"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          else
+            echo "✓ --check-api correctly fails on closed port"
+          fi
+          kill $SERVER_PID 2>/dev/null || true
+          echo "✓ All --check-api tests passed"
+
+  test-integrated-gtopt-gui:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install gtopt runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: download gtopt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gtopt-binary-debug
+          path: ${{ runner.temp }}/gtopt-bin
+
+      - name: install gtopt binary
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
+          chmod +x $HOME/gtopt-install/bin/gtopt
+          $HOME/gtopt-install/bin/gtopt --version
+          echo "✓ gtopt binary installed from CI artifact"
+
+      - name: Configure and install guiservice
+        run: |
+          cmake -S guiservice -B build-guiservice
+          cmake --install build-guiservice --prefix $HOME/gtopt-install
+
+      - name: Configure and install webservice
+        run: |
+          cmake -S webservice -B build-webservice
+          cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Verify webservice was built during installation
+        run: |
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          echo "✓ npm install ran successfully during installation"
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ npm run build ran successfully during installation"
+
+      - name: Test gtopt_gui with integrated webservice
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          cd $HOME/gtopt-install/bin
+          echo "Testing gtopt_gui with --no-webservice..."
+          timeout 10 ./gtopt_gui --no-webservice --no-browser --port 5100 > /tmp/gtopt_gui_noweb.log 2>&1 &
+          GUI_NO_WEB_PID=$!
+          sleep 3
+          if curl -s http://localhost:5100/api/schemas > /dev/null; then
+            echo "✓ gtopt_gui works with --no-webservice"
+          else
+            echo "✗ gtopt_gui failed with --no-webservice"
+            cat /tmp/gtopt_gui_noweb.log
+            exit 1
+          fi
+          kill $GUI_NO_WEB_PID 2>/dev/null || true
+          sleep 2
+          echo "Testing gtopt_gui with integrated webservice..."
+          timeout 120 ./gtopt_gui --webservice-port 3001 --no-browser --port 5101 > /tmp/gtopt_gui_integrated.log 2>&1 &
+          GUI_INT_PID=$!
+          echo "Waiting for services to start..."
+          SERVICES_UP=false
+          for i in {1..60}; do
+            if curl -s http://localhost:5101/api/schemas > /dev/null && \
+               curl -s http://localhost:3001/api/jobs > /dev/null; then
+              echo "✓ Both services are up!"
+              SERVICES_UP=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$SERVICES_UP" != "true" ]; then
+            echo "✗ Services did not start in time"
+            cat /tmp/gtopt_gui_integrated.log || true
+            kill $GUI_INT_PID 2>/dev/null || true
+            exit 1
+          fi
+          curl -sf http://localhost:5101/api/schemas | python3 -c "import sys, json; print(f'✓ GUI API: {len(json.load(sys.stdin))} element types')"
+          curl -sf http://localhost:3001/api/jobs | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'jobs' in data; print('✓ Webservice API working')"
+          PING_RESPONSE=$(curl -sf http://localhost:3001/api/ping)
+          echo "$PING_RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert d['status'] == 'ok', f'Expected ok, got {d["status"]}'
+          print(f'✓ Webservice ping: status={d["status"]}, version={d.get("gtopt_version","")}')
+          "
+          curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
+          kill $GUI_INT_PID 2>/dev/null || true
+          sleep 2
+          for port in 5101 3001; do fuser -k $port/tcp 2>/dev/null || true; done
+          echo "✅ All integrated gtopt_gui tests passed!"
+
+      - name: E2E test gtopt_gui ping/log/solve with zipped cases/c0
+        run: |
+          export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
+          export GUI_PORT=5102
+          export WEBSERVICE_PORT=3002
+          bash guiservice/tests/test_gtopt_gui_integration.sh "$HOME/gtopt-install" "$GITHUB_WORKSPACE"
