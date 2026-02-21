@@ -7,6 +7,12 @@ description: >
   first, so tools like clang, clang++, clang-format, clang-tidy, llvm-cov,
   llvm-profdata, etc. are all reachable without a version suffix.
 
+  NOTE on version availability: clang-22 packages are not yet available on
+  apt.llvm.org for the GitHub Actions Ubuntu runners, and the KyleMayes
+  install-llvm-action marketplace action (https://github.com/marketplace/actions/install-llvm-and-clang)
+  also does not provide Linux x64 binaries for clang-22 (latest is 21.x).
+  Use version 21 until clang-22 packages become available.
+
 inputs:
   version:
     description: LLVM major version to install
