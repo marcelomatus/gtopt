@@ -16,32 +16,35 @@
 namespace gtopt
 {
 
-struct LPClassName : std::string_view
+struct LPClassName
 {
   explicit constexpr LPClassName(std::string_view pfull_name) noexcept
-      : std::string_view(pfull_name)
+      : m_full_name(pfull_name)
       , m_short_name(pfull_name)
   {
   }
 
   explicit constexpr LPClassName(std::string_view pfull_name,
                                  std::string_view pshort_name) noexcept
-      : std::string_view(pfull_name)
+      : m_full_name(pfull_name)
       , m_short_name(pshort_name)
   {
   }
 
   [[nodiscard]] constexpr std::string_view full_name() const noexcept
   {
-    return *this;
+    return m_full_name;
   }
-
   [[nodiscard]] constexpr std::string_view short_name() const noexcept
   {
     return m_short_name;
   }
 
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  constexpr operator std::string_view() const noexcept { return m_full_name; }
+
 private:
+  std::string_view m_full_name;
   std::string_view m_short_name;
 };
 
