@@ -107,10 +107,11 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file coverage.info \
-            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused \
+            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused,inconsistent \
             --rc branch_coverage=1
           # Print summary to the job log
-          lcov --list coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1
+          lcov --list coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 \
+            --ignore-errors inconsistent
           # Generate HTML report
           genhtml coverage.info --output-directory coverage-report \
             --title "gtopt C++ Test Coverage" \
@@ -257,9 +258,10 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file integration-coverage.info \
-            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused \
+            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused,inconsistent \
             --rc branch_coverage=1
-          lcov --list integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1
+          lcov --list integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 \
+            --ignore-errors inconsistent
           genhtml integration-coverage.info --output-directory integration-coverage-report \
             --title "gtopt Integration Test Coverage" \
             --legend --show-details \
