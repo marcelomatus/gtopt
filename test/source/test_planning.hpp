@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <string_view>
+
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/options_lp.hpp>
@@ -7,7 +8,6 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
-
 
 TEST_CASE("Planning - Default construction")
 {
