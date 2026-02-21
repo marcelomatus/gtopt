@@ -25,13 +25,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+            coverage: 'true'
+            gcov_tool: /tmp/llvm-gcov.sh
+            clang_coverage_runtime: 'true'
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            coverage: 'true'
+            gcov_tool: gcov-14
+            clang_coverage_runtime: 'false'
+
+    name: build (${{ matrix.compiler }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -46,19 +66,19 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: 'true'
+          install-coverage-runtime: ${{ matrix.clang_coverage_runtime }}
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-build
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-build
           max-size: 2G
 
       - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build
         run: cmake --build build -j$(nproc)
@@ -76,10 +96,14 @@ jobs:
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
       - name: collect code coverage
+        if: matrix.coverage == 'true'
         run: |
-          # Create llvm-cov gcov wrapper for lcov compatibility
-          printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
-          chmod +x /tmp/llvm-gcov.sh
+          # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
+            chmod +x /tmp/llvm-gcov.sh
+          fi
+          GCOV_TOOL="${{ matrix.gcov_tool }}"
           # Capture coverage data with lcov
           # --ignore-errors mismatch,mismatch: fully suppress mismatch warnings
           #   from third-party headers (daw_json, boost, libstdc++)
@@ -91,7 +115,7 @@ jobs:
           #   unexecuted non-branch lines (eliminates "unexecuted block" warnings)
           # --rc branch_coverage=1: enable branch coverage tracking
           lcov --capture --directory build --output-file coverage-raw.info \
-            --gcov-tool /tmp/llvm-gcov.sh \
+            --gcov-tool ${GCOV_TOOL} \
             --ignore-errors mismatch,mismatch \
             --ignore-errors unexecuted,unexecuted \
             --ignore-errors negative,negative \
@@ -107,27 +131,30 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file coverage.info \
-            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused \
+            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,inconsistent \
             --rc branch_coverage=1
           # Print summary to the job log
-          lcov --list coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1
+          lcov --list coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
+            --ignore-errors inconsistent
           # Generate HTML report
           genhtml coverage.info --output-directory coverage-report \
             --title "gtopt C++ Test Coverage" \
             --legend --show-details \
-            --rc branch_coverage=1
+            --rc branch_coverage=1 \
+            --ignore-errors inconsistent
 
       - name: upload coverage report
-        if: always()
+        if: always() && matrix.coverage == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: cpp-coverage-report
+          name: cpp-coverage-report-${{ matrix.compiler }}
           path: coverage-report/
           retention-days: 30
 
       - name: generate coverage summary
-        if: always()
+        if: always() && matrix.coverage == 'true'
         run: |
+          GCOV_TOOL="${{ matrix.gcov_tool }}"
           if [ ! -f coverage.info ]; then
             echo "## C++ Test Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -135,7 +162,8 @@ jobs:
             exit 0
           fi
           # Extract coverage percentages for the job summary
-          SUMMARY=$(lcov --summary coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 2>&1)
+          SUMMARY=$(lcov --summary coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
+            --ignore-errors inconsistent,inconsistent 2>&1) || true
           LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
           LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
           FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)
@@ -151,7 +179,7 @@ jobs:
           echo "| Branches | ${BRANCH_PCT} | ${BRANCH_DETAIL} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           # List files with 0% line coverage (coverage gaps)
-          ZERO_FILES=$(lcov --list coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 2>&1 | grep '|.*0\.0%' | head -10 || true)
+          ZERO_FILES=$(lcov --list coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 2>&1 | grep '|.*0\.0%' | head -10 || true)
           if [ -n "$ZERO_FILES" ]; then
             echo "<details><summary>⚠️ Files with 0% line coverage</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -166,13 +194,33 @@ jobs:
   integration:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+            coverage: 'true'
+            gcov_tool: /tmp/llvm-gcov.sh
+            clang_coverage_runtime: 'true'
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            coverage: 'true'
+            gcov_tool: gcov-14
+            clang_coverage_runtime: 'false'
+
+    name: integration (${{ matrix.compiler }})
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
         run: |
@@ -187,19 +235,19 @@ jobs:
         uses: ./.github/actions/install-clang
         with:
           version: 21
-          install-coverage-runtime: 'true'
+          install-coverage-runtime: ${{ matrix.clang_coverage_runtime }}
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ github.workflow }}-integration
+          key: ${{ github.workflow }}-${{ matrix.compiler }}-integration
           max-size: 2G
 
       - name: configure standalone (Release, for install)
         run: cmake -Sstandalone -Bbuild -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build standalone
         run: cmake --build build -j$(nproc)
@@ -223,10 +271,10 @@ jobs:
           echo "✓ Installed gtopt --version works"
 
       - name: configure integration_test (Debug, with coverage)
-        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -Sintegration_test -Bbuild-integration -DENABLE_TEST_COVERAGE=${{ matrix.coverage == 'true' && '1' || '0' }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
-          CC: clang
-          CXX: clang++
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
 
       - name: build integration_test
         run: cmake --build build-integration -j$(nproc)
@@ -237,12 +285,16 @@ jobs:
           ctest --build-config Debug --output-on-failure
 
       - name: collect integration test coverage
+        if: matrix.coverage == 'true'
         run: |
-          # Create llvm-cov gcov wrapper for lcov compatibility
-          printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
-          chmod +x /tmp/llvm-gcov.sh
+          # Set up gcov tool: for clang create llvm-cov wrapper, for gcc use gcov-14 directly
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            printf '#!/bin/sh\nexec llvm-cov gcov "$@"\n' > /tmp/llvm-gcov.sh
+            chmod +x /tmp/llvm-gcov.sh
+          fi
+          GCOV_TOOL="${{ matrix.gcov_tool }}"
           lcov --capture --directory build-integration --output-file integration-coverage-raw.info \
-            --gcov-tool /tmp/llvm-gcov.sh \
+            --gcov-tool ${GCOV_TOOL} \
             --ignore-errors mismatch,mismatch \
             --ignore-errors unexecuted,unexecuted \
             --ignore-errors negative,negative \
@@ -257,32 +309,36 @@ jobs:
             '*/strong_type/*' \
             '*/spdlog/*' \
             --output-file integration-coverage.info \
-            --gcov-tool /tmp/llvm-gcov.sh --ignore-errors unused \
+            --gcov-tool ${GCOV_TOOL} --ignore-errors unused,inconsistent \
             --rc branch_coverage=1
-          lcov --list integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1
+          lcov --list integration-coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
+            --ignore-errors inconsistent
           genhtml integration-coverage.info --output-directory integration-coverage-report \
             --title "gtopt Integration Test Coverage" \
             --legend --show-details \
-            --rc branch_coverage=1
+            --rc branch_coverage=1 \
+            --ignore-errors inconsistent
 
       - name: upload integration coverage report
-        if: always()
+        if: always() && matrix.coverage == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: integration-coverage-report
+          name: integration-coverage-report-${{ matrix.compiler }}
           path: integration-coverage-report/
           retention-days: 30
 
       - name: generate integration coverage summary
-        if: always()
+        if: always() && matrix.coverage == 'true'
         run: |
+          GCOV_TOOL="${{ matrix.gcov_tool }}"
           if [ ! -f integration-coverage.info ]; then
             echo "## Integration Test Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Coverage data not available." >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool /tmp/llvm-gcov.sh --rc branch_coverage=1 2>&1)
+          SUMMARY=$(lcov --summary integration-coverage.info --gcov-tool ${GCOV_TOOL} --rc branch_coverage=1 \
+            --ignore-errors inconsistent,inconsistent 2>&1) || true
           LINE_PCT=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '[\d.]+%' | head -1)
           LINE_DETAIL=$(echo "$SUMMARY" | grep 'lines' | head -1 | grep -oP '\(.*\)')
           FUNC_PCT=$(echo "$SUMMARY" | grep 'functions' | head -1 | grep -oP '[\d.]+%' | head -1)

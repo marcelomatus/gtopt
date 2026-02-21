@@ -35,7 +35,7 @@ using namespace gtopt;
 template<ArrowBuildable Type = arrow::DoubleType,
          typename Values,
          typename Valids = std::vector<bool>>
-constexpr auto make_array(Values&& values, Valids&& valids = {})
+auto make_array(Values&& values, Valids&& valids = {})
 {
   typename arrow::CTypeTraits<Type>::BuilderType builder;
 
@@ -60,7 +60,7 @@ using str = std::string;
 
 template<typename Type = Uid, typename STBUids>
   requires std::same_as<std::remove_cvref_t<STBUids>, gtopt::STBUids>
-[[nodiscard]] constexpr auto make_stb_prelude(STBUids&& stb_uids)
+[[nodiscard]] auto make_stb_prelude(STBUids&& stb_uids)
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -81,7 +81,7 @@ template<typename Type = Uid, typename STBUids>
 
 template<typename Type = Uid, typename STUids>
   requires std::same_as<std::remove_cvref_t<STUids>, gtopt::STUids>
-[[nodiscard]] constexpr auto make_st_prelude(STUids&& st_uids)
+[[nodiscard]] auto make_st_prelude(STUids&& st_uids)
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
@@ -99,7 +99,7 @@ template<typename Type = Uid, typename STUids>
 
 template<typename Type = Uid, typename TUids>
   requires std::same_as<std::remove_cvref_t<TUids>, gtopt::TUids>
-[[nodiscard]] constexpr auto make_t_prelude(TUids&& t_uids)
+[[nodiscard]] auto make_t_prelude(TUids&& t_uids)
 {
   std::vector<ArrowField> fields = {
       arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
@@ -112,7 +112,7 @@ template<typename Type = Uid, typename TUids>
   return std::pair {std::move(fields), std::move(arrays)};
 }
 template<typename Type = double, typename FieldVector>
-constexpr auto make_field_arrays(FieldVector&& field_vector)
+auto make_field_arrays(FieldVector&& field_vector)
 {
   std::vector<ArrowField> fields;
   fields.reserve(field_vector.size() + 3);
@@ -156,7 +156,7 @@ constexpr auto make_field_arrays(FieldVector&& field_vector)
 }
 
 template<typename Type = double, typename FieldVector>
-constexpr auto make_table(FieldVector&& field_vector)
+auto make_table(FieldVector&& field_vector)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
   auto [fields, arrays] =
@@ -166,9 +166,7 @@ constexpr auto make_table(FieldVector&& field_vector)
                             std::move(arrays));
 }
 
-constexpr auto parquet_write_table(const auto& fpath,
-                                   const auto& table,
-                                   const auto& zfmt)
+auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 {
   arrow::Status status;
   const auto filename = std::format("{}.parquet", fpath.string());
@@ -203,9 +201,9 @@ constexpr auto parquet_write_table(const auto& fpath,
   return status;
 }
 
-constexpr auto csv_write_table(const auto& fpath,
-                               const auto& table,
-                               const auto& /* zfmt */)
+auto csv_write_table(const auto& fpath,
+                     const auto& table,
+                     const auto& /* zfmt */)
 {
   arrow::Status status;
   const auto filename = std::format("{}.csv", fpath.string());
@@ -223,10 +221,10 @@ constexpr auto csv_write_table(const auto& fpath,
   return status;
 }
 
-constexpr auto write_table(std::string_view fmt,
-                           const auto& fpath,
-                           const auto& table,
-                           const std::string& zfmt)
+auto write_table(std::string_view fmt,
+                 const auto& fpath,
+                 const auto& table,
+                 const std::string& zfmt)
 {
   arrow::Status status;
   if (fmt == "parquet") {
@@ -239,7 +237,7 @@ constexpr auto write_table(std::string_view fmt,
 }
 
 template<typename Type = double>
-constexpr auto create_tables(auto&& output_directory, auto&& field_vector_map)
+auto create_tables(auto&& output_directory, auto&& field_vector_map)
 {
   using PathTable =
       std::pair<std::filesystem::path, std::shared_ptr<arrow::Table>>;

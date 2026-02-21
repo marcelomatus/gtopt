@@ -1,36 +1,40 @@
 #include <algorithm>
+#include <expected>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace
 {
 
 using namespace gtopt;
 
-constexpr bool add_provision(const std::string_view cname,
-                             const SystemContext& sc,
-                             const ScenarioLP& scenario,
-                             const StageLP& stage,
-                             LinearProblem& lp,
-                             const std::vector<BlockLP>& blocks,
-                             auto capacity_col,
-                             const BIndexHolder<ColIndex>& generation_cols,
-                             const Uid uid,
-                             ReserveProvisionLP::Provision& rp,
-                             const std::string_view pname,
-                             const STBIndexHolder<RowIndex>& requirement_rows,
-                             auto provision_row)
+std::expected<void, Error> add_provision(
+    const std::string_view cname,
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const std::vector<BlockLP>& blocks,
+    auto capacity_col,
+    const BIndexHolder<ColIndex>& generation_cols,
+    const Uid uid,
+    ReserveProvisionLP::Provision& rp,
+    const std::string_view pname,
+    const STBIndexHolder<RowIndex>& requirement_rows,
+    auto provision_row)
 {
   const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
   if (!stage_provision_factor || (stage_provision_factor.value() <= 0.0)) {
-    return true;
+    return {};
   }
 
   const auto stage_cost = rp.cost.optval(stage.uid()).value_or(0.0);
@@ -38,13 +42,14 @@ constexpr bool add_provision(const std::string_view cname,
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
   const auto st_k = std::pair {scenario.uid(), stage.uid()};
-  const auto& req_rows = requirement_rows.at(st_k);
-  if (req_rows.empty()) {
-    return true;
+  const auto req_rows_it = requirement_rows.find(st_k);
+  if (req_rows_it == requirement_rows.end() || req_rows_it->second.empty()) {
+    return {};
   }
-  auto& prov_cols = rp.provision_cols.at(st_k);
-  auto& prov_rows = rp.provision_rows.at(st_k);
-  auto& cap_rows = rp.capacity_rows.at(st_k);
+  const auto& req_rows = req_rows_it->second;
+  auto& prov_cols = rp.provision_cols[st_k];
+  auto& prov_rows = rp.provision_rows[st_k];
+  auto& cap_rows = rp.capacity_rows[st_k];
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -53,7 +58,11 @@ constexpr bool add_provision(const std::string_view cname,
     // create the provision col and row when needed and if possible, i.e.,
     // if there is a rmax provision defined for the stage and block
     //
-    const auto gcol = generation_cols.at(buid);
+    const auto gcol_it = generation_cols.find(buid);
+    if (gcol_it == generation_cols.end()) {
+      continue;
+    }
+    const auto gcol = gcol_it->second;
     auto block_rmax = rp.max.optval(stage.uid(), buid);
     if (!block_rmax) {
       if (use_capacity) {
@@ -83,14 +92,17 @@ constexpr bool add_provision(const std::string_view cname,
     //
     // add the reserve provision to the requirement balance
     //
-    const auto req_row = req_rows.at(buid);
-    lp.set_coeff(req_row, prov_col, stage_provision_factor.value());
+    const auto req_row_it = req_rows.find(buid);
+    if (req_row_it != req_rows.end()) {
+      lp.set_coeff(
+          req_row_it->second, prov_col, stage_provision_factor.value());
+    }
   }
 
-  return true;
+  return {};
 }
 
-constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
+std::vector<std::string> split(std::string_view str, char delim = ' ')
 {
   std::vector<std::string> result;
 
@@ -103,8 +115,7 @@ constexpr std::vector<std::string> split(std::string_view str, char delim = ' ')
   return result;
 }
 
-constexpr auto make_rzone_indexes(const InputContext& ic,
-                                  const std::string& rzstr)
+auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
 {
   auto rzones = split(rzstr, ':');
 
@@ -181,69 +192,89 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+  try {
+    auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
 
-  const auto [stage_capacity, capacity_col] =
-      generator_lp.capacity_and_col(stage, lp);
+    const auto [stage_capacity, capacity_col] =
+        generator_lp.capacity_and_col(stage, lp);
 
-  auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
-  {
-    auto rrow = SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
-    rrow[rcol] = rrow[gcol] = 1;
+    auto uprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+    {
+      auto rrow =
+          SparseRow {.name = row_name}.less_equal(lp.get_col_uppb(gcol));
+      rrow[gcol] = 1;
+      rrow[rcol] = 1;
 
-    if (capacity_col) {
-      rrow[*capacity_col] = -1;
-      return rrow.less_equal(0.0);
+      if (capacity_col) {
+        rrow[*capacity_col] = -1;
+        return rrow.less_equal(0.0);
+      }
+      return rrow;
+    };
+
+    auto dprov_row = [&](const auto& row_name, auto gcol, auto rcol)
+    {
+      auto rrow =
+          SparseRow {.name = row_name}.greater_equal(lp.get_col_lowb(gcol));
+      rrow[gcol] = 1;
+      rrow[rcol] = -1;
+      return rrow;
+    };
+
+    const auto& blocks = stage.blocks();
+
+    for (auto&& reserve_zone_index : reserve_zone_indexes) {
+      auto&& reserve_zone = sc.element(reserve_zone_index);
+      if (!reserve_zone.is_active(stage)) {
+        continue;
+      }
+
+      if (auto res = add_provision(cname,
+                                   sc,
+                                   scenario,
+                                   stage,
+                                   lp,
+                                   blocks,
+                                   capacity_col,
+                                   generation_cols,
+                                   uid(),
+                                   up,
+                                   "uprov",
+                                   reserve_zone.urequirement_rows(),
+                                   uprov_row);
+          !res)
+      {
+        SPDLOG_WARN("add_provision (uprov) failed for uid={}: {}",
+                    uid(),
+                    res.error().message);
+        return false;
+      }
+      if (auto res = add_provision(cname,
+                                   sc,
+                                   scenario,
+                                   stage,
+                                   lp,
+                                   blocks,
+                                   capacity_col,
+                                   generation_cols,
+                                   uid(),
+                                   dp,
+                                   "dprov",
+                                   reserve_zone.drequirement_rows(),
+                                   dprov_row);
+          !res)
+      {
+        SPDLOG_WARN("add_provision (dprov) failed for uid={}: {}",
+                    uid(),
+                    res.error().message);
+        return false;
+      }
     }
-    return rrow;
-  };
-
-  auto dprov_row = [&](const auto& row_name, auto gcol, auto rcol)
-  {
-    auto rrow =
-        SparseRow {.name = row_name}.greater_equal(lp.get_col_lowb(gcol));
-    rrow[gcol] = 1;
-    rrow[rcol] = -1;
-    return rrow;
-  };
-
-  const auto& blocks = stage.blocks();
-
-  for (auto&& reserve_zone_index : reserve_zone_indexes) {
-    auto&& reserve_zone = sc.element(reserve_zone_index);
-    if (!reserve_zone.is_active(stage)) {
-      continue;
-    }
-
-    const bool result = add_provision(cname,
-                                      sc,
-                                      scenario,
-                                      stage,
-                                      lp,
-                                      blocks,
-                                      capacity_col,
-                                      generation_cols,
-                                      uid(),
-                                      up,
-                                      "uprov",
-                                      reserve_zone.urequirement_rows(),
-                                      uprov_row)
-        && add_provision(cname,
-                         sc,
-                         scenario,
-                         stage,
-                         lp,
-                         blocks,
-                         capacity_col,
-                         generation_cols,
-                         uid(),
-                         dp,
-                         "dprov",
-                         reserve_zone.drequirement_rows(),
-                         dprov_row);
-    if (!result) {
-      return false;
-    }
+  } catch (const std::exception& e) {
+    SPDLOG_ERROR("ReserveProvisionLP::add_to_lp exception for uid={}: {}",
+                 uid(),
+                 e.what());
+    return false;
   }
 
   return true;

@@ -31,6 +31,12 @@ if [[ -z "$CF" ]]; then
   exit 0
 fi
 
+# Verify clang-format version is >= 21 (same version used in CI)
+CF_VERSION=$("$CF" --version 2>/dev/null | grep -oP '(?<=version )\d+' | head -1 || echo 0)
+if [[ "$CF_VERSION" -lt 21 ]]; then
+  echo "pre-commit: warning: clang-format version ${CF_VERSION} < 21 (CI uses 21) – results may differ" >&2
+fi
+
 echo "pre-commit: running clang-format on ${#staged_files[@]} staged file(s)..."
 
 reformatted=()

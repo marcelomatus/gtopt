@@ -125,9 +125,21 @@ public:
    * @return Reference to the wrapped object
    */
 
-  [[nodiscard]] constexpr auto&& object(this auto&& self) noexcept
+  [[nodiscard]] constexpr ObjectType& object() & noexcept { return m_object_; }
+
+  [[nodiscard]] constexpr const ObjectType& object() const& noexcept
   {
-    return std::forward_like<decltype(self)>(self.m_object_);
+    return m_object_;
+  }
+
+  [[nodiscard]] constexpr ObjectType&& object() && noexcept
+  {
+    return std::move(m_object_);
+  }
+
+  [[nodiscard]] constexpr const ObjectType&& object() const&& noexcept
+  {
+    return std::move(m_object_);
   }
 };
 

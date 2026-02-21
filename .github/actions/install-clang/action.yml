@@ -1,11 +1,17 @@
 name: Install Clang and LLVM
 description: >
   Installs Clang and LLVM from the official LLVM apt repository using the
-  llvm.sh installer script, then registers every clang-*-N and llvm-*-N
-  binary as an unversioned update-alternatives entry.  Any conflicting
-  pre-installed alternative (e.g. from the Ubuntu-bundled llvm-18) is evicted
-  first, so tools like clang, clang++, clang-format, clang-tidy, llvm-cov,
-  llvm-profdata, etc. are all reachable without a version suffix.
+  llvm.sh installer script (https://apt.llvm.org/llvm.sh), then registers
+  every clang*-N and llvm*-N binary as an unversioned update-alternatives
+  entry.  Any conflicting pre-installed alternative (e.g. from the
+  Ubuntu-bundled llvm-18) is evicted first, so tools like clang, clang++,
+  clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
+  without a version suffix.
+
+  NOTE: clang-22 packages are not yet available in the apt.llvm.org
+  repository.  The KyleMayes install-llvm-action marketplace action also does
+  not provide pre-built Linux x64 binaries for clang-22.  Use version 21
+  until clang-22 packages become available.
 
 inputs:
   version:
@@ -31,7 +37,7 @@ runs:
       shell: bash
       run: |
         VER=${{ inputs.version }}
-        for versioned in /usr/bin/clang-*-${VER} /usr/bin/llvm-*-${VER}; do
+        for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
           [ -e "$versioned" ] || continue
           base=$(basename "$versioned" "-${VER}")
           # Remove any pre-installed alternative (e.g. llvm-18) before registering
