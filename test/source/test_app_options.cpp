@@ -87,8 +87,8 @@ TEST_CASE("get_opt - works with double type")
   auto result = get_opt<double>(vm, "matrix-eps");
   REQUIRE(result.has_value());
   CHECK(
-      *result
-      == doctest::Approx(0.001));  // NOLINT(bugprone-unchecked-optional-access)
+      *result  // NOLINT(bugprone-unchecked-optional-access)
+      == doctest::Approx(0.001));
 }
 
 TEST_CASE("get_opt - implicit bool value")

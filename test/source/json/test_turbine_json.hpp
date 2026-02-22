@@ -18,7 +18,7 @@ TEST_CASE("Turbine daw json test 1")
     "drain":true
   })";
 
-  gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
+  const gtopt::Turbine turbine = daw::json::from_json<gtopt::Turbine>(json_data);
 
   CHECK(turbine.uid == 5);
   CHECK(turbine.name == "TURBINE_A");
