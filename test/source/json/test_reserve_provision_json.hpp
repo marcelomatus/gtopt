@@ -58,7 +58,8 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
   CHECK(rp.uid == 2);
   CHECK(rp.name == "RPROV_B");
   REQUIRE(rp.active.has_value());
-  CHECK(std::get<IntBool>(rp.active.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<IntBool>(
+            rp.active.value())  // NOLINT(bugprone-unchecked-optional-access)
         == True);
   CHECK(std::get<Name>(rp.generator) == "GEN_COAL");
   CHECK(rp.reserve_zones == "ZONE_A");
@@ -74,15 +75,17 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
                 .value())
         == doctest::Approx(0.8));
   REQUIRE(rp.ur_provision_factor.has_value());
-  CHECK(std::get<double>(
-            rp.ur_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
-                .value())
-        == doctest::Approx(0.95));
+  CHECK(
+      std::get<double>(
+          rp.ur_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
+              .value())
+      == doctest::Approx(0.95));
   REQUIRE(rp.dr_provision_factor.has_value());
-  CHECK(std::get<double>(
-            rp.dr_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
-                .value())
-        == doctest::Approx(0.85));
+  CHECK(
+      std::get<double>(
+          rp.dr_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
+              .value())
+      == doctest::Approx(0.85));
 
   REQUIRE(rp.urcost.has_value());
   CHECK(std::get<double>(
@@ -164,10 +167,11 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.generator) == 42);
   CHECK(roundtrip.reserve_zones == "ZONE_X,ZONE_Y");
   REQUIRE(roundtrip.urmax.has_value());
-  CHECK(std::get<double>(
-            roundtrip.urmax  // NOLINT(bugprone-unchecked-optional-access)
-                .value())
-        == doctest::Approx(200.0));
+  CHECK(
+      std::get<double>(roundtrip
+                           .urmax  // NOLINT(bugprone-unchecked-optional-access)
+                           .value())
+      == doctest::Approx(200.0));
   REQUIRE(roundtrip.drmax.has_value());
   CHECK(std::get<double>(roundtrip.drmax.value_or(0.0))
         == doctest::Approx(150.0));
