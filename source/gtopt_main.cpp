@@ -308,7 +308,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
       const bool do_stats = opts.print_stats.value_or(false);
 
       if (do_stats) {
-        log_pre_solve_stats(my_planning);
+        log_pre_solve_stats(my_planning);  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
       }
 
       const spdlog::stopwatch sw;
