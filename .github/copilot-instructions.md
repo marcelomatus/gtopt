@@ -367,3 +367,287 @@ gtopt/
   `./build/gtoptTests -tc="test name pattern"`.
 - **No `spdlog` format strings in hot paths**: `spdlog` is configured with
   `SPDLOG_USE_STD_FORMAT=1`, so it uses `std::format` syntax.
+
+---
+
+## Domain Knowledge – Power System Optimization
+
+### Problem Context: GTEP
+
+**Generation and Transmission Expansion Planning (GTEP)** finds the minimum-cost
+combination of:
+
+- **Operations decisions** – how much each generator produces each hour (OPEX),
+  which loads to curtail if capacity is insufficient, and how much power flows
+  on each transmission line.
+- **Investment decisions** – how many capacity modules to build for generators,
+  demands (served by storage/flexible loads), lines, and batteries across
+  planning stages (CAPEX).
+
+The objective function minimizes total discounted cost over all scenarios,
+stages and blocks:
+
+```
+min  Σ_s Σ_t Σ_b  prob_s · discount_t · duration_b ·
+       [ Σ_g gcost_g · generation_{g,s,t,b}
+       + Σ_d fail_cost · curtailment_{d,s,t,b}
+       + Σ_l tcost_l · flow_{l,s,t,b} ]
+   + Σ_g annual_capcost_g · invested_modules_g  (expansion terms)
+```
+
+Subject to:
+
+| Constraint | Description |
+|------------|-------------|
+| **Bus balance** | Injection = Load ± line flows at every bus, every block |
+| **Kirchhoff (DC OPF)** | `flow_l = (θ_a − θ_b) / reactance_l` for each line |
+| **Line capacity** | `−tmax_ba ≤ flow_l ≤ tmax_ab` |
+| **Generator output** | `pmin_g ≤ generation_g ≤ pmax_g` (or `capacity_g`) |
+| **Demand** | `load_d ≤ lmax_d` (served load ≤ maximum demand) |
+| **Reserve** | Up/down reserve requirements per zone per block |
+| **State variables** | Battery SoC, reservoir volume: carry over between blocks |
+| **Expansion** | `installed_cap = initial_cap + expmod · expunits` (integer or relaxed) |
+
+### Time Structure
+
+```
+Scenario (probability)
+  └─ Stage  (investment period, discount factor)
+       └─ Block  (operating hour, duration in hours)
+```
+
+- **Block** – smallest time unit (typically 1 hour). `duration` scales energy
+  quantities: `energy_MWh = power_MW × duration_h`.
+- **Stage** – groups consecutive blocks into a planning year/period.
+  Capacity investments decided at stage level remain in subsequent stages.
+- **Scenario** – a possible future (hydrology, demand level, etc.).
+  `probability_factor` weights the scenario in the expected-cost objective.
+- Single-period operational studies use `count_block=N` with one stage and one
+  scenario (all IEEE benchmark cases).
+
+### Modeling Modes
+
+| Option | Value | Meaning |
+|--------|-------|---------|
+| `use_kirchhoff` | `true` | Full DC power flow (OPF); voltage angle `θ` variables added |
+| `use_kirchhoff` | `false` | Transport model: line flows limited only by `tmax_ab/ba` |
+| `use_single_bus` | `true` | "Copper plate" – no transmission constraints at all |
+| `use_single_bus` | `false` | Multi-bus network model |
+| `demand_fail_cost` | e.g. 1000 | Value-of-lost-load penalty for unserved energy ($/MWh) |
+| `annual_discount_rate` | e.g. 0.1 | Yearly discount rate for investment costs (10 %) |
+| `scale_objective` | e.g. 1000 | Divides all objective coefficients; improves solver numerics |
+
+### Capacity Expansion Fields
+
+A component (generator, demand, line, battery, converter) can be expanded when:
+
+```json
+{
+  "capacity":      <initial installed capacity>,
+  "expcap":        <MW per expansion module>,
+  "expmod":        <maximum number of modules to install>,
+  "annual_capcost":<annualized investment cost per module, $/year>
+}
+```
+
+`expmod = null` means no expansion is allowed. Setting `expmod` to a positive
+integer enables capacity expansion. The solver decides how many modules to build
+(LP relaxation by default; integer when `colint` is set).
+
+### Component Summary
+
+| Component | Role |
+|-----------|------|
+| `Bus` | Electrical node; reference bus has `θ = 0` |
+| `Generator` | Thermal/renewable/hydro unit; `gcost` in $/MWh |
+| `GeneratorProfile` | Time-varying capacity factor multiplier (0–1); used for solar/wind |
+| `Demand` | Fixed or flexible load; `lmax` can be inline array or Parquet file |
+| `DemandProfile` | Time-varying demand scaling |
+| `Line` | Transmission branch; `reactance` required for Kirchhoff mode |
+| `Battery` | Energy storage: charge/discharge efficiencies, SoC bounds |
+| `Converter` | Couples a `Battery` to a `Generator` (discharge) and `Demand` (charge) |
+| `ReserveZone` | Up/down spinning-reserve requirement |
+| `ReserveProvision` | Specifies which generator contributes to a reserve zone |
+| `Junction` | Hydraulic node in a cascaded hydro system |
+| `Waterway` | Water channel between junctions |
+| `Reservoir` | Storage lake; volume balance across blocks |
+| `Turbine` | Hydro turbine: links a waterway to a generator |
+| `Flow` | External inflow or evaporation at a junction |
+| `Filtration` | Water seepage from a waterway into a reservoir |
+
+---
+
+## IEEE Benchmark Cases
+
+The `cases/` directory contains several standard IEEE test networks used to
+validate the solver and provide regression baselines.
+
+### Case `cases/c0/` – Single-bus expansion (simplest)
+
+- **Topology**: 1 bus, 1 generator (g1, 20 MW, $100/MWh), 1 expandable demand.
+- **Simulation**: 5 stages × 1 block each (15-hour horizon with varying durations).
+- **Expansion**: Demand has `expcap=20 MW`, `expmod=10`, `annual_capcost=8760 $/yr`.
+  The solver decides how many 20 MW increments of demand to serve per stage.
+- **Files**: `lmax.parquet` provides hourly demand profile; external Parquet I/O.
+- **Purpose**: Verifies multi-stage capacity expansion, Parquet input parsing,
+  and single-bus (copper-plate) dispatch.
+
+### Case `cases/c1/` – Same expansion, slightly different cost structure
+
+- Mirrors `c0` with different block durations.
+- **Purpose**: Regression baseline for the 5-stage expansion case.
+
+### Case `cases/ieee_4b_ori/` – 4-bus original (pure dispatch)
+
+- **Topology**: 4 buses, 2 thermal generators (g1: 300 MW/$20, g2: 200 MW/$35),
+  2 demand buses (150 MW @ b3, 100 MW @ b4), 5 lines.
+- **Simulation**: 1 stage, 1 block, 1 scenario.
+- **Expected result**: G1 (cheaper) dispatches 250 MW, G2 idles. `obj_value=5`
+  (= 250 × 20 / `scale_objective=1000`). Status 0.
+- **Network**: Illustrates how power routes through parallel paths (b1→b3 vs
+  b1→b2→b3) under DC Kirchhoff constraints.
+- **Purpose**: Simplest multi-bus OPF; used in `test_ieee4b_ori_planning.cpp`.
+
+### Case `cases/ieee_9b_ori/` – IEEE 9-bus standard base case
+
+- **Topology**: 9 buses, 3 thermal generators (g1: 250 MW/$20, g2: 300 MW/$35,
+  g3: 270 MW/$30), 3 demand buses (125+100+90 = 315 MW total), 9 lines.
+- **Simulation**: 1 stage, 1 block (single snapshot).
+- **Expected dispatch**: Economic merit order dispatches g1 first (cheapest),
+  then g3, then g2; line limits force a solution away from pure merit order.
+- **Origin**: Anderson & Fouad "Power Systems Control and Stability" – widely
+  used for OPF benchmarking.
+- **Purpose**: Validates DC OPF solution; used in `test_ieee9b_ori_planning.cpp`.
+
+### Case `cases/ieee_9b/` – IEEE 9-bus with solar profile (24-hour)
+
+- **Topology**: Same 9-bus network, but g3 is a **solar plant** with zero cost
+  (`gcost=0`) and a 24-hour generation profile (0 → peaks at noon → 0).
+- **Simulation**: 1 stage, 24 hourly blocks, 1 scenario.
+- **Hourly demand**: Three loads follow a daily curve with morning and evening
+  peaks (matching typical residential profiles).
+- **Solar profile**: `generator_profile_array` entry scales g3's `capacity=270`
+  by the profile vector (0.0 to 1.0) per block.
+- **Key behaviour**: During solar hours (blocks 7–20), g3 displaces the more
+  expensive g2; at night, g2 carries more load. Line flows change direction
+  during peak solar.
+- **Purpose**: Tests generator profiles, 24-block simulation, and the interplay
+  of renewable dispatch with network constraints.
+- Used in `test_ieee14_planning.cpp`-style tests and e2e integration.
+
+### Case `cases/ieee_14b_ori/` – IEEE 14-bus standard base case
+
+- **Topology**: 14 buses, 5 generators (g1@b1: 260 MW/$20, g2@b2: 130 MW/$35,
+  g3@b3: 130 MW/free, g6@b6: 100 MW/$40, g8@b8: 80 MW/$45),
+  11 demand buses, 20 transmission lines.
+- **Simulation**: 1 stage, 24 blocks, 1 scenario.
+- **Origin**: Based on the IEEE 14-bus Power Flow Test Case; standard academic
+  OPF benchmark.
+- **Purpose**: Larger network stress-test; validates LP assembly and convergence.
+
+### Case `cases/ieee_14b/` – IEEE 14-bus with constrained lines
+
+- Same as `ieee_14b_ori` but with tighter limits on l1_2 and l1_5 to force
+  both lines to saturate simultaneously at the evening peak.
+- **Purpose**: Tests active line-limit constraints (binding Kirchhoff dual
+  variables); validates that shadow prices / Lagrange multipliers (`theta_dual`,
+  `balance_dual`) are computed correctly.
+
+### Running Benchmark Cases
+
+```bash
+cd cases/ieee_9b_ori
+gtopt ieee_9b_ori.json
+# Verify:  output/solution.csv → status=0
+cat output/Generator/generation_sol.csv   # columns: scenario,stage,block,uid:1,uid:2,uid:3
+
+cd cases/ieee_9b
+gtopt ieee_9b.json
+# 24-row generation_sol.csv; g3 (solar) non-zero only during blocks 7-20
+```
+
+---
+
+## Output File Interpretation
+
+After a successful run, the `output/` directory contains:
+
+| File path | Contents |
+|-----------|----------|
+| `output/solution.csv` | `obj_value` (total cost / `scale_objective`), `kappa` (iterations), `status` (0=optimal) |
+| `output/Generator/generation_sol.csv` | Generator dispatch in MW per (scenario, stage, block) |
+| `output/Generator/generation_cost.csv` | Cost contribution per generator per (s, t, b) |
+| `output/Demand/load_sol.csv` | Served load in MW |
+| `output/Demand/fail_sol.csv` | Unserved load in MW (should be 0 for feasible cases) |
+| `output/Demand/fail_cost.csv` | Curtailment cost (fail_sol × demand_fail_cost) |
+| `output/Bus/balance_dual.csv` | Dual variable of the bus balance constraint = LMP ($/MWh) |
+| `output/Bus/theta_sol.csv` | Voltage angle θ in radians (Kirchhoff mode only) |
+| `output/Line/flowp_sol.csv` | Active power flow per line per (s, t, b) in MW |
+| `output/Line/theta_dual.csv` | Dual of the Kirchhoff angle difference constraint |
+| `output/Demand/capacity_dual.csv` | Shadow price of the demand capacity constraint |
+| `output/Demand/capacost_sol.csv` | Installed expansion capacity per stage (expansion cases) |
+
+**Interpretation tips**:
+- `status=0` means optimal solution found.
+- `balance_dual` gives the **Locational Marginal Price (LMP)** at each bus.
+  In a lossless single-bus model all LMPs are equal to the marginal generator
+  cost. When a line is congested, LMPs diverge between the two sides.
+- `fail_sol > 0` indicates load shedding – raise `demand_fail_cost` or check
+  that generation capacity plus expansion covers the demand.
+- The objective value in `solution.csv` is divided by `scale_objective` (set in
+  `options`). Multiply back to get the actual cost in the unit of `gcost × MWh`.
+
+---
+
+## LP Formulation – Key Variables and Constraints
+
+This is what the C++ code (`simulation_lp.cpp`, `bus_lp.cpp`, `generator_lp.cpp`,
+`demand_lp.cpp`, `line_lp.cpp`, …) assembles into the solver's `LinearProblem`:
+
+```
+Variables (SparseCol):
+  generation_{g,s,t,b}   ∈ [pmin, pmax]    generator output
+  load_{d,s,t,b}         ∈ [0, lmax]       served demand
+  fail_{d,s,t,b}         ≥ 0               unserved demand
+  flowp_{l,s,t,b}        ∈ [-tmax, tmax]   line power flow
+  theta_{b,s,t,b}        free              voltage angle (Kirchhoff only)
+  capainst_{g,t}         ∈ [0, expmod]     expansion units (capacity variables)
+
+Constraints (SparseRow):
+  balance_{bus,s,t,b}:   Σ_g gen - Σ_d (load+fail) - Σ_l flow = 0
+  kirchhoff_{l,s,t,b}:   flow - (theta_a - theta_b)/reactance = 0
+  capacity_{g,t}:        generation ≤ capacity + capainst·expcap
+```
+
+The `PlanningLP` class (`planning_lp.hpp`) orchestrates all component `*LP`
+objects; calling `planning_lp.resolve()` assembles and solves the full LP.
+
+---
+
+## Best Practices for New Cases
+
+1. **Start from `ieee_9b_ori`** when adding a new single-snapshot OPF test.
+   It has the simplest structure and well-known analytical solutions.
+
+2. **Use `scale_objective: 1000`** for MW-scale problems to keep objective
+   coefficients in the range [0.001, 1000], which improves solver conditioning.
+
+3. **Set `demand_fail_cost` = 10× the most expensive generator cost** to avoid
+   load shedding while keeping the LP bounded.
+
+4. **Validate with `use_single_bus: true` first** to check that total generation
+   capacity covers peak demand before introducing network constraints.
+
+5. **Check `solution.csv` `status=0`** before inspecting any other output.
+   Status 1 = infeasible, 2 = unbounded, 5 = LP not solved.
+
+6. **Generator profiles**: inline the 24-element array directly in the JSON for
+   tests; use an external Parquet file (`input_directory`) for production cases
+   with many time points.
+
+7. **Multi-stage expansion**: set `annual_discount_rate` and `annual_capcost`
+   in consistent units. Annual cost × number of years ≈ total capital recovery.
+
+8. **Reserve modeling**: add a `reserve_zone_array` with `urreq`/`drreq` and
+   link generators via `reserve_provision_array`. Each provision specifies
+   `urmax` (max up-reserve MW) and cost `urcost`.
