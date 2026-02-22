@@ -14,11 +14,11 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <span>
 #include <string>
 
 #include <daw/daw_read_file.h>
 #include <gtopt/app_options.hpp>
+#include <gtopt/error.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -30,22 +30,25 @@ namespace gtopt
 {
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
-    std::span<const std::string> planning_files,
-    const std::optional<std::string>& input_directory,
-    const std::optional<std::string>& input_format,
-    const std::optional<std::string>& output_directory,
-    const std::optional<std::string>& output_format,
-    const std::optional<std::string>& compression_format,
-    const std::optional<bool>& use_single_bus,
-    const std::optional<bool>& use_kirchhoff,
-    const std::optional<std::string>& lp_file,
-    const std::optional<int>& use_lp_names,
-    const std::optional<double>& matrix_eps,
-    const std::optional<std::string>& json_file,
-    const std::optional<bool>& just_create,
-    const std::optional<bool>& fast_parsing,
-    const std::optional<bool>& print_stats)
+    const MainOptions& opts)
 {
+  // Unpack fields into local const-refs for readability inside the function.
+  const auto& planning_files = opts.planning_files;
+  const auto& input_directory = opts.input_directory;
+  const auto& input_format = opts.input_format;
+  const auto& output_directory = opts.output_directory;
+  const auto& output_format = opts.output_format;
+  const auto& compression_format = opts.compression_format;
+  const auto& use_single_bus = opts.use_single_bus;
+  const auto& use_kirchhoff = opts.use_kirchhoff;
+  const auto& lp_file = opts.lp_file;
+  const auto& use_lp_names = opts.use_lp_names;
+  const auto& matrix_eps = opts.matrix_eps;
+  const auto& json_file = opts.json_file;
+  const auto& just_create = opts.just_create;
+  const auto& fast_parsing = opts.fast_parsing;
+  const auto& print_stats = opts.print_stats;
+
   try {
     //
     // parsing the system from json
@@ -275,6 +278,8 @@ namespace gtopt
       {
         spdlog::stopwatch solve_sw;
 
+        // SolverOptions uses library defaults (primal simplex, single thread,
+        // presolve enabled).  Future work: expose these through MainOptions.
         const SolverOptions lp_opts {};
         auto result = planning_lp.resolve(lp_opts);
         solve_elapsed =
@@ -285,9 +290,18 @@ namespace gtopt
 
         if (!optimal) {
           const auto& err = result.error();
-          spdlog::error(std::format("Solver failed: {} (code={})",
-                                    err.message,
-                                    static_cast<int>(err.code)));
+          // Use warn for non-optimal (e.g. time-limit reached with a feasible
+          // incumbent), error only for hard failures such as infeasibility.
+          const auto msg = std::format(
+              "Solver did not find an optimal solution: "
+              "{} (code={})",
+              err.message,
+              static_cast<int>(err.code));
+          if (err.code == ErrorCode::SolverError) {
+            spdlog::warn(msg);
+          } else {
+            spdlog::error(msg);
+          }
           spdlog::error(
               std::format("  Solver options used:"
                           " algorithm={}, threads={}, presolve={},"

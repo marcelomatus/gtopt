@@ -10,6 +10,7 @@
  *   - fast-parsing path
  *   - just_create=true (build LP but skip solve)
  *   - json_file output
+ *   - stats=true (pre- and post-solve statistics)
  */
 
 #include <filesystem>
@@ -60,21 +61,9 @@ std::filesystem::path write_tmp_json(const std::string& name,
 
 TEST_CASE("gtopt_main - returns error for nonexistent file")
 {
-  const std::vector<std::string> files {"nonexistent_planning_file_xyz"};
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {"nonexistent_planning_file_xyz"},
+  });
   CHECK_FALSE(result.has_value());
   CHECK(!result.error().empty());
 }
@@ -82,22 +71,10 @@ TEST_CASE("gtopt_main - returns error for nonexistent file")
 TEST_CASE("gtopt_main - just_create=true completes successfully")
 {
   const auto stem = write_tmp_json("gtopt_main_just_create", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true),  // just_create
-                           std::nullopt);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_create = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
@@ -105,22 +82,11 @@ TEST_CASE("gtopt_main - just_create=true completes successfully")
 TEST_CASE("gtopt_main - fast_parsing path, just_create=true")
 {
   const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true),  // just_create
-                           std::optional<bool>(true));  // fast_parsing
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_create = true,
+      .fast_parsing = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
@@ -128,25 +94,14 @@ TEST_CASE("gtopt_main - fast_parsing path, just_create=true")
 TEST_CASE("gtopt_main - json_file output written")
 {
   const auto stem = write_tmp_json("gtopt_main_json_out", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
   const auto json_out =
       (std::filesystem::temp_directory_path() / "gtopt_main_out").string();
 
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<std::string>(json_out),  // json_file
-                           std::optional<bool>(true),  // just_create
-                           std::nullopt);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .json_file = json_out,
+      .just_create = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 
@@ -159,25 +114,14 @@ TEST_CASE("gtopt_main - json_file output written")
 TEST_CASE("gtopt_main - full solve with single-bus override")
 {
   const auto stem = write_tmp_json("gtopt_main_solve", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_output").string();
 
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<std::string>(out_dir),  // output_dir
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true),  // use_single_bus
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
@@ -185,23 +129,11 @@ TEST_CASE("gtopt_main - full solve with single-bus override")
 TEST_CASE("gtopt_main - stats=true, just_create (no crash)")
 {
   const auto stem = write_tmp_json("gtopt_main_stats_create", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true),  // just_create
-                           std::nullopt,
-                           std::optional<bool>(true));  // print_stats
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_create = true,
+      .print_stats = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
@@ -209,27 +141,16 @@ TEST_CASE("gtopt_main - stats=true, just_create (no crash)")
 TEST_CASE("gtopt_main - stats=true, full solve")
 {
   const auto stem = write_tmp_json("gtopt_main_stats_solve", minimal_json);
-  const std::vector<std::string> files {stem.string()};
-
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_stats_out")
           .string();
 
-  auto result = gtopt_main(files,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<std::string>(out_dir),  // output_dir
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true),  // use_single_bus
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::nullopt,
-                           std::optional<bool>(true));  // print_stats
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+      .print_stats = true,
+  });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
