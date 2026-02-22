@@ -71,8 +71,8 @@ TEST_CASE("ElementIndex - Copy and move semantics")
   SUBCASE("Move construction")
   {
     ElementIndex<TestElement1> idx1 {10};
-    ElementIndex<TestElement1> idx2 {std::move(
-        idx1)};  // NOLINT(hicpp-invalid-access-moved,bugprone-use-after-move)
+    const ElementIndex<TestElement1> idx2 {std::move(  // NOLINT(hicpp-move-const-arg,performance-move-const-arg,hicpp-invalid-access-moved,bugprone-use-after-move)
+        idx1)};
     CHECK(idx2 == 10);
   }
 
@@ -80,8 +80,8 @@ TEST_CASE("ElementIndex - Copy and move semantics")
   {
     ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {5};
-    idx2 = std::move(
-        idx1);  // NOLINT(hicpp-invalid-access-moved,bugprone-use-after-move)
+    idx2 = std::move(  // NOLINT(hicpp-move-const-arg,performance-move-const-arg,hicpp-invalid-access-moved,bugprone-use-after-move)
+        idx1);
     CHECK(idx2 == 10);
   }
 }

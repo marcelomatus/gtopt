@@ -58,30 +58,30 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
   CHECK(rp.uid == 2);
   CHECK(rp.name == "RPROV_B");
   REQUIRE(rp.active.has_value());
-  CHECK(std::get<IntBool>(rp.active.value())
-        == True);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<IntBool>(rp.active.value())  // NOLINT(bugprone-unchecked-optional-access)
+        == True);
   CHECK(std::get<Name>(rp.generator) == "GEN_COAL");
   CHECK(rp.reserve_zones == "ZONE_A");
 
   REQUIRE(rp.ur_capacity_factor.has_value());
   CHECK(std::get<double>(
-            rp.ur_capacity_factor
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
+            rp.ur_capacity_factor  // NOLINT(bugprone-unchecked-optional-access)
+                .value())
         == doctest::Approx(0.9));
   REQUIRE(rp.dr_capacity_factor.has_value());
   CHECK(std::get<double>(
-            rp.dr_capacity_factor
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
+            rp.dr_capacity_factor  // NOLINT(bugprone-unchecked-optional-access)
+                .value())
         == doctest::Approx(0.8));
   REQUIRE(rp.ur_provision_factor.has_value());
   CHECK(std::get<double>(
-            rp.ur_provision_factor
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
+            rp.ur_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
+                .value())
         == doctest::Approx(0.95));
   REQUIRE(rp.dr_provision_factor.has_value());
   CHECK(std::get<double>(
-            rp.dr_provision_factor
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
+            rp.dr_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
+                .value())
         == doctest::Approx(0.85));
 
   REQUIRE(rp.urcost.has_value());
@@ -165,8 +165,8 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(roundtrip.reserve_zones == "ZONE_X,ZONE_Y");
   REQUIRE(roundtrip.urmax.has_value());
   CHECK(std::get<double>(
-            roundtrip.urmax
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
+            roundtrip.urmax  // NOLINT(bugprone-unchecked-optional-access)
+                .value())
         == doctest::Approx(200.0));
   REQUIRE(roundtrip.drmax.has_value());
   CHECK(std::get<double>(roundtrip.drmax.value_or(0.0))
