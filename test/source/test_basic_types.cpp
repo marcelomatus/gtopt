@@ -43,8 +43,8 @@ inline auto my_enumerate(const Range& range)  // NOLINT
 
 TEST_CASE("gtopt types 2")  // NOLINT
 {
-  std::vector<int> vec1 = {3, 4, 5, 6, 7};  // NOLINT
-  std::vector<int> vec2 = {1, 2, 3, 4, 5};  // NOLINT
+  const std::vector<int> vec1 = {3, 4, 5, 6, 7};
+  const std::vector<int> vec2 = {1, 2, 3, 4, 5};
 
   auto rng = std::ranges::views::zip(vec1, vec2);
 

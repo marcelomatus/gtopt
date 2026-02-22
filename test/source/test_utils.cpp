@@ -18,7 +18,7 @@ TEST_CASE("merge vectors")
     std::vector<int> b {3, 4};
     merge(a, std::move(b));
     CHECK(a == std::vector {1, 2, 3, 4});
-    CHECK(b.empty());  // NOLINT
+    CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
   }
 
   SUBCASE("empty source")
@@ -108,8 +108,8 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt);
-    CHECK((*opt)->first == 2);  // NOLINT
-    CHECK((*opt)->second == "two");  // NOLINT
+    CHECK((*opt)->first == 2);  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK((*opt)->second == "two");  // NOLINT(bugprone-unchecked-optional-access)
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2);
@@ -119,7 +119,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue(test_map, 3);
     REQUIRE(opt);
-    CHECK(*opt == "three");  // NOLINT
+    CHECK(*opt == "three");  // NOLINT(bugprone-unchecked-optional-access)
 
     auto opt2 = get_optvalue(test_map, 42);
     CHECK_FALSE(opt2);
@@ -129,7 +129,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");  // NOLINT
+    CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
 
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
     CHECK_FALSE(opt2);
@@ -190,7 +190,7 @@ TEST_CASE("C++23 optional monadic operations")
     // and_then chains optional-returning functions
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");  // NOLINT
+    CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
 
     // with nullopt key
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});

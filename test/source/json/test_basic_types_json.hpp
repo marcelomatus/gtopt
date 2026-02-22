@@ -73,7 +73,7 @@ TEST_CASE("daw json gtopt basic types 1")
   const variant_t f4 = f1;
   const std::optional<variant_t> f5;
 
-  const MyClass mc0 = {f1, f2, f3, f4, f5};  // NOLINT
+  const MyClass mc0 {.f1 = f1, .f2 = f2, .f3 = f3, .f4 = f4, .f5 = f5};
 
   const auto json_data_4 = daw::json::to_json(mc0);
 
@@ -114,7 +114,7 @@ TEST_CASE("daw json gtopt basic types 2")
   const variant_t f4 = f1;
   const std::optional<variant_t> f5 = f3;
 
-  const MyClass mc0 = {f1, f2, f3, f4, f5};  // NOLINT
+  const MyClass mc0 {.f1 = f1, .f2 = f2, .f3 = f3, .f4 = f4, .f5 = f5};
 
   const auto json_data_4 = daw::json::to_json(mc0);
 
@@ -144,4 +144,16 @@ TEST_CASE("daw json gtopt basic types 2")
     REQUIRE(mc.f4 == f4);
     REQUIRE(mc.f5 == f5);
   }
+}
+
+TEST_CASE("daw json gtopt basic types - Foo roundtrip")
+{
+  using test_basic_types_json::Foo;
+
+  const Foo foo {.f1 = 2.5};
+
+  const auto json_str = daw::json::to_json(foo);
+  const Foo roundtrip = daw::json::from_json<Foo>(json_str);
+
+  REQUIRE(roundtrip.f1 == doctest::Approx(foo.f1));
 }
