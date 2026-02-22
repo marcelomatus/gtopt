@@ -1,3 +1,13 @@
+#pragma once
+
+#include <string_view>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_demand_profile.hpp>
+
+using namespace gtopt;
+
 TEST_CASE("DemandProfile daw json test - basic fields")
 {
   std::string_view json_data = R"({

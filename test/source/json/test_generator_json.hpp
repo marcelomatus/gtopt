@@ -1,3 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_generator.hpp>
+
 TEST_CASE("Generator daw json test 1")
 {
   using Uid = gtopt::Uid;
