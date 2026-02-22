@@ -3,8 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **See also**: [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for a more
-> comprehensive reference covering environment setup, architecture, CI workflows, and test-writing
-> guidelines.
+> comprehensive reference covering environment setup, architecture, CI workflows, test-writing
+> guidelines, **GTEP domain knowledge**, and IEEE benchmark case descriptions.
 
 ## What is this repository?
 
@@ -215,3 +215,55 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 8. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
 9. Use `[[maybe_unused]]` for loop variables used only for side-effects.
 10. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
+
+## Domain Quick-Reference
+
+> Full details are in `.github/copilot-instructions.md` → "Domain Knowledge" section.
+
+### What gtopt optimizes
+
+**Objective**: minimize total discounted cost (OPEX + CAPEX) over all scenarios,
+planning stages, and time blocks.
+
+- **OPEX**: generator dispatch cost (`gcost × power × duration`), demand curtailment
+  penalty (`demand_fail_cost`), line transfer cost.
+- **CAPEX**: annualized investment cost for expansion modules (generators, demands,
+  lines, batteries): `annual_capcost × modules_built`.
+
+### Time structure
+
+`Scenario` → `Stage` (investment period) → `Block` (operating hour, `duration` in h).
+
+### Key options
+
+| Option | Typical value | Effect |
+|--------|--------------|--------|
+| `use_kirchhoff` | `true` | DC OPF with voltage angles and line reactances |
+| `use_single_bus` | `false` | Multi-bus network (set `true` to disable network) |
+| `demand_fail_cost` | 1000 | $/MWh penalty for unserved load |
+| `scale_objective` | 1000 | Divides objective coefficients for solver numerics |
+| `annual_discount_rate` | 0.1 | 10 % per year for CAPEX discounting |
+
+### IEEE benchmark cases in `cases/`
+
+| Directory | Buses | Generators | Blocks | Key feature |
+|-----------|-------|------------|--------|-------------|
+| `ieee_4b_ori` | 4 | 2 thermal | 1 | Simplest OPF; g1 ($20) serves all load |
+| `ieee_9b_ori` | 9 | 3 thermal | 1 | Classic Anderson–Fouad 9-bus OPF |
+| `ieee_9b` | 9 | 2 thermal + 1 solar | 24 | Solar profile; 24-hour dispatch |
+| `ieee_14b_ori` | 14 | 5 generators | 24 | Standard IEEE 14-bus OPF benchmark |
+| `ieee_14b` | 14 | 5 generators | 24 | Constrained lines; binding KVL duals |
+| `c0` | 1 | 1 thermal | 5 stages | Multi-stage capacity expansion (Parquet I/O) |
+
+### Validating a solved case
+
+```bash
+# Status 0 = optimal
+cat output/solution.csv
+
+# Locational Marginal Prices (dual of bus balance constraint)
+cat output/Bus/balance_dual.csv
+
+# Check no load shedding
+cat output/Demand/fail_sol.csv   # should be all zeros
+```
