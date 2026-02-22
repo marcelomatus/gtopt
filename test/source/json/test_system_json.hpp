@@ -1,16 +1,3 @@
-/**
- * @file      test_json_system.cpp
- * @brief     Header of
- * @date      Sun Mar 30 17:45:39 2025
- * @author    marcelo
- * @copyright BSD-3-Clause
- *
- * This module
- */
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_system.hpp>
-
 TEST_CASE("System daw json test 1")
 {
   const std::string_view json_data = R"({

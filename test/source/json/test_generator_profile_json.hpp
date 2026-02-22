@@ -1,11 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_generator_profile.hpp>
-
-using namespace gtopt;
-
 TEST_CASE("GeneratorProfile daw json test - basic fields")
 {
   std::string_view json_data = R"({

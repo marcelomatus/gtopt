@@ -1,11 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_reserve_zone.hpp>
-
-using namespace gtopt;
-
 TEST_CASE("ReserveZone daw json test - basic fields")
 {
   std::string_view json_data = R"({

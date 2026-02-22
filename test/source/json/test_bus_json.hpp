@@ -1,9 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_bus.hpp>
-
 TEST_CASE("Bus daw json test 1")
 {
   std::string_view json_data = R"({
@@ -81,8 +75,6 @@ TEST_CASE("Bus daw json test 4")
 
 TEST_CASE("Bus with active property serialization")
 {
-  using namespace gtopt;
-
   SUBCASE("With boolean active")
   {
     Bus bus(1, "test_bus");
@@ -116,8 +108,6 @@ TEST_CASE("Bus with active property serialization")
 
 TEST_CASE("Bus with empty optional fields")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"CRUCERO",

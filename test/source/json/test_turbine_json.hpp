@@ -1,9 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_turbine.hpp>
-
 TEST_CASE("Turbine daw json test 1")
 {
   std::string_view json_data = R"({
@@ -87,8 +81,6 @@ TEST_CASE("Turbine array json test")
 
 TEST_CASE("Turbine with active property serialization")
 {
-  using namespace gtopt;
-
   SUBCASE("With boolean active")
   {
     Turbine turbine;
@@ -133,8 +125,6 @@ TEST_CASE("Turbine with active property serialization")
 
 TEST_CASE("Turbine with empty optional fields")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"TURBINE_A",

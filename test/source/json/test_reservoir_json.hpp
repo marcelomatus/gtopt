@@ -1,14 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/field_sched.hpp>
-#include <gtopt/json/json_reservoir.hpp>
-#include <gtopt/object.hpp>
-#include <gtopt/reservoir.hpp>
-
-using namespace gtopt;
-
 TEST_CASE("Reservoir basic fields deserialization")
 {
   std::string_view json_data = R"({

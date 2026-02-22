@@ -1,21 +1,3 @@
-/**
- * @file      test_json_flow.cpp
- * @brief     Unit tests for JSON serialization of Flow objects
- * @date      Thu Feb 19 00:00:00 2026
- * @author    marcelo
- * @copyright BSD-3-Clause
- *
- * Covers json_flow.hpp including to_json_data (serialization path).
- */
-
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_flow.hpp>
-
-using namespace gtopt;
-
 TEST_CASE("Flow JSON basic parsing")
 {
   const std::string_view json_data = R"({

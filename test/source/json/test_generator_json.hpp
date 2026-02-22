@@ -1,17 +1,3 @@
-/**
- * @file      test_json_generator.cpp
- * @brief     Header of
- * @date      Sat Mar 29 01:05:53 2025
- * @author    marcelo
- * @copyright BSD-3-Clause
- *
- * This module
- */
-
-#include <doctest/doctest.h>
-#include <gtopt/basic_types.hpp>
-#include <gtopt/json/json_generator.hpp>
-
 TEST_CASE("Generator daw json test 1")
 {
   using Uid = gtopt::Uid;

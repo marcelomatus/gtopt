@@ -1,10 +1,3 @@
-#include <string>
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_demand.hpp>
-
 TEST_CASE("Demand daw json test")
 {
   using Uid = gtopt::Uid;
@@ -19,7 +12,6 @@ TEST_CASE("Demand daw json test")
   gtopt::Demand dem = daw::json::from_json<gtopt::Demand>(json_data);
 
   REQUIRE(dem.uid == 5);
-  REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(dem.name == "GUACOLDA");
   REQUIRE(std::get<Uid>(dem.bus) == 10);
   if (dem.capacity) {

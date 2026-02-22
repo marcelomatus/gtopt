@@ -1,23 +1,5 @@
-/**
- * @file      test_json_planning.cpp
- * @brief     Unit tests for Planning JSON serialization
- * @date      Fri May  2 20:35:00 2025
- * @author    Claude
- * @copyright BSD-3-Clause
- *
- * This module contains the unit tests for JSON serialization/deserialization
- * of the Planning class.
- */
-
-#include <string>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
-
 TEST_CASE("JSON Planning - Serialize empty")
 {
-  using namespace gtopt;
-
   // Create empty planning
   const Planning opt {};
 
@@ -32,8 +14,6 @@ TEST_CASE("JSON Planning - Serialize empty")
 
 TEST_CASE("JSON Planning - Round trip serialization")
 {
-  using namespace gtopt;
-
   // Create planning with components
   const Options options {};
   const Simulation simulation {};
@@ -77,8 +57,6 @@ TEST_CASE("JSON Planning - Round trip serialization")
 
 TEST_CASE("JSON Planning - Partial filled objects")
 {
-  using namespace gtopt;
-
   // Create planning with only some components filled
   const Planning opt1 {
       .options = {},  // NOLINT

@@ -1,11 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_filtration.hpp>
-
-using namespace gtopt;
-
 TEST_CASE("Filtration daw json test 1")
 {
   std::string_view json_data = R"({
@@ -80,8 +72,6 @@ TEST_CASE("Filtration array json test")
 
 TEST_CASE("Filtration with active property serialization")
 {
-  using namespace gtopt;
-
   SUBCASE("With boolean active")
   {
     Filtration filt;
@@ -121,8 +111,6 @@ TEST_CASE("Filtration with active property serialization")
 
 TEST_CASE("Filtration with empty optional fields")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"FILTER_A",
