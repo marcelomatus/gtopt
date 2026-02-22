@@ -162,6 +162,29 @@ inline void apply_cli_options(
 }
 
 /**
+ * @brief Apply command-line options from a MainOptions struct to a Planning
+ * object
+ *
+ * Convenience overload that takes a @c MainOptions struct directly, delegating
+ * to the individual-parameter overload.
+ *
+ * @param planning The Planning object to update
+ * @param opts     The MainOptions containing the option overrides
+ */
+inline void apply_cli_options(Planning& planning, const MainOptions& opts)
+{
+  apply_cli_options(planning,
+                    opts.use_single_bus,
+                    opts.use_kirchhoff,
+                    opts.use_lp_names,
+                    opts.input_directory,
+                    opts.input_format,
+                    opts.output_directory,
+                    opts.output_format,
+                    opts.compression_format);
+}
+
+/**
  * @brief Build FlatOptions from command-line parameters
  *
  * @param use_lp_names Optional LP names level (0=none, 1=names, 2=names+map)
