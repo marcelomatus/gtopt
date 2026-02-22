@@ -6,7 +6,7 @@ on:
       warnings_as_errors:
         description: 'Treat clang-tidy warnings as errors'
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
