@@ -1,0 +1,122 @@
+/**
+ * @file      test_ieee14b_ori_planning.cpp
+ * @brief     Integration test for IEEE 14-bus original base case
+ * @date      2026-02-22
+ * @copyright BSD-3-Clause
+ *
+ * Integration test for the IEEE 14-bus original base case.  The system has:
+ *   - 14 buses, 5 simple thermal generators (no solar profile), 11 demand
+ * buses, and 20 transmission lines.
+ *   - A single 1-hour block (1 stage, 1 scenario).
+ *   - Original IEEE 14-bus loads at buses 2-6, 9-14.
+ *   - All generators are thermal with costs 20, 35, 30, 40, 45 $/MWh.
+ *   - No generator_profile_array (no solar/renewable profiles).
+ */
+
+#include <string_view>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_planning.hpp>
+#include <gtopt/planning_lp.hpp>
+
+using namespace gtopt;
+
+// clang-format off
+static constexpr std::string_view ieee14b_ori_json = R"({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "use_single_bus": false,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "use_kirchhoff": true
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "ieee_14b_ori",
+    "bus_array": [
+      {"uid": 1,  "name": "b1"},  {"uid": 2,  "name": "b2"},
+      {"uid": 3,  "name": "b3"},  {"uid": 4,  "name": "b4"},
+      {"uid": 5,  "name": "b5"},  {"uid": 6,  "name": "b6"},
+      {"uid": 7,  "name": "b7"},  {"uid": 8,  "name": "b8"},
+      {"uid": 9,  "name": "b9"},  {"uid": 10, "name": "b10"},
+      {"uid": 11, "name": "b11"}, {"uid": 12, "name": "b12"},
+      {"uid": 13, "name": "b13"}, {"uid": 14, "name": "b14"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 260, "gcost": 20, "capacity": 260},
+      {"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 130, "gcost": 35, "capacity": 130},
+      {"uid": 3, "name": "g3", "bus": "b3", "pmin": 0, "pmax": 130, "gcost": 30, "capacity": 130},
+      {"uid": 4, "name": "g6", "bus": "b6", "pmin": 0, "pmax": 100, "gcost": 40, "capacity": 100},
+      {"uid": 5, "name": "g8", "bus": "b8", "pmin": 0, "pmax": 80,  "gcost": 45, "capacity": 80}
+    ],
+    "demand_array": [
+      {"uid": 1,  "name": "d2",  "bus": "b2",  "lmax": [[21.7]]},
+      {"uid": 2,  "name": "d3",  "bus": "b3",  "lmax": [[94.2]]},
+      {"uid": 3,  "name": "d4",  "bus": "b4",  "lmax": [[47.8]]},
+      {"uid": 4,  "name": "d5",  "bus": "b5",  "lmax": [[7.6]]},
+      {"uid": 5,  "name": "d6",  "bus": "b6",  "lmax": [[11.2]]},
+      {"uid": 6,  "name": "d9",  "bus": "b9",  "lmax": [[29.5]]},
+      {"uid": 7,  "name": "d10", "bus": "b10", "lmax": [[9.0]]},
+      {"uid": 8,  "name": "d11", "bus": "b11", "lmax": [[3.5]]},
+      {"uid": 9,  "name": "d12", "bus": "b12", "lmax": [[6.1]]},
+      {"uid": 10, "name": "d13", "bus": "b13", "lmax": [[13.5]]},
+      {"uid": 11, "name": "d14", "bus": "b14", "lmax": [[14.9]]}
+    ],
+    "line_array": [
+      {"uid": 1,  "name": "l1_2",   "bus_a": "b1",  "bus_b": "b2",  "reactance": 0.05917, "tmax_ab": 150, "tmax_ba": 150},
+      {"uid": 2,  "name": "l1_5",   "bus_a": "b1",  "bus_b": "b5",  "reactance": 0.22304, "tmax_ab": 75,  "tmax_ba": 75},
+      {"uid": 3,  "name": "l2_3",   "bus_a": "b2",  "bus_b": "b3",  "reactance": 0.19797, "tmax_ab": 80,  "tmax_ba": 80},
+      {"uid": 4,  "name": "l2_4",   "bus_a": "b2",  "bus_b": "b4",  "reactance": 0.17632, "tmax_ab": 80,  "tmax_ba": 80},
+      {"uid": 5,  "name": "l2_5",   "bus_a": "b2",  "bus_b": "b5",  "reactance": 0.17388, "tmax_ab": 80,  "tmax_ba": 80},
+      {"uid": 6,  "name": "l3_4",   "bus_a": "b3",  "bus_b": "b4",  "reactance": 0.17103, "tmax_ab": 60,  "tmax_ba": 60},
+      {"uid": 7,  "name": "l4_5",   "bus_a": "b4",  "bus_b": "b5",  "reactance": 0.04211, "tmax_ab": 80,  "tmax_ba": 80},
+      {"uid": 8,  "name": "l4_7",   "bus_a": "b4",  "bus_b": "b7",  "reactance": 0.20912, "tmax_ab": 70,  "tmax_ba": 70},
+      {"uid": 9,  "name": "l4_9",   "bus_a": "b4",  "bus_b": "b9",  "reactance": 0.55618, "tmax_ab": 40,  "tmax_ba": 40},
+      {"uid": 10, "name": "l5_6",   "bus_a": "b5",  "bus_b": "b6",  "reactance": 0.25202, "tmax_ab": 70,  "tmax_ba": 70},
+      {"uid": 11, "name": "l6_11",  "bus_a": "b6",  "bus_b": "b11", "reactance": 0.19890, "tmax_ab": 35,  "tmax_ba": 35},
+      {"uid": 12, "name": "l6_12",  "bus_a": "b6",  "bus_b": "b12", "reactance": 0.25581, "tmax_ab": 25,  "tmax_ba": 25},
+      {"uid": 13, "name": "l6_13",  "bus_a": "b6",  "bus_b": "b13", "reactance": 0.13027, "tmax_ab": 50,  "tmax_ba": 50},
+      {"uid": 14, "name": "l7_8",   "bus_a": "b7",  "bus_b": "b8",  "reactance": 0.17615, "tmax_ab": 50,  "tmax_ba": 50},
+      {"uid": 15, "name": "l7_9",   "bus_a": "b7",  "bus_b": "b9",  "reactance": 0.11001, "tmax_ab": 70,  "tmax_ba": 70},
+      {"uid": 16, "name": "l9_10",  "bus_a": "b9",  "bus_b": "b10", "reactance": 0.08450, "tmax_ab": 40,  "tmax_ba": 40},
+      {"uid": 17, "name": "l9_14",  "bus_a": "b9",  "bus_b": "b14", "reactance": 0.27038, "tmax_ab": 40,  "tmax_ba": 40},
+      {"uid": 18, "name": "l10_11", "bus_a": "b10", "bus_b": "b11", "reactance": 0.19207, "tmax_ab": 30,  "tmax_ba": 30},
+      {"uid": 19, "name": "l12_13", "bus_a": "b12", "bus_b": "b13", "reactance": 0.19988, "tmax_ab": 20,  "tmax_ba": 20},
+      {"uid": 20, "name": "l13_14", "bus_a": "b13", "bus_b": "b14", "reactance": 0.34802, "tmax_ab": 30,  "tmax_ba": 30}
+    ]
+  }
+})";
+// clang-format on
+
+TEST_CASE("IEEE 14-bus original - JSON parse and structure check")
+{
+  auto planning = daw::json::from_json<Planning>(ieee14b_ori_json);
+
+  CHECK(planning.system.name == "ieee_14b_ori");
+  CHECK(planning.system.bus_array.size() == 14);
+  CHECK(planning.system.generator_array.size() == 5);
+  CHECK(planning.system.demand_array.size() == 11);
+  CHECK(planning.system.line_array.size() == 20);
+  CHECK(planning.system.generator_profile_array.empty());
+
+  // Single block, 1 stage, 1 scenario
+  CHECK(planning.simulation.block_array.size() == 1);
+  CHECK(planning.simulation.stage_array.size() == 1);
+  CHECK(planning.simulation.scenario_array.size() == 1);
+}
+
+TEST_CASE("IEEE 14-bus original - LP solve")
+{
+  auto planning = daw::json::from_json<Planning>(ieee14b_ori_json);
+
+  PlanningLP planning_lp(planning);
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+}
