@@ -28,12 +28,11 @@ struct MyClass
 
 }  // namespace test_basic_types_json
 
+namespace daw::json
+{
 using test_basic_types_json::Foo;
 using test_basic_types_json::MyClass;
 using test_basic_types_json::variant_t;
-
-namespace daw::json
-{
 
 template<>
 struct json_data_contract<Foo>
@@ -66,6 +65,8 @@ struct json_data_contract<MyClass>
 
 TEST_CASE("daw json gtopt basic types 1")
 {
+  using test_basic_types_json::MyClass;
+  using test_basic_types_json::variant_t;
   const double f1 = 3.5;
   const std::vector<double> f2 = {1, 2, 3, 4};
   const gtopt::FileSched f3 = "f1";
@@ -105,6 +106,8 @@ TEST_CASE("daw json gtopt basic types 1")
 
 TEST_CASE("daw json gtopt basic types 2")
 {
+  using test_basic_types_json::MyClass;
+  using test_basic_types_json::variant_t;
   const double f1 = 3.5;
   const std::vector<double> f2 = {1, 2, 3, 4};
   const gtopt::FileSched f3 = "f1";
