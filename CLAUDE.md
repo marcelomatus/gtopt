@@ -250,6 +250,11 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 9. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
 10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
 11. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
+12. **Testing LP via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))`.
+    Direct `from_json` overwrites `scene_array` with `{}`, so `resolve()` never runs.
+    See `.github/copilot-instructions.md` → "Useful Tips" for full explanation.
+13. **Testing `gtopt_main()`**: use `MainOptions{.planning_files=..., .use_single_bus=true}`.
+    Only set the fields you need — all others default to `std::nullopt`.
 
 ## Domain Quick-Reference
 
