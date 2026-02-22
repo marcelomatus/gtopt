@@ -42,11 +42,6 @@ using FieldSched2 = FieldSched<Type, Vector2>;
 using RealFieldSched2 = FieldSched2<double>;
 using OptRealFieldSched2 = std::optional<RealFieldSched2>;
 
-using OptRealFieldSched2 = std::optional<RealFieldSched2>;
-
-using RealFieldSched2 = FieldSched2<double>;
-using OptRealFieldSched2 = std::optional<RealFieldSched2>;
-
 template<typename Type,
          typename Vector3 = std::vector<std::vector<std::vector<Type>>>>
 using FieldSched3 = FieldSched<Type, Vector3>;
