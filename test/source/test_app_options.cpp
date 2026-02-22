@@ -86,7 +86,9 @@ TEST_CASE("get_opt - works with double type")
 
   auto result = get_opt<double>(vm, "matrix-eps");
   REQUIRE(result.has_value());
-  CHECK(*result == doctest::Approx(0.001));  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(
+      *result
+      == doctest::Approx(0.001));  // NOLINT(bugprone-unchecked-optional-access)
 }
 
 TEST_CASE("get_opt - implicit bool value")
@@ -188,15 +190,11 @@ TEST_CASE("make_options_description - string options")
       },
       desc);
 
-  CHECK(get_opt<std::string>(vm, "input-directory").value_or("")
-        == "/in");
-  CHECK(get_opt<std::string>(vm, "output-directory").value_or("")
-        == "/out");
-  CHECK(get_opt<std::string>(vm, "input-format").value_or("")
-        == "parquet");
+  CHECK(get_opt<std::string>(vm, "input-directory").value_or("") == "/in");
+  CHECK(get_opt<std::string>(vm, "output-directory").value_or("") == "/out");
+  CHECK(get_opt<std::string>(vm, "input-format").value_or("") == "parquet");
   CHECK(get_opt<std::string>(vm, "output-format").value_or("") == "csv");
-  CHECK(get_opt<std::string>(vm, "compression-format").value_or("")
-        == "gzip");
+  CHECK(get_opt<std::string>(vm, "compression-format").value_or("") == "gzip");
   CHECK(get_opt<std::string>(vm, "lp-file").value_or("") == "model.lp");
   CHECK(get_opt<std::string>(vm, "json-file").value_or("") == "model.json");
 }

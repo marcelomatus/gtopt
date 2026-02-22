@@ -18,7 +18,8 @@ TEST_CASE("merge vectors")
     std::vector<int> b {3, 4};
     merge(a, std::move(b));
     CHECK(a == std::vector {1, 2, 3, 4});
-    CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+    CHECK(
+        b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
   }
 
   SUBCASE("empty source")
@@ -109,7 +110,8 @@ TEST_CASE("map utilities")
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt);
     CHECK((*opt)->first == 2);  // NOLINT(bugprone-unchecked-optional-access)
-    CHECK((*opt)->second == "two");  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK((*opt)->second
+          == "two");  // NOLINT(bugprone-unchecked-optional-access)
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2);

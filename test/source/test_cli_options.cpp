@@ -493,11 +493,16 @@ TEST_CASE("cli parser - argc/argv constructor")
   desc.add_options()("verbose,v", "verbose");
 
   // Simulate argc/argv (argv[0] is program name, should be skipped)
-  const char* argv[] = {"program", "--verbose"};  // NOLINT(hicpp-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
+  const char* argv[] = {
+      "program",
+      "--verbose"};  // NOLINT(hicpp-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
   const int argc = 2;
 
   variables_map vm;
-  auto parser = command_line_parser(argc, const_cast<char**>(argv))  // NOLINT(cppcoreguidelines-pro-type-const-cast)
+  auto parser = command_line_parser(
+                    argc,
+                    const_cast<char**>(
+                        argv))  // NOLINT(cppcoreguidelines-pro-type-const-cast)
                     .options(desc);
   store(parser, vm);
 

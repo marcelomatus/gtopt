@@ -94,7 +94,8 @@ template<typename SourceArrayType>
 inline auto widen_to_int32_array(const arrow::Array& chunk)
     -> std::shared_ptr<arrow::Int32Array>
 {
-  const auto& src = static_cast<const SourceArrayType&>(chunk);  // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
+  const auto& src = static_cast<const SourceArrayType&>(
+      chunk);  // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
   arrow::Int32Builder builder;
   auto st = builder.Reserve(chunk.length());
   if (!st.ok()) {
@@ -119,7 +120,8 @@ template<typename SourceArrayType>
 inline auto widen_to_double_array(const arrow::Array& chunk)
     -> std::shared_ptr<arrow::DoubleArray>
 {
-  const auto& src = static_cast<const SourceArrayType&>(chunk);  // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
+  const auto& src = static_cast<const SourceArrayType&>(
+      chunk);  // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
   arrow::DoubleBuilder builder;
   auto st = builder.Reserve(chunk.length());
   if (!st.ok()) {
