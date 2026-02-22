@@ -264,7 +264,7 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-latest
     name: clang-tidy
-    if: false  # set to: github.event_name == 'workflow_dispatch' to enable clang-tidy
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
