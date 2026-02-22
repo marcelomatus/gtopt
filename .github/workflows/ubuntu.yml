@@ -5,12 +5,10 @@ on:
     branches:
       - master
       - main
-      - 'copilot/**'
   pull_request:
     branches:
       - master
       - main
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
