@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -22,7 +23,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <queue>
 #include <semaphore>
 #include <string>
 #include <system_error>
@@ -151,7 +151,7 @@ class AdaptiveWorkPool
   mutable std::mutex queue_mutex_;  // Protects task queue
   mutable std::mutex active_mutex_;  // Protects active tasks
   std::condition_variable cv_;
-  std::priority_queue<Task<void>> task_queue_;
+  std::vector<Task<void>> task_queue_;
 
   std::vector<ActiveTask> active_tasks_;
   std::counting_semaphore<> available_threads_ {0};
@@ -222,7 +222,10 @@ public:
       {
         const std::scoped_lock<std::mutex> lock(queue_mutex_);
         try {
-          task_queue_.emplace([task]() { (*task)(); }, req);
+          // Both emplace_back and push_heap are under queue_mutex_, so
+          // no other thread can observe the intermediate state.
+          task_queue_.emplace_back([task]() { (*task)(); }, req);
+          std::push_heap(task_queue_.begin(), task_queue_.end());
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
         } catch (const std::bad_alloc&) {
