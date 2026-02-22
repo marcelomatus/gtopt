@@ -14,8 +14,10 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <gtopt/cli_options.hpp>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
 
@@ -183,6 +185,39 @@ inline void apply_cli_options(
   flat_opts.reserve_factor = 2;
 
   return flat_opts;
+}
+
+/**
+ * @brief Build a MainOptions struct from a parsed CLI variables_map.
+ *
+ * Extracts every gtopt_main option from @p vm into a @c MainOptions value.
+ * @p system_files is taken from the positional arguments already pulled out
+ * by the caller (they are not stored in @p vm by default).
+ *
+ * @param vm           Parsed CLI variables map (from po::store/po::notify)
+ * @param system_files Positional system-file arguments
+ * @return Fully populated MainOptions
+ */
+[[nodiscard]] inline MainOptions parse_main_options(
+    const po::variables_map& vm, std::vector<std::string> system_files)
+{
+  return MainOptions {
+      .planning_files = std::move(system_files),
+      .input_directory = get_opt<std::string>(vm, "input-directory"),
+      .input_format = get_opt<std::string>(vm, "input-format"),
+      .output_directory = get_opt<std::string>(vm, "output-directory"),
+      .output_format = get_opt<std::string>(vm, "output-format"),
+      .compression_format = get_opt<std::string>(vm, "compression-format"),
+      .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
+      .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
+      .lp_file = get_opt<std::string>(vm, "lp-file"),
+      .use_lp_names = get_opt<int>(vm, "use-lp-names"),
+      .matrix_eps = get_opt<double>(vm, "matrix-eps"),
+      .json_file = get_opt<std::string>(vm, "json-file"),
+      .just_create = get_opt<bool>(vm, "just-create"),
+      .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
+      .print_stats = get_opt<bool>(vm, "stats"),
+  };
 }
 
 }  // namespace gtopt
