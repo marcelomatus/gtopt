@@ -154,3 +154,87 @@ TEST_CASE("gtopt_main - stats=true, full solve")
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
+
+TEST_CASE("gtopt_main - multiple planning files merged")
+{
+  // Split the minimal JSON into two fragments that merge into one valid plan:
+  // part1 provides options + simulation, part2 provides the system components.
+  constexpr auto part1 = R"({
+    "options": {"demand_fail_cost": 1000},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {"name": "merge_test"}
+  })";
+
+  constexpr auto part2 = R"({
+    "system": {
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem1 = write_tmp_json("gtopt_main_merge1", part1);
+  const auto stem2 = write_tmp_json("gtopt_main_merge2", part2);
+
+  // just_create=true validates parsing + merging without needing a full solve
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem1.string(), stem2.string()},
+      .just_create = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - returns error for invalid JSON content")
+{
+  const auto stem = write_tmp_json("gtopt_main_bad_json", "{ invalid json !!!");
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+  });
+  CHECK_FALSE(result.has_value());
+  CHECK(!result.error().empty());
+}
+
+TEST_CASE("gtopt_main - stats=true, just_create (covers log_pre_solve_stats)")
+{
+  // Richer system to exercise more stat counters
+  constexpr auto rich_json = R"({
+    "options": {"demand_fail_cost": 500},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 2}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "rich_stats_test",
+      "bus_array": [{"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 100.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ],
+      "line_array": [
+        {"uid": 1, "name": "l1", "bus_a": 1, "bus_b": 2,
+         "tmax_ab": 100.0, "tmax_ba": 100.0, "reactance": 0.1}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_rich_stats", rich_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .just_create = true,
+      .print_stats = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
