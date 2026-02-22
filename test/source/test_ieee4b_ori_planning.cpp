@@ -1,10 +1,10 @@
 /**
  * @file      test_ieee4b_ori_planning.cpp
- * @brief     Integration test for IEEE 4-bus original base case
+ * @brief     Unit and solution-correctness tests for IEEE 4-bus original case
  * @date      2026-02-22
  * @copyright BSD-3-Clause
  *
- * Integration test for the IEEE 4-bus original base case.  The system has:
+ * Tests for the IEEE 4-bus original base case.  The system has:
  *   - 4 buses, 2 simple thermal generators (no solar profile), 2 demand buses,
  *     and 5 transmission lines.
  *   - A single 1-hour block (1 stage, 1 scenario).
@@ -13,6 +13,7 @@
  *   - No generator_profile_array (no solar/renewable profiles).
  *   - All demand is fully served (status=0, no load shedding).
  *   - Optimal dispatch: G1 produces 250 MW (cheaper), G2 is idle.
+ *   - Objective value = 250 × 20 / scale_objective(1000) = 5.0.
  *   - Solution validated via e2e integration test comparing output CSVs.
  */
 
@@ -84,10 +85,38 @@ TEST_CASE("IEEE 4-bus original - JSON parse and structure check")
 
 TEST_CASE("IEEE 4-bus original - LP solve")
 {
-  auto planning = daw::json::from_json<Planning>(ieee4b_ori_json);
+  // Use Planning::merge so scene_array keeps its default {Scene{}} –
+  // the same pattern gtopt_main uses when reading JSON files.
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(ieee4b_ori_json));
 
-  PlanningLP planning_lp(planning);
+  PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
   REQUIRE(result.has_value());
+  CHECK(result.value() == 1);  // 1 scene successfully processed
+}
+
+TEST_CASE("IEEE 4-bus original - solution correctness")
+{
+  // Known analytical solution:
+  //   G1 (gcost=20) is cheaper → dispatches all 250 MW of demand.
+  //   G2 (gcost=35) is idle.
+  //   No load shedding.
+  //   Objective = 250 × 20 / scale_objective(1000) = 5.0.
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(ieee4b_ori_json));
+
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 1);  // 1 scene processed
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& lp_interface = systems.front().front().linear_interface();
+
+  // Objective value: 250 MW × $20/MWh ÷ 1000 (scale_objective) = 5.0
+  CHECK(lp_interface.get_obj_value() == doctest::Approx(5.0));
 }
