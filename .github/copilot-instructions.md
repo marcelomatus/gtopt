@@ -159,7 +159,7 @@ Format violations are warnings only, not CI failures.
 | Indentation | 2 spaces (see `.clang-format`, `IndentWidth: 2`) |
 | Column limit | 80 characters |
 | Namespace | All library code lives in `namespace gtopt` |
-| Naming | Classes/Structs: `PascalCase`; methods/functions: `camelCase`; data members: `snake_case` |
+| Naming | Classes/Structs: `PascalCase`; free functions and methods: `snake_case`; data members: `snake_case`; private class members: `m_` prefix + `_` suffix (e.g. `m_simulation_`, `m_options_`) |
 | Header guards | `#pragma once` (not `#ifndef` guards) |
 | File headers | Doxygen-style `@file`, `@brief`, `@date`, `@author`, `@copyright` |
 | Includes | Grouped and sorted: (1) `<std>` headers, (2) external `<pkg/header.hpp>`, (3) project `<gtopt/...>`. See `.clang-format` `IncludeCategories`. |
@@ -651,3 +651,54 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
 8. **Reserve modeling**: add a `reserve_zone_array` with `urreq`/`drreq` and
    link generators via `reserve_provision_array`. Each provision specifies
    `urmax` (max up-reserve MW) and cost `urcost`.
+
+---
+
+## Domain Glossary
+
+| Term | Meaning in gtopt |
+|------|-----------------|
+| **GTEP** | Generation and Transmission Expansion Planning — the class of optimization problem gtopt solves |
+| **OPF** | Optimal Power Flow — finding the least-cost dispatch of generators satisfying Kirchhoff's laws |
+| **DC OPF** | Linearized (DC) approximation of AC OPF: ignores reactive power and voltage magnitudes, keeps real power and angles |
+| **Kirchhoff (KVL)** | Kirchhoff's Voltage Law: `flow = Δθ / reactance` for each branch |
+| **LMP** | Locational Marginal Price — the shadow price (dual variable) of the bus balance constraint; represents the marginal cost of delivering 1 MWh to that node |
+| **Block** | Smallest time unit (one operating period, typically 1 h). `energy = power × duration`. |
+| **Stage** | Investment period grouping consecutive blocks; capacity decisions made at stage level persist to later stages |
+| **Scenario** | One possible realization of uncertain inputs (demand, hydrology); weighted by `probability_factor` |
+| **CAPEX** | Capital expenditure — annualized investment cost for new capacity |
+| **OPEX** | Operating expenditure — variable generation cost per MWh |
+| **`expcap`** | Capacity per expansion module (MW/module) |
+| **`expmod`** | Maximum modules the solver may build |
+| **`annual_capcost`** | Annualized investment cost per module ($/year) |
+| **`gcost`** | Variable generation cost ($/MWh) |
+| **`demand_fail_cost`** | Value-of-lost-load penalty for unserved energy ($/MWh); should exceed the most expensive generator cost |
+| **`scale_objective`** | Divides all objective coefficients to keep them in [0.001, 1000] range for solver numerical stability |
+| **`pmin` / `pmax`** | Minimum / maximum generator output (MW) |
+| **`tmax_ab` / `tmax_ba`** | Maximum power flow in each direction on a transmission line (MW) |
+| **`reactance`** | Line reactance (per-unit Ω); used with Kirchhoff constraints |
+| **Copper plate** | `use_single_bus=true` mode; no network constraints; total generation = total demand |
+| **flat_map** | `boost::container::flat_map` (or `std::flat_map` in C++23) — used instead of `std::map` for 10–27× faster iteration in LP assembly |
+
+---
+
+## Comparable Tools
+
+Understanding the ecosystem helps when designing features and writing tests.
+
+| Tool | Language | Scope | Key difference from gtopt |
+|------|----------|-------|---------------------------|
+| [PyPSA](https://github.com/PyPSA/PyPSA) | Python | Multi-carrier energy system (electricity, gas, heat) | Sector-coupling, unit commitment, storage; Python-only; no C++ performance core |
+| [pandapower](https://github.com/e2nIEE/pandapower) | Python | Power flow, short-circuit, state estimation | Primarily AC power flow; no capacity expansion planning |
+| [GenX](https://github.com/GenXProject/GenX) | Julia | Electricity capacity expansion | Julia; no transmission Kirchhoff (transport model default); large US-scale models |
+| [QuESt Planning](https://github.com/sandialabs/quest_planning) | Python | Long-term capacity expansion with storage | Python; broad storage technology support; Sandia NL tool |
+| [PLEXOS](https://www.energyexemplar.com) | Commercial | Unit commitment + expansion planning | Commercial; much larger scope; gtopt targets open-source, scriptable workflows |
+| [PROMAX / PLP](https://en.wikipedia.org/wiki/PLEXOS) | Commercial | Hydrothermal scheduling (Latin America) | gtopt includes a `plp2gtopt` converter in `scripts/` for importing PLP cases |
+
+**What makes gtopt distinctive**:
+- High-performance C++26 LP assembly with `flat_map`-based sparse matrices
+- Native Parquet I/O for large time-series via Apache Arrow
+- Hydro cascade modeling (Junction/Waterway/Reservoir/Turbine/Flow/Filtration)
+- REST API (Next.js webservice) + browser GUI (Flask guiservice) out of the box
+- IEEE test cases embedded as in-memory JSON unit tests (no file I/O required)
+- Multi-stage, multi-scenario expansion with per-stage discount factors
