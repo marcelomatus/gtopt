@@ -162,11 +162,32 @@ cmake --build build -j$(nproc)
 
 ### clang-tidy suppressions in tests
 
-Use inline `// NOLINT(...)` for known false-positive cases:
+Only `bugprone-use-after-move` still needs an inline `// NOLINT`:
 
 ```cpp
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
-CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
+```
+
+**Never use `NOLINT(bugprone-unchecked-optional-access)`.**
+Use safe checked patterns for optional access instead:
+
+```cpp
+// value_or with a sentinel that differs from the expected value
+CHECK(opt.value_or(-1.0) == doctest::Approx(2.5));
+CHECK(opt.value_or("") == "hello");
+CHECK(opt.value_or(false) == true);
+
+// boolean short-circuit for expressions
+CHECK((opt && *opt == 2.0));
+CHECK((opt && (*opt)->member == expected));
+
+// value_or for variant-inside-optional
+CHECK(std::get<double>(opt.value_or(0.0)) == doctest::Approx(5000.0));
+CHECK(std::get<IntBool>(active_opt.value_or(Active{False})) == True);
+
+// intermediate variable to avoid dangling ref when binding const& to vector
+const auto val = opt.value_or(Active{std::vector<IntBool>{}});
+const auto& vec = std::get<std::vector<IntBool>>(val);
 ```
 
 ### Python
@@ -220,11 +241,15 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 3. Floating-point: use `doctest::Approx(value)`, never `==` on doubles.
 4. `REQUIRE` for fatal assertions (stop test on failure); `CHECK` for non-fatal.
 5. Prefer `CHECK_FALSE(x)` over `CHECK(x == false)`.
-6. `REQUIRE(opt.has_value())` before dereferencing `std::optional`.
-7. Add `// NOLINT(...)` for intentional clang-tidy suppressions.
-8. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
-9. Use `[[maybe_unused]]` for loop variables used only for side-effects.
-10. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
+6. **Never use `NOLINT(bugprone-unchecked-optional-access)`**. Use
+   `opt.value_or(sentinel)` or `(opt && *opt == val)` instead (see above).
+7. `REQUIRE(opt.has_value())` before branches that depend on the optional,
+   but still use `value_or` / `&&` in the CHECK expressions themselves.
+8. Only accepted NOLINT: `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)`
+   after intentional post-`std::move` checks.
+9. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
+10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
+11. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
 
 ## Domain Quick-Reference
 

@@ -89,8 +89,9 @@ TEST_CASE("Waterway JSON with active schedule")
   Waterway waterway = daw::json::from_json<Waterway>(json_data);
 
   REQUIRE(waterway.active.has_value());
-  const auto& active = std::get<std::vector<IntBool>>(
-      waterway.active.value());  // NOLINT(bugprone-unchecked-optional-access)
+  const Active active_val =
+      waterway.active.value_or(Active {std::vector<IntBool> {}});
+  const auto& active = std::get<std::vector<IntBool>>(active_val);
   REQUIRE(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);

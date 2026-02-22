@@ -26,13 +26,9 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
   CHECK(rp.reserve_zones == "ZONE_1,ZONE_2");
 
   REQUIRE(rp.urmax.has_value());
-  CHECK(std::get<double>(
-            rp.urmax.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(50.0));
+  CHECK(std::get<double>(rp.urmax.value_or(0.0)) == doctest::Approx(50.0));
   REQUIRE(rp.drmax.has_value());
-  CHECK(std::get<double>(
-            rp.drmax.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(30.0));
+  CHECK(std::get<double>(rp.drmax.value_or(0.0)) == doctest::Approx(30.0));
 }
 
 TEST_CASE("ReserveProvision daw json test - with factors and costs")
@@ -58,43 +54,27 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
   CHECK(rp.uid == 2);
   CHECK(rp.name == "RPROV_B");
   REQUIRE(rp.active.has_value());
-  CHECK(std::get<IntBool>(
-            rp.active.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == True);
+  CHECK(std::get<IntBool>(rp.active.value_or(Active {False})) == True);
   CHECK(std::get<Name>(rp.generator) == "GEN_COAL");
   CHECK(rp.reserve_zones == "ZONE_A");
 
   REQUIRE(rp.ur_capacity_factor.has_value());
-  CHECK(std::get<double>(
-            rp.ur_capacity_factor  // NOLINT(bugprone-unchecked-optional-access)
-                .value())
+  CHECK(std::get<double>(rp.ur_capacity_factor.value_or(0.0))
         == doctest::Approx(0.9));
   REQUIRE(rp.dr_capacity_factor.has_value());
-  CHECK(std::get<double>(
-            rp.dr_capacity_factor  // NOLINT(bugprone-unchecked-optional-access)
-                .value())
+  CHECK(std::get<double>(rp.dr_capacity_factor.value_or(0.0))
         == doctest::Approx(0.8));
   REQUIRE(rp.ur_provision_factor.has_value());
-  CHECK(
-      std::get<double>(
-          rp.ur_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
-              .value())
-      == doctest::Approx(0.95));
+  CHECK(std::get<double>(rp.ur_provision_factor.value_or(0.0))
+        == doctest::Approx(0.95));
   REQUIRE(rp.dr_provision_factor.has_value());
-  CHECK(
-      std::get<double>(
-          rp.dr_provision_factor  // NOLINT(bugprone-unchecked-optional-access)
-              .value())
-      == doctest::Approx(0.85));
+  CHECK(std::get<double>(rp.dr_provision_factor.value_or(0.0))
+        == doctest::Approx(0.85));
 
   REQUIRE(rp.urcost.has_value());
-  CHECK(std::get<double>(
-            rp.urcost.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(1000.0));
+  CHECK(std::get<double>(rp.urcost.value_or(0.0)) == doctest::Approx(1000.0));
   REQUIRE(rp.drcost.has_value());
-  CHECK(std::get<double>(
-            rp.drcost.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(800.0));
+  CHECK(std::get<double>(rp.drcost.value_or(0.0)) == doctest::Approx(800.0));
 }
 
 TEST_CASE("ReserveProvision daw json test - minimal fields")

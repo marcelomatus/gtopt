@@ -74,8 +74,9 @@ TEST_CASE("Junction JSON with active schedule")
   Junction junction = daw::json::from_json<Junction>(json_data);
 
   REQUIRE(junction.active.has_value());
-  const auto& active = std::get<std::vector<IntBool>>(
-      junction.active.value());  // NOLINT(bugprone-unchecked-optional-access)
+  const Active active_val =
+      junction.active.value_or(Active {std::vector<IntBool> {}});
+  const auto& active = std::get<std::vector<IntBool>>(active_val);
   CHECK(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);

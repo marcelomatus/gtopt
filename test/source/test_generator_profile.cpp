@@ -30,12 +30,11 @@ TEST_CASE("GeneratorProfile attribute assignment")  // NOLINT
   CHECK(gp.uid == Uid {1});
   CHECK(gp.name == "solar_profile");
   REQUIRE(gp.active.has_value());
-  CHECK(std::get<IntBool>(gp.active.value()) == 1);
+  CHECK(std::get<IntBool>(gp.active.value_or(Active {False})) == 1);
   CHECK(std::get<Uid>(gp.generator) == Uid {42});
 
   REQUIRE(gp.scost.has_value());
-  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-  CHECK(*std::get_if<Real>(&gp.scost.value()) == doctest::Approx(2.5));
+  CHECK(std::get<Real>(gp.scost.value_or(Real {0.0})) == doctest::Approx(2.5));
 }
 
 TEST_CASE("GeneratorProfile scalar profile")  // NOLINT
