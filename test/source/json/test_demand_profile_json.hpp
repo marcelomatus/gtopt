@@ -40,10 +40,12 @@ TEST_CASE("DemandProfile daw json test - with cost")
   CHECK(dp.uid == 2);
   CHECK(dp.name == "PROFILE_B");
   REQUIRE(dp.active.has_value());
-  CHECK(std::get<IntBool>(dp.active.value()) == True);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<IntBool>(dp.active.value())
+        == True);  // NOLINT(bugprone-unchecked-optional-access)
   CHECK(std::get<Name>(dp.demand) == "DEMAND_REF");
   REQUIRE(dp.scost.has_value());
-  CHECK(std::get<double>(dp.scost.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            dp.scost.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(500.0));
 }
 
@@ -88,6 +90,8 @@ TEST_CASE("DemandProfile round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.demand) == 42);
   CHECK(std::get<double>(roundtrip.profile) == doctest::Approx(0.75));
   REQUIRE(roundtrip.scost.has_value());
-  CHECK(std::get<double>(roundtrip.scost.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            roundtrip.scost
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(100.0));
 }

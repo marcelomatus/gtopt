@@ -17,8 +17,7 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
     "drmax":30.0
   })";
 
-  const ReserveProvision rp =
-      daw::json::from_json<ReserveProvision>(json_data);
+  const ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
 
   CHECK(rp.uid == 1);
   CHECK(rp.name == "RPROV_A");
@@ -27,10 +26,12 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
   CHECK(rp.reserve_zones == "ZONE_1,ZONE_2");
 
   REQUIRE(rp.urmax.has_value());
-  CHECK(std::get<double>(rp.urmax.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.urmax.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(50.0));
   REQUIRE(rp.drmax.has_value());
-  CHECK(std::get<double>(rp.drmax.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.drmax.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(30.0));
 }
 
@@ -57,28 +58,39 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
   CHECK(rp.uid == 2);
   CHECK(rp.name == "RPROV_B");
   REQUIRE(rp.active.has_value());
-  CHECK(std::get<IntBool>(rp.active.value()) == True);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<IntBool>(rp.active.value())
+        == True);  // NOLINT(bugprone-unchecked-optional-access)
   CHECK(std::get<Name>(rp.generator) == "GEN_COAL");
   CHECK(rp.reserve_zones == "ZONE_A");
 
   REQUIRE(rp.ur_capacity_factor.has_value());
-  CHECK(std::get<double>(rp.ur_capacity_factor.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.ur_capacity_factor
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(0.9));
   REQUIRE(rp.dr_capacity_factor.has_value());
-  CHECK(std::get<double>(rp.dr_capacity_factor.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.dr_capacity_factor
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(0.8));
   REQUIRE(rp.ur_provision_factor.has_value());
-  CHECK(std::get<double>(rp.ur_provision_factor.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.ur_provision_factor
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(0.95));
   REQUIRE(rp.dr_provision_factor.has_value());
-  CHECK(std::get<double>(rp.dr_provision_factor.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.dr_provision_factor
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(0.85));
 
   REQUIRE(rp.urcost.has_value());
-  CHECK(std::get<double>(rp.urcost.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.urcost.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(1000.0));
   REQUIRE(rp.drcost.has_value());
-  CHECK(std::get<double>(rp.drcost.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            rp.drcost.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(800.0));
 }
 
@@ -152,7 +164,9 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.generator) == 42);
   CHECK(roundtrip.reserve_zones == "ZONE_X,ZONE_Y");
   REQUIRE(roundtrip.urmax.has_value());
-  CHECK(std::get<double>(roundtrip.urmax.value())  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(
+            roundtrip.urmax
+                .value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(200.0));
   REQUIRE(roundtrip.drmax.has_value());
   CHECK(std::get<double>(roundtrip.drmax.value_or(0.0))

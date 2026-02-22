@@ -131,8 +131,8 @@ void AdaptiveWorkPool::schedule_next_task()
     return;
   }
 
-  Task<void> task =
-      std::move(const_cast<Task<void>&>(task_queue_.top()));  // NOLINT(cppcoreguidelines-pro-type-const-cast)
+  Task<void> task = std::move(const_cast<Task<void>&>(
+      task_queue_.top()));  // NOLINT(cppcoreguidelines-pro-type-const-cast)
 
   task_queue_.pop();
 
