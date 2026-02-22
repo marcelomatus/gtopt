@@ -5,69 +5,77 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the flat_map
+ * This module defines the flat_map alias and map_reserve helper.
+ *
+ * Backend selection (can be overridden by defining one of the macros before
+ * including this header):
+ *
+ *   GTOPT_USE_STD_FLAT_MAP    - std::flat_map  (default for GCC >= 15 and
+ *                                               Clang >= 23, only when
+ *                                               <flat_map> is available)
+ *   GTOPT_USE_BOOST_FLAT_MAP  - boost::container::flat_map (default for all
+ *                                               other compilers / older
+ *                                               versions)
+ *   GTOPT_USE_STD_MAP         - std::map  (automatic for Clang < 23 to avoid
+ *                                          the boost::flat_map reserve(0)
+ *                                          debug assertion / SIGABRT)
  */
 
 #pragma once
 
-#ifdef GTOPT_USE_UNORDERED_MAP
-#  include <unordered_map>
+// ---------------------------------------------------------------------------
+// Automatic backend selection (only when no explicit choice was made)
+// ---------------------------------------------------------------------------
+#if !defined(GTOPT_USE_STD_MAP) && !defined(GTOPT_USE_STD_FLAT_MAP) \
+    && !defined(GTOPT_USE_BOOST_FLAT_MAP)
 
-#  include <boost/functional/hash.hpp>
+#  if (defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15 \
+       && __has_include(<flat_map>))
+// GCC 15+: std::flat_map is available (guarded by __has_include)
+#    define GTOPT_USE_STD_FLAT_MAP
 
-namespace gtopt
-{
+#  elif (defined(__clang__) && __clang_major__ >= 23 && __has_include(<flat_map>))
+// Clang 23+: std::flat_map is available (guarded by __has_include)
+#    define GTOPT_USE_STD_FLAT_MAP
 
-struct tuple_hash
-{
-  template<typename Key>
-  size_t operator()(const Key& key) const
-  {
-    return boost::hash_value(key);
-  }
-};
-
-using hash_type = tuple_hash;
-template<typename key_type, typename value_type>
-using flat_map = std::unordered_map<key_type, value_type, hash_type>;
-
-template<typename Map, typename Size>
-void map_reserve(Map& map, Size n)
-{
-  map.reserve(n);
-}
-
-}  // namespace gtopt
-
-#else
-
-// Default to boost::container::flat_map; define GTOPT_USE_STD_FLAT_MAP
-// before including this header to use std::flat_map instead.
-#  ifndef GTOPT_USE_STD_FLAT_MAP
-#    define GTOPT_USE_BOOST_FLAT_MAP
-#  endif
-
-#  ifdef GTOPT_USE_BOOST_FLAT_MAP
-
-#    include <boost/container/flat_map.hpp>
-
-namespace gtopt
-{
-
-template<typename key_type, typename value_type>
-using flat_map = boost::container::flat_map<key_type, value_type>;
-
-template<typename Map, typename Size>
-void map_reserve(Map& map, Size n)
-{
-  map.reserve(n);
-}
-
-}  // namespace gtopt
+#  elifdef __clang__
+// Clang < 23: std::flat_map is not available, and
+// boost::container::flat_map triggers a debug assertion (m_ptr || !off) when
+// reserve(0) is called, causing SIGABRT in debug builds.  Fall back to
+// std::map which only requires operator< (available on all key types via
+// strong::regular / operator<=>).
+#    define GTOPT_USE_STD_MAP
 
 #  else
+// GCC < 15 and all other compilers: use boost::container::flat_map
+#    define GTOPT_USE_BOOST_FLAT_MAP
 
-#    include <flat_map>
+#  endif
+#endif
+
+// ---------------------------------------------------------------------------
+// Backend implementations
+// ---------------------------------------------------------------------------
+
+#ifdef GTOPT_USE_STD_MAP
+#  include <map>
+
+namespace gtopt
+{
+
+template<typename key_type, typename value_type>
+using flat_map = std::map<key_type, value_type>;
+
+template<typename Map, typename Size>
+void map_reserve(Map& /*map*/, Size /*n*/)
+{
+  // std::map does not support reserve(); this is intentionally a no-op.
+}
+
+}  // namespace gtopt
+
+#elifdef GTOPT_USE_STD_FLAT_MAP
+#  include <flat_map>
 
 namespace gtopt
 {
@@ -78,33 +86,36 @@ using flat_map = std::flat_map<key_type, value_type>;
 template<typename Map, typename Size>
 void map_reserve(Map& map, Size n)
 {
-  map.reserve(n);
-}
-
-}  // namespace gtopt
-
-#  endif
-
-#endif
-
-#if __has_include(<flat_map>)
-
-#  include <flat_map>
-
-namespace gtopt
-{
-
-template<typename key_type, typename value_type, typename Size>
-void map_reserve(std::flat_map<key_type, value_type>& map, Size new_cap)
-{
+  if (n == 0) {
+    return;
+  }
   auto containers = std::move(map).extract();
-  containers.keys.reserve(static_cast<size_t>(new_cap));
-  containers.values.reserve(static_cast<size_t>(new_cap));
-
+  containers.keys.reserve(static_cast<size_t>(n));
+  containers.values.reserve(static_cast<size_t>(n));
   map.replace(std::move(containers.keys),  // NOLINT
               std::move(containers.values));
 }
 
 }  // namespace gtopt
 
-#endif  //
+#else  // GTOPT_USE_BOOST_FLAT_MAP
+#  include <boost/container/flat_map.hpp>
+
+namespace gtopt
+{
+
+template<typename key_type, typename value_type>
+using flat_map = boost::container::flat_map<key_type, value_type>;
+
+template<typename Map, typename Size>
+void map_reserve(Map& map, Size n)
+{
+  if (n == 0) {
+    return;
+  }
+  map.reserve(n);
+}
+
+}  // namespace gtopt
+
+#endif
