@@ -54,7 +54,7 @@ TEST_CASE("Flow JSON round-trip serialization")
   const auto json = daw::json::to_json(original);
   CHECK(!json.empty());
 
-  const Flow roundtrip = daw::json::from_json<Flow>(json);  // NOLINT
+  const Flow roundtrip = daw::json::from_json<Flow>(json);  // NOLINT(performance-unnecessary-copy-initialization)
   CHECK(roundtrip.uid == 7);
   CHECK(roundtrip.name == "nat_inflow");
   REQUIRE(roundtrip.direction.has_value());

@@ -90,7 +90,7 @@ TEST_CASE("Waterway JSON with active schedule")
 
   REQUIRE(waterway.active.has_value());
   const auto& active =
-      std::get<std::vector<IntBool>>(waterway.active.value());  // NOLINT
+      std::get<std::vector<IntBool>>(waterway.active.value());  // NOLINT(bugprone-unchecked-optional-access)
   REQUIRE(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);
