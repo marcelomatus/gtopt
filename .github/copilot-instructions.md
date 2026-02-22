@@ -234,14 +234,39 @@ Format violations are warnings only, not CI failures.
 
 ### clang-tidy suppressions in test code
 
-Many clang-tidy checks that fire on test code need inline suppressions:
+Only `bugprone-use-after-move` / `hicpp-invalid-access-moved` (intentional
+after `std::move`) still needs an inline `// NOLINT`:
 
 ```cpp
 // After std::move – use-after-move is intentional in tests
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+```
 
-// Dereferencing an optional after REQUIRE – safe, but tidy complains
-CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
+**Never use `// NOLINT(bugprone-unchecked-optional-access)`.**
+Instead, access optional values with safe checked patterns:
+
+```cpp
+// Pattern A – value_or(sentinel) where sentinel ≠ expected value
+CHECK(opt.value_or(-1.0) == doctest::Approx(2.5));
+CHECK(opt.value_or(0) == 42);
+CHECK(opt.value_or("") == "hello");
+CHECK(opt.value_or(false) == true);
+
+// Pattern B – boolean short-circuit (&&), useful for expressions
+CHECK((opt && *opt == 2.0));
+CHECK((opt && (*opt)->member == expected));
+
+// Pattern C – value_or for variant-inside-optional
+// (use a sentinel that is the same variant alternative as expected)
+CHECK(std::get<double>(opt.value_or(0.0)) == doctest::Approx(5000.0));
+CHECK(std::get<IntBool>(active_opt.value_or(Active{False})) == True);
+
+// Pattern D – intermediate variable when binding const& to a vector inside
+// a variant-inside-optional (avoids dangling reference from temporary)
+REQUIRE(opt.has_value());
+const auto val = opt.value_or(Active{std::vector<IntBool>{}});
+const auto& vec = std::get<std::vector<IntBool>>(val);
+CHECK(vec.size() == 4);
 ```
 
 ---
@@ -284,14 +309,19 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 4. Floating-point comparisons: use `doctest::Approx(value)` – never `==` on doubles.
 5. `REQUIRE` to stop the test case on first failure; `CHECK` for non-fatal checks.
 6. Prefer `CHECK_FALSE(x)` over `CHECK(x == false)`.
-7. Prefer `REQUIRE(opt.has_value())` before dereferencing an `std::optional`.
-8. Add `// NOLINT(...)` for intentional clang-tidy suppressions (see above).
-9. Use `[[maybe_unused]]` for loop variables used only for side-effects.
-10. Name the test file `test_<snake_case_topic>.cpp` and add it to the glob in
+7. **Never use `NOLINT(bugprone-unchecked-optional-access)`**. Access optional
+   values with checked patterns: `opt.value_or(sentinel)` or
+   `(opt && *opt == val)`. See the "clang-tidy suppressions" section above.
+8. `REQUIRE(opt.has_value())` before any logic that branches on the optional
+   — but still use `value_or` / `&&` in the CHECK expressions themselves.
+9. Add `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)` after
+   intentional post-`std::move` checks (this is the only accepted NOLINT).
+10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
+11. Name the test file `test_<snake_case_topic>.cpp` and add it to the glob in
     `test/CMakeLists.txt` automatically via `CONFIGURE_DEPENDS`.
-11. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` – that is already in
+12. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` – that is already in
     `test/source/main.cpp`.
-12. Use C++23/26 features freely: `std::format`, `std::ranges`, structured
+13. Use C++23/26 features freely: `std::format`, `std::ranges`, structured
     bindings, designated initializers, `std::expected`, `std::mdspan`, etc.
 
 ### Example – testing a utility function

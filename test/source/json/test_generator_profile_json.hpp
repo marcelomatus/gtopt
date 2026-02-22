@@ -40,14 +40,10 @@ TEST_CASE("GeneratorProfile daw json test - with cost and active")
   CHECK(gp.uid == 2);
   CHECK(gp.name == "GPROFILE_B");
   REQUIRE(gp.active.has_value());
-  CHECK(std::get<IntBool>(
-            gp.active.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == True);
+  CHECK(std::get<IntBool>(gp.active.value_or(Active {False})) == True);
   CHECK(std::get<Name>(gp.generator) == "GEN_REF");
   REQUIRE(gp.scost.has_value());
-  CHECK(std::get<double>(
-            gp.scost.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(250.0));
+  CHECK(std::get<double>(gp.scost.value_or(0.0)) == doctest::Approx(250.0));
 }
 
 TEST_CASE("GeneratorProfile array json test")
@@ -91,6 +87,6 @@ TEST_CASE("GeneratorProfile round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.generator) == 99);
   CHECK(std::get<double>(roundtrip.profile) == doctest::Approx(0.80));
   REQUIRE(roundtrip.scost.has_value());
-  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-  CHECK(std::get<double>(roundtrip.scost.value()) == doctest::Approx(300.0));
+  CHECK(std::get<double>(roundtrip.scost.value_or(0.0))
+        == doctest::Approx(300.0));
 }
