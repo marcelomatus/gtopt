@@ -32,13 +32,13 @@ namespace gtopt
 namespace
 {
 
-static constexpr auto FastParsePolicy = daw::json::options::parse_flags<
+constexpr auto FastParsePolicy = daw::json::options::parse_flags<
     daw::json::options::PolicyCommentTypes::hash,
     daw::json::options::CheckedParseMode::no,
     daw::json::options::ExcludeSpecialEscapes::no,
     daw::json::options::UseExactMappingsByDefault::no>;
 
-static constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
+constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::PolicyCommentTypes::hash,
     daw::json::options::CheckedParseMode::yes,
     daw::json::options::ExcludeSpecialEscapes::yes,
@@ -57,7 +57,7 @@ static constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
 [[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files, bool strict_parsing)
 {
-  spdlog::stopwatch sw;
+  const spdlog::stopwatch sw;
   Planning my_planning;
 
   for (const auto& planning_file : planning_files) {
@@ -128,7 +128,7 @@ static constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
 [[nodiscard]] std::expected<void, std::string> write_json_output(
     const Planning& planning, const std::string& json_file)
 {
-  spdlog::stopwatch sw;
+  const spdlog::stopwatch sw;
   std::filesystem::path jpath(json_file);
 
   try {
@@ -311,7 +311,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
         log_pre_solve_stats(my_planning);
       }
 
-      spdlog::stopwatch sw;
+      const spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
       spdlog::info(std::format("creating lp {}s", sw.elapsed().count()));
@@ -333,7 +333,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
       bool optimal = false;
       double solve_elapsed = 0.0;
       {
-        spdlog::stopwatch solve_sw;
+        const spdlog::stopwatch solve_sw;
 
         // SolverOptions uses library defaults (primal simplex, single thread,
         // presolve enabled).  Future work: expose these through MainOptions.
@@ -379,7 +379,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
       }
 
       if (optimal) {
-        spdlog::stopwatch out_sw;
+        const spdlog::stopwatch out_sw;
 
         try {
           planning_lp.write_out();
