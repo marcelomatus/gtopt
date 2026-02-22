@@ -1,9 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_waterway.hpp>
-
 TEST_CASE("Waterway JSON basic parsing")
 {
   std::string_view json_data = R"({
@@ -76,8 +70,6 @@ TEST_CASE("Waterway JSON array parsing")
 
 TEST_CASE("Waterway JSON with active schedule")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":1,
     "name":"CANAL_1",
@@ -115,14 +107,11 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_a) == 1);
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_b) == 2);
   REQUIRE(roundtrip.capacity.has_value());
-  REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(std::get<double>(roundtrip.capacity.value_or(0.0)) == 100.0);
 }
 
 TEST_CASE("Waterway with empty optional fields")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":5,
     "name":"RIVER_1",

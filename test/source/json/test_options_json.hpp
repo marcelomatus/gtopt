@@ -1,23 +1,5 @@
-/**
- * @file      test_json_options.cpp
- * @brief     Unit tests for JSON serialization of Options
- * @date      Sat May  3 12:35:00 2025
- * @author    Claude
- * @copyright BSD-3-Clause
- *
- * This module contains unit tests for JSON serialization/deserialization
- * of the Options class as defined in json_options.hpp.
- */
-
-#include <string>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_options.hpp>
-
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
-  using namespace gtopt;
-
   // JSON string representing Options
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -126,8 +108,6 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 TEST_CASE(
     "json_options - Deserialization with missing fields (should use nulls)")
 {
-  using namespace gtopt;
-
   // JSON string with only some fields
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -172,8 +152,6 @@ TEST_CASE(
 
 TEST_CASE("json_options - Round-trip serialization and deserialization")
 {
-  using namespace gtopt;
-
   // Create original Options
   Options original {
       .input_directory = "input_dir",

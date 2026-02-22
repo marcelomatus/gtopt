@@ -1,9 +1,3 @@
-#include <string_view>
-#include <vector>
-
-#include <doctest/doctest.h>
-#include <gtopt/json/json_junction.hpp>
-
 TEST_CASE("Junction JSON basic parsing")
 {
   std::string_view json_data = R"({
@@ -63,8 +57,6 @@ TEST_CASE("Junction JSON array parsing")
 
 TEST_CASE("Junction JSON with active schedule")
 {
-  using namespace gtopt;
-
   std::string_view json_data = R"({
     "uid":1,
     "name":"SCHED_JUNC",
