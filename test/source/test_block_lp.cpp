@@ -75,8 +75,8 @@ TEST_CASE("BlockLP copy semantics")
 
   SUBCASE("Copy construction")
   {
-    BlockLP copy(
-        original);  // NOLINT(performance-unnecessary-copy-initialization)
+    const BlockLP copy(  // NOLINT(performance-unnecessary-copy-initialization)
+        original);
     CHECK(copy.uid() == original.uid());
     CHECK(copy.index() == original.index());
   }

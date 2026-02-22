@@ -110,8 +110,8 @@ TEST_CASE("map utilities")
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt);
     CHECK((*opt)->first == 2);  // NOLINT(bugprone-unchecked-optional-access)
-    CHECK((*opt)->second
-          == "two");  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK((*opt)->second  // NOLINT(bugprone-unchecked-optional-access)
+          == "two");
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2);
