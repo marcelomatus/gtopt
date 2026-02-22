@@ -85,32 +85,33 @@ TEST_CASE("Bus with active property serialization")
 {
   SUBCASE("With boolean active")
   {
+    using namespace gtopt;
+
     Bus bus(1, "test_bus");
     bus.active = True;
 
     auto json = daw::json::to_json(bus);
-    Bus roundtrip = daw::json::from_json<Bus>(json);
+    const Bus roundtrip = daw::json::from_json<Bus>(json);
 
     REQUIRE(roundtrip.active.has_value());
-    CHECK(std::get<IntBool>(
-              roundtrip.active
-                  .value())  // NOLINT(bugprone-unchecked-optional-access)
-          == True);
+    CHECK(std::get<IntBool>(roundtrip.active.value_or(False)) == True);
   }
 
   SUBCASE("With schedule active")
   {
+    using namespace gtopt;
+
     Bus bus(1, "test_bus");
     bus.active = std::vector<IntBool> {True, False, True, False};
 
     auto json = daw::json::to_json(bus);
-    Bus roundtrip = daw::json::from_json<Bus>(json);
+    const Bus roundtrip = daw::json::from_json<Bus>(json);
 
     REQUIRE(roundtrip.active.has_value());
-    const auto& active = std::get<std::vector<IntBool>>(
-        roundtrip
-            .active  // NOLINT(bugprone-unchecked-optional-access)
-            .value());
+
+    const auto& active =
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        std::get<std::vector<IntBool>>(roundtrip.active.value());
     REQUIRE(active.size() == 4);
     CHECK(active[0] == True);
     CHECK(active[1] == False);
@@ -121,6 +122,8 @@ TEST_CASE("Bus with active property serialization")
 
 TEST_CASE("Bus with empty optional fields")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":5,
     "name":"CRUCERO",

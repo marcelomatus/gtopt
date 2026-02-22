@@ -27,6 +27,7 @@ Checks: "*,\
   -google-build-using-namespace,\
   -google-readability-casting,\
   -google-readability-namespace-comments,\
+  -illegal-initializer-type,\
   -llvm-header-guard,\
   -llvm-include-order,\
   -llvm-namespace-comment,\

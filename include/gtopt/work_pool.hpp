@@ -225,7 +225,7 @@ public:
           // Both emplace_back and push_heap are under queue_mutex_, so
           // no other thread can observe the intermediate state.
           task_queue_.emplace_back([task]() { (*task)(); }, req);
-          std::push_heap(task_queue_.begin(), task_queue_.end());
+          std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
         } catch (const std::bad_alloc&) {
