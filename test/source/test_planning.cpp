@@ -46,16 +46,12 @@ TEST_CASE("Planning - Merge operation")
 
   // Create first planning
   Planning opt1 {
-      .options = {},  // NOLINT
-      .simulation = {},  // NOLINT
       .system = {.name = "Opt1System"},
   };
 
   // Create second planning with different components
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   Planning opt2 {
-      .options = {},  // NOLINT
-      .simulation = {},  // NOLINT
       .system = {.name = "Opt2System", .bus_array = bus_array},
   };
 
@@ -78,8 +74,6 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Planning original {
-      .options = {},  // NOLINT
-      .simulation = {},  // NOLINT
       .system = {.name = "JsonSystem", .bus_array = bus_array},
   };
 
@@ -176,7 +170,6 @@ TEST_CASE("PlanningLP - Create simulations")
 
   // Create planning with components
   const Planning planning {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };
@@ -224,7 +217,6 @@ TEST_CASE("PlanningLP - Write LP file")
 
   // Create planning with components
   const Planning planning {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };
@@ -286,7 +278,6 @@ TEST_CASE("PlanningLP - Run LP")
 
   // Create planning with components
   const Planning planning {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };
@@ -336,7 +327,6 @@ TEST_CASE("PlanningLP - Run with write_only flag")
 
   // Create planning with components
   const Planning planning {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };
@@ -400,7 +390,6 @@ TEST_CASE("PlanningLP - Error handling")
   };
 
   const Planning planning = {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };
@@ -464,7 +453,6 @@ TEST_CASE("PlanningLP - Solver test")
 
   // Create planning with components
   const Planning planning {
-      .options = {},  // NOLINT
       .simulation = simulation,
       .system = system,
   };

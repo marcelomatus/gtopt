@@ -65,11 +65,7 @@ TEST_CASE("JSON Planning - Round trip serialization")
 TEST_CASE("JSON Planning - Partial filled objects")
 {
   // Create planning with only some components filled
-  const Planning opt1 {
-      .options = {},  // NOLINT
-      .simulation = {},  // NOLINT
-      .system = {},  // NOLINT
-  };
+  const Planning opt1 {};
 
   // Serialize and deserialize
   const auto json_data1 = daw::json::to_json(opt1);
@@ -80,8 +76,6 @@ TEST_CASE("JSON Planning - Partial filled objects")
 
   // Another test with different components filled
   const Planning opt2 {
-      .options = {},  // NOLINT
-      .simulation = {},  // NOLINT
       .system = {.name = "TestSystem"},
   };
 
