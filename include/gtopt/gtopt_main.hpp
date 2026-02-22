@@ -43,6 +43,7 @@ namespace gtopt
  * @param json_file          Optional path to write the planning JSON
  * @param just_create        If true, build the LP but skip solving
  * @param fast_parsing       If true, use fast (non-strict) JSON parsing
+ * @param print_stats        If true, print system and solution statistics
  * @return 0 on success, 1 on infeasibility, or an error message string
  */
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
@@ -59,6 +60,7 @@ namespace gtopt
     const std::optional<double>& matrix_eps,
     const std::optional<std::string>& json_file,
     const std::optional<bool>& just_create,
-    const std::optional<bool>& fast_parsing);
+    const std::optional<bool>& fast_parsing,
+    const std::optional<bool>& print_stats = std::nullopt);
 
 }  // namespace gtopt

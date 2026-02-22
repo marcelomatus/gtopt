@@ -73,6 +73,7 @@ int main(int argc, char** argv)
     const auto matrix_eps = get_opt<double>(vm, "matrix-eps");
     const auto just_create = get_opt<bool>(vm, "just-create");
     const auto fast_parsing = get_opt<bool>(vm, "fast-parsing");
+    const auto print_stats = get_opt<bool>(vm, "stats");
     const auto input_directory = get_opt<std::string>(vm, "input-directory");
     const auto output_directory = get_opt<std::string>(vm, "output-directory");
     const auto output_format = get_opt<std::string>(vm, "output-format");
@@ -115,7 +116,8 @@ int main(int argc, char** argv)
                                         matrix_eps,
                                         json_file,
                                         just_create,
-                                        fast_parsing))
+                                        fast_parsing,
+                                        print_stats))
     {
       result_value = 0;
     } else {

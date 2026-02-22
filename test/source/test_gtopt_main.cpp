@@ -181,3 +181,55 @@ TEST_CASE("gtopt_main - full solve with single-bus override")
   REQUIRE(result.has_value());
   CHECK(*result == 0);
 }
+
+TEST_CASE("gtopt_main - stats=true, just_create (no crash)")
+{
+  const auto stem = write_tmp_json("gtopt_main_stats_create", minimal_json);
+  const std::vector<std::string> files {stem.string()};
+
+  auto result = gtopt_main(files,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::optional<bool>(true),  // just_create
+                           std::nullopt,
+                           std::optional<bool>(true));  // print_stats
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - stats=true, full solve")
+{
+  const auto stem = write_tmp_json("gtopt_main_stats_solve", minimal_json);
+  const std::vector<std::string> files {stem.string()};
+
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_stats_out")
+          .string();
+
+  auto result = gtopt_main(files,
+                           std::nullopt,
+                           std::nullopt,
+                           std::optional<std::string>(out_dir),  // output_dir
+                           std::nullopt,
+                           std::nullopt,
+                           std::optional<bool>(true),  // use_single_bus
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::nullopt,
+                           std::optional<bool>(true));  // print_stats
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
