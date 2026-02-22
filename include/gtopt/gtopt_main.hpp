@@ -16,49 +16,78 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace gtopt
 {
 
 /**
- * @brief Run the gtopt power-system optimizer
+ * @brief All command-line options consumed by gtopt_main().
  *
- * Reads one or more planning JSON files, applies the supplied command-line
- * options, constructs a @c PlanningLP model, optionally solves it, and
- * writes the solution output.
+ * Every field is optional so that callers only set what they need and can use
+ * designated-initializer syntax:
+ * @code
+ *   gtopt_main(MainOptions{
+ *     .planning_files = files,
+ *     .use_single_bus = true,
+ *     .print_stats    = true,
+ *   });
+ * @endcode
+ */
+struct MainOptions
+{
+  // ---- required ----
+  /** @brief Paths to planning JSON input files (at least one required) */
+  std::vector<std::string> planning_files {};
+
+  // ---- I/O directories / formats ----
+  /** @brief Override for the input data directory */
+  std::optional<std::string> input_directory {};
+  /** @brief Input format override ("parquet", "csv", …) */
+  std::optional<std::string> input_format {};
+  /** @brief Override for the output directory */
+  std::optional<std::string> output_directory {};
+  /** @brief Output format ("parquet", "csv") */
+  std::optional<std::string> output_format {};
+  /** @brief Compression format for parquet output ("gzip", "zstd", …) */
+  std::optional<std::string> compression_format {};
+
+  // ---- modelling flags ----
+  /** @brief Enable single-bus (copper-plate) mode */
+  std::optional<bool> use_single_bus {};
+  /** @brief Enable Kirchhoff voltage-law constraints */
+  std::optional<bool> use_kirchhoff {};
+
+  // ---- debug / output helpers ----
+  /** @brief Path stem for writing the LP model file */
+  std::optional<std::string> lp_file {};
+  /** @brief LP variable/row naming level (0=none, 1=names, 2=names+map) */
+  std::optional<int> use_lp_names {};
+  /** @brief Epsilon tolerance for LP matrix coefficients */
+  std::optional<double> matrix_eps {};
+  /** @brief Path stem for writing the merged planning JSON */
+  std::optional<std::string> json_file {};
+
+  // ---- execution control ----
+  /** @brief Build the LP model but skip solving */
+  std::optional<bool> just_create {};
+  /** @brief Use fast (non-strict) JSON parsing */
+  std::optional<bool> fast_parsing {};
+  /** @brief Print pre- and post-solve system statistics */
+  std::optional<bool> print_stats {};
+};
+
+/**
+ * @brief Run the gtopt power-system optimizer.
  *
- * @param planning_files     Paths to the input planning JSON files
- * @param input_directory    Optional override for the input data directory
- * @param input_format       Optional input format (e.g. "parquet", "csv")
- * @param output_directory   Optional override for the output directory
- * @param output_format      Optional output format (e.g. "parquet", "csv")
- * @param compression_format Optional compression for parquet output
- * @param use_single_bus     Optional single-bus mode flag
- * @param use_kirchhoff      Optional Kirchhoff-constraint mode flag
- * @param lp_file            Optional path to write the LP file
- * @param use_lp_names       Optional LP naming level (0=none, 1=names,
- *                           2=names+map)
- * @param matrix_eps         Optional epsilon tolerance for LP matrix
- *                           coefficients
- * @param json_file          Optional path to write the planning JSON
- * @param just_create        If true, build the LP but skip solving
- * @param fast_parsing       If true, use fast (non-strict) JSON parsing
- * @return 0 on success, 1 on infeasibility, or an error message string
+ * Reads the planning JSON files listed in @p opts.planning_files, applies all
+ * option overrides, constructs a @c PlanningLP model, optionally solves it,
+ * and writes the solution output.
+ *
+ * @param opts  All runtime options; only set the fields you need.
+ * @return 0 on success, 1 on infeasibility, or an error string on failure.
  */
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
-    std::span<const std::string> planning_files,
-    const std::optional<std::string>& input_directory,
-    const std::optional<std::string>& input_format,
-    const std::optional<std::string>& output_directory,
-    const std::optional<std::string>& output_format,
-    const std::optional<std::string>& compression_format,
-    const std::optional<bool>& use_single_bus,
-    const std::optional<bool>& use_kirchhoff,
-    const std::optional<std::string>& lp_file,
-    const std::optional<int>& use_lp_names,
-    const std::optional<double>& matrix_eps,
-    const std::optional<std::string>& json_file,
-    const std::optional<bool>& just_create,
-    const std::optional<bool>& fast_parsing);
+    const MainOptions& opts);
 
 }  // namespace gtopt

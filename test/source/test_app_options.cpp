@@ -76,7 +76,7 @@ TEST_CASE("get_opt - works with int type")
 
   auto result = get_opt<int>(vm, "use-lp-names");
   REQUIRE(result.has_value());
-  CHECK(*result == 2);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(result.value_or(0) == 2);
 }
 
 TEST_CASE("get_opt - works with double type")
@@ -86,8 +86,7 @@ TEST_CASE("get_opt - works with double type")
 
   auto result = get_opt<double>(vm, "matrix-eps");
   REQUIRE(result.has_value());
-  CHECK(*result  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(0.001));
+  CHECK(result.value_or(-1.0) == doctest::Approx(0.001));
 }
 
 TEST_CASE("get_opt - implicit bool value")
@@ -97,7 +96,7 @@ TEST_CASE("get_opt - implicit bool value")
 
   auto result = get_opt<bool>(vm, "use-kirchhoff");
   REQUIRE(result.has_value());
-  CHECK(*result == true);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(result.value_or(false) == true);
 }
 
 TEST_CASE("get_opt - implicit int value")
@@ -107,7 +106,7 @@ TEST_CASE("get_opt - implicit int value")
 
   auto result = get_opt<int>(vm, "use-lp-names");
   REQUIRE(result.has_value());
-  CHECK(*result == 1);  // NOLINT(bugprone-unchecked-optional-access)
+  CHECK(result.value_or(0) == 1);
 }
 
 // ---- Tests for make_options_description ----

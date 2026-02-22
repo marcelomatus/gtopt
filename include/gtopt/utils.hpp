@@ -114,10 +114,6 @@ template<typename IndexType = size_t, std::ranges::range Range, typename Op>
 [[nodiscard]] constexpr auto enumerate_if(Range&& range, Op op) noexcept(
     noexcept(op(std::declval<std::ranges::range_value_t<Range>>())))
 {
-  //  const auto op_second = [&](auto&& p) { return op(std::get<1>(p)); };
-  //    return enumerate<IndexType>(range) |
-  //    std::ranges::views::filter(op_second);
-
   return enumerate<IndexType>(std::forward<Range>(range)
                               | std::ranges::views::filter(op));
 }
@@ -140,7 +136,7 @@ constexpr auto is_true_fnc = [](const auto& opt)
 { return opt.value_or(false); };
 
 template<typename IndexType = size_t, typename Range>
-constexpr auto enumerate_active(const Range& range) noexcept
+[[nodiscard]] constexpr auto enumerate_active(const Range& range) noexcept
 {
   return enumerate_if<IndexType>(range, active_fnc);
 }
@@ -170,7 +166,7 @@ template<typename T, typename K = T::key_type>
 }
 
 template<typename T, typename K>
-constexpr auto get_optvalue(const T& map, K&& key)
+[[nodiscard]] constexpr auto get_optvalue(const T& map, K&& key)
 {
   auto it = map.find(std::forward<K>(key));
   using value_t = std::remove_cvref_t<decltype(it->second)>;
@@ -178,7 +174,8 @@ constexpr auto get_optvalue(const T& map, K&& key)
 }
 
 template<typename T, typename K>
-constexpr auto get_optvalue_optkey(const T& map, const std::optional<K>& key)
+[[nodiscard]] constexpr auto get_optvalue_optkey(const T& map,
+                                                 const std::optional<K>& key)
 {
   return key.and_then([&map](const K& k) { return get_optvalue(map, k); });
 }
@@ -249,15 +246,15 @@ template<std::ranges::range Range, typename Pred>
                              std::forward<Pred>(pred));
 }
 
-constexpr double annual_discount_factor(double annual_discount_rate,
-                                        double time_hours) noexcept
+[[nodiscard]] constexpr double annual_discount_factor(
+    double annual_discount_rate, double time_hours) noexcept
 {
   return std::exp(-std::log1p(annual_discount_rate)
                   * (time_hours / hours_per_year));
 }
 
 template<typename... Args>
-std::string as_string(const std::tuple<Args...>& t)
+[[nodiscard]] std::string as_string(const std::tuple<Args...>& t)
 {
   return std::apply(
       [](const Args&... args)

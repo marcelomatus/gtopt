@@ -1,11 +1,13 @@
 /**
  * @file      single_id.hpp
- * @brief     Header of
+ * @brief     Single-value identifier types (UID or name) for component lookup
  * @date      Sun Mar 23 10:46:18 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module provides `SingleId` (a `std::variant<Uid, Name>`) and the
+ * `ObjectSingleId` wrapper used to reference system components either by
+ * their numeric UID or their string name in JSON/Parquet input files.
  */
 
 #pragma once

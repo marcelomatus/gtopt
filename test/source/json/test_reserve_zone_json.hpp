@@ -25,14 +25,10 @@ TEST_CASE("ReserveZone daw json test - basic fields")
   CHECK_FALSE(rz.active.has_value());
 
   REQUIRE(rz.urreq.has_value());
-  CHECK(std::get<double>(
-            rz.urreq.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(100.0));
+  CHECK(std::get<double>(rz.urreq.value_or(0.0)) == doctest::Approx(100.0));
 
   REQUIRE(rz.drreq.has_value());
-  CHECK(std::get<double>(
-            rz.drreq.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(50.0));
+  CHECK(std::get<double>(rz.drreq.value_or(0.0)) == doctest::Approx(50.0));
 }
 
 TEST_CASE("ReserveZone daw json test - with costs")
@@ -54,19 +50,13 @@ TEST_CASE("ReserveZone daw json test - with costs")
   CHECK(rz.uid == 2);
   CHECK(rz.name == "ZONE_B");
   REQUIRE(rz.active.has_value());
-  CHECK(std::get<IntBool>(
-            rz.active.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == True);
+  CHECK(std::get<IntBool>(rz.active.value_or(Active {False})) == True);
 
   REQUIRE(rz.urcost.has_value());
-  CHECK(std::get<double>(
-            rz.urcost.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(5000.0));
+  CHECK(std::get<double>(rz.urcost.value_or(0.0)) == doctest::Approx(5000.0));
 
   REQUIRE(rz.drcost.has_value());
-  CHECK(std::get<double>(
-            rz.drcost.value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(3000.0));
+  CHECK(std::get<double>(rz.drcost.value_or(0.0)) == doctest::Approx(3000.0));
 }
 
 TEST_CASE("ReserveZone daw json test - minimal fields")
