@@ -340,6 +340,91 @@ TEST_CASE("apply_cli_options - overwrites existing when value provided")
          && *planning.options.output_directory == "new_dir"));
 }
 
+// ---- Tests for apply_cli_options(Planning&, const MainOptions&) overload ----
+
+TEST_CASE("apply_cli_options(MainOptions) - no options applied")
+{
+  Planning planning {};
+  apply_cli_options(planning, MainOptions {});
+
+  CHECK_FALSE(planning.options.use_single_bus.has_value());
+  CHECK_FALSE(planning.options.use_kirchhoff.has_value());
+  CHECK_FALSE(planning.options.use_lp_names.has_value());
+  CHECK_FALSE(planning.options.input_directory.has_value());
+  CHECK_FALSE(planning.options.output_directory.has_value());
+  CHECK_FALSE(planning.options.output_format.has_value());
+  CHECK_FALSE(planning.options.compression_format.has_value());
+}
+
+TEST_CASE("apply_cli_options(MainOptions) - all options applied")
+{
+  Planning planning {};
+  apply_cli_options(planning,
+                    MainOptions {
+                        .input_directory = "/in",
+                        .input_format = "parquet",
+                        .output_directory = "/out",
+                        .output_format = "csv",
+                        .compression_format = "gzip",
+                        .use_single_bus = true,
+                        .use_kirchhoff = false,
+                        .use_lp_names = 2,
+                    });
+
+  REQUIRE(planning.options.use_single_bus.has_value());
+  CHECK((planning.options.use_single_bus
+         && *planning.options.use_single_bus == true));
+
+  REQUIRE(planning.options.use_kirchhoff.has_value());
+  CHECK((planning.options.use_kirchhoff
+         && *planning.options.use_kirchhoff == false));
+
+  REQUIRE(planning.options.input_directory.has_value());
+  CHECK((planning.options.input_directory
+         && *planning.options.input_directory == "/in"));
+
+  REQUIRE(planning.options.output_directory.has_value());
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "/out"));
+
+  REQUIRE(planning.options.output_format.has_value());
+  CHECK((planning.options.output_format
+         && *planning.options.output_format == "csv"));
+
+  REQUIRE(planning.options.compression_format.has_value());
+  CHECK((planning.options.compression_format
+         && *planning.options.compression_format == "gzip"));
+}
+
+TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
+{
+  Planning planning {};
+  planning.options.output_directory = "existing";
+  planning.options.use_kirchhoff = true;
+
+  apply_cli_options(planning, MainOptions {});
+
+  REQUIRE(planning.options.output_directory.has_value());
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "existing"));
+
+  REQUIRE(planning.options.use_kirchhoff.has_value());
+  CHECK((planning.options.use_kirchhoff
+         && *planning.options.use_kirchhoff == true));
+}
+
+TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
+{
+  Planning planning {};
+  planning.options.output_directory = "original";
+
+  apply_cli_options(planning, MainOptions {.output_directory = "replaced"});
+
+  REQUIRE(planning.options.output_directory.has_value());
+  CHECK((planning.options.output_directory
+         && *planning.options.output_directory == "replaced"));
+}
+
 // ---- Tests for make_flat_options ----
 
 TEST_CASE("make_flat_options - defaults when both nullopt")
