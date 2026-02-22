@@ -38,7 +38,7 @@ public:
   template<typename Type = double>
   using FieldVector = std::vector<FieldType<Type>>;
 
-  using ClassFieldName = std::pair<Name, Name>;
+  using ClassFieldName = std::pair<std::string_view, Name>;
   template<typename Type = double>
   using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
 

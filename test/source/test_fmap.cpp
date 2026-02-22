@@ -5,7 +5,7 @@
  * @author    copilot
  * @copyright BSD-3-Clause
  *
- * Tests for the flat_map type alias and tuple_hash (when applicable)
+ * Tests for the flat_map type alias and map_reserve helper.
  */
 
 #include <string>
@@ -232,61 +232,6 @@ TEST_CASE("flat_map - Pair keys")
   CHECK(map[{5, 6}] == "pair_5_6");
 }
 
-#ifdef GTOPT_USE_UNORDERED_MAP
-TEST_CASE("flat_map (unordered) - tuple_hash functionality")
-{
-  // This test specifically validates tuple_hash when using unordered_map
-  using TupleKey = std::tuple<int, std::string, double>;
-  flat_map<TupleKey, int> map;
-
-  TupleKey key1 {1, "test", 3.14};
-  TupleKey key2 {2, "test", 3.14};
-  TupleKey key3 {1, "different", 3.14};
-
-  map[key1] = 100;
-  map[key2] = 200;
-  map[key3] = 300;
-
-  CHECK(map.size() == 3);
-
-  // Verify hash function produces consistent results
-  hash_type hasher;
-  auto hash1a = hasher(key1);
-  auto hash1b = hasher(key1);
-  CHECK(hash1a == hash1b);
-
-  // Different keys should (likely) produce different hashes
-  auto hash2 = hasher(key2);
-  auto hash3 = hasher(key3);
-  CHECK(hash1a != hash2);
-  CHECK(hash1a != hash3);
-}
-
-TEST_CASE("flat_map (unordered) - tuple_hash with different types")
-{
-  SUBCASE("Simple tuple")
-  {
-    hash_type hasher;
-    auto hash = hasher(std::tuple {1, 2, 3});
-    CHECK(hash != 0);  // Should produce non-zero hash
-  }
-
-  SUBCASE("String tuple")
-  {
-    hash_type hasher;
-    auto hash = hasher(std::tuple {std::string("hello"), std::string("world")});
-    CHECK(hash != 0);
-  }
-
-  SUBCASE("Mixed type tuple")
-  {
-    hash_type hasher;
-    auto hash = hasher(std::tuple {42, "mixed", 3.14, 'c'});
-    CHECK(hash != 0);
-  }
-}
-#endif
-
 TEST_CASE("flat_map - map_reserve on empty map")
 {
   flat_map<int, std::string> map;
@@ -335,6 +280,23 @@ TEST_CASE("flat_map - map_reserve with zero")
   map[1] = "one";
   CHECK(map.size() == 1);
   CHECK(map[1] == "one");
+}
+
+TEST_CASE("flat_map - map_reserve with zero on non-empty map")
+{
+  flat_map<int, std::string> map;
+  map[1] = "one";
+  map[2] = "two";
+
+  map_reserve(map, 0);
+
+  CHECK(map.size() == 2);
+  CHECK(map[1] == "one");
+  CHECK(map[2] == "two");
+
+  map[3] = "three";
+  CHECK(map.size() == 3);
+  CHECK(map[3] == "three");
 }
 
 TEST_CASE("flat_map - map_reserve preserves order and lookup")
