@@ -15,7 +15,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # ---- Compiler selection ----
 # Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
