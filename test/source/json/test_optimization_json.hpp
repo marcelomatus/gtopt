@@ -1,3 +1,12 @@
+#pragma once
+
+#include <string>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_planning.hpp>
+
+using namespace gtopt;
+
 TEST_CASE("JSON Planning - Serialize empty")
 {
   // Create empty planning
