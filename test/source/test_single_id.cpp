@@ -155,7 +155,7 @@ TEST_CASE("ObjectSingleId - Copy and move semantics")
   SUBCASE("Copy construction")
   {
     const ObjectSingleId<TestObject1> obj_sid1 {Uid {50}};
-    const ObjectSingleId<TestObject1> obj_sid2 {obj_sid1};  // NOLINT
+    const ObjectSingleId<TestObject1> obj_sid2 {obj_sid1};  // NOLINT(performance-unnecessary-copy-initialization)
     CHECK(obj_sid2.uid() == 50);
   }
 

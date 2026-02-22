@@ -45,7 +45,7 @@ TEST_SUITE("Error")
         .status = 42,
     };
 
-    const Error err2 = err1;  // NOLINT
+    const Error err2 = err1;  // NOLINT(performance-unnecessary-copy-initialization)
     CHECK(err2.code == ErrorCode::InvalidInput);
     CHECK(err2.message == "bad input");
     CHECK(err2.status == 42);
