@@ -22,11 +22,11 @@ TEST_CASE("ReserveZone daw json test - basic fields")
   CHECK_FALSE(rz.active.has_value());
 
   REQUIRE(rz.urreq.has_value());
-  CHECK(std::get<double>(rz.urreq.value()) ==  // NOLINT
+  CHECK(std::get<double>(rz.urreq.value()) ==  // NOLINT(bugprone-unchecked-optional-access)
         doctest::Approx(100.0));
 
   REQUIRE(rz.drreq.has_value());
-  CHECK(std::get<double>(rz.drreq.value()) ==  // NOLINT
+  CHECK(std::get<double>(rz.drreq.value()) ==  // NOLINT(bugprone-unchecked-optional-access)
         doctest::Approx(50.0));
 }
 
@@ -47,14 +47,14 @@ TEST_CASE("ReserveZone daw json test - with costs")
   CHECK(rz.uid == 2);
   CHECK(rz.name == "ZONE_B");
   REQUIRE(rz.active.has_value());
-  CHECK(std::get<IntBool>(rz.active.value()) == True);  // NOLINT
+  CHECK(std::get<IntBool>(rz.active.value()) == True);  // NOLINT(bugprone-unchecked-optional-access)
 
   REQUIRE(rz.urcost.has_value());
-  CHECK(std::get<double>(rz.urcost.value())  // NOLINT
+  CHECK(std::get<double>(rz.urcost.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(5000.0));
 
   REQUIRE(rz.drcost.has_value());
-  CHECK(std::get<double>(rz.drcost.value())  // NOLINT
+  CHECK(std::get<double>(rz.drcost.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(3000.0));
 }
 
@@ -115,9 +115,9 @@ TEST_CASE("ReserveZone round-trip serialization")
   CHECK(roundtrip.uid == rz.uid);
   CHECK(roundtrip.name == rz.name);
   REQUIRE(roundtrip.urreq.has_value());
-  CHECK(std::get<double>(roundtrip.urreq.value())  // NOLINT
+  CHECK(std::get<double>(roundtrip.urreq.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(150.0));
   REQUIRE(roundtrip.drreq.has_value());
-  CHECK(std::get<double>(roundtrip.drreq.value())  // NOLINT
+  CHECK(std::get<double>(roundtrip.drreq.value())  // NOLINT(bugprone-unchecked-optional-access)
         == doctest::Approx(75.0));
 }
