@@ -137,8 +137,9 @@ cmake --build build -j$(nproc)
 - **Namespace**: All library code in `namespace gtopt`
 - **Naming**:
   - Classes/Structs: `PascalCase`
-  - Methods/functions: `camelCase`
-  - Data members: `snake_case`
+  - Free functions and methods: `snake_case` (e.g. `add_col`, `get_optvalue`, `resolve`)
+  - Data members and local variables: `snake_case`
+  - Private class members: `m_` prefix + `_` suffix (e.g. `m_simulation_`, `m_options_`)
 - **Header guards**: `#pragma once`
 - **File headers**: Doxygen-style (`@file`, `@brief`, `@date`, `@author`, `@copyright`)
 - **Includes**: Three groups — `<std>`, external `<pkg/header>`, project `<gtopt/...>`
