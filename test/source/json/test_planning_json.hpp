@@ -6,8 +6,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_planning.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Planning daw json test 1 - basic parsing")
 {
   const std::string_view json_data = R"({
