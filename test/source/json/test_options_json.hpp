@@ -1,3 +1,12 @@
+#pragma once
+
+#include <string>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_options.hpp>
+
+using namespace gtopt;
+
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
   // JSON string representing Options

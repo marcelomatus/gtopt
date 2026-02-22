@@ -1,3 +1,12 @@
+#pragma once
+
+#include <iostream>
+#include <string_view>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_system.hpp>
+
 TEST_CASE("System daw json test 1")
 {
   const std::string_view json_data = R"({

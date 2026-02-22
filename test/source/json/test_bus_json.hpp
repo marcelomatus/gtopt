@@ -1,3 +1,13 @@
+#pragma once
+
+#include <string_view>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_bus.hpp>
+
+using namespace gtopt;
+
 TEST_CASE("Bus daw json test 1")
 {
   std::string_view json_data = R"({

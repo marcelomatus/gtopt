@@ -1,3 +1,13 @@
+#pragma once
+
+#include <string_view>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_simulation.hpp>
+
+using namespace gtopt;
+
 #ifdef NONE
 
 TEST_CASE("Simulation daw json test 1")
