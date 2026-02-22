@@ -15,6 +15,18 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CC: clang
+  CXX: clang++
+  # ccache configuration (applied globally to every step)
+  # CCACHE_BASEDIR normalises absolute paths so cache entries are portable
+  # across runs even when the workspace path changes.
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  # ccache 4.5+: don't hash the location of .gcno files so
+  # coverage-instrumented TUs are cached even when the build-dir path changes.
+  CCACHE_SLOPPINESS: gcno_file_location
+
 jobs:
   clang-tidy:
     runs-on: ubuntu-latest
@@ -67,9 +79,6 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_CLANG_TIDY="${TIDY_FLAGS}"
-        env:
-          CC: clang
-          CXX: clang++
 
       - name: build with clang-tidy
         run: cmake --build build -j$(nproc)
