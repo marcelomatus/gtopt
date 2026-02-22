@@ -6,8 +6,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_turbine.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Turbine daw json test 1")
 {
   std::string_view json_data = R"({
