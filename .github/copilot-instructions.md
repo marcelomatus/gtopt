@@ -149,7 +149,7 @@ lcov --capture --directory . --output-file coverage.info \
 ## Verified Build Environment
 
 The following combination was used to produce a **100% passing** build
-(584/584 tests) on Ubuntu 24.04 (Noble):
+(587/587 tests) on Ubuntu 24.04 (Noble):
 
 | Component | Version | Notes |
 |-----------|---------|-------|
@@ -172,7 +172,7 @@ cmake -S test -B build \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
-# Expected: 100% tests passed, 0 tests failed out of 584
+# Expected: 100% tests passed, 0 tests failed out of 587
 ```
 
 > The APT-based Arrow install (from `packages.apache.org/artifactory`) is the
@@ -323,6 +323,21 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
     `test/source/main.cpp`.
 13. Use C++23/26 features freely: `std::format`, `std::ranges`, structured
     bindings, designated initializers, `std::expected`, `std::mdspan`, etc.
+14. **Testing the LP solver via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))` to
+    parse. Direct `from_json` overwrites `scene_array` with `{}`, so
+    `resolve()` returns 0 results without solving. See "Useful Tips" for details.
+15. **Testing `gtopt_main()`**: use `MainOptions` with designated initializers.
+    Write temporary JSON to `std::filesystem::temp_directory_path()` and pass
+    the stem (without `.json`) as `planning_files`:
+    ```cpp
+    const auto stem = write_tmp_json("my_test", json_str);
+    auto result = gtopt_main(MainOptions{
+        .planning_files = {stem.string()},
+        .use_single_bus = true,
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    ```
 
 ### Example – testing a utility function
 
@@ -422,6 +437,8 @@ gtopt/
 | `system.hpp` | Top-level power system model |
 | `planning.hpp` | Multi-stage planning problem |
 | `simulation_lp.hpp` | LP formulation of a single simulation |
+| `gtopt_main.hpp` | `MainOptions` struct + `gtopt_main(const MainOptions&)` entry point |
+| `app_options.hpp` | CLI option parsing; `parse_main_options(vm, files)` → `MainOptions` |
 
 ---
 
@@ -454,6 +471,36 @@ gtopt/
   `./build/gtoptTests -tc="test name pattern"`.
 - **No `spdlog` format strings in hot paths**: `spdlog` is configured with
   `SPDLOG_USE_STD_FORMAT=1`, so it uses `std::format` syntax.
+- **`gtopt_main()` takes a single `MainOptions` struct** (not 15 positional
+  args). Use C++20 designated initializers — only set the fields you need:
+  ```cpp
+  auto result = gtopt_main(MainOptions{
+      .planning_files   = {"my_case"},
+      .output_directory = "/tmp/output",
+      .use_single_bus   = true,
+      .print_stats      = true,
+  });
+  ```
+- **`parse_main_options(vm, files)`** in `app_options.hpp` builds a
+  `MainOptions` from a parsed CLI `variables_map` — use in `main()` wrappers.
+- **`--stats` / `-S` CLI flag**: when passed to the `gtopt` binary it logs
+  pre-solve system statistics (bus/gen/line counts, key option values) and
+  post-solve results (unscaled objective, LP dimensions, solve time).
+- **`Planning::merge()` is required when testing the LP solver from JSON**.
+  `daw::json` leaves `scene_array={}` (empty) when the field is absent from
+  the input; `Simulation::scene_array` has C++ default `{Scene{}}`, but this
+  is overwritten by direct `from_json<Planning>()`. Always use the merge
+  pattern so the default scene is preserved:
+  ```cpp
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(json_str));
+  PlanningLP plp(base, ...);   // scene_array = {Scene{}} ✓
+  ```
+  Direct assignment (`Planning p = from_json<Planning>(...)`) gives an empty
+  `scene_array` and `PlanningLP::resolve()` returns 0 results without solving.
+- **Diagnostics on failure**: `gtopt_main` logs the full `SolverOptions` used
+  (algorithm, threads, tolerances) when the solver does not find an optimal
+  solution, and includes filename + position for JSON parse errors.
 
 ---
 
