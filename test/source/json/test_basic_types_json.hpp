@@ -1,3 +1,14 @@
+#pragma once
+
+#include <optional>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_field_sched.hpp>
+
 namespace
 {
 struct Foo

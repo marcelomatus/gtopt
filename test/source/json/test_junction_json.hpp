@@ -1,3 +1,13 @@
+#pragma once
+
+#include <string_view>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_junction.hpp>
+
+using namespace gtopt;
+
 TEST_CASE("Junction JSON basic parsing")
 {
   std::string_view json_data = R"({

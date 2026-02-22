@@ -1,3 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+#include <doctest/doctest.h>
+#include <gtopt/json/json_demand.hpp>
+
 TEST_CASE("Demand daw json test")
 {
   using Uid = gtopt::Uid;
