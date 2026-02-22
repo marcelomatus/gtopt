@@ -19,13 +19,17 @@ This guide provides detailed instructions for building gtopt from source, includ
 
 | Dependency | Minimum Version | Purpose | Ubuntu Package |
 |-----------|----------------|---------|----------------|
-| GCC | 14+ | C++26 compiler | `gcc-14 g++-14` |
-| CMake | 3.31+ | Build system | `cmake` (or install from [cmake.org](https://cmake.org/download/)) |
+| GCC | 14+ | C++26 compiler (CI fallback) | `gcc-14 g++-14` |
+| Clang | 21+ | C++26 compiler (CI primary) | see install script below |
+| CMake | 3.31+ | Build system | `cmake` (or [cmake.org](https://cmake.org/download/)) |
 | Boost | 1.70+ | Container library | `libboost-container-dev` |
-| Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` |
-| COIN-OR CBC | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
+| Apache Arrow | 10.0+ | Parquet I/O | `libarrow-dev libparquet-dev` or conda |
+| COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
+| spdlog | 1.12+ | Logging | `libspdlog-dev` |
 
-**Alternative Solvers**: While CBC is the default open-source solver, gtopt also supports HiGHS, Clp, CPLEX, and Gurobi. To use an alternative solver, you'll need to install it separately and configure CMake accordingly.
+**Alternative Solvers**: gtopt auto-detects COIN-OR solvers in priority order:
+CBC → CLP → HiGHS → CPLEX. Installing `coinor-libcbc-dev` is sufficient; CLP
+is included and will be used if CBC headers are not found.
 
 ## Installing Dependencies
 
@@ -33,19 +37,43 @@ This guide provides detailed instructions for building gtopt from source, includ
 
 #### GCC 14
 
-GCC 14 is required for C++26 support:
+GCC 14 is required for C++26 support and is the verified CI fallback compiler:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y gcc-14 g++-14
 ```
 
-To verify the installation:
+Verify:
 
 ```bash
-gcc-14 --version
+gcc-14 --version   # Ubuntu 14.2.0-4ubuntu2~24.04 or newer
 g++-14 --version
 ```
+
+#### Clang 21 (preferred CI compiler)
+
+Clang 21 is the primary compiler used in CI. Install via the official LLVM
+script:
+
+```bash
+wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+chmod +x /tmp/llvm.sh
+sudo /tmp/llvm.sh 21 all
+
+# Register unversioned alternatives (clang, clang++, clang-format, clang-tidy…)
+for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
+  [ -e "$versioned" ] || continue
+  base=$(basename "$versioned" "-21")
+  sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+  sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
+done
+```
+
+Verify:
+
+```bash
+clang++ --version   # clang version 21.x.x
 
 #### CMake 3.31+
 
@@ -81,15 +109,18 @@ dpkg -l | grep libboost-container
 
 #### Apache Arrow / Parquet
 
-Apache Arrow provides high-performance Parquet I/O:
+Apache Arrow provides high-performance Parquet I/O. **Two installation routes
+are available** — use whichever fits your environment.
+
+##### Route A: APT (official Apache Arrow repo — recommended when network allows)
 
 ```bash
 sudo apt-get install -y ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
+wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
   | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
+  --codename --short).deb"
+sudo apt-get install -y -V "./apache-arrow-apt-source-latest-$(lsb_release \
+  --codename --short).deb"
 sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 ```
@@ -100,6 +131,35 @@ Verify:
 pkg-config --modversion arrow
 pkg-config --modversion parquet
 ```
+
+##### Route B: Conda (verified fallback — no extra APT repo needed)
+
+If the APT route fails (e.g., network-restricted CI runners or non-Ubuntu
+distros), install via conda. This was verified on Ubuntu 24.04 with
+`conda 26.1.0` and produces Arrow 12.0.0:
+
+```bash
+# Install into the active/base conda environment
+conda install -y -c conda-forge arrow-cpp parquet-cpp
+
+# Find the conda prefix (works even outside an activated environment)
+CONDA_BASE=$(conda info --base)   # e.g. /usr/share/miniconda
+echo "Arrow cmake: $(find ${CONDA_BASE}/lib/cmake/Arrow -name ArrowConfig.cmake)"
+```
+
+When building, pass the conda prefix to CMake so it can locate
+`ArrowConfig.cmake`:
+
+```bash
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+```
+
+> **Important**: Use `conda info --base` (not `$CONDA_PREFIX`) because
+> `$CONDA_PREFIX` is only set inside an activated conda environment.
 
 #### CBC Solver
 
@@ -247,24 +307,43 @@ sudo cmake --build build --target uninstall
 
 ### Unit Tests
 
-Build and run the unit test suite:
+Build and run the unit test suite (the **primary development target** is the
+`test/` sub-project, not the root `CMakeLists.txt`):
 
 ```bash
-CC=gcc-14 CXX=g++-14 cmake -S test -B build/test
-cmake --build build/test -j$(nproc)
-ctest --test-dir build/test
+# Configure — Arrow via APT (no CMAKE_PREFIX_PATH needed):
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14
+
+# — or — Arrow via conda (pass conda base as prefix):
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+
+# Build
+cmake --build build -j$(nproc)
+
+# Run all tests
+cd build && ctest --output-on-failure
+# Expected: 100% tests passed, 0 tests failed out of 584+
 ```
 
 Run tests with verbose output:
 
 ```bash
-ctest --test-dir build/test --verbose
+cd build && ctest --output-on-failure --verbose
 ```
 
-Run a specific test:
+Run a specific test by name (doctest filter syntax):
 
 ```bash
-./build/test/gtoptTests [test name]
+./build/gtoptTests -tc="test name pattern"
+# or bracket syntax:
+./build/gtoptTests "[test name]"
 ```
 
 ### End-to-End Integration Tests
@@ -332,20 +411,32 @@ CC=gcc-14 CXX=g++-14 cmake -S standalone -B build
 
 **Error**: `Could NOT find Arrow` or `Could NOT find Parquet`
 
-**Solution**: Ensure Apache Arrow dev packages are installed:
+**Solution A** — APT packages missing:
 
 ```bash
 # Ubuntu/Debian
 sudo apt-get install -y libarrow-dev libparquet-dev
 
-# Verify installation
+# Verify
 pkg-config --modversion arrow
+pkg-config --modversion parquet
 ```
 
-If installed in a non-standard location, set `PKG_CONFIG_PATH`:
+**Solution B** — Arrow installed via conda (prefix not on default path):
 
 ```bash
-export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+# Tell CMake where to find ArrowConfig.cmake
+cmake -S test -B build \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)" \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14
+```
+
+**Solution C** — Arrow installed to a custom prefix:
+
+```bash
+export PKG_CONFIG_PATH=/path/to/arrow/lib/pkgconfig:$PKG_CONFIG_PATH
+cmake -S test -B build -DCMAKE_PREFIX_PATH=/path/to/arrow
 ```
 
 ### "Could not find CBC"

@@ -56,17 +56,39 @@ done
 
 GCC 14 is also supported as an alternative compiler (`CC=gcc-14 CXX=g++-14`).
 
-### 3. Install Arrow via Conda (alternative)
+### 3. Install Arrow via Conda (alternative / CI sandbox)
 
-When the APT route is unavailable (e.g., non-Ubuntu distros or local dev):
+When the APT route is unavailable (e.g., network-restricted CI runners,
+non-Ubuntu distros, or local dev without root), conda is the **verified**
+fallback. The following was confirmed to produce a passing build on Ubuntu 24.04
+(Noble) with GCC 14.2 and Arrow 12.0.0:
 
 ```bash
-conda install -c conda-forge arrow-cpp parquet-cpp
-# Then point CMake to the conda prefix:
+# Install Arrow + Parquet into the active conda environment
+conda install -y -c conda-forge arrow-cpp parquet-cpp
+
+# Find the conda base/prefix
+CONDA_BASE=$(conda info --base)   # e.g. /usr/share/miniconda
+
+# Configure – pass the conda prefix so CMake can find ArrowConfig.cmake
 cmake -S test -B build \
-  -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
-  -DCMAKE_BUILD_TYPE=Debug
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="${CONDA_BASE}"
+
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
 ```
+
+> **Note**: `$CONDA_PREFIX` is only set inside an activated environment.
+> `conda info --base` works even outside an activated environment and returns
+> the base prefix (e.g. `/usr/share/miniconda`).
+
+> **Solver auto-detection**: When only `coinor-libcbc-dev` (which ships CLP
+> headers too) is installed, CMake will auto-detect CLP instead of CBC — this
+> is expected and sufficient for running all unit tests. The solver in use is
+> printed as `-- COIN solver: CLP` (or CBC/HiGHS if those are available).
 
 ---
 
@@ -121,6 +143,41 @@ lcov --capture --directory . --output-file coverage.info \
   --gcov-tool /tmp/llvm-gcov.sh \
   --ignore-errors mismatch,mismatch
 ```
+
+---
+
+## Verified Build Environment
+
+The following combination was used to produce a **100% passing** build
+(584/584 tests) on Ubuntu 24.04 (Noble):
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| OS | Ubuntu 24.04 (Noble) | GitHub Actions runner |
+| Compiler | GCC 14.2.0 | `gcc-14 g++-14` from Ubuntu repos |
+| CMake | 3.31.6 | Pre-installed on runner |
+| Arrow / Parquet | 12.0.0 | Installed via `conda install -c conda-forge arrow-cpp parquet-cpp` |
+| Boost.Container | 1.83.0 | `libboost-container-dev` from Ubuntu repos |
+| COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake auto-selects CLP; CBC works too |
+| spdlog | 1.12.0 | `libspdlog-dev` from Ubuntu repos |
+| conda | 26.1.0 | `/usr/share/miniconda` (base prefix) |
+
+**Verified configure command** (conda Arrow path):
+
+```bash
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
+# Expected: 100% tests passed, 0 tests failed out of 584
+```
+
+> The APT-based Arrow install (from `packages.apache.org/artifactory`) is the
+> cleanest route when network access is available. The conda route is the
+> verified fallback when that domain is blocked.
 
 ---
 

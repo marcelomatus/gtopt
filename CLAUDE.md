@@ -32,11 +32,20 @@ sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 ```
 
-### Install Arrow via Conda (alternative)
+### Install Arrow via Conda (verified alternative)
+
+When the APT repo is unavailable (network-restricted environments, non-Ubuntu
+distros), use conda. Verified on Ubuntu 24.04 with conda 26.1.0 → Arrow 12.0.0:
 
 ```bash
-conda install -c conda-forge arrow-cpp parquet-cpp
-cmake -S test -B build -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DCMAKE_BUILD_TYPE=Debug
+conda install -y -c conda-forge arrow-cpp parquet-cpp
+
+# Use conda info --base, NOT $CONDA_PREFIX (only set inside activated env)
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
 ```
 
 ### Install Clang 21 (preferred compiler, same as CI)
