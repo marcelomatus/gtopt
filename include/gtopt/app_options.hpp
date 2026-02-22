@@ -93,7 +93,10 @@ template<typename T>
        "just create the problem, then exit")  //
       ("fast-parsing,p",
        po::value<bool>().implicit_value(/*v=*/true),
-       "use fast (non strict) json parsing");
+       "use fast (non strict) json parsing")  //
+      ("stats,S",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "print system statistics before and after solving");
   return desc;
 }
 

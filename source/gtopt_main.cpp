@@ -9,6 +9,7 @@
  * parsing, option application, LP construction, solving, and output writing.
  */
 
+#include <chrono>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/solver_options.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -41,7 +43,8 @@ namespace gtopt
     const std::optional<double>& matrix_eps,
     const std::optional<std::string>& json_file,
     const std::optional<bool>& just_create,
-    const std::optional<bool>& fast_parsing)
+    const std::optional<bool>& fast_parsing,
+    const std::optional<bool>& print_stats)
 {
   try {
     //
@@ -195,6 +198,60 @@ namespace gtopt
     try {
       const auto flat_opts = make_flat_options(use_lp_names, matrix_eps);
 
+      // --- pre-solve stats ---
+      const bool do_stats = print_stats.value_or(false);
+      if (do_stats) {
+        const auto& sys = my_planning.system;
+        const auto& sim = my_planning.simulation;
+        const auto& opts = my_planning.options;
+        spdlog::info("=== System statistics ===");
+        spdlog::info(std::format("  System name     : {}", sys.name));
+        spdlog::info(
+            std::format("  Buses           : {}", sys.bus_array.size()));
+        spdlog::info(
+            std::format("  Generators      : {}", sys.generator_array.size()));
+        spdlog::info(
+            std::format("  Demands         : {}", sys.demand_array.size()));
+        spdlog::info(
+            std::format("  Lines           : {}", sys.line_array.size()));
+        spdlog::info(
+            std::format("  Batteries       : {}", sys.battery_array.size()));
+        spdlog::info(
+            std::format("  Converters      : {}", sys.converter_array.size()));
+        spdlog::info(std::format("  Reserve zones   : {}",
+                                 sys.reserve_zone_array.size()));
+        spdlog::info(
+            std::format("  Junctions       : {}", sys.junction_array.size()));
+        spdlog::info(
+            std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
+        spdlog::info(
+            std::format("  Turbines        : {}", sys.turbine_array.size()));
+        spdlog::info("=== Simulation statistics ===");
+        spdlog::info(
+            std::format("  Blocks          : {}", sim.block_array.size()));
+        spdlog::info(
+            std::format("  Stages          : {}", sim.stage_array.size()));
+        spdlog::info(
+            std::format("  Scenarios       : {}", sim.scenario_array.size()));
+        spdlog::info("=== Key options ===");
+        spdlog::info(
+            std::format("  use_kirchhoff   : {}",
+                        opts.use_kirchhoff.value_or(false) ? "true" : "false"));
+        spdlog::info(std::format(
+            "  use_single_bus  : {}",
+            opts.use_single_bus.value_or(false) ? "true" : "false"));
+        spdlog::info(std::format("  scale_objective : {}",
+                                 opts.scale_objective.value_or(1'000.0)));
+        spdlog::info(std::format("  demand_fail_cost: {}",
+                                 opts.demand_fail_cost.value_or(0.0)));
+        spdlog::info(std::format("  input_directory : {}",
+                                 opts.input_directory.value_or("(default)")));
+        spdlog::info(std::format("  output_directory: {}",
+                                 opts.output_directory.value_or("(default)")));
+        spdlog::info(std::format("  output_format   : {}",
+                                 opts.output_format.value_or("csv")));
+      }
+
       spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
@@ -214,22 +271,68 @@ namespace gtopt
       }
 
       bool optimal = false;
+      double solve_elapsed = 0.0;
       {
-        spdlog::stopwatch sw;
+        spdlog::stopwatch solve_sw;
 
-        auto result = planning_lp.resolve();
-        spdlog::info(std::format("planning  {}s", sw));
+        const SolverOptions lp_opts {};
+        auto result = planning_lp.resolve(lp_opts);
+        solve_elapsed =
+            std::chrono::duration<double>(solve_sw.elapsed()).count();
+        spdlog::info(std::format("planning  {:.3f}s", solve_elapsed));
 
         optimal = result.has_value();
 
-        if (!optimal && result.error().is_error()) {
-          spdlog::warn(std::format("Solver returned non-optimal solution: {}",
-                                   result.error().message));
+        if (!optimal) {
+          const auto& err = result.error();
+          spdlog::error(std::format("Solver failed: {} (code={})",
+                                    err.message,
+                                    static_cast<int>(err.code)));
+          spdlog::error(
+              std::format("  Solver options used:"
+                          " algorithm={}, threads={}, presolve={},"
+                          " optimal_eps={}, feasible_eps={}, barrier_eps={},"
+                          " log_level={}",
+                          lp_opts.algorithm,
+                          lp_opts.threads,
+                          lp_opts.presolve,
+                          lp_opts.optimal_eps,
+                          lp_opts.feasible_eps,
+                          lp_opts.barrier_eps,
+                          lp_opts.log_level));
+        }
+      }
+
+      // --- post-solve stats ---
+      if (do_stats) {
+        spdlog::info("=== Solution statistics ===");
+        spdlog::info(std::format("  Status          : {}",
+                                 optimal ? "optimal" : "non-optimal"));
+        spdlog::info(std::format("  Solve time      : {:.3f}s", solve_elapsed));
+
+        if (optimal && !planning_lp.systems().empty()
+            && !planning_lp.systems().front().empty())
+        {
+          const auto& lp_if =
+              planning_lp.systems().front().front().linear_interface();
+          const auto& plp_opts = planning_lp.options();
+          const double scale = plp_opts.scale_objective();
+          const double obj_scaled = lp_if.get_obj_value();
+          const double obj_unscaled = obj_scaled * scale;
+          spdlog::info(
+              std::format("  LP variables    : {}", lp_if.get_numcols()));
+          spdlog::info(
+              std::format("  LP constraints  : {}", lp_if.get_numrows()));
+          spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
+          spdlog::info(std::format("  Obj (unscaled)  : {:.6g}", obj_unscaled));
+          spdlog::info(std::format("  scale_objective : {:.6g}", scale));
+          spdlog::info(
+              std::format("  Solver kappa    : {:.6g}", lp_if.get_kappa()));
         }
       }
 
       if (optimal) {
-        spdlog::stopwatch sw;
+        spdlog::stopwatch out_sw;
 
         try {
           planning_lp.write_out();
@@ -238,7 +341,7 @@ namespace gtopt
               std::format("Error writing output: {}", ex.what()));
         }
 
-        spdlog::info(std::format("writing output  {}s", sw));
+        spdlog::info(std::format("writing output  {}s", out_sw));
       }
 
       return optimal ? 0 : 1;
