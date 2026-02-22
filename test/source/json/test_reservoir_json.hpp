@@ -6,8 +6,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reservoir.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Reservoir basic fields deserialization")
 {
   std::string_view json_data = R"({

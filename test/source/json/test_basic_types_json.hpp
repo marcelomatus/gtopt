@@ -9,7 +9,7 @@
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 
-namespace
+namespace test_basic_types_json
 {
 struct Foo
 {
@@ -26,7 +26,11 @@ struct MyClass
   std::optional<variant_t> f5;
 };
 
-}  // namespace
+}  // namespace test_basic_types_json
+
+using test_basic_types_json::Foo;
+using test_basic_types_json::MyClass;
+using test_basic_types_json::variant_t;
 
 namespace daw::json
 {
