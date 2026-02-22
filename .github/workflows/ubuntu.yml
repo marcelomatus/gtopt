@@ -10,6 +10,11 @@ on:
       - master
       - main
   workflow_dispatch:
+    inputs:
+      run_clang_tidy:
+        description: 'Run clang-tidy static analysis'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -255,6 +260,63 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # clang-tidy static analysis job
+  # Runs only when triggered manually via workflow_dispatch with
+  # run_clang_tidy: true.  Uses ccache + clang-tidy-cache for fast reruns.
+  # ---------------------------------------------------------------------------
+  clang-tidy:
+    runs-on: ubuntu-latest
+    name: clang-tidy
+    if: inputs.run_clang_tidy == true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.workflow }}-clang-tidy
+          restore-keys: |
+            ${{ github.workflow }}-clang-tidy-
+          max-size: 2G
+
+      - uses: actions/cache@v4
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      - name: install clang (full — clang-tidy required)
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+
+      - name: install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
+          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+
+      - name: set up clang-tidy-cache
+        uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
+
+      - name: configure (clang-tidy mode)
+        run: |
+          cmake -Stest -Bbuild \
+            -DENABLE_INTEGRATION_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
+
+      - name: build with clang-tidy
+        run: cmake --build build -j$(nproc)
 
   webservice:
     runs-on: ubuntu-latest
