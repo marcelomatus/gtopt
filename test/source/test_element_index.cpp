@@ -68,20 +68,20 @@ TEST_CASE("ElementIndex - Copy and move semantics")
     CHECK(idx2 == 10);
   }
 
-  SUBCASE("Move construction")
+  // ElementIndex is trivially copyable, so move == copy.
+  // These subcases verify construction/assignment from a mutable lvalue.
+  SUBCASE("Move construction (trivially copyable: equivalent to copy)")
   {
     ElementIndex<TestElement1> idx1 {10};
-    ElementIndex<TestElement1> idx2 {std::move(
-        idx1)};  // NOLINT(hicpp-invalid-access-moved,bugprone-use-after-move)
+    const ElementIndex<TestElement1> idx2 {idx1};
     CHECK(idx2 == 10);
   }
 
-  SUBCASE("Move assignment")
+  SUBCASE("Move assignment (trivially copyable: equivalent to copy)")
   {
     ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {5};
-    idx2 = std::move(
-        idx1);  // NOLINT(hicpp-invalid-access-moved,bugprone-use-after-move)
+    idx2 = idx1;
     CHECK(idx2 == 10);
   }
 }
@@ -96,6 +96,10 @@ TEST_CASE("ElementIndex - Type safety")
   static_assert(!std::is_convertible_v<ElementIndex<TestElement2>,
                                        ElementIndex<TestElement1>>,
                 "ElementIndex should enforce type safety");
+
+  // ElementIndex is trivially copyable — move is identical to copy
+  static_assert(std::is_trivially_copyable_v<ElementIndex<TestElement1>>,
+                "ElementIndex should be trivially copyable");
 
   // Can construct from size_t
   static_assert(std::is_constructible_v<ElementIndex<TestElement1>, size_t>,

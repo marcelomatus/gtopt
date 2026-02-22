@@ -99,7 +99,7 @@ bool AdaptiveWorkPool::should_schedule_new_task() const
     return false;
   }
 
-  const auto& next_task = task_queue_.top();
+  const auto& next_task = task_queue_.front();
   const auto cpu_load = cpu_monitor_.get_load();
   const auto threads_needed = next_task.requirements().estimated_threads;
   const auto current_threads = active_threads_.load();
@@ -131,10 +131,11 @@ void AdaptiveWorkPool::schedule_next_task()
     return;
   }
 
-  Task<void> task = std::move(const_cast<Task<void>&>(
-      task_queue_.top()));  // NOLINT(cppcoreguidelines-pro-type-const-cast)
-
-  task_queue_.pop();
+  // Standard heap-pop pattern: move max to back, restore heap on the rest,
+  // then move-construct the task and pop_back to remove it.
+  std::pop_heap(task_queue_.begin(), task_queue_.end());
+  Task<void> task = std::move(task_queue_.back());
+  task_queue_.pop_back();
 
   tasks_pending_.fetch_sub(1, std::memory_order_relaxed);
 

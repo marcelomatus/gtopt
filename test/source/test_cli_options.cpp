@@ -10,6 +10,7 @@
  * command_line_parser, typed values, error handling, and edge cases.
  */
 
+#include <array>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -492,18 +493,13 @@ TEST_CASE("cli parser - argc/argv constructor")
   options_description desc;
   desc.add_options()("verbose,v", "verbose");
 
-  // Simulate argc/argv (argv[0] is program name, should be skipped)
-  const char* argv[] = {
-      "program",
-      "--verbose"};  // NOLINT(hicpp-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays)
+  // Simulate argc/argv using mutable strings so no const_cast is needed
+  std::array<std::string, 2> arg_strings = {"program", "--verbose"};
+  std::array<char*, 2> argv = {arg_strings[0].data(), arg_strings[1].data()};
   const int argc = 2;
 
   variables_map vm;
-  auto parser = command_line_parser(
-                    argc,
-                    const_cast<char**>(
-                        argv))  // NOLINT(cppcoreguidelines-pro-type-const-cast)
-                    .options(desc);
+  auto parser = command_line_parser(argc, argv.data()).options(desc);
   store(parser, vm);
 
   CHECK(vm.contains("verbose"));
