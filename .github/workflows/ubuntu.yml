@@ -10,6 +10,11 @@ on:
       - master
       - main
   workflow_dispatch:
+    inputs:
+      run_clang_tidy:
+        description: 'Run clang-tidy static analysis'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -258,13 +263,13 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # clang-tidy static analysis job
-  # Uses clang-tidy-cache (https://github.com/matus-chochlik/ctcache) to avoid
-  # re-analyzing translation units that have not changed between runs.
+  # Runs only when triggered manually via workflow_dispatch with
+  # run_clang_tidy: true.  Uses ccache + clang-tidy-cache for fast reruns.
   # ---------------------------------------------------------------------------
   clang-tidy:
     runs-on: ubuntu-latest
     name: clang-tidy
-    if: false  # set to: github.event_name == 'workflow_dispatch' to enable clang-tidy
+    if: inputs.run_clang_tidy == true
 
     steps:
       - uses: actions/checkout@v4
@@ -309,9 +314,6 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*"
-        env:
-          CC: clang
-          CXX: clang++
 
       - name: build with clang-tidy
         run: cmake --build build -j$(nproc)

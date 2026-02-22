@@ -74,8 +74,8 @@ TEST_CASE("Junction JSON with active schedule")
   Junction junction = daw::json::from_json<Junction>(json_data);
 
   REQUIRE(junction.active.has_value());
-  const auto& active =
-      std::get<std::vector<IntBool>>(junction.active.value());  // NOLINT
+  const auto& active = std::get<std::vector<IntBool>>(
+      junction.active.value());  // NOLINT(bugprone-unchecked-optional-access)
   CHECK(active.size() == 4);
   CHECK(active[0] == True);
   CHECK(active[1] == False);
@@ -91,11 +91,10 @@ TEST_CASE("Junction JSON roundtrip serialization")
   original.drain = true;
 
   auto json = daw::json::to_json(original);
-  gtopt::Junction roundtrip =
-      daw::json::from_json<gtopt::Junction>(json);  // NOLINT
+  const gtopt::Junction roundtrip = daw::json::from_json<gtopt::Junction>(json);
 
   REQUIRE(roundtrip.uid == 7);
   REQUIRE(roundtrip.name == "ROUNDTRIP");
   REQUIRE(roundtrip.drain.has_value());
-  REQUIRE(roundtrip.drain.value() == true);  // NOLINT
+  REQUIRE(roundtrip.drain == true);
 }

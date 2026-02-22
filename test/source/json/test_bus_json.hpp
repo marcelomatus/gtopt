@@ -92,7 +92,8 @@ TEST_CASE("Bus with active property serialization")
     Bus roundtrip = daw::json::from_json<Bus>(json);
 
     REQUIRE(roundtrip.active.has_value());
-    CHECK(std::get<IntBool>(roundtrip.active.value()) == True);  // NOLINT
+    CHECK(std::get<IntBool>(roundtrip.active.value())
+          == True);  // NOLINT(bugprone-unchecked-optional-access)
   }
 
   SUBCASE("With schedule active")
@@ -104,8 +105,9 @@ TEST_CASE("Bus with active property serialization")
     Bus roundtrip = daw::json::from_json<Bus>(json);
 
     REQUIRE(roundtrip.active.has_value());
-    const auto& active =
-        std::get<std::vector<IntBool>>(roundtrip.active.value());  // NOLINT
+    const auto& active = std::get<std::vector<IntBool>>(
+        roundtrip.active
+            .value());  // NOLINT(bugprone-unchecked-optional-access)
     REQUIRE(active.size() == 4);
     CHECK(active[0] == True);
     CHECK(active[1] == False);

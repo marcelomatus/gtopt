@@ -28,12 +28,11 @@ struct MyClass
 
 }  // namespace test_basic_types_json
 
+namespace daw::json
+{
 using test_basic_types_json::Foo;
 using test_basic_types_json::MyClass;
 using test_basic_types_json::variant_t;
-
-namespace daw::json
-{
 
 template<>
 struct json_data_contract<Foo>
@@ -66,13 +65,15 @@ struct json_data_contract<MyClass>
 
 TEST_CASE("daw json gtopt basic types 1")
 {
+  using test_basic_types_json::MyClass;
+  using test_basic_types_json::variant_t;
   const double f1 = 3.5;
   const std::vector<double> f2 = {1, 2, 3, 4};
   const gtopt::FileSched f3 = "f1";
   const variant_t f4 = f1;
   const std::optional<variant_t> f5;
 
-  const MyClass mc0 = {f1, f2, f3, f4, f5};  // NOLINT
+  const MyClass mc0 {.f1 = f1, .f2 = f2, .f3 = f3, .f4 = f4, .f5 = f5};
 
   const auto json_data_4 = daw::json::to_json(mc0);
 
@@ -105,13 +106,15 @@ TEST_CASE("daw json gtopt basic types 1")
 
 TEST_CASE("daw json gtopt basic types 2")
 {
+  using test_basic_types_json::MyClass;
+  using test_basic_types_json::variant_t;
   const double f1 = 3.5;
   const std::vector<double> f2 = {1, 2, 3, 4};
   const gtopt::FileSched f3 = "f1";
   const variant_t f4 = f1;
   const std::optional<variant_t> f5 = f3;
 
-  const MyClass mc0 = {f1, f2, f3, f4, f5};  // NOLINT
+  const MyClass mc0 {.f1 = f1, .f2 = f2, .f3 = f3, .f4 = f4, .f5 = f5};
 
   const auto json_data_4 = daw::json::to_json(mc0);
 
@@ -141,4 +144,16 @@ TEST_CASE("daw json gtopt basic types 2")
     REQUIRE(mc.f4 == f4);
     REQUIRE(mc.f5 == f5);
   }
+}
+
+TEST_CASE("daw json gtopt basic types - Foo roundtrip")
+{
+  using test_basic_types_json::Foo;
+
+  const Foo foo {.f1 = 2.5};
+
+  const auto json_str = daw::json::to_json(foo);
+  const Foo roundtrip = daw::json::from_json<Foo>(json_str);
+
+  REQUIRE(roundtrip.f1 == doctest::Approx(foo.f1));
 }
