@@ -109,9 +109,8 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optiter(test_map, 2);
     REQUIRE(opt);
-    CHECK((*opt)->first == 2);  // NOLINT(bugprone-unchecked-optional-access)
-    CHECK((*opt)->second  // NOLINT(bugprone-unchecked-optional-access)
-          == "two");
+    CHECK((opt && (*opt)->first == 2));
+    CHECK((opt && (*opt)->second == "two"));
 
     auto opt2 = get_optiter(test_map, 42);
     CHECK_FALSE(opt2);
@@ -121,7 +120,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue(test_map, 3);
     REQUIRE(opt);
-    CHECK(*opt == "three");  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK(opt.value_or("") == "three");
 
     auto opt2 = get_optvalue(test_map, 42);
     CHECK_FALSE(opt2);
@@ -131,7 +130,7 @@ TEST_CASE("map utilities")
   {
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK(opt.value_or("") == "two");
 
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});
     CHECK_FALSE(opt2);
@@ -192,7 +191,7 @@ TEST_CASE("C++23 optional monadic operations")
     // and_then chains optional-returning functions
     auto opt = get_optvalue_optkey(test_map, std::optional<int> {2});
     REQUIRE(opt);
-    CHECK(*opt == "two");  // NOLINT(bugprone-unchecked-optional-access)
+    CHECK(opt.value_or("") == "two");
 
     // with nullopt key
     auto opt2 = get_optvalue_optkey(test_map, std::optional<int> {});

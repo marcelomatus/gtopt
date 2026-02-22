@@ -64,28 +64,13 @@ int main(int argc, char** argv)
       return 0;
     }
 
-    const auto lp_file = get_opt<std::string>(vm, "lp-file");
-    const auto json_file = get_opt<std::string>(vm, "json-file");
-    const auto quiet = get_opt<bool>(vm, "quiet");
-    const auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
-    const auto use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff");
-    const auto use_lp_names = get_opt<int>(vm, "use-lp-names");
-    const auto matrix_eps = get_opt<double>(vm, "matrix-eps");
-    const auto just_create = get_opt<bool>(vm, "just-create");
-    const auto fast_parsing = get_opt<bool>(vm, "fast-parsing");
-    const auto input_directory = get_opt<std::string>(vm, "input-directory");
-    const auto output_directory = get_opt<std::string>(vm, "output-directory");
-    const auto output_format = get_opt<std::string>(vm, "output-format");
-    const auto compression_format =
-        get_opt<std::string>(vm, "compression-format");
-    const auto input_format = get_opt<std::string>(vm, "input-format");
-
     //
     // LOG system configuration
     //
     {
       spdlog::cfg::load_env_levels();
 
+      const auto quiet = get_opt<bool>(vm, "quiet");
       spdlog::set_level(spdlog::level::info);
       if (quiet.value_or(false)) {
         spdlog::set_level(spdlog::level::off);
@@ -102,20 +87,8 @@ int main(int argc, char** argv)
     // dispatch the real main function
     //
     int result_value = 0;
-    if (auto result = gtopt::gtopt_main(std::span {system_files},
-                                        input_directory,
-                                        input_format,
-                                        output_directory,
-                                        output_format,
-                                        compression_format,
-                                        use_single_bus,
-                                        use_kirchhoff,
-                                        lp_file,
-                                        use_lp_names,
-                                        matrix_eps,
-                                        json_file,
-                                        just_create,
-                                        fast_parsing))
+    if (auto result =
+            gtopt::gtopt_main(parse_main_options(vm, std::move(system_files))))
     {
       result_value = 0;
     } else {

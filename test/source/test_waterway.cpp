@@ -18,19 +18,15 @@ TEST_CASE("Waterway construction and default values")
 
   // lossfactor has a default of 0.0
   REQUIRE(waterway.lossfactor.has_value());
-  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-  CHECK(*std::get_if<Real>(&waterway.lossfactor.value()) == 0.0);
+  CHECK(std::get<Real>(waterway.lossfactor.value_or(Real {-1.0})) == 0.0);
 
   // fmin has a default of 0.0
   REQUIRE(waterway.fmin.has_value());
-  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-  CHECK(*std::get_if<Real>(&waterway.fmin.value()) == 0.0);
+  CHECK(std::get<Real>(waterway.fmin.value_or(Real {-1.0})) == 0.0);
 
   // fmax has a default of 300000.0
   REQUIRE(waterway.fmax.has_value());
-
-  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-  CHECK(*std::get_if<Real>(&waterway.fmax.value()) == 300'000.0);
+  CHECK(std::get<Real>(waterway.fmax.value_or(Real {0.0})) == 300'000.0);
 }
 
 TEST_CASE("Waterway attribute assignment")

@@ -212,10 +212,12 @@ TEST_CASE("IEEE 14-bus - JSON parse and structure check")
 
 TEST_CASE("IEEE 14-bus - LP solve")
 {
-  auto planning = daw::json::from_json<Planning>(ieee14_json);
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(ieee14_json));
 
-  PlanningLP planning_lp(planning);
+  PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
   REQUIRE(result.has_value());
+  CHECK(result.value() == 1);  // 1 scene successfully processed
 }
