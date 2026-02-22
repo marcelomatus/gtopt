@@ -91,8 +91,6 @@ TEST_CASE("GeneratorProfile round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.generator) == 99);
   CHECK(std::get<double>(roundtrip.profile) == doctest::Approx(0.80));
   REQUIRE(roundtrip.scost.has_value());
-  CHECK(std::get<double>(
-            roundtrip.scost
-                .value())  // NOLINT(bugprone-unchecked-optional-access)
-        == doctest::Approx(300.0));
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+  CHECK(std::get<double>(roundtrip.scost.value()) == doctest::Approx(300.0));
 }

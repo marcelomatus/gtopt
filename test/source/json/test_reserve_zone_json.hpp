@@ -5,9 +5,12 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reserve_zone.hpp>
+#include <gtopt/reserve_zone.hpp>
 
 TEST_CASE("ReserveZone daw json test - basic fields")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":1,
     "name":"ZONE_A",
@@ -34,6 +37,8 @@ TEST_CASE("ReserveZone daw json test - basic fields")
 
 TEST_CASE("ReserveZone daw json test - with costs")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":2,
     "name":"ZONE_B",
@@ -66,6 +71,8 @@ TEST_CASE("ReserveZone daw json test - with costs")
 
 TEST_CASE("ReserveZone daw json test - minimal fields")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":3,
     "name":"ZONE_MINIMAL"
@@ -84,6 +91,8 @@ TEST_CASE("ReserveZone daw json test - minimal fields")
 
 TEST_CASE("ReserveZone array json test")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"([{
     "uid":1,
     "name":"ZONE_A",
@@ -106,6 +115,8 @@ TEST_CASE("ReserveZone array json test")
 
 TEST_CASE("ReserveZone round-trip serialization")
 {
+  using namespace gtopt;
+
   ReserveZone rz;
   rz.uid = 10;
   rz.name = "RT_ZONE";
@@ -116,20 +127,15 @@ TEST_CASE("ReserveZone round-trip serialization")
   rz.drcost = 2000.0;
 
   auto json = daw::json::to_json(rz);
-  ReserveZone roundtrip = daw::json::from_json<ReserveZone>(json);
+  // NOLINTNEXTLINE
+  const ReserveZone roundtrip = daw::json::from_json<ReserveZone>(json);
 
   CHECK(roundtrip.uid == rz.uid);
   CHECK(roundtrip.name == rz.name);
   REQUIRE(roundtrip.urreq.has_value());
-  CHECK(
-      std::get<double>(roundtrip
-                           .urreq  // NOLINT(bugprone-unchecked-optional-access)
-                           .value())
-      == doctest::Approx(150.0));
+  CHECK(std::get<double>(roundtrip.urreq.value_or(0.0))
+        == doctest::Approx(150.0));
   REQUIRE(roundtrip.drreq.has_value());
-  CHECK(
-      std::get<double>(roundtrip
-                           .drreq  // NOLINT(bugprone-unchecked-optional-access)
-                           .value())
-      == doctest::Approx(75.0));
+  CHECK(std::get<double>(roundtrip.drreq.value_or(0.0))
+        == doctest::Approx(75.0));
 }

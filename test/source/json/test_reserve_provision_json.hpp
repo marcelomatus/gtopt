@@ -167,11 +167,9 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(std::get<Uid>(roundtrip.generator) == 42);
   CHECK(roundtrip.reserve_zones == "ZONE_X,ZONE_Y");
   REQUIRE(roundtrip.urmax.has_value());
-  CHECK(
-      std::get<double>(roundtrip
-                           .urmax  // NOLINT(bugprone-unchecked-optional-access)
-                           .value())
-      == doctest::Approx(200.0));
+  CHECK(std::get<double>(roundtrip.urmax.value_or(0.0))
+        == doctest::Approx(200.0));
+
   REQUIRE(roundtrip.drmax.has_value());
   CHECK(std::get<double>(roundtrip.drmax.value_or(0.0))
         == doctest::Approx(150.0));

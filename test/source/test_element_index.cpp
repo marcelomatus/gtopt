@@ -72,14 +72,14 @@ TEST_CASE("ElementIndex - Copy and move semantics")
   // These subcases verify construction/assignment from a mutable lvalue.
   SUBCASE("Move construction (trivially copyable: equivalent to copy)")
   {
-    ElementIndex<TestElement1> idx1 {10};
+    const ElementIndex<TestElement1> idx1 {10};
     const ElementIndex<TestElement1> idx2 {idx1};
     CHECK(idx2 == 10);
   }
 
   SUBCASE("Move assignment (trivially copyable: equivalent to copy)")
   {
-    ElementIndex<TestElement1> idx1 {10};
+    const ElementIndex<TestElement1> idx1 {10};
     ElementIndex<TestElement1> idx2 {5};
     idx2 = idx1;
     CHECK(idx2 == 10);

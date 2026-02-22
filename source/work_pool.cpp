@@ -133,7 +133,7 @@ void AdaptiveWorkPool::schedule_next_task()
 
   // Standard heap-pop pattern: move max to back, restore heap on the rest,
   // then move-construct the task and pop_back to remove it.
-  std::pop_heap(task_queue_.begin(), task_queue_.end());
+  std::ranges::pop_heap(task_queue_, std::less<> {});
   Task<void> task = std::move(task_queue_.back());
   task_queue_.pop_back();
 
