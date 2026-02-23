@@ -1,6 +1,5 @@
 """Unit tests for BessWriter class."""
 
-from pathlib import Path
 import pytest
 import pandas as pd
 
@@ -189,8 +188,8 @@ def test_process_no_bess(tmp_path):
     existing_gen = [{"uid": 1, "name": "Gen1"}]
     existing_dem = [{"uid": 1, "name": "Dem1"}]
     result = writer.process(existing_gen, existing_dem, tmp_path)
-    assert result["battery_array"] == []
-    assert result["converter_array"] == []
+    assert not result["battery_array"]
+    assert not result["converter_array"]
     assert result["generator_array"] == existing_gen
     assert result["demand_array"] == existing_dem
 
@@ -215,7 +214,7 @@ def test_process_with_bess(tmp_path):
 
 
 def test_process_bess_and_ess(tmp_path):
-    """process() combines BESS and ESS entries."""
+    """When both BESS and ESS parsers are provided, only BESS is used (mutually exclusive)."""
     bp = _make_bess_parser(
         tmp_path,
         " 1\n    1  'BESS1'     1   50.0   50.0  0.95  0.95  4.0    1    1    0.50    1.0\n",
@@ -224,12 +223,11 @@ def test_process_bess_and_ess(tmp_path):
         tmp_path,
         " 1\n    2  'ESS2'      1   30.0   30.0  0.90  0.90  2.0   0.60\n",
     )
-    writer = BessWriter(
-        bess_parser=bp, ess_parser=ep, options={"output_dir": tmp_path}
-    )
+    writer = BessWriter(bess_parser=bp, ess_parser=ep, options={"output_dir": tmp_path})
     result = writer.process([], [], tmp_path)
 
-    assert len(result["battery_array"]) == 2
-    assert len(result["converter_array"]) == 2
-    assert len(result["generator_array"]) == 2
-    assert len(result["demand_array"]) == 2
+    # Only BESS1 – ESS is silently ignored when BESS parser has entries
+    assert len(result["battery_array"]) == 1
+    assert len(result["converter_array"]) == 1
+    assert len(result["generator_array"]) == 1
+    assert len(result["demand_array"]) == 1

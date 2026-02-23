@@ -22,7 +22,7 @@ def test_parse_zero_manbesses(tmp_path):
     parser = ManbessParser(f)
     parser.parse()
     assert parser.num_manbesses == 0
-    assert parser.manbesses == []
+    assert not parser.manbesses
 
 
 def test_parse_single_manbess(tmp_path):
@@ -104,16 +104,12 @@ def test_parse_with_comments(tmp_path):
 def test_get_manbess_by_name(tmp_path):
     """Test lookup by BESS name."""
     f = tmp_path / "plpmanbess.dat"
-    f.write_text(
-        " 1\n"
-        "'Alpha'\n"
-        "  1\n"
-        "   01    001   25.0   25.0\n"
-    )
+    f.write_text(" 1\n" "'Alpha'\n" "  1\n" "   01    001   25.0   25.0\n")
     parser = ManbessParser(f)
     parser.parse()
-    assert parser.get_manbess_by_name("Alpha") is not None
-    assert parser.get_manbess_by_name("Alpha")["name"] == "Alpha"
+    manbess_alpha = parser.get_manbess_by_name("Alpha")
+    assert manbess_alpha is not None
+    assert manbess_alpha["name"] == "Alpha"
     assert parser.get_manbess_by_name("NoSuch") is None
 
 
@@ -130,12 +126,7 @@ def test_parse_malformed_entry_raises(tmp_path):
     """Test that a malformed maintenance entry raises ValueError."""
     f = tmp_path / "plpmanbess.dat"
     # Only 3 fields (need 4: Mes Etapa PMaxC PMaxD)
-    f.write_text(
-        " 1\n"
-        "'BESS1'\n"
-        "  1\n"
-        "   01    001    0.0\n"
-    )
+    f.write_text(" 1\n" "'BESS1'\n" "  1\n" "   01    001    0.0\n")
     parser = ManbessParser(f)
     with pytest.raises(ValueError):
         parser.parse()

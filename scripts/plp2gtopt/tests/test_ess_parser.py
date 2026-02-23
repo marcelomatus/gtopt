@@ -21,7 +21,7 @@ def test_parse_zero_esses(tmp_path):
     parser = EssParser(f)
     parser.parse()
     assert parser.num_esses == 0
-    assert parser.esses == []
+    assert not parser.esses
 
 
 def test_parse_single_ess(tmp_path):
@@ -89,10 +89,7 @@ def test_parse_with_comments(tmp_path):
 def test_get_ess_by_name(tmp_path):
     """Test lookup by name."""
     f = tmp_path / "plpess.dat"
-    f.write_text(
-        " 1\n"
-        "    1  'Alpha'     1   50.0   50.0  0.95  0.95   4.0   0.50\n"
-    )
+    f.write_text(" 1\n" "    1  'Alpha'     1   50.0   50.0  0.95  0.95   4.0   0.50\n")
     parser = EssParser(f)
     parser.parse()
     assert parser.get_ess_by_name("Alpha") is not None
@@ -102,14 +99,12 @@ def test_get_ess_by_name(tmp_path):
 def test_get_ess_by_number(tmp_path):
     """Test lookup by number."""
     f = tmp_path / "plpess.dat"
-    f.write_text(
-        " 1\n"
-        "    5  'E5'        2   30.0   30.0  0.92  0.92   3.0   0.60\n"
-    )
+    f.write_text(" 1\n" "    5  'E5'        2   30.0   30.0  0.92  0.92   3.0   0.60\n")
     parser = EssParser(f)
     parser.parse()
-    assert parser.get_ess_by_number(5) is not None
-    assert parser.get_ess_by_number(5)["name"] == "E5"
+    ess_e5 = parser.get_ess_by_number(5)
+    assert ess_e5 is not None
+    assert ess_e5["name"] == "E5"
     assert parser.get_ess_by_number(99) is None
 
 

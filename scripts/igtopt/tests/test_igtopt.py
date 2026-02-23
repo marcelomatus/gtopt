@@ -1,9 +1,12 @@
 """Tests for igtopt.py – Excel → gtopt JSON conversion."""
 
+import argparse
 import json
 import pathlib
 
 import pytest
+
+from igtopt.igtopt import _run as _igtopt_run
 
 # The igtopt_c0 case (xlsx) and the reference JSON live in scripts/cases/
 _SCRIPTS_DIR = pathlib.Path(__file__).parent.parent.parent
@@ -18,9 +21,6 @@ _C0_REF_JSON = _SCRIPTS_DIR / "cases" / "json_c0" / "system_c0.json"
 
 def _run_igtopt(xlsx: pathlib.Path, tmp_path: pathlib.Path, extra_args=None):
     """Run igtopt._run() programmatically and return the parsed JSON dict."""
-    import argparse
-    from igtopt.igtopt import _run
-
     json_out = tmp_path / (xlsx.stem + ".json")
     input_dir = tmp_path / xlsx.stem
 
@@ -38,7 +38,7 @@ def _run_igtopt(xlsx: pathlib.Path, tmp_path: pathlib.Path, extra_args=None):
         for k, v in extra_args.items():
             setattr(args, k, v)
 
-    rc = _run(args)
+    rc = _igtopt_run(args)
     assert rc == 0, "igtopt._run() returned non-zero"
     assert json_out.exists(), f"JSON output not created: {json_out}"
     return json.loads(json_out.read_text())
@@ -124,7 +124,7 @@ def test_igtopt_c0_parquet_files_written(tmp_path):
     if "input_directory" not in opts:
         pytest.skip("no input_directory in reference options")
 
-    data = _run_igtopt(_C0_XLSX, tmp_path)
+    _run_igtopt(_C0_XLSX, tmp_path)
     input_dir = tmp_path / "system_c0"
     # At least one .parquet file should have been created somewhere in input_dir
     parquet_files = list(input_dir.rglob("*.parquet"))

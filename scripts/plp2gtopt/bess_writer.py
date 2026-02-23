@@ -108,7 +108,7 @@ class BessWriter(BaseWriter):
         if not self.central_parser:
             return {}
         return {
-            c["name"]: c
+            str(c["name"]): c
             for c in self.central_parser.centrals
             if c.get("type") == "bateria"
         }

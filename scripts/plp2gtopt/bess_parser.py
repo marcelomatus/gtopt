@@ -11,7 +11,6 @@ File format (tabular, 12 fields per row after stripping # comments):
   Num  Nombre    Barra  PMaxC  PMaxD   nc     nd   HrsReg  EtaIni  EtaFin  VolIni  NCiclos
 """
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base_parser import BaseParser
@@ -52,7 +51,7 @@ class BessParser(BaseParser):
             # Extract quoted name first, then parse remaining fields
             name_start = line.find("'")
             name_end = line.rfind("'")
-            if name_start == -1 or name_end == name_start:
+            if name_start in (-1, name_end):
                 raise ValueError(f"Invalid BESS name in line: {line}")
 
             name = line[name_start + 1 : name_end]

@@ -25,6 +25,20 @@ Build targets
   Editable install of the package together with all dev/test dependencies
   (equivalent to ``pip install -e scripts/[dev]``).
 
+``scripts-format``
+  Auto-format all Python source files with black (modifies files in-place).
+
+``scripts-check-format``
+  Check formatting with black without modifying files; fails if any file
+  would be reformatted.
+
+``scripts-lint``
+  Run pylint over cvs2parquet, igtopt, and plp2gtopt; exit non-zero on
+  any error/warning.
+
+``scripts-mypy``
+  Run mypy static type checking; exit non-zero on any type error.
+
 ``scripts-test``
   Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt) with pytest.
 
@@ -85,6 +99,55 @@ add_custom_target(scripts-install
   COMMAND ${PYTHON_EXECUTABLE} -m pip install -e "${SCRIPTS_DIR}[dev]"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Installing gtopt Python scripts in editable mode with dev dependencies"
+)
+
+# ---- Format (black) ----
+
+add_custom_target(scripts-format
+  COMMAND ${PYTHON_EXECUTABLE} -m black
+    "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/igtopt"
+    "${SCRIPTS_DIR}/plp2gtopt"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Auto-formatting Python source files with black"
+  DEPENDS scripts-install
+)
+
+# ---- Check format (black --check) ----
+
+add_custom_target(scripts-check-format
+  COMMAND ${PYTHON_EXECUTABLE} -m black --check
+    "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/igtopt"
+    "${SCRIPTS_DIR}/plp2gtopt"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Checking Python source formatting with black (no files modified)"
+  DEPENDS scripts-install
+)
+
+# ---- Lint (pylint) ----
+
+add_custom_target(scripts-lint
+  COMMAND ${PYTHON_EXECUTABLE} -m pylint
+    cvs2parquet
+    igtopt
+    plp2gtopt
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Running pylint static analysis"
+  DEPENDS scripts-install
+)
+
+# ---- Type check (mypy) ----
+
+add_custom_target(scripts-mypy
+  COMMAND ${PYTHON_EXECUTABLE} -m mypy
+    cvs2parquet
+    igtopt
+    plp2gtopt
+    --ignore-missing-imports
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Running mypy static type checking"
+  DEPENDS scripts-install
 )
 
 # ---- Unit tests ----
@@ -148,6 +211,34 @@ add_test(
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
     -v -m integration
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+add_test(
+  NAME scripts-check-format
+  COMMAND ${PYTHON_EXECUTABLE} -m black --check
+    "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/igtopt"
+    "${SCRIPTS_DIR}/plp2gtopt"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+add_test(
+  NAME scripts-lint
+  COMMAND ${PYTHON_EXECUTABLE} -m pylint
+    cvs2parquet
+    igtopt
+    plp2gtopt
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+add_test(
+  NAME scripts-mypy
+  COMMAND ${PYTHON_EXECUTABLE} -m mypy
+    cvs2parquet
+    igtopt
+    plp2gtopt
+    --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 

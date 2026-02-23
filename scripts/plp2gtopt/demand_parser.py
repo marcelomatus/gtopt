@@ -7,6 +7,7 @@ Handles:
 - Demand data structure creation
 - Bus demand lookup
 """
+
 from typing import Any, Optional
 
 import numpy as np
