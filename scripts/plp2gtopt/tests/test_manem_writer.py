@@ -147,3 +147,94 @@ def test_to_dataframe_with_empty_parser():
 
     assert df_vmin.empty
     assert df_vmax.empty
+
+
+def _make_central_parser(tmp_path, name, number=1):
+    """Create a minimal CentralParser with one central entry."""
+    from ..central_parser import CentralParser
+
+    parser = CentralParser.__new__(CentralParser)
+    parser.file_path = tmp_path / "plpcnfce.dat"
+    parser._data = [{"name": name, "number": number, "type": "embalse"}]
+    parser._name_index_map = {name: 0}
+    parser._number_index_map = {number: 0}
+    parser.num_embalses = 1
+    return parser
+
+
+def _make_stage_parser(tmp_path, n_stages=2):
+    """Create a minimal StageParser with n stages."""
+    from ..stage_parser import StageParser
+
+    parser = StageParser.__new__(StageParser)
+    parser.file_path = tmp_path / "plpeta.dat"
+    parser._data = [
+        {"number": i + 1, "duration": 7.0, "discount_factor": 1.0}
+        for i in range(n_stages)
+    ]
+    parser._name_index_map = {}
+    parser._number_index_map = {i + 1: i for i in range(n_stages)}
+    return parser
+
+
+def test_to_dataframe_with_parsers(tmp_path):
+    """Test to_dataframe with central and stage parsers."""
+    from ..manem_parser import ManemParser
+
+    manem_f = tmp_path / "plpmanem.dat"
+    manem_f.write_text(
+        " 1\n"
+        "'RESERVOIR1'\n"
+        "   2\n"
+        "   03     001  0.30  1.50\n"
+        "   03     002  0.30  1.50\n"
+    )
+    manem_parser = ManemParser(manem_f)
+    manem_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "RESERVOIR1")
+    stage_parser = _make_stage_parser(tmp_path, 2)
+
+    writer = ManemWriter(manem_parser, central_parser, stage_parser)
+    df_vmin, df_vmax = writer.to_dataframe()
+
+    assert not df_vmin.empty
+    assert not df_vmax.empty
+
+
+def test_to_parquet(tmp_path):
+    """Test to_parquet writes vmin and vmax parquet files."""
+    from ..manem_parser import ManemParser
+
+    manem_f = tmp_path / "plpmanem.dat"
+    manem_f.write_text(
+        " 1\n"
+        "'RESERVOIR1'\n"
+        "   2\n"
+        "   03     001  0.30  1.50\n"
+        "   03     002  0.35  1.45\n"
+    )
+    manem_parser = ManemParser(manem_f)
+    manem_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "RESERVOIR1")
+    stage_parser = _make_stage_parser(tmp_path, 2)
+
+    writer = ManemWriter(manem_parser, central_parser, stage_parser)
+    out_dir = tmp_path / "manem_out"
+    cols = writer.to_parquet(out_dir)
+
+    assert (out_dir / "vmin.parquet").exists()
+    assert (out_dir / "vmax.parquet").exists()
+    assert len(cols["vmin"]) > 0
+    assert len(cols["vmax"]) > 0
+
+
+def test_to_parquet_empty(tmp_path):
+    """Test to_parquet with no data returns empty cols dict."""
+    parser = MockEmptyManemParser()
+    writer = ManemWriter(parser)
+    out_dir = tmp_path / "empty_out"
+    cols = writer.to_parquet(out_dir)
+    assert cols["vmin"] == []
+    assert cols["vmax"] == []
