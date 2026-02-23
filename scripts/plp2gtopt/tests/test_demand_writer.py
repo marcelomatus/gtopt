@@ -69,7 +69,7 @@ def test_json_output_structure(
     json_demands = sample_demand_writer.to_json_array()
 
     # Expected structure from system_c0.json
-    REQUIRED_FIELDS = [
+    required_fields = [
         ("uid", int),
         ("name", str),
         ("bus", str),
@@ -78,7 +78,7 @@ def test_json_output_structure(
 
     for demand in json_demands:
         # Check all required fields exist and have correct types
-        assert set(demand.keys()) == {field for field, _ in REQUIRED_FIELDS}
+        assert set(demand.keys()) == {field for field, _ in required_fields}
 
         # Additional value checks
         assert demand["uid"] > 0, "UID should be positive integer"

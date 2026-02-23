@@ -3,9 +3,13 @@
 import json
 import tempfile
 from pathlib import Path
+
 import pytest
-from ..manem_writer import ManemWriter
+
+from ..central_parser import CentralParser
 from ..manem_parser import ManemParser
+from ..manem_writer import ManemWriter
+from ..stage_parser import StageParser
 from .conftest import get_example_file
 
 
@@ -76,7 +80,7 @@ def test_json_output_structure(sample_manem_writer):
     json_manems = sample_manem_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "stage": list,
         "vmin": list,
@@ -85,8 +89,8 @@ def test_json_output_structure(sample_manem_writer):
 
     for manem in json_manems:
         # Check all required fields exist and have correct types
-        assert set(manem.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(manem.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(manem[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(manem[field])}"
             )
@@ -151,7 +155,6 @@ def test_to_dataframe_with_empty_parser():
 
 def _make_central_parser(tmp_path, name, number=1):
     """Create a minimal CentralParser with one central entry."""
-    from ..central_parser import CentralParser
 
     parser = CentralParser.__new__(CentralParser)
     parser.file_path = tmp_path / "plpcnfce.dat"
@@ -164,7 +167,6 @@ def _make_central_parser(tmp_path, name, number=1):
 
 def _make_stage_parser(tmp_path, n_stages=2):
     """Create a minimal StageParser with n stages."""
-    from ..stage_parser import StageParser
 
     parser = StageParser.__new__(StageParser)
     parser.file_path = tmp_path / "plpeta.dat"
@@ -179,7 +181,6 @@ def _make_stage_parser(tmp_path, n_stages=2):
 
 def test_to_dataframe_with_parsers(tmp_path):
     """Test to_dataframe with central and stage parsers."""
-    from ..manem_parser import ManemParser
 
     manem_f = tmp_path / "plpmanem.dat"
     manem_f.write_text(
@@ -200,7 +201,6 @@ def test_to_dataframe_with_parsers(tmp_path):
 
 def test_to_parquet(tmp_path):
     """Test to_parquet writes vmin and vmax parquet files."""
-    from ..manem_parser import ManemParser
 
     manem_f = tmp_path / "plpmanem.dat"
     manem_f.write_text(
@@ -228,5 +228,5 @@ def test_to_parquet_empty(tmp_path):
     writer = ManemWriter(parser)
     out_dir = tmp_path / "empty_out"
     cols = writer.to_parquet(out_dir)
-    assert cols["vmin"] == []
-    assert cols["vmax"] == []
+    assert not cols["vmin"]
+    assert not cols["vmax"]

@@ -65,6 +65,13 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
+      - name: Check coverage threshold (warning only)
+        working-directory: scripts
+        run: |
+          coverage report --fail-under=83 || \
+            echo "::warning title=Coverage::Unit-test coverage is below 83% threshold"
+        continue-on-error: true
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
@@ -118,7 +125,19 @@ jobs:
         working-directory: scripts
         run: |
           pytest plp2gtopt/tests/test_integration.py \
-            -v -m integration
+            -v -m integration \
+            --cov=cvs2parquet \
+            --cov=igtopt \
+            --cov=plp2gtopt \
+            --cov-report=xml:coverage-integration.xml \
+            --cov-report=term-missing
+
+      - name: Upload integration coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-integration-xml
+          path: scripts/coverage-integration.xml
+          retention-days: 30
 
   lint:
     runs-on: ubuntu-latest
