@@ -173,3 +173,7 @@ jobs:
       - name: pylint
         working-directory: scripts
         run: pylint cvs2parquet igtopt plp2gtopt
+
+      - name: mypy
+        working-directory: scripts
+        run: mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
