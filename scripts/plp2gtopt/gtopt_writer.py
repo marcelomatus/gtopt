@@ -22,6 +22,7 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
+from .bess_writer import BessWriter
 
 
 class GTOptWriter:
@@ -223,6 +224,38 @@ class GTOptWriter:
             lines, blocks, manlis, options
         ).to_json_array()
 
+    def process_bess(self, options):
+        """Process BESS/ESS data and append to existing arrays."""
+        bess_parser = self.parser.parsed_data.get("bess_parser", None)
+        ess_parser = self.parser.parsed_data.get("ess_parser", None)
+        if bess_parser is None and ess_parser is None:
+            return
+
+        stages = self.parser.parsed_data.get("stage_parser", None)
+        buses = self.parser.parsed_data.get("bus_parser", None)
+        manbess = self.parser.parsed_data.get("manbess_parser", None)
+
+        output_dir = Path(options["output_dir"]) if options else Path("results")
+
+        writer = BessWriter(
+            bess_parser=bess_parser,
+            ess_parser=ess_parser,
+            bus_parser=buses,
+            stage_parser=stages,
+            manbess_parser=manbess,
+            options=options,
+        )
+
+        existing_gen = self.planning["system"].get("generator_array", [])
+        existing_dem = self.planning["system"].get("demand_array", [])
+
+        result = writer.process(existing_gen, existing_dem, output_dir)
+
+        self.planning["system"]["battery_array"] = result["battery_array"]
+        self.planning["system"]["converter_array"] = result["converter_array"]
+        self.planning["system"]["generator_array"] = result["generator_array"]
+        self.planning["system"]["demand_array"] = result["demand_array"]
+
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
@@ -238,6 +271,7 @@ class GTOptWriter:
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)
+        self.process_bess(options)
 
         # Organize into planning structure
         self.planning["system"]["name"] = "plp2gtopt"

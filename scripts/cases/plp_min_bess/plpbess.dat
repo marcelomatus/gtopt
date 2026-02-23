@@ -1,0 +1,5 @@
+# Archivo de configuracion de baterias (plpbess.dat)
+# Numero de BESS
+ 1
+# Num  Nombre    Barra  PMaxC  PMaxD   nc     nd   HrsReg  EtaIni  EtaFin  VolIni  NCiclos
+    1  'BESS1'      1    50.0   50.0  0.95   0.95    4.0       1       1    0.50    1.0

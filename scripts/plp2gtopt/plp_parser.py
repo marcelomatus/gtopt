@@ -18,6 +18,9 @@ from .aflce_parser import AflceParser
 from .stage_parser import StageParser
 from .extrac_parser import ExtracParser
 from .manem_parser import ManemParser
+from .bess_parser import BessParser
+from .ess_parser import EssParser
+from .manbess_parser import ManbessParser
 
 
 class PLPParser:
@@ -57,3 +60,16 @@ class PLPParser:
             parser = parser_class(filepath)
             parser.parse(self.parsed_data)
             self.parsed_data[name] = parser
+
+        # Optional BESS/ESS files – skip gracefully if not present
+        optional_parsers = [
+            ("bess_parser", BessParser, "plpbess.dat"),
+            ("ess_parser", EssParser, "plpess.dat"),
+            ("manbess_parser", ManbessParser, "plpmanbess.dat"),
+        ]
+        for name, parser_class, filename in optional_parsers:
+            filepath = self.input_path / filename
+            if filepath.exists():
+                parser = parser_class(filepath)
+                parser.parse(self.parsed_data)
+                self.parsed_data[name] = parser
