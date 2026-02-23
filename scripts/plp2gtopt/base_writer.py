@@ -186,15 +186,15 @@ class BaseWriter(ABC):
         Returns:
             int: The last stage number, or sys.maxsize if invalid/not specified
         """
-        DEFAULT_LAST_STAGE = sys.maxsize  # Largest possible integer on the platform
+        default_last_stage = sys.maxsize  # Largest possible integer on the platform
         if not self.options:
-            return DEFAULT_LAST_STAGE
+            return default_last_stage
 
         try:
-            last_stage = int(self.options.get("last_stage", DEFAULT_LAST_STAGE))
-            last_stage = last_stage if last_stage > 0 else DEFAULT_LAST_STAGE
+            last_stage = int(self.options.get("last_stage", default_last_stage))
+            last_stage = last_stage if last_stage > 0 else default_last_stage
         except (ValueError, TypeError):
-            last_stage = DEFAULT_LAST_STAGE
+            last_stage = default_last_stage
 
         last_time = (
             float(self.options["last_time"]) if "last_time" in self.options else -1.0

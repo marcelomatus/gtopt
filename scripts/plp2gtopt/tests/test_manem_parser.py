@@ -26,13 +26,11 @@ def test_get_manems(tmp_path):
     """Test get_manems returns properly structured maintenance data."""
     # Create a temporary test file
     test_file = tmp_path / "test_manem.dat"
-    test_file.write_text(
-        """1
+    test_file.write_text("""1
 'test'
 2
 03 001 0.5 6.75
-03 002 0.5 6.75"""
-    )
+03 002 0.5 6.75""")
 
     parser = ManemParser(str(test_file))
     parser.parse()
@@ -145,8 +143,7 @@ def test_real_file_parsing():
 def test_parse_with_whitespace_variations(tmp_path):
     """Test parsing handles different whitespace formats."""
     test_file = tmp_path / "test_manem.dat"
-    test_file.write_text(
-        """2
+    test_file.write_text("""2
 'RESERVOIR1'
 4
 03      001        0.5    6.75
@@ -156,8 +153,7 @@ def test_parse_with_whitespace_variations(tmp_path):
 'RESERVOIR2'
 2
 03      001        0.2     0.5
-03      002        0.2     0.5"""
-    )
+03      002        0.2     0.5""")
 
     parser = ManemParser(str(test_file))
     parser.parse()
@@ -170,8 +166,7 @@ def test_parse_with_whitespace_variations(tmp_path):
 def test_parse_with_comments(tmp_path):
     """Test parsing handles commented lines."""
     test_file = tmp_path / "test_manem.dat"
-    test_file.write_text(
-        """# Header comment
+    test_file.write_text("""# Header comment
 2
 # Reservoir comment
 'RESERVOIR1'
@@ -185,8 +180,7 @@ def test_parse_with_comments(tmp_path):
 'RESERVOIR2'
 2
 03      001        0.2    0.5
-03      002        0.2    0.5"""
-    )
+03      002        0.2    0.5""")
 
     parser = ManemParser(str(test_file))
     parser.parse()

@@ -66,6 +66,9 @@ class Reservoir(TypedDict):
     fmin: float
     fmax: float
     flow_conversion_rate: float
+    spillway_cost: float
+    spillway_capacity: float
+    annual_loss: float
 
 
 class Turbine(TypedDict):

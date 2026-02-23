@@ -1,0 +1,156 @@
+name: Scripts
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "scripts/**"
+      - "scripts/pyproject.toml"
+      - ".github/workflows/scripts.yml"
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - "scripts/**"
+      - "scripts/pyproject.toml"
+      - ".github/workflows/scripts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Cache pip's HTTP cache to avoid re-downloading wheels on every run.
+      # The cache key includes the OS, Python version, and the dependency
+      # specification so it is invalidated whenever scripts/pyproject.toml changes.
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-scripts-
+
+      - name: Install scripts package and dev dependencies
+        run: pip install -e "./scripts[dev]"
+
+      - name: Run unit tests with coverage
+        working-directory: scripts
+        run: |
+          pytest \
+            --ignore=plp2gtopt/tests/test_integration.py \
+            -v \
+            --cov=cvs2parquet \
+            --cov=igtopt \
+            --cov=plp2gtopt \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-xml
+          path: scripts/coverage.xml
+          retention-days: 30
+
+      - name: Generate coverage summary
+        working-directory: scripts
+        run: |
+          python - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          tree = ET.parse("coverage.xml")
+          root = tree.getroot()
+          line_rate = float(root.get("line-rate", 0)) * 100
+          branch_rate = float(root.get("branch-rate", 0)) * 100
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+          with open(summary_file, "a") as f:
+              f.write("## Python Scripts Coverage\n\n")
+              f.write("| Metric | Coverage |\n|--------|----------|\n")
+              f.write(f"| Lines  | {line_rate:.1f}% |\n")
+              f.write(f"| Branches | {branch_rate:.1f}% |\n")
+          EOF
+
+  integration:
+    runs-on: ubuntu-latest
+    name: integration-tests
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-scripts-
+
+      - name: Install scripts package and dev dependencies
+        run: pip install -e "./scripts[dev]"
+
+      - name: Run integration tests
+        working-directory: scripts
+        run: |
+          pytest plp2gtopt/tests/test_integration.py \
+            -v -m integration
+
+  lint:
+    runs-on: ubuntu-latest
+    name: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-scripts-lint-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-scripts-lint-
+
+      - name: Install dev dependencies
+        run: pip install -e "./scripts[dev]"
+
+      - name: ruff (lint)
+        working-directory: scripts
+        run: ruff check .
+
+      - name: ruff (format check)
+        working-directory: scripts
+        run: ruff format --check .
+
+      - name: pylint
+        working-directory: scripts
+        run: pylint cvs2parquet igtopt plp2gtopt

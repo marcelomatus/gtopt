@@ -69,7 +69,7 @@ class ManemParser(BaseParser):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
                     if len(parts) < 4:
-                        raise ValueError(f"Invalid maintenance entry at line {idx+1}")
+                        raise ValueError(f"Invalid maintenance entry at line {idx + 1}")
 
                     stages[i] = self._parse_int(parts[1])
                     vmin[i] = self._parse_float(parts[2]) * scale

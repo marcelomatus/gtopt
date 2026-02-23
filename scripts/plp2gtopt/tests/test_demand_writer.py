@@ -28,9 +28,7 @@ def sample_demand_writer(sample_demand_file, tmp_path):
     return DemandWriter(parser, options=options)
 
 
-def test_demand_writer_initialization(
-    sample_demand_file, tmp_path
-):  # pylint: disable=redefined-outer-name
+def test_demand_writer_initialization(sample_demand_file, tmp_path):  # pylint: disable=redefined-outer-name
     """Test DemandWriter initialization."""
     parser = DemandParser(sample_demand_file)
     parser.parse()
@@ -141,9 +139,7 @@ def test_to_dataframe_structure(
     assert set(df.columns) == set(expected_cols)
 
 
-def test_to_parquet_creates_file(
-    sample_demand_writer, tmp_path
-):  # pylint: disable=redefined-outer-name
+def test_to_parquet_creates_file(sample_demand_writer, tmp_path):  # pylint: disable=redefined-outer-name
     """Test that to_parquet creates a Parquet file."""
     sample_demand_writer.to_parquet()
     parquet_file = tmp_path / "Demand" / "lmax.parquet"

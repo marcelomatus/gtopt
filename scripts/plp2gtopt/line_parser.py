@@ -50,7 +50,7 @@ class LineParser(BaseParser):
                 # Num.Tramos Operativa
                 line_parts = lines[idx].split()
                 if len(line_parts) < 11:
-                    raise ValueError(f"Invalid line entry at line {idx+1}")
+                    raise ValueError(f"Invalid line entry at line {idx + 1}")
 
                 # Parse line name (removing quotes)
                 self._append(

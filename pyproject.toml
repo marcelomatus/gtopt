@@ -2,50 +2,24 @@
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "plp2gtopt"
-version = "1.0.0"
-description = "PLP to GTOPT conversion tool"
-requires-python = ">=3.8"
-dependencies = [
-"numpy",
-"pandas",
-]
+# ---------------------------------------------------------------------------
+# The Python scripts (cvs2parquet, igtopt, plp2gtopt) live under scripts/ and
+# have their own self-contained pyproject.toml, requirements.txt, and
+# requirements-dev.txt.  To install them:
+#
+#   pip install ./scripts           # production install (from repo root)
+#   pip install -e ./scripts        # editable install (from repo root)
+#
+# The sections below contain only repository-wide tool configuration.
+# ---------------------------------------------------------------------------
 
-[project.scripts]
-plp2gtopt = "plp2gtopt.main:main"
-igtopt = "igtopt.igtopt:main"
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pylint>=2.15",
-    "ruff>=0.0.280",
-    "black>=22.0"
-]
-
-[tool.setuptools]
-packages = ["plp2gtopt", "igtopt"]
-package-dir = { "plp2gtopt" = "scripts/plp2gtopt", "igtopt" = "scripts/igtopt" }
-include-package-data = true
-
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ['py38']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-)/
-'''
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.isort]
 profile = "black"
@@ -66,10 +40,15 @@ python_files = "test_*.py"
 testpaths = ["scripts/plp2gtopt/tests"]
 addopts = "-v --import-mode=importlib"
 pythonpath = ["."]
+markers = [
+    "integration: end-to-end tests that use sample PLP case files",
+]
 
 [tool.coverage.run]
 source = [
     "scripts/plp2gtopt",
+    "scripts/igtopt",
+    "scripts/cvs2parquet",
     "guiservice",
 ]
 omit = [

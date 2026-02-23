@@ -29,13 +29,11 @@ def test_get_flows(tmp_path):
     """Test get_flows returns properly structured flow data."""
     # Create a temporary test file
     test_file = tmp_path / "test_aflce.dat"
-    test_file.write_text(
-        """1  2
+    test_file.write_text("""1  2
 'test_central'
 2
 03 001 1.5 2.0
-03 002 1.8 2.2"""
-    )
+03 002 1.8 2.2""")
 
     parser = AflceParser(str(test_file))
     parser.parse()
