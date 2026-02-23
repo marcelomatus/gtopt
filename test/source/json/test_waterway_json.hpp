@@ -78,6 +78,8 @@ TEST_CASE("Waterway JSON array parsing")
 
 TEST_CASE("Waterway JSON with active schedule")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":1,
     "name":"CANAL_1",
@@ -86,7 +88,7 @@ TEST_CASE("Waterway JSON with active schedule")
     "active":[1,0,1,0]
   })";
 
-  Waterway waterway = daw::json::from_json<Waterway>(json_data);
+  const Waterway waterway = daw::json::from_json<Waterway>(json_data);
 
   REQUIRE(waterway.active.has_value());
   const Active active_val =
