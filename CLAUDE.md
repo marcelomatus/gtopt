@@ -192,19 +192,63 @@ const auto& vec = std::get<std::vector<IntBool>>(val);
 
 ### Python
 
-- **Version**: Python ≥ 3.12
-- **Formatter**: `black` (line-length 88) + `isort` (profile `black`)
-- **Linter**: `ruff` + `pylint`
-- **Type checker**: `mypy`
-- **Tests**: `pytest`
+The **scripts sub-package** (`scripts/`) is self-contained with its own
+`pyproject.toml`, `requirements.txt`, and `requirements-dev.txt`.
+It is **independent** of the root `pyproject.toml`.
+
+- **Version**: Python ≥ 3.10 (type-checking); CI uses 3.12
+- **Formatter**: `black` (line-length 88)
+- **Linter**: `pylint` (configured in `scripts/pyproject.toml`)
+- **Type checker**: `mypy` (configured in `scripts/pyproject.toml`)
+- **Tests**: `pytest` with `pytest-cov`
+- **Coverage threshold**: 83% (`fail_under = 83` in `scripts/pyproject.toml`)
 
 ```bash
-pip install -e ".[dev]"   # install dev dependencies from pyproject.toml
-black . && isort .
-ruff check . && pylint scripts/ guiservice/
-mypy scripts/ guiservice/
-pytest
+# Install (from repo root)
+pip install -e "./scripts[dev]"    # editable + dev tools
+pip install -r scripts/requirements.txt          # runtime only
+
+# All commands below run from scripts/ directory
+cd scripts
+
+# Format
+python -m black cvs2parquet igtopt plp2gtopt
+python -m black --check cvs2parquet igtopt plp2gtopt   # CI check
+
+# Lint
+python -m pylint cvs2parquet igtopt plp2gtopt
+
+# Type check
+python -m mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
+
+# Run all tests (fast, < 2 s)
+python -m pytest -q
+
+# Run with coverage + missing-lines report
+python -m pytest \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+  --cov-report=term-missing -q
+
+# Run a single test
+python -m pytest -k "test_parse_single_bess" -q
+
+# Integration tests only
+python -m pytest -m integration -q
 ```
+
+Via CMake (from repo root after `cmake -S scripts -B build-scripts`):
+
+```bash
+cmake --build build-scripts --target scripts-install       # pip install -e scripts/[dev]
+cmake --build build-scripts --target scripts-format        # black (in-place)
+cmake --build build-scripts --target scripts-check-format  # black --check
+cmake --build build-scripts --target scripts-lint          # pylint
+cmake --build build-scripts --target scripts-mypy          # mypy
+cmake --build build-scripts --target scripts-test          # unit tests
+cmake --build build-scripts --target scripts-test-integration
+cmake --build build-scripts --target scripts-coverage      # HTML report
+```
+
 
 ## Writing New Tests
 
@@ -259,6 +303,7 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 ## Domain Quick-Reference
 
 > Full details are in `.github/copilot-instructions.md` → "Domain Knowledge" section.
+> Scripts sub-package details are in `.github/copilot-instructions.md` → "Python Scripts Sub-Package".
 
 ### What gtopt optimizes
 
