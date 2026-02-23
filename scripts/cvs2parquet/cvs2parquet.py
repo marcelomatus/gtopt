@@ -8,45 +8,46 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+# Columns that are always stored as int32 when present
+_INT32_COLS = {"stage", "block", "scenario"}
 
-def csv_to_parquet(csv_file_path, parquet_file_path):
-    """Convert CSV to Parquet with specific column types."""
-    # Read CSV file
+
+def _infer_schema(df: pd.DataFrame) -> pa.Schema:
+    """Build a PyArrow schema: int32 for index-like columns, float64 for the rest."""
+    fields = []
+    for col in df.columns:
+        if col in _INT32_COLS:
+            fields.append(pa.field(col, pa.int32()))
+        else:
+            fields.append(pa.field(col, pa.float64()))
+    return pa.schema(fields)
+
+
+def csv_to_parquet(csv_file_path, parquet_file_path, use_schema: bool = False):
+    """Convert CSV to Parquet.
+
+    Args:
+        csv_file_path: Path to the input CSV file.
+        parquet_file_path: Path for the output Parquet file.
+        use_schema: When True use an explicit PyArrow schema (int32 for
+            stage/block/scenario columns, float64 for everything else).
+            When False use pandas dtype casting (same logic, via DataFrame).
+    """
     df = pd.read_csv(csv_file_path)
 
-    # Convert column types
-    df["stage"] = df["stage"].astype("int32")
-    df["block"] = df["block"].astype("int32")
-    df["g1"] = df["g1"].astype("float64")  # double precision
-
-    # Save as Parquet
-    df.to_parquet(parquet_file_path, index=False)
-
-    print(f"Successfully converted {csv_file_path} to {parquet_file_path}")
-    print(f"Data types: {df.dtypes}")
-
-
-# Alternative method using PyArrow for more control over schema
-
-
-def csv_to_parquet_with_schema(csv_file_path, parquet_file_path):
-    """Convert CSV to Parquet using PyArrow with explicit schema definition."""
-    # Read CSV
-    df = pd.read_csv(csv_file_path)
-
-    # Define explicit schema
-    schema = pa.schema(
-        [("stage", pa.int32()), ("block", pa.int32()), ("g1", pa.float64())]
-    )
-
-    # Convert to PyArrow table with schema
-    table = pa.Table.from_pandas(df[["stage", "block", "g1"]], schema=schema)
-
-    # Write to Parquet
-    pq.write_table(table, parquet_file_path)
+    if use_schema:
+        schema = _infer_schema(df)
+        table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+        pq.write_table(table, parquet_file_path)
+    else:
+        for col in df.columns:
+            if col in _INT32_COLS:
+                df[col] = df[col].astype("int32")
+            else:
+                df[col] = df[col].astype("float64")
+        df.to_parquet(parquet_file_path, index=False)
 
     print(f"Successfully converted {csv_file_path} to {parquet_file_path}")
-    print(f"Schema: {table.schema}")
 
 
 def main():
@@ -68,7 +69,7 @@ def main():
         "--schema",
         action="store_true",
         default=False,
-        help="use explicit PyArrow schema (stage:int32, block:int32, g1:float64)",
+        help="use explicit PyArrow schema (int32 for stage/block/scenario, float64 for others)",
     )
     args = parser.parse_args()
 
@@ -76,11 +77,10 @@ def main():
         parser.error("--output can only be used with a single input file")
 
     for csv_path in args.input:
-        out_path = args.output if args.output else str(Path(csv_path).with_suffix(".parquet"))
-        if args.schema:
-            csv_to_parquet_with_schema(csv_path, out_path)
-        else:
-            csv_to_parquet(csv_path, out_path)
+        out_path = (
+            args.output if args.output else str(Path(csv_path).with_suffix(".parquet"))
+        )
+        csv_to_parquet(csv_path, out_path, use_schema=args.schema)
 
     return 0
 
