@@ -139,7 +139,7 @@ class AflceWriter(BaseWriter):
         """Write flow data to Parquet files (one per hydrology)."""
         cols: Dict[str, List[str]] = {"afluent": []}
         df = self.to_dataframe(items)
-        if df.empty:
+        if not isinstance(df, pd.DataFrame) or df.empty:
             return cols
 
         output_dir.mkdir(parents=True, exist_ok=True)
