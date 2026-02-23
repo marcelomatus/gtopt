@@ -85,14 +85,7 @@ def test_parse_multiple_manesses(tmp_path):
 def test_parse_skip_zero_stages(tmp_path):
     """Test that entries with num_stages <= 0 are skipped."""
     f = tmp_path / "plpmaness.dat"
-    f.write_text(
-        " 2\n"
-        "'ESS_SKIP'\n"
-        "  0\n"
-        "'ESS_OK'\n"
-        "  1\n"
-        "   01    001   10.0   10.0\n"
-    )
+    f.write_text(" 2\n'ESS_SKIP'\n  0\n'ESS_OK'\n  1\n   01    001   10.0   10.0\n")
     parser = ManessParser(f)
     parser.parse()
     assert parser.num_manesses == 1
@@ -122,7 +115,7 @@ def test_parse_with_comments(tmp_path):
 def test_get_maness_by_name(tmp_path):
     """Test lookup by ESS name."""
     f = tmp_path / "plpmaness.dat"
-    f.write_text(" 1\n" "'Alpha'\n" "  1\n" "   01    001   25.0   25.0\n")
+    f.write_text(" 1\n'Alpha'\n  1\n   01    001   25.0   25.0\n")
     parser = ManessParser(f)
     parser.parse()
     m = parser.get_maness_by_name("Alpha")
@@ -144,7 +137,7 @@ def test_parse_malformed_entry_raises(tmp_path):
     """Test that a line with fewer than 4 fields raises ValueError."""
     f = tmp_path / "plpmaness.dat"
     # Only 3 fields (need 4: Mes Etapa PMaxC PMaxD)
-    f.write_text(" 1\n" "'ESS1'\n" "  1\n" "   01    001    0.0\n")
+    f.write_text(" 1\n'ESS1'\n  1\n   01    001    0.0\n")
     parser = ManessParser(f)
     with pytest.raises(ValueError):
         parser.parse()

@@ -52,7 +52,7 @@ class CostParser(BaseParser):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
                     if len(parts) < 3:  # Expecting month, stage, cost
-                        raise ValueError(f"Invalid cost entry at line {idx+1}")
+                        raise ValueError(f"Invalid cost entry at line {idx + 1}")
 
                     stages[i] = self._parse_int(parts[1])  # Stage number
                     costs[i] = self._parse_float(parts[2])  # Cost value

@@ -13,23 +13,13 @@ build-backend = "setuptools.build_meta"
 # The sections below contain only repository-wide tool configuration.
 # ---------------------------------------------------------------------------
 
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ['py38']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-)/
-'''
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.isort]
 profile = "black"

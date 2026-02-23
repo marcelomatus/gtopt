@@ -52,9 +52,9 @@ def test_to_json_array(sample_manem_writer):
     for manem in json_manems:
         for field, field_type in required_fields.items():
             assert field in manem, f"Missing field: {field}"
-            assert isinstance(
-                manem[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(manem[field])}"
+            assert isinstance(manem[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(manem[field])}"
+            )
 
 
 def test_write_to_file(sample_manem_writer):
@@ -87,19 +87,19 @@ def test_json_output_structure(sample_manem_writer):
         # Check all required fields exist and have correct types
         assert set(manem.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
-            assert isinstance(
-                manem[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(manem[field])}"
+            assert isinstance(manem[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(manem[field])}"
+            )
 
         # Additional value checks
         assert len(manem["name"]) > 0, "Name should not be empty"
         assert len(manem["stage"]) > 0, "Should have at least one stage"
-        assert len(manem["stage"]) == len(
-            manem["vmin"]
-        ), "Stages and vol_min should match"
-        assert len(manem["stage"]) == len(
-            manem["vmax"]
-        ), "Stages and vol_max should match"
+        assert len(manem["stage"]) == len(manem["vmin"]), (
+            "Stages and vol_min should match"
+        )
+        assert len(manem["stage"]) == len(manem["vmax"]), (
+            "Stages and vol_max should match"
+        )
 
 
 class MockEmptyManemParser(ManemParser):
@@ -183,11 +183,7 @@ def test_to_dataframe_with_parsers(tmp_path):
 
     manem_f = tmp_path / "plpmanem.dat"
     manem_f.write_text(
-        " 1\n"
-        "'RESERVOIR1'\n"
-        "   2\n"
-        "   03     001  0.30  1.50\n"
-        "   03     002  0.30  1.50\n"
+        " 1\n'RESERVOIR1'\n   2\n   03     001  0.30  1.50\n   03     002  0.30  1.50\n"
     )
     manem_parser = ManemParser(manem_f)
     manem_parser.parse()
@@ -208,11 +204,7 @@ def test_to_parquet(tmp_path):
 
     manem_f = tmp_path / "plpmanem.dat"
     manem_f.write_text(
-        " 1\n"
-        "'RESERVOIR1'\n"
-        "   2\n"
-        "   03     001  0.30  1.50\n"
-        "   03     002  0.35  1.45\n"
+        " 1\n'RESERVOIR1'\n   2\n   03     001  0.30  1.50\n   03     002  0.35  1.45\n"
     )
     manem_parser = ManemParser(manem_f)
     manem_parser.parse()

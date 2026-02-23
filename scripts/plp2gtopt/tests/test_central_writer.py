@@ -28,9 +28,7 @@ def sample_central_writer(sample_central_file, tmp_path):
     return CentralWriter(parser, options=options)
 
 
-def test_central_writer_initialization(
-    sample_central_file, tmp_path
-):  # pylint: disable=redefined-outer-name
+def test_central_writer_initialization(sample_central_file, tmp_path):  # pylint: disable=redefined-outer-name
     """Test CentralWriter initialization."""
     parser = CentralParser(sample_central_file)
     parser.parse()

@@ -12,13 +12,13 @@ def validate_required_fields(
     for field, field_type in required_fields.items():
         assert field in item, f"Missing field: {field}"
         if isinstance(field_type, tuple):
-            assert isinstance(
-                item[field], field_type
-            ), f"Field {field} should be one of {field_type}, got {type(item[field])}"
+            assert isinstance(item[field], field_type), (
+                f"Field {field} should be one of {field_type}, got {type(item[field])}"
+            )
         else:
-            assert isinstance(
-                item[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(item[field])}"
+            assert isinstance(item[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(item[field])}"
+            )
 
 
 def assert_json_output_structure(

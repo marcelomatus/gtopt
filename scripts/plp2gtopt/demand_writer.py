@@ -61,7 +61,7 @@ class DemandWriter(BaseWriter):
 
             json_demands.append(dem)
 
-        print(f"Total Energy Demand [GWh]: {round(total_energy/1000.0, 2)}")
+        print(f"Total Energy Demand [GWh]: {round(total_energy / 1000.0, 2)}")
         return cast(List[Dict[str, Any]], json_demands)
 
     def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None):

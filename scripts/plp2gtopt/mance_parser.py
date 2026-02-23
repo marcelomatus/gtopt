@@ -62,7 +62,7 @@ class ManceParser(BaseParser):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
                     if len(parts) < 5:
-                        raise ValueError(f"Invalid maintenance entry at line {idx+1}")
+                        raise ValueError(f"Invalid maintenance entry at line {idx + 1}")
 
                     blocks[i] = self._parse_int(parts[1])
                     p_min[i] = self._parse_float(parts[3])

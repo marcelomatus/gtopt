@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - "scripts/**"
-      - "pyproject.toml"
+      - "scripts/pyproject.toml"
       - ".github/workflows/scripts.yml"
   pull_request:
     branches:
@@ -15,7 +15,7 @@ on:
       - main
     paths:
       - "scripts/**"
-      - "pyproject.toml"
+      - "scripts/pyproject.toml"
       - ".github/workflows/scripts.yml"
   workflow_dispatch:
 
@@ -41,26 +41,27 @@ jobs:
 
       # Cache pip's HTTP cache to avoid re-downloading wheels on every run.
       # The cache key includes the OS, Python version, and the dependency
-      # specification so it is invalidated whenever pyproject.toml changes.
+      # specification so it is invalidated whenever scripts/pyproject.toml changes.
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-scripts-
 
-      - name: Install package and dev dependencies
-        run: pip install -e ".[dev]"
+      - name: Install scripts package and dev dependencies
+        run: pip install -e "./scripts[dev]"
 
       - name: Run unit tests with coverage
+        working-directory: scripts
         run: |
-          pytest scripts/plp2gtopt/tests \
-            --ignore=scripts/plp2gtopt/tests/test_integration.py \
+          pytest \
+            --ignore=plp2gtopt/tests/test_integration.py \
             -v \
-            --cov=scripts/plp2gtopt \
-            --cov=scripts/igtopt \
-            --cov=scripts/cvs2parquet \
+            --cov=cvs2parquet \
+            --cov=igtopt \
+            --cov=plp2gtopt \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
@@ -68,10 +69,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-coverage-xml
-          path: coverage.xml
+          path: scripts/coverage.xml
           retention-days: 30
 
       - name: Generate coverage summary
+        working-directory: scripts
         run: |
           python - <<'EOF'
           import os
@@ -105,16 +107,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-scripts-
 
-      - name: Install package and dev dependencies
-        run: pip install -e ".[dev]"
+      - name: Install scripts package and dev dependencies
+        run: pip install -e "./scripts[dev]"
 
       - name: Run integration tests
+        working-directory: scripts
         run: |
-          pytest scripts/plp2gtopt/tests/test_integration.py \
+          pytest plp2gtopt/tests/test_integration.py \
             -v -m integration
 
   lint:
@@ -133,15 +136,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml') }}
+          key: ${{ runner.os }}-pip-scripts-lint-${{ hashFiles('scripts/pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-pip-lint-
+            ${{ runner.os }}-pip-scripts-lint-
 
       - name: Install dev dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e "./scripts[dev]"
 
-      - name: ruff
-        run: ruff check scripts/
+      - name: ruff (lint)
+        working-directory: scripts
+        run: ruff check .
 
-      - name: black (check only)
-        run: black --check scripts/
+      - name: ruff (format check)
+        working-directory: scripts
+        run: ruff format --check .

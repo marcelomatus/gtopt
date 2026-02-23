@@ -54,9 +54,9 @@ def test_to_json_array(sample_mance_writer):
     for mance in json_mances:
         for field, field_type in required_fields.items():
             assert field in mance, f"Missing field: {field}"
-            assert isinstance(
-                mance[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(mance[field])}"
+            assert isinstance(mance[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(mance[field])}"
+            )
 
 
 def test_write_to_file(sample_mance_writer):
@@ -89,19 +89,19 @@ def test_json_output_structure(sample_mance_writer):
         # Check all required fields exist and have correct types
         assert set(mance.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
-            assert isinstance(
-                mance[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(mance[field])}"
+            assert isinstance(mance[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(mance[field])}"
+            )
 
         # Additional value checks
         assert len(mance["name"]) > 0, "Name should not be empty"
         assert len(mance["block"]) > 0, "Should have at least one block"
-        assert len(mance["block"]) == len(
-            mance["pmin"]
-        ), "Blocks and p_min should match"
-        assert len(mance["block"]) == len(
-            mance["pmax"]
-        ), "Blocks and p_max should match"
+        assert len(mance["block"]) == len(mance["pmin"]), (
+            "Blocks and p_min should match"
+        )
+        assert len(mance["block"]) == len(mance["pmax"]), (
+            "Blocks and p_max should match"
+        )
 
 
 class MockEmptyManceParser(ManceParser):
