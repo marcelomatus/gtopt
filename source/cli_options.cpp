@@ -172,7 +172,7 @@ void command_line_parser::parse_into(variables_map& vm) const
         store_value(vm, *def, raw, multi_tokens);
       } else if (def->has_implicit) {
         // Implicit value – check if next token looks like a value
-        if (i + 1 < tokens_.size() && !tokens_[i + 1].starts_with("-")) {
+        if (i + 1 < tokens_.size() && !tokens_[i + 1].starts_with('-')) {
           ++i;
           store_value(vm, *def, tokens_[i], multi_tokens);
         } else {
@@ -187,7 +187,7 @@ void command_line_parser::parse_into(variables_map& vm) const
         ++i;
         store_value(vm, *def, tokens_[i], multi_tokens);
       }
-    } else if (tok.starts_with("-") && tok.size() == 2) {
+    } else if (tok.starts_with('-') && tok.size() == 2) {
       // Short option
       const char sc = tok[1];
       const auto* def = desc_->find_short(sc);
@@ -202,7 +202,7 @@ void command_line_parser::parse_into(variables_map& vm) const
       if (!def->takes_value) {
         vm[def->long_name].set(std::any {true});
       } else if (def->has_implicit) {
-        if (i + 1 < tokens_.size() && !tokens_[i + 1].starts_with("-")) {
+        if (i + 1 < tokens_.size() && !tokens_[i + 1].starts_with('-')) {
           ++i;
           store_value(vm, *def, tokens_[i], multi_tokens);
         } else {

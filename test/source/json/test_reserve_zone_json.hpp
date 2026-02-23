@@ -18,7 +18,7 @@ TEST_CASE("ReserveZone daw json test - basic fields")
     "drreq":50.0
   })";
 
-  ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
+  const ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
 
   CHECK(rz.uid == 1);
   CHECK(rz.name == "ZONE_A");
@@ -45,7 +45,7 @@ TEST_CASE("ReserveZone daw json test - with costs")
     "drcost":3000.0
   })";
 
-  ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
+  const ReserveZone rz = daw::json::from_json<ReserveZone>(json_data);
 
   CHECK(rz.uid == 2);
   CHECK(rz.name == "ZONE_B");

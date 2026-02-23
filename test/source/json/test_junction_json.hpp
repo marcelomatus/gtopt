@@ -65,13 +65,15 @@ TEST_CASE("Junction JSON array parsing")
 
 TEST_CASE("Junction JSON with active schedule")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":1,
     "name":"SCHED_JUNC",
     "active":[1,0,1,0]
   })";
 
-  Junction junction = daw::json::from_json<Junction>(json_data);
+  const Junction junction = daw::json::from_json<Junction>(json_data);
 
   REQUIRE(junction.active.has_value());
   const Active active_val =
