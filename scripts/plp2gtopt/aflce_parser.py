@@ -47,7 +47,7 @@ class AflceParser(BaseParser):
             idx = self._next_idx(-1, lines)
             header_parts = lines[idx].split()
             if len(header_parts) < 2:
-                raise ValueError(f"Invalid header line at line {idx+1}: {lines[idx]}")
+                raise ValueError(f"Invalid header line at line {idx + 1}: {lines[idx]}")
 
             num_centrals = self._parse_int(header_parts[0])
             num_hydrologies = self._parse_int(header_parts[1])
@@ -87,7 +87,7 @@ class AflceParser(BaseParser):
 
                     if len(parts) < 2 + num_hydrologies:
                         raise ValueError(
-                            f"Invalid flow entry at line {idx+1}: "
+                            f"Invalid flow entry at line {idx + 1}: "
                             f"expected {2 + num_hydrologies} values, got {len(parts)}"
                         )
 

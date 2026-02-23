@@ -33,7 +33,7 @@ class StageParser(BaseParser):
             # Parse stage line w/format: Ano Mes Etapa FDesh NHoras FactTasa TipoEtapa
             parts = lines[idx].split()
             if len(parts) < 6:
-                raise ValueError(f"Invalid stage entry at line {idx+1}")
+                raise ValueError(f"Invalid stage entry at line {idx + 1}")
 
             stage_num = int(parts[2])  # Etapa is the stage number
             duration = float(parts[4])  # NHoras is the duration

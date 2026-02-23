@@ -48,24 +48,15 @@ def test_parse_all_success(sample_input_dir):
         "plp2gtopt.plp_parser.StageParser"
     ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
         "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch(
-        "plp2gtopt.plp_parser.CentralParser"
-    ) as mock_central, patch(
+    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
         "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch(
-        "plp2gtopt.plp_parser.CostParser"
-    ) as mock_cost, patch(
+    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
         "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch(
-        "plp2gtopt.plp_parser.ManliParser"
-    ) as mock_manli, patch(
+    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
         "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch(
-        "plp2gtopt.plp_parser.ExtracParser"
-    ) as mock_extrac, patch(
+    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
         "plp2gtopt.plp_parser.ManemParser"
     ) as mock_manem:
-
         # Setup mock parsers
         mock_parser = MagicMock()
         mock_parser.parse.return_value = None

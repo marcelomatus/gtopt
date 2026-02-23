@@ -44,7 +44,7 @@ class BlockParser(BaseParser):
         for _ in range(num_blocks):
             parts = lines[idx].split()
             if len(parts) < 3:
-                raise ValueError(f"Invalid block entry at line {idx+1}")
+                raise ValueError(f"Invalid block entry at line {idx + 1}")
             duration = self._parse_float(parts[2])
             accumulated_time += duration
             block: dict[str, Any] = {

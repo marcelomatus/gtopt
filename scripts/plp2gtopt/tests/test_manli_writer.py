@@ -53,9 +53,9 @@ def test_to_json_array(sample_manli_writer):
     for manli in json_manlis:
         for field, field_type in required_fields.items():
             assert field in manli, f"Missing field: {field}"
-            assert isinstance(
-                manli[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(manli[field])}"
+            assert isinstance(manli[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(manli[field])}"
+            )
 
 
 def test_write_to_file(sample_manli_writer):
@@ -89,22 +89,22 @@ def test_json_output_structure(sample_manli_writer):
         # Check all required fields exist and have correct types
         assert set(manli.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
-            assert isinstance(
-                manli[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(manli[field])}"
+            assert isinstance(manli[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(manli[field])}"
+            )
 
         # Additional value checks
         assert len(manli["name"]) > 0, "Name should not be empty"
         assert len(manli["block"]) > 0, "Should have at least one block"
-        assert len(manli["block"]) == len(
-            manli["tmax_ab"]
-        ), "Blocks and tmax_ab should match"
-        assert len(manli["block"]) == len(
-            manli["tmax_ba"]
-        ), "Blocks and tmax_ba should match"
-        assert len(manli["block"]) == len(
-            manli["active"]
-        ), "Blocks and active should match"
+        assert len(manli["block"]) == len(manli["tmax_ab"]), (
+            "Blocks and tmax_ab should match"
+        )
+        assert len(manli["block"]) == len(manli["tmax_ba"]), (
+            "Blocks and tmax_ba should match"
+        )
+        assert len(manli["block"]) == len(manli["active"]), (
+            "Blocks and active should match"
+        )
 
 
 def test_write_empty_manlis():
