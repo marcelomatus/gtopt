@@ -1,0 +1,10 @@
+# Archivo de mantenimientos de lineas (plpmanli.dat)
+# numero de lineas con mantenimientos
+ 1
+# Nombre de la lineas
+'Bus1->Bus2'
+#   Numero de Bloques con mantenimiento
+   2
+#   NumeroBloque PotMaxAB   PotMaxBA     Operativa
+   001              50.0       50.0         T
+   002             150.0      150.0         T
