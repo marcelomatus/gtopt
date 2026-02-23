@@ -73,9 +73,9 @@ class CentralWriter(BaseWriter):
             central_name = central["name"]
             central_number = central["number"]
 
-            # skip centrals that are "falla" type
-            if central["type"] == "falla":
-                # Falla centrals are not included in the output
+            # skip centrals that are "falla" or "bateria" type –
+            # falla is a modelling artefact; bateria is handled by BessWriter
+            if central["type"] in ("falla", "bateria"):
                 continue
 
             # Skip centrals without a bus or with bus 0

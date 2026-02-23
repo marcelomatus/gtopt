@@ -2,34 +2,52 @@
 
 """Writer for converting BESS/ESS data to GTOPT JSON format.
 
-Produces:
-  - battery_array   – one Battery per BESS/ESS
-  - generator entries (discharge path) appended to generator_array
-  - demand entries (charge path) appended to demand_array
-  - lmax.parquet columns for charge demands (appended to existing file if any)
-  - converter_array
+Data sources and their roles
+-----------------------------
+* ``plpcnfce.dat`` (BAT section via ``central_parser``) – **primary** source for
+  battery name, bus number, pmax_discharge (= central pmax), pmin, gcost.
+  Present for both BESS and ESS models.
+* ``plpbess.dat`` / ``plpess.dat`` (via ``bess_parser`` / ``ess_parser``) –
+  **storage-specific** parameters: pmax_charge, nc, nd, hrs_reg, vol_ini;
+  for BESS also eta_ini, eta_fin, n_ciclos.  Mutually exclusive.
+* ``plpmanbess.dat`` / ``plpmaness.dat`` – per-stage pmax_charge / pmax_discharge
+  overrides (maintenance schedules).
 
-UID allocation:
-  Battery  uid = bess_number          (1-based)
-  Generator uid = BESS_UID_OFFSET + bess_number
-  Demand    uid = BESS_UID_OFFSET + bess_number
-  Converter uid = bess_number
+Matching rule: BESS/ESS file entry name == BAT central name.
+
+When *no* BESS/ESS file is present but BAT centrals exist in plpcnfce.dat,
+default storage parameters are applied (nc=nd=0.95, hrs_reg=4.0, vol_ini=0.5,
+pmax_charge = pmax_discharge).
+
+UID allocation
+--------------
+  Battery   uid = bat_number          (central number for BAT type)
+  Generator uid = BESS_UID_OFFSET + bat_number   (discharge path)
+  Demand    uid = BESS_UID_OFFSET + bat_number   (charge path)
+  Converter uid = bat_number
 """
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
-import numpy as np
 import pandas as pd
 
 from .base_writer import BaseWriter
 from .bess_parser import BessParser
 from .ess_parser import EssParser
+from .central_parser import CentralParser
 from .bus_parser import BusParser
 from .stage_parser import StageParser
 from .manbess_parser import ManbessParser
+from .maness_parser import ManessParser
 
 BESS_UID_OFFSET = 10000
+
+# Default storage parameters used when only plpcnfce.dat BAT centrals are present
+_DEFAULT_NC = 0.95
+_DEFAULT_ND = 0.95
+_DEFAULT_HRS_REG = 4.0
+_DEFAULT_VOL_INI = 0.5
 
 
 class BatteryEntry(TypedDict, total=False):
@@ -58,264 +76,257 @@ class ConverterEntry(TypedDict):
 
 
 class BessWriter(BaseWriter):
-    """Converts BESS/ESS parser data to GTOPT JSON arrays."""
+    """Converts BESS/ESS data to GTOPT JSON arrays.
+
+    Combines ``plpcnfce.dat`` BAT centrals (bus, pmax_discharge) with
+    ``plpbess.dat`` / ``plpess.dat`` storage parameters.  When no storage
+    parameter file is present, defaults are applied to BAT centrals.
+    """
 
     def __init__(
         self,
         bess_parser: Optional[BessParser] = None,
         ess_parser: Optional[EssParser] = None,
+        central_parser: Optional[CentralParser] = None,
         bus_parser: Optional[BusParser] = None,
         stage_parser: Optional[StageParser] = None,
         manbess_parser: Optional[ManbessParser] = None,
+        maness_parser: Optional[ManessParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Initialize BessWriter.
-
-        Args:
-            bess_parser: Parser for plpbess.dat (stage-limited BESS)
-            ess_parser: Parser for plpess.dat (always-active ESS)
-            bus_parser: Parser for plpbar.dat (to look up bus names)
-            stage_parser: Parser for plpeta.dat (to build active arrays)
-            manbess_parser: Parser for plpmanbess.dat (per-stage overrides)
-            options: Writer options dict
-        """
         super().__init__(None, options)
         self.bess_parser = bess_parser
         self.ess_parser = ess_parser
+        self.central_parser = central_parser
         self.bus_parser = bus_parser
         self.stage_parser = stage_parser
-        self.manbess_parser = manbess_parser
+        # Unified maintenance accessor: BESS file takes priority
+        self._man_parser = manbess_parser or maness_parser
+
+    def _bat_centrals(self) -> Dict[str, Dict[str, Any]]:
+        """Return BAT-type centrals from plpcnfce.dat keyed by name."""
+        if not self.central_parser:
+            return {}
+        return {
+            c["name"]: c
+            for c in self.central_parser.centrals
+            if c.get("type") == "bateria"
+        }
 
     def _all_entries(self) -> List[Dict[str, Any]]:
-        """Return combined list of BESS + ESS entries."""
+        """Build the unified list of battery entries.
+
+        Priority:
+        1. plpbess.dat entries matched to BAT centrals (BESS model)
+        2. plpess.dat entries matched to BAT centrals (ESS model)
+        3. BAT centrals with no matching file → defaults applied
+        """
+        bat = self._bat_centrals()
         entries: List[Dict[str, Any]] = []
-        if self.bess_parser:
-            for b in self.bess_parser.besses:
-                entries.append({**b, "_is_bess": True})
-        if self.ess_parser:
-            for e in self.ess_parser.esses:
-                entries.append({**e, "_is_bess": False})
+
+        def _merge(storage_entries: List[Dict], is_bess: bool) -> None:
+            for item in storage_entries:
+                name = item["name"]
+                central = bat.get(name, {})
+                # Bus and pmax_discharge come from BAT central (authoritative);
+                # fall back to values in the storage file if central absent.
+                bus = central.get("bus", item.get("bus", 0))
+                pmax_d = central.get("pmax", item.get("pmax_discharge", 0.0))
+                entries.append(
+                    {
+                        "number": central.get("number", item["number"]),
+                        "name": name,
+                        "bus": bus,
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": item.get("pmax_charge", pmax_d),
+                        "nc": item.get("nc", _DEFAULT_NC),
+                        "nd": item.get("nd", _DEFAULT_ND),
+                        "hrs_reg": item.get("hrs_reg", _DEFAULT_HRS_REG),
+                        "vol_ini": item.get("vol_ini", _DEFAULT_VOL_INI),
+                        "eta_ini": item.get("eta_ini", 1),
+                        "eta_fin": item.get("eta_fin", 99999),
+                        "n_ciclos": item.get("n_ciclos", 1.0),
+                        "_is_bess": is_bess,
+                    }
+                )
+
+        if self.bess_parser and self.bess_parser.besses:
+            _merge(self.bess_parser.besses, True)
+        elif self.ess_parser and self.ess_parser.esses:
+            _merge(self.ess_parser.esses, False)
+        else:
+            # No storage file – derive entries from BAT centrals with defaults
+            for name, central in bat.items():
+                pmax_d = central.get("pmax", 0.0)
+                entries.append(
+                    {
+                        "number": central["number"],
+                        "name": name,
+                        "bus": central.get("bus", 0),
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": pmax_d,
+                        "nc": _DEFAULT_NC,
+                        "nd": _DEFAULT_ND,
+                        "hrs_reg": _DEFAULT_HRS_REG,
+                        "vol_ini": _DEFAULT_VOL_INI,
+                        "eta_ini": 1,
+                        "eta_fin": 99999,
+                        "n_ciclos": 1.0,
+                        "_is_bess": False,
+                    }
+                )
+
         return entries
 
-    def _get_bus_number(self, entry: Dict[str, Any]) -> int:
-        """Return the bus number for a BESS/ESS entry."""
-        return int(entry.get("bus", 0))
-
     def _build_active(self, eta_ini: int, eta_fin: int) -> Optional[List[int]]:
-        """Build an active-stage list for a stage-limited BESS.
-
-        Returns a list of stage UIDs in [eta_ini, eta_fin], or None if
-        stage_parser is unavailable.
-        """
+        """Return stage UIDs in [eta_ini, eta_fin], or None if no restriction."""
         if not self.stage_parser:
             return None
         stages = self.stage_parser.stages
-        active = [
-            s["number"]
-            for s in stages
-            if eta_ini <= s["number"] <= eta_fin
-        ]
-        return active if active else None
+        total = len(stages)
+        if eta_ini <= 1 and eta_fin >= total:
+            return None  # all stages – omit active field
+        active = [s["number"] for s in stages if eta_ini <= s["number"] <= eta_fin]
+        return active or None
 
     def to_battery_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build the battery_array JSON list."""
+        """Build battery_array JSON list."""
         if entries is None:
             entries = self._all_entries()
 
-        batteries: List[BatteryEntry] = []
+        batteries = []
         for entry in entries:
-            number = entry["number"]
-            capacity = entry["pmax_discharge"] * entry["hrs_reg"]
-
-            bat: BatteryEntry = {
-                "uid": number,
+            bat: Dict[str, Any] = {
+                "uid": entry["number"],
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
                 "vmin": 0.0,
                 "vmax": 1.0,
                 "vini": entry["vol_ini"],
-                "capacity": capacity,
+                "capacity": entry["pmax_discharge"] * entry["hrs_reg"],
             }
-
-            # Stage-limited BESS: add active list
-            if entry.get("_is_bess", True):
-                eta_ini = entry.get("eta_ini", 1)
-                eta_fin = entry.get("eta_fin", 9999)
-                # Only add active if it restricts stages
-                if self.stage_parser:
-                    total_stages = len(self.stage_parser.stages)
-                    if eta_ini > 1 or eta_fin < total_stages:
-                        active = self._build_active(eta_ini, eta_fin)
-                        if active is not None:
-                            bat["active"] = active
-
+            if entry.get("_is_bess", False):
+                active = self._build_active(entry["eta_ini"], entry["eta_fin"])
+                if active is not None:
+                    bat["active"] = active
             batteries.append(bat)
-
-        return batteries  # type: ignore[return-value]
+        return batteries
 
     def to_generator_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build the generator entries (discharge path) for each BESS/ESS."""
+        """Build discharge-path generator entries."""
         if entries is None:
             entries = self._all_entries()
-
-        generators = []
+        gens = []
         for entry in entries:
-            number = entry["number"]
-            gen_uid = BESS_UID_OFFSET + number
-            bus_number = self._get_bus_number(entry)
-
-            gen = {
-                "uid": gen_uid,
-                "name": f"{entry['name']}_disch",
-                "bus": bus_number,
-                "pmin": 0.0,
-                "pmax": entry["pmax_discharge"],
-                "gcost": 0.0,
-                "capacity": entry["pmax_discharge"],
-            }
-            generators.append(gen)
-
-        return generators
+            pmax_d = entry["pmax_discharge"]
+            gens.append(
+                {
+                    "uid": BESS_UID_OFFSET + entry["number"],
+                    "name": f"{entry['name']}_disch",
+                    "bus": entry["bus"],
+                    "pmin": 0.0,
+                    "pmax": pmax_d,
+                    "gcost": 0.0,
+                    "capacity": pmax_d,
+                }
+            )
+        return gens
 
     def to_demand_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build the demand entries (charge path) for each BESS/ESS."""
+        """Build charge-path demand entries."""
         if entries is None:
             entries = self._all_entries()
-
-        demands = []
+        dems = []
         for entry in entries:
-            number = entry["number"]
-            dem_uid = BESS_UID_OFFSET + number
-            bus_number = self._get_bus_number(entry)
-
-            dem = {
-                "uid": dem_uid,
-                "name": f"{entry['name']}_chrg",
-                "bus": bus_number,
-                "lmax": "lmax",
-            }
-            demands.append(dem)
-
-        return demands
+            dems.append(
+                {
+                    "uid": BESS_UID_OFFSET + entry["number"],
+                    "name": f"{entry['name']}_chrg",
+                    "bus": entry["bus"],
+                    "lmax": "lmax",
+                }
+            )
+        return dems
 
     def to_converter_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build the converter_array JSON list."""
+        """Build converter_array JSON list."""
         if entries is None:
             entries = self._all_entries()
-
-        converters: List[ConverterEntry] = []
+        convs = []
         for entry in entries:
-            number = entry["number"]
-            conv: ConverterEntry = {
-                "uid": number,
-                "name": entry["name"],
-                "battery": number,
-                "generator": BESS_UID_OFFSET + number,
-                "demand": BESS_UID_OFFSET + number,
-                "capacity": entry["pmax_discharge"],
-            }
-            converters.append(conv)
-
-        return converters  # type: ignore[return-value]
+            num = entry["number"]
+            convs.append(
+                {
+                    "uid": num,
+                    "name": entry["name"],
+                    "battery": num,
+                    "generator": BESS_UID_OFFSET + num,
+                    "demand": BESS_UID_OFFSET + num,
+                    "capacity": entry["pmax_discharge"],
+                }
+            )
+        return convs
 
     def _write_lmax_parquet(
-        self,
-        entries: List[Dict[str, Any]],
-        output_dir: Path,
-        existing_df: Optional[pd.DataFrame] = None,
+        self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Append BESS charge-limit columns to Demand/lmax.parquet.
-
-        Each BESS/ESS gets a column ``uid:<BESS_UID_OFFSET+number>`` with
-        a constant lmax (pmax_charge) across all blocks.  If a manbess
-        override exists the stage-level value overrides the default.
-        """
+        """Append BESS/ESS charge-limit columns to Demand/lmax.parquet."""
         if not entries:
             return
 
         lmax_path = output_dir / "lmax.parquet"
+        df = pd.read_parquet(lmax_path) if lmax_path.exists() else pd.DataFrame()
 
-        # Load or initialise the existing lmax dataframe
-        if existing_df is not None:
-            df = existing_df.copy()
-        elif lmax_path.exists():
-            df = pd.read_parquet(lmax_path)
-        else:
-            df = pd.DataFrame()
-
-        # We need block numbers to build the column
-        # Fall back to a single row with block=1 if no stage/block info
         if df.empty or "block" not in df.columns:
-            # Build a minimal single-block frame
             df = pd.DataFrame({"block": [1]})
 
         blocks = df["block"].tolist()
 
         for entry in entries:
-            number = entry["number"]
-            col = f"uid:{BESS_UID_OFFSET + number}"
+            num = entry["number"]
+            col = f"uid:{BESS_UID_OFFSET + num}"
             default_lmax = entry["pmax_charge"]
             col_values = [default_lmax] * len(blocks)
 
-            # Apply manbess per-stage overrides if present
-            if self.manbess_parser and self.stage_parser:
-                manbess = self.manbess_parser.get_manbess_by_name(entry["name"])
-                if manbess is not None:
-                    stage_lmax: Dict[int, float] = {}
-                    for s_idx, stage_num in enumerate(manbess["stage"].tolist()):
-                        stage_lmax[stage_num] = float(
-                            manbess["pmax_charge"][s_idx]
-                        )
-
-                    # Map block index to stage
-                    block_stage = {}
-                    for s in self.stage_parser.stages:
-                        sn = s["number"]
-                        # blocks in df are 1-based indices
-                        for b_idx, b in enumerate(blocks):
-                            # We can't easily map block→stage without
-                            # block_parser here; leave default for now
-                            _ = b_idx  # unused
-
-                    # If we have a block→stage mapping in df, use it
-                    if "stage" in df.columns:
-                        for i, (blk, stg) in enumerate(
-                            zip(blocks, df["stage"].tolist())
-                        ):
-                            _ = blk
-                            if stg in stage_lmax:
-                                col_values[i] = stage_lmax[stg]
+            # Apply per-stage maintenance overrides when available
+            if self._man_parser and "stage" in df.columns:
+                man = self._man_parser.get_item_by_name(entry["name"])
+                if man is not None:
+                    stage_lmax = {
+                        int(s): float(v)
+                        for s, v in zip(man["stage"], man["pmax_charge"])
+                    }
+                    col_values = [
+                        stage_lmax.get(int(stg), default_lmax)
+                        for stg in df["stage"].tolist()
+                    ]
 
             df[col] = col_values
 
-        df.to_parquet(
-            lmax_path,
-            index=False,
-            compression=self.get_compression(),
-        )
+        df.to_parquet(lmax_path, index=False, compression=self.get_compression())
 
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
     ) -> Dict[str, Any]:
-        """Process all BESS/ESS entries and return result arrays.
+        """Produce all BESS/ESS output arrays.
 
         Args:
-            existing_gen: Existing generator_array to append discharge gens to.
-            existing_dem: Existing demand_array to append charge demands to.
-            output_dir: Base output directory (Demand/ sub-dir used for parquet).
+            existing_gen: Generator array from CentralWriter to append to.
+            existing_dem: Demand array from DemandWriter to append to.
+            output_dir: Base output directory (Demand/ sub-dir for parquet).
 
         Returns:
-            Dict with keys: battery_array, converter_array, and updated
-            generator_array and demand_array.
+            Dict with battery_array, converter_array, updated generator_array
+            and demand_array.
         """
         entries = self._all_entries()
         if not entries:
@@ -326,18 +337,13 @@ class BessWriter(BaseWriter):
                 "demand_array": existing_dem,
             }
 
-        battery_array = self.to_battery_array(entries)
-        new_gens = self.to_generator_array(entries)
-        new_dems = self.to_demand_array(entries)
-        converter_array = self.to_converter_array(entries)
-
         demand_dir = output_dir / "Demand"
         demand_dir.mkdir(parents=True, exist_ok=True)
         self._write_lmax_parquet(entries, demand_dir)
 
         return {
-            "battery_array": battery_array,
-            "converter_array": converter_array,
-            "generator_array": existing_gen + new_gens,
-            "demand_array": existing_dem + new_dems,
+            "battery_array": self.to_battery_array(entries),
+            "converter_array": self.to_converter_array(entries),
+            "generator_array": existing_gen + self.to_generator_array(entries),
+            "demand_array": existing_dem + self.to_demand_array(entries),
         }

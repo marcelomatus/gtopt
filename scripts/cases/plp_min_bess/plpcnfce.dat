@@ -1,6 +1,6 @@
-# Archivo de configuracion de las centrales (plpcnfce.dat)
+# Arquivo de configuracion de las centrales (plpcnfce.dat)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
-     2            0           0         1          0            0
+     3            0           0         1          0            1
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
   F      F        F            F          00
 # Centrales de Embalse
@@ -15,9 +15,18 @@
              0.0    0.0 F       0
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
             50.0  1.000      1      0      0    0.0  0000.0
+# Baterias
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz
+    2 'BESS1'                                         1    F       F       F       F
+          PotMin PotMax VertMin VertMax
+             0.0   50.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+             0.0  1.000      1      0      0    0.0  0000.0
 # Fallas
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
-    2 'Falla1'                                        1    F       F       F       F
+    3 'Falla1'                                        1    F       F       F       F
           PotMin PotMax VertMin VertMax
              0.0 9999.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff

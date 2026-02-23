@@ -228,21 +228,30 @@ class GTOptWriter:
         """Process BESS/ESS data and append to existing arrays."""
         bess_parser = self.parser.parsed_data.get("bess_parser", None)
         ess_parser = self.parser.parsed_data.get("ess_parser", None)
-        if bess_parser is None and ess_parser is None:
+        centrals = self.parser.parsed_data.get("central_parser", None)
+
+        # Proceed if any storage source is available
+        has_bat = centrals and any(
+            c.get("type") == "bateria" for c in centrals.centrals
+        )
+        if bess_parser is None and ess_parser is None and not has_bat:
             return
 
         stages = self.parser.parsed_data.get("stage_parser", None)
         buses = self.parser.parsed_data.get("bus_parser", None)
         manbess = self.parser.parsed_data.get("manbess_parser", None)
+        maness = self.parser.parsed_data.get("maness_parser", None)
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
 
         writer = BessWriter(
             bess_parser=bess_parser,
             ess_parser=ess_parser,
+            central_parser=centrals,
             bus_parser=buses,
             stage_parser=stages,
             manbess_parser=manbess,
+            maness_parser=maness,
             options=options,
         )
 
