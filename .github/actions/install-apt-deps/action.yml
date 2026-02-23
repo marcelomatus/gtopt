@@ -19,9 +19,13 @@ runs:
     - name: install base packages (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
-        version: 1.0
+        packages: coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
+        version: 1.1
         execute_install_scripts: true
+
+    - name: ensure LAPACK runtime is present
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends liblapack3 libblas3
 
     - name: add Apache Arrow APT repository
       shell: bash
