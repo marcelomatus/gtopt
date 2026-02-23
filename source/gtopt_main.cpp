@@ -114,7 +114,8 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     }
   }
 
-  spdlog::info(std::format("parsing all json files {}s", sw.elapsed().count()));
+  spdlog::info(
+      std::format("parsing all json files {:.3f}s", sw.elapsed().count()));
   return my_planning;
 }
 
@@ -161,7 +162,7 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
   }
 
   spdlog::info(
-      std::format("writing system json file {}s", sw.elapsed().count()));
+      std::format("writing system json file {:.3f}s", sw.elapsed().count()));
   return {};
 }
 
@@ -220,18 +221,18 @@ void log_pre_solve_stats(const Planning& planning)
 /**
  * @brief Log post-solve solution statistics.
  *
+ * Solve time is already printed unconditionally as "planning {:.3f}s" and
+ * scale_objective is already printed in log_pre_solve_stats, so neither is
+ * repeated here.
+ *
  * @param planning_lp  The solved PlanningLP model.
- * @param solve_elapsed Wall-clock seconds spent in the solver.
  * @param optimal      True when the solver returned an optimal solution.
  */
-void log_post_solve_stats(const PlanningLP& planning_lp,
-                          double solve_elapsed,
-                          bool optimal)
+void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 {
   spdlog::info("=== Solution statistics ===");
   spdlog::info(std::format("  Status          : {}",
                            optimal ? "optimal" : "non-optimal"));
-  spdlog::info(std::format("  Solve time      : {:.3f}s", solve_elapsed));
 
   if (optimal && !planning_lp.systems().empty()
       && !planning_lp.systems().front().empty())
@@ -246,7 +247,6 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
     spdlog::info(std::format("  LP constraints  : {}", lp_if.get_numrows()));
     spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
     spdlog::info(std::format("  Obj (unscaled)  : {:.6g}", obj_unscaled));
-    spdlog::info(std::format("  scale_objective : {:.6g}", scale));
     spdlog::info(std::format("  Solver kappa    : {:.6g}", lp_if.get_kappa()));
   }
 }
@@ -315,7 +315,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
       const spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
-      spdlog::info(std::format("creating lp {}s", sw.elapsed().count()));
+      spdlog::info(std::format("creating lp {:.3f}s", sw.elapsed().count()));
 
       if (opts.lp_file) {
         try {
@@ -342,7 +342,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
         auto result = planning_lp.resolve(solver_opts);
         solve_elapsed =
             std::chrono::duration<double>(solve_sw.elapsed()).count();
-        spdlog::info(std::format("planning  {:.3f}s", solve_elapsed));
+        spdlog::info(std::format("planning {:.3f}s", solve_elapsed));
 
         optimal = result.has_value();
 
@@ -376,7 +376,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
       }
 
       if (do_stats) {
-        log_post_solve_stats(planning_lp, solve_elapsed, optimal);
+        log_post_solve_stats(planning_lp, optimal);
       }
 
       if (optimal) {
@@ -390,7 +390,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp,
         }
 
         spdlog::info(
-            std::format("writing output  {}s", out_sw.elapsed().count()));
+            std::format("writing output {:.3f}s", out_sw.elapsed().count()));
       }
 
       return optimal ? 0 : 1;
