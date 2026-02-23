@@ -5,37 +5,47 @@ Scripts
 CMake configuration for installing and testing the gtopt Python scripts:
 cvs2parquet, igtopt, and plp2gtopt.
 
-The scripts are packaged as a standard Python project (pyproject.toml at the
-repository root) so the usual ``pip install`` workflow applies.
+The scripts/ directory is a self-contained Python package with its own
+``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
+the usual pip workflows all work without touching the repository root:
+
+  pip install ./scripts                 # production install (from repo root)
+  pip install -e ./scripts              # editable install (from repo root)
+  pip install -r scripts/requirements.txt            # deps only
+  pip install -r scripts/requirements-dev.txt        # deps + dev/test tools
 
 Build targets
 ^^^^^^^^^^^^^
 
+``scripts-pip-requirements``
+  Install only the runtime dependencies from ``scripts/requirements.txt``
+  into the active Python environment.
+
 ``scripts-install``
-  Installs the Python package (all three scripts + their dependencies) into
-  the active Python environment using ``pip install -e .[dev]``.
+  Editable install of the package together with all dev/test dependencies
+  (equivalent to ``pip install -e scripts/[dev]``).
 
 ``scripts-test``
-  Runs the plp2gtopt unit-test suite with pytest.
+  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt) with pytest.
 
 ``scripts-test-integration``
-  Runs the integration tests (marked ``integration``) using the sample PLP
+  Run the integration tests (marked ``integration``) using the sample PLP
   cases in ``scripts/cases/``.
 
 ``scripts-coverage``
-  Runs unit + integration tests and generates an HTML coverage report under
-  ``scripts-coverage-report/``.
+  Run unit + integration tests and generate an HTML coverage report under
+  ``<build>/scripts-coverage-report/``.
 
 Installation
 ^^^^^^^^^^^^
 
-To install the scripts system-wide::
+To install the scripts system-wide alongside the gtopt binary::
 
   cmake -S scripts -B build-scripts
   cmake --install build-scripts --prefix /usr/local
 
-This installs the three console scripts (``cvs2parquet``, ``igtopt``,
-``plp2gtopt``) to ``bin/`` via pip.
+This registers the three console scripts (``cvs2parquet``, ``igtopt``,
+``plp2gtopt``) in ``<prefix>/bin/`` via pip.
 
 #]=======================================================================]
 
@@ -57,25 +67,36 @@ if(NOT _py_ver_ok EQUAL 0)
   message(FATAL_ERROR "Python 3.8 or later is required. Found: ${PYTHON_EXECUTABLE}")
 endif()
 
-# Root of the repository (one level above this scripts/ directory)
-get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+# scripts/ is the self-contained package root (has its own pyproject.toml)
+set(SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# ---- Install target ----
+# ---- Install runtime deps from requirements.txt ----
+
+add_custom_target(scripts-pip-requirements
+  COMMAND ${PYTHON_EXECUTABLE} -m pip install
+    -r "${SCRIPTS_DIR}/requirements.txt"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Installing gtopt script runtime dependencies from requirements.txt"
+)
+
+# ---- Editable install (dev) ----
 
 add_custom_target(scripts-install
-  COMMAND ${PYTHON_EXECUTABLE} -m pip install -e "${REPO_ROOT}[dev]"
-  WORKING_DIRECTORY "${REPO_ROOT}"
-  COMMENT "Installing gtopt Python scripts and dev dependencies"
+  COMMAND ${PYTHON_EXECUTABLE} -m pip install -e "${SCRIPTS_DIR}[dev]"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Installing gtopt Python scripts in editable mode with dev dependencies"
 )
 
 # ---- Unit tests ----
 
 add_custom_target(scripts-test
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests"
-    -v --ignore="${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests/test_integration.py"
-  WORKING_DIRECTORY "${REPO_ROOT}"
-  COMMENT "Running plp2gtopt unit tests"
+    "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/igtopt/tests"
+    "${SCRIPTS_DIR}/plp2gtopt/tests"
+    -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Running gtopt script unit tests"
   DEPENDS scripts-install
 )
 
@@ -83,9 +104,9 @@ add_custom_target(scripts-test
 
 add_custom_target(scripts-test-integration
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests/test_integration.py"
+    "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
     -v -m integration
-  WORKING_DIRECTORY "${REPO_ROOT}"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running plp2gtopt integration tests"
   DEPENDS scripts-install
 )
@@ -94,14 +115,16 @@ add_custom_target(scripts-test-integration
 
 add_custom_target(scripts-coverage
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests"
+    "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/igtopt/tests"
+    "${SCRIPTS_DIR}/plp2gtopt/tests"
     -v
-    --cov="${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt"
-    --cov="${CMAKE_CURRENT_SOURCE_DIR}/igtopt"
-    --cov="${CMAKE_CURRENT_SOURCE_DIR}/cvs2parquet"
+    --cov="${SCRIPTS_DIR}/cvs2parquet"
+    --cov="${SCRIPTS_DIR}/igtopt"
+    --cov="${SCRIPTS_DIR}/plp2gtopt"
     --cov-report=html:${CMAKE_BINARY_DIR}/scripts-coverage-report
     --cov-report=term-missing
-  WORKING_DIRECTORY "${REPO_ROOT}"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running tests and generating coverage report"
   DEPENDS scripts-install
 )
@@ -113,17 +136,19 @@ enable_testing()
 add_test(
   NAME scripts-unit-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests"
-    -v --ignore="${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests/test_integration.py"
-  WORKING_DIRECTORY "${REPO_ROOT}"
+    "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/igtopt/tests"
+    "${SCRIPTS_DIR}/plp2gtopt/tests"
+    -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
 add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${CMAKE_CURRENT_SOURCE_DIR}/plp2gtopt/tests/test_integration.py"
+    "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
     -v -m integration
-  WORKING_DIRECTORY "${REPO_ROOT}"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
 # ---- Install ----
@@ -133,7 +158,7 @@ install(CODE "
   execute_process(
     COMMAND ${PYTHON_EXECUTABLE} -m pip install
       --prefix \"\${CMAKE_INSTALL_PREFIX}\"
-      \"${REPO_ROOT}\"
+      \"${SCRIPTS_DIR}\"
     RESULT_VARIABLE _pip_rc
   )
   if(NOT _pip_rc EQUAL 0)
