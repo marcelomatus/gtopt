@@ -163,21 +163,22 @@ def test_to_dataframe_with_scenarios(tmp_path):
     from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
-    # 1 central, 2 hydologies, 3 blocks per stage
+    # 1 central, 2 hydrologies, 3 blocks per stage
+    # Format: Mes Block flow_hyd1 flow_hyd2  (4 fields per line)
     aflce_f.write_text(
         "# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)\n"
         "  1                                         2\n"
         "# Nombre de la central\n"
         "'FLOWGEN'\n"
         "3\n"
-        "   001   10.0   20.0\n"
-        "   002   10.0   20.0\n"
-        "   003   10.0   20.0\n"
+        "   01   001   10.0   20.0\n"
+        "   01   002   10.0   20.0\n"
+        "   01   003   10.0   20.0\n"
     )
     aflce_parser = AflceParser(aflce_f)
     aflce_parser.parse()
 
-    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=10.0)
+    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=0.0)
     block_parser = _make_block_parser(tmp_path, 3)
     scenarios = [{"uid": 1, "hydrology": 0}, {"uid": 2, "hydrology": 1}]
 
@@ -201,19 +202,20 @@ def test_to_parquet_with_scenarios(tmp_path):
     from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
+    # Format: Mes Block flow_hyd1  (3 fields per line for 1 hydrology)
     aflce_f.write_text(
         "# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)\n"
         "  1                                         1\n"
         "# Nombre de la central\n"
         "'FLOWGEN'\n"
         "2\n"
-        "   001   15.0\n"
-        "   002   15.0\n"
+        "   01   001   15.0\n"
+        "   01   002   15.0\n"
     )
     aflce_parser = AflceParser(aflce_f)
     aflce_parser.parse()
 
-    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=15.0)
+    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=0.0)
     block_parser = _make_block_parser(tmp_path, 2)
     scenarios = [{"uid": 1, "hydrology": 0}]
 
@@ -239,13 +241,16 @@ def test_to_dataframe_no_scenarios(tmp_path):
         "  1                                         1\n"
         "'FLOWGEN'\n"
         "1\n"
-        "   001   10.0\n"
+        "   01   001   10.0\n"
     )
     aflce_parser = AflceParser(aflce_f)
     aflce_parser.parse()
 
-    # No scenarios → to_dataframe should return empty or []
+    # No scenarios → to_dataframe should return empty result (list or empty DataFrame)
     writer = AflceWriter(aflce_parser, scenarios=[])
     result = writer.to_dataframe()
-    # result is either an empty DataFrame or empty list
-    assert not result if hasattr(result, "__len__") else True
+    # AflceWriter returns [] (empty list) when there are no scenarios
+    if isinstance(result, list):
+        assert result == []
+    else:
+        assert result.empty
