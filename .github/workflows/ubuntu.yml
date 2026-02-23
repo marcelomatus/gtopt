@@ -99,12 +99,9 @@ jobs:
       # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
       - name: setup gcc
         if: env.ACTIVE_COMPILER == 'gcc'
-        run: |
-          sudo apt-get install -y --no-install-recommends gcc-14 g++-14
-          sudo update-alternatives --install /usr/bin/gcc  gcc  /usr/bin/gcc-14  100
-          sudo update-alternatives --install /usr/bin/g++  g++  /usr/bin/g++-14  100
-          sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-14 100
-          gcc-14 --version && g++-14 --version && gcov-14 --version
+        uses: ./.github/actions/install-gcc
+        with:
+          version: 14
 
       - name: install clang
         if: env.ACTIVE_COMPILER == 'clang'
