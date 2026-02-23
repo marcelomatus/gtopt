@@ -1,0 +1,147 @@
+name: Scripts
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/scripts.yml"
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/scripts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Cache pip's HTTP cache to avoid re-downloading wheels on every run.
+      # The cache key includes the OS, Python version, and the dependency
+      # specification so it is invalidated whenever pyproject.toml changes.
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest scripts/plp2gtopt/tests \
+            --ignore=scripts/plp2gtopt/tests/test_integration.py \
+            -v \
+            --cov=scripts/plp2gtopt \
+            --cov=scripts/igtopt \
+            --cov=scripts/cvs2parquet \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-xml
+          path: coverage.xml
+          retention-days: 30
+
+      - name: Generate coverage summary
+        run: |
+          python - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+          tree = ET.parse("coverage.xml")
+          root = tree.getroot()
+          line_rate = float(root.get("line-rate", 0)) * 100
+          branch_rate = float(root.get("branch-rate", 0)) * 100
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+          with open(summary_file, "a") as f:
+              f.write("## Python Scripts Coverage\n\n")
+              f.write("| Metric | Coverage |\n|--------|----------|\n")
+              f.write(f"| Lines  | {line_rate:.1f}% |\n")
+              f.write(f"| Branches | {branch_rate:.1f}% |\n")
+          EOF
+
+  integration:
+    runs-on: ubuntu-latest
+    name: integration-tests
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run integration tests
+        run: |
+          pytest scripts/plp2gtopt/tests/test_integration.py \
+            -v -m integration
+
+  lint:
+    runs-on: ubuntu-latest
+    name: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-lint-
+
+      - name: Install dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: ruff
+        run: ruff check scripts/
+
+      - name: black (check only)
+        run: black --check scripts/

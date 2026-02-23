@@ -149,7 +149,7 @@ def df_to_str(df, skip_nulls=True):
     )
 
 
-def main(args) -> int:
+def _run(args) -> int:
     options = {}
     options["input_directory"] = str(args.input_directory)
     options["input_format"] = args.input_format
@@ -237,7 +237,8 @@ def main(args) -> int:
     return 0
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI entry point: parse arguments and run igtopt conversion."""
     try:
         parser = argparse.ArgumentParser(
             description=description, formatter_class=argparse.RawTextHelpFormatter
@@ -324,9 +325,13 @@ if __name__ == "__main__":
             args.name = pathlib.Path(args.filenames[0]).stem
             logging.info("using system name %s", args.name)
 
-        result = main(args)
+        result = _run(args)
     except (IOError, ValueError, argparse.ArgumentError) as e:
         logging.error("unexpected error: %s", str(e))
         sys.exit(1)
 
     sys.exit(result)
+
+
+if __name__ == "__main__":
+    main()
