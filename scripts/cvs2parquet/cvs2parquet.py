@@ -1,4 +1,8 @@
-"""cvs2parquet script."""
+"""cvs2parquet – Convert CSV files to Apache Parquet format."""
+
+import argparse
+import sys
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -45,18 +49,41 @@ def csv_to_parquet_with_schema(csv_file_path, parquet_file_path):
     print(f"Schema: {table.schema}")
 
 
-# Usage examples
+def main():
+    """CLI entry point: convert one or more CSV files to Parquet."""
+    parser = argparse.ArgumentParser(
+        description="Convert CSV files to Apache Parquet format"
+    )
+    parser.add_argument(
+        "input",
+        nargs="+",
+        help="CSV file(s) to convert",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="output Parquet file path (only valid with a single input file)",
+    )
+    parser.add_argument(
+        "--schema",
+        action="store_true",
+        default=False,
+        help="use explicit PyArrow schema (stage:int32, block:int32, g1:float64)",
+    )
+    args = parser.parse_args()
+
+    if args.output and len(args.input) > 1:
+        parser.error("--output can only be used with a single input file")
+
+    for csv_path in args.input:
+        out_path = args.output if args.output else str(Path(csv_path).with_suffix(".parquet"))
+        if args.schema:
+            csv_to_parquet_with_schema(csv_path, out_path)
+        else:
+            csv_to_parquet(csv_path, out_path)
+
+    return 0
+
+
 if __name__ == "__main__":
-    # Method 1: Using pandas
-    csv_to_parquet("input_data.csv", "output_data.parquet")
-
-    # Method 2: Using PyArrow with explicit schema
-    # csv_to_parquet_with_schema('input_data.csv', 'output_data.parquet')
-
-    # Verify the conversion
-    df_check = pd.read_parquet("output_data.parquet")
-    print("\nVerification:")
-    print(f"Shape: {df_check.shape}")
-    print(f"Data types:\n{df_check.dtypes}")
-    print(f"First 5 rows:\n{df_check.head()}")
-    print(f"First 5 rows:\n{df_check.head()}")
+    sys.exit(main())
