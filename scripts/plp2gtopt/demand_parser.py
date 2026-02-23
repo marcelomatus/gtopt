@@ -7,6 +7,7 @@ Handles:
 - Demand data structure creation
 - Bus demand lookup
 """
+
 from typing import Any, Optional
 
 import numpy as np
@@ -60,7 +61,7 @@ class DemandParser(BaseParser):
                     idx = self._next_idx(idx, lines)
                     parts = lines[idx].split()
                     if len(parts) < 3:
-                        raise ValueError(f"Invalid demand entry at line {idx+1}")
+                        raise ValueError(f"Invalid demand entry at line {idx + 1}")
 
                     blocks[i] = self._parse_int(parts[1])  # Block number
                     values[i] = self._parse_float(parts[2])  # Demand value

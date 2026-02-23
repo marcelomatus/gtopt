@@ -51,9 +51,9 @@ def test_to_json_array(sample_extrac_writer):
     for extrac in json_extracs:
         for field, field_type in required_fields.items():
             assert field in extrac, f"Missing field: {field}"
-            assert isinstance(
-                extrac[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(extrac[field])}"
+            assert isinstance(extrac[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(extrac[field])}"
+            )
 
 
 def test_write_to_file(sample_extrac_writer):
@@ -85,9 +85,9 @@ def test_json_output_structure(sample_extrac_writer):
         # Check all required fields exist and have correct types
         assert set(extrac.keys()) == set(REQUIRED_FIELDS.keys())
         for field, field_type in REQUIRED_FIELDS.items():
-            assert isinstance(
-                extrac[field], field_type
-            ), f"Field {field} should be {field_type}, got {type(extrac[field])}"
+            assert isinstance(extrac[field], field_type), (
+                f"Field {field} should be {field_type}, got {type(extrac[field])}"
+            )
 
         # Additional value checks
         assert len(extrac["name"]) > 0, "Name should not be empty"

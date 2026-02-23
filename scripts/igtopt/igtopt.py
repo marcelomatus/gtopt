@@ -15,6 +15,16 @@ import pandas as pd
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+    try:
+        __version__ = _pkg_version("gtopt-scripts")
+    except PackageNotFoundError:
+        __version__ = "dev"
+except ImportError:
+    __version__ = "dev"
+
 expected_sheets = [
     "options",
     "scenario_array",
@@ -51,6 +61,8 @@ pretty_separators = separators = (", ", ": ")
 json_indent = compact_indent
 json_separators = compact_separators
 
+_LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
 
 def split_in_columns(my_list):
     columns = 3
@@ -58,19 +70,39 @@ def split_in_columns(my_list):
     for first, second, third in zip_longest(
         my_list[0::columns], my_list[1::columns], my_list[2::columns], fillvalue=""
     ):
-        result.append(f"  {first: <20}{second: <20}{third}")
+        result.append(f"  {first:<26}{second:<26}{third}")
     return "\n".join(result)
 
 
-description = f"""
-converts an Excel file to the Fesopp input files.
+_DESCRIPTION = f"""\
+Convert an Excel workbook to gtopt JSON input files.
 
 Key features:
-- Sheets/columns starting with "." (like ".calc") are ignored
-- Sheets containing "@" (like "demand@lmax") are saved directly to input directory
-- Basic expected sheets:
+  - Sheets/columns whose name starts with "." (e.g. ".calc") are skipped
+  - Sheets whose name contains "@" (e.g. "Demand@lmax") are written as
+    time-series data files directly to the input directory
+  - The "options" sheet populates the JSON options block
+  - All other sheets become JSON arrays in the output file
 
-{split_in_columns(expected_sheets)}
+Expected sheet names:
+{split_in_columns(expected_sheets)}"""
+
+_EPILOG = """
+examples:
+  # Basic conversion – output file and input directory derived from workbook name
+  igtopt system_c0.xlsx
+
+  # Explicit output JSON and input-data directory
+  igtopt system.xlsx -j /tmp/system.json -d /tmp/system_input
+
+  # Pretty-printed JSON, skip null values, parquet output
+  igtopt system.xlsx --pretty --skip-nulls -f parquet
+
+  # Convert multiple workbooks in one run
+  igtopt case_a.xlsx case_b.xlsx -d /data/input
+
+  # Show debug log messages
+  igtopt system.xlsx -l DEBUG
 """
 
 
@@ -128,7 +160,7 @@ def df_to_str(df, skip_nulls=True):
         types["name"] = str
     for c in ["uid", "active"]:
         if c in df.columns:
-            types[c] = np.integer
+            types[c] = np.int64
     df = df.astype(types)
 
     if skip_nulls:
@@ -149,7 +181,7 @@ def df_to_str(df, skip_nulls=True):
     )
 
 
-def main(args) -> int:
+def _run(args) -> int:
     options = {}
     options["input_directory"] = str(args.input_directory)
     options["input_format"] = args.input_format
@@ -222,13 +254,12 @@ def main(args) -> int:
         # close the json_file
         if options:
             json_file.write(
-                ',"options":%s\n',
-                json.dumps(options, indent=json_indent, separators=json_separators),
+                f',"options":{json.dumps(options, indent=json_indent, separators=json_separators)}\n'
             )
 
         json_file.write("}\n")
         json_file.close()
-        logging.info("Fesopp input file %s was successfully generated", str(json_path))
+        logging.info("gtopt input file %s was successfully generated", str(json_path))
     else:
         logging.warning(
             "no valid data was found, the file %s was not generated", str(json_path)
@@ -237,78 +268,118 @@ def main(args) -> int:
     return 0
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI entry point: parse arguments and run igtopt conversion."""
     try:
         parser = argparse.ArgumentParser(
-            description=description, formatter_class=argparse.RawTextHelpFormatter
+            prog="igtopt",
+            description=_DESCRIPTION,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=_EPILOG,
         )
         parser.add_argument(
             dest="filenames",
             nargs="+",
-            help="Excel filenames to convert in to Fesopp input data",
+            metavar="XLSX",
+            help="Excel workbook(s) to convert to gtopt input data",
         )
         parser.add_argument(
             "-j",
             "--json-file",
             type=pathlib.Path,
-            help="json file used as Fesopp input",
+            metavar="FILE",
+            help=(
+                "output JSON file (default: <first workbook stem>.json in the "
+                "current directory)"
+            ),
         )
         parser.add_argument(
             "-d",
             "--input-directory",
             type=pathlib.Path,
-            help="input directory where time series data is stored",
+            metavar="DIR",
+            help=(
+                "directory for time-series data files written from '@'-sheets "
+                "(default: <first workbook stem>/)"
+            ),
         )
         parser.add_argument(
             "-f",
             "--input-format",
             choices=["csv", "parquet"],
             default="parquet",
-            help="file format for the time series data files",
+            help="file format for time-series data files (default: %(default)s)",
         )
-        parser.add_argument("-n", "--name", help="system name")
+        parser.add_argument(
+            "-n",
+            "--name",
+            metavar="NAME",
+            help=(
+                "system name written to the JSON output "
+                "(default: <first workbook stem>)"
+            ),
+        )
         parser.add_argument(
             "-c",
             "--compression",
             default="gzip",
-            help="compression type used in parquet files",
+            metavar="ALG",
+            help=(
+                "compression algorithm for Parquet output files "
+                "(default: %(default)s); pass '' to disable compression"
+            ),
         )
         parser.add_argument(
             "-p",
             "--pretty",
             action=argparse.BooleanOptionalAction,
             default=False,
-            help="use pretty json format",
+            help="write JSON with indented pretty-print formatting (default: compact)",
         )
         parser.add_argument(
             "-N",
             "--skip-nulls",
             action=argparse.BooleanOptionalAction,
             default=False,
-            help="skip null values in the json file",
+            help="omit keys with null/NaN values from the JSON output (default: include)",
         )
         parser.add_argument(
             "-U",
             "--parse-unexpected-sheets",
             action=argparse.BooleanOptionalAction,
             default=False,
-            help="parse unexpected sheets",
+            help=(
+                "also process sheets whose names are not in the expected list "
+                "(default: warn and skip)"
+            ),
         )
         parser.add_argument(
             "-l",
             "--log-level",
-            default=logging.INFO,
-            type=lambda x: getattr(logging, x),
-            help="configure the logging level to use",
+            default="INFO",
+            choices=_LOG_LEVEL_CHOICES,
+            metavar="LEVEL",
+            help=(
+                "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
+                "(default: %(default)s)"
+            ),
+        )
+        parser.add_argument(
+            "-V",
+            "--version",
+            action="version",
+            version=f"%(prog)s {__version__}",
         )
 
         args = parser.parse_args()
 
         logging.basicConfig(
-            level=args.log_level, format="%(asctime)s %(levelname)s %(message)s"
+            level=getattr(logging, args.log_level),
+            format="%(asctime)s %(levelname)s %(message)s",
         )
 
         if args.pretty:
+            global json_indent, json_separators  # noqa: PLW0603
             json_indent = pretty_indent
             json_separators = pretty_separators
 
@@ -324,9 +395,13 @@ if __name__ == "__main__":
             args.name = pathlib.Path(args.filenames[0]).stem
             logging.info("using system name %s", args.name)
 
-        result = main(args)
+        result = _run(args)
     except (IOError, ValueError, argparse.ArgumentError) as e:
         logging.error("unexpected error: %s", str(e))
         sys.exit(1)
 
     sys.exit(result)
+
+
+if __name__ == "__main__":
+    main()

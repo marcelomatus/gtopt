@@ -17,7 +17,7 @@ permissions:
 jobs:
   check-format:
     # Skip the auto-format fixup commit so it doesn't trigger a redundant check
-    if: "!contains(github.event.head_commit.message, 'style: auto-apply clang-format')"
+    if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
     runs-on: ubuntu-latest
 
     steps:
@@ -83,3 +83,53 @@ jobs:
           fi
           # Always exit 0 — violations are warnings, not errors
           exit 0
+
+  check-python-format:
+    # Skip the auto-format fixup commit so it doesn't trigger a redundant check
+    if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-ruff-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-ruff-
+
+      - name: Install ruff
+        run: pip install "ruff>=0.4.0"
+
+      - name: check Python format (ruff format)
+        # Like clang-format, ruff format violations are warnings only — the
+        # Auto-format workflow will push a fixup commit automatically.
+        run: |
+          set +e
+          RUFF_OUT=$(ruff format --check scripts/ 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$RUFF_OUT"
+            echo "::warning title=ruff-format::Some Python files need formatting. The Auto-format workflow will push a fix automatically. To fix locally run: ruff format scripts/"
+
+            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
+            echo "## ⚠️ ruff format: $N file(s) need reformatting" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The **Auto-format** workflow will push a fixup commit automatically." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To fix locally: \`ruff format scripts/\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ ruff format: no violations" >> $GITHUB_STEP_SUMMARY
+          fi
+          # Always exit 0 — violations are warnings, not errors
+          exit 0
+

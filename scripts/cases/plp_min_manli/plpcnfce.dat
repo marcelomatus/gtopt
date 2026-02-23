@@ -1,0 +1,33 @@
+# Archivo de configuracion de las centrales (plpcnfce.dat)
+# Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
+     3            0           0         1          0            0
+# Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
+  F      F        F            F          00
+# Centrales de Embalse
+# Centrales Pasada Serie
+# Centrales Pasada Pura
+# Centrales Termicas y de Falla
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz
+    1 'Thermal1'                                       1    F       F       F       F
+          PotMin PotMax VertMin VertMax
+             0.0  200.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+            30.0  1.000      1      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz
+    2 'Thermal2'                                       1    F       F       F       F
+          PotMin PotMax VertMin VertMax
+             0.0  100.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+            60.0  1.000      2      0      0    0.0  0000.0
+                                                  IPot MinTec  Inter   FCAD    Cen_MTTdHrz
+    3 'Falla1'                                        1    F       F       F       F
+          PotMin PotMax VertMin VertMax
+             0.0 9999.0   000.0   000.0
+           Start   Stop ON(t<0) NEta_OnOff
+             0.0    0.0 F       0
+          CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
+          9999.0  1.000      1      0      0    0.0  0000.0

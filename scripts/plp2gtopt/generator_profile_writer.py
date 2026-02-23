@@ -53,7 +53,7 @@ class GeneratorProfileWriter(BaseWriter):
         """Convert central data to JSON array format."""
         if items is None:
             items = (
-                self.central_parser.centrals_of_type["pasada"]
+                self.central_parser.centrals_of_type.get("pasada", [])
                 if self.central_parser
                 else []
             )

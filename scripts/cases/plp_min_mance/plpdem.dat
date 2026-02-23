@@ -1,0 +1,10 @@
+# Archivo de demandas por barra (plpdem.dat)
+# Numero de barras
+1
+# Nombre de la Barra
+'Bus1'
+# Numero de Demandas
+2
+# Mes  Bloque   Demanda
+   01    001     80.0
+   01    002     80.0

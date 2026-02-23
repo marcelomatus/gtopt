@@ -1,0 +1,6 @@
+# Archivo con definicion de Barras (plpbar.dat)
+# Numero de Barras
+     2
+# Numero       Nombre
+       1       'Bus1'
+       2       'Bus2'

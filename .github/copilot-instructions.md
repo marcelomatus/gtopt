@@ -384,25 +384,198 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 | Type checker | `mypy` |
 | Test framework | `pytest` |
 | Dependencies | `guiservice/requirements.txt`: flask, pandas, pyarrow, requests |
+| Scripts deps | `scripts/requirements.txt` (runtime), `scripts/requirements-dev.txt` (dev+test) |
 
 ```bash
-# Install Python dev dependencies
-pip install -e ".[dev]"      # from pyproject.toml
+# ---- guiservice ----
+pip install -e ".[dev]"      # from root pyproject.toml (guiservice only)
 
-# Format
-black .
-isort .
+# ---- scripts sub-package (self-contained) ----
+pip install -e scripts/      # production install (editable)
+pip install -e "scripts/[dev]"  # with dev/test tools
+pip install -r scripts/requirements.txt       # runtime deps only
+pip install -r scripts/requirements-dev.txt   # dev+test deps
 
-# Lint
-ruff check .
-pylint scripts/ guiservice/
+# Format (scripts/)
+python -m black scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+
+# Check format without modifying
+python -m black --check scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+
+# Lint (run from scripts/ directory)
+cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
 
 # Type check
-mypy scripts/ guiservice/
+cd scripts && python -m mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
 
-# Run Python tests
-pytest
+# Run all script tests (from scripts/ directory)
+cd scripts && python -m pytest
+
+# Run with coverage
+cd scripts && python -m pytest \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+  --cov-report=term-missing
 ```
+
+---
+
+## Python Scripts Sub-Package (`scripts/`)
+
+The three command-line programs (`cvs2parquet`, `igtopt`, `plp2gtopt`) live under
+`scripts/` as a **self-contained Python package** with its own `pyproject.toml`,
+`requirements.txt`, and `requirements-dev.txt`.  They are **independent of the
+repository root** `pyproject.toml`.
+
+### Directory layout
+
+```
+scripts/
+├── pyproject.toml          ← package declaration + tool config (black/pylint/mypy/pytest)
+├── requirements.txt        ← runtime: numpy, pandas, pyarrow, openpyxl
+├── requirements-dev.txt    ← dev+test: -r requirements.txt + pytest, pylint, black, …
+├── CMakeLists.txt          ← CMake targets (see below)
+├── cvs2parquet/            ← CSV → Parquet converter
+│   ├── __init__.py
+│   ├── cvs2parquet.py      ← main() entry point
+│   └── tests/
+├── igtopt/                 ← Excel → gtopt JSON converter
+│   ├── __init__.py
+│   ├── igtopt.py           ← main() entry point
+│   └── tests/
+├── plp2gtopt/              ← PLP → gtopt JSON converter
+│   ├── __init__.py
+│   ├── main.py             ← CLI entry point (calls convert_plp_case)
+│   ├── plp2gtopt.py        ← convert_plp_case() orchestrator
+│   ├── plp_parser.py       ← PLPParser (parses all .dat files)
+│   ├── *_parser.py         ← individual file parsers
+│   ├── *_writer.py         ← individual JSON/Parquet writers
+│   └── tests/
+└── cases/                  ← sample input cases for integration tests
+    ├── plp_dat_ex/         ← full PLP example (all .dat files)
+    ├── plp_min_1bus/       ← minimal 1-bus PLP case
+    ├── plp_min_bess/       ← minimal BESS case (plpbess.dat + plpess.dat)
+    ├── igtopt_c0/          ← Excel workbook for igtopt integration test
+    └── json_c0/            ← reference JSON output for igtopt
+```
+
+### Install from repo root
+
+```bash
+# Production (registers cvs2parquet, igtopt, plp2gtopt on PATH)
+pip install ./scripts
+
+# Editable (changes to source take effect immediately)
+pip install -e ./scripts
+
+# With dev/test dependencies
+pip install -e "./scripts[dev]"
+
+# Runtime deps only (no pip install needed)
+pip install -r scripts/requirements.txt
+```
+
+### CMake targets (via `cmake -S scripts -B build-scripts`)
+
+| Target | Command | CTest? |
+|--------|---------|--------|
+| `scripts-pip-requirements` | `pip install -r requirements.txt` | — |
+| `scripts-install` | `pip install -e scripts/[dev]` | — |
+| `scripts-format` | `black` in-place | — |
+| `scripts-check-format` | `black --check` | ✓ |
+| `scripts-lint` | `pylint cvs2parquet igtopt plp2gtopt` | ✓ |
+| `scripts-mypy` | `mypy … --ignore-missing-imports` | ✓ |
+| `scripts-test` | `pytest` (unit tests only) | ✓ |
+| `scripts-test-integration` | `pytest -m integration` | ✓ |
+| `scripts-coverage` | `pytest --cov … --cov-report=html` | — |
+
+System-wide install alongside the `gtopt` binary:
+
+```bash
+cmake -S scripts -B build-scripts
+cmake --install build-scripts --prefix /usr/local
+# → installs cvs2parquet, igtopt, plp2gtopt into /usr/local/bin/
+```
+
+### Running tests quickly (no CMake needed)
+
+```bash
+cd scripts
+
+# All unit tests (< 2 s)
+python -m pytest -q
+
+# Single package
+python -m pytest cvs2parquet/tests -q
+python -m pytest igtopt/tests -q
+python -m pytest plp2gtopt/tests -q
+
+# Integration tests only (marked; uses cases/ fixtures)
+python -m pytest -m integration -q
+
+# With coverage + missing-line report
+python -m pytest \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+  --cov-report=term-missing -q
+
+# Run a single test by name
+python -m pytest -k "test_parse_single_bess" -q
+```
+
+### Coverage baseline (202/202 tests · 83.4% total)
+
+| Module | Coverage | Priority |
+|--------|---------|---------|
+| `bus_writer`, `extrac_*` | 100% | — |
+| `bess_writer`, `block_writer`, `line_writer` | 94–98% | — |
+| `central_parser`, `gtopt_writer`, `junction_writer` | 91–96% | — |
+| `mance_writer`, `manem_writer`, `manli_writer` | 66–74% | Medium |
+| `base_writer` | 53% | Medium |
+| `generator_profile_writer` | 57% | Medium |
+| `cvs2parquet/cvs2parquet.py` | 64% | High – CLI `main()` untested |
+| `igtopt/igtopt.py` | 69% | High – CLI `main()` untested |
+| `plp2gtopt/main.py` | 37% | High – CLI `main()` untested |
+| `maness_parser` | 22% | High – no test fixture with maness data |
+
+`fail_under = 83` is enforced in `scripts/pyproject.toml`; `pytest --cov` will
+fail if total coverage drops below that threshold.
+
+### Key facts for plp2gtopt
+
+- `PLPParser` in `plp_parser.py` orchestrates all individual `*_parser.py`
+  files; call `parser.parse_all()` in tests.
+- BESS and ESS are **mutually exclusive** (`elif` in `bess_writer._all_entries()`):
+  when both parsers are provided, only BESS entries are used.
+- BAT central UIDs come from `plpcnfce.dat` `number` field, **not** from
+  `plpbess.dat`.  In `plp_min_bess/`, `BESS1` central has `number=2`, so
+  `bat["uid"] == 2` and the charge demand column is `uid:10002`
+  (`BESS_UID_OFFSET + 2`).
+- `convert_plp_case(options)` in `plp2gtopt.py` is the top-level function used
+  in both the CLI (`main.py`) and integration tests.
+- Integration test fixtures live in `scripts/cases/`; use `_make_opts()` helper
+  from `test_integration.py` to point them at a `tmp_path`.
+
+### Key facts for igtopt
+
+- `_run(args)` in `igtopt/igtopt.py` is the testable core; `main()` is only the
+  argparse wrapper.  Pass an `argparse.Namespace` object directly in unit tests:
+  ```python
+  from igtopt.igtopt import _run as _igtopt_run
+  args = argparse.Namespace(filenames=[str(xlsx)], json_file=..., ...)
+  rc = _igtopt_run(args)
+  ```
+- Sheets starting with `.` are silently skipped; sheets with `@` (e.g.
+  `Demand@lmax`) are written as time-series Parquet files to `input_directory`.
+- Global `json_indent` / `json_separators` are switched by `--pretty`; do **not**
+  call `main()` twice in the same process without resetting them.
+
+### Key facts for cvs2parquet
+
+- `csv_to_parquet(csv_path, parquet_path, use_schema, verbose)` is the core
+  function; `main()` is only the argparse wrapper.
+- Columns named `stage`, `block`, or `scenario` are cast to `int32`; all others
+  to `float64`.
+- `--schema` uses an explicit PyArrow schema; default uses pandas dtype casting
+  (both produce identical output).
 
 ---
 
