@@ -3,9 +3,14 @@
 import json
 import tempfile
 from pathlib import Path
+
+import pandas as pd
 import pytest
-from ..manli_writer import ManliWriter
+
+from ..block_parser import BlockParser
+from ..line_parser import LineParser
 from ..manli_parser import ManliParser
+from ..manli_writer import ManliWriter
 from .conftest import get_example_file
 
 
@@ -77,7 +82,7 @@ def test_json_output_structure(sample_manli_writer):
     json_manlis = sample_manli_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "block": list,
         "tmax_ab": list,
@@ -87,8 +92,8 @@ def test_json_output_structure(sample_manli_writer):
 
     for manli in json_manlis:
         # Check all required fields exist and have correct types
-        assert set(manli.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(manli.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(manli[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(manli[field])}"
             )
@@ -135,7 +140,6 @@ def test_write_empty_manlis():
 
 def _make_line_parser(tmp_path, name, number=1):
     """Create a minimal LineParser with one line entry."""
-    from ..line_parser import LineParser
 
     parser = LineParser.__new__(LineParser)
     parser.file_path = tmp_path / "plpcnfli.dat"
@@ -147,7 +151,6 @@ def _make_line_parser(tmp_path, name, number=1):
 
 def _make_block_parser(tmp_path, n_blocks=2):
     """Create a minimal BlockParser with n blocks (all stage 1)."""
-    from ..block_parser import BlockParser
 
     parser = BlockParser.__new__(BlockParser)
     parser.file_path = tmp_path / "plpblo.dat"
@@ -183,24 +186,22 @@ def test_to_dataframe_with_parsers(tmp_path):
     block_parser = _make_block_parser(tmp_path, 2)
 
     writer = ManliWriter(manli_parser, line_parser, block_parser)
-    df_tmax_ab, df_tmax_ba, df_active = writer.to_dataframe()
+    df_tmax_ab, df_tmax_ba, _df_active = writer.to_dataframe()
 
     assert not df_tmax_ab.empty
     assert not df_tmax_ba.empty
 
 
-def test_block_to_stage_df_empty(tmp_path):
+def test_block_to_stage_df_empty():
     """Test block_to_stage_df with empty DataFrame returns it unchanged."""
-    import pandas as pd
 
     writer = ManliWriter()
     result = writer.block_to_stage_df(pd.DataFrame())
     assert result.empty
 
 
-def test_block_to_stage_df_with_stage(tmp_path):
+def test_block_to_stage_df_with_stage():
     """Test block_to_stage_df with a DataFrame that has a stage column."""
-    import pandas as pd
 
     writer = ManliWriter()
     df = pd.DataFrame({"stage": [1, 1, 2], "uid:1": [0, 0, 1]})

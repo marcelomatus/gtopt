@@ -3,8 +3,11 @@
 import json
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
+from plp2gtopt.bess_writer import BESS_UID_OFFSET
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
 
@@ -126,7 +129,7 @@ def test_min_1bus_conversion(tmp_path):
     opts = _make_opts(_PLPMin1Bus, tmp_path, "plp_min_1bus")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     assert len(sys["bus_array"]) == 1
@@ -154,7 +157,6 @@ def test_min_1bus_conversion(tmp_path):
 @pytest.mark.integration
 def test_min_1bus_lmax_parquet(tmp_path):
     """plp_min_1bus: lmax.parquet is written with correct demand values."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMin1Bus, tmp_path, "plp_min_1bus")
     convert_plp_case(opts)
@@ -199,7 +201,7 @@ def test_min_2bus_conversion(tmp_path):
     opts = _make_opts(_PLPMin2Bus, tmp_path, "plp_min_2bus")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     assert len(sys["bus_array"]) == 2
@@ -231,7 +233,6 @@ def test_min_2bus_conversion(tmp_path):
 @pytest.mark.integration
 def test_min_2bus_lmax_parquet(tmp_path):
     """plp_min_2bus: lmax.parquet has correct demand for both buses."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMin2Bus, tmp_path, "plp_min_2bus")
     convert_plp_case(opts)
@@ -275,7 +276,7 @@ def test_min_bess_conversion(tmp_path):
     opts = _make_opts(_PLPMinBess, tmp_path, "plp_min_bess")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     # 1 battery – bat central BESS1 has number=2 in plpcnfce.dat → uid=2
@@ -320,8 +321,6 @@ def test_min_bess_conversion(tmp_path):
 @pytest.mark.integration
 def test_min_bess_lmax_parquet(tmp_path):
     """plp_min_bess: lmax.parquet contains both thermal and BESS charge columns."""
-    import pandas as pd
-    from plp2gtopt.bess_writer import BESS_UID_OFFSET
 
     opts = _make_opts(_PLPMinBess, tmp_path, "plp_min_bess")
     convert_plp_case(opts)
@@ -387,7 +386,7 @@ def test_min_hydro_conversion_two_scenarios(tmp_path):
     opts["hydrologies"] = "0,1"
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
     scenarios = sim["scenario_array"]
 
@@ -406,7 +405,7 @@ def test_min_hydro_json_structure(tmp_path):
     opts["hydrologies"] = "0,1"
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     # Hydro generator (no falla exported)
@@ -429,7 +428,6 @@ def test_min_hydro_json_structure(tmp_path):
 @pytest.mark.integration
 def test_min_hydro_afluent_parquet(tmp_path):
     """plp_min_hydro: Afluent/afluent.parquet contains normalised per-scenario flows."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMinHydro, tmp_path, "plp_min_hydro")
     opts["hydrologies"] = "0,1"
@@ -479,8 +477,6 @@ def test_min_mance_parse():
     assert m["name"] == "ThermalMant"
     assert len(m["block"]) == 2
 
-    import numpy as np
-
     np.testing.assert_array_almost_equal(m["pmin"], [10.0, 20.0])
     np.testing.assert_array_almost_equal(m["pmax"], [90.0, 70.0])
 
@@ -491,7 +487,7 @@ def test_min_mance_conversion(tmp_path):
     opts = _make_opts(_PLPMinMance, tmp_path, "plp_min_mance")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     assert len(sys["generator_array"]) == 1
@@ -506,7 +502,6 @@ def test_min_mance_conversion(tmp_path):
 @pytest.mark.integration
 def test_min_mance_pmin_pmax_parquet(tmp_path):
     """plp_min_mance: Generator/pmin.parquet and pmax.parquet have block-level values."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMinMance, tmp_path, "plp_min_mance")
     convert_plp_case(opts)
@@ -560,8 +555,6 @@ def test_min_manli_parse():
     assert m["name"] == "Bus1->Bus2"
     assert len(m["block"]) == 2
 
-    import numpy as np
-
     np.testing.assert_array_almost_equal(m["tmax_ab"], [50.0, 150.0])
     np.testing.assert_array_almost_equal(m["tmax_ba"], [50.0, 150.0])
 
@@ -572,7 +565,7 @@ def test_min_manli_conversion(tmp_path):
     opts = _make_opts(_PLPMinManli, tmp_path, "plp_min_manli")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sys = data["system"]
 
     assert len(sys["line_array"]) == 1
@@ -589,7 +582,6 @@ def test_min_manli_conversion(tmp_path):
 @pytest.mark.integration
 def test_min_manli_tmax_parquet(tmp_path):
     """plp_min_manli: Line/tmax_ab.parquet has block-level capacity values."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMinManli, tmp_path, "plp_min_manli")
     convert_plp_case(opts)
@@ -621,7 +613,7 @@ def test_min_manli_generators_unaffected(tmp_path):
     opts = _make_opts(_PLPMinManli, tmp_path, "plp_min_manli")
     convert_plp_case(opts)
 
-    data = json.loads(Path(opts["output_file"]).read_text())
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     gens = {g["name"]: g for g in data["system"]["generator_array"]}
 
     assert gens["Thermal1"]["pmax"] == pytest.approx(200.0)
@@ -632,7 +624,6 @@ def test_min_manli_generators_unaffected(tmp_path):
 @pytest.mark.integration
 def test_min_manli_lmax_parquet(tmp_path):
     """plp_min_manli: lmax.parquet has correct demand for both buses and stages."""
-    import pandas as pd
 
     opts = _make_opts(_PLPMinManli, tmp_path, "plp_min_manli")
     convert_plp_case(opts)

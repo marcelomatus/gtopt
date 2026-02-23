@@ -88,7 +88,7 @@ def test_json_output_structure(
     json_lines = sample_line_writer.to_json_array()
 
     # Expected structure from system_c0.json
-    REQUIRED_FIELDS = {
+    required_fields = {
         "uid": int,
         "name": str,
         "bus_a": int,
@@ -103,8 +103,8 @@ def test_json_output_structure(
 
     for line in json_lines:
         # Check all required fields exist and have correct types
-        assert set(line.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(line.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(line[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(line[field])}"
             )
