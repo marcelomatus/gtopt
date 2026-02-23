@@ -33,6 +33,7 @@ plp2gtopt   = "plp2gtopt.main:main"
 [project.optional-dependencies]
 dev = [
     "coverage[toml]>=7.0",
+    "mypy>=1.0",
     "pylint>=2.15",
     "pytest>=7.0",
     "pytest-cov>=4.0",
