@@ -14,7 +14,6 @@ ESS differs from BESS in that it has no EtaIni/EtaFin/NCiclos fields
 and is always active across all stages.
 """
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base_parser import BaseParser
@@ -55,7 +54,7 @@ class EssParser(BaseParser):
             # Extract quoted name, then parse remaining fields
             name_start = line.find("'")
             name_end = line.rfind("'")
-            if name_start == -1 or name_end == name_start:
+            if name_start in (-1, name_end):
                 raise ValueError(f"Invalid ESS name in line: {line}")
 
             name = line[name_start + 1 : name_end]

@@ -38,7 +38,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
 
 
 @pytest.mark.integration
-def test_plp_parser_parses_dat_ex(tmp_path):
+def test_plp_parser_parses_dat_ex():
     """Integration test: PLPParser can parse all files in plp_dat_ex."""
     parser = PLPParser({"input_dir": _PLPDatEx})
     parser.parse_all()
@@ -278,10 +278,10 @@ def test_min_bess_conversion(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text())
     sys = data["system"]
 
-    # 1 battery
+    # 1 battery – bat central BESS1 has number=2 in plpcnfce.dat → uid=2
     assert len(sys.get("battery_array", [])) == 1
     bat = sys["battery_array"][0]
-    assert bat["uid"] == 1
+    assert bat["uid"] == 2
     assert bat["name"] == "BESS1"
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
@@ -291,7 +291,7 @@ def test_min_bess_conversion(tmp_path):
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
     conv = sys["converter_array"][0]
-    assert conv["battery"] == 1
+    assert conv["battery"] == 2
     assert conv["capacity"] == pytest.approx(50.0)
 
     # 2 generators: 1 thermal + 1 BESS discharge
@@ -336,7 +336,7 @@ def test_min_bess_lmax_parquet(tmp_path):
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
 
-    # BESS charge column
-    bess_col = f"uid:{BESS_UID_OFFSET + 1}"
+    # BESS charge column – bat central BESS1 has number=2 → uid = BESS_UID_OFFSET + 2
+    bess_col = f"uid:{BESS_UID_OFFSET + 2}"
     assert bess_col in df.columns
     assert float(df[bess_col].iloc[0]) == pytest.approx(50.0)

@@ -3,7 +3,6 @@
 
 """Parser for plpeta.dat format files containing stage data."""
 
-
 from typing import Any, List, Dict, Optional
 
 

@@ -21,7 +21,7 @@ def test_parse_zero_besses(tmp_path):
     parser = BessParser(f)
     parser.parse()
     assert parser.num_besses == 0
-    assert parser.besses == []
+    assert not parser.besses
 
 
 def test_parse_single_bess(tmp_path):
@@ -97,8 +97,9 @@ def test_get_bess_by_name(tmp_path):
     )
     parser = BessParser(f)
     parser.parse()
-    assert parser.get_bess_by_name("Alpha") is not None
-    assert parser.get_bess_by_name("Alpha")["number"] == 1
+    bess_alpha = parser.get_bess_by_name("Alpha")
+    assert bess_alpha is not None
+    assert bess_alpha["number"] == 1
     assert parser.get_bess_by_name("NoSuch") is None
 
 
@@ -111,8 +112,9 @@ def test_get_bess_by_number(tmp_path):
     )
     parser = BessParser(f)
     parser.parse()
-    assert parser.get_bess_by_number(7) is not None
-    assert parser.get_bess_by_number(7)["name"] == "B7"
+    bess_b7 = parser.get_bess_by_number(7)
+    assert bess_b7 is not None
+    assert bess_b7["name"] == "B7"
     assert parser.get_bess_by_number(99) is None
 
 

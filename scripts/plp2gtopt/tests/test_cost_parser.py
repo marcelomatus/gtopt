@@ -26,13 +26,11 @@ def test_get_costs(tmp_path):
     """Test get_costs returns properly structured cost data."""
     # Create a temporary test file
     test_file = tmp_path / "test_cost.dat"
-    test_file.write_text(
-        """1
+    test_file.write_text("""1
 'test'
 2
 04 004 157.9
-04 005 157.9"""
-    )
+04 005 157.9""")
 
     parser = CostParser(str(test_file))
     parser.parse()

@@ -84,6 +84,6 @@ class PLPParser:
 
             maness_path = self.input_path / "plpmaness.dat"
             if maness_path.exists():
-                mp = ManessParser(maness_path)
-                mp.parse(self.parsed_data)
-                self.parsed_data["maness_parser"] = mp
+                maness_p = ManessParser(maness_path)
+                maness_p.parse(self.parsed_data)
+                self.parsed_data["maness_parser"] = maness_p

@@ -1,14 +1,13 @@
 """Tests for cvs2parquet.py."""
 
-import io
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from cvs2parquet.cvs2parquet import csv_to_parquet, _infer_schema, _INT32_COLS
-import pyarrow as pa
-
+from cvs2parquet.cvs2parquet import _infer_schema, csv_to_parquet
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,7 +47,9 @@ def test_infer_schema_no_index_cols():
 
 
 def test_csv_to_parquet_basic(tmp_path):
-    csv_path = _write_csv(tmp_path, "data.csv", "stage,block,val\n1,1,100.0\n2,2,200.0\n")
+    csv_path = _write_csv(
+        tmp_path, "data.csv", "stage,block,val\n1,1,100.0\n2,2,200.0\n"
+    )
     out_path = tmp_path / "data.parquet"
     csv_to_parquet(str(csv_path), str(out_path))
 
@@ -92,8 +93,6 @@ def test_csv_to_parquet_schema_path(tmp_path):
     csv_path = _write_csv(tmp_path, "s.csv", "stage,block,val\n1,2,3.0\n")
     out_path = tmp_path / "s.parquet"
     csv_to_parquet(str(csv_path), str(out_path), use_schema=True)
-
-    import pyarrow.parquet as pq
 
     table = pq.read_table(out_path)
     assert table.schema.field("stage").type == pa.int32()

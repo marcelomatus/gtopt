@@ -254,8 +254,7 @@ def _run(args) -> int:
         # close the json_file
         if options:
             json_file.write(
-                ',"options":%s\n'
-                % json.dumps(options, indent=json_indent, separators=json_separators)
+                f',"options":{json.dumps(options, indent=json_indent, separators=json_separators)}\n'
             )
 
         json_file.write("}\n")

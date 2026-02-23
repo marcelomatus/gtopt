@@ -26,14 +26,12 @@ def test_get_manlis(tmp_path):
     """Test get_manlis returns properly structured maintenance data."""
     # Create a temporary test file
     test_file = tmp_path / "test_manli.dat"
-    test_file.write_text(
-        """1
+    test_file.write_text("""1
 'test_line'
 3
 001 0.0 0.0 F
 002 0.0 0.0 F
-003 0.0 0.0 F"""
-    )
+003 0.0 0.0 F""")
 
     parser = ManliParser(str(test_file))
     parser.parse()

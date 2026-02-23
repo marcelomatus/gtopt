@@ -33,7 +33,9 @@ def _infer_schema(df: pd.DataFrame) -> pa.Schema:
     return pa.schema(fields)
 
 
-def csv_to_parquet(csv_file_path, parquet_file_path, use_schema: bool = False, verbose: bool = False):
+def csv_to_parquet(
+    csv_file_path, parquet_file_path, use_schema: bool = False, verbose: bool = False
+):
     """Convert CSV to Parquet.
 
     Args:

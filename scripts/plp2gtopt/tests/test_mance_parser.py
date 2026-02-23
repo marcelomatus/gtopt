@@ -26,13 +26,11 @@ def test_get_mances(tmp_path):
     """Test get_mances returns properly structured maintenance data."""
     # Create a temporary test file
     test_file = tmp_path / "test_mance.dat"
-    test_file.write_text(
-        """1
+    test_file.write_text("""1
 'test'
 2
 03 001 1 5.0 69.75
-03 002 1 5.0 69.75"""
-    )
+03 002 1 5.0 69.75""")
 
     parser = ManceParser(str(test_file))
     parser.parse()
@@ -145,8 +143,7 @@ def test_real_file_parsing():
 def test_parse_with_whitespace_variations(tmp_path):
     """Test parsing handles different whitespace formats."""
     test_file = tmp_path / "test_mance.dat"
-    test_file.write_text(
-        """2
+    test_file.write_text("""2
 'CENTRAL1'
 4                 01
 03      001        1     5.00    69.75
@@ -156,8 +153,7 @@ def test_parse_with_whitespace_variations(tmp_path):
 'CENTRAL2'
 2                 01
 03      001        1     0.00     0.00
-03      002        1     0.00     0.00"""
-    )
+03      002        1     0.00     0.00""")
 
     parser = ManceParser(str(test_file))
     parser.parse()
@@ -170,8 +166,7 @@ def test_parse_with_whitespace_variations(tmp_path):
 def test_parse_with_comments(tmp_path):
     """Test parsing handles commented lines."""
     test_file = tmp_path / "test_mance.dat"
-    test_file.write_text(
-        """# Header comment
+    test_file.write_text("""# Header comment
 2
 # Central comment
 'CENTRAL1'
@@ -185,8 +180,7 @@ def test_parse_with_comments(tmp_path):
 'CENTRAL2'
 2                 01
 03      001        1     0.00     0.00
-03      002        1     0.00     0.00"""
-    )
+03      002        1     0.00     0.00""")
 
     parser = ManceParser(str(test_file))
     parser.parse()
