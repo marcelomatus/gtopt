@@ -91,13 +91,9 @@ jobs:
           key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
       - name: install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev lcov ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
+        with:
+          extra-packages: lcov
 
       # GCC 14 is pre-installed on ubuntu-latest; register unversioned
       # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
@@ -293,13 +289,7 @@ jobs:
           version: 21
 
       - name: install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
 
       - name: set up clang-tidy-cache
         uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
@@ -332,13 +322,7 @@ jobs:
           path: gtopt-install/bin
 
       - name: install gtopt runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
 
       - name: make gtopt executable
         run: |
@@ -392,13 +376,7 @@ jobs:
           path: ${{ github.workspace }}/gtopt-install/bin
 
       - name: install gtopt runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
 
       - name: make gtopt executable
         run: |
@@ -506,13 +484,7 @@ jobs:
           node-version: '20'
 
       - name: install gtopt runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
 
       - name: download gtopt binary
         uses: actions/download-artifact@v4
