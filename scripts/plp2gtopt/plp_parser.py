@@ -21,6 +21,7 @@ from .manem_parser import ManemParser
 from .bess_parser import BessParser
 from .ess_parser import EssParser
 from .manbess_parser import ManbessParser
+from .maness_parser import ManessParser
 
 
 class PLPParser:
@@ -61,15 +62,28 @@ class PLPParser:
             parser.parse(self.parsed_data)
             self.parsed_data[name] = parser
 
-        # Optional BESS/ESS files – skip gracefully if not present
-        optional_parsers = [
-            ("bess_parser", BessParser, "plpbess.dat"),
-            ("ess_parser", EssParser, "plpess.dat"),
-            ("manbess_parser", ManbessParser, "plpmanbess.dat"),
-        ]
-        for name, parser_class, filename in optional_parsers:
-            filepath = self.input_path / filename
-            if filepath.exists():
-                parser = parser_class(filepath)
-                parser.parse(self.parsed_data)
-                self.parsed_data[name] = parser
+        # Optional BESS/ESS files – mutually exclusive: if plpbess.dat exists
+        # parse it (and its maintenance); otherwise try plpess.dat + plpmaness.dat.
+        bess_path = self.input_path / "plpbess.dat"
+        ess_path = self.input_path / "plpess.dat"
+
+        if bess_path.exists():
+            parser = BessParser(bess_path)
+            parser.parse(self.parsed_data)
+            self.parsed_data["bess_parser"] = parser
+
+            manbess_path = self.input_path / "plpmanbess.dat"
+            if manbess_path.exists():
+                mp = ManbessParser(manbess_path)
+                mp.parse(self.parsed_data)
+                self.parsed_data["manbess_parser"] = mp
+        elif ess_path.exists():
+            parser = EssParser(ess_path)
+            parser.parse(self.parsed_data)
+            self.parsed_data["ess_parser"] = parser
+
+            maness_path = self.input_path / "plpmaness.dat"
+            if maness_path.exists():
+                mp = ManessParser(maness_path)
+                mp.parse(self.parsed_data)
+                self.parsed_data["maness_parser"] = mp

@@ -20,6 +20,7 @@ from .bus_parser import BusParser
 from .bess_parser import BessParser
 from .ess_parser import EssParser
 from .manbess_parser import ManbessParser
+from .maness_parser import ManessParser
 
 __all__ = [
     "convert_plp_case",
@@ -31,4 +32,5 @@ __all__ = [
     "BessParser",
     "EssParser",
     "ManbessParser",
+    "ManessParser",
 ]
