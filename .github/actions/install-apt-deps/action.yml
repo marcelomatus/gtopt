@@ -1,0 +1,43 @@
+name: Install APT build dependencies
+description: >
+  Installs C++ build dependencies (COIN-OR, Boost, spdlog) and Apache
+  Arrow/Parquet from the official Apache Arrow APT repository.
+  Uses awalsh128/cache-apt-pkgs-action for APT package caching to speed
+  up repeated runs. Sets DEBIAN_FRONTEND=noninteractive for the Arrow
+  repository bootstrap step.
+
+inputs:
+  extra-packages:
+    description: >
+      Space-separated list of additional apt packages to install alongside the
+      default set (e.g. "lcov" for coverage builds).
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: install base packages (cached)
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
+        version: 1.0
+        execute_install_scripts: true
+
+    - name: add Apache Arrow APT repository
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        DISTRO=$(lsb_release --id --short | tr 'A-Z' 'a-z')
+        CODENAME=$(lsb_release --codename --short)
+        wget -q "https://packages.apache.org/artifactory/arrow/${DISTRO}/apache-arrow-apt-source-latest-${CODENAME}.deb"
+        sudo apt-get install -y -q --no-install-recommends \
+          "./apache-arrow-apt-source-latest-${CODENAME}.deb"
+        sudo apt-get update -q
+
+    - name: install Arrow and Parquet (cached)
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libarrow-dev libparquet-dev
+        version: 1.0
+        execute_install_scripts: true
