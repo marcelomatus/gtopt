@@ -1,0 +1,92 @@
+# pyproject.toml for the gtopt Python scripts sub-package.
+#
+# This file makes the scripts/ directory independently installable:
+#
+#   pip install ./scripts          # production install from repo root
+#   pip install -e ./scripts       # editable install from repo root
+#   pip install -e .               # editable install from inside scripts/
+#
+# The three console-script entry-points (cvs2parquet, igtopt, plp2gtopt)
+# are registered here so they land on PATH alongside the gtopt binary.
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtopt-scripts"
+version = "1.0.0"
+description = "gtopt conversion and utility scripts (cvs2parquet, igtopt, plp2gtopt)"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.24.0",
+    "openpyxl>=3.1.0",
+    "pandas>=2.0.0",
+    "pyarrow>=12.0.0",
+]
+
+[project.scripts]
+cvs2parquet = "cvs2parquet.cvs2parquet:main"
+igtopt      = "igtopt.igtopt:main"
+plp2gtopt   = "plp2gtopt.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "black>=22.0",
+    "coverage[toml]>=7.0",
+    "pylint>=2.15",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.0.280",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cvs2parquet*", "igtopt*", "plp2gtopt*"]
+
+# ---------------------------------------------------------------------------
+# Tool configuration (mirrors root pyproject.toml, scoped to scripts/)
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+testpaths = [
+    "cvs2parquet/tests",
+    "igtopt/tests",
+    "plp2gtopt/tests",
+]
+addopts = "-v --import-mode=importlib"
+pythonpath = ["."]
+markers = [
+    "integration: end-to-end tests that use sample PLP case files",
+]
+
+[tool.coverage.run]
+source = ["cvs2parquet", "igtopt", "plp2gtopt"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip_gitignore = true
+known_first_party = ["cvs2parquet", "igtopt", "plp2gtopt"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.pylint]
+max-line-length = 88
+disable = ["missing-docstring", "too-few-public-methods", "import-error"]
