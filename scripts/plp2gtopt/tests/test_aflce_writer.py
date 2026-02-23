@@ -159,7 +159,6 @@ def _make_block_parser(tmp_path, n_blocks=3):
 
 def test_to_dataframe_with_scenarios(tmp_path):
     """Test to_dataframe returns a DataFrame when scenarios are provided."""
-    import numpy as np
     from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
