@@ -1,12 +1,12 @@
 name: Install Clang and LLVM
 description: >
-  Installs Clang and LLVM from the official LLVM apt repository using the
-  llvm.sh installer script (https://apt.llvm.org/llvm.sh), then registers
+  Installs Clang and LLVM from the official LLVM apt repository, then registers
   every clang*-N and llvm*-N binary as an unversioned update-alternatives
   entry.  Any conflicting pre-installed alternative (e.g. from the
   Ubuntu-bundled llvm-18) is evicted first, so tools like clang, clang++,
   clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
-  without a version suffix.
+  without a version suffix.  Uses awalsh128/cache-apt-pkgs-action to cache
+  the downloaded packages so repeated runs skip the ~600 MB download.
 
   NOTE: clang-22 packages are not yet available in the apt.llvm.org
   repository.  The KyleMayes install-llvm-action marketplace action also does
@@ -26,9 +26,9 @@ inputs:
     description: >
       Space-separated list of LLVM tool names to install (without the version
       suffix), e.g. "clang-format" or "clang-format clang-tidy".
-      When empty (default) the full LLVM suite is installed via
-      "llvm.sh VERSION all".  When non-empty, only the apt repo is set up
-      and only the listed packages (clang-format-VERSION, etc.) are installed.
+      When empty (default) the full LLVM suite is installed and cached.
+      When non-empty, only the apt repo is set up and only the listed packages
+      (clang-format-VERSION, etc.) are installed and cached.
       Use this for workflows that only need a single tool such as clang-format
       to avoid downloading the entire ~600 MB LLVM toolchain.
     default: ''
@@ -36,20 +36,10 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: install LLVM packages via llvm.sh (full suite)
-      if: ${{ inputs.packages == '' }}
-      shell: bash
-      run: |
-        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-        chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh ${{ inputs.version }} all
-
-    - name: set up LLVM apt repo and install specific packages
-      if: ${{ inputs.packages != '' }}
+    - name: add LLVM APT repository
       shell: bash
       run: |
         VER=${{ inputs.version }}
-        # Add the LLVM apt signing key and source list
         wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
         sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
         CODENAME=$(lsb_release -cs)
@@ -57,12 +47,52 @@ runs:
           https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
           | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
         sudo apt-get update -q
-        # Install each requested package with the version suffix
+
+    - name: install full LLVM/Clang suite (cached)
+      if: ${{ inputs.packages == '' }}
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: >-
+          clang-${{ inputs.version }}
+          clang-tools-${{ inputs.version }}
+          clang-format-${{ inputs.version }}
+          clang-tidy-${{ inputs.version }}
+          clangd-${{ inputs.version }}
+          lldb-${{ inputs.version }}
+          lld-${{ inputs.version }}
+          llvm-${{ inputs.version }}-dev
+          llvm-${{ inputs.version }}-tools
+          libomp-${{ inputs.version }}-dev
+          libc++-${{ inputs.version }}-dev
+          libc++abi-${{ inputs.version }}-dev
+          libclang-common-${{ inputs.version }}-dev
+          libclang-${{ inputs.version }}-dev
+          libclang-cpp${{ inputs.version }}-dev
+          libclang-rt-${{ inputs.version }}-dev
+          liblldb-${{ inputs.version }}-dev
+          libunwind-${{ inputs.version }}-dev
+          libpolly-${{ inputs.version }}-dev
+        version: 1.0
+        execute_install_scripts: true
+
+    - name: compute versioned package names
+      if: ${{ inputs.packages != '' }}
+      shell: bash
+      run: |
+        VER=${{ inputs.version }}
         PKGS=""
         for pkg in ${{ inputs.packages }}; do
           PKGS="$PKGS ${pkg}-${VER}"
         done
-        sudo apt-get install -y --no-install-recommends $PKGS
+        echo "LLVM_VERSIONED_PKGS=${PKGS# }" >> "$GITHUB_ENV"
+
+    - name: install specific LLVM packages (cached)
+      if: ${{ inputs.packages != '' }}
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: ${{ env.LLVM_VERSIONED_PKGS }}
+        version: 1.0
+        execute_install_scripts: true
 
     - name: register unversioned LLVM/Clang alternatives
       shell: bash
@@ -76,9 +106,10 @@ runs:
           sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
         done
 
-    - name: install clang coverage runtime
+    - name: install clang coverage runtime (cached)
       if: ${{ inputs.install-coverage-runtime == 'true' }}
-      shell: bash
-      run: |
-        sudo apt-get install -y --no-install-recommends \
-          libclang-rt-${{ inputs.version }}-dev
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libclang-rt-${{ inputs.version }}-dev
+        version: 1.0
+        execute_install_scripts: true

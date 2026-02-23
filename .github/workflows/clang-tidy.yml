@@ -54,13 +54,7 @@ jobs:
           version: 21
 
       - name: install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends coinor-libcbc-dev libboost-container-dev libspdlog-dev ca-certificates lsb-release wget
-          wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y --no-install-recommends -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -V libarrow-dev libparquet-dev
+        uses: ./.github/actions/install-apt-deps
 
       - name: set up clang-tidy-cache
         uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
