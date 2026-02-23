@@ -128,7 +128,7 @@ def df_to_str(df, skip_nulls=True):
         types["name"] = str
     for c in ["uid", "active"]:
         if c in df.columns:
-            types[c] = np.integer
+            types[c] = np.int64
     df = df.astype(types)
 
     if skip_nulls:
@@ -222,8 +222,8 @@ def _run(args) -> int:
         # close the json_file
         if options:
             json_file.write(
-                ',"options":%s\n',
-                json.dumps(options, indent=json_indent, separators=json_separators),
+                ',"options":%s\n'
+                % json.dumps(options, indent=json_indent, separators=json_separators)
             )
 
         json_file.write("}\n")
@@ -310,6 +310,7 @@ def main() -> None:
         )
 
         if args.pretty:
+            global json_indent, json_separators  # noqa: PLW0603
             json_indent = pretty_indent
             json_separators = pretty_separators
 
