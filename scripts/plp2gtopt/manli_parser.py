@@ -55,7 +55,7 @@ class ManliParser(BaseParser):
                 blocks = np.empty(num_blocks, dtype=np.int32)
                 p_max_ab = np.empty(num_blocks, dtype=np.float64)
                 p_max_ba = np.empty(num_blocks, dtype=np.float64)
-                operational = np.empty(num_blocks, dtype=np.int32)
+                operational = np.empty(num_blocks, dtype=np.int8)
 
                 # Parse maintenance entries
                 for i in range(num_blocks):
@@ -67,7 +67,7 @@ class ManliParser(BaseParser):
                     blocks[i] = self._parse_int(parts[0])  # Block number
                     p_max_ab[i] = self._parse_float(parts[1])  # Max flow AB
                     p_max_ba[i] = self._parse_float(parts[2])  # Max flow BA
-                    operational[i] = np.int32(parts[3] == "T")  # Operational status
+                    operational[i] = np.int8(parts[3] == "T")  # Operational status
 
                 # Store complete data
                 manli = {

@@ -194,7 +194,11 @@ class GTOptWriter:
 
         dems = demands.get_all()
         for demand in dems:
-            demand["bus"] = buses.get_bus_by_name(demand["name"])["number"]
+            bus = buses.get_bus_by_name(demand["name"])
+            if bus is None:
+                demand["bus"] = 0  # mark as unknown; DemandWriter skips bus==0
+            else:
+                demand["bus"] = bus["number"]
 
         blocks = self.parser.parsed_data.get("block_parser", [])
         self.planning["system"]["demand_array"] = DemandWriter(

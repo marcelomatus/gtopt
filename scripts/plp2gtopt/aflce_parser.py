@@ -52,11 +52,14 @@ class AflceParser(BaseParser):
             num_centrals = self._parse_int(header_parts[0])
             num_hydrologies = self._parse_int(header_parts[1])
 
-            if num_centrals <= 0 or num_hydrologies <= 0:
+            if num_hydrologies <= 0:
                 raise ValueError(
                     f"Invalid counts - centrals: {num_centrals}, "
                     f"hydrologies: {num_hydrologies}"
                 )
+
+            if num_centrals == 0:
+                return  # No stochastic hydrology data – valid for thermal-only cases
 
             # Parse each central's flow data
             for _ in range(num_centrals):
