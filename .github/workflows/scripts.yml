@@ -150,3 +150,7 @@ jobs:
       - name: ruff (format check)
         working-directory: scripts
         run: ruff format --check .
+
+      - name: pylint
+        working-directory: scripts
+        run: pylint cvs2parquet igtopt plp2gtopt

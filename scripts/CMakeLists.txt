@@ -36,6 +36,10 @@ Build targets
   Run pylint over cvs2parquet, igtopt, and plp2gtopt; exit non-zero on
   any error/warning.
 
+``scripts-ruff``
+  Run ruff check over cvs2parquet, igtopt, and plp2gtopt; exit non-zero
+  on any lint violation.
+
 ``scripts-mypy``
   Run mypy static type checking; exit non-zero on any type error.
 
@@ -137,6 +141,18 @@ add_custom_target(scripts-lint
   DEPENDS scripts-install
 )
 
+# ---- Lint (ruff) ----
+
+add_custom_target(scripts-ruff
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff check
+    "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/igtopt"
+    "${SCRIPTS_DIR}/plp2gtopt"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMENT "Running ruff static analysis"
+  DEPENDS scripts-install
+)
+
 # ---- Type check (mypy) ----
 
 add_custom_target(scripts-mypy
@@ -229,6 +245,15 @@ add_test(
     cvs2parquet
     igtopt
     plp2gtopt
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+add_test(
+  NAME scripts-ruff
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff check
+    "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/igtopt"
+    "${SCRIPTS_DIR}/plp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
