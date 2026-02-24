@@ -417,9 +417,12 @@ TEST_CASE("gtopt_main - unreadable file returns read error")
   std::filesystem::create_directories(dir_json);  // create a DIRECTORY
 
   auto result = gtopt_main(MainOptions {
-      .planning_files = {(std::filesystem::temp_directory_path()
-                          / "gtopt_main_dir_as_file")
-                             .string()},
+      .planning_files =
+          {
+              (std::filesystem::temp_directory_path()
+               / "gtopt_main_dir_as_file")
+                  .string(),
+          },
   });
   // Either fails with "does not exist" (if exists() doesn't follow dir) or
   // with "Failed to read input file" (if exists() returns true for directory).

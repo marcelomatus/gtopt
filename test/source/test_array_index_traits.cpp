@@ -91,8 +91,9 @@ void write_corrupt_data_parquet(const std::filesystem::path& path)
   uint32_t footer_len = 0;
   {
     std::ifstream fin(fname, std::ios::binary);
-    fin.seekg(-(8), std::ios::end);  // 4 bytes footer_len + 4 bytes "PAR1"
-    fin.read(reinterpret_cast<char*>(&footer_len), 4);
+    fin.seekg(-(8),  // NOLINT
+              std::ios::end);  //  4 bytes footer_len + 4 bytes "PAR1"
+    fin.read(reinterpret_cast<char*>(&footer_len), 4);  // NOLINT
   }
 
   // Bytes to preserve at the end of the file (footer + length field + magic)
@@ -294,7 +295,7 @@ TEST_CASE("csv_read_table - empty file returns error")
   // the Arrow CSV reader's Read() call to fail ("Empty CSV file").
   const auto stem = tmp_path("ait_csv_empty");
   {
-    std::ofstream ofs(stem.string() + ".csv");
+    const std::ofstream ofs(stem.string() + ".csv");
   }  // creates empty file
 
   auto result = csv_read_table(stem);

@@ -425,15 +425,23 @@ std::string gunzip_to_string(const std::filesystem::path& gz_path)
 auto make_csv_system()
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "g1",
-      .bus = Uid {1},
-      .gcost = 50.0,
-      .capacity = 300.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 300.0,
+      },
+  };
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -678,11 +686,12 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------------------
 // Tests for output failure paths and solution.csv failure path
 // ---------------------------------------------------------------------------
-
+namespace
+{
 // Helper: create all expected output subdirectories inside @p outdir with
 // read+exec but no write permission.  The component subdirs written by
 // make_csv_system are: Bus, Generator, Demand.
-static void make_readonly_subdirs(const std::filesystem::path& outdir)
+void make_readonly_subdirs(const std::filesystem::path& outdir)
 {
   for (const auto* sub : {"Bus", "Generator", "Demand"}) {
     auto p = outdir / sub;
@@ -694,7 +703,7 @@ static void make_readonly_subdirs(const std::filesystem::path& outdir)
   }
 }
 
-static void restore_and_remove(const std::filesystem::path& outdir)
+void restore_and_remove(const std::filesystem::path& outdir)
 {
   // restore permissions recursively so remove_all works
   for (const auto& e : std::filesystem::recursive_directory_iterator(outdir)) {
@@ -707,6 +716,7 @@ static void restore_and_remove(const std::filesystem::path& outdir)
                                std::filesystem::perm_options::add);
   std::filesystem::remove_all(outdir);
 }
+}  // namespace
 
 TEST_CASE(  // NOLINT
     "OutputContext - write() with unwritable output dir logs error (no throw)")
