@@ -118,9 +118,12 @@ class DemandWriter(BaseWriter):
 
         df = pd.concat(series, axis=1)
         if self.block_parser:
-            df["stage"] = df.index.map(self.block_parser.get_stage_number).astype(
-                "int32"
+            stage_series = pd.Series(
+                df.index.map(self.block_parser.get_stage_number).astype("int32"),
+                index=df.index,
+                name="stage",
             )
+            df = pd.concat([df, stage_series], axis=1)
         # Convert index to block column
         df.index = df.index.astype("int32")
         df = df.reset_index().rename(columns={"index": "block"})
