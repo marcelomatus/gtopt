@@ -7,18 +7,11 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
     hooks:
-      - id: black
-        args: [--line-length=120]
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: 7.3.0
-    hooks:
-      - id: flake8
-        additional_dependencies: [flake8-comprehensions, flake8-bugbear]
-        args: [--max-line-length=120]
+      - id: ruff          # lint + auto-fix (replaces flake8)
+      - id: ruff-format   # format (replaces black)
 
   - repo: https://github.com/PyCQA/pylint
     rev: v3.3.7

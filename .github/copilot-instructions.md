@@ -403,7 +403,7 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 | Aspect | Rule |
 |--------|------|
 | Version | Python ≥ 3.12 (CI uses 3.12) |
-| Formatter | `black` (line-length 88) |
+| Formatter | `ruff format` (line-length 88) |
 | Import sorter | `isort` (profile `black`) |
 | Linter | `ruff` + `pylint` |
 | Type checker | `mypy` |
@@ -422,10 +422,10 @@ pip install -r scripts/requirements.txt       # runtime deps only
 pip install -r scripts/requirements-dev.txt   # dev+test deps
 
 # Format (scripts/)
-python -m black scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+python -m ruff format scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
 
 # Check format without modifying
-python -m black --check scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+python -m ruff format --check scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
 
 # Lint (run from scripts/ directory)
 cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
@@ -455,9 +455,9 @@ repository root** `pyproject.toml`.
 
 ```
 scripts/
-├── pyproject.toml          ← package declaration + tool config (black/pylint/mypy/pytest)
+├── pyproject.toml          ← package declaration + tool config (ruff/pylint/mypy/pytest)
 ├── requirements.txt        ← runtime: numpy, pandas, pyarrow, openpyxl
-├── requirements-dev.txt    ← dev+test: -r requirements.txt + pytest, pylint, black, …
+├── requirements-dev.txt    ← dev+test: -r requirements.txt + pytest, pylint, ruff, …
 ├── CMakeLists.txt          ← CMake targets (see below)
 ├── cvs2parquet/            ← CSV → Parquet converter
 │   ├── __init__.py
@@ -505,8 +505,8 @@ pip install -r scripts/requirements.txt
 |--------|---------|--------|
 | `scripts-pip-requirements` | `pip install -r requirements.txt` | — |
 | `scripts-install` | `pip install -e scripts/[dev]` | — |
-| `scripts-format` | `black` in-place | — |
-| `scripts-check-format` | `black --check` | ✓ |
+| `scripts-format` | `ruff format` in-place | — |
+| `scripts-check-format` | `ruff format --check` | ✓ |
 | `scripts-lint` | `pylint cvs2parquet igtopt plp2gtopt` | ✓ |
 | `scripts-mypy` | `mypy … --ignore-missing-imports` | ✓ |
 | `scripts-test` | `pytest` (unit tests only) | ✓ |
