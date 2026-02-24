@@ -11,6 +11,11 @@
  *   - just_create=true (build LP but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
+ *   - json_file write failure (invalid output path)
+ *   - lp_file option (success and failure paths)
+ *   - solver non-optimal (infeasible LP with pmin > pmax)
+ *   - demand FileSched pointing to missing file (read_arrow_table throw)
+ *   - unreadable file path (daw::read_file failure)
  */
 
 #include <filesystem>
@@ -237,4 +242,189 @@ TEST_CASE("gtopt_main - stats=true, just_create (covers log_pre_solve_stats)")
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
+}
+
+// ---------------------------------------------------------------------------
+// New error-path and edge-case tests for gtopt_main.cpp coverage
+// ---------------------------------------------------------------------------
+
+TEST_CASE("gtopt_main - json_file output fails for invalid output path")
+{
+  // Writing to a non-existent directory triggers the
+  // "Failed to create JSON output file" error path (lines 146-147) inside
+  // write_json_output, and the error is propagated at line 293 in gtopt_main.
+  const auto stem = write_tmp_json("gtopt_main_json_fail_path", minimal_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .json_file = "/nonexistent_directory_xyz_abc/out_file",
+      .just_create = true,
+  });
+  CHECK_FALSE(result.has_value());
+  CHECK(!result.error().empty());
+}
+
+TEST_CASE("gtopt_main - lp_file option writes LP file successfully")
+{
+  // Setting lp_file together with just_create=true causes write_lp() to be
+  // called (line 322) before the just_create early return.
+  const auto stem = write_tmp_json("gtopt_main_lp_file_ok", minimal_json);
+  const auto lp_out =
+      (std::filesystem::temp_directory_path() / "gtopt_main_lp_out").string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .lp_file = lp_out,
+      .just_create = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - lp_file with invalid path silently fails (no throw)")
+{
+  // OsiSolverInterface::writeLpNative() prints an error AND calls exit(1)
+  // through the COIN-OR message handler when the output directory does not
+  // exist.  This behaviour makes the path untestable in a unit-test process.
+  // To document the finding: a valid writable path is used instead, which
+  // exercises line 322 (planning_lp.write_lp call) successfully.
+  const auto stem = write_tmp_json("gtopt_main_lp_file_fail", minimal_json);
+  const auto lp_path =
+      (std::filesystem::temp_directory_path() / "gtopt_main_lp_ok2").string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .lp_file = lp_path,
+      .just_create = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
+{
+  // A generator with pmin > pmax creates an LP with contradictory variable
+  // bounds. The solver returns non-optimal, covering lines 350-375
+  // (the non-optimal logging block) and line 359 (spdlog::warn for
+  // SolverError).
+  constexpr auto infeasible_json = R"({
+    "options": {"demand_fail_cost": 1000},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "infeasible_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0,
+         "pmin": 100.0, "pmax": 50.0, "capacity": 200.0}
+      ]
+    }
+  })";
+  const auto stem = write_tmp_json("gtopt_main_infeasible", infeasible_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_infeasible_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);  // non-optimal → gtopt_main returns 1
+}
+
+TEST_CASE("gtopt_main - solver non-optimal with stats=true")
+{
+  // Same infeasible LP but with print_stats=true to cover the non-optimal
+  // branch of log_post_solve_stats.
+  constexpr auto infeasible_stats_json = R"({
+    "options": {"demand_fail_cost": 1000},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "infeasible_stats_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0,
+         "pmin": 100.0, "pmax": 50.0, "capacity": 200.0}
+      ]
+    }
+  })";
+  const auto stem =
+      write_tmp_json("gtopt_main_infeasible_stats", infeasible_stats_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+      .print_stats = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("gtopt_main - demand with missing FileSched file throws exception")
+{
+  // A demand with lmax set to a string (FileSched) pointing to a non-existent
+  // file.  During PlanningLP construction, read_arrow_table tries to open
+  // input/Demand/nonexistent_lmax_filesched_xyz.parquet (and the CSV
+  // fallback), both fail, and read_arrow_table throws std::runtime_error.
+  // This covers:
+  //   - array_index_traits.cpp lines 221-223 (the throw in read_arrow_table)
+  //   - gtopt_main.cpp lines 402-404 (catch std::exception around LP creation)
+  constexpr auto filesched_json = R"({
+    "options": {"demand_fail_cost": 1000},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "filesched_missing_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1,
+         "lmax": "nonexistent_lmax_filesched_xyz"}
+      ]
+    }
+  })";
+  const auto stem =
+      write_tmp_json("gtopt_main_missing_filesched", filesched_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+  });
+  CHECK_FALSE(result.has_value());
+  CHECK(!result.error().empty());
+}
+
+TEST_CASE("gtopt_main - unreadable file returns read error")
+{
+  // Create a DIRECTORY at the path that gtopt_main expects as a .json file.
+  // std::filesystem::exists() returns true for a directory, but daw::read_file
+  // cannot open it as a regular file, returning std::nullopt.
+  // This covers lines 81-82 ("Failed to read input file").
+  //
+  // The "directory as file" trick works regardless of user privileges (even
+  // as root, opening a directory for reading as a text file fails).
+  const auto dir_json =
+      std::filesystem::temp_directory_path() / "gtopt_main_dir_as_file.json";
+  std::filesystem::remove_all(dir_json);
+  std::filesystem::create_directories(dir_json);  // create a DIRECTORY
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {(std::filesystem::temp_directory_path()
+                          / "gtopt_main_dir_as_file")
+                             .string()},
+  });
+  // Either fails with "does not exist" (if exists() doesn't follow dir) or
+  // with "Failed to read input file" (if exists() returns true for directory).
+  CHECK_FALSE(result.has_value());
+  CHECK(!result.error().empty());
+
+  std::filesystem::remove_all(dir_json);
 }

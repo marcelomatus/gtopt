@@ -55,24 +55,21 @@ namespace gtopt
   convert_options.include_missing_columns = true;
 
   SPDLOG_DEBUG("csv_read_table: creating CSV reader for '{}'", filename);
-  auto maybe_reader = arrow::csv::TableReader::Make(
-      io_context, infile, read_options, parse_options, convert_options);
-  if (!maybe_reader.ok()) {
-    SPDLOG_DEBUG("csv_read_table: failed to create reader for '{}': {}",
-                 filename,
-                 maybe_reader.status().ToString());
-    return std::unexpected(
-        std::format("Can't create CSV reader for {}", filename));
-  }
-
-  SPDLOG_DEBUG("csv_read_table: reading table from '{}'", filename);
-  auto maybe_table = (*maybe_reader)->Read();
+  auto maybe_table = [&]() -> arrow::Result<ArrowTable>
+  {
+    ARROW_ASSIGN_OR_RAISE(
+        auto reader,
+        arrow::csv::TableReader::Make(
+            io_context, infile, read_options, parse_options, convert_options));
+    return reader->Read();
+  }();
   if (!maybe_table.ok()) {
-    SPDLOG_DEBUG("csv_read_table: failed to read table from '{}': {}",
+    SPDLOG_DEBUG("csv_read_table: failed to read '{}': {}",
                  filename,
                  maybe_table.status().ToString());
-    return std::unexpected(
-        std::format("Can't read CSV table from {}", filename));
+    return std::unexpected(std::format("Can't read CSV table from {}: {}",
+                                       filename,
+                                       maybe_table.status().message()));
   }
 
   SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
