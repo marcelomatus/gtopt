@@ -296,6 +296,7 @@ class GTOptWriter:
         output_dir = Path(options["output_dir"]) if options else Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = Path(options["output_file"]) if options else Path("gtopt.json")
+        output_file.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(self.to_json(options), f, indent=4)

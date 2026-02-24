@@ -62,15 +62,12 @@ To install the scripts alongside the gtopt binary::
   cmake -S scripts -B build-scripts
   cmake --install build-scripts
 
-The install step always installs into the **Python interpreter's own prefix**
-(``sys.prefix``) rather than ``CMAKE_INSTALL_PREFIX``.  This ensures that the
-console scripts and the package are placed in the same Python environment so
-that the generated entry-point scripts can import the package.
-
-When using pyenv (or any other Python version manager), ``sys.prefix`` points
-to the active pyenv version directory (e.g.
-``~/.pyenv/versions/3.12.3``), so no ``sudo`` is required and the scripts are
-automatically on the PATH via pyenv's shim mechanism.
+The install step always uses the Python found at **configure time**
+(``${PYTHON_EXECUTABLE} -m pip``).  The absolute path is baked into
+``cmake_install.cmake`` so it is immune to the PATH-stripping that
+``sudo`` applies by default, making both ``cmake --install`` (as a
+regular user) and ``sudo cmake --install`` (system-wide) work
+correctly with the same Python.
 
 To avoid a known setuptools issue where a root-owned ``gtopt_scripts.egg-info``
 directory left by a previous ``sudo`` install blocks subsequent non-root
@@ -285,19 +282,12 @@ add_test(
 install(CODE "
   message(STATUS \"Installing gtopt Python scripts via pip...\")
 
-  # Install into the Python interpreter's own prefix so that the generated
-  # entry-point scripts and the package land in the same Python environment.
-  # This is required for pyenv (and other version managers) where sys.prefix
-  # differs from CMAKE_INSTALL_PREFIX.
-  execute_process(
-    COMMAND \"${PYTHON_EXECUTABLE}\" -c \"import sys; print(sys.prefix)\"
-    OUTPUT_VARIABLE _py_prefix
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _py_result
-  )
-  if(NOT _py_result EQUAL 0)
-    set(_py_prefix \"\${CMAKE_INSTALL_PREFIX}\")
-  endif()
+  # Use the Python found at configure time.  Its absolute path is baked in
+  # here, so it is immune to the PATH-stripping that sudo applies by default.
+  # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
+  # same Python, producing a predictable installation target.
+  set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
+  message(STATUS \"Using pip: ${PYTHON_EXECUTABLE} -m pip\")
 
   # Copy the source tree into a temporary staging directory inside the cmake
   # binary directory, excluding any pre-existing *.egg-info directory.  A
@@ -314,8 +304,7 @@ install(CODE "
     PATTERN \"__pycache__\" EXCLUDE
   )
   execute_process(
-    COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
-      --prefix \"\${_py_prefix}\"
+    COMMAND \${_pip_cmd} install
       --ignore-installed
       \"\${_stage}\"
     RESULT_VARIABLE _pip_rc
