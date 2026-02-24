@@ -47,6 +47,14 @@ jobs:
         working-directory: webservice
         run: npm run lint
 
+      - name: cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/webservice/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/**/*.js', 'webservice/**/*.jsx', 'webservice/**/*.ts', 'webservice/**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
+
       - name: build
         working-directory: webservice
         run: npm run build
