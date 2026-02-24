@@ -99,6 +99,7 @@ include(cmake_local/Solver.cmake)
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
 find_package(Boost REQUIRED COMPONENTS container)
+find_package(ZLIB REQUIRED)
 
 # ---- Add source files ----
 
@@ -135,6 +136,7 @@ target_link_libraries(
          Arrow::arrow_shared
          Parquet::parquet_shared
          Boost::container
+         ZLIB::ZLIB
 )
 
 # enable compiler warnings

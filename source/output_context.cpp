@@ -16,9 +16,11 @@
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
+#include <arrow/io/memory.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <spdlog/spdlog.h>
+#include <zlib.h>
 
 template<typename T>
 concept ArrowBuildable = requires {
@@ -177,6 +179,8 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
   static const std::map<std::string, codec_t> codec_map = {
+      {"", parquet::Compression::UNCOMPRESSED},
+      {"none", parquet::Compression::UNCOMPRESSED},
       {"uncompressed", parquet::Compression::UNCOMPRESSED},
       {"gzip", parquet::Compression::GZIP},
       {"zstd", parquet::Compression::ZSTD},
@@ -201,24 +205,63 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   return status;
 }
 
-auto csv_write_table(const auto& fpath,
-                     const auto& table,
-                     const auto& /* zfmt */)
+auto csv_write_table_plain(const auto& fpath, const auto& table)
 {
-  arrow::Status status;
   const auto filename = std::format("{}.csv", fpath.string());
   ARROW_ASSIGN_OR_RAISE(auto output,
                         arrow::io::FileOutputStream::Open(filename));
 
   const auto write_options = arrow::csv::WriteOptions::Defaults();
-  status = WriteCSV(*table.get(), write_options, output.get());
-  if (!status.ok()) {
-    const auto msg = std::format("can' t write to file {}", fpath.string());
+  auto status = WriteCSV(*table.get(), write_options, output.get());
+  if (!status.ok()) [[unlikely]] {
+    const auto msg = std::format("can't write to file {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
-
   return status;
+}
+
+auto csv_write_table_gzip(const auto& fpath, const auto& table)
+{
+  // Step 1: render CSV into an in-memory buffer via Arrow
+  ARROW_ASSIGN_OR_RAISE(auto buf_stream,
+                        arrow::io::BufferOutputStream::Create());
+  const auto write_options = arrow::csv::WriteOptions::Defaults();
+  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, buf_stream.get()));
+  ARROW_ASSIGN_OR_RAISE(auto buf, buf_stream->Finish());
+
+  // Step 2: gzip-compress the buffer and write to *.csv.gz
+  const auto filename = std::format("{}.csv.gz", fpath.string());
+  gzFile gz = gzopen(filename.c_str(), "wb");  // NOLINT
+  if (gz == nullptr) [[unlikely]] {
+    return arrow::Status::IOError("Cannot open gzip file for writing: ",
+                                  filename);
+  }
+
+  const auto* data = reinterpret_cast<const char*>(buf->data());  // NOLINT
+  const auto size = static_cast<unsigned int>(buf->size());
+  const int written = gzwrite(gz, data, size);
+  gzclose(gz);  // NOLINT
+
+  if (written < 0 || static_cast<unsigned int>(written) != size) [[unlikely]] {
+    return arrow::Status::IOError("gzip write incomplete: ", filename);
+  }
+  return arrow::Status::OK();
+}
+
+auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+{
+  // Default for CSV is no compression; only "gzip" is supported.
+  // Any other non-empty format triggers a warning and falls back to gzip.
+  if (zfmt.empty() || zfmt == "none" || zfmt == "uncompressed") {
+    return csv_write_table_plain(fpath, table);
+  }
+
+  if (zfmt != "gzip") {
+    SPDLOG_WARN("CSV compression '{}' is not supported; falling back to gzip",
+                zfmt);
+  }
+  return csv_write_table_gzip(fpath, table);
 }
 
 auto write_table(std::string_view fmt,
