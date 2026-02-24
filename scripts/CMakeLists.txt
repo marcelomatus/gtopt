@@ -57,13 +57,26 @@ Build targets
 Installation
 ^^^^^^^^^^^^
 
-To install the scripts system-wide alongside the gtopt binary::
+To install the scripts alongside the gtopt binary::
 
   cmake -S scripts -B build-scripts
-  cmake --install build-scripts --prefix /usr/local
+  cmake --install build-scripts
 
-This registers the three console scripts (``cvs2parquet``, ``igtopt``,
-``plp2gtopt``) in ``<prefix>/bin/`` via pip.
+The install step always installs into the **Python interpreter's own prefix**
+(``sys.prefix``) rather than ``CMAKE_INSTALL_PREFIX``.  This ensures that the
+console scripts and the package are placed in the same Python environment so
+that the generated entry-point scripts can import the package.
+
+When using pyenv (or any other Python version manager), ``sys.prefix`` points
+to the active pyenv version directory (e.g.
+``~/.pyenv/versions/3.12.3``), so no ``sudo`` is required and the scripts are
+automatically on the PATH via pyenv's shim mechanism.
+
+To avoid a known setuptools issue where a root-owned ``gtopt_scripts.egg-info``
+directory left by a previous ``sudo`` install blocks subsequent non-root
+rebuilds, the install step copies the source tree to a temporary staging
+directory (inside the cmake binary directory, excluding ``*.egg-info``) before
+invoking pip, and removes the staging directory afterwards.
 
 #]=======================================================================]
 
@@ -271,12 +284,43 @@ add_test(
 
 install(CODE "
   message(STATUS \"Installing gtopt Python scripts via pip...\")
+
+  # Install into the Python interpreter's own prefix so that the generated
+  # entry-point scripts and the package land in the same Python environment.
+  # This is required for pyenv (and other version managers) where sys.prefix
+  # differs from CMAKE_INSTALL_PREFIX.
   execute_process(
-    COMMAND ${PYTHON_EXECUTABLE} -m pip install
-      --prefix \"\${CMAKE_INSTALL_PREFIX}\"
-      \"${SCRIPTS_DIR}\"
+    COMMAND \"${PYTHON_EXECUTABLE}\" -c \"import sys; print(sys.prefix)\"
+    OUTPUT_VARIABLE _py_prefix
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _py_result
+  )
+  if(NOT _py_result EQUAL 0)
+    set(_py_prefix \"\${CMAKE_INSTALL_PREFIX}\")
+  endif()
+
+  # Copy the source tree into a temporary staging directory inside the cmake
+  # binary directory, excluding any pre-existing *.egg-info directory.  A
+  # root-owned egg-info (left by a prior 'sudo cmake --install') would
+  # otherwise cause setuptools to fail when the install is re-run without
+  # sudo.  The staging copy is removed after pip finishes.
+  # --ignore-installed prevents pip from attempting to uninstall a previous
+  # version that may reside in a root-owned location (e.g. /usr/local/lib/…)
+  # and cannot be removed without sudo.
+  set(_stage \"${CMAKE_BINARY_DIR}/pip_stage\")
+  file(REMOVE_RECURSE \"\${_stage}\")
+  file(COPY \"${SCRIPTS_DIR}/\" DESTINATION \"\${_stage}\"
+    PATTERN \"*.egg-info\" EXCLUDE
+    PATTERN \"__pycache__\" EXCLUDE
+  )
+  execute_process(
+    COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
+      --prefix \"\${_py_prefix}\"
+      --ignore-installed
+      \"\${_stage}\"
     RESULT_VARIABLE _pip_rc
   )
+  file(REMOVE_RECURSE \"\${_stage}\")
   if(NOT _pip_rc EQUAL 0)
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
