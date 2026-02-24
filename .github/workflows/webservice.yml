@@ -35,6 +35,14 @@ jobs:
           cache: "npm"
           cache-dependency-path: webservice/package-lock.json
 
+      - name: cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/webservice/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
+
       - name: install dependencies
         working-directory: webservice
         run: npm ci
