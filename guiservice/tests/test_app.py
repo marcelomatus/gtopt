@@ -257,9 +257,7 @@ class TestParseUploadedZip:
             "options": {"annual_discount_rate": 0.1},
             "simulation": {
                 "block_array": [{"uid": 1, "duration": 1}],
-                "stage_array": [
-                    {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-                ],
+                "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
                 "scenario_array": [{"uid": 1, "probability_factor": 1}],
             },
             "system": {
@@ -346,7 +344,7 @@ class TestRoutes:
         assert resp.status_code == 200
         assert b"gtopt Case Editor" in resp.data
         assert b'id="mainNav"' in resp.data
-        assert b'/static/js/app.js' in resp.data
+        assert b"/static/js/app.js" in resp.data
         assert b"Quick Assistant" in resp.data
 
     def test_spreadsheet_libs_served_locally(self, client):
@@ -354,13 +352,13 @@ class TestRoutes:
         resp = client.get("/")
         html = resp.data
         # Local vendor references must be present (both JS and CSS)
-        assert b'/static/vendor/jsuites/jsuites.js' in html
-        assert b'/static/vendor/jsuites/jsuites.css' in html
-        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.js' in html
-        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.css' in html
+        assert b"/static/vendor/jsuites/jsuites.js" in html
+        assert b"/static/vendor/jsuites/jsuites.css" in html
+        assert b"/static/vendor/jspreadsheet-ce/jspreadsheet.js" in html
+        assert b"/static/vendor/jspreadsheet-ce/jspreadsheet.css" in html
         # No CDN references for jsuites or jspreadsheet
-        assert b'cdn.jsdelivr.net/npm/jsuites' not in html
-        assert b'cdn.jsdelivr.net/npm/jspreadsheet' not in html
+        assert b"cdn.jsdelivr.net/npm/jsuites" not in html
+        assert b"cdn.jsdelivr.net/npm/jspreadsheet" not in html
 
     def test_assistant_has_controls(self, client):
         """The Quick Assistant card should have move, minimize and close controls."""
@@ -423,9 +421,7 @@ class TestRoutes:
             "system": {
                 "name": "uploaded",
                 "bus_array": [{"uid": 1, "name": "bus1"}],
-                "generator_array": [
-                    {"uid": 1, "name": "gen1", "bus": "bus1", "capacity": 50}
-                ],
+                "generator_array": [{"uid": 1, "name": "gen1", "bus": "bus1", "capacity": 50}],
             },
         }
         with zipfile.ZipFile(buf, "w") as zf:
@@ -893,10 +889,7 @@ class TestWebserviceEndToEnd:
         assert len(gen_data["data"]) == 2
 
         # Verify download called correct URL
-        assert (
-            mock_get.call_args[0][0]
-            == f"http://testserver:3000/api/jobs/{token}/download"
-        )
+        assert mock_get.call_args[0][0] == f"http://testserver:3000/api/jobs/{token}/download"
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_and_receive_case_zip_contents(self, mock_post, client):
@@ -957,9 +950,7 @@ class TestWebserviceEndToEnd:
         """Verify results with multiple output types are correctly parsed."""
         results_zip = io.BytesIO()
         with zipfile.ZipFile(results_zip, "w") as zf:
-            zf.writestr(
-                "solution.csv", "obj_value,1234.56\nstatus,0\nsolver_time,5.2\n"
-            )
+            zf.writestr("solution.csv", "obj_value,1234.56\nstatus,0\nsolver_time,5.2\n")
             zf.writestr(
                 "Generator/generation_sol.csv",
                 '"scenario","stage","block","uid:1","uid:2"\n'
@@ -967,13 +958,11 @@ class TestWebserviceEndToEnd:
             )
             zf.writestr(
                 "Bus/marginal_cost_sol.csv",
-                '"scenario","stage","block","uid:1"\n'
-                "1,1,1,50.0\n1,1,2,52.0\n1,2,1,48.0\n",
+                '"scenario","stage","block","uid:1"\n1,1,1,50.0\n1,1,2,52.0\n1,2,1,48.0\n',
             )
             zf.writestr(
                 "Demand/demand_sol.csv",
-                '"scenario","stage","block","uid:1"\n'
-                "1,1,1,10\n1,1,2,10\n1,2,1,10\n",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n1,1,2,10\n1,2,1,10\n',
             )
         results_zip.seek(0)
 
@@ -1227,9 +1216,7 @@ class TestJobLogs:
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_resp
-        )
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
         mock_get.return_value = mock_resp
         resp = client.get("/api/solve/job_logs/nonexistent")
         assert resp.status_code == 502
@@ -1251,9 +1238,7 @@ class TestResultsWithTerminalOutput:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
             zf.writestr(
                 "output/gtopt_terminal.log",
                 "Solving model...\nOptimal solution found.\n",
@@ -1286,9 +1271,7 @@ class TestResultsWithTerminalOutput:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,10.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,10.0\nstatus,0\n")
         buf.seek(0)
 
         results = _parse_results_zip(buf.getvalue())
@@ -1300,9 +1283,7 @@ class TestResultsWithTerminalOutput:
         """Verify /api/solve/results includes terminal output in response."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
             zf.writestr(
                 "output/gtopt_terminal.log",
                 "gtopt solver output line 1\ngtopt solver output line 2\n",
@@ -1325,12 +1306,8 @@ class TestResultsWithTerminalOutput:
         """Verify /api/results/upload includes terminal output."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,99.9\nstatus,0\n"
-            )
-            zf.writestr(
-                "stdout.log", "Starting optimization...\nDone.\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,99.9\nstatus,0\n")
+            zf.writestr("stdout.log", "Starting optimization...\nDone.\n")
         buf.seek(0)
 
         resp = client.post(
@@ -1431,9 +1408,7 @@ class TestWebserviceConnectivity:
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_resp
-        )
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
         mock_get.return_value = mock_resp
 
         resp = client.get("/api/solve/ping")
@@ -1449,6 +1424,7 @@ class TestCheckServer:
     @patch("guiservice.app.http_requests.get")
     def test_check_server_all_ok(self, mock_get, client):
         """All three checks (ping, logs, jobs) succeed."""
+
         def side_effect(url, **kwargs):
             resp = MagicMock()
             resp.raise_for_status.return_value = None

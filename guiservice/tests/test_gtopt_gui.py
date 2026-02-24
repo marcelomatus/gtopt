@@ -29,11 +29,11 @@ from gtopt_gui import (
 def test_find_free_port():
     """Test that find_free_port returns a valid port number."""
     port = find_free_port()
-    
+
     # Check it's a valid port number
     assert isinstance(port, int)
     assert 1024 <= port <= 65535
-    
+
     # Verify the port is actually available
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", port))
@@ -44,13 +44,13 @@ def test_find_free_port():
 def test_get_guiservice_dir():
     """Test that get_guiservice_dir finds the guiservice directory."""
     guiservice_dir = get_guiservice_dir()
-    
+
     # Should return a Path object
     assert isinstance(guiservice_dir, Path)
-    
+
     # Should contain app.py
     assert (guiservice_dir / "app.py").exists()
-    
+
     # Should contain gtopt_gui.py
     assert (guiservice_dir / "gtopt_gui.py").exists()
 
@@ -58,11 +58,11 @@ def test_get_guiservice_dir():
 def test_webservice_detection():
     """Test that webservice detection works without errors."""
     from gtopt_gui import get_webservice_dir
-    
+
     # Should return None or Path, not raise error
     result = get_webservice_dir()
     assert result is None or isinstance(result, Path)
-    
+
     # If found, should have package.json
     if result is not None:
         assert (result / "package.json").exists()
@@ -71,7 +71,7 @@ def test_webservice_detection():
 def test_gtopt_binary_detection():
     """Test that gtopt binary detection works without errors."""
     from gtopt_gui import find_gtopt_binary
-    
+
     # Should return None or Path, not raise error
     result = find_gtopt_binary()
     assert result is None or isinstance(result, Path)

@@ -108,9 +108,7 @@ def test_main_default_port_and_host(tmp_path):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(
-        host="0.0.0.0", port=5001, debug=False
-    )
+    mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=5001, debug=False)
 
 
 def test_main_custom_port(tmp_path):
@@ -128,9 +126,7 @@ def test_main_custom_port(tmp_path):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(
-        host="0.0.0.0", port=8080, debug=False
-    )
+    mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=8080, debug=False)
 
 
 def test_main_debug_flag(tmp_path):
@@ -148,9 +144,7 @@ def test_main_debug_flag(tmp_path):
                 with patch.dict("sys.modules", {"app": mock_app_module}):
                     guisrv.main()
 
-    mock_app_module.app.run.assert_called_once_with(
-        host="0.0.0.0", port=5001, debug=True
-    )
+    mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=5001, debug=True)
 
 
 def test_main_missing_dependencies_exits(tmp_path, capsys):
