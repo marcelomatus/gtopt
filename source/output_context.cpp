@@ -220,8 +220,9 @@ auto make_table(FieldVector&& field_vector)
   return codec;
 }
 
-auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
-    -> arrow::Status
+auto parquet_write_table(const auto& fpath,
+                         const auto& table,
+                         const auto& zfmt) -> arrow::Status
 {
   const auto filename = std::format("{}.parquet", fpath.string());
   auto maybe_output = arrow::io::FileOutputStream::Open(filename);
@@ -286,7 +287,7 @@ auto csv_write_table_gzip(const auto& fpath, const auto& table)
   // gzwrite takes unsigned (32-bit) length; guard against >4 GB CSV buffers
 
   // NOLINTNEXTLINE
-  if (buf_size > static_cast<decltype(buf_size)>(
+  if (buf_size > static_cast<std::remove_cv_t<decltype(buf_size)>>(
           std::numeric_limits<unsigned int>::max())) [[unlikely]]
   {
     gzclose(gz);  // NOLINT
@@ -298,7 +299,8 @@ auto csv_write_table_gzip(const auto& fpath, const auto& table)
   gzclose(gz);  // NOLINT
 
   // NOLINTNEXTLINE
-  if (written < 0 || (size != static_cast<decltype(size)>(written)))
+  if (written < 0
+      || (size != static_cast<std::remove_cv_t<decltype(size)>>(written)))
       [[unlikely]]
   {
     return arrow::Status::IOError("gzip write incomplete: ", filename);
