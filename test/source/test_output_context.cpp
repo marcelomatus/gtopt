@@ -674,3 +674,154 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// ---------------------------------------------------------------------------
+// Tests for output failure paths and solution.csv failure path
+// ---------------------------------------------------------------------------
+
+// Helper: create all expected output subdirectories inside @p outdir with
+// read+exec but no write permission.  The component subdirs written by
+// make_csv_system are: Bus, Generator, Demand.
+static void make_readonly_subdirs(const std::filesystem::path& outdir)
+{
+  for (const auto* sub : {"Bus", "Generator", "Demand"}) {
+    auto p = outdir / sub;
+    std::filesystem::create_directories(p);
+    std::filesystem::permissions(
+        p,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
+        std::filesystem::perm_options::replace);
+  }
+}
+
+static void restore_and_remove(const std::filesystem::path& outdir)
+{
+  // restore permissions recursively so remove_all works
+  for (const auto& e : std::filesystem::recursive_directory_iterator(outdir)) {
+    std::filesystem::permissions(e.path(),
+                                 std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::add);
+  }
+  std::filesystem::permissions(outdir,
+                               std::filesystem::perms::owner_all,
+                               std::filesystem::perm_options::add);
+  std::filesystem::remove_all(outdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - write() with unwritable output dir logs error (no throw)")
+{
+  // Top-level dir is read-only → create_directories for subdirs fails
+  // → create_tables skips them (covers lines 133, 347-350)
+  // → write() completes without throwing.
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_readonly_out";
+  std::filesystem::create_directories(tmpdir);
+  std::filesystem::permissions(
+      tmpdir,
+      std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
+      std::filesystem::perm_options::replace);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  // write() should not throw even when the directory is not writable
+  CHECK_NOTHROW(system_lp.write_out());
+
+  // Restore permissions so cleanup succeeds
+  std::filesystem::permissions(tmpdir,
+                               std::filesystem::perms::owner_all,
+                               std::filesystem::perm_options::replace);
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - CSV write to read-only subdir logs error (no throw)")
+{
+  // Subdirs exist but are not writable.  create_directories succeeds (dir
+  // already present), but FileOutputStream::Open fails and returns an error
+  // status → write_table returns error → thread lambda logs SPDLOG_CRITICAL
+  // (covers lines 256 and 385).
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_readonly_sub";
+  std::filesystem::create_directories(tmpdir);
+  make_readonly_subdirs(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  CHECK_NOTHROW(system_lp.write_out());
+
+  restore_and_remove(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet write to read-only subdir logs error (no throw)")
+{
+  // Same pattern as CSV test, but with parquet format.
+  // covers parquet_write_table Open failure (lines 228-231) and 385.
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_pq_readonly_sub";
+  std::filesystem::create_directories(tmpdir);
+  make_readonly_subdirs(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  CHECK_NOTHROW(system_lp.write_out());
+
+  restore_and_remove(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - CSV gzip to unwritable dir logs error (no throw)")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_readonly_gz";
+  std::filesystem::create_directories(tmpdir);
+  make_readonly_subdirs(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  opts.compression_format = "gzip";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  CHECK_NOTHROW(system_lp.write_out());
+
+  restore_and_remove(tmpdir);
+}
