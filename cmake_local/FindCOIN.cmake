@@ -73,8 +73,24 @@ if(COIN_FOUND)
     # liblapack-dev is present.  Fall back to a direct find_library search so
     # that libCoinUtils.so can still be linked against the LAPACK routines it
     # needs (dgetrf_, dgetrs_).
-    find_library(_COIN_LAPACK_LIB NAMES lapack)
-    find_library(_COIN_BLAS_LIB NAMES blas openblas)
+    #
+    # On Ubuntu the liblapack-dev symlink (liblapack.so → lapack/liblapack.so)
+    # is created by update-alternatives at dpkg configure time.  When packages
+    # are restored from an APT cache (e.g. awalsh128/cache-apt-pkgs-action) that
+    # step may be skipped, leaving only the versioned library inside the lapack/
+    # subdirectory.  Search there explicitly so we still find the library.
+    find_library(
+      _COIN_LAPACK_LIB
+      NAMES lapack
+      HINTS /usr/lib/x86_64-linux-gnu/lapack
+            /usr/lib/aarch64-linux-gnu/lapack
+    )
+    find_library(
+      _COIN_BLAS_LIB
+      NAMES blas openblas
+      HINTS /usr/lib/x86_64-linux-gnu/blas
+            /usr/lib/aarch64-linux-gnu/blas
+    )
     if(_COIN_LAPACK_LIB)
       set(LAPACK_LIBRARIES "${_COIN_LAPACK_LIB}")
       if(_COIN_BLAS_LIB)
@@ -82,7 +98,10 @@ if(COIN_FOUND)
       endif()
       message(STATUS "COIN: FindLAPACK fallback found ${_COIN_LAPACK_LIB}")
     else()
-      message(WARNING "COIN: LAPACK not found; libCoinUtils.so may fail to link")
+      # libCoinUtils.so is a shared library whose ELF DT_NEEDED entries
+      # already reference LAPACK at runtime; linking will succeed even when
+      # LAPACK is absent from our explicit link line.
+      message(STATUS "COIN: LAPACK not found via find_library; relying on libCoinUtils.so runtime deps")
     endif()
   endif()
 

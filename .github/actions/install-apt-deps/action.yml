@@ -25,7 +25,16 @@ runs:
 
     - name: ensure LAPACK runtime is present
       shell: bash
-      run: sudo apt-get install -y --no-install-recommends liblapack3 libblas3
+      run: |
+        sudo apt-get install -y --no-install-recommends liblapack3 libblas3
+        # Refresh linker cache and re-run update-alternatives so that the
+        # liblapack.so and libblas.so symlinks exist even when packages were
+        # restored from a cache snapshot (awalsh128/cache-apt-pkgs-action may
+        # skip dpkg trigger scripts that create the alternatives symlinks).
+        DEB_ARCH=$(dpkg --print-architecture)-linux-gnu
+        sudo ldconfig
+        sudo update-alternatives --auto "liblapack.so-${DEB_ARCH}" 2>/dev/null || true
+        sudo update-alternatives --auto "libblas.so-${DEB_ARCH}" 2>/dev/null || true
 
     - name: add Apache Arrow APT repository
       shell: bash
