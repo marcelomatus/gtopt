@@ -217,7 +217,7 @@ The **scripts sub-package** (`scripts/`) is self-contained with its own
 It is **independent** of the root `pyproject.toml`.
 
 - **Version**: Python ≥ 3.10 (type-checking); CI uses 3.12
-- **Formatter**: `black` (line-length 88)
+- **Formatter**: `ruff format` (line-length 88)
 - **Linter**: `pylint` (configured in `scripts/pyproject.toml`)
 - **Type checker**: `mypy` (configured in `scripts/pyproject.toml`)
 - **Tests**: `pytest` with `pytest-cov`
@@ -232,8 +232,8 @@ pip install -r scripts/requirements.txt          # runtime only
 cd scripts
 
 # Format
-python -m black cvs2parquet igtopt plp2gtopt
-python -m black --check cvs2parquet igtopt plp2gtopt   # CI check
+python -m ruff format cvs2parquet igtopt plp2gtopt
+python -m ruff format --check cvs2parquet igtopt plp2gtopt   # CI check
 
 # Lint
 python -m pylint cvs2parquet igtopt plp2gtopt
@@ -260,8 +260,8 @@ Via CMake (from repo root after `cmake -S scripts -B build-scripts`):
 
 ```bash
 cmake --build build-scripts --target scripts-install       # pip install -e scripts/[dev]
-cmake --build build-scripts --target scripts-format        # black (in-place)
-cmake --build build-scripts --target scripts-check-format  # black --check
+cmake --build build-scripts --target scripts-format        # ruff format (in-place)
+cmake --build build-scripts --target scripts-check-format  # ruff format --check
 cmake --build build-scripts --target scripts-lint          # pylint
 cmake --build build-scripts --target scripts-mypy          # mypy
 cmake --build build-scripts --target scripts-test          # unit tests

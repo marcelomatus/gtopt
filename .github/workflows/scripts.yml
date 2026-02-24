@@ -124,6 +124,103 @@ jobs:
           path: scripts/coverage-integration.xml
           retention-days: 30
 
+  cmake-install:
+    runs-on: ubuntu-latest
+    name: cmake-install
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Configure scripts with CMake
+        run: cmake -S scripts -B build-scripts
+
+      - name: Install scripts via cmake --install
+        run: cmake --install build-scripts
+
+      - name: Verify installed entry-point script is on PATH
+        run: |
+          plp2gtopt --version
+          echo "✓ plp2gtopt found on PATH after cmake --install"
+
+      - name: plp_min_1bus – convert and validate JSON
+        run: |
+          mkdir -p /tmp/out_min_1bus
+          plp2gtopt \
+            -i scripts/cases/plp_min_1bus \
+            -o /tmp/out_min_1bus \
+            -f /tmp/out_min_1bus/gtopt_case.json
+          python3 - <<'EOF'
+          import json, sys
+          d = json.load(open("/tmp/out_min_1bus/gtopt_case.json"))
+          assert d["system"]["bus_array"][0]["name"] == "Bus1", \
+              f"Wrong bus name: {d['system']['bus_array'][0]['name']}"
+          assert len(d["system"]["generator_array"]) == 1
+          assert d["system"]["generator_array"][0]["name"] == "Thermal1"
+          assert len(d["simulation"]["block_array"]) == 1
+          print("✓ plp_min_1bus JSON validated")
+          EOF
+
+      - name: plp_min_2bus – convert and validate JSON
+        run: |
+          mkdir -p /tmp/out_min_2bus
+          plp2gtopt \
+            -i scripts/cases/plp_min_2bus \
+            -o /tmp/out_min_2bus \
+            -f /tmp/out_min_2bus/gtopt_case.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/out_min_2bus/gtopt_case.json"))
+          assert len(d["system"]["bus_array"]) == 2
+          assert len(d["system"]["generator_array"]) == 2
+          assert len(d["system"]["line_array"]) == 1
+          assert len(d["simulation"]["stage_array"]) == 2
+          print("✓ plp_min_2bus JSON validated")
+          EOF
+
+      - name: plp_min_bess – convert and validate battery JSON
+        run: |
+          mkdir -p /tmp/out_min_bess
+          plp2gtopt \
+            -i scripts/cases/plp_min_bess \
+            -o /tmp/out_min_bess \
+            -f /tmp/out_min_bess/gtopt_case.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/out_min_bess/gtopt_case.json"))
+          assert len(d["system"].get("battery_array", [])) == 1, \
+              "Expected 1 battery"
+          assert d["system"]["battery_array"][0]["name"] == "BESS1"
+          assert len(d["system"].get("converter_array", [])) == 1
+          print("✓ plp_min_bess JSON validated")
+          EOF
+
+      - name: plp_min_hydro – convert with 2 hydrologies and validate JSON
+        run: |
+          mkdir -p /tmp/out_min_hydro
+          plp2gtopt \
+            -i scripts/cases/plp_min_hydro \
+            -o /tmp/out_min_hydro \
+            -f /tmp/out_min_hydro/gtopt_case.json \
+            -y 0,1
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/out_min_hydro/gtopt_case.json"))
+          scenarios = d["simulation"]["scenario_array"]
+          assert len(scenarios) == 2, f"Expected 2 scenarios, got {len(scenarios)}"
+          assert abs(scenarios[0]["probability_factor"] - 0.5) < 1e-9
+          assert abs(scenarios[1]["probability_factor"] - 0.5) < 1e-9
+          assert d["system"]["generator_array"][0]["name"] == "HydroGen"
+          print("✓ plp_min_hydro JSON validated")
+          EOF
+
   lint:
     runs-on: ubuntu-latest
     name: lint
