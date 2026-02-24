@@ -44,6 +44,9 @@ export async function ensureDataDir(): Promise<void> {
 }
 
 export async function createJob(systemFile: string): Promise<JobInfo> {
+  if (!systemFile || systemFile.trim() === "") {
+    throw new Error("systemFile parameter must not be empty");
+  }
   const token = uuidv4();
   const job: JobInfo = {
     token,

@@ -22,6 +22,7 @@ coverage.info
 *.gcda
 *.gcno
 .coverage
+coverage*.xml
 htmlcov/
 
 # Web service
@@ -32,3 +33,5 @@ webservice/data/
 # CodeQL
 _codeql_detected_source_root
 build/
+webservice/tsconfig.tsbuildinfo
+webservice/coverage/
