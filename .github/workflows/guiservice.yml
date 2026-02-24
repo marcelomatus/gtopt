@@ -5,10 +5,18 @@ on:
     branches:
       - master
       - main
+    paths:
+      - "guiservice/**"
+      - ".github/workflows/guiservice.yml"
   pull_request:
     branches:
       - master
       - main
+    paths:
+      - "guiservice/**"
+      - ".github/workflows/guiservice.yml"
+      - ".pylintrc"
+  workflow_dispatch:
 
 
 concurrency:
@@ -19,6 +27,50 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "guiservice/requirements.txt"
+
+      - name: Install lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pylint mypy types-requests
+          pip install -r guiservice/requirements.txt
+
+      - name: ruff (lint)
+        run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+
+      - name: ruff (format check)
+        run: |
+          set +e
+          RUFF_OUT=$(ruff format --check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py 2>&1)
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$RUFF_OUT"
+            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
+            echo "::warning title=ruff-format::$N Python file(s) need formatting. The Auto-format workflow will push a fix. To fix locally run: ruff format guiservice/"
+          fi
+          # Always exit 0 — the Auto-format workflow applies fixes automatically
+          exit 0
+
+      - name: pylint
+        run: pylint --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+
+      - name: mypy
+        run: |
+          mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py \
+            --ignore-missing-imports
+
   test:
     runs-on: ubuntu-latest
 
@@ -29,6 +81,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "guiservice/requirements.txt"
 
       - name: Install dependencies
         run: |
@@ -39,7 +93,17 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
-            -v --cov=guiservice --cov-report=term --cov-report=html:coverage-guiservice
+            guiservice/tests/test_gtopt_guisrv.py \
+            -v --cov=guiservice --cov-report=term-missing \
+            --cov-report=html:coverage-guiservice \
+            --cov-report=xml:coverage-guiservice.xml \
+            | tee "${{ runner.temp }}/pytest-guiservice.log"
+
+      - name: Check coverage threshold (warning only)
+        run: |
+          python -m coverage report --fail-under=55 --data-file=.coverage || \
+            echo "::warning::Guiservice coverage below 55% threshold"
+        continue-on-error: true
 
       - name: upload Python coverage report
         if: always()
@@ -54,12 +118,11 @@ jobs:
         run: |
           echo "## Python Guiservice Test Coverage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
-            --cov=guiservice --cov-report=term --no-header -q 2>&1 | tail -5 >> $GITHUB_STEP_SUMMARY || true
+          tail -8 "${{ runner.temp }}/pytest-guiservice.log" >> $GITHUB_STEP_SUMMARY || true
 
   install-and-test-launchers:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -67,6 +130,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "guiservice/requirements.txt"
 
       - name: Configure guiservice with CMake
         run: |
@@ -133,7 +198,7 @@ jobs:
           # Start gtopt_guisrv in background
           timeout 30 ./gtopt_guisrv --port 5099 > /tmp/gtopt_guisrv.log 2>&1 &
           GUI_PID=$!
-          
+
           # Wait for service to start
           echo "Waiting for service to start..."
           for i in {1..30}; do
@@ -143,19 +208,18 @@ jobs:
             fi
             sleep 1
           done
-          
+
           # Test API endpoint
           echo "Testing API endpoint..."
           curl -s http://localhost:5099/api/schemas | python3 -c "import sys, json; data = json.load(sys.stdin); assert len(data) > 0, 'No schemas returned'; print(f'✓ API working: {len(data)} element types available')"
-          
+
           # Test main page
           echo "Testing web UI..."
           curl -s http://localhost:5099/ | grep -q "gtopt Case Editor" && echo "✓ Web UI working" || (echo "✗ Web UI test failed" && exit 1)
-          
+
           # Cleanup
           kill $GUI_PID 2>/dev/null || true
-          
+
           # Show logs if there were issues
           echo "=== Service logs ==="
           cat /tmp/gtopt_guisrv.log || true
-

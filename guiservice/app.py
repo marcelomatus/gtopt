@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 from base64 import b64decode, b64encode
 from collections import deque
+from typing import Any
 
 import pandas as pd
 import requests as http_requests
@@ -32,7 +33,7 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 
 MAX_LOG_ENTRIES = 500
 DEFAULT_LOG_LINES = 200
-_recent_logs = deque(maxlen=MAX_LOG_ENTRIES)
+_recent_logs: deque[str] = deque(maxlen=MAX_LOG_ENTRIES)
 
 
 class _RecentLogHandler(logging.Handler):
@@ -48,9 +49,7 @@ def _configure_logging():
         "GTOPT_GUI_LOG_FILE",
         os.path.join(tempfile.gettempdir(), "gtopt_guiservice.log"),
     )
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     app.logger.setLevel(logging.INFO)
 
     if not any(isinstance(h, _RecentLogHandler) for h in app.logger.handlers):
@@ -426,9 +425,7 @@ def _build_zip(case_data):
                         b64decode(raw_b64),
                     )
                 else:
-                    df = pd.DataFrame(
-                        file_content["data"], columns=file_content["columns"]
-                    )
+                    df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
                     parquet_buf = io.BytesIO()
                     df.to_parquet(parquet_buf, index=False)
                     zf.writestr(
@@ -456,7 +453,7 @@ def _parse_uploaded_zip(zip_bytes):
     The original ZIP bytes are preserved (base64-encoded) so that
     ``submit_solve`` can forward them to the webservice unchanged.
     """
-    case_data = {
+    case_data: dict[str, Any] = {
         "case_name": "uploaded_case",
         "options": {},
         "simulation": {},
@@ -471,9 +468,7 @@ def _parse_uploaded_zip(zip_bytes):
 
         # Parse the main JSON
         main_json_name = json_files[0]
-        case_data["case_name"] = os.path.splitext(
-            os.path.basename(main_json_name)
-        )[0]
+        case_data["case_name"] = os.path.splitext(os.path.basename(main_json_name))[0]
 
         raw = json.loads(zf.read(main_json_name))
         case_data["options"] = raw.get("options", {})
@@ -505,8 +500,8 @@ def _parse_uploaded_zip(zip_bytes):
                             "columns": rows[0],
                             "data": rows[1:],
                         }
-                except Exception:
-                    pass
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    app.logger.warning("Failed to parse CSV file %s: %s", name, e)
 
             elif name.endswith(".parquet"):
                 rel = name
@@ -523,8 +518,8 @@ def _parse_uploaded_zip(zip_bytes):
                         "data": _df_to_rows(df),
                         "_raw_parquet_b64": b64encode(raw_bytes).decode("ascii"),
                     }
-                except Exception:
-                    pass
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    app.logger.warning("Failed to parse Parquet file %s: %s", name, e)
 
         # Store the system file name for passthrough submission
         case_data["_system_file"] = main_json_name
@@ -537,7 +532,7 @@ def _parse_uploaded_zip(zip_bytes):
 
 def _parse_results_zip(zip_bytes):
     """Parse a results ZIP or directory structure into viewable data."""
-    results = {"solution": {}, "outputs": {}, "terminal_output": ""}
+    results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         for name in zf.namelist():
@@ -645,6 +640,9 @@ def upload_case():
     if not f.filename:
         return jsonify({"error": "No file selected"}), 400
 
+    if not f.filename.lower().endswith(".zip"):
+        return jsonify({"error": "Only ZIP files are accepted"}), 400
+
     case_data = _parse_uploaded_zip(f.read())
     return jsonify(case_data)
 
@@ -682,7 +680,6 @@ def upload_results():
 @app.route("/api/solve/config", methods=["GET"])
 def get_solve_config():
     """Return the current webservice URL configuration."""
-    global _webservice_url
     return jsonify({"webservice_url": _webservice_url})
 
 
@@ -713,7 +710,6 @@ def submit_solve():
       - systemFile: name of the system JSON inside the archive
     It returns {"token": "...", "status": "pending", "message": "..."}.
     """
-    global _webservice_url
     case_data = request.get_json()
     if not case_data:
         return jsonify({"error": "No case data provided"}), 400
@@ -742,7 +738,9 @@ def submit_solve():
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on submit: %s", _webservice_url)
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on submit")
@@ -755,9 +753,7 @@ def submit_solve():
             except Exception:
                 body = e.response.text
         app.logger.warning("Webservice HTTP error on submit: %s", body)
-        return jsonify(
-            {"error": f"Webservice error ({e.response.status_code}): {body}"}
-        ), 502
+        return jsonify({"error": f"Webservice error ({e.response.status_code}): {body}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on submit")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -771,7 +767,6 @@ def get_solve_status(token):
     {"token", "status", "createdAt", "completedAt", "systemFile", "error"}
     where status is one of: pending, running, completed, failed.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}",
@@ -782,7 +777,9 @@ def get_solve_status(token):
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on status token=%s", token)
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on status token=%s", token)
@@ -790,9 +787,7 @@ def get_solve_status(token):
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on status token=%s status=%s", token, status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on status token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -806,7 +801,6 @@ def get_solve_results(token):
       - output/  (solver output CSV/Parquet files)
       - stdout.log, stderr.log, job.json
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/download",
@@ -820,7 +814,9 @@ def get_solve_results(token):
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on results token=%s", token)
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on results token=%s", token)
@@ -828,9 +824,7 @@ def get_solve_results(token):
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on results token=%s status=%s", token, status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on results token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -842,7 +836,6 @@ def list_solve_jobs():
 
     Proxies to GET /api/jobs which returns {"jobs": [...]}.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs",
@@ -853,7 +846,9 @@ def list_solve_jobs():
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on jobs list")
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on jobs list")
@@ -861,9 +856,7 @@ def list_solve_jobs():
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on jobs list status=%s", status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on jobs list")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -875,7 +868,6 @@ def ping_webservice():
 
     Proxies to GET /api/ping which returns service status and gtopt version info.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/ping",
@@ -886,7 +878,9 @@ def ping_webservice():
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on ping")
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on ping")
@@ -894,9 +888,7 @@ def ping_webservice():
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on ping status=%s", status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on ping")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -908,7 +900,6 @@ def get_webservice_logs():
 
     Proxies to GET /api/logs on the webservice to retrieve its log content.
     """
-    global _webservice_url
     lines = request.args.get("lines", default=DEFAULT_LOG_LINES, type=int)
     try:
         resp = http_requests.get(
@@ -921,7 +912,9 @@ def get_webservice_logs():
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on logs")
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on logs")
@@ -929,9 +922,7 @@ def get_webservice_logs():
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on logs status=%s", status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on logs")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -943,7 +934,6 @@ def get_job_logs(token):
 
     Proxies to GET /api/jobs/:token/logs on the webservice.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/logs",
@@ -954,7 +944,9 @@ def get_job_logs(token):
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on job_logs token=%s", token)
         return jsonify(
-            {"error": f"Cannot connect to webservice at {_webservice_url}"}
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
         ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on job_logs token=%s", token)
@@ -962,9 +954,7 @@ def get_job_logs(token):
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on job_logs token=%s status=%s", token, status)
-        return jsonify(
-            {"error": f"Webservice error: {status}"}
-        ), 502
+        return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on job_logs token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -994,8 +984,7 @@ def check_server():
     Performs ping, log retrieval, and job listing against the configured
     webservice URL and returns all results in a single response.
     """
-    global _webservice_url
-    results = {
+    results: dict[str, Any] = {
         "webservice_url": _webservice_url,
         "ping": None,
         "logs": None,
@@ -1012,9 +1001,7 @@ def check_server():
 
     # --- Logs ---
     try:
-        resp = http_requests.get(
-            f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10
-        )
+        resp = http_requests.get(f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10)
         resp.raise_for_status()
         results["logs"] = {"status": "ok", "data": resp.json()}
     except Exception as e:

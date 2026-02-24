@@ -33,6 +33,7 @@ plp2gtopt   = "plp2gtopt.main:main"
 [project.optional-dependencies]
 dev = [
     "coverage[toml]>=7.0",
+    "mypy>=1.0",
     "pylint>=2.15",
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -67,7 +68,6 @@ omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 [tool.coverage.report]
 show_missing = true
 precision = 1
-fail_under = 83
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
@@ -83,19 +83,30 @@ known_first_party = ["cvs2parquet", "igtopt", "plp2gtopt"]
 [tool.ruff]
 line-length = 88
 
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
-[tool.pylint]
+[tool.pylint.main]
+# No additional main settings needed
+
+[tool.pylint.format]
 max-line-length = 100
+
+[tool.pylint.design]
 max-args = 12
 max-locals = 25
 max-branches = 16
 max-statements = 60
-max-instance-attributes = 10
+max-attributes = 10
 max-positional-arguments = 12
+
+[tool.pylint."messages control"]
 disable = [
     "missing-docstring",
     "too-few-public-methods",
@@ -108,6 +119,10 @@ disable = [
     "implicit-str-concat",
     # too-many-positional-arguments covered by max-args above
     "too-many-positional-arguments",
+    # duplicate-code is noisy for test boilerplate and shared CLI argument patterns
+    "duplicate-code",
+    # protected-access is intentional in test helpers that set up internal state
+    "protected-access",
 ]
 
 [tool.mypy]

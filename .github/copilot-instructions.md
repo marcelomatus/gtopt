@@ -26,7 +26,9 @@ The repository also contains:
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev libboost-container-dev libspdlog-dev \
-  lcov ca-certificates lsb-release wget
+  liblapack-dev libblas-dev \
+  lcov ca-certificates lsb-release wget \
+  ccache zlib1g-dev 
 
 # Apache Arrow + Parquet (official APT repo)
 wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
@@ -64,8 +66,8 @@ fallback. The following was confirmed to produce a passing build on Ubuntu 24.04
 (Noble) with GCC 14.2 and Arrow 12.0.0:
 
 ```bash
-# Install Arrow + Parquet into the active conda environment
-conda install -y -c conda-forge arrow-cpp parquet-cpp
+# Install Arrow + Parquet + Boost into the active conda environment
+conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
 # Find the conda base/prefix
 CONDA_BASE=$(conda info --base)   # e.g. /usr/share/miniconda
@@ -75,6 +77,8 @@ cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="${CONDA_BASE}"
 
 cmake --build build -j$(nproc)
@@ -149,7 +153,7 @@ lcov --capture --directory . --output-file coverage.info \
 ## Verified Build Environment
 
 The following combination was used to produce a **100% passing** build
-(587/587 tests) on Ubuntu 24.04 (Noble):
+(594/594 tests) on Ubuntu 24.04 (Noble):
 
 | Component | Version | Notes |
 |-----------|---------|-------|
@@ -158,26 +162,47 @@ The following combination was used to produce a **100% passing** build
 | CMake | 3.31.6 | Pre-installed on runner |
 | Arrow / Parquet | 12.0.0 | Installed via `conda install -c conda-forge arrow-cpp parquet-cpp` |
 | Boost.Container | 1.83.0 | `libboost-container-dev` from Ubuntu repos |
-| COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake auto-selects CLP; CBC works too |
+| COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake automatically selects CLP; CBC works too |
 | spdlog | 1.12.0 | `libspdlog-dev` from Ubuntu repos |
+| LAPACK/BLAS | 3.12.0 | `liblapack-dev libblas-dev` from Ubuntu repos (required by COIN-OR) |
 | conda | 26.1.0 | `/usr/share/miniconda` (base prefix) |
 
-**Verified configure command** (conda Arrow path):
+**Verified configure command** (conda Arrow + Boost path):
 
 ```bash
+# Install Arrow, Parquet, and Boost via conda (when APT boost is unavailable)
+conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+
 cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
-# Expected: 100% tests passed, 0 tests failed out of 587
+# Expected: 100% tests passed, 0 tests failed out of 594
 ```
 
 > The APT-based Arrow install (from `packages.apache.org/artifactory`) is the
 > cleanest route when network access is available. The conda route is the
 > verified fallback when that domain is blocked.
+
+### Common build failures and fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **before** running `cmake -S test -B build` |
+| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
+| `Unable to fetch some archives` from apt | Stale package lists | Always run `sudo apt-get update` before `apt-get install` |
+| `COIN solver: none configured` / no solver found | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev`; CLP is auto-selected and sufficient for unit tests |
+| `Could not find BoostConfig.cmake` | Boost not installed | `sudo apt-get install -y libboost-container-dev` |
+
+**Critical rule**: always install `ccache` **before** running `cmake -S test -B build`.
+CMake bakes the launcher path into the build system at configure time; if ccache
+is missing when you configure, every subsequent `cmake --build` invocation fails
+even after installing ccache later.
 
 ---
 
@@ -597,7 +622,11 @@ gtopt/
 ├── cmake_local/          # Project-specific CMake modules
 └── .github/
     ├── workflows/        # CI: ubuntu.yml, style.yml, autoformat.yml, …
-    └── actions/          # Composite actions: install-clang
+    └── actions/          # Composite actions:
+        ├── install-apt-deps/        # Installs COIN-OR, Boost, spdlog, Arrow/Parquet
+        ├── install-clang/           # Installs Clang/LLVM from apt.llvm.org
+        ├── install-gcc/             # Registers GCC unversioned alternatives
+        └── setup-llvm-alternatives/ # Registers LLVM unversioned alternatives
 ```
 
 ### Key headers to understand first
@@ -606,12 +635,24 @@ gtopt/
 |--------|---------|
 | `basic_types.hpp` | `Uid`, `Name`, `Real`, `OptReal`, strong types |
 | `utils.hpp` | `merge`, `enumerate`, `enumerate_active`, `to_vector`, optional helpers |
+| `field_sched.hpp` | `FieldSched<Type,Vec>` variant (scalar / vector / filename); `FileSched` alias |
+| `schedule.hpp` | `Schedule<T,Uid…>` and `OptSchedule<T,Uid…>` – typed data accessors |
+| `array_index_traits.hpp` | `csv_read_table`, `parquet_read_table`, `try_read_table`, `build_table_path`, `ArrayIndexBase` |
+| `arrow_types.hpp` | `ArrowTable`, `ArrowArray`, `ArrowTraits<T>`, `cast_to_int32_array`, `cast_to_double_array` |
+| `input_context.hpp` | `InputContext` – wires `SystemContext` to the Arrow/CSV table cache |
+| `output_context.hpp` | `OutputContext` – writes LP solution arrays to Parquet/CSV files |
+| `options_lp.hpp` | `OptionsLP` – typed accessors with defaults for every option field |
 | `linear_problem.hpp` | `LinearProblem`, `SparseCol`, `SparseRow`, `FlatLinearProblem` |
 | `system.hpp` | Top-level power system model |
 | `planning.hpp` | Multi-stage planning problem |
+| `planning_lp.hpp` | `PlanningLP` – assembles and solves the full LP |
 | `simulation_lp.hpp` | LP formulation of a single simulation |
+| `system_context.hpp` | `SystemContext` – central LP context (costs, labels, element access) |
 | `gtopt_main.hpp` | `MainOptions` struct + `gtopt_main(const MainOptions&)` entry point |
-| `app_options.hpp` | CLI option parsing; `parse_main_options(vm, files)` → `MainOptions` |
+| `app_options.hpp` | `parse_main_options(vm, files)` → `MainOptions`; `apply_cli_options` |
+| `cli_options.hpp` | Lightweight custom CLI parser (`gtopt::cli` namespace); mirrors boost::program_options surface |
+| `work_pool.hpp` | Adaptive thread pool with CPU-load–aware scheduling |
+| `cpu_monitor.hpp` | Real-time CPU usage monitoring via `/proc/stat` |
 
 ---
 
@@ -656,6 +697,8 @@ gtopt/
   ```
 - **`parse_main_options(vm, files)`** in `app_options.hpp` builds a
   `MainOptions` from a parsed CLI `variables_map` — use in `main()` wrappers.
+  The `variables_map` type lives in `namespace gtopt::cli` (a custom
+  lightweight parser, not boost::program_options).
 - **`--stats` / `-S` CLI flag**: when passed to the `gtopt` binary it logs
   pre-solve system statistics (bus/gen/line counts, key option values) and
   post-solve results (unscaled objective, LP dimensions, solve time).
@@ -740,9 +783,16 @@ Scenario (probability)
 | `use_kirchhoff` | `false` | Transport model: line flows limited only by `tmax_ab/ba` |
 | `use_single_bus` | `true` | "Copper plate" – no transmission constraints at all |
 | `use_single_bus` | `false` | Multi-bus network model |
+| `use_line_losses` | `true` (default) | Model resistive line losses |
 | `demand_fail_cost` | e.g. 1000 | Value-of-lost-load penalty for unserved energy ($/MWh) |
+| `reserve_fail_cost` | e.g. 5000 | Penalty for unserved spinning-reserve requirement ($/MWh) |
 | `annual_discount_rate` | e.g. 0.1 | Yearly discount rate for investment costs (10 %) |
 | `scale_objective` | e.g. 1000 | Divides all objective coefficients; improves solver numerics |
+| `input_directory` | `"input"` (default) | Root directory for Parquet/CSV input files |
+| `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
+| `output_directory` | `"output"` (default) | Root directory for solution output files |
+| `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
+| `compression_format` | `"gzip"` (default) | Parquet compression codec (`"gzip"`, `"zstd"`, `"lzo"`, `"uncompressed"`) |
 
 ### Capacity Expansion Fields
 
@@ -985,7 +1035,10 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
 | **`tmax_ab` / `tmax_ba`** | Maximum power flow in each direction on a transmission line (MW) |
 | **`reactance`** | Line reactance (per-unit Ω); used with Kirchhoff constraints |
 | **Copper plate** | `use_single_bus=true` mode; no network constraints; total generation = total demand |
-| **flat_map** | `boost::container::flat_map` (or `std::flat_map` in C++23) — used instead of `std::map` for 10–27× faster iteration in LP assembly |
+| **flat_map** | `gtopt::flat_map` alias (backed by `boost::container::flat_map`; or `std::flat_map` in C++23 when available) — used instead of `std::map` for 10–27× faster iteration in LP assembly |
+| **`FieldSched<T>`** | `std::variant<T, std::vector<T>, FileSched>` — holds a scalar, an inline vector, or a filename pointing to an Arrow/Parquet table |
+| **`FileSched`** | `std::string` alias used as the filename arm of `FieldSched`; triggers Arrow I/O at construction time |
+| **`OptionsLP`** | Wrapper around `Options` providing typed accessors with compile-time defaults (e.g. `input_format()` → `"parquet"`, `output_format()` → `"parquet"`) |
 
 ---
 
@@ -1004,8 +1057,10 @@ Understanding the ecosystem helps when designing features and writing tests.
 
 **What makes gtopt distinctive**:
 - High-performance C++26 LP assembly with `flat_map`-based sparse matrices
-- Native Parquet I/O for large time-series via Apache Arrow
+- Native Parquet I/O (default) and CSV fallback for large time-series via Apache Arrow
 - Hydro cascade modeling (Junction/Waterway/Reservoir/Turbine/Flow/Filtration)
 - REST API (Next.js webservice) + browser GUI (Flask guiservice) out of the box
 - IEEE test cases embedded as in-memory JSON unit tests (no file I/O required)
 - Multi-stage, multi-scenario expansion with per-stage discount factors
+- Adaptive thread pool (`work_pool.hpp`) with CPU-load–aware scheduling
+- Lightweight custom CLI parser (no boost::program_options dependency)

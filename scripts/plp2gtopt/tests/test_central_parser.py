@@ -118,12 +118,15 @@ def malformed_gen_file_fixture(tmp_path: Path) -> Path:
         Path to temporary malformed test file
     """
     file_path = tmp_path / "bad_gen.dat"
-    content = """    1 'BAD_GEN'                                       1    F       F       F       F           F          0           0
-          PotMin PotMax VertMin VertMax
-           invalid values
-          CosVar Rendi Barra
-             0.0  1.000      0"""
-    file_path.write_text(content)
+    content = (
+        "    1 'BAD_GEN'                                       "
+        "1    F       F       F       F           F          0           0\n"
+        "          PotMin PotMax VertMin VertMax\n"
+        "           invalid values\n"
+        "          CosVar Rendi Barra\n"
+        "             0.0  1.000      0"
+    )
+    file_path.write_text(content, encoding="utf-8")
     return file_path
 
 

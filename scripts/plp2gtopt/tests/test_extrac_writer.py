@@ -75,7 +75,7 @@ def test_json_output_structure(sample_extrac_writer):
     json_extracs = sample_extrac_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "max_extrac": float,
         "downstream": str,
@@ -83,8 +83,8 @@ def test_json_output_structure(sample_extrac_writer):
 
     for extrac in json_extracs:
         # Check all required fields exist and have correct types
-        assert set(extrac.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(extrac.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(extrac[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(extrac[field])}"
             )
