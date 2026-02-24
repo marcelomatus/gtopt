@@ -143,6 +143,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-guiservice-install-${{ hashFiles('guiservice/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-guiservice-install-
+
       - name: Configure guiservice with CMake
         run: |
           cmake -S guiservice -B build-guiservice
