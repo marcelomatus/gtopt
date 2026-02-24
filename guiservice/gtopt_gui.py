@@ -267,10 +267,17 @@ def open_browser(url, app_mode=False):
         if sys.platform == "darwin":  # macOS
             # Use open with --new --app for kiosk-like experience
             try:
-                subprocess.Popen([
-                    "open", "-n", "-a", "Google Chrome",
-                    "--args", f"--app={url}", "--disable-extensions"
-                ])
+                subprocess.Popen(
+                    [
+                        "open",
+                        "-n",
+                        "-a",
+                        "Google Chrome",
+                        "--args",
+                        f"--app={url}",
+                        "--disable-extensions",
+                    ]
+                )
                 return
             except FileNotFoundError:
                 pass  # Fall back to default browser
@@ -279,11 +286,11 @@ def open_browser(url, app_mode=False):
             # Try Chrome/Chromium app mode on Linux
             for browser_cmd in ["google-chrome", "chromium-browser", "chromium"]:
                 try:
-                    subprocess.Popen([
-                        browser_cmd, f"--app={url}",
-                        "--disable-extensions",
-                        "--no-first-run"
-                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(
+                        [browser_cmd, f"--app={url}", "--disable-extensions", "--no-first-run"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                     return
                 except FileNotFoundError:
                     continue
@@ -318,7 +325,9 @@ def verify_webservice_api(webservice_url, log_file=None):
     if api_ok:
         _log(f"API verification PASSED: webservice API is responding at {webservice_url}")
     else:
-        _log(f"API verification FAILED: webservice API endpoints did not respond at {webservice_url}")
+        _log(
+            f"API verification FAILED: webservice API endpoints did not respond at {webservice_url}"
+        )
 
     # Also check /api/ping for detailed info
     ping_info = query_webservice_ping(webservice_url, timeout=5)
@@ -333,7 +342,9 @@ def verify_webservice_api(webservice_url, log_file=None):
         if gtopt_bin_path:
             _log(f"  gtopt binary: {gtopt_bin_path}")
     else:
-        _log(f"API verification WARNING: GET {webservice_url}/api/ping did not return expected response")
+        _log(
+            f"API verification WARNING: GET {webservice_url}/api/ping did not return expected response"
+        )
 
     _log("API verification complete.")
     return api_ok or ping_ok
@@ -367,7 +378,10 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
     # Check if .next directory exists (production build)
     next_dir = webservice_dir / ".next"
     if not next_dir.exists():
-        print(f"Warning: Webservice not built. Run 'npm run build' in {webservice_dir}", file=sys.stderr)
+        print(
+            f"Warning: Webservice not built. Run 'npm run build' in {webservice_dir}",
+            file=sys.stderr,
+        )
         return None, None
 
     # Prefer gtopt_websrv.js launcher (includes built-in API verification)
@@ -564,7 +578,9 @@ an external webservice.
                 if gtopt_bin:
                     print(f"Found gtopt binary at: {gtopt_bin}")
                 else:
-                    print("Warning: gtopt binary not found. Webservice will start but solving may fail.")
+                    print(
+                        "Warning: gtopt binary not found. Webservice will start but solving may fail."
+                    )
                     print("Install gtopt or set GTOPT_BIN environment variable.")
 
                 # Create temporary data directory for webservice jobs
@@ -588,7 +604,10 @@ an external webservice.
                     if wait_for_webservice(webservice_url, timeout=30):
                         print("Webservice is ready.")
                     else:
-                        print("Warning: Webservice did not become ready within 30 seconds.", file=sys.stderr)
+                        print(
+                            "Warning: Webservice did not become ready within 30 seconds.",
+                            file=sys.stderr,
+                        )
                     # If our child exited but the port is open, another instance is already serving.
                     if webservice_process.poll() is not None and is_port_open(args.webservice_port):
                         print(
@@ -596,10 +615,14 @@ an external webservice.
                         )
                         webservice_process = None
                 else:
-                    print("Warning: Failed to start webservice. Solve functionality will not be available.")
+                    print(
+                        "Warning: Failed to start webservice. Solve functionality will not be available."
+                    )
             else:
                 print("Warning: Webservice not found. Solve functionality will not be available.")
-                print("Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web")
+                print(
+                    "Install webservice with: cmake -S webservice -B build-web && sudo cmake --install build-web"
+                )
 
     # Initial check: verify the webservice API is responding and log results
     if webservice_url:
