@@ -62,15 +62,13 @@ To install the scripts alongside the gtopt binary::
   cmake -S scripts -B build-scripts
   cmake --install build-scripts
 
-The install step always installs into the **Python interpreter's own prefix**
-(``sys.prefix``) rather than ``CMAKE_INSTALL_PREFIX``.  This ensures that the
-console scripts and the package are placed in the same Python environment so
-that the generated entry-point scripts can import the package.
-
-When using pyenv (or any other Python version manager), ``sys.prefix`` points
-to the active pyenv version directory (e.g.
-``~/.pyenv/versions/3.12.3``), so no ``sudo`` is required and the scripts are
-automatically on the PATH via pyenv's shim mechanism.
+The install step locates ``pip`` at **install time** using
+``which pip3 || which pip`` (falling back to the Python found at configure
+time with ``-m pip``).  This means pip itself determines the correct
+destination — whether that is a pyenv version directory, an active
+virtualenv, a conda environment, or a user-level site-packages — without
+any explicit ``--prefix`` override.  No ``sudo`` is required as long as the
+active Python environment is user-writable.
 
 To avoid a known setuptools issue where a root-owned ``gtopt_scripts.egg-info``
 directory left by a previous ``sudo`` install blocks subsequent non-root
@@ -285,18 +283,22 @@ add_test(
 install(CODE "
   message(STATUS \"Installing gtopt Python scripts via pip...\")
 
-  # Install into the Python interpreter's own prefix so that the generated
-  # entry-point scripts and the package land in the same Python environment.
-  # This is required for pyenv (and other version managers) where sys.prefix
-  # differs from CMAKE_INSTALL_PREFIX.
+  # Find pip at install time using 'which' so we always install into the
+  # currently active Python environment (pyenv, venv, conda, etc.).
+  # This lets pip determine the correct destination without any explicit
+  # --prefix override, so no root is needed for user-owned environments.
   execute_process(
-    COMMAND \"${PYTHON_EXECUTABLE}\" -c \"import sys; print(sys.prefix)\"
-    OUTPUT_VARIABLE _py_prefix
+    COMMAND sh -c \"which pip3 || which pip\"
+    OUTPUT_VARIABLE _pip_exe
     OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _py_result
+    RESULT_VARIABLE _which_rc
   )
-  if(NOT _py_result EQUAL 0)
-    set(_py_prefix \"\${CMAKE_INSTALL_PREFIX}\")
+  if(NOT _which_rc EQUAL 0 OR \"x\${_pip_exe}\" STREQUAL \"x\")
+    message(STATUS \"'which pip' not found; falling back to ${PYTHON_EXECUTABLE} -m pip\")
+    set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
+  else()
+    message(STATUS \"Using pip: \${_pip_exe}\")
+    set(_pip_cmd \"\${_pip_exe}\")
   endif()
 
   # Copy the source tree into a temporary staging directory inside the cmake
@@ -314,8 +316,7 @@ install(CODE "
     PATTERN \"__pycache__\" EXCLUDE
   )
   execute_process(
-    COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
-      --prefix \"\${_py_prefix}\"
+    COMMAND \${_pip_cmd} install
       --ignore-installed
       \"\${_stage}\"
     RESULT_VARIABLE _pip_rc
