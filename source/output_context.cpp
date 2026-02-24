@@ -239,7 +239,14 @@ auto csv_write_table_gzip(const auto& fpath, const auto& table)
   }
 
   const auto* data = reinterpret_cast<const char*>(buf->data());  // NOLINT
-  const auto size = static_cast<unsigned int>(buf->size());
+  const auto buf_size = buf->size();
+  // gzwrite takes unsigned (32-bit) length; guard against >4 GB CSV buffers
+  if (buf_size > std::numeric_limits<unsigned int>::max()) [[unlikely]] {
+    gzclose(gz);  // NOLINT
+    return arrow::Status::IOError("CSV buffer too large for single gzwrite: ",
+                                  filename);
+  }
+  const auto size = static_cast<unsigned int>(buf_size);
   const int written = gzwrite(gz, data, size);
   gzclose(gz);  // NOLINT
 
