@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 from base64 import b64decode, b64encode
 from collections import deque
+from typing import Any
 
 import pandas as pd
 import requests as http_requests
@@ -32,7 +33,7 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 
 MAX_LOG_ENTRIES = 500
 DEFAULT_LOG_LINES = 200
-_recent_logs = deque(maxlen=MAX_LOG_ENTRIES)
+_recent_logs: deque[str] = deque(maxlen=MAX_LOG_ENTRIES)
 
 
 class _RecentLogHandler(logging.Handler):
@@ -456,7 +457,7 @@ def _parse_uploaded_zip(zip_bytes):
     The original ZIP bytes are preserved (base64-encoded) so that
     ``submit_solve`` can forward them to the webservice unchanged.
     """
-    case_data = {
+    case_data: dict[str, Any] = {
         "case_name": "uploaded_case",
         "options": {},
         "simulation": {},
@@ -537,7 +538,7 @@ def _parse_uploaded_zip(zip_bytes):
 
 def _parse_results_zip(zip_bytes):
     """Parse a results ZIP or directory structure into viewable data."""
-    results = {"solution": {}, "outputs": {}, "terminal_output": ""}
+    results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         for name in zf.namelist():
@@ -995,7 +996,7 @@ def check_server():
     webservice URL and returns all results in a single response.
     """
     global _webservice_url
-    results = {
+    results: dict[str, Any] = {
         "webservice_url": _webservice_url,
         "ping": None,
         "logs": None,

@@ -27,7 +27,6 @@ import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
-from typing import IO, Optional
 
 
 def find_free_port():
@@ -308,7 +307,7 @@ def verify_webservice_api(webservice_url, log_file=None):
         print(msg)
         if log_file:
             try:
-                with open(log_file, "a") as fh:
+                with open(log_file, "a", encoding="utf-8") as fh:
                     fh.write(msg + "\n")
             except OSError:
                 pass
@@ -351,7 +350,7 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
         log_file: Path to log file (optional)
 
     Returns:
-        subprocess.Popen object for the webservice process
+        Tuple of (Popen process or None, log file handle or None).
     """
     env = os.environ.copy()
     env["PORT"] = str(port)
@@ -369,7 +368,7 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
     next_dir = webservice_dir / ".next"
     if not next_dir.exists():
         print(f"Warning: Webservice not built. Run 'npm run build' in {webservice_dir}", file=sys.stderr)
-        return None
+        return None, None
 
     # Prefer gtopt_websrv.js launcher (includes built-in API verification)
     websrv_js = webservice_dir / "gtopt_websrv.js"
@@ -388,9 +387,9 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
     log_handle = None
     try:
         if log_file:
-            log_handle = open(log_file, "a")
+            log_handle = open(log_file, "a", encoding="utf-8")  # pylint: disable=consider-using-with
         stdout_target = log_handle if log_handle else subprocess.PIPE
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # pylint: disable=consider-using-with
             cmd,
             cwd=str(webservice_dir),
             env=env,
@@ -399,14 +398,12 @@ def start_webservice(webservice_dir, port, gtopt_bin=None, data_dir=None, log_fi
             text=True,
             start_new_session=True,
         )
-        if log_handle:
-            process._gtopt_log_handle = log_handle
-        return process
+        return process, log_handle
     except FileNotFoundError:
         print("Error: node/npm not found. Please install Node.js and npm.", file=sys.stderr)
         if log_handle:
             log_handle.close()
-        return None
+        return None, None
 
 
 def create_gui_url(port):
@@ -522,7 +519,7 @@ an external webservice.
 
         # Try to validate it's a JSON file
         try:
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 json.load(f)
         except json.JSONDecodeError as e:
             print(f"Warning: Configuration file may not be valid JSON: {e}", file=sys.stderr)
@@ -533,6 +530,7 @@ an external webservice.
 
     # Start webservice if requested
     webservice_process = None
+    webservice_log_handle = None
     webservice_url = args.webservice_url
 
     log_dir = tempfile.mkdtemp(prefix="gtopt_gui_logs_")
@@ -574,7 +572,7 @@ an external webservice.
 
                 # Start webservice
                 print(f"Starting webservice on port {args.webservice_port}...")
-                webservice_process = start_webservice(
+                webservice_process, webservice_log_handle = start_webservice(
                     webservice_dir,
                     args.webservice_port,
                     gtopt_bin=gtopt_bin,
@@ -633,8 +631,8 @@ an external webservice.
     python_exe, python_source = resolve_python_executable(args.python)
     print(f"Using Python executable ({python_source}): {python_exe}")
 
-    flask_log_handle = open(guiservice_log_file, "a")
-    flask_process = subprocess.Popen(
+    flask_log_handle = open(guiservice_log_file, "a", encoding="utf-8")  # pylint: disable=consider-using-with
+    flask_process = subprocess.Popen(  # pylint: disable=consider-using-with
         [python_exe, "-u", "app.py"],
         cwd=str(guiservice_dir),
         env=env,
@@ -643,7 +641,6 @@ an external webservice.
         text=True,
         start_new_session=True,
     )
-    flask_process._gtopt_log_handle = flask_log_handle
 
     # Register cleanup handler
     def _kill_process_group(proc, label):
@@ -671,15 +668,14 @@ an external webservice.
         _kill_process_group(flask_process, "gtopt GUI service")
         if webservice_process:
             _kill_process_group(webservice_process, "webservice")
-        if hasattr(flask_process, "_gtopt_log_handle"):
-            flask_process._gtopt_log_handle.close()
-        if webservice_process and hasattr(webservice_process, "_gtopt_log_handle"):
-            webservice_process._gtopt_log_handle.close()
+        flask_log_handle.close()
+        if webservice_log_handle:
+            webservice_log_handle.close()
 
     atexit.register(cleanup)
 
     # Handle Ctrl+C gracefully
-    def signal_handler(sig, frame):
+    def signal_handler(_sig, _frame):
         print("\nReceived interrupt signal, shutting down...")
         sys.exit(0)
 

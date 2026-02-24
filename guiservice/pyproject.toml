@@ -1,0 +1,108 @@
+# pyproject.toml for the gtopt guiservice Python package.
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtopt-guiservice"
+version = "1.0.0"
+description = "gtopt GUI service (Flask web app for case management)"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.1",
+    "numpy>=1.26",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+    "pyarrow>=19.0",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.0",
+    "pylint>=3.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "types-requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["guiservice*"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+testpaths = ["guiservice/tests"]
+addopts = "-v --import-mode=importlib"
+pythonpath = ["."]
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["guiservice"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+# ---------------------------------------------------------------------------
+# pylint (inherits root .pylintrc; these settings are additive)
+# ---------------------------------------------------------------------------
+
+[tool.pylint.format]
+max-line-length = 150
+
+[tool.pylint.design]
+max-args = 12
+max-locals = 25
+max-branches = 16
+max-statements = 60
+
+[tool.pylint."messages control"]
+disable = [
+    "missing-docstring",
+    "too-few-public-methods",
+    "import-error",
+    "redefined-outer-name",
+    "global-statement",
+    "duplicate-code",
+    "protected-access",
+    "too-many-positional-arguments",
+]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_return_any = false
+disallow_untyped_defs = false
+exclude = ["tests/"]
