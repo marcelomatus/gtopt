@@ -1,13 +1,16 @@
 """Integration tests for plp2gtopt using the plp_dat_ex sample case."""
 
 import json
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from plp2gtopt.bess_writer import BESS_UID_OFFSET
+from plp2gtopt.main import main
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
 
@@ -247,6 +250,31 @@ def test_min_2bus_lmax_parquet(tmp_path):
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
     # Bus2 (uid:2) = 120 MW per block
     assert float(df[df["block"] == 1]["uid:2"].iloc[0]) == pytest.approx(120.0)
+
+
+@pytest.mark.integration
+def test_min_2bus_cli_creates_output_dir(tmp_path):
+    """plp_min_2bus: main() auto-creates a non-existent output dir (regression test)."""
+    out_dir = tmp_path / "gtopt_min_2bus"
+    out_file = out_dir / "gtopt_case.json"
+
+    # out_dir is intentionally NOT pre-created to reproduce the original bug
+    test_argv = [
+        "plp2gtopt",
+        "-i",
+        str(_PLPMin2Bus),
+        "-o",
+        str(out_dir),
+        "-f",
+        str(out_file),
+    ]
+    with patch.object(sys, "argv", test_argv):
+        main()
+
+    assert out_file.exists()
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert len(data["system"]["bus_array"]) == 2
+    assert len(data["system"]["line_array"]) == 1
 
 
 # ---------------------------------------------------------------------------
