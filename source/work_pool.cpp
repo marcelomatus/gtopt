@@ -68,7 +68,7 @@ void AdaptiveWorkPool::shutdown()
   }
 
   cpu_monitor_.stop();
-  spdlog::info(std::format("  WorkPool shutdown complete"));
+  spdlog::info("  WorkPool shutdown complete");
 }
 
 void AdaptiveWorkPool::cleanup_completed_tasks()

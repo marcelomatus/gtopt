@@ -1,14 +1,12 @@
 """Tests for gtopt_gui launcher with integrated webservice functionality."""
 
-import os
-import signal
+import json
 import socket
-import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Import functions from gtopt_gui
 # We need to handle the import carefully since it's a script
@@ -31,11 +29,11 @@ from gtopt_gui import (
 def test_find_free_port():
     """Test that find_free_port returns a valid port number."""
     port = find_free_port()
-    
+
     # Check it's a valid port number
     assert isinstance(port, int)
     assert 1024 <= port <= 65535
-    
+
     # Verify the port is actually available
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", port))
@@ -46,13 +44,13 @@ def test_find_free_port():
 def test_get_guiservice_dir():
     """Test that get_guiservice_dir finds the guiservice directory."""
     guiservice_dir = get_guiservice_dir()
-    
+
     # Should return a Path object
     assert isinstance(guiservice_dir, Path)
-    
+
     # Should contain app.py
     assert (guiservice_dir / "app.py").exists()
-    
+
     # Should contain gtopt_gui.py
     assert (guiservice_dir / "gtopt_gui.py").exists()
 
@@ -60,11 +58,11 @@ def test_get_guiservice_dir():
 def test_webservice_detection():
     """Test that webservice detection works without errors."""
     from gtopt_gui import get_webservice_dir
-    
+
     # Should return None or Path, not raise error
     result = get_webservice_dir()
     assert result is None or isinstance(result, Path)
-    
+
     # If found, should have package.json
     if result is not None:
         assert (result / "package.json").exists()
@@ -73,7 +71,7 @@ def test_webservice_detection():
 def test_gtopt_binary_detection():
     """Test that gtopt binary detection works without errors."""
     from gtopt_gui import find_gtopt_binary
-    
+
     # Should return None or Path, not raise error
     result = find_gtopt_binary()
     assert result is None or isinstance(result, Path)
@@ -158,8 +156,9 @@ def test_start_webservice_uses_new_session():
         webservice_dir = Path("/fake/webservice")
         # Create a fake .next directory so the function doesn't bail out
         with patch.object(Path, "exists", return_value=True):
-            start_webservice(webservice_dir, 3000)
+            process, _handle = start_webservice(webservice_dir, 3000)
 
+        assert process is not None
         # Verify start_new_session was passed
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs.get("start_new_session") is True
@@ -167,9 +166,6 @@ def test_start_webservice_uses_new_session():
 
 def test_query_webservice_ping_returns_data_on_success():
     """query_webservice_ping should return parsed JSON on success."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     ping_data = {"status": "ok", "service": "gtopt-webservice"}
 
@@ -198,9 +194,6 @@ def test_query_webservice_ping_returns_data_on_success():
 
 def test_is_gtopt_webservice_returns_true_for_valid_service():
     """is_gtopt_webservice should return True for a valid gtopt webservice."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -223,9 +216,6 @@ def test_is_gtopt_webservice_returns_true_for_valid_service():
 
 def test_is_gtopt_webservice_returns_false_for_wrong_service():
     """is_gtopt_webservice should return False for a non-gtopt service."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -251,9 +241,6 @@ def test_is_gtopt_webservice_returns_false_on_connection_failure():
 
 def test_wait_for_webservice_returns_true_when_service_is_ready():
     """wait_for_webservice should return True when service responds immediately."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -282,9 +269,6 @@ def test_wait_for_webservice_returns_false_on_timeout():
 
 def test_check_webservice_api_returns_true_on_success():
     """check_webservice_api should return True when /api responds with status ok."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -312,9 +296,6 @@ def test_check_webservice_api_returns_false_on_failure():
 
 def test_check_webservice_api_returns_false_on_bad_status():
     """check_webservice_api should return False when status is not ok."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -337,9 +318,6 @@ def test_check_webservice_api_returns_false_on_bad_status():
 
 def test_check_webservice_api_falls_back_to_ping_when_api_is_404():
     """check_webservice_api should accept /api/ping when /api is unavailable."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -382,9 +360,6 @@ def test_find_websrv_script_returns_none_or_path():
 
 def test_verify_webservice_api_returns_true_on_success(tmp_path):
     """verify_webservice_api should return True and write to log file."""
-    import json
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):

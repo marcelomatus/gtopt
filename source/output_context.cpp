@@ -16,9 +16,12 @@
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
+#include <arrow/io/memory.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
+#include <parquet/types.h>
 #include <spdlog/spdlog.h>
+#include <zlib.h>
 
 template<typename T>
 concept ArrowBuildable = requires {
@@ -39,18 +42,18 @@ auto make_array(Values&& values, Valids&& valids = {})
 {
   typename arrow::CTypeTraits<Type>::BuilderType builder;
 
-  auto st = valids.empty() ? builder.AppendValues(std::forward<Values>(values))
-                           : builder.AppendValues(std::forward<Values>(values),
-                                                  std::forward<Valids>(valids));
+  const auto st = valids.empty()
+      ? builder.AppendValues(std::forward<Values>(values))
+      : builder.AppendValues(std::forward<Values>(values),
+                             std::forward<Valids>(valids));
   if (!st.ok()) {
-    SPDLOG_CRITICAL("can't append values");
-    throw std::runtime_error("can't append values");
+    SPDLOG_CRITICAL("Cannot append values: {}", st.ToString());
   }
 
   ArrowArray array;
-  if (!builder.Finish(&array).ok()) {
-    SPDLOG_CRITICAL("can't build values");
-    throw std::runtime_error("can't build values");
+  const auto fs = builder.Finish(&array);
+  if (!fs.ok()) {
+    SPDLOG_CRITICAL("Cannot build values: {}", fs.ToString());
   }
 
   return array;
@@ -166,59 +169,156 @@ auto make_table(FieldVector&& field_vector)
                             std::move(arrays));
 }
 
-auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+// Resolve a Parquet compression codec from a string name, checking runtime
+// library support and falling back gracefully with warnings.
+//
+// Resolution order:
+//   1. Empty / "none" / "uncompressed" → UNCOMPRESSED (no check needed).
+//   2. Known name but not supported at runtime   → warn, use GZIP.
+//   3. Unknown name                              → warn, use GZIP.
+[[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
 {
-  arrow::Status status;
-  const auto filename = std::format("{}.parquet", fpath.string());
-  PARQUET_ASSIGN_OR_THROW(auto output,
-                          arrow::io::FileOutputStream::Open(filename));
-
-  parquet::WriterProperties::Builder props_builder;
-
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
   static const std::map<std::string, codec_t> codec_map = {
+      // Empty string / explicit "none" / "uncompressed" → no compression.
+      // NOTE: "" is a valid key here; get_optvalue returns a value (not
+      // nullopt) for it, so it never reaches the fallback branches below.
+      {"", parquet::Compression::UNCOMPRESSED},
+      {"none", parquet::Compression::UNCOMPRESSED},
       {"uncompressed", parquet::Compression::UNCOMPRESSED},
       {"gzip", parquet::Compression::GZIP},
       {"zstd", parquet::Compression::ZSTD},
       {"lzo", parquet::Compression::LZO},
   };
 
-  props_builder.compression(
-      get_optvalue(codec_map, zfmt).value_or(parquet::Compression::GZIP));
+  const auto desired_opt = get_optvalue(codec_map, zfmt);
 
+  // Unknown name: not in the map and non-empty.
+  if (!desired_opt.has_value() && !zfmt.empty()) {
+    SPDLOG_WARN("Parquet compression '{}' is unknown; falling back to gzip",
+                zfmt);
+    return parquet::Compression::GZIP;
+  }
+
+  const codec_t codec =
+      desired_opt.value_or(parquet::Compression::UNCOMPRESSED);
+
+  // For uncompressed, no library check is needed.
+  if (codec == parquet::Compression::UNCOMPRESSED) {
+    return codec;
+  }
+
+  // Known but not supported at runtime → fall back to gzip.
+  if (!parquet::IsCodecSupported(codec)) {
+    SPDLOG_WARN(
+        "Parquet compression '{}' is not supported by the linked Parquet "
+        "library; falling back to gzip",
+        zfmt);
+    return parquet::Compression::GZIP;
+  }
+
+  return codec;
+}
+
+auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+    -> arrow::Status
+{
+  const auto filename = std::format("{}.parquet", fpath.string());
+  auto maybe_output = arrow::io::FileOutputStream::Open(filename);
+  if (!maybe_output.ok()) {
+    SPDLOG_CRITICAL("Cannot open Parquet output file '{}': {}",
+                    filename,
+                    maybe_output.status().ToString());
+    return maybe_output.status();
+  }
+  auto& output = maybe_output.ValueUnsafe();
+
+  parquet::WriterProperties::Builder props_builder;
+  props_builder.compression(resolve_parquet_codec(zfmt));
   const auto props = props_builder.build();
 
-  status = parquet::arrow::WriteTable(*table.get(),
-                                      arrow::default_memory_pool(),
-                                      output,
-                                      1024 * 1024,  // NOLINT
-                                      props);
-  if (!status.ok()) [[unlikely]] {
-    auto msg = std::format("File write failed: {}", fpath.string());
-    SPDLOG_CRITICAL(msg);
-    throw std::runtime_error(msg);
+  auto status = parquet::arrow::WriteTable(*table.get(),
+                                           arrow::default_memory_pool(),
+                                           output,
+                                           1024 * 1024,  // NOLINT
+                                           props);
+  if (!status.ok()) {
+    SPDLOG_CRITICAL(
+        "Parquet file write failed for '{}': {}", filename, status.ToString());
   }
   return status;
 }
 
-auto csv_write_table(const auto& fpath,
-                     const auto& table,
-                     const auto& /* zfmt */)
+auto csv_write_table_plain(const auto& fpath, const auto& table)
 {
-  arrow::Status status;
   const auto filename = std::format("{}.csv", fpath.string());
   ARROW_ASSIGN_OR_RAISE(auto output,
                         arrow::io::FileOutputStream::Open(filename));
 
   const auto write_options = arrow::csv::WriteOptions::Defaults();
-  status = WriteCSV(*table.get(), write_options, output.get());
+  auto status = WriteCSV(*table.get(), write_options, output.get());
   if (!status.ok()) {
-    const auto msg = std::format("can' t write to file {}", fpath.string());
-    SPDLOG_CRITICAL(msg);
-    throw std::runtime_error(msg);
+    SPDLOG_CRITICAL(
+        "CSV file write failed for '{}': {}", filename, status.ToString());
+  }
+  return status;
+}
+
+auto csv_write_table_gzip(const auto& fpath, const auto& table)
+{
+  // Step 1: render CSV into an in-memory buffer via Arrow
+  ARROW_ASSIGN_OR_RAISE(auto buf_stream,
+                        arrow::io::BufferOutputStream::Create());
+  const auto write_options = arrow::csv::WriteOptions::Defaults();
+  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, buf_stream.get()));
+  ARROW_ASSIGN_OR_RAISE(auto buf, buf_stream->Finish());
+
+  // Step 2: gzip-compress the buffer and write to *.csv.gz
+  const auto filename = std::format("{}.csv.gz", fpath.string());
+  gzFile gz = gzopen(filename.c_str(), "wb");  // NOLINT
+  if (gz == nullptr) [[unlikely]] {
+    return arrow::Status::IOError("Cannot open gzip file for writing: ",
+                                  filename);
   }
 
-  return status;
+  const auto* data = reinterpret_cast<const char*>(buf->data());  // NOLINT
+  const auto buf_size = buf->size();
+  // gzwrite takes unsigned (32-bit) length; guard against >4 GB CSV buffers
+
+  // NOLINTNEXTLINE
+  if (buf_size > static_cast<decltype(buf_size)>(
+          std::numeric_limits<unsigned int>::max())) [[unlikely]]
+  {
+    gzclose(gz);  // NOLINT
+    return arrow::Status::IOError("CSV buffer too large for single gzwrite: ",
+                                  filename);
+  }
+  const auto size = static_cast<unsigned int>(buf_size);
+  const int written = gzwrite(gz, data, size);
+  gzclose(gz);  // NOLINT
+
+  // NOLINTNEXTLINE
+  if (written < 0 || (size != static_cast<decltype(size)>(written)))
+      [[unlikely]]
+  {
+    return arrow::Status::IOError("gzip write incomplete: ", filename);
+  }
+  return arrow::Status::OK();
+}
+
+auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+{
+  // Default for CSV is no compression; only "gzip" is supported.
+  // Any other non-empty format triggers a warning and falls back to gzip.
+  if (zfmt.empty() || zfmt == "none" || zfmt == "uncompressed") {
+    return csv_write_table_plain(fpath, table);
+  }
+
+  if (zfmt != "gzip") {
+    SPDLOG_WARN("CSV compression '{}' is not supported; falling back to gzip",
+                zfmt);
+  }
+  return csv_write_table_gzip(fpath, table);
 }
 
 auto write_table(std::string_view fmt,
@@ -251,7 +351,14 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
 
     const auto dpath = dirpath / cname;
 
-    std::filesystem::create_directories(dpath);
+    std::error_code ec;
+    std::filesystem::create_directories(dpath, ec);
+    if (ec) {
+      SPDLOG_CRITICAL("Cannot create output directory '{}': {}",
+                      dpath.string(),
+                      ec.message());
+      continue;
+    }
 
     path_tables.emplace_back(dpath / fname, *mtable);
   }
@@ -285,9 +392,10 @@ void OutputContext::write() const
         [path = std::move(path), table = std::move(table), fmt, zfmt]
         {
           SPDLOG_DEBUG("Writing table to '{}'", path.string());
-          if (!write_table(fmt, path, table, zfmt).ok()) [[unlikely]] {
-            auto msg = std::format("File write failed: {}", path.string());
-            SPDLOG_CRITICAL(msg);
+          const auto st = write_table(fmt, path, table, zfmt);
+          if (!st.ok()) {
+            SPDLOG_CRITICAL(
+                "File write failed for '{}': {}", path.string(), st.ToString());
           }
         });
   }
@@ -304,6 +412,11 @@ void OutputContext::write() const
                            sol_obj_value));
 
   std::ofstream sol_file(sol_path.string());
+  if (!sol_file) [[unlikely]] {
+    SPDLOG_CRITICAL("Cannot open solution file '{}' for writing",
+                    sol_path.string());
+    return;
+  }
   sol_file << std::format("{:>12},{}\n{:>12},{}\n{:>12},{}",
                           "obj_value",
                           sol_obj_value,

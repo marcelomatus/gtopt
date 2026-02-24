@@ -228,23 +228,19 @@ public:
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
-        } catch (const std::bad_alloc&) {
-          SPDLOG_ERROR("Failed to allocate memory for task queue");
-          return std::unexpected(
-              std::make_error_code(std::errc::not_enough_memory));
         } catch (const std::length_error&) {
           SPDLOG_ERROR("Task queue size limit exceeded");
           return std::unexpected(
               std::make_error_code(std::errc::resource_unavailable_try_again));
+        } catch (const std::exception& e) {
+          SPDLOG_ERROR("Failed to enqueue task: {}", e.what());
+          return std::unexpected(
+              std::make_error_code(std::errc::operation_not_permitted));
         }
       }
 
       cv_.notify_one();
       return future;
-    } catch (const std::bad_alloc&) {
-      SPDLOG_ERROR("Failed to allocate memory for task");
-      return std::unexpected(
-          std::make_error_code(std::errc::not_enough_memory));
     } catch (const std::system_error& e) {
       SPDLOG_ERROR("System error submitting task: {}", e.what());
       return std::unexpected(e.code());

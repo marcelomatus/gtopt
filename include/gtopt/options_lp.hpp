@@ -54,8 +54,8 @@ public:
   static constexpr auto default_output_directory = "output";
   /** @brief Default output file format */
   static constexpr auto default_output_format = "parquet";
-  /** @brief Default compression format for output files */
-  static constexpr auto default_compression_format = "gzip";
+  /** @brief Default compression format for output files (empty = none) */
+  static constexpr auto default_compression_format = "";
   /** @brief Default setting for using LP variable/constraint names */
   static constexpr Bool default_use_lp_names = true;
   /** @brief Default setting for using UIDs in filenames */
