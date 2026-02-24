@@ -168,44 +168,75 @@ void log_pre_solve_stats(const Planning& planning)
   const auto& plan_opts = planning.options;
 
   spdlog::info("=== System statistics ===");
-  spdlog::info(std::format("  System name     : {}", sys.name));
-  spdlog::info(std::format("  Buses           : {}", sys.bus_array.size()));
-  spdlog::info(
+  spdlog::info(  //
+      std::format("  System name     : {}", sys.name));
+  spdlog::info(  //
+      std::format("  System version  : {}", sys.version));
+  spdlog::info("=== System elements  ===");
+  spdlog::info(  //
+      std::format("  Buses           : {}", sys.bus_array.size()));
+  spdlog::info(  //
       std::format("  Generators      : {}", sys.generator_array.size()));
-  spdlog::info(std::format("  Demands         : {}", sys.demand_array.size()));
-  spdlog::info(std::format("  Lines           : {}", sys.line_array.size()));
-  spdlog::info(std::format("  Batteries       : {}", sys.battery_array.size()));
-  spdlog::info(
+  spdlog::info(  //
+      std::format("  Generator profs : {}",
+                  sys.generator_profile_array.size()));
+  spdlog::info(  //
+      std::format("  Demands         : {}", sys.demand_array.size()));
+  spdlog::info(  //
+      std::format("  Demand profs    : {}", sys.demand_profile_array.size()));
+  spdlog::info(  //
+      std::format("  Lines           : {}", sys.line_array.size()));
+  spdlog::info(  //
+      std::format("  Batteries       : {}", sys.battery_array.size()));
+  spdlog::info(  //
       std::format("  Converters      : {}", sys.converter_array.size()));
-  spdlog::info(
+  spdlog::info(  //
       std::format("  Reserve zones   : {}", sys.reserve_zone_array.size()));
+  spdlog::info(  //
+      std::format("  Reserve provisions   : {}",
+                  sys.reserve_provision_array.size()));
   spdlog::info(
       std::format("  Junctions       : {}", sys.junction_array.size()));
-  spdlog::info(
+  spdlog::info(  //
+      std::format("  Waterways       : {}", sys.waterway_array.size()));
+  spdlog::info(  //
+      std::format("  Flows           : {}", sys.flow_array.size()));
+  spdlog::info(  //
       std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
+  spdlog::info(  //
+      std::format("  Filtrations     : {}", sys.filtration_array.size()));
+  spdlog::info(  //
+      std::format("  Turbines        : {}", sys.turbine_array.size()));
+
   spdlog::info("=== Simulation statistics ===");
-  spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
-  spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
-  spdlog::info(
+  spdlog::info(  //
+      std::format("  Blocks          : {}", sim.block_array.size()));
+  spdlog::info(  //
+      std::format("  Stages          : {}", sim.stage_array.size()));
+  spdlog::info(  //
       std::format("  Scenarios       : {}", sim.scenario_array.size()));
   spdlog::info("=== Key options ===");
-  spdlog::info(
+  spdlog::info(  //
       std::format("  use_kirchhoff   : {}",
                   plan_opts.use_kirchhoff.value_or(false) ? "true" : "false"));
-  spdlog::info(
+  spdlog::info(  //
       std::format("  use_single_bus  : {}",
                   plan_opts.use_single_bus.value_or(false) ? "true" : "false"));
-  spdlog::info(std::format("  scale_objective : {}",
-                           plan_opts.scale_objective.value_or(1'000.0)));
-  spdlog::info(std::format("  demand_fail_cost: {}",
-                           plan_opts.demand_fail_cost.value_or(0.0)));
-  spdlog::info(std::format("  input_directory : {}",
-                           plan_opts.input_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_directory: {}",
-                           plan_opts.output_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_format   : {}",
-                           plan_opts.output_format.value_or("csv")));
+  spdlog::info(  //
+      std::format("  scale_objective : {}",
+                  plan_opts.scale_objective.value_or(1'000.0)));
+  spdlog::info(  //
+      std::format("  demand_fail_cost: {}",
+                  plan_opts.demand_fail_cost.value_or(0.0)));
+  spdlog::info(  //
+      std::format("  input_directory : {}",
+                  plan_opts.input_directory.value_or("(default)")));
+  spdlog::info(  //
+      std::format("  output_directory: {}",
+                  plan_opts.output_directory.value_or("(default)")));
+  spdlog::info(  //
+      std::format("  output_format   : {}",
+                  plan_opts.output_format.value_or("csv")));
 }
 
 /**
