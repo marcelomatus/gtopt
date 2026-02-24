@@ -316,7 +316,7 @@ def test_build_options_defaults():
 
     assert opts["input_dir"] == Path("input")
     assert opts["output_dir"] == Path("output")
-    assert opts["output_file"] == Path("output/gtopt_case.json")
+    assert opts["output_file"] == Path("output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
     assert opts["compression"] == "gzip"
@@ -336,6 +336,15 @@ def test_build_options_custom_input_output_dirs():
     assert opts["input_dir"] == Path("myinput")
     assert opts["output_dir"] == Path("myoutput")
     assert opts["output_file"] == Path("myoutput/case.json")
+
+
+def test_build_options_output_file_derived_from_output_dir():
+    """build_options() derives output_file from output_dir when -f is omitted."""
+    args = make_parser().parse_args(["-o", "gtopt_case_2y"])
+    opts = build_options(args)
+
+    assert opts["output_dir"] == Path("gtopt_case_2y")
+    assert opts["output_file"] == Path("gtopt_case_2y.json")
 
 
 def test_build_options_discount_rate():
