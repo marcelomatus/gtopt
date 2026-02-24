@@ -82,7 +82,7 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
             std::format("Failed to read input file '{}'", planning_file));
       }
 
-      spdlog::info(std::format("parsing input file {}", fpath.string()));
+      spdlog::info(std::format("  Parsing input file {}", fpath.string()));
 
       try {
         if (strict_parsing) {
@@ -114,8 +114,8 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     }
   }
 
-  spdlog::info(
-      std::format("parsing all json files {:.3f}s", sw.elapsed().count()));
+  spdlog::info(std::format("  Parse all input files time {:.3f}s",
+                           sw.elapsed().count()));
   return my_planning;
 }
 
@@ -161,8 +161,8 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
                     ex.what()));
   }
 
-  spdlog::info(
-      std::format("writing system json file {:.3f}s", sw.elapsed().count()));
+  spdlog::info(std::format("  Write system json file time {:.3f}s",
+                           sw.elapsed().count()));
   return {};
 }
 
@@ -305,7 +305,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     try {
       const auto flat_opts =
           make_flat_options(opts.use_lp_names, opts.matrix_eps);
-      const bool do_stats = opts.print_stats.value_or(false);
+      const bool do_stats = opts.print_stats.value_or(true);
 
       if (do_stats) {
         log_pre_solve_stats(
@@ -315,7 +315,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       const spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
-      spdlog::info(std::format("creating lp {:.3f}s", sw.elapsed().count()));
+      spdlog::info(std::format("  Build lp {:.3f}s", sw.elapsed().count()));
 
       if (opts.lp_file) {
         try {
@@ -331,8 +331,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         return 0;
       }
 
+      spdlog::info("=== System optimization ===");
       bool optimal = false;
-      double solve_elapsed = 0.0;
       {
         const spdlog::stopwatch solve_sw;
 
@@ -340,9 +340,9 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         // presolve enabled).  Future work: expose these through MainOptions.
         const SolverOptions solver_opts {};
         auto result = planning_lp.resolve(solver_opts);
-        solve_elapsed =
+        const auto solve_elapsed =
             std::chrono::duration<double>(solve_sw.elapsed()).count();
-        spdlog::info(std::format("planning {:.3f}s", solve_elapsed));
+        spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
 
         optimal = result.has_value();
 
@@ -379,21 +379,24 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         log_post_solve_stats(planning_lp, optimal);
       }
 
-      if (optimal) {
-        const spdlog::stopwatch out_sw;
-
-        try {
-          planning_lp.write_out();
-        } catch (const std::exception& ex) {
-          return std::unexpected(
-              std::format("Error writing output: {}", ex.what()));
-        }
-
-        spdlog::info(
-            std::format("writing output {:.3f}s", out_sw.elapsed().count()));
+      if (!optimal) {
+        return std::unexpected("No optimal solution found");
       }
 
-      return optimal ? 0 : 1;
+      spdlog::info("=== Output writing ===");
+      const spdlog::stopwatch out_sw;
+      try {
+        planning_lp.write_out();
+      } catch (const std::exception& ex) {
+        return std::unexpected(
+            std::format("Error writing output: {}", ex.what()));
+      }
+
+      spdlog::info(
+          std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
+
+      // Return main conventional success
+      return 0;
 
     } catch (const std::bad_alloc& ex) {
       return std::unexpected(
@@ -402,7 +405,6 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       return std::unexpected(
           std::format("Error during LP creation or solving: {}", ex.what()));
     }
-
   } catch (const std::bad_alloc& ex) {
     return std::unexpected(
         std::format("Critical: Out of memory: {}", ex.what()));

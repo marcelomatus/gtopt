@@ -15,7 +15,8 @@ TEST_CASE("Waterway JSON basic parsing")
     "junction_b":20
   })";
 
-  gtopt::Waterway waterway = daw::json::from_json<gtopt::Waterway>(json_data);
+  gtopt::Waterway waterway =
+      daw::json::from_json<gtopt::Waterway>(json_data);  // NOLINT
 
   REQUIRE(waterway.uid == 5);
   REQUIRE(waterway.name == "RIVER_1");
@@ -123,6 +124,8 @@ TEST_CASE("Waterway JSON roundtrip serialization")
 
 TEST_CASE("Waterway with empty optional fields")
 {
+  using namespace gtopt;
+
   std::string_view json_data = R"({
     "uid":5,
     "name":"RIVER_1",
