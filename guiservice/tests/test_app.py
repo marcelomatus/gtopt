@@ -257,9 +257,7 @@ class TestParseUploadedZip:
             "options": {"annual_discount_rate": 0.1},
             "simulation": {
                 "block_array": [{"uid": 1, "duration": 1}],
-                "stage_array": [
-                    {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-                ],
+                "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
                 "scenario_array": [{"uid": 1, "probability_factor": 1}],
             },
             "system": {
@@ -346,7 +344,7 @@ class TestRoutes:
         assert resp.status_code == 200
         assert b"gtopt Case Editor" in resp.data
         assert b'id="mainNav"' in resp.data
-        assert b'/static/js/app.js' in resp.data
+        assert b"/static/js/app.js" in resp.data
         assert b"Quick Assistant" in resp.data
 
     def test_spreadsheet_libs_served_locally(self, client):
@@ -354,13 +352,13 @@ class TestRoutes:
         resp = client.get("/")
         html = resp.data
         # Local vendor references must be present (both JS and CSS)
-        assert b'/static/vendor/jsuites/jsuites.js' in html
-        assert b'/static/vendor/jsuites/jsuites.css' in html
-        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.js' in html
-        assert b'/static/vendor/jspreadsheet-ce/jspreadsheet.css' in html
+        assert b"/static/vendor/jsuites/jsuites.js" in html
+        assert b"/static/vendor/jsuites/jsuites.css" in html
+        assert b"/static/vendor/jspreadsheet-ce/jspreadsheet.js" in html
+        assert b"/static/vendor/jspreadsheet-ce/jspreadsheet.css" in html
         # No CDN references for jsuites or jspreadsheet
-        assert b'cdn.jsdelivr.net/npm/jsuites' not in html
-        assert b'cdn.jsdelivr.net/npm/jspreadsheet' not in html
+        assert b"cdn.jsdelivr.net/npm/jsuites" not in html
+        assert b"cdn.jsdelivr.net/npm/jspreadsheet" not in html
 
     def test_assistant_has_controls(self, client):
         """The Quick Assistant card should have move, minimize and close controls."""
@@ -423,9 +421,7 @@ class TestRoutes:
             "system": {
                 "name": "uploaded",
                 "bus_array": [{"uid": 1, "name": "bus1"}],
-                "generator_array": [
-                    {"uid": 1, "name": "gen1", "bus": "bus1", "capacity": 50}
-                ],
+                "generator_array": [{"uid": 1, "name": "gen1", "bus": "bus1", "capacity": 50}],
             },
         }
         with zipfile.ZipFile(buf, "w") as zf:
@@ -893,10 +889,7 @@ class TestWebserviceEndToEnd:
         assert len(gen_data["data"]) == 2
 
         # Verify download called correct URL
-        assert (
-            mock_get.call_args[0][0]
-            == f"http://testserver:3000/api/jobs/{token}/download"
-        )
+        assert mock_get.call_args[0][0] == f"http://testserver:3000/api/jobs/{token}/download"
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_and_receive_case_zip_contents(self, mock_post, client):
@@ -957,9 +950,7 @@ class TestWebserviceEndToEnd:
         """Verify results with multiple output types are correctly parsed."""
         results_zip = io.BytesIO()
         with zipfile.ZipFile(results_zip, "w") as zf:
-            zf.writestr(
-                "solution.csv", "obj_value,1234.56\nstatus,0\nsolver_time,5.2\n"
-            )
+            zf.writestr("solution.csv", "obj_value,1234.56\nstatus,0\nsolver_time,5.2\n")
             zf.writestr(
                 "Generator/generation_sol.csv",
                 '"scenario","stage","block","uid:1","uid:2"\n'
@@ -967,13 +958,11 @@ class TestWebserviceEndToEnd:
             )
             zf.writestr(
                 "Bus/marginal_cost_sol.csv",
-                '"scenario","stage","block","uid:1"\n'
-                "1,1,1,50.0\n1,1,2,52.0\n1,2,1,48.0\n",
+                '"scenario","stage","block","uid:1"\n1,1,1,50.0\n1,1,2,52.0\n1,2,1,48.0\n',
             )
             zf.writestr(
                 "Demand/demand_sol.csv",
-                '"scenario","stage","block","uid:1"\n'
-                "1,1,1,10\n1,1,2,10\n1,2,1,10\n",
+                '"scenario","stage","block","uid:1"\n1,1,1,10\n1,1,2,10\n1,2,1,10\n',
             )
         results_zip.seek(0)
 
@@ -1227,9 +1216,7 @@ class TestJobLogs:
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_resp
-        )
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
         mock_get.return_value = mock_resp
         resp = client.get("/api/solve/job_logs/nonexistent")
         assert resp.status_code == 502
@@ -1251,9 +1238,7 @@ class TestResultsWithTerminalOutput:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
             zf.writestr(
                 "output/gtopt_terminal.log",
                 "Solving model...\nOptimal solution found.\n",
@@ -1286,9 +1271,7 @@ class TestResultsWithTerminalOutput:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,10.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,10.0\nstatus,0\n")
         buf.seek(0)
 
         results = _parse_results_zip(buf.getvalue())
@@ -1300,9 +1283,7 @@ class TestResultsWithTerminalOutput:
         """Verify /api/solve/results includes terminal output in response."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,42.0\nstatus,0\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,42.0\nstatus,0\n")
             zf.writestr(
                 "output/gtopt_terminal.log",
                 "gtopt solver output line 1\ngtopt solver output line 2\n",
@@ -1325,12 +1306,8 @@ class TestResultsWithTerminalOutput:
         """Verify /api/results/upload includes terminal output."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                "output/solution.csv", "obj_value,99.9\nstatus,0\n"
-            )
-            zf.writestr(
-                "stdout.log", "Starting optimization...\nDone.\n"
-            )
+            zf.writestr("output/solution.csv", "obj_value,99.9\nstatus,0\n")
+            zf.writestr("stdout.log", "Starting optimization...\nDone.\n")
         buf.seek(0)
 
         resp = client.post(
@@ -1431,9 +1408,7 @@ class TestWebserviceConnectivity:
 
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(
-            response=mock_resp
-        )
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
         mock_get.return_value = mock_resp
 
         resp = client.get("/api/solve/ping")
@@ -1449,6 +1424,7 @@ class TestCheckServer:
     @patch("guiservice.app.http_requests.get")
     def test_check_server_all_ok(self, mock_get, client):
         """All three checks (ping, logs, jobs) succeed."""
+
         def side_effect(url, **kwargs):
             resp = MagicMock()
             resp.raise_for_status.return_value = None
@@ -1581,3 +1557,515 @@ class TestPingWebserviceSavesConfig:
         call_url = mock_get.call_args[0][0]
         assert "myhost:4000" in call_url
         assert "/api/logs" in call_url
+
+
+# ---------------------------------------------------------------------------
+# Additional tests for uncovered lines
+# ---------------------------------------------------------------------------
+
+
+class TestParseUploadedZipNoJson:
+    """_parse_uploaded_zip returns defaults when ZIP has no JSON file."""
+
+    def test_no_json_in_zip_returns_defaults(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("readme.txt", "hello")
+        buf.seek(0)
+        result = _parse_uploaded_zip(buf.read())
+        assert result["case_name"] == "uploaded_case"
+        assert result["options"] == {}
+        assert result["system"] == {}
+
+
+class TestDownloadCase:
+    """Tests for /api/case/download endpoint."""
+
+    def test_download_case_returns_zip(self, client):
+        resp = client.post(
+            "/api/case/download",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.content_type == "application/zip"
+
+    def test_download_case_no_data(self, client):
+        resp = client.post("/api/case/download", data="", content_type="application/json")
+        assert resp.status_code in (400, 415)
+
+    def test_download_case_filename(self, client):
+        data = _sample_case_data()
+        resp = client.post(
+            "/api/case/download",
+            data=json.dumps(data),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert "test_case.zip" in resp.headers.get("Content-Disposition", "")
+
+
+class TestUploadCaseErrors:
+    """Tests for /api/case/upload error paths."""
+
+    def test_no_file_uploaded(self, client):
+        resp = client.post("/api/case/upload")
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "No file uploaded"
+
+    def test_empty_filename(self, client):
+        data = {"file": (io.BytesIO(b""), "")}
+        resp = client.post(
+            "/api/case/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "No file selected"
+
+    def test_non_zip_file_rejected(self, client):
+        data = {"file": (io.BytesIO(b"hello"), "test.txt")}
+        resp = client.post(
+            "/api/case/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "Only ZIP files are accepted"
+
+    def test_valid_zip_accepted(self, client):
+        buf = io.BytesIO()
+        case_json = {"options": {}, "simulation": {}, "system": {"name": "c"}}
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("c.json", json.dumps(case_json))
+        buf.seek(0)
+        data = {"file": (buf, "c.zip")}
+        resp = client.post(
+            "/api/case/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+
+
+class TestPreviewCase:
+    """Tests for /api/case/preview endpoint."""
+
+    def test_preview_returns_json(self, client):
+        resp = client.post(
+            "/api/case/preview",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "options" in data
+        assert "system" in data
+
+    def test_preview_no_data(self, client):
+        resp = client.post("/api/case/preview", data="", content_type="application/json")
+        assert resp.status_code in (400, 415)
+
+
+class TestUploadResultsErrors:
+    """Tests for /api/results/upload error paths."""
+
+    def test_no_file_uploaded(self, client):
+        resp = client.post("/api/results/upload")
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "No file uploaded"
+
+    def test_empty_filename(self, client):
+        data = {"file": (io.BytesIO(b""), "")}
+        resp = client.post(
+            "/api/results/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "No file selected"
+
+
+class TestWebserviceProxyErrors:
+    """Test ConnectionError / Timeout / HTTPError paths for all proxy routes."""
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_connection_error(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.ConnectionError("refused")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+        err = resp.get_json()["error"]
+        assert "Is the webservice running?" in err
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_timeout(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.Timeout("timed out")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_http_error(self, mock_post, client):
+        import requests
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.json.return_value = {"error": "internal server error"}
+        mock_post.side_effect = requests.HTTPError(response=mock_resp)
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_connection_error_hint(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+        err = resp.get_json()["error"]
+        assert "Is the webservice running?" in err
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_http_error(self, mock_get, client):
+        import requests
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_get.side_effect = requests.HTTPError(response=mock_resp)
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_jobs_connection_error_hint(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 502
+        err = resp.get_json()["error"]
+        assert "Is the webservice running?" in err
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_connection_error_hint(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/status/abc-token")
+        assert resp.status_code == 502
+        err = resp.get_json()["error"]
+        assert "Is the webservice running?" in err
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_connection_error_hint(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/results/abc-token")
+        assert resp.status_code == 502
+        err = resp.get_json()["error"]
+        assert "Is the webservice running?" in err
+
+
+# ---------------------------------------------------------------------------
+# Error-path tests for Timeout / HTTPError / generic Exception handlers
+# ---------------------------------------------------------------------------
+
+
+class TestSolveErrorPaths:
+    """Cover Timeout, HTTPError, and generic Exception paths in all proxy endpoints."""
+
+    # ---- submit_solve ----
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_timeout(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.Timeout("timed out")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_http_error(self, mock_post, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_resp.json.return_value = {"error": "server crashed"}
+        http_err.response = mock_resp
+        mock_post.side_effect = http_err
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_generic_exception(self, mock_post, client):
+        mock_post.side_effect = RuntimeError("unexpected")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 500
+        assert "unexpected" in resp.get_json()["error"].lower()
+
+    # ---- get_solve_status ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 500
+
+    # ---- get_solve_results ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 500
+
+    # ---- list_solve_jobs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 500
+
+    # ---- ping_webservice ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "gtopt_version": "1.0"}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "ok"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+        assert "Is the webservice running?" in resp.get_json()["error"]
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 500
+
+    # ---- get_webservice_logs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"logs": ["line 1", "line 2"]}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 200
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 500
+
+    # ---- get_job_logs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"stdout": "all good\n", "stderr": ""}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 200
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 500

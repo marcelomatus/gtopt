@@ -6,9 +6,14 @@
 import json
 import tempfile
 from pathlib import Path
+
+import pandas as pd
 import pytest
-from ..aflce_writer import AflceWriter
+
 from ..aflce_parser import AflceParser
+from ..aflce_writer import AflceWriter
+from ..block_parser import BlockParser
+from ..central_parser import CentralParser
 from .conftest import get_example_file
 
 
@@ -78,7 +83,7 @@ def test_json_output_structure(sample_aflce_writer):
     json_flows = sample_aflce_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "block": list,
         "flow": list,
@@ -86,8 +91,8 @@ def test_json_output_structure(sample_aflce_writer):
 
     for flow in json_flows:
         # Check all required fields exist and have correct types
-        assert set(flow.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(flow.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(flow[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(flow[field])}"
             )
@@ -126,7 +131,6 @@ def test_write_empty_flows():
 
 def _make_central_parser(tmp_path, name, number=1, afluent=10.0):
     """Create a minimal CentralParser with one central entry."""
-    from ..central_parser import CentralParser
 
     parser = CentralParser.__new__(CentralParser)
     parser.file_path = tmp_path / "plpcnfce.dat"
@@ -138,7 +142,6 @@ def _make_central_parser(tmp_path, name, number=1, afluent=10.0):
 
 def _make_block_parser(tmp_path, n_blocks=3):
     """Create a minimal BlockParser with n blocks (all stage 1)."""
-    from ..block_parser import BlockParser
 
     parser = BlockParser.__new__(BlockParser)
     parser.file_path = tmp_path / "plpblo.dat"
@@ -159,7 +162,6 @@ def _make_block_parser(tmp_path, n_blocks=3):
 
 def test_to_dataframe_with_scenarios(tmp_path):
     """Test to_dataframe returns a DataFrame when scenarios are provided."""
-    from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
     # 1 central, 2 hydrologies, 3 blocks per stage
@@ -189,8 +191,6 @@ def test_to_dataframe_with_scenarios(tmp_path):
     )
     df = writer.to_dataframe()
 
-    import pandas as pd
-
     assert isinstance(df, pd.DataFrame)
     assert not df.empty
     assert "scenario" in df.columns
@@ -198,7 +198,6 @@ def test_to_dataframe_with_scenarios(tmp_path):
 
 def test_to_parquet_with_scenarios(tmp_path):
     """Test to_parquet writes afluent.parquet when scenarios are provided."""
-    from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
     # Format: Mes Block flow_hyd1  (3 fields per line for 1 hydrology)
@@ -233,7 +232,6 @@ def test_to_parquet_with_scenarios(tmp_path):
 
 def test_to_dataframe_no_scenarios(tmp_path):
     """Test to_dataframe returns empty result when there are no scenarios."""
-    from ..aflce_parser import AflceParser
 
     aflce_f = tmp_path / "plpaflce.dat"
     aflce_f.write_text(

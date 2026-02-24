@@ -38,17 +38,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # Cache pip's HTTP cache to avoid re-downloading wheels on every run.
-      # The cache key includes the OS, Python version, and the dependency
-      # specification so it is invalidated whenever scripts/pyproject.toml changes.
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: pip install -e "./scripts[dev]"
@@ -64,6 +55,13 @@ jobs:
             --cov=plp2gtopt \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
+
+      - name: Check coverage threshold (warning only)
+        working-directory: scripts
+        run: |
+          coverage report --fail-under=83 || \
+            echo "::warning title=Coverage::Unit-test coverage is below 83% threshold"
+        continue-on-error: true
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -102,14 +100,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: pip install -e "./scripts[dev]"
@@ -118,7 +110,19 @@ jobs:
         working-directory: scripts
         run: |
           pytest plp2gtopt/tests/test_integration.py \
-            -v -m integration
+            -v -m integration \
+            --cov=cvs2parquet \
+            --cov=igtopt \
+            --cov=plp2gtopt \
+            --cov-report=xml:coverage-integration.xml \
+            --cov-report=term-missing
+
+      - name: Upload integration coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage-integration-xml
+          path: scripts/coverage-integration.xml
+          retention-days: 30
 
   lint:
     runs-on: ubuntu-latest
@@ -131,14 +135,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-lint-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-lint-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install dev dependencies
         run: pip install -e "./scripts[dev]"
@@ -149,8 +147,23 @@ jobs:
 
       - name: ruff (format check)
         working-directory: scripts
-        run: ruff format --check .
+        run: |
+          set +e
+          RUFF_OUT=$(ruff format --check . 2>&1)
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$RUFF_OUT"
+            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
+            echo "::warning title=ruff-format::$N Python file(s) need formatting. The Auto-format workflow will push a fix. To fix locally run: ruff format scripts/"
+          fi
+          # Always exit 0 — the Auto-format workflow applies fixes automatically
+          exit 0
 
       - name: pylint
         working-directory: scripts
         run: pylint cvs2parquet igtopt plp2gtopt
+
+      - name: mypy
+        working-directory: scripts
+        run: mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports

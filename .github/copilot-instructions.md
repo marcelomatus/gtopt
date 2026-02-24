@@ -27,7 +27,8 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  lcov ca-certificates lsb-release wget
+  lcov ca-certificates lsb-release wget \
+  ccache zlib1g-dev 
 
 # Apache Arrow + Parquet (official APT repo)
 wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
@@ -76,6 +77,8 @@ cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="${CONDA_BASE}"
 
 cmake --build build -j$(nproc)
@@ -158,8 +161,8 @@ The following combination was used to produce a **100% passing** build
 | Compiler | GCC 14.2.0 | `gcc-14 g++-14` from Ubuntu repos |
 | CMake | 3.31.6 | Pre-installed on runner |
 | Arrow / Parquet | 12.0.0 | Installed via `conda install -c conda-forge arrow-cpp parquet-cpp` |
-| Boost.Container | 1.83.0 | Via conda `boost-cpp` or `libboost-container-dev` from Ubuntu repos |
-| COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake auto-selects CLP; CBC works too |
+| Boost.Container | 1.83.0 | `libboost-container-dev` from Ubuntu repos |
+| COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake automatically selects CLP; CBC works too |
 | spdlog | 1.12.0 | `libspdlog-dev` from Ubuntu repos |
 | LAPACK/BLAS | 3.12.0 | `liblapack-dev libblas-dev` from Ubuntu repos (required by COIN-OR) |
 | conda | 26.1.0 | `/usr/share/miniconda` (base prefix) |
@@ -174,6 +177,8 @@ cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
@@ -183,6 +188,21 @@ cd build && ctest --output-on-failure
 > The APT-based Arrow install (from `packages.apache.org/artifactory`) is the
 > cleanest route when network access is available. The conda route is the
 > verified fallback when that domain is blocked.
+
+### Common build failures and fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **before** running `cmake -S test -B build` |
+| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
+| `Unable to fetch some archives` from apt | Stale package lists | Always run `sudo apt-get update` before `apt-get install` |
+| `COIN solver: none configured` / no solver found | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev`; CLP is auto-selected and sufficient for unit tests |
+| `Could not find BoostConfig.cmake` | Boost not installed | `sudo apt-get install -y libboost-container-dev` |
+
+**Critical rule**: always install `ccache` **before** running `cmake -S test -B build`.
+CMake bakes the launcher path into the build system at configure time; if ccache
+is missing when you configure, every subsequent `cmake --build` invocation fails
+even after installing ccache later.
 
 ---
 

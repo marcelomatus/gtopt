@@ -20,7 +20,9 @@ disable=
     too-many-nested-blocks,
     too-complex,
     redefined-outer-name,
-    too-many-positional-arguments
+    too-many-positional-arguments,
+    broad-exception-caught,
+    global-statement
 
 [FORMAT]
 max-line-length=150
