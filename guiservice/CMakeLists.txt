@@ -32,10 +32,15 @@ Configuration variables:
 
 Installation:
 
-To install the GUI service system-wide::
+To install the GUI service::
 
   cmake -S guiservice -B build-gui
-  sudo cmake --install build-gui
+  cmake --install build-gui
+
+The install step locates ``pip`` at **install time** using
+``which pip3 || which pip`` so that pip installs the Python
+dependencies into the currently active Python environment (pyenv, venv,
+conda, etc.) without requiring root.
 
 This installs:
 - ``gtopt_gui`` launcher script to ``bin/gtopt_gui``
@@ -188,53 +193,37 @@ install(CODE "
   endif()
 ")
 
-# Post-install: install Python dependencies in the destination directory
+# Post-install: install Python dependencies via pip
 install(CODE "
-  set(_gs_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/guiservice\")
-  set(_req_file \"\${_gs_dir}/requirements.txt\")
+  message(STATUS \"Installing gtopt guiservice Python dependencies via pip...\")
 
-  # Check that pip is available
-  find_program(_pip_exe pip3)
-  if(NOT _pip_exe)
-    find_program(_pip_exe pip)
+  # Find pip at install time using 'which' so we always install into the
+  # currently active Python environment (pyenv, venv, conda, etc.).
+  # This lets pip determine the correct destination without any explicit
+  # --prefix override, so no root is needed for user-owned environments.
+  execute_process(
+    COMMAND sh -c \"which pip3 || which pip\"
+    OUTPUT_VARIABLE _pip_exe
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _which_rc
+  )
+  if(NOT _which_rc EQUAL 0 OR \"x\${_pip_exe}\" STREQUAL \"x\")
+    message(STATUS \"'which pip' not found; falling back to ${PYTHON_EXECUTABLE} -m pip\")
+    set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
+  else()
+    message(STATUS \"Using pip: \${_pip_exe}\")
+    set(_pip_cmd \"\${_pip_exe}\")
   endif()
 
-  if(NOT _pip_exe)
-    message(WARNING \"pip was not found on this system. \
-Please install Python/pip and then run manually:\\n\
-  pip install -r \${_req_file}\")
-  elseif(NOT EXISTS \"\${_req_file}\")
-    message(WARNING \"requirements.txt not found at \${_req_file}\")
+  execute_process(
+    COMMAND \${_pip_cmd} install -r \"${GUISERVICE_DIR}/requirements.txt\"
+    RESULT_VARIABLE _pip_rc
+  )
+  if(NOT _pip_rc EQUAL 0)
+    message(WARNING \"pip install failed (exit code \${_pip_rc}). \"
+      \"Please run manually: pip install -r ${GUISERVICE_DIR}/requirements.txt\")
   else()
-    # Verify pip is working
-    execute_process(
-      COMMAND \${_pip_exe} --version
-      RESULT_VARIABLE _pip_ver_rc
-      OUTPUT_VARIABLE _pip_ver
-      ERROR_VARIABLE _pip_err
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT _pip_ver_rc EQUAL 0)
-      message(WARNING \"pip is installed but not working properly (\${_pip_err}). \
-Please fix pip and then run manually:\\n\
-  pip install -r \${_req_file}\")
-    else()
-      message(STATUS \"Found \${_pip_ver}\")
-
-      # pip install -r requirements.txt
-      message(STATUS \"Running pip install -r \${_req_file} ...\")
-      execute_process(
-        COMMAND \${_pip_exe} install -r \${_req_file}
-        RESULT_VARIABLE _pip_install_rc
-      )
-      if(NOT _pip_install_rc EQUAL 0)
-        message(WARNING \"pip install failed (exit code \${_pip_install_rc}). \
-Please run manually:\\n\
-  pip install -r \${_req_file}\")
-      else()
-        message(STATUS \"Python dependencies installed successfully\")
-      endif()
-    endif()
+    message(STATUS \"Python dependencies installed successfully\")
   endif()
 
   message(STATUS \"To run the gtopt GUI service:\")

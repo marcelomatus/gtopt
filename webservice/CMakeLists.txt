@@ -35,10 +35,14 @@ Configuration variables:
 
 Installation:
 
-To install the web service system-wide::
+To install the web service::
 
   cmake -S webservice -B build-web
-  sudo cmake --install build-web
+  cmake --install build-web
+
+The install step locates ``npm`` at **install time** using ``which npm``
+so that dependencies are installed via the npm that is currently on PATH,
+without requiring root.
 
 This installs:
 - ``gtopt_websrv`` launcher script to ``bin/gtopt_websrv``
@@ -145,61 +149,51 @@ endif()
 install(CODE "
   set(_ws_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
 
-  # Check that npm is available
-  find_program(_npm_exe npm)
-  if(NOT _npm_exe)
-    message(WARNING \"npm was not found on this system. \
-Please install Node.js/npm and then run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
+  # Find npm at install time using 'which' so we always use the npm that is
+  # currently on PATH (nvm, system, etc.) without requiring root.
+  execute_process(
+    COMMAND sh -c \"which npm\"
+    OUTPUT_VARIABLE _npm_exe
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _which_rc
+  )
+  if(NOT _which_rc EQUAL 0 OR \"x\${_npm_exe}\" STREQUAL \"x\")
+    message(WARNING \"npm was not found on this system. \"
+      \"Please install Node.js/npm and then run manually:\\n\"
+      \"  cd \${_ws_dir}\\n\"
+      \"  npm install\\n\"
+      \"  npm run build\")
   else()
-    # Verify npm is working
-    execute_process(
-      COMMAND \${_npm_exe} --version
-      RESULT_VARIABLE _npm_ver_rc
-      OUTPUT_VARIABLE _npm_ver
-      ERROR_VARIABLE _npm_err
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT _npm_ver_rc EQUAL 0)
-      message(WARNING \"npm is installed but not working properly (\${_npm_err}). \
-Please fix npm and then run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
-    else()
-      message(STATUS \"Found npm version \${_npm_ver}\")
+    message(STATUS \"Using npm: \${_npm_exe}\")
 
-      # npm install
-      message(STATUS \"Running npm install in \${_ws_dir} ...\")
+    # npm install
+    message(STATUS \"Running npm install in \${_ws_dir} ...\")
+    execute_process(
+      COMMAND \${_npm_exe} install
+      WORKING_DIRECTORY \${_ws_dir}
+      RESULT_VARIABLE _npm_install_rc
+    )
+    if(NOT _npm_install_rc EQUAL 0)
+      message(WARNING \"npm install failed (exit code \${_npm_install_rc}). \"
+        \"Please run manually:\\n\"
+        \"  cd \${_ws_dir}\\n\"
+        \"  npm install\\n\"
+        \"  npm run build\")
+    else()
+      # npm run build
+      message(STATUS \"Running npm run build in \${_ws_dir} ...\")
       execute_process(
-        COMMAND \${_npm_exe} install
+        COMMAND \${_npm_exe} run build
         WORKING_DIRECTORY \${_ws_dir}
-        RESULT_VARIABLE _npm_install_rc
+        RESULT_VARIABLE _npm_build_rc
       )
-      if(NOT _npm_install_rc EQUAL 0)
-        message(WARNING \"npm install failed (exit code \${_npm_install_rc}). \
-Please run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
+      if(NOT _npm_build_rc EQUAL 0)
+        message(WARNING \"npm run build failed (exit code \${_npm_build_rc}). \"
+          \"Please run manually:\\n\"
+          \"  cd \${_ws_dir}\\n\"
+          \"  npm run build\")
       else()
-        # npm run build
-        message(STATUS \"Running npm run build in \${_ws_dir} ...\")
-        execute_process(
-          COMMAND \${_npm_exe} run build
-          WORKING_DIRECTORY \${_ws_dir}
-          RESULT_VARIABLE _npm_build_rc
-        )
-        if(NOT _npm_build_rc EQUAL 0)
-          message(WARNING \"npm run build failed (exit code \${_npm_build_rc}). \
-Please run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm run build\")
-        else()
-          message(STATUS \"Web service built successfully in \${_ws_dir}\")
-        endif()
+        message(STATUS \"Web service built successfully in \${_ws_dir}\")
       endif()
     endif()
   endif()
