@@ -47,13 +47,13 @@ auto make_array(Values&& values, Valids&& valids = {})
       : builder.AppendValues(std::forward<Values>(values),
                              std::forward<Valids>(valids));
   if (!st.ok()) {
-    SPDLOG_CRITICAL("can't append values: {}", st.ToString());
+    SPDLOG_CRITICAL("Cannot append values: {}", st.ToString());
   }
 
   ArrowArray array;
   const auto fs = builder.Finish(&array);
   if (!fs.ok()) {
-    SPDLOG_CRITICAL("can't build values: {}", fs.ToString());
+    SPDLOG_CRITICAL("Cannot build values: {}", fs.ToString());
   }
 
   return array;
