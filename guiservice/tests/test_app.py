@@ -1795,3 +1795,277 @@ class TestWebserviceProxyErrors:
         assert resp.status_code == 502
         err = resp.get_json()["error"]
         assert "Is the webservice running?" in err
+
+
+# ---------------------------------------------------------------------------
+# Error-path tests for Timeout / HTTPError / generic Exception handlers
+# ---------------------------------------------------------------------------
+
+
+class TestSolveErrorPaths:
+    """Cover Timeout, HTTPError, and generic Exception paths in all proxy endpoints."""
+
+    # ---- submit_solve ----
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_timeout(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.Timeout("timed out")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 504
+        assert "timed out" in resp.get_json()["error"].lower()
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_http_error(self, mock_post, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_resp.json.return_value = {"error": "server crashed"}
+        http_err.response = mock_resp
+        mock_post.side_effect = http_err
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_generic_exception(self, mock_post, client):
+        mock_post.side_effect = RuntimeError("unexpected")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 500
+        assert "unexpected" in resp.get_json()["error"].lower()
+
+    # ---- get_solve_status ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_status_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/status/tok-1")
+        assert resp.status_code == 500
+
+    # ---- get_solve_results ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_results_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/results/tok-1")
+        assert resp.status_code == 500
+
+    # ---- list_solve_jobs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_list_jobs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/jobs")
+        assert resp.status_code == 500
+
+    # ---- ping_webservice ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "ok", "gtopt_version": "1.0"}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "ok"
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+        assert "Is the webservice running?" in resp.get_json()["error"]
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_ping_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/ping")
+        assert resp.status_code == 500
+
+    # ---- get_webservice_logs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"logs": ["line 1", "line 2"]}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 200
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("server error")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_webservice_logs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/logs")
+        assert resp.status_code == 500
+
+    # ---- get_job_logs ----
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_success(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"stdout": "all good\n", "stderr": ""}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 200
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_job_logs_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/job_logs/tok-1")
+        assert resp.status_code == 500
