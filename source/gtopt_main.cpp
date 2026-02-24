@@ -353,7 +353,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       }
 
       if (!optimal) {
-        return std::unexpected("No optimal solution found");
+        return 1;
       }
 
       spdlog::info("=== Output writing ===");
