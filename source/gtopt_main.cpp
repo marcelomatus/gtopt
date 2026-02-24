@@ -275,27 +275,16 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     //
     // Update the planning options
     //
-    try {
-      apply_cli_options(my_planning, opts);
-    } catch (const std::exception& ex) {
-      return std::unexpected(
-          std::format("Error applying CLI options: {}", ex.what()));
-    }
+    apply_cli_options(my_planning, opts);
 
     //
     // Write JSON output if requested
     //
     if (opts.json_file) {
-      try {
-        auto write_result =
-            write_json_output(my_planning, opts.json_file.value());
-        if (!write_result) {
-          return std::unexpected(std::move(write_result.error()));
-        }
-      } catch (const std::exception& ex) {
-        return std::unexpected(std::format("Error writing JSON file '{}': {}",
-                                           opts.json_file.value(),
-                                           ex.what()));
+      auto write_result =
+          write_json_output(my_planning, opts.json_file.value());
+      if (!write_result) {
+        return std::unexpected(std::move(write_result.error()));
       }
     }
 
@@ -318,13 +307,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       spdlog::info(std::format("creating lp {:.3f}s", sw.elapsed().count()));
 
       if (opts.lp_file) {
-        try {
-          planning_lp.write_lp(opts.lp_file.value());
-        } catch (const std::exception& ex) {
-          return std::unexpected(std::format("Error writing LP file '{}': {}",
-                                             opts.lp_file.value(),
-                                             ex.what()));
-        }
+        planning_lp.write_lp(opts.lp_file.value());
       }
 
       if (opts.just_create.value_or(false)) {
