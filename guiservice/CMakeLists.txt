@@ -37,10 +37,12 @@ To install the GUI service::
   cmake -S guiservice -B build-gui
   cmake --install build-gui
 
-The install step locates ``pip`` at **install time** using
-``which pip3 || which pip`` so that pip installs the Python
-dependencies into the currently active Python environment (pyenv, venv,
-conda, etc.) without requiring root.
+The install step always uses the Python found at **configure time**
+(``${PYTHON_EXECUTABLE} -m pip``).  The absolute path is baked into
+``cmake_install.cmake`` so it is immune to the PATH-stripping that
+``sudo`` applies by default, making both ``cmake --install`` (as a
+regular user) and ``sudo cmake --install`` (system-wide) work
+correctly with the same Python.
 
 This installs:
 - ``gtopt_gui`` launcher script to ``bin/gtopt_gui``
@@ -197,31 +199,22 @@ install(CODE "
 install(CODE "
   message(STATUS \"Installing gtopt guiservice Python dependencies via pip...\")
 
-  # Find pip at install time using 'which' so we always install into the
-  # currently active Python environment (pyenv, venv, conda, etc.).
-  # This lets pip determine the correct destination without any explicit
-  # --prefix override, so no root is needed for user-owned environments.
-  execute_process(
-    COMMAND sh -c \"which pip3 || which pip\"
-    OUTPUT_VARIABLE _pip_exe
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _which_rc
-  )
-  if(NOT _which_rc EQUAL 0 OR \"x\${_pip_exe}\" STREQUAL \"x\")
-    message(STATUS \"'which pip' not found; falling back to ${PYTHON_EXECUTABLE} -m pip\")
-    set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
-  else()
-    message(STATUS \"Using pip: \${_pip_exe}\")
-    set(_pip_cmd \"\${_pip_exe}\")
-  endif()
+  # Use the Python found at configure time.  Its absolute path is baked in
+  # here, so it is immune to the PATH-stripping that sudo applies by default.
+  # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
+  # same Python, producing a predictable installation target.
+  set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
+  message(STATUS \"Using pip: ${PYTHON_EXECUTABLE} -m pip\")
 
   execute_process(
-    COMMAND \${_pip_cmd} install -r \"${GUISERVICE_DIR}/requirements.txt\"
+    COMMAND \${_pip_cmd} install
+      --ignore-installed
+      -r \"${GUISERVICE_DIR}/requirements.txt\"
     RESULT_VARIABLE _pip_rc
   )
   if(NOT _pip_rc EQUAL 0)
     message(WARNING \"pip install failed (exit code \${_pip_rc}). \"
-      \"Please run manually: pip install -r ${GUISERVICE_DIR}/requirements.txt\")
+      \"Please run manually: pip install --ignore-installed -r ${GUISERVICE_DIR}/requirements.txt\")
   else()
     message(STATUS \"Python dependencies installed successfully\")
   endif()

@@ -40,9 +40,12 @@ To install the web service::
   cmake -S webservice -B build-web
   cmake --install build-web
 
-The install step locates ``npm`` at **install time** using ``which npm``
-so that dependencies are installed via the npm that is currently on PATH,
-without requiring root.
+The install step always uses the npm found at **configure time**
+(``${NPM_EXECUTABLE}``).  The absolute path is baked into
+``cmake_install.cmake`` so it is immune to the PATH-stripping that
+``sudo`` applies by default, making both ``cmake --install`` (as a
+regular user) and ``sudo cmake --install`` (system-wide) work
+correctly with the same npm.
 
 This installs:
 - ``gtopt_websrv`` launcher script to ``bin/gtopt_websrv``
@@ -149,15 +152,12 @@ endif()
 install(CODE "
   set(_ws_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
 
-  # Find npm at install time using 'which' so we always use the npm that is
-  # currently on PATH (nvm, system, etc.) without requiring root.
-  execute_process(
-    COMMAND sh -c \"which npm\"
-    OUTPUT_VARIABLE _npm_exe
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _which_rc
-  )
-  if(NOT _which_rc EQUAL 0 OR \"x\${_npm_exe}\" STREQUAL \"x\")
+  # Use the npm found at configure time.  Its absolute path is baked in
+  # here, so it is immune to the PATH-stripping that sudo applies by default.
+  # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
+  # same npm, producing a predictable installation target.
+  set(_npm_exe \"${NPM_EXECUTABLE}\")
+  if(NOT _npm_exe)
     message(WARNING \"npm was not found on this system. \"
       \"Please install Node.js/npm and then run manually:\\n\"
       \"  cd \${_ws_dir}\\n\"
