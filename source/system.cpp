@@ -69,9 +69,9 @@ void System::setup_reference_bus(const OptionsLP& options)
 {
   if (needs_ref_theta(bus_array, options)) {
     auto& bus = bus_array.front();
-    bus.reference_theta = 0;
-    SPDLOG_INFO("Setting bus '{}' as reference bus (reference_theta=0)",
-                bus.name);
+    bus.reference_theta = 0.0;
+    SPDLOG_TRACE(std::format(
+        "Setting bus '{}' as reference bus (reference_theta=0)", bus.name));
   }
 }
 

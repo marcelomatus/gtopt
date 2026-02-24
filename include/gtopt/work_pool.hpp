@@ -182,11 +182,11 @@ public:
       , max_cpu_threshold_(config.max_cpu_threshold)
       , scheduler_interval_(config.scheduler_interval)
   {
-    SPDLOG_INFO(
-        "AdaptiveWorkPool initialized with {} max threads, max CPU "
-        "threshold: {}%",
-        max_threads_,
-        max_cpu_threshold_);
+    spdlog::info(
+        std::format("  WorkPool initialized with {} max threads, max CPU "
+                    "threshold: {}%",
+                    max_threads_,
+                    max_cpu_threshold_));
   }
 
   ~AdaptiveWorkPool() { shutdown(); }
@@ -293,10 +293,10 @@ public:
       const auto stats = get_statistics();
       return std::format(
           "=== WorkPool Statistics ===\n"
-          "Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} "
-          "active\n"
-          "Threads: {:>6} active / {:>6} max\n"
-          "CPU Load: {:>6.1f}%\n",
+          "  Tasks: {:>6} submitted, {:>6} completed, {:>6} pending, {:>6} "
+          "  active\n"
+          "  Threads: {:>6} active / {:>6} max\n"
+          "  CPU Load: {:>6.1f}%\n",
           stats.tasks_submitted,
           stats.tasks_completed,
           stats.tasks_pending,
@@ -309,7 +309,7 @@ public:
     }
   }
 
-  void log_statistics() const { SPDLOG_INFO(format_statistics()); }
+  void log_statistics() const { spdlog::info(format_statistics()); }
 
 private:
   void cleanup_completed_tasks();

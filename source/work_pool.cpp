@@ -34,7 +34,8 @@ void AdaptiveWorkPool::start()
                           std::this_thread::sleep_for(scheduler_interval_);
                         }
                       }};
-    SPDLOG_INFO("AdaptiveWorkPool started with {} max threads", max_threads_);
+    spdlog::info(
+        std::format("  WorkPool started with {} max threads", max_threads_));
   } catch (const std::exception& e) {
     running_ = false;
     auto msg = std::format("Failed to start AdaptiveWorkPool: {}", e.what());
@@ -67,7 +68,7 @@ void AdaptiveWorkPool::shutdown()
   }
 
   cpu_monitor_.stop();
-  SPDLOG_INFO("AdaptiveWorkPool shutdown complete");
+  spdlog::info(std::format("  WorkPool shutdown complete"));
 }
 
 void AdaptiveWorkPool::cleanup_completed_tasks()
