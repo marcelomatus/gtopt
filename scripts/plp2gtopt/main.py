@@ -88,8 +88,11 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-file",
         type=Path,
         metavar="FILE",
-        default=Path("output/gtopt_case.json"),
-        help="output JSON file path (default: %(default)s)",
+        default=None,
+        help=(
+            "output JSON file path "
+            "(default: <output-dir-name>.json in the current directory)"
+        ),
     )
     parser.add_argument(
         "-s",
@@ -176,10 +179,13 @@ def make_parser() -> argparse.ArgumentParser:
 
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
+    output_file = args.output_file
+    if output_file is None:
+        output_file = Path(args.output_dir.name).with_suffix(".json")
     return {
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
-        "output_file": args.output_file,
+        "output_file": output_file,
         "last_stage": args.last_stage,
         "last_time": args.last_time,
         "compression": args.compression,
