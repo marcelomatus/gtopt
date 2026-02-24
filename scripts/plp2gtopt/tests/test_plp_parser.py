@@ -121,21 +121,32 @@ def test_parse_all_with_ess_only(tmp_path):
         "plp2gtopt.plp_parser.StageParser"
     ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
         "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser"
-    ) as mock_central, patch("plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser"
-    ) as mock_cost, patch("plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser"
-    ) as mock_manli, patch("plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser"
-    ) as mock_extrac, patch("plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser"
-    ) as mock_ess:
+    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
+        "plp2gtopt.plp_parser.DemandParser"
+    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
+        "plp2gtopt.plp_parser.ManceParser"
+    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
+        "plp2gtopt.plp_parser.AflceParser"
+    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
+        "plp2gtopt.plp_parser.ManemParser"
+    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess:
         mock_p = MagicMock()
         mock_p.parse.return_value = None
-        for m in [mock_block, mock_stage, mock_bus, mock_line, mock_central,
-                  mock_demand, mock_cost, mock_mance, mock_manli, mock_aflce,
-                  mock_extrac, mock_manem, mock_ess]:
+        for m in [
+            mock_block,
+            mock_stage,
+            mock_bus,
+            mock_line,
+            mock_central,
+            mock_demand,
+            mock_cost,
+            mock_mance,
+            mock_manli,
+            mock_aflce,
+            mock_extrac,
+            mock_manem,
+            mock_ess,
+        ]:
             m.return_value = mock_p
 
         parser = PLPParser({"input_dir": tmp_path})
@@ -158,24 +169,37 @@ def test_parse_all_with_ess_and_maness(tmp_path):
 
     with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
         "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser"
-    ) as mock_bus, patch("plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser"
-    ) as mock_central, patch("plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser"
-    ) as mock_cost, patch("plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser"
-    ) as mock_manli, patch("plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser"
-    ) as mock_extrac, patch("plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser"
-    ) as mock_ess, patch("plp2gtopt.plp_parser.ManessParser"
+    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
+        "plp2gtopt.plp_parser.LineParser"
+    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
+        "plp2gtopt.plp_parser.DemandParser"
+    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
+        "plp2gtopt.plp_parser.ManceParser"
+    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
+        "plp2gtopt.plp_parser.AflceParser"
+    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
+        "plp2gtopt.plp_parser.ManemParser"
+    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess, patch(
+        "plp2gtopt.plp_parser.ManessParser"
     ) as mock_maness:
         mock_p = MagicMock()
         mock_p.parse.return_value = None
-        for m in [mock_block, mock_stage, mock_bus, mock_line, mock_central,
-                  mock_demand, mock_cost, mock_mance, mock_manli, mock_aflce,
-                  mock_extrac, mock_manem, mock_ess, mock_maness]:
+        for m in [
+            mock_block,
+            mock_stage,
+            mock_bus,
+            mock_line,
+            mock_central,
+            mock_demand,
+            mock_cost,
+            mock_mance,
+            mock_manli,
+            mock_aflce,
+            mock_extrac,
+            mock_manem,
+            mock_ess,
+            mock_maness,
+        ]:
             m.return_value = mock_p
 
         parser = PLPParser({"input_dir": tmp_path})

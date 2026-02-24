@@ -142,11 +142,12 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
         "plp2gtopt.gtopt_writer.StageWriter"
     ) as mock_sw, patch("plp2gtopt.gtopt_writer.BusWriter") as mock_busw, patch(
         "plp2gtopt.gtopt_writer.CentralWriter"
-    ) as mock_cw, patch("plp2gtopt.gtopt_writer.LineWriter"
-    ) as mock_lw, patch("plp2gtopt.gtopt_writer.DemandWriter"
-    ) as mock_dw, patch("plp2gtopt.gtopt_writer.GeneratorProfileWriter"
-    ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter"
-    ) as mock_aw, patch("plp2gtopt.gtopt_writer.JunctionWriter"
+    ) as mock_cw, patch("plp2gtopt.gtopt_writer.LineWriter") as mock_lw, patch(
+        "plp2gtopt.gtopt_writer.DemandWriter"
+    ) as mock_dw, patch(
+        "plp2gtopt.gtopt_writer.GeneratorProfileWriter"
+    ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter") as mock_aw, patch(
+        "plp2gtopt.gtopt_writer.JunctionWriter"
     ) as mock_jw, patch("plp2gtopt.gtopt_writer.BessWriter") as mock_bess:
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
@@ -200,9 +201,7 @@ def test_gtopt_writer_process_scenarios_explicit_weights():
     """process_scenarios uses explicit probability_factors."""
     mock_parser = MagicMock()
     writer = GTOptWriter(mock_parser)
-    writer.process_scenarios(
-        {"hydrologies": "0,1", "probability_factors": "0.3,0.7"}
-    )
+    writer.process_scenarios({"hydrologies": "0,1", "probability_factors": "0.3,0.7"})
     scenarios = writer.planning["simulation"]["scenario_array"]
     assert scenarios[0]["probability_factor"] == pytest.approx(0.3)
     assert scenarios[1]["probability_factor"] == pytest.approx(0.7)
