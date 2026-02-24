@@ -337,6 +337,14 @@ jobs:
         working-directory: webservice
         run: npm ci
 
+      - name: cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/webservice/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/**/*.js', 'webservice/**/*.jsx', 'webservice/**/*.ts', 'webservice/**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
+
       - name: build
         working-directory: webservice
         run: npm run build
@@ -396,6 +404,14 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: webservice/package-lock.json
+
+      - name: cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ~/gtopt-install/share/gtopt/webservice/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/**/*.js', 'webservice/**/*.jsx', 'webservice/**/*.ts', 'webservice/**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
 
       - name: Configure webservice with CMake
         run: cmake -S webservice -B build-webservice
@@ -505,6 +521,14 @@ jobs:
         run: |
           cmake -S guiservice -B build-guiservice
           cmake --install build-guiservice --prefix $HOME/gtopt-install
+
+      - name: cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ~/gtopt-install/share/gtopt/webservice/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/**/*.js', 'webservice/**/*.jsx', 'webservice/**/*.ts', 'webservice/**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
 
       - name: Configure and install webservice
         run: |
