@@ -739,7 +739,11 @@ def submit_solve():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on submit: %s", _webservice_url)
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on submit")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -775,7 +779,11 @@ def get_solve_status(token):
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on status token=%s", token)
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on status token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -809,7 +817,11 @@ def get_solve_results(token):
         return jsonify(results)
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on results token=%s", token)
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on results token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -838,7 +850,11 @@ def list_solve_jobs():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on jobs list")
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on jobs list")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -867,7 +883,11 @@ def ping_webservice():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on ping")
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on ping")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -898,7 +918,11 @@ def get_webservice_logs():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on logs")
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on logs")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -927,7 +951,11 @@ def get_job_logs(token):
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on job_logs token=%s", token)
-        return jsonify({"error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"}), 502
+        return jsonify(
+            {
+                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+            }
+        ), 502
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on job_logs token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
