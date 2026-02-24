@@ -299,7 +299,8 @@ auto csv_write_table_gzip(const auto& fpath, const auto& table)
 
   // NOLINTNEXTLINE
   if (written < 0
-      || (size != static_cast<std::remove_cv_t<decltype(size)>>(written)))
+      || (size  // NOLINT
+          != static_cast<std::remove_cv_t<decltype(size)>>(written)))  // NOLINT
       [[unlikely]]
   {
     return arrow::Status::IOError("gzip write incomplete: ", filename);
