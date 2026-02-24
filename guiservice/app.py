@@ -680,7 +680,6 @@ def upload_results():
 @app.route("/api/solve/config", methods=["GET"])
 def get_solve_config():
     """Return the current webservice URL configuration."""
-    global _webservice_url
     return jsonify({"webservice_url": _webservice_url})
 
 
@@ -711,7 +710,6 @@ def submit_solve():
       - systemFile: name of the system JSON inside the archive
     It returns {"token": "...", "status": "pending", "message": "..."}.
     """
-    global _webservice_url
     case_data = request.get_json()
     if not case_data:
         return jsonify({"error": "No case data provided"}), 400
@@ -769,7 +767,6 @@ def get_solve_status(token):
     {"token", "status", "createdAt", "completedAt", "systemFile", "error"}
     where status is one of: pending, running, completed, failed.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}",
@@ -804,7 +801,6 @@ def get_solve_results(token):
       - output/  (solver output CSV/Parquet files)
       - stdout.log, stderr.log, job.json
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/download",
@@ -840,7 +836,6 @@ def list_solve_jobs():
 
     Proxies to GET /api/jobs which returns {"jobs": [...]}.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs",
@@ -873,7 +868,6 @@ def ping_webservice():
 
     Proxies to GET /api/ping which returns service status and gtopt version info.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/ping",
@@ -906,7 +900,6 @@ def get_webservice_logs():
 
     Proxies to GET /api/logs on the webservice to retrieve its log content.
     """
-    global _webservice_url
     lines = request.args.get("lines", default=DEFAULT_LOG_LINES, type=int)
     try:
         resp = http_requests.get(
@@ -941,7 +934,6 @@ def get_job_logs(token):
 
     Proxies to GET /api/jobs/:token/logs on the webservice.
     """
-    global _webservice_url
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/logs",
@@ -992,7 +984,6 @@ def check_server():
     Performs ping, log retrieval, and job listing against the configured
     webservice URL and returns all results in a single response.
     """
-    global _webservice_url
     results: dict[str, Any] = {
         "webservice_url": _webservice_url,
         "ping": None,

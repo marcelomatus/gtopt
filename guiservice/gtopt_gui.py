@@ -267,7 +267,7 @@ def open_browser(url, app_mode=False):
         if sys.platform == "darwin":  # macOS
             # Use open with --new --app for kiosk-like experience
             try:
-                subprocess.Popen(
+                subprocess.Popen(  # pylint: disable=consider-using-with
                     [
                         "open",
                         "-n",
@@ -286,7 +286,7 @@ def open_browser(url, app_mode=False):
             # Try Chrome/Chromium app mode on Linux
             for browser_cmd in ["google-chrome", "chromium-browser", "chromium"]:
                 try:
-                    subprocess.Popen(
+                    subprocess.Popen(  # pylint: disable=consider-using-with
                         [browser_cmd, f"--app={url}", "--disable-extensions", "--no-first-run"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
