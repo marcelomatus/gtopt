@@ -34,3 +34,4 @@ webservice/data/
 _codeql_detected_source_root
 build/
 webservice/tsconfig.tsbuildinfo
+webservice/coverage/
