@@ -90,7 +90,7 @@ int main(int argc, char** argv)
     if (auto result =
             gtopt::gtopt_main(parse_main_options(vm, std::move(system_files))))
     {
-      result_value = 0;
+      result_value = *result;
     } else {
       spdlog::critical(result.error());
       result_value = 1;
