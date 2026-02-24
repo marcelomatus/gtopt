@@ -21,6 +21,7 @@ and Python utility scripts.
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+  liblapack-dev libblas-dev \
   lcov ca-certificates lsb-release wget
 
 # Apache Arrow (required for Parquet I/O)
@@ -38,7 +39,8 @@ When the APT repo is unavailable (network-restricted environments, non-Ubuntu
 distros), use conda. Verified on Ubuntu 24.04 with conda 26.1.0 → Arrow 12.0.0:
 
 ```bash
-conda install -y -c conda-forge arrow-cpp parquet-cpp
+# Install Arrow, Parquet, and Boost via conda
+conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
 # Use conda info --base, NOT $CONDA_PREFIX (only set inside activated env)
 cmake -S test -B build \
@@ -325,9 +327,14 @@ planning stages, and time blocks.
 |--------|--------------|--------|
 | `use_kirchhoff` | `true` | DC OPF with voltage angles and line reactances |
 | `use_single_bus` | `false` | Multi-bus network (set `true` to disable network) |
+| `use_line_losses` | `true` | Model resistive line losses (default `true`) |
 | `demand_fail_cost` | 1000 | $/MWh penalty for unserved load |
+| `reserve_fail_cost` | 5000 | $/MWh penalty for unserved spinning reserve |
 | `scale_objective` | 1000 | Divides objective coefficients for solver numerics |
 | `annual_discount_rate` | 0.1 | 10 % per year for CAPEX discounting |
+| `input_format` | `"parquet"` | Preferred input format (`"parquet"` default; falls back to CSV) |
+| `output_format` | `"parquet"` | Output format (`"parquet"` default; or `"csv"`) |
+| `compression_format` | `"gzip"` | Parquet compression codec (default `"gzip"`) |
 
 ### IEEE benchmark cases in `cases/`
 
