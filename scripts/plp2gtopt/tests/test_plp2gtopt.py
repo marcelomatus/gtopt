@@ -1,4 +1,4 @@
-"""Tests for plp2gtopt.py — convert_plp_case() and GTOptWriter."""
+"""Tests for plp2gtopt.py — convert_plp_case(), GTOptWriter, and main()."""
 
 import json
 import sys
