@@ -59,11 +59,8 @@ def signal_handler(sig, _frame):
     sys.exit(0)
 
 
-def main():
-    """Parse arguments and initiate conversion."""
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
+def make_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser for plp2gtopt."""
     parser = argparse.ArgumentParser(
         prog="plp2gtopt",
         description=_DESCRIPTION,
@@ -174,15 +171,12 @@ def main():
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    return parser
 
-    args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
-
-    options = {
+def build_options(args: argparse.Namespace) -> dict:
+    """Convert parsed CLI arguments to a conversion options dict."""
+    return {
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
         "output_file": args.output_file,
@@ -195,7 +189,21 @@ def main():
         "management_factor": args.management_factor,
     }
 
-    convert_plp_case(options)
+
+def main():
+    """Parse arguments and initiate conversion."""
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    parser = make_parser()
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    convert_plp_case(build_options(args))
 
 
 if __name__ == "__main__":

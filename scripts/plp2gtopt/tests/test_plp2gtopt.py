@@ -1,5 +1,6 @@
 """Tests for plp2gtopt.py — convert_plp_case(), GTOptWriter, and main()."""
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ from plp2gtopt.central_parser import CentralParser
 from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.line_parser import LineParser
-from plp2gtopt.main import main
+from plp2gtopt.main import build_options, main, make_parser
 from plp2gtopt.plp2gtopt import convert_plp_case
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
@@ -294,3 +295,108 @@ def test_main_log_level_debug(tmp_path):
     with patch.object(sys, "argv", test_argv):
         main()
     assert out_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# make_parser() / build_options() — unit tests (no I/O, no real parser)
+# ---------------------------------------------------------------------------
+
+
+def test_make_parser_returns_argument_parser():
+    """make_parser() returns an ArgumentParser with prog='plp2gtopt'."""
+    p = make_parser()
+    assert isinstance(p, argparse.ArgumentParser)
+    assert p.prog == "plp2gtopt"
+
+
+def test_build_options_defaults():
+    """build_options() with no CLI args produces the expected default dict."""
+    args = make_parser().parse_args([])
+    opts = build_options(args)
+
+    assert opts["input_dir"] == Path("input")
+    assert opts["output_dir"] == Path("output")
+    assert opts["output_file"] == Path("output/gtopt_case.json")
+    assert opts["last_stage"] == -1
+    assert opts["last_time"] == -1
+    assert opts["compression"] == "gzip"
+    assert opts["hydrologies"] == "0"
+    assert opts["probability_factors"] is None
+    assert opts["discount_rate"] == pytest.approx(0.0)
+    assert opts["management_factor"] == pytest.approx(0.0)
+
+
+def test_build_options_custom_input_output_dirs():
+    """build_options() maps -i / -o / -f to the correct dict keys."""
+    args = make_parser().parse_args(
+        ["-i", "myinput", "-o", "myoutput", "-f", "myoutput/case.json"]
+    )
+    opts = build_options(args)
+
+    assert opts["input_dir"] == Path("myinput")
+    assert opts["output_dir"] == Path("myoutput")
+    assert opts["output_file"] == Path("myoutput/case.json")
+
+
+def test_build_options_discount_rate():
+    """build_options() maps -d to discount_rate."""
+    args = make_parser().parse_args(["-d", "0.10"])
+    opts = build_options(args)
+    assert opts["discount_rate"] == pytest.approx(0.10)
+
+
+def test_build_options_management_factor():
+    """build_options() maps -m to management_factor."""
+    args = make_parser().parse_args(["-m", "0.05"])
+    opts = build_options(args)
+    assert opts["management_factor"] == pytest.approx(0.05)
+
+
+def test_build_options_last_stage():
+    """build_options() maps -s to last_stage."""
+    args = make_parser().parse_args(["-s", "5"])
+    opts = build_options(args)
+    assert opts["last_stage"] == 5
+
+
+def test_build_options_last_time():
+    """build_options() maps -t to last_time."""
+    args = make_parser().parse_args(["-t", "8760.0"])
+    opts = build_options(args)
+    assert opts["last_time"] == pytest.approx(8760.0)
+
+
+def test_build_options_compression():
+    """build_options() maps -c to compression."""
+    args = make_parser().parse_args(["-c", "snappy"])
+    opts = build_options(args)
+    assert opts["compression"] == "snappy"
+
+
+def test_build_options_hydrologies():
+    """build_options() maps -y to the hydrologies string."""
+    args = make_parser().parse_args(["-y", "0,1,2"])
+    opts = build_options(args)
+    assert opts["hydrologies"] == "0,1,2"
+
+
+def test_build_options_probability_factors():
+    """build_options() maps -p to the probability_factors string."""
+    args = make_parser().parse_args(["-y", "0,1", "-p", "0.3,0.7"])
+    opts = build_options(args)
+    assert opts["probability_factors"] == "0.3,0.7"
+
+
+def test_build_options_probability_factors_default_none():
+    """build_options() leaves probability_factors as None when -p is omitted."""
+    args = make_parser().parse_args(["-y", "0,1"])
+    opts = build_options(args)
+    assert opts["probability_factors"] is None
+
+
+def test_make_parser_version_exits(capsys):
+    """make_parser() produces a parser whose --version flag exits cleanly."""
+    with pytest.raises(SystemExit) as exc_info:
+        make_parser().parse_args(["--version"])
+    assert exc_info.value.code == 0
+    assert "plp2gtopt" in capsys.readouterr().out

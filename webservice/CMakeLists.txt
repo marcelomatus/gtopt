@@ -35,10 +35,17 @@ Configuration variables:
 
 Installation:
 
-To install the web service system-wide::
+To install the web service::
 
   cmake -S webservice -B build-web
-  sudo cmake --install build-web
+  cmake --install build-web
+
+The install step always uses the npm found at **configure time**
+(``${NPM_EXECUTABLE}``).  The absolute path is baked into
+``cmake_install.cmake`` so it is immune to the PATH-stripping that
+``sudo`` applies by default, making both ``cmake --install`` (as a
+regular user) and ``sudo cmake --install`` (system-wide) work
+correctly with the same npm.
 
 This installs:
 - ``gtopt_websrv`` launcher script to ``bin/gtopt_websrv``
@@ -145,61 +152,48 @@ endif()
 install(CODE "
   set(_ws_dir \"\${CMAKE_INSTALL_PREFIX}/share/gtopt/webservice\")
 
-  # Check that npm is available
-  find_program(_npm_exe npm)
+  # Use the npm found at configure time.  Its absolute path is baked in
+  # here, so it is immune to the PATH-stripping that sudo applies by default.
+  # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
+  # same npm, producing a predictable installation target.
+  set(_npm_exe \"${NPM_EXECUTABLE}\")
   if(NOT _npm_exe)
-    message(WARNING \"npm was not found on this system. \
-Please install Node.js/npm and then run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
+    message(WARNING \"npm was not found on this system. \"
+      \"Please install Node.js/npm and then run manually:\\n\"
+      \"  cd \${_ws_dir}\\n\"
+      \"  npm install\\n\"
+      \"  npm run build\")
   else()
-    # Verify npm is working
-    execute_process(
-      COMMAND \${_npm_exe} --version
-      RESULT_VARIABLE _npm_ver_rc
-      OUTPUT_VARIABLE _npm_ver
-      ERROR_VARIABLE _npm_err
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT _npm_ver_rc EQUAL 0)
-      message(WARNING \"npm is installed but not working properly (\${_npm_err}). \
-Please fix npm and then run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
-    else()
-      message(STATUS \"Found npm version \${_npm_ver}\")
+    message(STATUS \"Using npm: \${_npm_exe}\")
 
-      # npm install
-      message(STATUS \"Running npm install in \${_ws_dir} ...\")
+    # npm install
+    message(STATUS \"Running npm install in \${_ws_dir} ...\")
+    execute_process(
+      COMMAND \${_npm_exe} install
+      WORKING_DIRECTORY \${_ws_dir}
+      RESULT_VARIABLE _npm_install_rc
+    )
+    if(NOT _npm_install_rc EQUAL 0)
+      message(WARNING \"npm install failed (exit code \${_npm_install_rc}). \"
+        \"Please run manually:\\n\"
+        \"  cd \${_ws_dir}\\n\"
+        \"  npm install\\n\"
+        \"  npm run build\")
+    else()
+      # npm run build
+      message(STATUS \"Running npm run build in \${_ws_dir} ...\")
       execute_process(
-        COMMAND \${_npm_exe} install
+        COMMAND \${_npm_exe} run build
         WORKING_DIRECTORY \${_ws_dir}
-        RESULT_VARIABLE _npm_install_rc
+        RESULT_VARIABLE _npm_build_rc
       )
-      if(NOT _npm_install_rc EQUAL 0)
-        message(WARNING \"npm install failed (exit code \${_npm_install_rc}). \
-Please run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm install\\n\
-  sudo npm run build\")
+      if(NOT _npm_build_rc EQUAL 0)
+        message(WARNING \"npm run build failed (exit code \${_npm_build_rc}). \"
+          \"Please run manually:\\n\"
+          \"  cd \${_ws_dir}\\n\"
+          \"  npm run build\")
       else()
-        # npm run build
-        message(STATUS \"Running npm run build in \${_ws_dir} ...\")
-        execute_process(
-          COMMAND \${_npm_exe} run build
-          WORKING_DIRECTORY \${_ws_dir}
-          RESULT_VARIABLE _npm_build_rc
-        )
-        if(NOT _npm_build_rc EQUAL 0)
-          message(WARNING \"npm run build failed (exit code \${_npm_build_rc}). \
-Please run manually:\\n\
-  cd \${_ws_dir}\\n\
-  sudo npm run build\")
-        else()
-          message(STATUS \"Web service built successfully in \${_ws_dir}\")
-        endif()
+        message(STATUS \"Web service built successfully in \${_ws_dir}\")
       endif()
     endif()
   endif()
