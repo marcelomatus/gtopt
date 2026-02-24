@@ -52,14 +52,14 @@ expected_sheets = [
     "demand_emissions",
 ]
 
-compact_indent = 0
-compact_separators = separators = (",", ":")
+_COMPACT_INDENT = 0
+_COMPACT_SEPARATORS = (",", ":")
 
-pretty_indent = 4
-pretty_separators = separators = (", ", ": ")
+_PRETTY_INDENT = 4
+_PRETTY_SEPARATORS = (", ", ": ")
 
-json_indent = compact_indent
-json_separators = compact_separators
+json_indent = _COMPACT_INDENT  # pylint: disable=invalid-name
+json_separators = _COMPACT_SEPARATORS  # pylint: disable=invalid-name
 
 _LOG_LEVEL_CHOICES = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -253,9 +253,10 @@ def _run(args) -> int:
     if json_file:
         # close the json_file
         if options:
-            json_file.write(
-                f',"options":{json.dumps(options, indent=json_indent, separators=json_separators)}\n'
+            opts_str = json.dumps(
+                options, indent=json_indent, separators=json_separators
             )
+            json_file.write(f',"options":{opts_str}\n')
 
         json_file.write("}\n")
         json_file.close()
@@ -380,8 +381,8 @@ def main() -> None:
 
         if args.pretty:
             global json_indent, json_separators  # noqa: PLW0603
-            json_indent = pretty_indent
-            json_separators = pretty_separators
+            json_indent = _PRETTY_INDENT
+            json_separators = _PRETTY_SEPARATORS
 
         if not args.json_file:
             args.json_file = pathlib.Path(args.filenames[0]).with_suffix(".json")

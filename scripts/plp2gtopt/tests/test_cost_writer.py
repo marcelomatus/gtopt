@@ -75,7 +75,7 @@ def test_json_output_structure(sample_costs_writer):
     json_costs = sample_costs_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "stage": list,
         "cost": list,
@@ -83,8 +83,8 @@ def test_json_output_structure(sample_costs_writer):
 
     for cost in json_costs:
         # Check all required fields exist and have correct types
-        assert set(cost.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(cost.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(cost[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(cost[field])}"
             )

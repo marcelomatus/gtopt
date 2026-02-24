@@ -20,8 +20,8 @@ and Python utility scripts.
 ```bash
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  coinor-libcbc-dev libboost-container-dev libspdlog-dev \
-  lcov ca-certificates lsb-release wget
+  ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+  zlib1g-dev lcov ca-certificates lsb-release wget
 
 # Apache Arrow (required for Parquet I/O)
 wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
@@ -45,6 +45,8 @@ cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 ```
 
@@ -64,6 +66,21 @@ done
 ```
 
 GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
+
+### Common build failures and fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **before** running `cmake -S test -B build` |
+| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
+| `Unable to fetch some archives` from apt | Stale package lists | Always run `sudo apt-get update` before `apt-get install` |
+| `COIN solver: none configured` | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev` |
+| `Could not find BoostConfig.cmake` | Boost not installed | `sudo apt-get install -y libboost-container-dev` |
+
+> **Critical**: install `ccache` **before** `cmake -S test -B build`.
+> CMake bakes the launcher path into the build system at configure time; if
+> ccache is absent when you configure, every subsequent build invocation fails
+> even after installing ccache later. Delete the build directory and reconfigure.
 
 ## Build Commands
 

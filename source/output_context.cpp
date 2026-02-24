@@ -16,9 +16,12 @@
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
+#include <arrow/io/memory.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
+#include <parquet/types.h>
 #include <spdlog/spdlog.h>
+#include <zlib.h>
 
 template<typename T>
 concept ArrowBuildable = requires {
@@ -166,6 +169,69 @@ auto make_table(FieldVector&& field_vector)
                             std::move(arrays));
 }
 
+// Resolve a Parquet compression codec from a string name, checking runtime
+// library support and falling back gracefully with warnings.
+//
+// Resolution order:
+//   1. Empty / "none" / "uncompressed" → UNCOMPRESSED (no check needed).
+//   2. Known name but not supported at runtime   → warn, try GZIP.
+//   3. Unknown name                              → warn, try GZIP.
+//   4. GZIP also not supported                  → warn, use UNCOMPRESSED.
+[[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
+{
+  using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
+  static const std::map<std::string, codec_t> codec_map = {
+      // Empty string / explicit "none" / "uncompressed" → no compression.
+      // NOTE: "" is a valid key here; get_optvalue returns a value (not
+      // nullopt) for it, so it never reaches the fallback branches below.
+      {"", parquet::Compression::UNCOMPRESSED},
+      {"none", parquet::Compression::UNCOMPRESSED},
+      {"uncompressed", parquet::Compression::UNCOMPRESSED},
+      {"gzip", parquet::Compression::GZIP},
+      {"zstd", parquet::Compression::ZSTD},
+      {"lzo", parquet::Compression::LZO},
+  };
+
+  const auto desired_opt = get_optvalue(codec_map, zfmt);
+
+  // Unknown name: not in the map and non-empty.
+  if (!desired_opt.has_value() && !zfmt.empty()) {
+    SPDLOG_WARN("Parquet compression '{}' is unknown; falling back to gzip",
+                zfmt);
+    if (!parquet::IsCodecSupported(parquet::Compression::GZIP)) {
+      SPDLOG_WARN(
+          "Parquet gzip compression is not supported by the linked Parquet "
+          "library; disabling compression");
+      return parquet::Compression::UNCOMPRESSED;
+    }
+    return parquet::Compression::GZIP;
+  }
+
+  codec_t codec = desired_opt.value_or(parquet::Compression::UNCOMPRESSED);
+
+  // For uncompressed, no library check is needed.
+  if (codec == parquet::Compression::UNCOMPRESSED) {
+    return codec;
+  }
+
+  // Known but not supported at runtime → fall back to gzip.
+  if (!parquet::IsCodecSupported(codec)) {
+    SPDLOG_WARN(
+        "Parquet compression '{}' is not supported by the linked Parquet "
+        "library; falling back to gzip",
+        zfmt);
+    if (!parquet::IsCodecSupported(parquet::Compression::GZIP)) {
+      SPDLOG_WARN(
+          "Parquet gzip compression is not supported by the linked Parquet "
+          "library; disabling compression");
+      return parquet::Compression::UNCOMPRESSED;
+    }
+    return parquet::Compression::GZIP;
+  }
+
+  return codec;
+}
+
 auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 {
   arrow::Status status;
@@ -174,18 +240,7 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
                           arrow::io::FileOutputStream::Open(filename));
 
   parquet::WriterProperties::Builder props_builder;
-
-  using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
-  static const std::map<std::string, codec_t> codec_map = {
-      {"uncompressed", parquet::Compression::UNCOMPRESSED},
-      {"gzip", parquet::Compression::GZIP},
-      {"zstd", parquet::Compression::ZSTD},
-      {"lzo", parquet::Compression::LZO},
-  };
-
-  props_builder.compression(
-      get_optvalue(codec_map, zfmt).value_or(parquet::Compression::GZIP));
-
+  props_builder.compression(resolve_parquet_codec(zfmt));
   const auto props = props_builder.build();
 
   status = parquet::arrow::WriteTable(*table.get(),
@@ -201,24 +256,70 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   return status;
 }
 
-auto csv_write_table(const auto& fpath,
-                     const auto& table,
-                     const auto& /* zfmt */)
+auto csv_write_table_plain(const auto& fpath, const auto& table)
 {
-  arrow::Status status;
   const auto filename = std::format("{}.csv", fpath.string());
   ARROW_ASSIGN_OR_RAISE(auto output,
                         arrow::io::FileOutputStream::Open(filename));
 
   const auto write_options = arrow::csv::WriteOptions::Defaults();
-  status = WriteCSV(*table.get(), write_options, output.get());
-  if (!status.ok()) {
-    const auto msg = std::format("can' t write to file {}", fpath.string());
+  auto status = WriteCSV(*table.get(), write_options, output.get());
+  if (!status.ok()) [[unlikely]] {
+    const auto msg = std::format("can't write to file {}", fpath.string());
     SPDLOG_CRITICAL(msg);
     throw std::runtime_error(msg);
   }
-
   return status;
+}
+
+auto csv_write_table_gzip(const auto& fpath, const auto& table)
+{
+  // Step 1: render CSV into an in-memory buffer via Arrow
+  ARROW_ASSIGN_OR_RAISE(auto buf_stream,
+                        arrow::io::BufferOutputStream::Create());
+  const auto write_options = arrow::csv::WriteOptions::Defaults();
+  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, buf_stream.get()));
+  ARROW_ASSIGN_OR_RAISE(auto buf, buf_stream->Finish());
+
+  // Step 2: gzip-compress the buffer and write to *.csv.gz
+  const auto filename = std::format("{}.csv.gz", fpath.string());
+  gzFile gz = gzopen(filename.c_str(), "wb");  // NOLINT
+  if (gz == nullptr) [[unlikely]] {
+    return arrow::Status::IOError("Cannot open gzip file for writing: ",
+                                  filename);
+  }
+
+  const auto* data = reinterpret_cast<const char*>(buf->data());  // NOLINT
+  const auto buf_size = buf->size();
+  // gzwrite takes unsigned (32-bit) length; guard against >4 GB CSV buffers
+  if (buf_size > std::numeric_limits<unsigned int>::max()) [[unlikely]] {
+    gzclose(gz);  // NOLINT
+    return arrow::Status::IOError("CSV buffer too large for single gzwrite: ",
+                                  filename);
+  }
+  const auto size = static_cast<unsigned int>(buf_size);
+  const int written = gzwrite(gz, data, size);
+  gzclose(gz);  // NOLINT
+
+  if (written < 0 || static_cast<unsigned int>(written) != size) [[unlikely]] {
+    return arrow::Status::IOError("gzip write incomplete: ", filename);
+  }
+  return arrow::Status::OK();
+}
+
+auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+{
+  // Default for CSV is no compression; only "gzip" is supported.
+  // Any other non-empty format triggers a warning and falls back to gzip.
+  if (zfmt.empty() || zfmt == "none" || zfmt == "uncompressed") {
+    return csv_write_table_plain(fpath, table);
+  }
+
+  if (zfmt != "gzip") {
+    SPDLOG_WARN("CSV compression '{}' is not supported; falling back to gzip",
+                zfmt);
+  }
+  return csv_write_table_gzip(fpath, table);
 }
 
 auto write_table(std::string_view fmt,

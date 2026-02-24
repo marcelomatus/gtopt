@@ -7,12 +7,15 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <zlib.h>
 
 using namespace gtopt;
 
@@ -393,5 +396,281 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
   CHECK(std::filesystem::exists(sol_file));
 
   // Clean up
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// CSV compression behaviour tests
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// Decompress a gzip file into a string. Returns empty string on failure.
+std::string gunzip_to_string(const std::filesystem::path& gz_path)
+{
+  gzFile gz = gzopen(gz_path.string().c_str(), "rb");  // NOLINT
+  if (gz == nullptr) {
+    return {};
+  }
+  std::string result;
+  std::vector<char> buf(4096);  // NOLINT
+  int n = 0;
+  while ((n = gzread(gz, buf.data(), static_cast<unsigned>(buf.size()))) > 0) {
+    result.append(buf.data(), static_cast<std::size_t>(n));
+  }
+  gzclose(gz);  // NOLINT
+  return result;
+}
+
+auto make_csv_system()
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {{
+      .uid = Uid {1},
+      .name = "g1",
+      .bus = Uid {1},
+      .gcost = 50.0,
+      .capacity = 300.0,
+  }};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "CsvCompressionTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+  return std::pair {system, simulation};
+}
+}  // namespace
+
+TEST_CASE("OutputContext - CSV no compression (default)")  // NOLINT
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_nocomp";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  // compression_format not set → default "" → no compression
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // Plain *.csv files must exist; no *.csv.gz should exist
+  bool found_csv = false;
+  bool found_gz = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".csv") {
+      found_csv = true;
+    }
+    if (entry.path().string().ends_with(".csv.gz")) {
+      found_gz = true;
+    }
+  }
+  CHECK(found_csv);
+  CHECK_FALSE(found_gz);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("OutputContext - CSV gzip compression produces .csv.gz")  // NOLINT
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_csv_gzip";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  opts.compression_format = "gzip";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // .csv.gz files must exist; no plain *.csv data files (solution.csv is
+  // written separately and is always uncompressed)
+  bool found_gz = false;
+  std::filesystem::path first_gz;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().string().ends_with(".csv.gz")) {
+      found_gz = true;
+      first_gz = entry.path();
+    }
+  }
+  CHECK(found_gz);
+
+  // Decompress the first .csv.gz and verify it contains valid CSV content
+  if (found_gz) {
+    const auto content = gunzip_to_string(first_gz);
+    CHECK_FALSE(content.empty());
+    // CSV must have at least a header row with comma-separated columns
+    CHECK(content.find(',') != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - CSV unsupported compression falls back to gzip")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_fallback";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  opts.compression_format = "zstd";  // not supported for CSV → falls back
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // Despite requesting "zstd", output must be .csv.gz (gzip fallback)
+  bool found_gz = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().string().ends_with(".csv.gz")) {
+      found_gz = true;
+    }
+  }
+  CHECK(found_gz);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// Parquet compression fallback tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet known supported codec (gzip) writes valid file")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_gzip";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "gzip";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // At least one .parquet file must exist
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet unknown codec string falls back and writes file")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_pq_unknown";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "snappy";  // not in codec_map → triggers fallback
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // Output must still exist despite the unsupported compression request
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet unsupported codec (lzo) falls back to gzip")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_lzo";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "lzo";  // known in codec_map but unsupported
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  // Write must succeed (falls back to gzip or uncompressed) without throwing
+  CHECK_NOTHROW(system_lp.write_out());
+
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
   std::filesystem::remove_all(tmpdir);
 }
