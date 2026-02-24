@@ -168,7 +168,18 @@ jobs:
 
       - name: ruff (format check)
         working-directory: scripts
-        run: ruff format --check .
+        run: |
+          set +e
+          RUFF_OUT=$(ruff format --check . 2>&1)
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$RUFF_OUT"
+            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
+            echo "::warning title=ruff-format::$N Python file(s) need formatting. The Auto-format workflow will push a fix. To fix locally run: ruff format scripts/"
+          fi
+          # Always exit 0 — the Auto-format workflow applies fixes automatically
+          exit 0
 
       - name: pylint
         working-directory: scripts

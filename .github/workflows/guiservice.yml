@@ -56,7 +56,18 @@ jobs:
         run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
 
       - name: ruff (format check)
-        run: ruff format --check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+        run: |
+          set +e
+          RUFF_OUT=$(ruff format --check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py 2>&1)
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$RUFF_OUT"
+            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
+            echo "::warning title=ruff-format::$N Python file(s) need formatting. The Auto-format workflow will push a fix. To fix locally run: ruff format guiservice/"
+          fi
+          # Always exit 0 — the Auto-format workflow applies fixes automatically
+          exit 0
 
       - name: pylint
         run: pylint --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
