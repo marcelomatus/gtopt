@@ -566,3 +566,111 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// ---------------------------------------------------------------------------
+// Parquet compression fallback tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet known supported codec (gzip) writes valid file")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_gzip";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "gzip";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // At least one .parquet file must exist
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet unknown codec string falls back and writes file")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_pq_unknown";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "snappy";  // not in codec_map → triggers fallback
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // Output must still exist despite the unsupported compression request
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "OutputContext - Parquet unsupported codec (lzo) falls back to gzip")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_pq_lzo";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "parquet";
+  opts.compression_format = "lzo";  // known in codec_map but unsupported
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  // Write must succeed (falls back to gzip or uncompressed) without throwing
+  CHECK_NOTHROW(system_lp.write_out());
+
+  bool found_parquet = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().extension() == ".parquet") {
+      found_parquet = true;
+    }
+  }
+  CHECK(found_parquet);
+
+  std::filesystem::remove_all(tmpdir);
+}

@@ -19,6 +19,7 @@
 #include <arrow/io/memory.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
+#include <parquet/types.h>
 #include <spdlog/spdlog.h>
 #include <zlib.h>
 
@@ -168,17 +169,21 @@ auto make_table(FieldVector&& field_vector)
                             std::move(arrays));
 }
 
-auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+// Resolve a Parquet compression codec from a string name, checking runtime
+// library support and falling back gracefully with warnings.
+//
+// Resolution order:
+//   1. Empty / "none" / "uncompressed" → UNCOMPRESSED (no check needed).
+//   2. Known name but not supported at runtime   → warn, try GZIP.
+//   3. Unknown name                              → warn, try GZIP.
+//   4. GZIP also not supported                  → warn, use UNCOMPRESSED.
+[[nodiscard]] auto resolve_parquet_codec(const std::string& zfmt)
 {
-  arrow::Status status;
-  const auto filename = std::format("{}.parquet", fpath.string());
-  PARQUET_ASSIGN_OR_THROW(auto output,
-                          arrow::io::FileOutputStream::Open(filename));
-
-  parquet::WriterProperties::Builder props_builder;
-
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
   static const std::map<std::string, codec_t> codec_map = {
+      // Empty string / explicit "none" / "uncompressed" → no compression.
+      // NOTE: "" is a valid key here; get_optvalue returns a value (not
+      // nullopt) for it, so it never reaches the fallback branches below.
       {"", parquet::Compression::UNCOMPRESSED},
       {"none", parquet::Compression::UNCOMPRESSED},
       {"uncompressed", parquet::Compression::UNCOMPRESSED},
@@ -187,9 +192,55 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
       {"lzo", parquet::Compression::LZO},
   };
 
-  props_builder.compression(
-      get_optvalue(codec_map, zfmt).value_or(parquet::Compression::GZIP));
+  const auto desired_opt = get_optvalue(codec_map, zfmt);
 
+  // Unknown name: not in the map and non-empty.
+  if (!desired_opt.has_value() && !zfmt.empty()) {
+    SPDLOG_WARN("Parquet compression '{}' is unknown; falling back to gzip",
+                zfmt);
+    if (!parquet::IsCodecSupported(parquet::Compression::GZIP)) {
+      SPDLOG_WARN(
+          "Parquet gzip compression is not supported by the linked Parquet "
+          "library; disabling compression");
+      return parquet::Compression::UNCOMPRESSED;
+    }
+    return parquet::Compression::GZIP;
+  }
+
+  codec_t codec = desired_opt.value_or(parquet::Compression::UNCOMPRESSED);
+
+  // For uncompressed, no library check is needed.
+  if (codec == parquet::Compression::UNCOMPRESSED) {
+    return codec;
+  }
+
+  // Known but not supported at runtime → fall back to gzip.
+  if (!parquet::IsCodecSupported(codec)) {
+    SPDLOG_WARN(
+        "Parquet compression '{}' is not supported by the linked Parquet "
+        "library; falling back to gzip",
+        zfmt);
+    if (!parquet::IsCodecSupported(parquet::Compression::GZIP)) {
+      SPDLOG_WARN(
+          "Parquet gzip compression is not supported by the linked Parquet "
+          "library; disabling compression");
+      return parquet::Compression::UNCOMPRESSED;
+    }
+    return parquet::Compression::GZIP;
+  }
+
+  return codec;
+}
+
+auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
+{
+  arrow::Status status;
+  const auto filename = std::format("{}.parquet", fpath.string());
+  PARQUET_ASSIGN_OR_THROW(auto output,
+                          arrow::io::FileOutputStream::Open(filename));
+
+  parquet::WriterProperties::Builder props_builder;
+  props_builder.compression(resolve_parquet_codec(zfmt));
   const auto props = props_builder.build();
 
   status = parquet::arrow::WriteTable(*table.get(),
