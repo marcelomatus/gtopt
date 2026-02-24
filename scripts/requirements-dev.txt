@@ -4,9 +4,9 @@
 #   pip install -r scripts/requirements-dev.txt
 #
 -r requirements.txt
-black>=22.0
 coverage[toml]>=7.0
+mypy>=1.0
 pylint>=2.15
 pytest>=7.0
 pytest-cov>=4.0
-ruff>=0.0.280
+ruff>=0.4.0

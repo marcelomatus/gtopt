@@ -47,7 +47,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+          cache-dependency-path: |
+            scripts/pyproject.toml
+            guiservice/pyproject.toml
 
       - name: Install ruff
         run: pip install "ruff>=0.4.0"

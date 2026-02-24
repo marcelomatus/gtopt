@@ -26,10 +26,10 @@ Build targets
   (equivalent to ``pip install -e scripts/[dev]``).
 
 ``scripts-format``
-  Auto-format all Python source files with black (modifies files in-place).
+  Auto-format all Python source files with ruff format (modifies files in-place).
 
 ``scripts-check-format``
-  Check formatting with black without modifying files; fails if any file
+  Check formatting with ruff format without modifying files; fails if any file
   would be reformatted.
 
 ``scripts-lint``
@@ -118,27 +118,27 @@ add_custom_target(scripts-install
   COMMENT "Installing gtopt Python scripts in editable mode with dev dependencies"
 )
 
-# ---- Format (black) ----
+# ---- Format (ruff format) ----
 
 add_custom_target(scripts-format
-  COMMAND ${PYTHON_EXECUTABLE} -m black
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
-  COMMENT "Auto-formatting Python source files with black"
+  COMMENT "Auto-formatting Python source files with ruff format"
   DEPENDS scripts-install
 )
 
-# ---- Check format (black --check) ----
+# ---- Check format (ruff format --check) ----
 
 add_custom_target(scripts-check-format
-  COMMAND ${PYTHON_EXECUTABLE} -m black --check
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
-  COMMENT "Checking Python source formatting with black (no files modified)"
+  COMMENT "Checking Python source formatting with ruff format (no files modified)"
   DEPENDS scripts-install
 )
 
@@ -245,7 +245,7 @@ add_test(
 
 add_test(
   NAME scripts-check-format
-  COMMAND ${PYTHON_EXECUTABLE} -m black --check
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
