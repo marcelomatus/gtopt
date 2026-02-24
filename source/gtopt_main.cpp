@@ -101,11 +101,6 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
                         to_formatted_string(jex, json_result.value().c_str())));
       }
 
-    } catch (const std::bad_alloc& ex) {
-      return std::unexpected(
-          std::format("Out of memory while processing file '{}': {}",
-                      planning_file,
-                      ex.what()));
     } catch (const std::exception& ex) {
       return std::unexpected(
           std::format("Unexpected error processing file '{}': {}",
@@ -149,11 +144,6 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
 
   try {
     jfile << daw::json::to_json(planning) << '\n';
-
-    if (!jfile) {
-      return std::unexpected(
-          std::format("Failed to write JSON output file '{}'", jpath.string()));
-    }
   } catch (const daw::json::json_exception& ex) {
     return std::unexpected(
         std::format("JSON serialization error for file '{}': {}",
@@ -378,17 +368,11 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 
       return optimal ? 0 : 1;
 
-    } catch (const std::bad_alloc& ex) {
-      return std::unexpected(
-          std::format("Out of memory while creating LP: {}", ex.what()));
     } catch (const std::exception& ex) {
       return std::unexpected(
           std::format("Error during LP creation or solving: {}", ex.what()));
     }
 
-  } catch (const std::bad_alloc& ex) {
-    return std::unexpected(
-        std::format("Critical: Out of memory: {}", ex.what()));
   } catch (const std::exception& ex) {
     return std::unexpected(
         std::format("Unexpected critical error: {}", ex.what()));
