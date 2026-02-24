@@ -100,12 +100,19 @@ class ManliWriter(BaseWriter):
         df_active = self._create_dataframe_for_field("operational", items)
         # Add stage column using block_parser if available
         if self.block_parser:
-            # Add stage column
+            dfs = []
             for df in [df_tmax_ab, df_tmax_ba, df_active]:
                 if not df.empty:
-                    df["stage"] = df.index.map(
-                        self.block_parser.get_stage_number
-                    ).astype("int32")
+                    stage_s = pd.Series(
+                        df.index.map(self.block_parser.get_stage_number).astype(
+                            "int32"
+                        ),
+                        index=df.index,
+                        name="stage",
+                    )
+                    df = pd.concat([df, stage_s], axis=1)
+                dfs.append(df)
+            df_tmax_ab, df_tmax_ba, df_active = dfs
 
         df_active = self.block_to_stage_df(df_active)
 

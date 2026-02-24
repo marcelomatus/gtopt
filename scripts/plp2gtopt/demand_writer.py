@@ -126,6 +126,7 @@ class DemandWriter(BaseWriter):
             df = pd.concat([df, stage_series], axis=1)
         # Convert index to block column
         df.index = df.index.astype("int32")
+        df = df.copy()  # Defragment to avoid PerformanceWarning on reset_index
         df = df.reset_index().rename(columns={"index": "block"})
 
         # Fill missing values with column-specific defaults
