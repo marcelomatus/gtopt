@@ -38,17 +38,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # Cache pip's HTTP cache to avoid re-downloading wheels on every run.
-      # The cache key includes the OS, Python version, and the dependency
-      # specification so it is invalidated whenever scripts/pyproject.toml changes.
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: pip install -e "./scripts[dev]"
@@ -109,14 +100,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: pip install -e "./scripts[dev]"
@@ -150,14 +135,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-scripts-lint-${{ hashFiles('scripts/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-scripts-lint-
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install dev dependencies
         run: pip install -e "./scripts[dev]"
