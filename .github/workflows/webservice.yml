@@ -39,10 +39,37 @@ jobs:
         working-directory: webservice
         run: npm ci
 
+      - name: typecheck
+        working-directory: webservice
+        run: npm run typecheck
+
+      - name: lint
+        working-directory: webservice
+        run: npm run lint
+
       - name: build
         working-directory: webservice
         run: npm run build
 
-      - name: lint
+      - name: unit tests with coverage
         working-directory: webservice
-        run: npm run lint || true
+        run: npm run test:unit
+
+      - name: upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webservice-coverage-report
+          path: webservice/coverage/
+          retention-days: 30
+
+      - name: generate coverage summary
+        if: always()
+        working-directory: webservice
+        run: |
+          echo "## TypeScript Webservice Unit Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          npm run test:unit -- --coverageReporters=text 2>&1 | \
+            grep -A 999 "^----------" | head -20 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -137,7 +137,7 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
         sys.path.insert(0, str(guiservice_dir))
 
         # Import and run the Flask app
-        import app  # type: ignore[import-not-found]
+        import app  # noqa: PLC0415  # pylint: disable=import-error,import-outside-toplevel
 
         app.app.run(host=args.host, port=args.port, debug=args.debug)
 
