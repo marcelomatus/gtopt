@@ -113,20 +113,20 @@ jobs:
         # Auto-format workflow will push a fixup commit automatically.
         run: |
           set +e
-          RUFF_OUT=$(ruff format --check scripts/ 2>&1)
+          RUFF_OUT=$(ruff format --check scripts/ guiservice/ 2>&1)
           EXIT_CODE=$?
           set -e
 
           if [ $EXIT_CODE -ne 0 ]; then
             echo "$RUFF_OUT"
-            echo "::warning title=ruff-format::Some Python files need formatting. The Auto-format workflow will push a fix automatically. To fix locally run: ruff format scripts/"
+            echo "::warning title=ruff-format::Some Python files need formatting. The Auto-format workflow will push a fix automatically. To fix locally run: ruff format scripts/ guiservice/"
 
             N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
             echo "## ⚠️ ruff format: $N file(s) need reformatting" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "The **Auto-format** workflow will push a fixup commit automatically." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "To fix locally: \`ruff format scripts/\`" >> $GITHUB_STEP_SUMMARY
+            echo "To fix locally: \`ruff format scripts/ guiservice/\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "## ✅ ruff format: no violations" >> $GITHUB_STEP_SUMMARY
           fi

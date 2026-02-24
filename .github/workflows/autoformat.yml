@@ -63,6 +63,7 @@ jobs:
         run: |
           echo "ruff version: $(ruff --version)"
           ruff format scripts/
+          ruff format guiservice/
 
       - name: Commit and push if anything changed
         run: |
