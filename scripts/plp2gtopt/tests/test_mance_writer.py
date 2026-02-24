@@ -78,7 +78,7 @@ def test_json_output_structure(sample_mance_writer):
     json_mances = sample_mance_writer.to_json_array()
 
     # Expected structure
-    REQUIRED_FIELDS = {
+    required_fields = {
         "name": str,
         "block": list,
         "pmin": list,
@@ -87,8 +87,8 @@ def test_json_output_structure(sample_mance_writer):
 
     for mance in json_mances:
         # Check all required fields exist and have correct types
-        assert set(mance.keys()) == set(REQUIRED_FIELDS.keys())
-        for field, field_type in REQUIRED_FIELDS.items():
+        assert set(mance.keys()) == set(required_fields.keys())
+        for field, field_type in required_fields.items():
             assert isinstance(mance[field], field_type), (
                 f"Field {field} should be {field_type}, got {type(mance[field])}"
             )
@@ -267,5 +267,5 @@ def test_to_parquet_empty(tmp_path):
     writer = ManceWriter(parser)
     out_dir = tmp_path / "empty_out"
     cols = writer.to_parquet(out_dir)
-    assert cols["pmin"] == []
-    assert cols["pmax"] == []
+    assert not cols["pmin"]
+    assert not cols["pmax"]

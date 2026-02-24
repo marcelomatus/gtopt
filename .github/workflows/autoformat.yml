@@ -46,6 +46,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install ruff
         run: pip install "ruff>=0.4.0"
@@ -63,6 +65,7 @@ jobs:
         run: |
           echo "ruff version: $(ruff --version)"
           ruff format scripts/
+          ruff format guiservice/
 
       - name: Commit and push if anything changed
         run: |
