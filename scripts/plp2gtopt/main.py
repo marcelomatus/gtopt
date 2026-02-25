@@ -134,12 +134,39 @@ def make_parser() -> argparse.ArgumentParser:
         help="last time value to extract (default: all time steps)",
     )
     parser.add_argument(
+        "-n",
+        "--name",
+        dest="name",
+        metavar="NAME",
+        default=None,
+        help=(
+            "name for the system in the output JSON "
+            "(default: basename of the output JSON file)"
+        ),
+    )
+    parser.add_argument(
+        "--sys-version",
+        dest="sys_version",
+        metavar="VERSION",
+        default="",
+        help="version string for the system in the output JSON (default: empty)",
+    )
+    parser.add_argument(
+        "-F",
+        "--output-format",
+        dest="output_format",
+        metavar="FORMAT",
+        default="parquet",
+        choices=["parquet", "csv"],
+        help="output file format: parquet or csv (default: %(default)s)",
+    )
+    parser.add_argument(
         "-c",
         "--compression",
         dest="compression",
         metavar="ALG",
         default="gzip",
-        help="Parquet compression algorithm (default: %(default)s)",
+        help="compression codec for output files (default: %(default)s)",
     )
     parser.add_argument(
         "-y",
@@ -197,6 +224,7 @@ def build_options(args: argparse.Namespace) -> dict:
     output_file = args.output_file
     if output_file is None:
         output_file = Path(args.output_dir.name).with_suffix(".json")
+    name = args.name if args.name is not None else Path(output_file).stem
     return {
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
@@ -204,11 +232,14 @@ def build_options(args: argparse.Namespace) -> dict:
         "last_stage": args.last_stage,
         "last_time": args.last_time,
         "compression": args.compression,
+        "output_format": args.output_format,
         "hydrologies": args.hydrologies,
         "probability_factors": args.probability_factors,
         "discount_rate": args.discount_rate,
         "management_factor": args.management_factor,
         "zip_output": args.zip_output,
+        "name": name,
+        "sys_version": args.sys_version,
     }
 
 
