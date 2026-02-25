@@ -52,19 +52,13 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
     logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
     logger.info("=== Key options ===")
-    logger.info(
-        "  use_kirchhoff   : %s", opts.get("use_kirchhoff", False)
-    )
+    logger.info("  use_kirchhoff   : %s", opts.get("use_kirchhoff", False))
     logger.info("  use_single_bus  : %s", opts.get("use_single_bus", False))
     logger.info("  scale_objective : %s", opts.get("scale_objective", 1000))
     logger.info("  demand_fail_cost: %s", opts.get("demand_fail_cost", 0))
     logger.info("  input_directory : %s", opts.get("input_directory", "(default)"))
-    logger.info(
-        "  output_directory: %s", opts.get("output_directory", "(default)")
-    )
-    logger.info(
-        "  output_format   : %s", opts.get("output_format", "csv")
-    )
+    logger.info("  output_directory: %s", opts.get("output_directory", "(default)"))
+    logger.info("  output_format   : %s", opts.get("output_format", "csv"))
     logger.info("=== Conversion time ===")
     logger.info("  Elapsed         : %.3fs", elapsed)
 

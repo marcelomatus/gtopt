@@ -45,7 +45,9 @@ class GTOptWriter:
         discount_rate = (
             options["discount_rate"] if options and "discount_rate" in options else 0.0
         )
-        output_format = options.get("output_format", "parquet") if options else "parquet"
+        output_format = (
+            options.get("output_format", "parquet") if options else "parquet"
+        )
         compression = options.get("compression", "gzip") if options else "gzip"
         self.planning["options"] = {
             "input_directory": str(options.get("output_dir", "")),
