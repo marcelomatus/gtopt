@@ -2,10 +2,14 @@
 
 """Writer for converting stage data to JSON format."""
 
+import logging
+
 from typing import Any, Dict, List, TypedDict, Optional, cast
 from .base_writer import BaseWriter
 from .stage_parser import StageParser
 from .block_parser import BlockParser
+
+logger = logging.getLogger(__name__)
 
 
 class Stage(TypedDict):
@@ -58,6 +62,10 @@ class StageWriter(BaseWriter):
             total_time += stage["duration"]
 
             json_stages.append(jstage)
-        print(f"Total Time [h]: {round(total_time, 2)}")
+        logger.info(
+            "Total period: %d [h] %.2f [m]",
+            round(total_time, 2),
+            round(total_time / (30.0 * 24.0), 2),
+        )
 
         return cast(List[Dict[str, Any]], json_stages)
