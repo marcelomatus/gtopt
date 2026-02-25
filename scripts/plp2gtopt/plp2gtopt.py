@@ -26,28 +26,45 @@ def _log_stats(planning: dict, elapsed: float) -> None:
 
     logger.info("=== System statistics ===")
     logger.info("  System name     : %s", sys.get("name", "(unnamed)"))
+    logger.info("  System version  : %s", sys.get("version", ""))
     logger.info("=== System elements  ===")
     logger.info("  Buses           : %d", len(sys.get("bus_array", [])))
     logger.info("  Generators      : %d", len(sys.get("generator_array", [])))
     logger.info("  Generator profs : %d", len(sys.get("generator_profile_array", [])))
     logger.info("  Demands         : %d", len(sys.get("demand_array", [])))
+    logger.info("  Demand profs    : %d", len(sys.get("demand_profile_array", [])))
     logger.info("  Lines           : %d", len(sys.get("line_array", [])))
     logger.info("  Batteries       : %d", len(sys.get("battery_array", [])))
     logger.info("  Converters      : %d", len(sys.get("converter_array", [])))
+    logger.info("  Reserve zones   : %d", len(sys.get("reserve_zone_array", [])))
+    logger.info(
+        "  Reserve provisions   : %d",
+        len(sys.get("reserve_provision_array", [])),
+    )
     logger.info("  Junctions       : %d", len(sys.get("junction_array", [])))
     logger.info("  Waterways       : %d", len(sys.get("waterway_array", [])))
+    logger.info("  Flows           : %d", len(sys.get("flow_array", [])))
     logger.info("  Reservoirs      : %d", len(sys.get("reservoir_array", [])))
+    logger.info("  Filtrations     : %d", len(sys.get("filtration_array", [])))
     logger.info("  Turbines        : %d", len(sys.get("turbine_array", [])))
     logger.info("=== Simulation statistics ===")
     logger.info("  Blocks          : %d", len(sim.get("block_array", [])))
     logger.info("  Stages          : %d", len(sim.get("stage_array", [])))
     logger.info("  Scenarios       : %d", len(sim.get("scenario_array", [])))
     logger.info("=== Key options ===")
+    logger.info(
+        "  use_kirchhoff   : %s", opts.get("use_kirchhoff", False)
+    )
     logger.info("  use_single_bus  : %s", opts.get("use_single_bus", False))
     logger.info("  scale_objective : %s", opts.get("scale_objective", 1000))
     logger.info("  demand_fail_cost: %s", opts.get("demand_fail_cost", 0))
     logger.info("  input_directory : %s", opts.get("input_directory", "(default)"))
-    logger.info("  annual_discount : %s", opts.get("annual_discount_rate", 0.0))
+    logger.info(
+        "  output_directory: %s", opts.get("output_directory", "(default)")
+    )
+    logger.info(
+        "  output_format   : %s", opts.get("output_format", "csv")
+    )
     logger.info("=== Conversion time ===")
     logger.info("  Elapsed         : %.3fs", elapsed)
 

@@ -7,6 +7,7 @@ case management and a browser-based GUI for interactive case creation.
 """
 
 import csv
+import gzip
 import io
 import json
 import logging
@@ -562,6 +563,30 @@ def _parse_results_zip(zip_bytes):
                                 results["solution"][row[0]] = row[1]
                     else:
                         key = f"{parent}/{base}" if parent else base
+                        if rows:
+                            results["outputs"][key] = {
+                                "columns": rows[0],
+                                "data": rows[1:],
+                            }
+                except Exception:
+                    pass
+
+            elif name.endswith(".csv.gz"):
+                try:
+                    raw = zf.read(name)
+                    content = gzip.decompress(raw).decode("utf-8")
+                    reader = csv.reader(io.StringIO(content))
+                    rows = list(reader)
+                    # Strip the .csv.gz suffix for display key
+                    base_no_ext = base[: -len(".csv.gz")]
+                    parent = os.path.basename(os.path.dirname(name))
+
+                    if base_no_ext == "solution":
+                        for row in rows:
+                            if len(row) >= 2:
+                                results["solution"][row[0]] = row[1]
+                    else:
+                        key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                         if rows:
                             results["outputs"][key] = {
                                 "columns": rows[0],
