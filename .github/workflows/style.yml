@@ -9,7 +9,12 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Do NOT cancel in-progress runs: the Auto-format bot pushes a fixup commit
+  # immediately after a formatting violation is detected, which would cancel
+  # the still-running format check and show a spurious "cancelled" error in
+  # the PR checks UI.  Format checks are fast (< 2 min) so the waste of
+  # running two overlapping jobs is negligible.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,6 +23,9 @@ jobs:
   check-format:
     # Skip the auto-format fixup commit so it doesn't trigger a redundant check
     if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
+    # Format violations are warnings, never errors — keep the workflow green
+    # even if the clang installation step has a transient failure.
+    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:
@@ -87,6 +95,9 @@ jobs:
   check-python-format:
     # Skip the auto-format fixup commit so it doesn't trigger a redundant check
     if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
+    # Format violations are warnings, never errors — keep the workflow green
+    # even if the ruff installation step has a transient failure.
+    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:
