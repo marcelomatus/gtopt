@@ -125,7 +125,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         _log_stats(writer.planning, elapsed)
 
         output_file = Path(options["output_file"])
-        print(f"\nConversion successful! Output written to {output_file}")
+        logger.info("Conversion successful! Output written to %s", output_file)
 
         # Optionally create a ZIP archive
         if options.get("zip_output", False):
