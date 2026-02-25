@@ -45,17 +45,21 @@ class GTOptWriter:
         discount_rate = (
             options["discount_rate"] if options and "discount_rate" in options else 0.0
         )
+        output_format = (
+            options.get("output_format", "parquet") if options else "parquet"
+        )
+        compression = options.get("compression", "gzip") if options else "gzip"
         self.planning["options"] = {
             "input_directory": str(options.get("output_dir", "")),
-            "input_format": "parquet",
+            "input_format": output_format,
             "output_directory": "results",
-            "output_format": "parquet",
+            "output_format": output_format,
+            "compression_format": compression,
             "use_lp_names": True,
             "use_single_bus": False,
             "demand_fail_cost": 1000,
             "scale_objective": 1000,
             "annual_discount_rate": discount_rate,
-            **({"annual_discount_rate": discount_rate} if discount_rate != 0.0 else {}),
         }
 
     def process_stage_blocks(self, options):
@@ -283,8 +287,11 @@ class GTOptWriter:
         self.process_bess(options)
 
         # Organize into planning structure
-        self.planning["system"]["name"] = "plp2gtopt"
-        # self.planning["system"]["version"] = "1.0"
+        name = options.get("name", "plp2gtopt") if options else "plp2gtopt"
+        self.planning["system"]["name"] = name
+        version = options.get("sys_version", "") if options else ""
+        if version:
+            self.planning["system"]["version"] = version
 
         return self.planning
 
