@@ -17,6 +17,7 @@ This project includes comprehensive documentation for different use cases:
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
 - **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
+- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities (`plp2gtopt`, `igtopt`, `cvs2parquet`)
 
 ## Table of Contents
 
@@ -24,6 +25,7 @@ This project includes comprehensive documentation for different use cases:
 - [Quick Install (Ubuntu)](#quick-install-ubuntu)
 - [Usage](#usage)
 - [Running the Sample Case](#running-the-sample-case)
+- [Python Scripts](#python-scripts)
 - [GUI Service](#gui-service)
 - [Web Service](#web-service)
 - [License](#license)
@@ -103,6 +105,48 @@ gtopt system_c0.json
 The solver produces output files organized by component type in the `output/` directory. A status of `0` in `solution.csv` indicates an optimal solution was found.
 
 For detailed output file descriptions, system file format, and advanced examples, see **[USAGE.md](USAGE.md#running-the-sample-case)**.
+
+## Python Scripts
+
+The `scripts/` directory contains three Python utilities for preparing and
+converting data for use with gtopt:
+
+| Command | Purpose |
+|---------|---------|
+| `plp2gtopt` | Convert a PLP (PLPMAX/PLPOPT) case to gtopt JSON + Parquet |
+| `igtopt` | Convert an Excel workbook to a gtopt JSON case |
+| `cvs2parquet` | Convert CSV time-series files to Parquet format |
+
+### Install
+
+```bash
+pip install ./scripts
+```
+
+### plp2gtopt — PLP to gtopt converter
+
+Reads the standard PLP data files and writes a self-contained gtopt JSON file
+together with Parquet time-series files:
+
+```bash
+# Basic conversion
+plp2gtopt -i plp_case_dir -o gtopt_case_dir
+
+# Create a ZIP archive ready to upload to gtopt_guisrv / gtopt_websrv
+plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
+
+# Two hydrology scenarios with 60/40 probability split
+plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
+
+# Apply a 10% annual discount rate
+plp2gtopt -i input/ -d 0.10
+```
+
+After conversion, `plp2gtopt` prints statistics covering the number of buses,
+generators, demands, lines, blocks, stages, and scenarios — similar to the
+stats printed by the `gtopt` solver itself.
+
+For the full reference, see **[SCRIPTS.md](SCRIPTS.md)**.
 
 ## GUI Service
 

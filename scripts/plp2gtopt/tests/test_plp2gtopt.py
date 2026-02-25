@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +16,7 @@ from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.line_parser import LineParser
 from plp2gtopt.main import build_options, main, make_parser
-from plp2gtopt.plp2gtopt import convert_plp_case
+from plp2gtopt.plp2gtopt import convert_plp_case, create_zip_output
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
 
@@ -78,6 +79,81 @@ def test_convert_plp_case_failure_raises_runtime_error(tmp_path):
     # Missing all .dat files → parse_all raises FileNotFoundError
     with pytest.raises(RuntimeError, match="PLP to GTOPT conversion failed"):
         convert_plp_case(opts)
+
+
+def test_convert_plp_case_missing_input_dir_raises_runtime_error(tmp_path):
+    """convert_plp_case raises RuntimeError when input_dir does not exist."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path)
+    opts["input_dir"] = tmp_path / "does_not_exist"
+    with pytest.raises(RuntimeError, match="Input directory does not exist"):
+        convert_plp_case(opts)
+
+
+def test_convert_plp_case_zip_output(tmp_path):
+    """convert_plp_case with zip_output=True creates a ZIP archive."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path)
+    opts["zip_output"] = True
+    convert_plp_case(opts)
+
+    zip_path = opts["output_file"].with_suffix(".zip")
+    assert zip_path.exists(), "ZIP archive not created"
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    # JSON at archive root
+    case_name = opts["output_file"].stem
+    assert f"{case_name}.json" in names
+
+    # Data files must be under the input_directory prefix (output_dir name)
+    input_dir_name = opts["output_dir"].name
+    data_files = [n for n in names if n != f"{case_name}.json"]
+    assert len(data_files) > 0, "ZIP archive contains no data files"
+    for name in data_files:
+        assert name.startswith(
+            f"{input_dir_name}/"
+        ), f"Data file not under input_dir prefix: {name}"
+
+
+def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
+    """ZIP archive mirrors the output_dir subdirectory structure."""
+    opts = _make_opts(_PLPMin1Bus, tmp_path)
+    opts["zip_output"] = True
+    convert_plp_case(opts)
+
+    zip_path = opts["output_file"].with_suffix(".zip")
+    input_dir_name = opts["output_dir"].name
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    # Demand/lmax.parquet must be under the input_dir prefix
+    assert f"{input_dir_name}/Demand/lmax.parquet" in names
+
+
+def test_create_zip_output_unit(tmp_path):
+    """create_zip_output produces a valid ZIP with correct archive layout."""
+    # Create a fake output structure
+    output_dir = tmp_path / "mycase"
+    output_dir.mkdir()
+    (output_dir / "Demand").mkdir()
+    (output_dir / "Demand" / "lmax.parquet").write_bytes(b"dummy")
+    (output_dir / "Generator").mkdir()
+    (output_dir / "Generator" / "pmax.parquet").write_bytes(b"dummy2")
+
+    output_file = tmp_path / "mycase.json"
+    output_file.write_text('{"options":{}}')
+
+    zip_path = tmp_path / "mycase.zip"
+    create_zip_output(output_file, output_dir, zip_path)
+
+    assert zip_path.exists()
+    with zipfile.ZipFile(zip_path) as zf:
+        names = set(zf.namelist())
+
+    assert "mycase.json" in names
+    assert "mycase/Demand/lmax.parquet" in names
+    assert "mycase/Generator/pmax.parquet" in names
 
 
 # ---------------------------------------------------------------------------
@@ -409,3 +485,46 @@ def test_make_parser_version_exits(capsys):
         make_parser().parse_args(["--version"])
     assert exc_info.value.code == 0
     assert "plp2gtopt" in capsys.readouterr().out
+
+
+def test_build_options_zip_default_false():
+    """build_options() defaults zip_output to False when -z is omitted."""
+    args = make_parser().parse_args([])
+    opts = build_options(args)
+    assert opts["zip_output"] is False
+
+
+def test_build_options_zip_flag():
+    """build_options() sets zip_output=True when -z is passed."""
+    args = make_parser().parse_args(["-z"])
+    opts = build_options(args)
+    assert opts["zip_output"] is True
+
+
+def test_main_zip_creates_archive(tmp_path):
+    """main() with -z creates a ZIP archive next to the JSON file."""
+    out_dir = tmp_path / "mycase"
+    out_file = out_dir / "mycase.json"
+
+    test_argv = [
+        "plp2gtopt",
+        "-i", str(_PLPMin1Bus),
+        "-o", str(out_dir),
+        "-f", str(out_file),
+        "-z",
+    ]
+    with patch.object(sys, "argv", test_argv):
+        main()
+
+    assert out_file.exists()
+    zip_path = out_file.with_suffix(".zip")
+    assert zip_path.exists(), "ZIP archive not created by main() -z"
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    assert "mycase.json" in names
+    # Data files are stored under the input_directory prefix
+    input_dir_name = out_dir.name
+    data_files = [n for n in names if not n.endswith(".json")]
+    assert all(n.startswith(f"{input_dir_name}/") for n in data_files)
