@@ -29,9 +29,7 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     logger.info("=== System elements  ===")
     logger.info("  Buses           : %d", len(sys.get("bus_array", [])))
     logger.info("  Generators      : %d", len(sys.get("generator_array", [])))
-    logger.info(
-        "  Generator profs : %d", len(sys.get("generator_profile_array", []))
-    )
+    logger.info("  Generator profs : %d", len(sys.get("generator_profile_array", [])))
     logger.info("  Demands         : %d", len(sys.get("demand_array", [])))
     logger.info("  Lines           : %d", len(sys.get("line_array", [])))
     logger.info("  Batteries       : %d", len(sys.get("battery_array", [])))
@@ -48,19 +46,13 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     logger.info("  use_single_bus  : %s", opts.get("use_single_bus", False))
     logger.info("  scale_objective : %s", opts.get("scale_objective", 1000))
     logger.info("  demand_fail_cost: %s", opts.get("demand_fail_cost", 0))
-    logger.info(
-        "  input_directory : %s", opts.get("input_directory", "(default)")
-    )
-    logger.info(
-        "  annual_discount : %s", opts.get("annual_discount_rate", 0.0)
-    )
+    logger.info("  input_directory : %s", opts.get("input_directory", "(default)"))
+    logger.info("  annual_discount : %s", opts.get("annual_discount_rate", 0.0))
     logger.info("=== Conversion time ===")
     logger.info("  Elapsed         : %.3fs", elapsed)
 
 
-def create_zip_output(
-    output_file: Path, output_dir: Path, zip_path: Path
-) -> None:
+def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
     """Create a ZIP archive containing the JSON file and all data files.
 
     The archive layout mirrors what gtopt_guisrv / gtopt_websrv expect:
@@ -85,9 +77,7 @@ def create_zip_output(
         # Add all data files under the input_directory prefix
         for data_file in sorted(output_dir.rglob("*")):
             if data_file.is_file():
-                arcname = (
-                    f"{input_dir_name}/{data_file.relative_to(output_dir)}"
-                )
+                arcname = f"{input_dir_name}/{data_file.relative_to(output_dir)}"
                 zf.write(data_file, arcname=arcname)
 
     logger.info(
@@ -148,15 +138,11 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         raise
     except FileNotFoundError as e:
         raise RuntimeError(
-            f"PLP to GTOPT conversion failed. "
-            f"Details: Required file not found: {e}"
+            f"PLP to GTOPT conversion failed. Details: Required file not found: {e}"
         ) from e
     except ValueError as e:
         raise RuntimeError(
-            f"PLP to GTOPT conversion failed. "
-            f"Details: Invalid data format: {e}"
+            f"PLP to GTOPT conversion failed. Details: Invalid data format: {e}"
         ) from e
     except Exception as e:
-        raise RuntimeError(
-            f"PLP to GTOPT conversion failed. Details: {e}"
-        ) from e
+        raise RuntimeError(f"PLP to GTOPT conversion failed. Details: {e}") from e

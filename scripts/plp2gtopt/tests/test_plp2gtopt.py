@@ -110,9 +110,9 @@ def test_convert_plp_case_zip_output(tmp_path):
     data_files = [n for n in names if n != f"{case_name}.json"]
     assert len(data_files) > 0, "ZIP archive contains no data files"
     for name in data_files:
-        assert name.startswith(
-            f"{input_dir_name}/"
-        ), f"Data file not under input_dir prefix: {name}"
+        assert name.startswith(f"{input_dir_name}/"), (
+            f"Data file not under input_dir prefix: {name}"
+        )
 
 
 def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
@@ -508,9 +508,12 @@ def test_main_zip_creates_archive(tmp_path):
 
     test_argv = [
         "plp2gtopt",
-        "-i", str(_PLPMin1Bus),
-        "-o", str(out_dir),
-        "-f", str(out_file),
+        "-i",
+        str(_PLPMin1Bus),
+        "-o",
+        str(out_dir),
+        "-f",
+        str(out_file),
         "-z",
     ]
     with patch.object(sys, "argv", test_argv):
