@@ -38,6 +38,9 @@ examples:
   # Specify directories explicitly
   plp2gtopt -i /data/plp_case -o /data/gtopt_case
 
+  # Generate a ZIP archive compatible with gtopt_guisrv / gtopt_websrv
+  plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
+
   # Limit conversion to the first 5 stages
   plp2gtopt -i input/ -s 5
 
@@ -158,6 +161,18 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-z",
+        "--zip",
+        dest="zip_output",
+        action="store_true",
+        default=False,
+        help=(
+            "create a ZIP archive <output-dir>.zip containing the JSON file "
+            "and all Parquet/CSV data files (compatible with gtopt_guisrv and "
+            "gtopt_websrv)"
+        ),
+    )
+    parser.add_argument(
         "-l",
         "--log-level",
         default="INFO",
@@ -193,6 +208,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "probability_factors": args.probability_factors,
         "discount_rate": args.discount_rate,
         "management_factor": args.management_factor,
+        "zip_output": args.zip_output,
     }
 
 
