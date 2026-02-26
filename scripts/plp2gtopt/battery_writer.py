@@ -142,9 +142,8 @@ class BatteryWriter(BaseWriter):
                 # pmax_charge: look up first injection central in plpcnfce.dat
                 pmax_c = pmax_d  # default fallback
                 if injections:
-                    inj_name = injections[0]["name"]
-                    inj_central = all_centrals.get(inj_name, {})
-                    pmax_c = inj_central.get("pmax", pmax_d) if inj_central else pmax_d
+                    inj_central = all_centrals.get(injections[0]["name"], {})
+                    pmax_c = inj_central.get("pmax", pmax_d)
                 entries.append(
                     {
                         "number": uid,
