@@ -19,6 +19,8 @@ from .block_parser import BlockParser
 from .bus_parser import BusParser
 from .battery_parser import BatteryParser
 from .manbat_parser import ManbatParser
+from .ess_parser import EssParser
+from .maness_parser import ManessParser
 
 __all__ = [
     "convert_plp_case",
@@ -29,4 +31,6 @@ __all__ = [
     "BusParser",
     "BatteryParser",
     "ManbatParser",
+    "EssParser",
+    "ManessParser",
 ]

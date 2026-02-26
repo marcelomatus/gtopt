@@ -229,29 +229,33 @@ class GTOptWriter:
         ).to_json_array()
 
     def process_battery(self, options):
-        """Process battery data (plpcenbat.dat) and append to existing arrays."""
+        """Process battery/ESS data and append to existing arrays."""
         battery_parser = self.parser.parsed_data.get("battery_parser", None)
+        ess_parser = self.parser.parsed_data.get("ess_parser", None)
         centrals = self.parser.parsed_data.get("central_parser", None)
 
         # Proceed if any storage source is available
         has_bat = centrals and any(
             c.get("type") == "bateria" for c in centrals.centrals
         )
-        if battery_parser is None and not has_bat:
+        if battery_parser is None and ess_parser is None and not has_bat:
             return
 
         stages = self.parser.parsed_data.get("stage_parser", None)
         buses = self.parser.parsed_data.get("bus_parser", None)
         manbat = self.parser.parsed_data.get("manbat_parser", None)
+        maness = self.parser.parsed_data.get("maness_parser", None)
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
 
         writer = BatteryWriter(
             battery_parser=battery_parser,
+            ess_parser=ess_parser,
             central_parser=centrals,
             bus_parser=buses,
             stage_parser=stages,
             manbat_parser=manbat,
+            maness_parser=maness,
             options=options,
         )
 

@@ -20,6 +20,7 @@ _PLPDatEx = _CASES_DIR / "plp_dat_ex"
 _PLPMin1Bus = _CASES_DIR / "plp_min_1bus"
 _PLPMin2Bus = _CASES_DIR / "plp_min_2bus"
 _PLPMinBess = _CASES_DIR / "plp_min_bess"
+_PLPMinEss = _CASES_DIR / "plp_min_ess"
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +368,68 @@ def test_min_bess_lmax_parquet(tmp_path):
     bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
     assert bat_col in df.columns
     assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
+# plp_min_ess – single-bus case with one ESS (plpess.dat path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_min_ess_parse():
+    """plp_min_ess: all parsers load without error and ESS is detected."""
+    parser = PLPParser({"input_dir": _PLPMinEss})
+    parser.parse_all()
+
+    assert parser.parsed_data["bus_parser"].num_buses == 1
+    assert parser.parsed_data["block_parser"].num_blocks == 1
+
+    ess = parser.parsed_data.get("ess_parser")
+    assert ess is not None
+    assert ess.num_esses == 1
+    assert ess.esses[0]["name"] == "BESS1"
+
+    # plpcenbat.dat is absent → battery_parser must not be created
+    assert "battery_parser" not in parser.parsed_data
+
+
+@pytest.mark.integration
+def test_min_ess_conversion(tmp_path):
+    """plp_min_ess: convert_plp_case produces battery, converter, gen and demand arrays."""
+    opts = _make_opts(_PLPMinEss, tmp_path, "plp_min_ess")
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sys = data["system"]
+
+    # 1 battery – bat central BESS1 has number=2 in plpcnfce.dat → uid=2
+    assert len(sys.get("battery_array", [])) == 1
+    bat = sys["battery_array"][0]
+    assert bat["uid"] == 2
+    assert bat["name"] == "BESS1"
+    assert bat["input_efficiency"] == pytest.approx(0.95)
+    assert bat["output_efficiency"] == pytest.approx(0.95)
+    # ESS capacity = pmax_discharge * hrs_reg = 50.0 * 4.0
+    assert bat["capacity"] == pytest.approx(50.0 * 4.0)
+    assert bat["vini"] == pytest.approx(0.50)
+    # ESS has no active restriction
+    assert "active" not in bat
+
+    # 1 converter
+    assert len(sys.get("converter_array", [])) == 1
+
+    # 2 generators: 1 thermal + 1 ESS discharge
+    gens = sys.get("generator_array", [])
+    assert len(gens) == 2
+    gen_names = {g["name"] for g in gens}
+    assert "Thermal1" in gen_names
+    assert "BESS1_disch" in gen_names
+
+    # 2 demands: 1 thermal + 1 ESS charge
+    dems = sys.get("demand_array", [])
+    assert len(dems) == 2
+    dem_names = {d["name"] for d in dems}
+    assert "BESS1_chrg" in dem_names
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,8 @@ from .central_parser import CentralParser
 from .bus_parser import BusParser
 from .stage_parser import StageParser
 from .manbat_parser import ManbatParser
+from .ess_parser import EssParser
+from .maness_parser import ManessParser
 
 BATTERY_UID_OFFSET = 10000
 
@@ -73,28 +75,38 @@ class ConverterEntry(TypedDict):
 
 
 class BatteryWriter(BaseWriter):
-    """Converts battery data (plpcenbat.dat) to GTOPT JSON arrays.
+    """Converts battery/ESS data to GTOPT JSON arrays.
 
-    Combines ``plpcenbat.dat`` battery entries with ``plpcnfce.dat`` BAT
-    centrals (for UID and pmax_discharge). When no plpcenbat.dat is present
-    but BAT centrals exist, defaults are applied.
+    Combines storage file data with ``plpcnfce.dat`` BAT centrals
+    (for UID and pmax_discharge).  Source priority:
+
+    1. ``plpess.dat`` (via ``ess_parser``) – ESS model; capacity = pmax × hrs_reg.
+    2. ``plpcenbat.dat`` (via ``battery_parser``) – battery model; capacity = emax.
+    3. BAT centrals only → default parameters applied.
+
+    ``plpess.dat`` and ``plpcenbat.dat`` are mutually exclusive; the caller
+    (PLPParser) ensures only one is populated.
     """
 
     def __init__(
         self,
         battery_parser: Optional[BatteryParser] = None,
+        ess_parser: Optional[EssParser] = None,
         central_parser: Optional[CentralParser] = None,
         bus_parser: Optional[BusParser] = None,
         stage_parser: Optional[StageParser] = None,
         manbat_parser: Optional[ManbatParser] = None,
+        maness_parser: Optional[ManessParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(None, options)
         self.battery_parser = battery_parser
+        self.ess_parser = ess_parser
         self.central_parser = central_parser
         self.bus_parser = bus_parser
         self.stage_parser = stage_parser
-        self._man_parser = manbat_parser
+        # Unified maintenance accessor: manbat for battery, maness for ESS
+        self._man_parser = manbat_parser or maness_parser
 
     def _bat_centrals(self) -> Dict[str, Dict[str, Any]]:
         """Return BAT-type centrals from plpcnfce.dat keyed by name."""
@@ -116,14 +128,37 @@ class BatteryWriter(BaseWriter):
         """Build the unified list of battery entries.
 
         Priority:
-        1. plpcenbat.dat entries matched to BAT centrals (new battery model)
-        2. BAT centrals with no matching file -> defaults applied
+        1. plpess.dat entries matched to BAT centrals (ESS model)
+        2. plpcenbat.dat entries matched to BAT centrals (battery model)
+        3. BAT centrals with no matching file → defaults applied
         """
         bat = self._bat_centrals()
         all_centrals = self._all_centrals_by_name()
         entries: List[Dict[str, Any]] = []
 
-        if self.battery_parser and self.battery_parser.batteries:
+        if self.ess_parser and self.ess_parser.esses:
+            # ESS path: capacity = pmax_discharge * hrs_reg
+            for item in self.ess_parser.esses:
+                name = item["name"]
+                central = bat.get(name, {})
+                uid = central.get("number", item["number"])
+                pmax_d = central.get("pmax", item["pmax_discharge"])
+                bus = central.get("bus", item.get("bus", 0))
+                entries.append(
+                    {
+                        "number": uid,
+                        "name": name,
+                        "bus": bus,
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": item["pmax_charge"],
+                        "nc": item["nc"],
+                        "nd": item["nd"],
+                        "emax": pmax_d * item["hrs_reg"],
+                        "emin": 0.0,
+                        "vini": item["vol_ini"],
+                    }
+                )
+        elif self.battery_parser and self.battery_parser.batteries:
             for item in self.battery_parser.batteries:
                 name = item["name"]
                 central = bat.get(name, {})
