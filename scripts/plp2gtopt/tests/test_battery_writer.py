@@ -4,6 +4,7 @@ import pytest
 import pandas as pd
 
 from ..battery_parser import BatteryParser
+from ..ess_parser import EssParser
 from ..manbat_parser import ManbatParser
 from ..battery_writer import BatteryWriter, BATTERY_UID_OFFSET
 
@@ -12,6 +13,14 @@ def _make_battery_parser(tmp_path, content: str) -> BatteryParser:
     f = tmp_path / "plpcenbat.dat"
     f.write_text(content)
     p = BatteryParser(f)
+    p.parse()
+    return p
+
+
+def _make_ess_parser(tmp_path, content: str) -> EssParser:
+    f = tmp_path / "plpess.dat"
+    f.write_text(content)
+    p = EssParser(f)
     p.parse()
     return p
 
@@ -224,3 +233,107 @@ def test_process_with_battery(tmp_path):
     assert len(result["converter_array"]) == 1
     assert len(result["generator_array"]) == 2  # 1 thermal + 1 battery discharge
     assert len(result["demand_array"]) == 2  # 1 demand + 1 battery charge
+
+
+# ---------------------------------------------------------------------------
+# ESS path – capacity = pmax_discharge * hrs_reg
+# ---------------------------------------------------------------------------
+
+
+def test_battery_array_from_ess(tmp_path):
+    """BatteryWriter produces correct battery_array from an ESS entry (no active)."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n    1  'ESS1'      1   100.0  100.0  0.90  0.90  2.0   0.40\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b["uid"] == 1
+    assert b["name"] == "ESS1"
+    assert b["input_efficiency"] == pytest.approx(0.90)
+    assert b["output_efficiency"] == pytest.approx(0.90)
+    assert b["capacity"] == pytest.approx(100.0 * 2.0)  # pmax_discharge * hrs_reg
+    assert b["vmin"] == pytest.approx(0.0)
+    assert b["vini"] == pytest.approx(0.40)
+    # ESS has no active restriction
+    assert "active" not in b
+
+
+def test_ess_generator_array(tmp_path):
+    """BatteryWriter produces discharge generator entry from ESS."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n    1  'ESS1'      3   50.0   60.0  0.95  0.95  4.0   0.50\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    gens = writer.to_generator_array()
+
+    assert len(gens) == 1
+    g = gens[0]
+    assert g["uid"] == BATTERY_UID_OFFSET + 1
+    assert g["name"] == "ESS1_disch"
+    assert g["bus"] == 3
+    assert g["pmax"] == pytest.approx(60.0)
+    assert g["gcost"] == pytest.approx(0.0)
+
+
+def test_ess_demand_array(tmp_path):
+    """BatteryWriter produces charge demand entry from ESS."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n    1  'ESS1'      2   50.0   60.0  0.95  0.95  4.0   0.50\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    dems = writer.to_demand_array()
+
+    assert len(dems) == 1
+    d = dems[0]
+    assert d["uid"] == BATTERY_UID_OFFSET + 1
+    assert d["name"] == "ESS1_chrg"
+    assert d["bus"] == 2
+    assert d["lmax"] == "lmax"
+
+
+def test_ess_takes_priority_over_battery(tmp_path):
+    """When both ESS and battery parsers provided, ESS takes priority."""
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n"
+        " 1     BAT1\n"
+        " 1\n"
+        " BAT1_NEG     0.95\n"
+        " 1     0.95     0.0     200.0\n",
+    )
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n    1  'ESS1'      1   30.0   30.0  0.90  0.90  2.0   0.60\n",
+    )
+    writer = BatteryWriter(battery_parser=bp, ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    # Only ESS1 – battery is silently ignored when ESS parser has entries
+    assert len(bats) == 1
+    assert bats[0]["name"] == "ESS1"
+    assert bats[0]["capacity"] == pytest.approx(30.0 * 2.0)  # ESS formula
+
+
+def test_process_with_ess(tmp_path):
+    """process() with one ESS entry produces correct combined arrays."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n    1  'ESS1'      1   50.0   50.0  0.95  0.95  4.0   0.50\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, options={"output_dir": tmp_path})
+    result = writer.process(
+        [{"uid": 1, "name": "Thermal1"}],
+        [{"uid": 1, "name": "DemBus1"}],
+        tmp_path,
+    )
+
+    assert len(result["battery_array"]) == 1
+    assert len(result["converter_array"]) == 1
+    assert len(result["generator_array"]) == 2  # 1 thermal + 1 ESS discharge
+    assert len(result["demand_array"]) == 2  # 1 demand + 1 ESS charge

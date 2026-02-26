@@ -20,6 +20,8 @@ from .extrac_parser import ExtracParser
 from .manem_parser import ManemParser
 from .battery_parser import BatteryParser
 from .manbat_parser import ManbatParser
+from .ess_parser import EssParser
+from .maness_parser import ManessParser
 
 
 class PLPParser:
@@ -60,12 +62,25 @@ class PLPParser:
             parser.parse(self.parsed_data)
             self.parsed_data[name] = parser
 
-        # Optional battery file (plpcenbat.dat) + optional maintenance (plpmanbat.dat)
+        # Optional storage files – ESS (plpess.dat) takes priority over battery
+        # (plpcenbat.dat). If both exist, only ESS is read.
+        ess_path = self.input_path / "plpess.dat"
         cenbat_path = self.input_path / "plpcenbat.dat"
-        if cenbat_path.exists():
-            parser = BatteryParser(cenbat_path)
-            parser.parse(self.parsed_data)
-            self.parsed_data["battery_parser"] = parser
+
+        if ess_path.exists():
+            ep = EssParser(ess_path)
+            ep.parse(self.parsed_data)
+            self.parsed_data["ess_parser"] = ep
+
+            maness_path = self.input_path / "plpmaness.dat"
+            if maness_path.exists():
+                maness_p = ManessParser(maness_path)
+                maness_p.parse(self.parsed_data)
+                self.parsed_data["maness_parser"] = maness_p
+        elif cenbat_path.exists():
+            bp = BatteryParser(cenbat_path)
+            bp.parse(self.parsed_data)
+            self.parsed_data["battery_parser"] = bp
 
             manbat_path = self.input_path / "plpmanbat.dat"
             if manbat_path.exists():
