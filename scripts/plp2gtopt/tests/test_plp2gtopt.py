@@ -225,7 +225,7 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
         "plp2gtopt.gtopt_writer.GeneratorProfileWriter"
     ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter") as mock_aw, patch(
         "plp2gtopt.gtopt_writer.JunctionWriter"
-    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BessWriter") as mock_bess:
+    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BatteryWriter") as mock_bess:
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
             m.return_value.to_json_array.return_value = []

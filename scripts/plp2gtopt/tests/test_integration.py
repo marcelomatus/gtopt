@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from plp2gtopt.bess_writer import BESS_UID_OFFSET
+from plp2gtopt.battery_writer import BATTERY_UID_OFFSET
 from plp2gtopt.main import main
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
@@ -292,10 +292,10 @@ def test_min_bess_parse():
     assert parser.parsed_data["block_parser"].num_blocks == 1
     assert parser.parsed_data["stage_parser"].num_stages == 1
 
-    bess = parser.parsed_data.get("bess_parser")
-    assert bess is not None
-    assert bess.num_besses == 1
-    assert bess.besses[0]["name"] == "BESS1"
+    battery = parser.parsed_data.get("battery_parser")
+    assert battery is not None
+    assert battery.num_batteries == 1
+    assert battery.batteries[0]["name"] == "BESS1"
 
 
 @pytest.mark.integration
@@ -314,7 +314,7 @@ def test_min_bess_conversion(tmp_path):
     assert bat["name"] == "BESS1"
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
-    assert bat["capacity"] == pytest.approx(50.0 * 4.0)  # pmax_discharge * hrs_reg
+    assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
     assert bat["vini"] == pytest.approx(0.50)
 
     # 1 converter
@@ -363,10 +363,10 @@ def test_min_bess_lmax_parquet(tmp_path):
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
 
-    # BESS charge column – bat central BESS1 has number=2 → uid = BESS_UID_OFFSET + 2
-    bess_col = f"uid:{BESS_UID_OFFSET + 2}"
-    assert bess_col in df.columns
-    assert float(df[bess_col].iloc[0]) == pytest.approx(50.0)
+    # BESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
+    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
+    assert bat_col in df.columns
+    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------

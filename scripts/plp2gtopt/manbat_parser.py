@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 
-"""Parser for plpmanbess.dat format files containing BESS maintenance data.
+"""Parser for plpmanbat.dat format files containing battery maintenance data.
 
 Handles:
 - File parsing and validation
-- BESS maintenance data structure creation
-- Maintenance lookup by BESS name
+- Battery maintenance data structure creation
+- Maintenance lookup by battery name
 
-File format (block-style, same structure as plpmance.dat):
-  Per BESS block:
-    'BESS_NAME'
-    N_stages
-    Mes  Etapa  PMaxC  PMaxD
-    ...
+File format (block-style, same structure as plpmanbess.dat except names are NOT quoted):
+  N_batteries
+  BATTERY_NAME     (NOT quoted, unlike manbess)
+  N_stages
+  Mes  Etapa  PMaxC  PMaxD
+  ...
 
 The maintenance overrides PMaxC and PMaxD per stage.
 """
@@ -24,42 +24,42 @@ import numpy as np
 from .base_parser import BaseParser
 
 
-class ManbessParser(BaseParser):
-    """Parser for plpmanbess.dat BESS maintenance schedule files."""
+class ManbatParser(BaseParser):
+    """Parser for plpmanbat.dat battery maintenance schedule files."""
 
     @property
-    def manbesses(self) -> List[Dict[str, Any]]:
-        """Return the BESS maintenance entries."""
+    def manbats(self) -> List[Dict[str, Any]]:
+        """Return the battery maintenance entries."""
         return self.get_all()
 
     @property
-    def num_manbesses(self) -> int:
-        """Return the number of BESS maintenance entries."""
-        return len(self.manbesses)
+    def num_manbats(self) -> int:
+        """Return the number of battery maintenance entries."""
+        return len(self.manbats)
 
     def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
-        """Parse the BESS maintenance file and populate the data structure."""
+        """Parse the battery maintenance file and populate the data structure."""
         self.validate_file()
 
         lines = self._read_non_empty_lines()
         if not lines:
-            raise ValueError("The BESS maintenance file is empty or malformed.")
+            raise ValueError("The battery maintenance file is empty or malformed.")
 
         idx = 0
-        num_besses = self._parse_int(lines[idx])
+        num_batteries = self._parse_int(lines[idx])
         idx += 1
 
-        for _ in range(num_besses):
+        for _ in range(num_batteries):
             if idx >= len(lines):
-                raise ValueError("Unexpected end of BESS maintenance file.")
+                raise ValueError("Unexpected end of battery maintenance file.")
 
-            # Get BESS name (quoted)
-            name = self._parse_name(lines[idx])
+            # Get battery name (NOT quoted, unlike plpmanbess.dat)
+            name = lines[idx].strip()
             idx += 1
 
             # Get number of maintenance stages
             if idx >= len(lines):
-                raise ValueError(f"Missing stage count for BESS '{name}'.")
+                raise ValueError(f"Missing stage count for battery '{name}'.")
             num_stages = self._parse_int(lines[idx].split()[0])
             idx += 1
 
@@ -73,7 +73,7 @@ class ManbessParser(BaseParser):
             for i in range(num_stages):
                 if idx >= len(lines):
                     raise ValueError(
-                        f"Unexpected end of maintenance entries for BESS '{name}'."
+                        f"Unexpected end of maintenance entries for battery '{name}'."
                     )
                 parts = lines[idx].split()
                 if len(parts) < 4:
@@ -85,14 +85,14 @@ class ManbessParser(BaseParser):
                 pmax_discharge[i] = self._parse_float(parts[3])
                 idx += 1
 
-            manbess: Dict[str, Any] = {
+            manbat: Dict[str, Any] = {
                 "name": name,
                 "stage": stages,
                 "pmax_charge": pmax_charge,
                 "pmax_discharge": pmax_discharge,
             }
-            self._append(manbess)
+            self._append(manbat)
 
-    def get_manbess_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get BESS maintenance data by BESS name."""
+    def get_manbat_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get battery maintenance data by battery name."""
         return self.get_item_by_name(name)

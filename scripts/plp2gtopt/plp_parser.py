@@ -18,10 +18,8 @@ from .aflce_parser import AflceParser
 from .stage_parser import StageParser
 from .extrac_parser import ExtracParser
 from .manem_parser import ManemParser
-from .bess_parser import BessParser
-from .ess_parser import EssParser
-from .manbess_parser import ManbessParser
-from .maness_parser import ManessParser
+from .battery_parser import BatteryParser
+from .manbat_parser import ManbatParser
 
 
 class PLPParser:
@@ -62,28 +60,15 @@ class PLPParser:
             parser.parse(self.parsed_data)
             self.parsed_data[name] = parser
 
-        # Optional BESS/ESS files – mutually exclusive: if plpbess.dat exists
-        # parse it (and its maintenance); otherwise try plpess.dat + plpmaness.dat.
-        bess_path = self.input_path / "plpbess.dat"
-        ess_path = self.input_path / "plpess.dat"
-
-        if bess_path.exists():
-            parser = BessParser(bess_path)
+        # Optional battery file (plpcenbat.dat) + optional maintenance (plpmanbat.dat)
+        cenbat_path = self.input_path / "plpcenbat.dat"
+        if cenbat_path.exists():
+            parser = BatteryParser(cenbat_path)
             parser.parse(self.parsed_data)
-            self.parsed_data["bess_parser"] = parser
+            self.parsed_data["battery_parser"] = parser
 
-            manbess_path = self.input_path / "plpmanbess.dat"
-            if manbess_path.exists():
-                mp = ManbessParser(manbess_path)
+            manbat_path = self.input_path / "plpmanbat.dat"
+            if manbat_path.exists():
+                mp = ManbatParser(manbat_path)
                 mp.parse(self.parsed_data)
-                self.parsed_data["manbess_parser"] = mp
-        elif ess_path.exists():
-            parser = EssParser(ess_path)
-            parser.parse(self.parsed_data)
-            self.parsed_data["ess_parser"] = parser
-
-            maness_path = self.input_path / "plpmaness.dat"
-            if maness_path.exists():
-                maness_p = ManessParser(maness_path)
-                maness_p.parse(self.parsed_data)
-                self.parsed_data["maness_parser"] = maness_p
+                self.parsed_data["manbat_parser"] = mp

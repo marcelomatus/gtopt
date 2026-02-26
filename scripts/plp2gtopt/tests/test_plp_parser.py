@@ -105,17 +105,14 @@ def test_parse_all_missing_file(sample_input_dir):
         parser.parse_all()
 
 
-def test_parse_all_with_ess_only(tmp_path):
-    """parse_all uses the ESS parser when only plpess.dat exists (no plpbess.dat)."""
-    # Copy required base files from plp_min_1bus
+def test_parse_all_with_battery(tmp_path):
+    """parse_all uses the BatteryParser when plpcenbat.dat exists."""
     cases_dir = Path(__file__).parent.parent.parent / "cases"
     base_dir = cases_dir / "plp_min_1bus"
-    # Copy all .dat files except bess
     for f in base_dir.iterdir():
-        if f.suffix == ".dat" and "bess" not in f.name:
+        if f.suffix == ".dat":
             shutil.copy(f, tmp_path / f.name)
-    # Add a minimal plpess.dat (we'll mock the parser so content doesn't matter)
-    (tmp_path / "plpess.dat").write_text("")
+    (tmp_path / "plpcenbat.dat").write_text("")
 
     with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
         "plp2gtopt.plp_parser.StageParser"
@@ -129,7 +126,7 @@ def test_parse_all_with_ess_only(tmp_path):
         "plp2gtopt.plp_parser.AflceParser"
     ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
         "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess:
+    ) as mock_manem, patch("plp2gtopt.plp_parser.BatteryParser") as mock_battery:
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -145,66 +142,12 @@ def test_parse_all_with_ess_only(tmp_path):
             mock_aflce,
             mock_extrac,
             mock_manem,
-            mock_ess,
+            mock_battery,
         ]:
             m.return_value = mock_p
 
         parser = PLPParser({"input_dir": tmp_path})
         parser.parse_all()
 
-        assert "ess_parser" in parser.parsed_data
-        assert "bess_parser" not in parser.parsed_data
-        mock_ess.assert_called_once()
-
-
-def test_parse_all_with_ess_and_maness(tmp_path):
-    """parse_all parses plpmaness.dat when plpess.dat exists (no plpbess.dat)."""
-    cases_dir = Path(__file__).parent.parent.parent / "cases"
-    base_dir = cases_dir / "plp_min_1bus"
-    for f in base_dir.iterdir():
-        if f.suffix == ".dat" and "bess" not in f.name:
-            shutil.copy(f, tmp_path / f.name)
-    (tmp_path / "plpess.dat").write_text("")
-    (tmp_path / "plpmaness.dat").write_text("")
-
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess, patch(
-        "plp2gtopt.plp_parser.ManessParser"
-    ) as mock_maness:
-        mock_p = MagicMock()
-        mock_p.parse.return_value = None
-        for m in [
-            mock_block,
-            mock_stage,
-            mock_bus,
-            mock_line,
-            mock_central,
-            mock_demand,
-            mock_cost,
-            mock_mance,
-            mock_manli,
-            mock_aflce,
-            mock_extrac,
-            mock_manem,
-            mock_ess,
-            mock_maness,
-        ]:
-            m.return_value = mock_p
-
-        parser = PLPParser({"input_dir": tmp_path})
-        parser.parse_all()
-
-        assert "ess_parser" in parser.parsed_data
-        assert "maness_parser" in parser.parsed_data
-        mock_maness.assert_called_once()
+        assert "battery_parser" in parser.parsed_data
+        mock_battery.assert_called_once()
