@@ -17,9 +17,9 @@ from .demand_parser import DemandParser
 from .stage_parser import StageParser
 from .block_parser import BlockParser
 from .bus_parser import BusParser
-from .bess_parser import BessParser
+from .battery_parser import BatteryParser
+from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
-from .manbess_parser import ManbessParser
 from .maness_parser import ManessParser
 
 __all__ = [
@@ -29,8 +29,8 @@ __all__ = [
     "StageParser",
     "BlockParser",
     "BusParser",
-    "BessParser",
+    "BatteryParser",
+    "ManbatParser",
     "EssParser",
-    "ManbessParser",
     "ManessParser",
 ]

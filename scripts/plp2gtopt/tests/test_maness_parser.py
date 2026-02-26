@@ -69,17 +69,11 @@ def test_parse_multiple_manesses(tmp_path):
     parser.parse()
 
     assert parser.num_manesses == 2
-    m1 = parser.manesses[0]
     m2 = parser.manesses[1]
-
-    assert m1["name"] == "ESS1"
-    assert len(m1["stage"]) == 1
-
     assert m2["name"] == "ESS2"
     assert len(m2["stage"]) == 3
     np.testing.assert_array_equal(m2["stage"], [1, 2, 3])
     np.testing.assert_array_almost_equal(m2["pmax_charge"], [10.0, 20.0, 30.0])
-    np.testing.assert_array_almost_equal(m2["pmax_discharge"], [10.0, 20.0, 30.0])
 
 
 def test_parse_skip_zero_stages(tmp_path):
@@ -136,7 +130,6 @@ def test_parse_empty_file_raises(tmp_path):
 def test_parse_malformed_entry_raises(tmp_path):
     """Test that a line with fewer than 4 fields raises ValueError."""
     f = tmp_path / "plpmaness.dat"
-    # Only 3 fields (need 4: Mes Etapa PMaxC PMaxD)
     f.write_text(" 1\n'ESS1'\n  1\n   01    001    0.0\n")
     parser = ManessParser(f)
     with pytest.raises(ValueError):

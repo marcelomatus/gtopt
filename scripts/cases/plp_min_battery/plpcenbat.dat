@@ -1,0 +1,11 @@
+# Archivo de caracteristicas de baterias (plpcenbat.dat)
+# Numero de baterias total, Numero maximo de inyecciones
+     1          1
+# Baterias
+     1     BESS1
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BESS1     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+     1     0.95     0.0     200.0

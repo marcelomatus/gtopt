@@ -22,7 +22,7 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
-from .bess_writer import BessWriter
+from .battery_writer import BatteryWriter, BATTERY_UID_OFFSET
 
 
 class GTOptWriter:
@@ -228,9 +228,9 @@ class GTOptWriter:
             lines, blocks, manlis, options
         ).to_json_array()
 
-    def process_bess(self, options):
-        """Process BESS/ESS data and append to existing arrays."""
-        bess_parser = self.parser.parsed_data.get("bess_parser", None)
+    def process_battery(self, options):
+        """Process battery/ESS data and append to existing arrays."""
+        battery_parser = self.parser.parsed_data.get("battery_parser", None)
         ess_parser = self.parser.parsed_data.get("ess_parser", None)
         centrals = self.parser.parsed_data.get("central_parser", None)
 
@@ -238,23 +238,23 @@ class GTOptWriter:
         has_bat = centrals and any(
             c.get("type") == "bateria" for c in centrals.centrals
         )
-        if bess_parser is None and ess_parser is None and not has_bat:
+        if battery_parser is None and ess_parser is None and not has_bat:
             return
 
         stages = self.parser.parsed_data.get("stage_parser", None)
         buses = self.parser.parsed_data.get("bus_parser", None)
-        manbess = self.parser.parsed_data.get("manbess_parser", None)
+        manbat = self.parser.parsed_data.get("manbat_parser", None)
         maness = self.parser.parsed_data.get("maness_parser", None)
 
         output_dir = Path(options["output_dir"]) if options else Path("results")
 
-        writer = BessWriter(
-            bess_parser=bess_parser,
+        writer = BatteryWriter(
+            battery_parser=battery_parser,
             ess_parser=ess_parser,
             central_parser=centrals,
             bus_parser=buses,
             stage_parser=stages,
-            manbess_parser=manbess,
+            manbat_parser=manbat,
             maness_parser=maness,
             options=options,
         )
@@ -284,7 +284,7 @@ class GTOptWriter:
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)
-        self.process_bess(options)
+        self.process_battery(options)
 
         # Organize into planning structure
         name = options.get("name", "plp2gtopt") if options else "plp2gtopt"
