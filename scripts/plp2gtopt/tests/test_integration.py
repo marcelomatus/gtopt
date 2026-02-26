@@ -20,6 +20,7 @@ _PLPDatEx = _CASES_DIR / "plp_dat_ex"
 _PLPMin1Bus = _CASES_DIR / "plp_min_1bus"
 _PLPMin2Bus = _CASES_DIR / "plp_min_2bus"
 _PLPMinBess = _CASES_DIR / "plp_min_bess"
+_PLPMinBattery = _CASES_DIR / "plp_min_battery"
 _PLPMinEss = _CASES_DIR / "plp_min_ess"
 
 
@@ -371,6 +372,100 @@ def test_min_bess_lmax_parquet(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# plp_min_battery – single-bus case with one battery (plpcenbat.dat path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_min_battery_parse():
+    """plp_min_battery: all parsers load without error and battery is detected."""
+    parser = PLPParser({"input_dir": _PLPMinBattery})
+    parser.parse_all()
+
+    assert parser.parsed_data["bus_parser"].num_buses == 1
+    assert parser.parsed_data["block_parser"].num_blocks == 1
+    assert parser.parsed_data["stage_parser"].num_stages == 1
+
+    battery = parser.parsed_data.get("battery_parser")
+    assert battery is not None
+    assert battery.num_batteries == 1
+    assert battery.batteries[0]["name"] == "BESS1"
+
+    # ESS file is absent → ess_parser must not be created
+    assert "ess_parser" not in parser.parsed_data
+
+
+@pytest.mark.integration
+def test_min_battery_conversion(tmp_path):
+    """plp_min_battery: convert_plp_case produces battery, converter, gen and demand arrays."""
+    opts = _make_opts(_PLPMinBattery, tmp_path, "plp_min_battery")
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sys = data["system"]
+
+    # 1 battery – bat central BESS1 has number=2 in plpcnfce.dat → uid=2
+    assert len(sys.get("battery_array", [])) == 1
+    bat = sys["battery_array"][0]
+    assert bat["uid"] == 2
+    assert bat["name"] == "BESS1"
+    assert bat["input_efficiency"] == pytest.approx(0.95)
+    assert bat["output_efficiency"] == pytest.approx(0.95)
+    assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
+    assert bat["vini"] == pytest.approx(0.50)
+
+    # 1 converter
+    assert len(sys.get("converter_array", [])) == 1
+    conv = sys["converter_array"][0]
+    assert conv["battery"] == 2
+    assert conv["capacity"] == pytest.approx(50.0)
+
+    # 2 generators: 1 thermal + 1 battery discharge
+    gens = sys.get("generator_array", [])
+    assert len(gens) == 2
+    gen_names = {g["name"] for g in gens}
+    assert "Thermal1" in gen_names
+    assert "BESS1_disch" in gen_names
+
+    bat_gen = next(g for g in gens if g["name"] == "BESS1_disch")
+    assert bat_gen["pmax"] == pytest.approx(50.0)
+    assert bat_gen["gcost"] == pytest.approx(0.0)
+    assert bat_gen["bus"] == 1
+
+    # 2 demands: 1 thermal + 1 battery charge
+    dems = sys.get("demand_array", [])
+    assert len(dems) == 2
+    dem_names = {d["name"] for d in dems}
+    assert "BESS1_chrg" in dem_names
+
+    bat_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
+    assert bat_dem["bus"] == 1
+    assert bat_dem["lmax"] == "lmax"
+
+
+@pytest.mark.integration
+def test_min_battery_lmax_parquet(tmp_path):
+    """plp_min_battery: lmax.parquet contains both thermal and battery charge columns."""
+    opts = _make_opts(_PLPMinBattery, tmp_path, "plp_min_battery")
+    convert_plp_case(opts)
+
+    lmax_path = Path(opts["output_dir"]) / "Demand" / "lmax.parquet"
+    assert lmax_path.exists(), "lmax.parquet not written"
+
+    df = pd.read_parquet(lmax_path)
+    assert "block" in df.columns
+
+    # Thermal demand column (bus uid = 1)
+    assert "uid:1" in df.columns
+    assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
+
+    # Battery charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
+    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
+    assert bat_col in df.columns
+    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
 # plp_min_ess – single-bus case with one ESS (plpess.dat path)
 # ---------------------------------------------------------------------------
 
@@ -430,6 +525,28 @@ def test_min_ess_conversion(tmp_path):
     assert len(dems) == 2
     dem_names = {d["name"] for d in dems}
     assert "BESS1_chrg" in dem_names
+
+
+@pytest.mark.integration
+def test_min_ess_lmax_parquet(tmp_path):
+    """plp_min_ess: lmax.parquet contains both thermal and ESS charge columns."""
+    opts = _make_opts(_PLPMinEss, tmp_path, "plp_min_ess")
+    convert_plp_case(opts)
+
+    lmax_path = Path(opts["output_dir"]) / "Demand" / "lmax.parquet"
+    assert lmax_path.exists(), "lmax.parquet not written"
+
+    df = pd.read_parquet(lmax_path)
+    assert "block" in df.columns
+
+    # Thermal demand column (bus uid = 1)
+    assert "uid:1" in df.columns
+    assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
+
+    # ESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
+    ess_col = f"uid:{BATTERY_UID_OFFSET + 2}"
+    assert ess_col in df.columns
+    assert float(df[ess_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
