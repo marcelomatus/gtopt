@@ -1,0 +1,5 @@
+# Archivo de configuracion de almacenamiento de energia (plpess.dat)
+# Numero de ESS
+ 1
+# Num  Nombre  Barra  PMaxC  PMaxD   nc     nd   HrsReg  VolIni
+    1  'BESS1'     1    50.0   50.0  0.95  0.95    4.0    0.50

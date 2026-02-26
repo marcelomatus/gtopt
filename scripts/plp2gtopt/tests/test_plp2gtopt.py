@@ -225,14 +225,14 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
         "plp2gtopt.gtopt_writer.GeneratorProfileWriter"
     ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter") as mock_aw, patch(
         "plp2gtopt.gtopt_writer.JunctionWriter"
-    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BessWriter") as mock_bess:
+    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BatteryWriter") as mock_battery:
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
             m.return_value.to_json_array.return_value = []
         mock_gpw.return_value.to_json_array.return_value = []
         mock_aw.return_value.to_parquet.return_value = None
         mock_jw.return_value.to_json_array.return_value = []
-        mock_bess.return_value.process.return_value = {
+        mock_battery.return_value.process.return_value = {
             "battery_array": [],
             "converter_array": [],
             "generator_array": [],
