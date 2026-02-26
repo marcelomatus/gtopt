@@ -85,13 +85,14 @@ class ManbatParser(BaseParser):
                 pmax_discharge[i] = self._parse_float(parts[3])
                 idx += 1
 
-            manbat: Dict[str, Any] = {
-                "name": name,
-                "stage": stages,
-                "pmax_charge": pmax_charge,
-                "pmax_discharge": pmax_discharge,
-            }
-            self._append(manbat)
+            self._append(
+                {
+                    "name": name,
+                    "stage": stages,
+                    "pmax_charge": pmax_charge,
+                    "pmax_discharge": pmax_discharge,
+                }
+            )
 
     def get_manbat_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get battery maintenance data by battery name."""
