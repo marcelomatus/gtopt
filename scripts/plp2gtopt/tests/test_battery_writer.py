@@ -67,11 +67,7 @@ def test_battery_array_vmin_from_emin_emax(tmp_path):
     """vmin is computed as emin/emax."""
     bp = _make_battery_parser(
         tmp_path,
-        " 1     1\n"
-        " 1     BAT1\n"
-        " 1\n"
-        " BAT1_C     0.90\n"
-        " 5     0.90     50.0     200.0\n",
+        " 1     1\n 1     BAT1\n 1\n BAT1_C     0.90\n 5     0.90     50.0     200.0\n",
     )
     writer = BatteryWriter(battery_parser=bp)
     bats = writer.to_battery_array()

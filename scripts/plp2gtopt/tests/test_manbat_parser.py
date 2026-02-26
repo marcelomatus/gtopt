@@ -27,13 +27,7 @@ def test_parse_zero_batteries(tmp_path):
 def test_parse_single_battery_maintenance(tmp_path):
     """Test parsing maintenance for a single battery."""
     f = tmp_path / "plpmanbat.dat"
-    f.write_text(
-        "1\n"
-        "BESS1\n"
-        "2\n"
-        "1  1  45.0  50.0\n"
-        "1  2  30.0  40.0\n"
-    )
+    f.write_text("1\nBESS1\n2\n1  1  45.0  50.0\n1  2  30.0  40.0\n")
     parser = ManbatParser(f)
     parser.parse()
 
@@ -51,14 +45,7 @@ def test_parse_multiple_batteries(tmp_path):
     """Test parsing multiple batteries."""
     f = tmp_path / "plpmanbat.dat"
     f.write_text(
-        "2\n"
-        "BAT_A\n"
-        "1\n"
-        "1  1  40.0  45.0\n"
-        "BAT_B\n"
-        "2\n"
-        "1  1  20.0  25.0\n"
-        "1  2  15.0  20.0\n"
+        "2\nBAT_A\n1\n1  1  40.0  45.0\nBAT_B\n2\n1  1  20.0  25.0\n1  2  15.0  20.0\n"
     )
     parser = ManbatParser(f)
     parser.parse()
@@ -72,12 +59,7 @@ def test_parse_multiple_batteries(tmp_path):
 def test_get_manbat_by_name(tmp_path):
     """Test lookup by name."""
     f = tmp_path / "plpmanbat.dat"
-    f.write_text(
-        "1\n"
-        "MyBat\n"
-        "1\n"
-        "1  1  30.0  35.0\n"
-    )
+    f.write_text("1\nMyBat\n1\n1  1  30.0  35.0\n")
     parser = ManbatParser(f)
     parser.parse()
 
