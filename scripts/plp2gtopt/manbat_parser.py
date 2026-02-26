@@ -7,9 +7,9 @@ Handles:
 - Battery maintenance data structure creation
 - Maintenance lookup by battery name
 
-File format (block-style, same structure as plpmanbess.dat except names are NOT quoted):
+File format (block-style; replaces the old plpmanbess.dat format, names are NOT quoted):
   N_batteries
-  BATTERY_NAME     (NOT quoted, unlike manbess)
+  BATTERY_NAME     (NOT quoted)
   N_stages
   Mes  Etapa  PMaxC  PMaxD
   ...

@@ -144,8 +144,7 @@ class BatteryWriter(BaseWriter):
                 if injections:
                     inj_name = injections[0]["name"]
                     inj_central = all_centrals.get(inj_name, {})
-                    if inj_central:
-                        pmax_c = inj_central.get("pmax", pmax_d)
+                    pmax_c = inj_central.get("pmax", pmax_d) if inj_central else pmax_d
                 entries.append(
                     {
                         "number": uid,
