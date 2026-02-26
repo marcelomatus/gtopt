@@ -1,30 +1,29 @@
 # -*- coding: utf-8 -*-
 
-"""Writer for converting BESS/ESS data to GTOPT JSON format.
+"""Writer for converting battery data (plpcenbat.dat) to GTOPT JSON format.
 
 Data sources and their roles
 -----------------------------
-* ``plpcnfce.dat`` (BAT section via ``central_parser``) – **primary** source for
-  battery name, bus number, pmax_discharge (= central pmax), pmin, gcost.
-  Present for both BESS and ESS models.
-* ``plpbess.dat`` / ``plpess.dat`` (via ``bess_parser`` / ``ess_parser``) –
-  **storage-specific** parameters: pmax_charge, nc, nd, hrs_reg, vol_ini;
-  for BESS also eta_ini, eta_fin, n_ciclos.  Mutually exclusive.
-* ``plpmanbess.dat`` / ``plpmaness.dat`` – per-stage pmax_charge / pmax_discharge
+* ``plpcenbat.dat`` (via ``battery_parser``) – **primary** source for battery
+  configuration: name, bus, injection centrals (FPC), FPD, emin, emax.
+* ``plpcnfce.dat`` (BAT section via ``central_parser``) – source for battery
+  UID (central number) and pmax_discharge (central pmax); also used to look up
+  injection central pmax for pmax_charge.
+* ``plpmanbat.dat`` (via ``manbat_parser``) – per-stage pmax_charge / pmax_discharge
   overrides (maintenance schedules).
 
-Matching rule: BESS/ESS file entry name == BAT central name.
+Matching rule: plpcenbat.dat battery name == BAT central name in plpcnfce.dat.
 
-When *no* BESS/ESS file is present but BAT centrals exist in plpcnfce.dat,
-default storage parameters are applied (nc=nd=0.95, hrs_reg=4.0, vol_ini=0.5,
-pmax_charge = pmax_discharge).
+When *no* plpcenbat.dat file is present but BAT centrals exist in plpcnfce.dat,
+default battery parameters are applied (FPC=FPD=0.95, emax derived from pmax,
+emin=0.0).
 
 UID allocation
 --------------
-  Battery   uid = bat_number          (central number for BAT type)
-  Generator uid = BESS_UID_OFFSET + bat_number   (discharge path)
-  Demand    uid = BESS_UID_OFFSET + bat_number   (charge path)
-  Converter uid = bat_number
+  Battery   uid = bat_central_number    (BAT central number in plpcnfce.dat)
+  Generator uid = BATTERY_UID_OFFSET + bat_central_number   (discharge path)
+  Demand    uid = BATTERY_UID_OFFSET + bat_central_number   (charge path)
+  Converter uid = bat_central_number
 """
 
 from pathlib import Path
@@ -33,21 +32,19 @@ from typing import Any, Dict, List, Optional, TypedDict
 import pandas as pd
 
 from .base_writer import BaseWriter
-from .bess_parser import BessParser
-from .ess_parser import EssParser
+from .battery_parser import BatteryParser
 from .central_parser import CentralParser
 from .bus_parser import BusParser
 from .stage_parser import StageParser
-from .manbess_parser import ManbessParser
-from .maness_parser import ManessParser
+from .manbat_parser import ManbatParser
 
-BESS_UID_OFFSET = 10000
+BATTERY_UID_OFFSET = 10000
 
-# Default storage parameters used when only plpcnfce.dat BAT centrals are present
-_DEFAULT_NC = 0.95
-_DEFAULT_ND = 0.95
+# Default battery parameters used when only plpcnfce.dat BAT centrals are present
+_DEFAULT_FPC = 0.95
+_DEFAULT_FPD = 0.95
 _DEFAULT_HRS_REG = 4.0
-_DEFAULT_VOL_INI = 0.5
+_DEFAULT_VINI = 0.5
 
 
 class BatteryEntry(TypedDict, total=False):
@@ -75,33 +72,29 @@ class ConverterEntry(TypedDict):
     capacity: float
 
 
-class BessWriter(BaseWriter):
-    """Converts BESS/ESS data to GTOPT JSON arrays.
+class BatteryWriter(BaseWriter):
+    """Converts battery data (plpcenbat.dat) to GTOPT JSON arrays.
 
-    Combines ``plpcnfce.dat`` BAT centrals (bus, pmax_discharge) with
-    ``plpbess.dat`` / ``plpess.dat`` storage parameters.  When no storage
-    parameter file is present, defaults are applied to BAT centrals.
+    Combines ``plpcenbat.dat`` battery entries with ``plpcnfce.dat`` BAT
+    centrals (for UID and pmax_discharge). When no plpcenbat.dat is present
+    but BAT centrals exist, defaults are applied.
     """
 
     def __init__(
         self,
-        bess_parser: Optional[BessParser] = None,
-        ess_parser: Optional[EssParser] = None,
+        battery_parser: Optional[BatteryParser] = None,
         central_parser: Optional[CentralParser] = None,
         bus_parser: Optional[BusParser] = None,
         stage_parser: Optional[StageParser] = None,
-        manbess_parser: Optional[ManbessParser] = None,
-        maness_parser: Optional[ManessParser] = None,
+        manbat_parser: Optional[ManbatParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(None, options)
-        self.bess_parser = bess_parser
-        self.ess_parser = ess_parser
+        self.battery_parser = battery_parser
         self.central_parser = central_parser
         self.bus_parser = bus_parser
         self.stage_parser = stage_parser
-        # Unified maintenance accessor: BESS file takes priority
-        self._man_parser = manbess_parser or maness_parser
+        self._man_parser = manbat_parser
 
     def _bat_centrals(self) -> Dict[str, Dict[str, Any]]:
         """Return BAT-type centrals from plpcnfce.dat keyed by name."""
@@ -113,49 +106,62 @@ class BessWriter(BaseWriter):
             if c.get("type") == "bateria"
         }
 
+    def _all_centrals_by_name(self) -> Dict[str, Dict[str, Any]]:
+        """Return ALL centrals from plpcnfce.dat keyed by name (for injection lookup)."""
+        if not self.central_parser:
+            return {}
+        return {str(c["name"]): c for c in self.central_parser.centrals}
+
     def _all_entries(self) -> List[Dict[str, Any]]:
         """Build the unified list of battery entries.
 
         Priority:
-        1. plpbess.dat entries matched to BAT centrals (BESS model)
-        2. plpess.dat entries matched to BAT centrals (ESS model)
-        3. BAT centrals with no matching file → defaults applied
+        1. plpcenbat.dat entries matched to BAT centrals (new battery model)
+        2. BAT centrals with no matching file -> defaults applied
         """
         bat = self._bat_centrals()
+        all_centrals = self._all_centrals_by_name()
         entries: List[Dict[str, Any]] = []
 
-        def _merge(storage_entries: List[Dict], is_bess: bool) -> None:
-            for item in storage_entries:
+        if self.battery_parser and self.battery_parser.batteries:
+            for item in self.battery_parser.batteries:
                 name = item["name"]
                 central = bat.get(name, {})
-                # Bus and pmax_discharge come from BAT central (authoritative);
-                # fall back to values in the storage file if central absent.
-                bus = central.get("bus", item.get("bus", 0))
-                pmax_d = central.get("pmax", item.get("pmax_discharge", 0.0))
+                # UID and pmax_discharge come from BAT central (authoritative)
+                uid = central.get("number", item["number"])
+                pmax_d = central.get("pmax", 0.0)
+                # Bus comes from plpcenbat.dat (authoritative for new format)
+                bus = item.get("bus", central.get("bus", 0))
+                # Energy capacity directly from plpcenbat.dat
+                emax = item.get("emax", pmax_d * _DEFAULT_HRS_REG)
+                emin = item.get("emin", 0.0)
+                # Efficiencies from plpcenbat.dat
+                injections = item.get("injections", [])
+                fpc = injections[0]["fpc"] if injections else _DEFAULT_FPC
+                fpd = item.get("fpd", _DEFAULT_FPD)
+                # pmax_charge: look up first injection central in plpcnfce.dat
+                pmax_c = pmax_d  # default fallback
+                if injections:
+                    inj_name = injections[0]["name"]
+                    inj_central = all_centrals.get(inj_name, {})
+                    if inj_central:
+                        pmax_c = inj_central.get("pmax", pmax_d)
                 entries.append(
                     {
-                        "number": central.get("number", item["number"]),
+                        "number": uid,
                         "name": name,
                         "bus": bus,
                         "pmax_discharge": pmax_d,
-                        "pmax_charge": item.get("pmax_charge", pmax_d),
-                        "nc": item.get("nc", _DEFAULT_NC),
-                        "nd": item.get("nd", _DEFAULT_ND),
-                        "hrs_reg": item.get("hrs_reg", _DEFAULT_HRS_REG),
-                        "vol_ini": item.get("vol_ini", _DEFAULT_VOL_INI),
-                        "eta_ini": item.get("eta_ini", 1),
-                        "eta_fin": item.get("eta_fin", 99999),
-                        "n_ciclos": item.get("n_ciclos", 1.0),
-                        "_is_bess": is_bess,
+                        "pmax_charge": pmax_c,
+                        "nc": fpc,
+                        "nd": fpd,
+                        "emax": emax,
+                        "emin": emin,
+                        "vini": _DEFAULT_VINI,
                     }
                 )
-
-        if self.bess_parser and self.bess_parser.besses:
-            _merge(self.bess_parser.besses, True)
-        elif self.ess_parser and self.ess_parser.esses:
-            _merge(self.ess_parser.esses, False)
         else:
-            # No storage file – derive entries from BAT centrals with defaults
+            # No battery file - derive entries from BAT centrals with defaults
             for name, central in bat.items():
                 pmax_d = central.get("pmax", 0.0)
                 entries.append(
@@ -165,29 +171,15 @@ class BessWriter(BaseWriter):
                         "bus": central.get("bus", 0),
                         "pmax_discharge": pmax_d,
                         "pmax_charge": pmax_d,
-                        "nc": _DEFAULT_NC,
-                        "nd": _DEFAULT_ND,
-                        "hrs_reg": _DEFAULT_HRS_REG,
-                        "vol_ini": _DEFAULT_VOL_INI,
-                        "eta_ini": 1,
-                        "eta_fin": 99999,
-                        "n_ciclos": 1.0,
-                        "_is_bess": False,
+                        "nc": _DEFAULT_FPC,
+                        "nd": _DEFAULT_FPD,
+                        "emax": pmax_d * _DEFAULT_HRS_REG,
+                        "emin": 0.0,
+                        "vini": _DEFAULT_VINI,
                     }
                 )
 
         return entries
-
-    def _build_active(self, eta_ini: int, eta_fin: int) -> Optional[List[int]]:
-        """Return stage UIDs in [eta_ini, eta_fin], or None if no restriction."""
-        if not self.stage_parser:
-            return None
-        stages = self.stage_parser.stages
-        total = len(stages)
-        if eta_ini <= 1 and eta_fin >= total:
-            return None  # all stages – omit active field
-        active = [s["number"] for s in stages if eta_ini <= s["number"] <= eta_fin]
-        return active or None
 
     def to_battery_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
@@ -198,20 +190,19 @@ class BessWriter(BaseWriter):
 
         batteries = []
         for entry in entries:
+            emax = entry["emax"]
+            emin = entry["emin"]
+            vmin = (emin / emax) if emax > 0.0 else 0.0
             bat: Dict[str, Any] = {
                 "uid": entry["number"],
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
-                "vmin": 0.0,
+                "vmin": vmin,
                 "vmax": 1.0,
-                "vini": entry["vol_ini"],
-                "capacity": entry["pmax_discharge"] * entry["hrs_reg"],
+                "vini": entry["vini"],
+                "capacity": emax,
             }
-            if entry.get("_is_bess", False):
-                active = self._build_active(entry["eta_ini"], entry["eta_fin"])
-                if active is not None:
-                    bat["active"] = active
             batteries.append(bat)
         return batteries
 
@@ -226,7 +217,7 @@ class BessWriter(BaseWriter):
             pmax_d = entry["pmax_discharge"]
             gens.append(
                 {
-                    "uid": BESS_UID_OFFSET + entry["number"],
+                    "uid": BATTERY_UID_OFFSET + entry["number"],
                     "name": f"{entry['name']}_disch",
                     "bus": entry["bus"],
                     "pmin": 0.0,
@@ -247,7 +238,7 @@ class BessWriter(BaseWriter):
         for entry in entries:
             dems.append(
                 {
-                    "uid": BESS_UID_OFFSET + entry["number"],
+                    "uid": BATTERY_UID_OFFSET + entry["number"],
                     "name": f"{entry['name']}_chrg",
                     "bus": entry["bus"],
                     "lmax": "lmax",
@@ -269,8 +260,8 @@ class BessWriter(BaseWriter):
                     "uid": num,
                     "name": entry["name"],
                     "battery": num,
-                    "generator": BESS_UID_OFFSET + num,
-                    "demand": BESS_UID_OFFSET + num,
+                    "generator": BATTERY_UID_OFFSET + num,
+                    "demand": BATTERY_UID_OFFSET + num,
                     "capacity": entry["pmax_discharge"],
                 }
             )
@@ -279,7 +270,7 @@ class BessWriter(BaseWriter):
     def _write_lmax_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Append BESS/ESS charge-limit columns to Demand/lmax.parquet."""
+        """Append battery charge-limit columns to Demand/lmax.parquet."""
         if not entries:
             return
 
@@ -293,7 +284,7 @@ class BessWriter(BaseWriter):
 
         for entry in entries:
             num = entry["number"]
-            col = f"uid:{BESS_UID_OFFSET + num}"
+            col = f"uid:{BATTERY_UID_OFFSET + num}"
             default_lmax = entry["pmax_charge"]
             col_values = [default_lmax] * len(blocks)
 
@@ -317,7 +308,7 @@ class BessWriter(BaseWriter):
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
     ) -> Dict[str, Any]:
-        """Produce all BESS/ESS output arrays.
+        """Produce all battery output arrays.
 
         Args:
             existing_gen: Generator array from CentralWriter to append to.

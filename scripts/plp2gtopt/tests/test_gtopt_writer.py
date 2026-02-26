@@ -157,17 +157,16 @@ class TestGTOptWriterProcessMethods:
             mock_jw.return_value.to_json_array.return_value = []
             writer.process_junctions({})  # should not raise
 
-    def test_process_bess_no_storage(self):
-        """process_bess is a no-op when no BESS/ESS/battery data present."""
+    def test_process_battery_no_storage(self):
+        """process_battery is a no-op when no battery data present."""
         mock_central = MagicMock(spec=CentralParser)
         mock_central.centrals = []  # no batteries
 
         mock_parser = MagicMock()
         mock_parser.parsed_data = {
-            "bess_parser": None,
-            "ess_parser": None,
+            "battery_parser": None,
             "central_parser": mock_central,
         }
         writer = GTOptWriter(mock_parser)
-        writer.process_bess({})  # should not raise, and not add any arrays
+        writer.process_battery({})  # should not raise, and not add any arrays
         assert "battery_array" not in writer.planning["system"]
