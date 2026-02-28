@@ -52,44 +52,30 @@ class EssParser(BaseParser):
             idx += 1
 
             # Extract quoted name, then parse remaining fields
-            name_start = line.find("'")
-            name_end = line.rfind("'")
-            if name_start in (-1, name_end):
-                raise ValueError(f"Invalid ESS name in line: {line}")
+            fields = line.split()
+            if len(fields) < 7:
+                raise ValueError(f"Missing ESS fields in line: {line}")
 
-            name = line[name_start + 1 : name_end]
-            before_name = line[:name_start].split()
-            after_name = line[name_end + 1 :].split()
-
-            if len(before_name) < 1:
-                raise ValueError(f"Missing ESS number in line: {line}")
-
-            number = self._parse_int(before_name[0])
-
-            # after_name: Barra PMaxC PMaxD nc nd HrsReg VolIni
-            if len(after_name) < 7:
-                raise ValueError(
-                    f"Expected 7 fields after name, got {len(after_name)} in: {line}"
-                )
-
-            bus_number = self._parse_int(after_name[0])
-            pmax_charge = self._parse_float(after_name[1])
-            pmax_discharge = self._parse_float(after_name[2])
-            nc = self._parse_float(after_name[3])
-            nd = self._parse_float(after_name[4])
-            hrs_reg = self._parse_float(after_name[5])
-            vol_ini = self._parse_float(after_name[6])
+            name = fields[0].replace("'", "")  # Remove quotes from name if present
+            nc = self._parse_float(fields[1])
+            nd = self._parse_float(fields[2])
+            mloss = self._parse_float(fields[3])
+            emax = self._parse_float(fields[4])
+            dcmax = self._parse_float(fields[5])
+            dcmod = self._parse_float(fields[6])
+            cenpc = (
+                fields[7].strip().replace("'", "") if len(fields) > 7 else ""
+            )  # Optional cenpc field
 
             ess: Dict[str, Any] = {
-                "number": number,
                 "name": name,
-                "bus": bus_number,
-                "pmax_charge": pmax_charge,
-                "pmax_discharge": pmax_discharge,
                 "nc": nc,
                 "nd": nd,
-                "hrs_reg": hrs_reg,
-                "vol_ini": vol_ini,
+                "mloss": mloss,
+                "emax": emax,
+                "dcmax": dcmax,
+                "dcmod": dcmod,
+                "cenpc": cenpc,
             }
             self._append(ess)
 
