@@ -44,10 +44,10 @@ class BatteryParser(BaseParser):
 
         idx = 0
         # First non-comment line: NBaterias MaxIny
-        parts = lines[idx].split()
-        if len(parts) < 1:
+        fields = lines[idx].split()
+        if len(fields) < 1:
             raise ValueError("Missing battery count in plpcenbat.dat.")
-        num_batteries = self._parse_int(parts[0])
+        num_batteries = self._parse_int(fields[0])
         idx += 1
 
         for _ in range(num_batteries):
@@ -55,11 +55,11 @@ class BatteryParser(BaseParser):
                 raise ValueError("Unexpected end of battery file.")
 
             # Battery header: BatInd  BatNom (name is NOT quoted)
-            parts = lines[idx].split(None, 1)
-            if len(parts) < 2:
+            fields = lines[idx].split(None, 1)
+            if len(fields) < 2:
                 raise ValueError(f"Invalid battery header line: {lines[idx]}")
-            number = self._parse_int(parts[0])
-            name = parts[1].strip()
+            number = self._parse_int(fields[0])
+            name = fields[1].strip().replace("'", "")  # Remove quotes if present
             idx += 1
 
             # NIny (number of injection centrals)
@@ -75,9 +75,11 @@ class BatteryParser(BaseParser):
                 inj_parts = lines[idx].split()
                 if len(inj_parts) < 2:
                     raise ValueError(f"Invalid injection line: {lines[idx]}")
-                inj_name = inj_parts[0]
-                fpc = self._parse_float(inj_parts[1])
-                injections.append({"name": inj_name, "fpc": fpc})
+                inj_name = (
+                    inj_parts[0].strip().replace("'", "")
+                )  # Remove quotes if present
+                inj_fpc = self._parse_float(inj_parts[1])
+                injections.append({"name": inj_name, "fpc": inj_fpc})
                 idx += 1
 
             # Last line: BatBar  FPD  BatEMin  BatEMax
@@ -91,7 +93,7 @@ class BatteryParser(BaseParser):
                 )
             bus = self._parse_int(params[0])
             fpd = self._parse_float(params[1])
-            emin = self._parse_float(params[2])
+            emin = self._parse_floatplp(params[2])
             emax = self._parse_float(params[3])
             idx += 1
 
