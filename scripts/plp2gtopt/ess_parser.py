@@ -7,11 +7,11 @@ Handles:
 - ESS data structure creation
 - ESS lookup by name or number
 
-File format (tabular, 9 fields per row after stripping # comments):
-  Num  Nombre    Barra  PMaxC  PMaxD   nc     nd   HrsReg  VolIni
+File format (tabular, 7-8 fields per row after stripping # comments):
+  Nombre  nc  nd  mloss  emax  dcmax  dcmod  [cenpc]
 
-ESS differs from BESS in that it has no EtaIni/EtaFin/NCiclos fields
-and is always active across all stages.
+The first non-empty line contains the number of ESS entries.
+Each subsequent line contains the fields for one ESS entry.
 """
 
 from typing import Any, Dict, List, Optional
@@ -32,7 +32,7 @@ class EssParser(BaseParser):
         """Return the number of ESS entries in the file."""
         return len(self.esses)
 
-    def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
+    def parse(self, parsers: Optional[Dict[str, Any]] = None) -> None:
         """Parse the ESS file and populate the data structure."""
         self.validate_file()
 
@@ -44,6 +44,11 @@ class EssParser(BaseParser):
         num_esses = self._parse_int(lines[idx])
         idx += 1
 
+        if num_esses < 0:
+            raise ValueError(
+                f"Invalid number of ESS entries: {num_esses}. Must be non-negative."
+            )
+
         for _ in range(num_esses):
             if idx >= len(lines):
                 raise ValueError("Unexpected end of ESS file.")
@@ -51,12 +56,11 @@ class EssParser(BaseParser):
             line = lines[idx]
             idx += 1
 
-            # Extract quoted name, then parse remaining fields
             fields = line.split()
             if len(fields) < 7:
                 raise ValueError(f"Missing ESS fields in line: {line}")
 
-            name = fields[0].replace("'", "")  # Remove quotes from name if present
+            name = fields[0].replace("'", "")
             nc = self._parse_float(fields[1])
             nd = self._parse_float(fields[2])
             mloss = self._parse_float(fields[3])
@@ -65,7 +69,7 @@ class EssParser(BaseParser):
             dcmod = self._parse_float(fields[6])
             cenpc = (
                 fields[7].strip().replace("'", "") if len(fields) > 7 else ""
-            )  # Optional cenpc field
+            )
 
             ess: Dict[str, Any] = {
                 "name": name,
@@ -78,6 +82,11 @@ class EssParser(BaseParser):
                 "cenpc": cenpc,
             }
             self._append(ess)
+
+        if self.num_esses != num_esses:
+            raise ValueError(
+                f"Expected {num_esses} ESS entries but parsed {self.num_esses}."
+            )
 
     def get_ess_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get ESS data by name."""
