@@ -12,8 +12,6 @@ class Block(TypedDict):
 
     uid: int
     duration: float
-    stage: int
-    accumulated_time: float
 
 
 class BlockWriter(BaseWriter):
@@ -44,8 +42,6 @@ class BlockWriter(BaseWriter):
             jblock: Block = {
                 "uid": block["number"],
                 "duration": block["duration"],
-                "stage": stage_number,
-                "accumulated_time": block["accumulated_time"],
             }
             json_blocks.append(jblock)
 
