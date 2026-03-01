@@ -24,8 +24,8 @@ TEST_CASE("Reservoir construction and default values")
   CHECK_FALSE(reservoir.emin.has_value());
   CHECK_FALSE(reservoir.emax.has_value());
   CHECK_FALSE(reservoir.vcost.has_value());
-  CHECK_FALSE(reservoir.vini.has_value());
-  CHECK_FALSE(reservoir.vfin.has_value());
+  CHECK_FALSE(reservoir.eini.has_value());
+  CHECK_FALSE(reservoir.efin.has_value());
 
   REQUIRE(reservoir.fmin.has_value());
   CHECK(reservoir.fmin.value_or(0.0) == doctest::Approx(-10'000.0));
@@ -59,8 +59,8 @@ TEST_CASE("Reservoir attribute assignment")
   reservoir.emin = 10000.0;
   reservoir.emax = 45000.0;
   reservoir.vcost = 1.5;
-  reservoir.vini = 25000.0;
-  reservoir.vfin = 20000.0;
+  reservoir.eini = 25000.0;
+  reservoir.efin = 20000.0;
 
   reservoir.vol_scale = 2.0;
   reservoir.flow_conversion_rate = 0.0036;
@@ -83,8 +83,8 @@ TEST_CASE("Reservoir attribute assignment")
   CHECK(*std::get_if<Real>(&reservoir.emax.value())
         == doctest::Approx(45000.0));
   CHECK(*std::get_if<Real>(&reservoir.vcost.value()) == doctest::Approx(1.5));
-  CHECK(reservoir.vini.value_or(0.0) == doctest::Approx(25000.0));
-  CHECK(reservoir.vfin.value_or(0.0) == doctest::Approx(20000.0));
+  CHECK(reservoir.eini.value_or(0.0) == doctest::Approx(25000.0));
+  CHECK(reservoir.efin.value_or(0.0) == doctest::Approx(20000.0));
 
   CHECK(reservoir.vol_scale.value_or(0.0) == doctest::Approx(2.0));
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)

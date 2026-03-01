@@ -58,8 +58,8 @@ class Reservoir(TypedDict):
     uid: int
     name: str
     junction: int
-    vini: float
-    vfin: float
+    eini: float
+    efin: float
     emin: float | str
     emax: float | str
     capacity: float
@@ -339,8 +339,8 @@ class JunctionWriter(BaseWriter):
                 "uid": central["number"],
                 "name": central["name"],
                 "junction": central["number"],
-                "vini": central["vol_ini"],
-                "vfin": central["vol_fin"],
+                "eini": central["vol_ini"],
+                "efin": central["vol_fin"],
                 "emin": emin,
                 "emax": emax,
                 "capacity": central["emax"],

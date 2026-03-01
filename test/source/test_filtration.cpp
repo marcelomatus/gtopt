@@ -105,7 +105,7 @@ TEST_CASE("FiltrationLP - basic filtration constraint")
           .capacity = 10000.0,
           .emin = 0.0,
           .emax = 10000.0,
-          .vini = 5000.0,
+          .eini = 5000.0,
       },
   };
 
@@ -210,7 +210,7 @@ TEST_CASE("FiltrationLP - multi-block filtration")
           .capacity = 10000.0,
           .emin = 0.0,
           .emax = 10000.0,
-          .vini = 5000.0,
+          .eini = 5000.0,
       },
   };
 
