@@ -78,9 +78,7 @@ class EssParser(BaseParser):
             emax = self._parse_float(fields[4])
             dcmax = self._parse_float(fields[5])
             dcmod = self._parse_int(fields[6]) if len(fields) > 6 else 0
-            cenpc = (
-                fields[7].strip().replace("'", "") if len(fields) > 7 else ""
-            )
+            cenpc = fields[7].strip().replace("'", "") if len(fields) > 7 else ""
 
             ess: Dict[str, Any] = {
                 "name": name,
