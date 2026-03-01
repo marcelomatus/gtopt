@@ -68,6 +68,7 @@ omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 [tool.coverage.report]
 show_missing = true
 precision = 1
+fail_under = 83
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

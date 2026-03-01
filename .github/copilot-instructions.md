@@ -516,6 +516,7 @@ pip install -r scripts/requirements.txt
 | `scripts-format` | `ruff format` in-place | — |
 | `scripts-check-format` | `ruff format --check` | ✓ |
 | `scripts-lint` | `pylint cvs2parquet igtopt plp2gtopt` | ✓ |
+| `scripts-ruff` | `ruff check` | ✓ |
 | `scripts-mypy` | `mypy … --ignore-missing-imports` | ✓ |
 | `scripts-test` | `pytest` (unit tests only) | ✓ |
 | `scripts-test-integration` | `pytest -m integration` | ✓ |

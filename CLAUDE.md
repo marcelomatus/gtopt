@@ -271,6 +271,7 @@ cmake --build build-scripts --target scripts-install       # pip install -e scri
 cmake --build build-scripts --target scripts-format        # ruff format (in-place)
 cmake --build build-scripts --target scripts-check-format  # ruff format --check
 cmake --build build-scripts --target scripts-lint          # pylint
+cmake --build build-scripts --target scripts-ruff          # ruff check
 cmake --build build-scripts --target scripts-mypy          # mypy
 cmake --build build-scripts --target scripts-test          # unit tests
 cmake --build build-scripts --target scripts-test-integration
