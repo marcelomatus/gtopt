@@ -44,12 +44,12 @@ struct json_data_contract<Battery>
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
-      json_variant_null<"vmin",
+      json_variant_null<"emin",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Minimum voltage
-      json_variant_null<"vmax",
+                        jvtl_TRealFieldSched>,  ///< Minimum energy level
+      json_variant_null<"emax",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Maximum voltage
+                        jvtl_TRealFieldSched>,  ///< Maximum energy level
       json_variant_null<"vcost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Voltage cost
@@ -90,8 +90,8 @@ struct json_data_contract<Battery>
                                  battery.input_efficiency,
                                  battery.output_efficiency,
                                  battery.annual_loss,
-                                 battery.vmin,
-                                 battery.vmax,
+                                 battery.emin,
+                                 battery.emax,
                                  battery.vcost,
                                  battery.vini,
                                  battery.vfin,

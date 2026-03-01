@@ -20,8 +20,8 @@ TEST_CASE("Battery construction and default values")
   CHECK(battery.name == Name {});
   CHECK_FALSE(battery.active.has_value());
   CHECK_FALSE(battery.annual_loss.has_value());
-  CHECK_FALSE(battery.vmin.has_value());
-  CHECK_FALSE(battery.vmax.has_value());
+  CHECK_FALSE(battery.emin.has_value());
+  CHECK_FALSE(battery.emax.has_value());
   CHECK_FALSE(battery.vcost.has_value());
   CHECK_FALSE(battery.vini.has_value());
   CHECK_FALSE(battery.vfin.has_value());
@@ -41,8 +41,8 @@ TEST_CASE("Battery attribute assignment")
   battery.uid = 1001;
   battery.name = "TestBattery";
   battery.active = true;
-  battery.vmin = 10.0;
-  battery.vmax = 100.0;
+  battery.emin = 10.0;
+  battery.emax = 100.0;
   battery.vini = 50.0;
   battery.vfin = 50.0;
   battery.annual_loss = 0.05;
@@ -68,14 +68,14 @@ TEST_CASE("Battery attribute assignment")
   CHECK(battery.vfin.value() == 50.0);
 
   // For OptTRealFieldSched types, we need to get the Real variant alternative
-  CHECK(std::get_if<Real>(&battery.vmin.value()) != nullptr);
-  CHECK(std::get_if<Real>(&battery.vmax.value()) != nullptr);
+  CHECK(std::get_if<Real>(&battery.emin.value()) != nullptr);
+  CHECK(std::get_if<Real>(&battery.emax.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.annual_loss.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.vcost.value()) != nullptr);
 
   // Check actual values using std::get_if
-  CHECK(*std::get_if<Real>(&battery.vmin.value()) == 10.0);
-  CHECK(*std::get_if<Real>(&battery.vmax.value()) == 100.0);
+  CHECK(*std::get_if<Real>(&battery.emin.value()) == 10.0);
+  CHECK(*std::get_if<Real>(&battery.emax.value()) == 100.0);
   CHECK(*std::get_if<Real>(&battery.annual_loss.value()) == 0.05);
   CHECK(*std::get_if<Real>(&battery.vcost.value()) == 5.0);
 
@@ -93,21 +93,21 @@ TEST_CASE("Battery field schedules")
   Battery battery;
 
   // Create a simple schedule with direct Real values
-  battery.vmin = 10.0;
-  battery.vmax = 90.0;
+  battery.emin = 10.0;
+  battery.emax = 90.0;
 
   // Verify simple values were assigned properly
-  REQUIRE(battery.vmin.has_value());
-  REQUIRE(battery.vmax.has_value());
+  REQUIRE(battery.emin.has_value());
+  REQUIRE(battery.emax.has_value());
 
-  auto* vmin_real_ptr = std::get_if<Real>(&battery.vmin.value());
-  auto* vmax_real_ptr = std::get_if<Real>(&battery.vmax.value());
+  auto* emin_real_ptr = std::get_if<Real>(&battery.emin.value());
+  auto* emax_real_ptr = std::get_if<Real>(&battery.emax.value());
 
-  REQUIRE(vmin_real_ptr != nullptr);
-  REQUIRE(vmax_real_ptr != nullptr);
+  REQUIRE(emin_real_ptr != nullptr);
+  REQUIRE(emax_real_ptr != nullptr);
 
-  CHECK(*vmin_real_ptr == 10.0);
-  CHECK(*vmax_real_ptr == 90.0);
+  CHECK(*emin_real_ptr == 10.0);
+  CHECK(*emax_real_ptr == 90.0);
 }
 
 // We'll use a simplified approach instead of mocks for now
@@ -117,8 +117,8 @@ TEST_CASE("BatteryLP construction")
   battery.uid = 1001;
   battery.name = "TestBattery";
   battery.active = true;
-  battery.vmin = 10.0;
-  battery.vmax = 100.0;
+  battery.emin = 10.0;
+  battery.emax = 100.0;
   battery.capacity = 200.0;
 
   // We'll test this class with a more direct approach
@@ -136,8 +136,8 @@ TEST_CASE("Battery validation test")
   battery.uid = 1001;
   battery.name = "TestBattery";
   battery.active = true;
-  battery.vmin = 10.0;
-  battery.vmax = 100.0;
+  battery.emin = 10.0;
+  battery.emax = 100.0;
   battery.vini = 50.0;
   battery.capacity = 200.0;
 }

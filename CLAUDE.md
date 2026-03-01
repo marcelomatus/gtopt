@@ -332,11 +332,11 @@ The parsers match the PLP Fortran READ statements:
 
 - **`plpmanbat.dat`** (`LeeManBat` in `genpdbaterias.f`): 3 fields per data line:
   `IBind EMin EMax` (block index, min energy MWh, max energy MWh).
-  Modifies battery energy bounds → maps to Battery `vmin`/`vmax` schedules in gtopt.
+  Modifies battery energy bounds → maps to Battery `emin`/`emax` schedules in gtopt.
 
 - **`plpmaness.dat`** (`LeeManEss` in `genpdess.f`): 5-6 fields per data line:
   `IBind Emin Emax DCMin DCMax [DCMod]`.
-  Energy bounds → Battery `vmin`/`vmax`; DC power bounds → Generator `pmax` + Demand `lmax`.
+  Energy bounds → Battery `emin`/`emax`; DC power bounds → Generator `pmax` + Demand `lmax`.
 
 - **`plpess.dat`** field order is `Nombre nd nc mloss Emax DCMax [DCMod] [CenCarga]`
   (Fortran reads discharge efficiency `nd` first, charge efficiency `nc` second).

@@ -75,14 +75,14 @@ def test_battery_array_from_cenbat(tmp_path):
     assert b["name"] == "BESS1"
     assert b["input_efficiency"] == pytest.approx(0.95)  # FPC from injection
     assert b["output_efficiency"] == pytest.approx(0.95)  # FPD
-    assert b["vmin"] == pytest.approx(0.0)  # emin/emax = 0
-    assert b["vmax"] == pytest.approx(1.0)  # always normalized to 1.0
+    assert b["emin"] == pytest.approx(0.0)  # emin/emax = 0
+    assert b["emax"] == pytest.approx(1.0)  # always normalized to 1.0
     assert "vini" not in b  # vini not read from PLP files
     assert b["capacity"] == pytest.approx(200.0)  # emax directly
 
 
-def test_battery_array_vmin_from_emin_emax(tmp_path):
-    """vmin is computed as emin/emax."""
+def test_battery_array_emin_from_emin_emax(tmp_path):
+    """emin is computed as emin/emax."""
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n 1     BAT1\n 1\n BAT1_C     0.90\n 5     0.90     50.0     200.0\n",
@@ -92,7 +92,7 @@ def test_battery_array_vmin_from_emin_emax(tmp_path):
 
     assert len(bats) == 1
     b = bats[0]
-    assert b["vmin"] == pytest.approx(50.0 / 200.0)  # emin/emax = 0.25
+    assert b["emin"] == pytest.approx(50.0 / 200.0)  # emin/emax = 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def test_battery_array_from_ess(tmp_path):
     assert b["input_efficiency"] == pytest.approx(0.90)  # nc
     assert b["output_efficiency"] == pytest.approx(0.90)  # nd
     assert b["capacity"] == pytest.approx(200.0)  # emax from plpess.dat
-    assert b["vmin"] == pytest.approx(0.0)  # no emin in ESS
+    assert b["emin"] == pytest.approx(0.0)  # no emin in ESS
     assert "vini" not in b  # vini not read from PLP files
 
 
@@ -336,11 +336,11 @@ def test_process_with_ess(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_battery_maintenance_sets_vmin_vmax_reference(tmp_path):
-    """When manbat provides maintenance, battery vmin/vmax are file refs.
+def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
+    """When manbat provides maintenance, battery emin/emax are file refs.
 
     plpmanbat.dat modifies Emin/Emax (energy bounds) in Fortran, which map
-    to Battery vmin/vmax schedules in gtopt.
+    to Battery emin/emax schedules in gtopt.
     """
     bp = _make_battery_parser(
         tmp_path,
@@ -359,9 +359,9 @@ def test_battery_maintenance_sets_vmin_vmax_reference(tmp_path):
 
     assert len(bats) == 1
     b = bats[0]
-    # With maintenance, vmin/vmax are file references
-    assert b["vmin"] == "vmin"
-    assert b["vmax"] == "vmax"
+    # With maintenance, emin/emax are file references
+    assert b["emin"] == "emin"
+    assert b["emax"] == "emax"
 
 
 def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
@@ -453,7 +453,7 @@ def test_ess_maintenance_sets_lmax_reference(tmp_path):
 
 
 def test_maintenance_parquet_battery(tmp_path):
-    """process() with battery maintenance writes Battery/vmin.parquet and vmax.parquet."""
+    """process() with battery maintenance writes Battery/emin.parquet and emax.parquet."""
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n"
@@ -469,22 +469,22 @@ def test_maintenance_parquet_battery(tmp_path):
     writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
     writer.process([], [], tmp_path)
 
-    vmin_path = tmp_path / "Battery" / "vmin.parquet"
-    assert vmin_path.exists(), "Battery/vmin.parquet not written"
-    df_vmin = pd.read_parquet(vmin_path)
-    assert "uid:1" in df_vmin.columns
-    assert len(df_vmin) == 2
-    # vmin = emin / capacity: [0.0/200, 10.0/200] = [0.0, 0.05]
-    assert df_vmin["uid:1"].iloc[0] == pytest.approx(0.0)
-    assert df_vmin["uid:1"].iloc[1] == pytest.approx(10.0 / 200.0)
+    emin_path = tmp_path / "Battery" / "emin.parquet"
+    assert emin_path.exists(), "Battery/emin.parquet not written"
+    df_emin = pd.read_parquet(emin_path)
+    assert "uid:1" in df_emin.columns
+    assert len(df_emin) == 2
+    # emin = emin / capacity: [0.0/200, 10.0/200] = [0.0, 0.05]
+    assert df_emin["uid:1"].iloc[0] == pytest.approx(0.0)
+    assert df_emin["uid:1"].iloc[1] == pytest.approx(10.0 / 200.0)
 
-    vmax_path = tmp_path / "Battery" / "vmax.parquet"
-    assert vmax_path.exists(), "Battery/vmax.parquet not written"
-    df_vmax = pd.read_parquet(vmax_path)
-    assert "uid:1" in df_vmax.columns
-    # vmax = emax / capacity: [180/200, 150/200] = [0.9, 0.75]
-    assert df_vmax["uid:1"].iloc[0] == pytest.approx(180.0 / 200.0)
-    assert df_vmax["uid:1"].iloc[1] == pytest.approx(150.0 / 200.0)
+    emax_path = tmp_path / "Battery" / "emax.parquet"
+    assert emax_path.exists(), "Battery/emax.parquet not written"
+    df_emax = pd.read_parquet(emax_path)
+    assert "uid:1" in df_emax.columns
+    # emax = emax / capacity: [180/200, 150/200] = [0.9, 0.75]
+    assert df_emax["uid:1"].iloc[0] == pytest.approx(180.0 / 200.0)
+    assert df_emax["uid:1"].iloc[1] == pytest.approx(150.0 / 200.0)
 
 
 def test_maintenance_parquet_ess(tmp_path):
@@ -501,10 +501,10 @@ def test_maintenance_parquet_ess(tmp_path):
     writer.process([], [], tmp_path)
 
     # Battery energy bounds
-    vmin_path = tmp_path / "Battery" / "vmin.parquet"
-    assert vmin_path.exists()
-    vmax_path = tmp_path / "Battery" / "vmax.parquet"
-    assert vmax_path.exists()
+    emin_path = tmp_path / "Battery" / "emin.parquet"
+    assert emin_path.exists()
+    emax_path = tmp_path / "Battery" / "emax.parquet"
+    assert emax_path.exists()
 
     # DC power bounds
     pmax_path = tmp_path / "Generator" / "pmax.parquet"
@@ -534,5 +534,5 @@ def test_no_maintenance_no_parquet(tmp_path):
 
     pmax_path = tmp_path / "Generator" / "pmax.parquet"
     assert not pmax_path.exists()
-    vmin_path = tmp_path / "Battery" / "vmin.parquet"
-    assert not vmin_path.exists()
+    emin_path = tmp_path / "Battery" / "emin.parquet"
+    assert not emin_path.exists()

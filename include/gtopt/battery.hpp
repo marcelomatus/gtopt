@@ -51,9 +51,9 @@ struct Battery
       annual_loss {};  ///< Annual energy loss rate (fraction per year)
 
   OptTRealFieldSched
-      vmin {};  ///< Minimum state of charge (fraction of capacity)
+      emin {};  ///< Minimum energy storage level (fraction of capacity)
   OptTRealFieldSched
-      vmax {};  ///< Maximum state of charge (fraction of capacity)
+      emax {};  ///< Maximum energy storage level (fraction of capacity)
   OptTRealFieldSched vcost {};  ///< Storage usage cost (per unit energy stored)
   OptReal vini {};  ///< Initial state of charge (initial condition)
   OptReal vfin {};  ///< Final state of charge (terminal condition)

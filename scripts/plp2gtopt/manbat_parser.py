@@ -18,7 +18,7 @@ Each data line has 3 fields: block index, minimum energy (MWh),
 maximum energy (MWh).  A value of -1 means "keep the default".
 
 The maintenance overrides BatEMin and BatEMax per block in PLP.
-In gtopt these map to Battery ``vmin`` and ``vmax`` schedules (normalised
+In gtopt these map to Battery ``emin`` and ``emax`` schedules (normalised
 to capacity).
 """
 

@@ -35,12 +35,12 @@ When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
 **plpmanbat.dat** (battery model, Fortran ``LeeManBat``):
   Each data line contains ``IBind EMin EMax`` (3 fields).
   These modify battery energy bounds per block.  In gtopt, they map to
-  Battery ``vmin``/``vmax`` schedule files (``Battery/vmin.parquet`` and
-  ``Battery/vmax.parquet``), normalised by the battery capacity.
+  Battery ``emin``/``emax`` schedule files (``Battery/emin.parquet`` and
+  ``Battery/emax.parquet``), normalised by the battery capacity.
 
 **plpmaness.dat** (ESS model, Fortran ``LeeManEss``):
   Each data line contains ``IBind Emin Emax DCMin DCMax [DCMod]`` (5-6 fields).
-  Energy bounds map to Battery ``vmin``/``vmax`` schedules (same as above).
+  Energy bounds map to Battery ``emin``/``emax`` schedules (same as above).
   DC power bounds map to Generator ``pmax`` (``Generator/pmax.parquet``)
   and Demand ``lmax`` (``Demand/lmax.parquet``) schedule files.
 """
@@ -71,8 +71,8 @@ class BatteryEntry(TypedDict, total=False):
     active: List[int]
     input_efficiency: float
     output_efficiency: float
-    vmin: float
-    vmax: float
+    emin: float
+    emax: float
     vini: float
     capacity: float
 
@@ -253,8 +253,8 @@ class BatteryWriter(BaseWriter):
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
-                "vmin": "vmin" if has_man else vmin,
-                "vmax": "vmax" if has_man else 1.0,
+                "emin": "emin" if has_man else vmin,
+                "emax": "emax" if has_man else 1.0,
                 "capacity": emax,
             }
             batteries.append(bat)
@@ -345,12 +345,12 @@ class BatteryWriter(BaseWriter):
         For entries with ``has_maintenance == True``, writes:
 
         **plpmanbat.dat** (battery model, ``man_data`` has ``emin``/``emax``):
-        - ``Battery/vmin.parquet`` with per-block vmin = emin/capacity
-        - ``Battery/vmax.parquet`` with per-block vmax = emax/capacity
+        - ``Battery/emin.parquet`` with per-block emin = emin/capacity
+        - ``Battery/emax.parquet`` with per-block emax = emax/capacity
 
         **plpmaness.dat** (ESS model, ``man_data`` has ``emin``/``emax``
         + ``dcmin``/``dcmax``):
-        - ``Battery/vmin.parquet`` + ``Battery/vmax.parquet`` (energy bounds)
+        - ``Battery/emin.parquet`` + ``Battery/emax.parquet`` (energy bounds)
         - ``Generator/pmax.parquet`` (dcmax → discharge gen pmax)
         - ``Demand/lmax.parquet`` (dcmax → charge demand lmax)
         """
@@ -360,24 +360,24 @@ class BatteryWriter(BaseWriter):
         if not man_entries:
             return
 
-        # --- Battery energy bounds → Battery/vmin.parquet, Battery/vmax.parquet ---
+        # --- Battery energy bounds → Battery/emin.parquet, Battery/emax.parquet ---
         bat_dir = output_dir / "Battery"
         bat_dir.mkdir(parents=True, exist_ok=True)
-        vmin_data: Dict[str, Any] = {"block": []}
-        vmax_data: Dict[str, Any] = {"block": []}
+        emin_data: Dict[str, Any] = {"block": []}
+        emax_data: Dict[str, Any] = {"block": []}
         for entry in man_entries:
             man = entry["man_data"]
             col = f"uid:{entry['number']}"
             block_idx = man["block_index"]
             capacity = entry["emax"]
             if len(block_idx) > 0 and capacity > 0:
-                vmin_data["block"] = list(block_idx)
-                vmax_data["block"] = list(block_idx)
-                vmin_data[col] = [e / capacity for e in man["emin"]]
-                vmax_data[col] = [e / capacity for e in man["emax"]]
-        if vmin_data["block"]:
-            pd.DataFrame(vmin_data).to_parquet(bat_dir / "vmin.parquet", index=False)
-            pd.DataFrame(vmax_data).to_parquet(bat_dir / "vmax.parquet", index=False)
+                emin_data["block"] = list(block_idx)
+                emax_data["block"] = list(block_idx)
+                emin_data[col] = [e / capacity for e in man["emin"]]
+                emax_data[col] = [e / capacity for e in man["emax"]]
+        if emin_data["block"]:
+            pd.DataFrame(emin_data).to_parquet(bat_dir / "emin.parquet", index=False)
+            pd.DataFrame(emax_data).to_parquet(bat_dir / "emax.parquet", index=False)
 
         # --- DC power bounds (ESS only) → Generator/pmax, Demand/lmax ---
         has_dc = any("dcmax" in e.get("man_data", {}) for e in man_entries)
