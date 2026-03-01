@@ -49,8 +49,8 @@ def test_to_json_array(sample_manem_writer):
     required_fields = {
         "name": str,
         "stage": list,
-        "vmin": list,
-        "vmax": list,
+        "emin": list,
+        "emax": list,
     }
 
     for manem in json_manems:
@@ -83,8 +83,8 @@ def test_json_output_structure(sample_manem_writer):
     required_fields = {
         "name": str,
         "stage": list,
-        "vmin": list,
-        "vmax": list,
+        "emin": list,
+        "emax": list,
     }
 
     for manem in json_manems:
@@ -98,10 +98,10 @@ def test_json_output_structure(sample_manem_writer):
         # Additional value checks
         assert len(manem["name"]) > 0, "Name should not be empty"
         assert len(manem["stage"]) > 0, "Should have at least one stage"
-        assert len(manem["stage"]) == len(manem["vmin"]), (
+        assert len(manem["stage"]) == len(manem["emin"]), (
             "Stages and vol_min should match"
         )
-        assert len(manem["stage"]) == len(manem["vmax"]), (
+        assert len(manem["stage"]) == len(manem["emax"]), (
             "Stages and vol_max should match"
         )
 
@@ -147,10 +147,10 @@ def test_to_dataframe_with_empty_parser():
     parser = MockEmptyManemParser()
     writer = ManemWriter(parser)
 
-    df_vmin, df_vmax = writer.to_dataframe()
+    df_emin, df_emax = writer.to_dataframe()
 
-    assert df_vmin.empty
-    assert df_vmax.empty
+    assert df_emin.empty
+    assert df_emax.empty
 
 
 def _make_central_parser(tmp_path, name, number=1):
@@ -193,14 +193,14 @@ def test_to_dataframe_with_parsers(tmp_path):
     stage_parser = _make_stage_parser(tmp_path, 2)
 
     writer = ManemWriter(manem_parser, central_parser, stage_parser)
-    df_vmin, df_vmax = writer.to_dataframe()
+    df_emin, df_emax = writer.to_dataframe()
 
-    assert not df_vmin.empty
-    assert not df_vmax.empty
+    assert not df_emin.empty
+    assert not df_emax.empty
 
 
 def test_to_parquet(tmp_path):
-    """Test to_parquet writes vmin and vmax parquet files."""
+    """Test to_parquet writes emin and emax parquet files."""
 
     manem_f = tmp_path / "plpmanem.dat"
     manem_f.write_text(
@@ -216,10 +216,10 @@ def test_to_parquet(tmp_path):
     out_dir = tmp_path / "manem_out"
     cols = writer.to_parquet(out_dir)
 
-    assert (out_dir / "vmin.parquet").exists()
-    assert (out_dir / "vmax.parquet").exists()
-    assert len(cols["vmin"]) > 0
-    assert len(cols["vmax"]) > 0
+    assert (out_dir / "emin.parquet").exists()
+    assert (out_dir / "emax.parquet").exists()
+    assert len(cols["emin"]) > 0
+    assert len(cols["emax"]) > 0
 
 
 def test_to_parquet_empty(tmp_path):
@@ -228,5 +228,5 @@ def test_to_parquet_empty(tmp_path):
     writer = ManemWriter(parser)
     out_dir = tmp_path / "empty_out"
     cols = writer.to_parquet(out_dir)
-    assert not cols["vmin"]
-    assert not cols["vmax"]
+    assert not cols["emin"]
+    assert not cols["emax"]
