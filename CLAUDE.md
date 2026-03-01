@@ -256,6 +256,14 @@ python -m pytest -k "test_parse_single_bess" -q
 python -m pytest -m integration -q
 ```
 
+> **Important**: Always run `pylint` after modifying or adding Python code in
+> `scripts/`.  The CI `Scripts` workflow (`scripts.yml`) runs
+> `pylint cvs2parquet igtopt plp2gtopt` and **fails on any warning or
+> convention violation** (exit code ≠ 0).  Run it locally before pushing:
+> ```bash
+> cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
+> ```
+
 Via CMake (from repo root after `cmake -S scripts -B build-scripts`):
 
 ```bash

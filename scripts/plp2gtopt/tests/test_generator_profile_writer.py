@@ -64,7 +64,7 @@ class MockAflceParser:
 def test_empty_writer():
     """GeneratorProfileWriter with no parsers returns empty array."""
     writer = GeneratorProfileWriter()
-    assert writer.to_json_array() == []
+    assert not writer.to_json_array()
 
 
 def test_pasada_with_aflce():
@@ -138,7 +138,7 @@ def test_pasada_zero_afluent_skipped():
         central_parser=typing.cast(typing.Any, MockCentralParser(centrals)),
         bus_parser=typing.cast(typing.Any, MockBusParser(buses)),
     )
-    assert writer.to_json_array() == []
+    assert not writer.to_json_array()
 
 
 def test_invalid_bus_skipped():
@@ -159,7 +159,7 @@ def test_invalid_bus_skipped():
         central_parser=typing.cast(typing.Any, MockCentralParser(centrals)),
         bus_parser=typing.cast(typing.Any, MockBusParser(buses)),
     )
-    assert writer.to_json_array() == []
+    assert not writer.to_json_array()
 
 
 def test_zero_bus_skipped():
@@ -178,4 +178,4 @@ def test_zero_bus_skipped():
     writer = GeneratorProfileWriter(
         central_parser=typing.cast(typing.Any, MockCentralParser(centrals)),
     )
-    assert writer.to_json_array() == []
+    assert not writer.to_json_array()
