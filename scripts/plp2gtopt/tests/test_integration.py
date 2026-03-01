@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from plp2gtopt.battery_writer import BATTERY_UID_OFFSET
 from plp2gtopt.main import main
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
@@ -317,7 +316,7 @@ def test_min_bess_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert bat["vini"] == pytest.approx(0.50)
+    assert "vini" not in bat  # vini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -345,12 +344,13 @@ def test_min_bess_conversion(tmp_path):
 
     bess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
     assert bess_dem["bus"] == 1
-    assert bess_dem["lmax"] == "lmax"
+    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
+    assert bess_dem["lmax"] == pytest.approx(50.0)
 
 
 @pytest.mark.integration
 def test_min_bess_lmax_parquet(tmp_path):
-    """plp_min_bess: lmax.parquet contains both thermal and BESS charge columns."""
+    """plp_min_bess: lmax.parquet contains the thermal demand column."""
 
     opts = _make_opts(_PLPMinBess, tmp_path, "plp_min_bess")
     convert_plp_case(opts)
@@ -364,11 +364,6 @@ def test_min_bess_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # BESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert bat_col in df.columns
-    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +407,7 @@ def test_min_battery_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert bat["vini"] == pytest.approx(0.50)
+    assert "vini" not in bat  # vini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -440,12 +435,13 @@ def test_min_battery_conversion(tmp_path):
 
     bat_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
     assert bat_dem["bus"] == 1
-    assert bat_dem["lmax"] == "lmax"
+    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
+    assert bat_dem["lmax"] == pytest.approx(50.0)
 
 
 @pytest.mark.integration
 def test_min_battery_lmax_parquet(tmp_path):
-    """plp_min_battery: lmax.parquet contains both thermal and battery charge columns."""
+    """plp_min_battery: lmax.parquet contains the thermal demand column."""
     opts = _make_opts(_PLPMinBattery, tmp_path, "plp_min_battery")
     convert_plp_case(opts)
 
@@ -458,11 +454,6 @@ def test_min_battery_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # Battery charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert bat_col in df.columns
-    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
@@ -504,9 +495,9 @@ def test_min_ess_conversion(tmp_path):
     assert bat["name"] == "BESS1"
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
-    # ESS capacity = pmax_discharge * hrs_reg = 50.0 * 4.0
-    assert bat["capacity"] == pytest.approx(50.0 * 4.0)
-    assert bat["vini"] == pytest.approx(0.50)
+    # ESS capacity = emax from plpess.dat = 200.0 MWh
+    assert bat["capacity"] == pytest.approx(200.0)
+    assert "vini" not in bat  # vini not read from PLP files
     # ESS has no active restriction
     assert "active" not in bat
 
@@ -520,16 +511,24 @@ def test_min_ess_conversion(tmp_path):
     assert "Thermal1" in gen_names
     assert "BESS1_disch" in gen_names
 
+    ess_gen = next(g for g in gens if g["name"] == "BESS1_disch")
+    assert ess_gen["pmax"] == pytest.approx(50.0)  # dcmax from plpess.dat
+    assert ess_gen["gcost"] == pytest.approx(0.0)
+
     # 2 demands: 1 thermal + 1 ESS charge
     dems = sys.get("demand_array", [])
     assert len(dems) == 2
     dem_names = {d["name"] for d in dems}
     assert "BESS1_chrg" in dem_names
 
+    ess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
+    # Without maintenance, lmax is a scalar (pmax_charge = dcmax)
+    assert ess_dem["lmax"] == pytest.approx(50.0)
+
 
 @pytest.mark.integration
 def test_min_ess_lmax_parquet(tmp_path):
-    """plp_min_ess: lmax.parquet contains both thermal and ESS charge columns."""
+    """plp_min_ess: lmax.parquet contains the thermal demand column."""
     opts = _make_opts(_PLPMinEss, tmp_path, "plp_min_ess")
     convert_plp_case(opts)
 
@@ -542,11 +541,6 @@ def test_min_ess_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # ESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    ess_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert ess_col in df.columns
-    assert float(df[ess_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------

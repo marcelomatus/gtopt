@@ -11,6 +11,9 @@ Data sources and their roles
   injection central pmax for pmax_charge.
 * ``plpmanbat.dat`` (via ``manbat_parser``) – per-stage pmax_charge / pmax_discharge
   overrides (maintenance schedules).
+* ``plpess.dat`` (via ``ess_parser``) – ESS model; capacity = pmax × hrs_reg.
+* ``plpmaness.dat`` (via ``maness_parser``) – per-stage pmax_charge / pmax_discharge
+  overrides for ESS (maintenance schedules).
 
 Matching rule: plpcenbat.dat battery name == BAT central name in plpcnfce.dat.
 
@@ -21,9 +24,17 @@ emin=0.0).
 UID allocation
 --------------
   Battery   uid = bat_central_number    (BAT central number in plpcnfce.dat)
-  Generator uid = BATTERY_UID_OFFSET + bat_central_number   (discharge path)
-  Demand    uid = BATTERY_UID_OFFSET + bat_central_number   (charge path)
+  Generator uid = bat_central_number    (discharge path)
+  Demand    uid = bat_central_number    (charge path)
   Converter uid = bat_central_number
+
+Maintenance schedules
+---------------------
+When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-stage overrides for
+``pmax_charge`` and ``pmax_discharge``, the corresponding generator ``pmax`` and
+demand ``lmax`` fields reference Parquet files (``"pmax"`` / ``"lmax"``), and
+the block-level values are written to ``Generator/pmax.parquet`` and
+``Demand/lmax.parquet`` respectively.
 """
 
 from pathlib import Path
@@ -42,8 +53,6 @@ from .maness_parser import ManessParser
 # Default battery parameters used when only plpcnfce.dat BAT centrals are present
 _DEFAULT_FPC = 0.95
 _DEFAULT_FPD = 0.95
-_DEFAULT_HRS_REG = 4.0
-_DEFAULT_VINI = 0.5
 
 
 class BatteryEntry(TypedDict, total=False):
@@ -125,6 +134,14 @@ class BatteryWriter(BaseWriter):
     def _all_entries(self) -> List[Dict[str, Any]]:
         """Build the unified list of battery entries.
 
+        Each entry contains all fields needed by ``to_battery_array()``,
+        ``to_generator_array()``, ``to_demand_array()`` and
+        ``to_converter_array()``:
+
+          number, name, bus, busc, nc, nd, emin, emax,
+          pmax_charge, pmax_discharge, annual_loss, has_maintenance,
+          man_stages, man_pmax_charge, man_pmax_discharge.
+
         Priority:
         1. plpess.dat entries matched to BAT centrals (ESS model)
         2. plpcenbat.dat entries matched to BAT centrals (battery model)
@@ -133,31 +150,52 @@ class BatteryWriter(BaseWriter):
         batteries = self._bat_centrals()
         entries: List[Dict[str, Any]] = []
 
+        # Determine maintenance data accessor
+        man_parser = self._man_parser
+
         if self.ess_parser and self.ess_parser.esses:
-            # ESS path: capacity = pmax_discharge * hrs_reg
+            # ESS path: emax from plpess.dat directly (MWh capacity)
             for item in self.ess_parser.esses:
                 name = item["name"]
                 central = batteries.get(name, {})
                 uid = central.get("number", 0)
-                input_efficiency = item["nc"]
-                output_efficiency = item["nd"]
-                annual_loss = item["mloss"] * 12
-                vmax = item.get("emax", 0.0)
-                vmin = item.get("emin", 0.0)
-                pmax_discharge = central.get("pmax", 0.0)
-                pmax_charge = item.get("dcmax", pmax_discharge)
+                bus = central.get("bus", 1)
+                nc = item["nc"]
+                nd = item["nd"]
+                emax = item["emax"]
+                dcmax = item["dcmax"]
+                mloss = item["mloss"]
+                # pmax_discharge: dcmax from ESS, or central pmax
+                pmax_discharge = dcmax if dcmax > 0 else central.get(
+                    "pmax", 0.0
+                )
+                pmax_charge = pmax_discharge
+
+                man = (
+                    man_parser.get_item_by_name(name) if man_parser else None
+                )
 
                 entries.append(
                     {
-                        "uid": uid,
+                        "number": uid,
                         "name": name,
-                        "input_efficiency": input_efficiency,
-                        "output_efficiency": output_efficiency,
-                        "annual_loss": annual_loss,
-                        "vmax": vmax,
-                        "vmin": vmin,
+                        "bus": bus,
+                        "busc": bus,
+                        "nc": nc,
+                        "nd": nd,
+                        "emin": 0.0,
+                        "emax": emax,
                         "pmax_charge": pmax_charge,
                         "pmax_discharge": pmax_discharge,
+                        "annual_loss": mloss * 12,
+                        "has_maintenance": man is not None,
+                        "man_stages": man["stage"] if man else None,
+                        "man_pmax_charge": (
+                            man["pmax_charge"] if man else None
+                        ),
+                        "man_pmax_discharge": (
+                            man["pmax_discharge"] if man else None
+                        ),
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
@@ -166,31 +204,44 @@ class BatteryWriter(BaseWriter):
                 central = batteries.get(name, {})
                 # UID and pmax_discharge come from BAT central (authoritative)
                 uid = central.get("number", item["number"])
+                bus = item.get("bus", central.get("bus", 1))
                 # Energy capacity directly from plpcenbat.dat
-                vmax = item.get("emax", 0.0)
-                vmin = item.get("emin", 0.0)
+                emax = item.get("emax", 0.0)
+                emin = item.get("emin", 0.0)
                 # Efficiencies from plpcenbat.dat
                 injections = item.get("injections", [])
-                input_efficiency = injections[0]["fpc"] if injections else _DEFAULT_FPC
-                output_efficiency = item.get("fpd", _DEFAULT_FPD)
+                nc = injections[0]["fpc"] if injections else _DEFAULT_FPC
+                nd = item.get("fpd", _DEFAULT_FPD)
                 pmax_discharge = central.get("pmax", 0.0)
                 pmax_charge = pmax_discharge
 
+                man = (
+                    man_parser.get_item_by_name(name) if man_parser else None
+                )
+
                 entries.append(
                     {
-                        "uid": uid,
+                        "number": uid,
                         "name": name,
-                        "input_efficiency": input_efficiency,
-                        "output_efficiency": output_efficiency,
-                        "annual_loss": annual_loss,
-                        "vmax": vmax,
-                        "vmin": vmin,
+                        "bus": bus,
+                        "busc": bus,
+                        "nc": nc,
+                        "nd": nd,
+                        "emin": emin,
+                        "emax": emax,
                         "pmax_charge": pmax_charge,
                         "pmax_discharge": pmax_discharge,
+                        "annual_loss": 0.0,
+                        "has_maintenance": man is not None,
+                        "man_stages": man["stage"] if man else None,
+                        "man_pmax_charge": (
+                            man["pmax_charge"] if man else None
+                        ),
+                        "man_pmax_discharge": (
+                            man["pmax_discharge"] if man else None
+                        ),
                     }
                 )
-        else:
-            pass
 
         return entries
 
@@ -213,7 +264,6 @@ class BatteryWriter(BaseWriter):
                 "output_efficiency": entry["nd"],
                 "vmin": vmin,
                 "vmax": 1.0,
-                "vini": entry["vini"],
                 "capacity": emax,
             }
             batteries.append(bat)
@@ -228,13 +278,14 @@ class BatteryWriter(BaseWriter):
         gens = []
         for entry in entries:
             pmax_d = entry["pmax_discharge"]
+            pmax_val: Any = "pmax" if entry.get("has_maintenance") else pmax_d
             gens.append(
                 {
                     "uid": entry["number"],
                     "name": f"{entry['name']}_disch",
                     "bus": entry["bus"],
                     "pmin": 0.0,
-                    "pmax": pmax_d,
+                    "pmax": pmax_val,
                     "gcost": 0.0,
                     "capacity": pmax_d,
                 }
@@ -249,12 +300,15 @@ class BatteryWriter(BaseWriter):
             entries = self._all_entries()
         dems = []
         for entry in entries:
+            lmax_val: Any = (
+                "lmax" if entry.get("has_maintenance") else entry["pmax_charge"]
+            )
             dems.append(
                 {
                     "uid": entry["number"],
                     "name": f"{entry['name']}_chrg",
                     "bus": entry["busc"],
-                    "lmax": entry["pmax_charge"],
+                    "lmax": lmax_val,
                 }
             )
         return dems
@@ -283,7 +337,59 @@ class BatteryWriter(BaseWriter):
     def _write_lmax_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Do nothing by now."""
+        """Write charge demand lmax values to Demand/lmax.parquet.
+
+        When maintenance schedules are present, the per-stage pmax_charge
+        values are written as block-level columns.
+        """
+        # Placeholder: maintenance parquet writing is handled in process()
+
+    def _write_maintenance_parquet(
+        self, entries: List[Dict[str, Any]], output_dir: Path
+    ) -> None:
+        """Write maintenance-schedule parquet files for battery gen/dem.
+
+        For entries with ``has_maintenance == True``, writes:
+        - ``Generator/pmax.parquet`` with per-block pmax_discharge columns
+        - ``Demand/lmax.parquet`` with per-block pmax_charge columns
+        """
+        import pandas as pd  # pylint: disable=import-outside-toplevel
+
+        man_entries = [e for e in entries if e.get("has_maintenance")]
+        if not man_entries:
+            return
+
+        # Build Generator/pmax.parquet
+        gen_dir = output_dir / "Generator"
+        gen_dir.mkdir(parents=True, exist_ok=True)
+        pmax_data: Dict[str, Any] = {"block": []}
+        for entry in man_entries:
+            col = f"uid:{entry['number']}"
+            stages = entry["man_stages"]
+            vals = entry["man_pmax_discharge"]
+            if len(stages) > 0:
+                pmax_data["block"] = list(range(1, len(stages) + 1))
+                pmax_data[col] = list(vals)
+        if pmax_data["block"]:
+            pd.DataFrame(pmax_data).to_parquet(
+                gen_dir / "pmax.parquet", index=False
+            )
+
+        # Build Demand/lmax.parquet (charge path)
+        dem_dir = output_dir / "Demand"
+        dem_dir.mkdir(parents=True, exist_ok=True)
+        lmax_data: Dict[str, Any] = {"block": []}
+        for entry in man_entries:
+            col = f"uid:{entry['number']}"
+            stages = entry["man_stages"]
+            vals = entry["man_pmax_charge"]
+            if len(stages) > 0:
+                lmax_data["block"] = list(range(1, len(stages) + 1))
+                lmax_data[col] = list(vals)
+        if lmax_data["block"]:
+            pd.DataFrame(lmax_data).to_parquet(
+                dem_dir / "lmax.parquet", index=False
+            )
 
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
@@ -308,9 +414,8 @@ class BatteryWriter(BaseWriter):
                 "demand_array": existing_dem,
             }
 
-        # demand_dir = output_dir / "Demand"
-        # demand_dir.mkdir(parents=True, exist_ok=True)
-        # self._write_lmax_parquet(entries, demand_dir)
+        # Write maintenance schedule parquet files if needed
+        self._write_maintenance_parquet(entries, output_dir)
 
         return {
             "battery_array": self.to_battery_array(entries),
