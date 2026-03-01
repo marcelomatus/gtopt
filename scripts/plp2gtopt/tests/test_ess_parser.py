@@ -25,32 +25,46 @@ def test_parse_zero_esses(tmp_path):
 
 
 def test_parse_single_ess(tmp_path):
-    """Test parsing a single ESS entry."""
+    """Test parsing a single ESS entry (Nombre nd nc mloss emax dcmax)."""
     f = tmp_path / "plpess.dat"
     f.write_text(
         "# Numero de ESS\n"
         " 1\n"
-        "# Num  Nombre  Barra  PMaxC  PMaxD  nc  nd  HrsReg  VolIni\n"
-        "    1  'ESS1'      1   100.0  100.0  0.95  0.95   4.0   0.50\n"
+        "# CenNom  nd  nc  mloss  Emax  DCMax  [DCMod CenPC]\n"
+        "  ESS1    0.95  0.95   1.0   200.0  50.0   0\n"
     )
     parser = EssParser(f)
     parser.parse()
 
     assert parser.num_esses == 1
     e = parser.esses[0]
-    assert e["number"] == 1
     assert e["name"] == "ESS1"
-    assert e["bus"] == 1
-    assert e["pmax_charge"] == pytest.approx(100.0)
-    assert e["pmax_discharge"] == pytest.approx(100.0)
-    assert e["nc"] == pytest.approx(0.95)
     assert e["nd"] == pytest.approx(0.95)
-    assert e["hrs_reg"] == pytest.approx(4.0)
-    assert e["vol_ini"] == pytest.approx(0.50)
-    # ESS has no eta_ini / eta_fin / n_ciclos
-    assert "eta_ini" not in e
-    assert "eta_fin" not in e
-    assert "n_ciclos" not in e
+    assert e["nc"] == pytest.approx(0.95)
+    assert e["mloss"] == pytest.approx(1.0)
+    assert e["emax"] == pytest.approx(200.0)
+    assert e["dcmax"] == pytest.approx(50.0)
+    assert e["dcmod"] == 0
+    assert e["cenpc"] == ""
+
+
+def test_parse_ess_with_cenpc(tmp_path):
+    """Test ESS entry with charge central name (coupled mode)."""
+    f = tmp_path / "plpess.dat"
+    f.write_text(" 1\n  ALFALFAL_ERD  0.9  0.9  1  244.3  59.3  1  ALFALFAL\n")
+    parser = EssParser(f)
+    parser.parse()
+
+    assert parser.num_esses == 1
+    e = parser.esses[0]
+    assert e["name"] == "ALFALFAL_ERD"
+    assert e["nd"] == pytest.approx(0.9)
+    assert e["nc"] == pytest.approx(0.9)
+    assert e["mloss"] == pytest.approx(1.0)
+    assert e["emax"] == pytest.approx(244.3)
+    assert e["dcmax"] == pytest.approx(59.3)
+    assert e["dcmod"] == 1
+    assert e["cenpc"] == "ALFALFAL"
 
 
 def test_parse_multiple_esses(tmp_path):
@@ -58,8 +72,8 @@ def test_parse_multiple_esses(tmp_path):
     f = tmp_path / "plpess.dat"
     f.write_text(
         " 2\n"
-        "    1  'ESS1'      1   100.0  100.0  0.95  0.95   4.0   0.50\n"
-        "    2  'ESS2'      2    80.0   80.0  0.90  0.90   2.0   0.30\n"
+        "  ESS1   0.95  0.95  0.0  200.0  50.0  0\n"
+        "  ESS2   0.90  0.90  1.0  100.0  25.0  1  GEN_X\n"
     )
     parser = EssParser(f)
     parser.parse()
@@ -67,19 +81,17 @@ def test_parse_multiple_esses(tmp_path):
     assert parser.num_esses == 2
     assert parser.esses[0]["name"] == "ESS1"
     assert parser.esses[1]["name"] == "ESS2"
-    assert parser.esses[1]["bus"] == 2
     assert parser.esses[1]["nc"] == pytest.approx(0.90)
+    assert parser.esses[1]["nd"] == pytest.approx(0.90)
+    assert parser.esses[1]["emax"] == pytest.approx(100.0)
+    assert parser.esses[1]["dcmod"] == 1
+    assert parser.esses[1]["cenpc"] == "GEN_X"
 
 
 def test_parse_with_comments(tmp_path):
     """Test that comment lines are skipped."""
     f = tmp_path / "plpess.dat"
-    f.write_text(
-        "# Header\n"
-        " 1\n"
-        "# Row\n"
-        "    1  'MyESS'     1    50.0   50.0  0.98  0.98   8.0   0.40\n"
-    )
+    f.write_text("# Header\n 1\n# Row\n  MyESS  0.98  0.98  0.5  300.0  60.0  0\n")
     parser = EssParser(f)
     parser.parse()
     assert parser.num_esses == 1
@@ -89,23 +101,41 @@ def test_parse_with_comments(tmp_path):
 def test_get_ess_by_name(tmp_path):
     """Test lookup by name."""
     f = tmp_path / "plpess.dat"
-    f.write_text(" 1\n    1  'Alpha'     1   50.0   50.0  0.95  0.95   4.0   0.50\n")
+    f.write_text(" 1\n  Alpha  0.95  0.95  0.0  200.0  50.0  0\n")
     parser = EssParser(f)
     parser.parse()
     assert parser.get_ess_by_name("Alpha") is not None
     assert parser.get_ess_by_name("NoSuch") is None
 
 
-def test_get_ess_by_number(tmp_path):
-    """Test lookup by number."""
+def test_parse_minimal_fields(tmp_path):
+    """Test ESS with only 6 required fields (no dcmod, no cenpc)."""
     f = tmp_path / "plpess.dat"
-    f.write_text(" 1\n    5  'E5'        2   30.0   30.0  0.92  0.92   3.0   0.60\n")
+    f.write_text(" 1\n  MinESS  0.90  0.85  2.0  150.0  30.0\n")
     parser = EssParser(f)
     parser.parse()
-    ess_e5 = parser.get_ess_by_number(5)
-    assert ess_e5 is not None
-    assert ess_e5["name"] == "E5"
-    assert parser.get_ess_by_number(99) is None
+    e = parser.esses[0]
+    assert e["name"] == "MinESS"
+    assert e["dcmod"] == 0
+    assert e["cenpc"] == ""
+
+
+def test_parse_asymmetric_nd_nc(tmp_path):
+    """Verify field order matches Fortran: CenNombre nd nc mloss Emax DCMax.
+
+    In the Fortran LeeEss subroutine (genpdess.f) the READ statement is:
+        READ(line, *) CenNombre, nd, nc, mloss, Emax, DCMax, DCMod, CenCarga
+    So the first efficiency value (field[1]) is nd (discharge), and
+    the second (field[2]) is nc (charge).
+    """
+    f = tmp_path / "plpess.dat"
+    # File: Name nd=0.80 nc=0.70 mloss emax dcmax
+    f.write_text(" 1\n  ASYM_ESS  0.80  0.70  2.0  300.0  40.0  0\n")
+    parser = EssParser(f)
+    parser.parse()
+    e = parser.esses[0]
+    assert e["nd"] == pytest.approx(0.80)  # first value → discharge eff
+    assert e["nc"] == pytest.approx(0.70)  # second value → charge eff
 
 
 def test_parse_empty_file_raises(tmp_path):

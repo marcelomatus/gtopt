@@ -41,8 +41,8 @@ public:
                      const InputContext& ic,
                      const LPClassName& cname)
       : Object(std::forward<ObjectT>(pstorage), ic, cname)
-      , vmin(ic, cname.full_name(), id(), std::move(storage().vmin))
-      , vmax(ic, cname.full_name(), id(), std::move(storage().vmax))
+      , emin(ic, cname.full_name(), id(), std::move(storage().emin))
+      , emax(ic, cname.full_name(), id(), std::move(storage().emax))
       , vcost(ic, cname.full_name(), id(), std::move(storage().vcost))
       , annual_loss(
             ic, cname.full_name(), id(), std::move(storage().annual_loss))
@@ -94,15 +94,15 @@ public:
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
 
-    const auto [stage_vmax, stage_vmin] =
-        sc.stage_maxmin_at(stage, vmax, vmin, stage_capacity);
+    const auto [stage_emax, stage_emin] =
+        sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
 
     const auto vicol = prev_stage
         ? vfin_col_at(scenario, *prev_stage)
         : lp.add_col({
               .name = sc.lp_label(scenario, stage, cname, "vini", uid()),
-              .lowb = storage().vini.value_or(stage_vmin),
-              .uppb = storage().vini.value_or(stage_vmax),
+              .lowb = storage().vini.value_or(stage_emin),
+              .uppb = storage().vini.value_or(stage_emax),
           });
 
     const auto& blocks = stage.blocks();
@@ -130,8 +130,8 @@ public:
       const auto vc = lp.add_col({
           .name = vrow.name,
           .lowb =
-              !is_last_block ? stage_vmin : storage().vfin.value_or(stage_vmin),
-          .uppb = stage_vmax,
+              !is_last_block ? stage_emin : storage().vfin.value_or(stage_emin),
+          .uppb = stage_emax,
           .cost = stage_vcost,
       });
 
@@ -222,8 +222,8 @@ public:
   }
 
 private:
-  OptTRealSched vmin;
-  OptTRealSched vmax;
+  OptTRealSched emin;
+  OptTRealSched emax;
   OptTRealSched vcost;
 
   OptTRealSched annual_loss;

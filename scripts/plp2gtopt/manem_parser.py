@@ -61,8 +61,8 @@ class ManemParser(BaseParser):
 
                 # Initialize numpy arrays
                 stages = np.empty(num_stages, dtype=np.int32)
-                vmin = np.empty(num_stages, dtype=np.float64)
-                vmax = np.empty(num_stages, dtype=np.float64)
+                emin = np.empty(num_stages, dtype=np.float64)
+                emax = np.empty(num_stages, dtype=np.float64)
 
                 # Parse maintenance entries
                 for i in range(num_stages):
@@ -72,15 +72,15 @@ class ManemParser(BaseParser):
                         raise ValueError(f"Invalid maintenance entry at line {idx + 1}")
 
                     stages[i] = self._parse_int(parts[1])
-                    vmin[i] = self._parse_float(parts[2]) * scale
-                    vmax[i] = self._parse_float(parts[3]) * scale
+                    emin[i] = self._parse_float(parts[2]) * scale
+                    emax[i] = self._parse_float(parts[3]) * scale
 
                 # Store complete data
                 manem = {
                     "name": name,
                     "stage": stages,
-                    "vmin": vmin,
-                    "vmax": vmax,
+                    "emin": emin,
+                    "emax": emax,
                 }
                 self._append(manem)
 

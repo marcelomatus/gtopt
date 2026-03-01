@@ -155,7 +155,7 @@ static constexpr std::string_view planning_json = R"({
         "uid": 1, "name": "bat1",
         "input_efficiency": 0.9,
         "output_efficiency": 0.9,
-        "vmin": 0, "vmax": 50,
+        "emin": 0, "emax": 50,
         "capacity": 50
       }
     ],

@@ -256,6 +256,14 @@ python -m pytest -k "test_parse_single_bess" -q
 python -m pytest -m integration -q
 ```
 
+> **Important**: Always run `pylint` after modifying or adding Python code in
+> `scripts/`.  The CI `Scripts` workflow (`scripts.yml`) runs
+> `pylint cvs2parquet igtopt plp2gtopt` and **fails on any warning or
+> convention violation** (exit code ≠ 0).  Run it locally before pushing:
+> ```bash
+> cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
+> ```
+
 Via CMake (from repo root after `cmake -S scripts -B build-scripts`):
 
 ```bash
@@ -324,6 +332,22 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 
 > Full details are in `.github/copilot-instructions.md` → "Domain Knowledge" section.
 > Scripts sub-package details are in `.github/copilot-instructions.md` → "Python Scripts Sub-Package".
+> PLP file formats and maintenance mappings are in `.github/copilot-instructions.md` → "Key facts for plp2gtopt".
+
+### PLP maintenance file formats (plpmanbat.dat / plpmaness.dat)
+
+The parsers match the PLP Fortran READ statements:
+
+- **`plpmanbat.dat`** (`LeeManBat` in `genpdbaterias.f`): 3 fields per data line:
+  `IBind EMin EMax` (block index, min energy MWh, max energy MWh).
+  Modifies battery energy bounds → maps to Battery `emin`/`emax` schedules in gtopt.
+
+- **`plpmaness.dat`** (`LeeManEss` in `genpdess.f`): 5-6 fields per data line:
+  `IBind Emin Emax DCMin DCMax [DCMod]`.
+  Energy bounds → Battery `emin`/`emax`; DC power bounds → Generator `pmax` + Demand `lmax`.
+
+- **`plpess.dat`** field order is `Nombre nd nc mloss Emax DCMax [DCMod] [CenCarga]`
+  (Fortran reads discharge efficiency `nd` first, charge efficiency `nc` second).
 
 ### What gtopt optimizes
 
