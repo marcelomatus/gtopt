@@ -35,6 +35,9 @@ disable = [
     "import-error"
 ]
 
+[tool.pylsp]
+skip_token_initialization = true
+
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = ["scripts/plp2gtopt/tests"]

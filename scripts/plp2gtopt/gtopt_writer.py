@@ -22,7 +22,7 @@ from .demand_writer import DemandWriter
 from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
-from .battery_writer import BatteryWriter, BATTERY_UID_OFFSET
+from .battery_writer import BatteryWriter
 
 
 class GTOptWriter:
