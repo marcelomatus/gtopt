@@ -314,7 +314,7 @@ def test_min_bess_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert "vini" not in bat  # vini not read from PLP files
+    assert "eini" not in bat  # eini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -405,7 +405,7 @@ def test_min_battery_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert "vini" not in bat  # vini not read from PLP files
+    assert "eini" not in bat  # eini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -495,7 +495,7 @@ def test_min_ess_conversion(tmp_path):
     assert bat["output_efficiency"] == pytest.approx(0.95)
     # ESS capacity = emax from plpess.dat = 200.0 MWh
     assert bat["capacity"] == pytest.approx(200.0)
-    assert "vini" not in bat  # vini not read from PLP files
+    assert "eini" not in bat  # eini not read from PLP files
     # ESS has no active restriction
     assert "active" not in bat
 
@@ -888,8 +888,8 @@ def test_min_reservoir_conversion(tmp_path):
     assert rsv["emin"] == pytest.approx(100.0)
     assert rsv["emax"] == pytest.approx(1000.0)
     assert rsv["capacity"] == pytest.approx(1000.0)
-    assert rsv["vini"] == pytest.approx(500.0)
-    assert rsv["vfin"] == pytest.approx(400.0)
+    assert rsv["eini"] == pytest.approx(500.0)
+    assert rsv["efin"] == pytest.approx(400.0)
     assert rsv["flow_conversion_rate"] == pytest.approx(3.6 / 1000.0)
 
     # Junctions (embalse + serie)

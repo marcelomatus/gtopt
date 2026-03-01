@@ -290,7 +290,7 @@ def test_process_reservoirs(reservoir_parser):
     assert reservoir["uid"] == 10
     assert reservoir["name"] == "ReservoirA"
     assert reservoir["junction"] == 10
-    assert reservoir["vini"] == 100
+    assert reservoir["eini"] == 100
     assert reservoir["emax"] == 200
     assert reservoir["capacity"] == 200
 

@@ -608,13 +608,13 @@ the columns as "nc nd" but the Fortran reads nd first.
 
 | PLP file | Fortran modifies | gtopt mapping |
 |----------|-----------------|---------------|
-| `plpmanbat.dat` | `BatEMin(IBat,IBind)`, `BatEMax(IBat,IBind)` | Battery `emin`/`emax` schedules (normalised by capacity) |
+| `plpmanbat.dat` | `BatEMin(IBat,IBind)`, `BatEMax(IBat,IBind)` | Battery `emin`/`emax` schedules (absolute energy values) |
 | `plpmaness.dat` | `Ess%Emin`, `Ess%Emax` | Battery `emin`/`emax` schedules |
 | `plpmaness.dat` | `Ess%DCMin`, `Ess%DCMax` | Generator `pmax` + Demand `lmax` schedules |
 
 When maintenance is present, the battery_writer:
-- Writes `Battery/emin.parquet` and `Battery/emax.parquet` with per-block values
-  normalised to capacity (applies to both plpmanbat and plpmaness).
+- Writes `Battery/emin.parquet` and `Battery/emax.parquet` with per-block
+  absolute energy values (applies to both plpmanbat and plpmaness).
 - For plpmaness.dat only (which has DCMin/DCMax): also writes
   `Generator/pmax.parquet` and `Demand/lmax.parquet` for the discharge
   generator and charge demand paths.

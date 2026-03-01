@@ -23,8 +23,8 @@ TEST_CASE("Battery construction and default values")
   CHECK_FALSE(battery.emin.has_value());
   CHECK_FALSE(battery.emax.has_value());
   CHECK_FALSE(battery.vcost.has_value());
-  CHECK_FALSE(battery.vini.has_value());
-  CHECK_FALSE(battery.vfin.has_value());
+  CHECK_FALSE(battery.eini.has_value());
+  CHECK_FALSE(battery.efin.has_value());
   CHECK_FALSE(battery.capacity.has_value());
   CHECK_FALSE(battery.expcap.has_value());
   CHECK_FALSE(battery.expmod.has_value());
@@ -43,8 +43,8 @@ TEST_CASE("Battery attribute assignment")
   battery.active = true;
   battery.emin = 10.0;
   battery.emax = 100.0;
-  battery.vini = 50.0;
-  battery.vfin = 50.0;
+  battery.eini = 50.0;
+  battery.efin = 50.0;
   battery.annual_loss = 0.05;
   battery.vcost = 5.0;
 
@@ -64,8 +64,8 @@ TEST_CASE("Battery attribute assignment")
   // Values stored in variant containers - check the variant value
   // For simple OptReal types (not field schedules), the value is directly
   // accessible
-  CHECK(battery.vini.value() == 50.0);
-  CHECK(battery.vfin.value() == 50.0);
+  CHECK(battery.eini.value() == 50.0);
+  CHECK(battery.efin.value() == 50.0);
 
   // For OptTRealFieldSched types, we need to get the Real variant alternative
   CHECK(std::get_if<Real>(&battery.emin.value()) != nullptr);
@@ -138,6 +138,6 @@ TEST_CASE("Battery validation test")
   battery.active = true;
   battery.emin = 10.0;
   battery.emax = 100.0;
-  battery.vini = 50.0;
+  battery.eini = 50.0;
   battery.capacity = 200.0;
 }
