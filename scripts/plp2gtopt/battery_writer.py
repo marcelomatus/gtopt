@@ -295,9 +295,7 @@ class BatteryWriter(BaseWriter):
         for entry in entries:
             man = entry.get("man_data")
             has_dc_man = man is not None and "dcmax" in man
-            lmax_val: Any = (
-                "lmax" if has_dc_man else entry["pmax_charge"]
-            )
+            lmax_val: Any = "lmax" if has_dc_man else entry["pmax_charge"]
             dems.append(
                 {
                     "uid": entry["number"],
