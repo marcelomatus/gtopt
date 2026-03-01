@@ -50,6 +50,16 @@ Build targets
   Run the integration tests (marked ``integration``) using the sample PLP
   cases in ``scripts/cases/``.
 
+CTest / ``cmake --build <dir> --target test``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Running ``cmake --build <dir> --target test`` (or ``ctest`` inside the build
+directory) invokes all registered tests.  A ``scripts-install-deps`` fixture
+runs first and performs the equivalent of ``pip install -e scripts/[dev]`` so
+that pytest, ruff, pylint, and mypy are available even in a fresh environment.
+All other tests declare ``FIXTURES_REQUIRED scripts-deps`` so they will be
+skipped if the setup fixture fails.
+
 ``scripts-coverage``
   Run unit + integration tests and generate an HTML coverage report under
   ``<build>/scripts-coverage-report/``.
@@ -222,6 +232,19 @@ add_custom_target(scripts-coverage
 
 enable_testing()
 
+# Setup fixture: install dev dependencies before running any tests.
+# This mirrors the DEPENDS scripts-install that the custom targets use,
+# so that 'cmake --build <dir> --target test' works out of the box without
+# requiring a prior manual 'pip install'.
+add_test(
+  NAME scripts-install-deps
+  COMMAND ${PYTHON_EXECUTABLE} -m pip install -e "${SCRIPTS_DIR}[dev]"
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+set_tests_properties(scripts-install-deps PROPERTIES
+  FIXTURES_SETUP scripts-deps
+)
+
 add_test(
   NAME scripts-unit-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
@@ -275,6 +298,16 @@ add_test(
     plp2gtopt
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+set_tests_properties(
+  scripts-unit-tests
+  scripts-integration-tests
+  scripts-check-format
+  scripts-lint
+  scripts-ruff
+  scripts-mypy
+  PROPERTIES FIXTURES_REQUIRED scripts-deps
 )
 
 # ---- Install ----
