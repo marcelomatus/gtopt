@@ -166,14 +166,10 @@ class BatteryWriter(BaseWriter):
                 dcmax = item["dcmax"]
                 mloss = item["mloss"]
                 # pmax_discharge: dcmax from ESS, or central pmax
-                pmax_discharge = dcmax if dcmax > 0 else central.get(
-                    "pmax", 0.0
-                )
+                pmax_discharge = dcmax if dcmax > 0 else central.get("pmax", 0.0)
                 pmax_charge = pmax_discharge
 
-                man = (
-                    man_parser.get_item_by_name(name) if man_parser else None
-                )
+                man = man_parser.get_item_by_name(name) if man_parser else None
 
                 entries.append(
                     {
@@ -190,12 +186,8 @@ class BatteryWriter(BaseWriter):
                         "annual_loss": mloss * 12,
                         "has_maintenance": man is not None,
                         "man_stages": man["stage"] if man else None,
-                        "man_pmax_charge": (
-                            man["pmax_charge"] if man else None
-                        ),
-                        "man_pmax_discharge": (
-                            man["pmax_discharge"] if man else None
-                        ),
+                        "man_pmax_charge": (man["pmax_charge"] if man else None),
+                        "man_pmax_discharge": (man["pmax_discharge"] if man else None),
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
@@ -215,9 +207,7 @@ class BatteryWriter(BaseWriter):
                 pmax_discharge = central.get("pmax", 0.0)
                 pmax_charge = pmax_discharge
 
-                man = (
-                    man_parser.get_item_by_name(name) if man_parser else None
-                )
+                man = man_parser.get_item_by_name(name) if man_parser else None
 
                 entries.append(
                     {
@@ -234,12 +224,8 @@ class BatteryWriter(BaseWriter):
                         "annual_loss": 0.0,
                         "has_maintenance": man is not None,
                         "man_stages": man["stage"] if man else None,
-                        "man_pmax_charge": (
-                            man["pmax_charge"] if man else None
-                        ),
-                        "man_pmax_discharge": (
-                            man["pmax_discharge"] if man else None
-                        ),
+                        "man_pmax_charge": (man["pmax_charge"] if man else None),
+                        "man_pmax_discharge": (man["pmax_discharge"] if man else None),
                     }
                 )
 
@@ -371,9 +357,7 @@ class BatteryWriter(BaseWriter):
                 pmax_data["block"] = list(range(1, len(stages) + 1))
                 pmax_data[col] = list(vals)
         if pmax_data["block"]:
-            pd.DataFrame(pmax_data).to_parquet(
-                gen_dir / "pmax.parquet", index=False
-            )
+            pd.DataFrame(pmax_data).to_parquet(gen_dir / "pmax.parquet", index=False)
 
         # Build Demand/lmax.parquet (charge path)
         dem_dir = output_dir / "Demand"
@@ -387,9 +371,7 @@ class BatteryWriter(BaseWriter):
                 lmax_data["block"] = list(range(1, len(stages) + 1))
                 lmax_data[col] = list(vals)
         if lmax_data["block"]:
-            pd.DataFrame(lmax_data).to_parquet(
-                dem_dir / "lmax.parquet", index=False
-            )
+            pd.DataFrame(lmax_data).to_parquet(dem_dir / "lmax.parquet", index=False)
 
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path

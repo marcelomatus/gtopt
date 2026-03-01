@@ -51,10 +51,7 @@ def test_parse_single_ess(tmp_path):
 def test_parse_ess_with_cenpc(tmp_path):
     """Test ESS entry with charge central name (coupled mode)."""
     f = tmp_path / "plpess.dat"
-    f.write_text(
-        " 1\n"
-        "  ALFALFAL_ERD  0.9  0.9  1  244.3  59.3  1  ALFALFAL\n"
-    )
+    f.write_text(" 1\n  ALFALFAL_ERD  0.9  0.9  1  244.3  59.3  1  ALFALFAL\n")
     parser = EssParser(f)
     parser.parse()
 
@@ -93,12 +90,7 @@ def test_parse_multiple_esses(tmp_path):
 def test_parse_with_comments(tmp_path):
     """Test that comment lines are skipped."""
     f = tmp_path / "plpess.dat"
-    f.write_text(
-        "# Header\n"
-        " 1\n"
-        "# Row\n"
-        "  MyESS  0.98  0.98  0.5  300.0  60.0  0\n"
-    )
+    f.write_text("# Header\n 1\n# Row\n  MyESS  0.98  0.98  0.5  300.0  60.0  0\n")
     parser = EssParser(f)
     parser.parse()
     assert parser.num_esses == 1
