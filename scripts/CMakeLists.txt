@@ -55,10 +55,11 @@ CTest / ``cmake --build <dir> --target test``
 
 Running ``cmake --build <dir> --target test`` (or ``ctest`` inside the build
 directory) invokes all registered tests.  A ``scripts-install-deps`` fixture
-runs first and performs the equivalent of ``pip install -e scripts/[dev]`` so
-that pytest, ruff, pylint, and mypy are available even in a fresh environment.
-All other tests declare ``FIXTURES_REQUIRED scripts-deps`` so they will be
-skipped if the setup fixture fails.
+runs first and performs the equivalent of ``pip install -e scripts/[dev]`` from
+an internal staging copy (excluding ``*.egg-info``) so pytest, ruff, pylint, and
+mypy are available even in a fresh environment. All other tests declare
+``FIXTURES_REQUIRED scripts-deps`` so they will be skipped if the setup fixture
+fails.
 
 ``scripts-coverage``
   Run unit + integration tests and generate an HTML coverage report under
@@ -238,8 +239,11 @@ enable_testing()
 # requiring a prior manual 'pip install'.
 add_test(
   NAME scripts-install-deps
-  COMMAND ${PYTHON_EXECUTABLE} -m pip install -e "${SCRIPTS_DIR}[dev]"
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  COMMAND ${CMAKE_COMMAND}
+    -DSCRIPTS_DIR:PATH=${SCRIPTS_DIR}
+    -DPYTHON_EXECUTABLE:FILEPATH=${PYTHON_EXECUTABLE}
+    -DSTAGE_DIR:PATH=${CMAKE_BINARY_DIR}/pip_stage
+    -P ${SCRIPTS_DIR}/cmake/scripts_install_deps.cmake
 )
 set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
