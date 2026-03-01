@@ -246,14 +246,14 @@ class BatteryWriter(BaseWriter):
         for entry in entries:
             emax = entry["emax"]
             emin = entry["emin"]
-            vmin = (emin / emax) if emax > 0.0 else 0.0
+            emin_ratio = (emin / emax) if emax > 0.0 else 0.0
             has_man = entry.get("has_maintenance")
             bat: Dict[str, Any] = {
                 "uid": entry["number"],
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
-                "emin": "emin" if has_man else vmin,
+                "emin": "emin" if has_man else emin_ratio,
                 "emax": "emax" if has_man else 1.0,
                 "capacity": emax,
             }

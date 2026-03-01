@@ -252,8 +252,8 @@ TEST_CASE("OutputContext - write output with hydro and filtration")
           .name = "rsv1",
           .junction = Uid {1},
           .capacity = 10000.0,
-          .vmin = 0.0,
-          .vmax = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
           .vini = 5000.0,
       },
   };

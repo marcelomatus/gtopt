@@ -61,9 +61,9 @@ struct Reservoir
   /// volume (e.g., due to evaporation).
   OptTRealFieldSched annual_loss {};
   /// @brief Optional time-varying minimum allowed volume.
-  OptTRealFieldSched vmin {};
+  OptTRealFieldSched emin {};
   /// @brief Optional time-varying maximum allowed volume.
-  OptTRealFieldSched vmax {};
+  OptTRealFieldSched emax {};
   /// @brief Optional time-varying cost associated with stored water volume.
   OptTRealFieldSched vcost {};
   /// @brief Optional initial volume of water at the beginning of the

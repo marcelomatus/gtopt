@@ -145,8 +145,8 @@ def reservoir_parser() -> MockCentralParser:
             "type": "embalse",
             "vol_ini": 100,
             "vol_fin": 100,
-            "vmin": 50,
-            "vmax": 200,
+            "emin": 50,
+            "emax": 200,
         }
     ]
     return MockCentralParser(reservoirs)
@@ -291,7 +291,7 @@ def test_process_reservoirs(reservoir_parser):
     assert reservoir["name"] == "ReservoirA"
     assert reservoir["junction"] == 10
     assert reservoir["vini"] == 100
-    assert reservoir["vmax"] == 200
+    assert reservoir["emax"] == 200
     assert reservoir["capacity"] == 200
 
 

@@ -17,8 +17,8 @@ class ReservoirMaintenance(TypedDict):
 
     name: str
     stage: List[int]
-    vmin: List[float]
-    vmax: List[float]
+    emin: List[float]
+    emax: List[float]
 
 
 class ManemWriter(BaseWriter):
@@ -51,15 +51,15 @@ class ManemWriter(BaseWriter):
             {
                 "name": manem["name"],
                 "stage": manem["stage"].tolist(),
-                "vmin": manem["vmin"].tolist(),
-                "vmax": manem["vmax"].tolist(),
+                "emin": manem["emin"].tolist(),
+                "emax": manem["emax"].tolist(),
             }
             for manem in items
         ]
         return cast(List[Dict[str, Any]], json_manems)
 
     def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
-        """Create a DataFrame for a specific maintenance field (vmin/vmax)."""
+        """Create a DataFrame for a specific maintenance field (emin/emax)."""
         df = self._create_dataframe(
             items=items,
             unit_parser=self.central_parser,
@@ -75,7 +75,7 @@ class ManemWriter(BaseWriter):
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Convert maintenance data to pandas DataFrames for vmin and vmax."""
+        """Convert maintenance data to pandas DataFrames for emin and emax."""
         if items is None:
             items = self.items or []
 
@@ -83,10 +83,10 @@ class ManemWriter(BaseWriter):
             return pd.DataFrame(), pd.DataFrame()
 
         try:
-            df_vmin = self._create_dataframe_for_field("vmin", items).copy()
-            df_vmax = self._create_dataframe_for_field("vmax", items).copy()
+            df_emin = self._create_dataframe_for_field("emin", items).copy()
+            df_emax = self._create_dataframe_for_field("emax", items).copy()
 
-            return df_vmin, df_vmax
+            return df_emin, df_emax
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
@@ -107,27 +107,27 @@ class ManemWriter(BaseWriter):
         )
 
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
-        """Write maintenance data to Parquet files for vmin and vmax."""
-        cols: Dict[str, List[str]] = {"vmin": [], "vmax": []}
-        df_vmin, df_vmax = self.to_dataframe(items)
+        """Write maintenance data to Parquet files for emin and emax."""
+        cols: Dict[str, List[str]] = {"emin": [], "emax": []}
+        df_emin, df_emax = self.to_dataframe(items)
 
-        cols["vmin"] = df_vmin.columns.tolist() if not df_vmin.empty else []
-        cols["vmax"] = df_vmax.columns.tolist() if not df_vmax.empty else []
+        cols["emin"] = df_emin.columns.tolist() if not df_emin.empty else []
+        cols["emax"] = df_emax.columns.tolist() if not df_emax.empty else []
 
         try:
             # Ensure output directory exists
             output_dir.mkdir(parents=True, exist_ok=True)
-            if not df_vmin.empty:
-                self._write_parquet_for_field(df_vmin, output_dir / "vmin.parquet")
-            if not df_vmax.empty:
-                self._write_parquet_for_field(df_vmax, output_dir / "vmax.parquet")
+            if not df_emin.empty:
+                self._write_parquet_for_field(df_emin, output_dir / "emin.parquet")
+            if not df_emax.empty:
+                self._write_parquet_for_field(df_emax, output_dir / "emax.parquet")
         except Exception as e:
             raise IOError(f"Failed to write Parquet files: {str(e)}") from e
         finally:
             # Explicitly clear and delete DataFrames
-            if "df_vmin" in locals():
-                del df_vmin
-            if "df_vmax" in locals():
-                del df_vmax
+            if "df_emin" in locals():
+                del df_emin
+            if "df_emax" in locals():
+                del df_emax
 
         return cols

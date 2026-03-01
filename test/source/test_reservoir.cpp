@@ -21,8 +21,8 @@ TEST_CASE("Reservoir construction and default values")
 
   CHECK_FALSE(reservoir.capacity.has_value());
   CHECK_FALSE(reservoir.annual_loss.has_value());
-  CHECK_FALSE(reservoir.vmin.has_value());
-  CHECK_FALSE(reservoir.vmax.has_value());
+  CHECK_FALSE(reservoir.emin.has_value());
+  CHECK_FALSE(reservoir.emax.has_value());
   CHECK_FALSE(reservoir.vcost.has_value());
   CHECK_FALSE(reservoir.vini.has_value());
   CHECK_FALSE(reservoir.vfin.has_value());
@@ -56,8 +56,8 @@ TEST_CASE("Reservoir attribute assignment")
 
   reservoir.capacity = 50000.0;
   reservoir.annual_loss = 0.02;
-  reservoir.vmin = 10000.0;
-  reservoir.vmax = 45000.0;
+  reservoir.emin = 10000.0;
+  reservoir.emax = 45000.0;
   reservoir.vcost = 1.5;
   reservoir.vini = 25000.0;
   reservoir.vfin = 20000.0;
@@ -78,9 +78,9 @@ TEST_CASE("Reservoir attribute assignment")
         == doctest::Approx(50000.0));
   CHECK(*std::get_if<Real>(&reservoir.annual_loss.value())
         == doctest::Approx(0.02));
-  CHECK(*std::get_if<Real>(&reservoir.vmin.value())
+  CHECK(*std::get_if<Real>(&reservoir.emin.value())
         == doctest::Approx(10000.0));
-  CHECK(*std::get_if<Real>(&reservoir.vmax.value())
+  CHECK(*std::get_if<Real>(&reservoir.emax.value())
         == doctest::Approx(45000.0));
   CHECK(*std::get_if<Real>(&reservoir.vcost.value()) == doctest::Approx(1.5));
   CHECK(reservoir.vini.value_or(0.0) == doctest::Approx(25000.0));
@@ -95,26 +95,26 @@ TEST_CASE("Reservoir with time-varying volume limits")
 {
   Reservoir reservoir;
 
-  std::vector<Real> vmin_schedule = {8000.0, 10000.0, 12000.0, 9000.0};
-  std::vector<Real> vmax_schedule = {40000.0, 45000.0, 50000.0, 42000.0};
+  std::vector<Real> emin_schedule = {8000.0, 10000.0, 12000.0, 9000.0};
+  std::vector<Real> emax_schedule = {40000.0, 45000.0, 50000.0, 42000.0};
 
-  reservoir.vmin = vmin_schedule;
-  reservoir.vmax = vmax_schedule;
+  reservoir.emin = emin_schedule;
+  reservoir.emax = emax_schedule;
 
-  REQUIRE(reservoir.vmin.has_value());
-  REQUIRE(reservoir.vmax.has_value());
+  REQUIRE(reservoir.emin.has_value());
+  REQUIRE(reservoir.emax.has_value());
 
-  auto* vmin_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.vmin.value());
-  auto* vmax_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.vmax.value());
+  auto* emin_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emin.value());
+  auto* emax_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emax.value());
 
-  REQUIRE(vmin_vec_ptr != nullptr);
-  REQUIRE(vmax_vec_ptr != nullptr);
+  REQUIRE(emin_vec_ptr != nullptr);
+  REQUIRE(emax_vec_ptr != nullptr);
 
-  CHECK(vmin_vec_ptr->size() == 4);
-  CHECK(vmax_vec_ptr->size() == 4);
+  CHECK(emin_vec_ptr->size() == 4);
+  CHECK(emax_vec_ptr->size() == 4);
 
-  CHECK((*vmin_vec_ptr)[0] == doctest::Approx(8000.0));
-  CHECK((*vmin_vec_ptr)[3] == doctest::Approx(9000.0));
-  CHECK((*vmax_vec_ptr)[0] == doctest::Approx(40000.0));
-  CHECK((*vmax_vec_ptr)[3] == doctest::Approx(42000.0));
+  CHECK((*emin_vec_ptr)[0] == doctest::Approx(8000.0));
+  CHECK((*emin_vec_ptr)[3] == doctest::Approx(9000.0));
+  CHECK((*emax_vec_ptr)[0] == doctest::Approx(40000.0));
+  CHECK((*emax_vec_ptr)[3] == doctest::Approx(42000.0));
 }

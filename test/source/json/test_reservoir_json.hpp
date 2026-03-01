@@ -15,8 +15,8 @@ TEST_CASE("Reservoir basic fields deserialization")
     "junction":456,
     "capacity":null,
     "annual_loss":null,
-    "vmin":null,
-    "vmax":null,
+    "emin":null,
+    "emax":null,
     "vcost":null,
     "vini":null,
     "vfin":null
@@ -31,8 +31,8 @@ TEST_CASE("Reservoir basic fields deserialization")
   CHECK(std::get<Uid>(res.junction) == 456);
   CHECK_FALSE(res.capacity.has_value());
   CHECK_FALSE(res.annual_loss.has_value());
-  CHECK_FALSE(res.vmin.has_value());
-  CHECK_FALSE(res.vmax.has_value());
+  CHECK_FALSE(res.emin.has_value());
+  CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.vcost.has_value());
   CHECK_FALSE(res.vini.has_value());
   CHECK_FALSE(res.vfin.has_value());
@@ -46,8 +46,8 @@ TEST_CASE("Reservoir optional fields deserialization")
     "junction":12,
     "capacity":1.0,
     "annual_loss":0.05,
-    "vmin":100.0,
-    "vmax":1000.0,
+    "emin":100.0,
+    "emax":1000.0,
     "vcost":5.0,
     "vini":500.0,
     "vfin":600.0
@@ -57,8 +57,8 @@ TEST_CASE("Reservoir optional fields deserialization")
   CHECK(res.capacity.has_value());
   CHECK(std::get<double>(res.capacity.value_or(-1.0)) == 1.0);
   CHECK(std::get<double>(res.annual_loss.value_or(-1.0)) == 0.05);
-  CHECK(std::get<double>(res.vmin.value_or(-1.0)) == 100.0);
-  CHECK(std::get<double>(res.vmax.value_or(-1.0)) == 1000.0);
+  CHECK(std::get<double>(res.emin.value_or(-1.0)) == 100.0);
+  CHECK(std::get<double>(res.emax.value_or(-1.0)) == 1000.0);
   CHECK(std::get<double>(res.vcost.value_or(-1.0)) == 5.0);
   CHECK(res.vini.value_or(-1.0) == 500.0);
   CHECK(res.vfin.value_or(-1.0) == 600.0);
@@ -75,7 +75,7 @@ TEST_CASE("Reservoir array deserialization")
     "name":"ReservoirB",
     "junction":457,
     "capacity":1.0,
-    "vmax":1000.0
+    "emax":1000.0
   }])";
 
   std::vector<Reservoir> reservoirs =
@@ -90,7 +90,7 @@ TEST_CASE("Reservoir array deserialization")
   CHECK(reservoirs[1].name == "ReservoirB");
   CHECK(std::get<Uid>(reservoirs[1].junction) == 457);
   CHECK(std::get<double>(reservoirs[1].capacity.value_or(-1.0)) == 1.0);
-  CHECK(std::get<double>(reservoirs[1].vmax.value_or(-1.0)) == 1000.0);
+  CHECK(std::get<double>(reservoirs[1].emax.value_or(-1.0)) == 1000.0);
 }
 
 TEST_CASE("Reservoir roundtrip serialization")
@@ -102,8 +102,8 @@ TEST_CASE("Reservoir roundtrip serialization")
       .junction = SingleId {Uid {456}},
       .capacity = OptTRealFieldSched {1.0},
       .annual_loss = OptTRealFieldSched {0.05},
-      .vmin = OptTRealFieldSched {100.0},
-      .vmax = OptTRealFieldSched {1000.0},
+      .emin = OptTRealFieldSched {100.0},
+      .emax = OptTRealFieldSched {1000.0},
       .vcost = OptTRealFieldSched {5.0},
       .vini = OptReal {500.0},
       .vfin = OptReal {600.0},
@@ -129,10 +129,10 @@ TEST_CASE("Reservoir roundtrip serialization")
   CHECK(roundtrip.annual_loss.has_value());
   CHECK(roundtrip.annual_loss.value_or(-1.0)
         == original.annual_loss.value_or(-2.0));
-  CHECK(roundtrip.vmin.has_value());
-  CHECK(roundtrip.vmin.value_or(-1.0) == original.vmin.value_or(-2.0));
-  CHECK(roundtrip.vmax.has_value());
-  CHECK(roundtrip.vmax.value_or(-1.0) == original.vmax.value_or(-2.0));
+  CHECK(roundtrip.emin.has_value());
+  CHECK(roundtrip.emin.value_or(-1.0) == original.emin.value_or(-2.0));
+  CHECK(roundtrip.emax.has_value());
+  CHECK(roundtrip.emax.value_or(-1.0) == original.emax.value_or(-2.0));
   CHECK(roundtrip.vcost.has_value());
   CHECK(roundtrip.vcost.value_or(-1.0) == original.vcost.value_or(-2.0));
   CHECK(roundtrip.vini.has_value());
@@ -156,8 +156,8 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK_FALSE(res.active.has_value());
   CHECK_FALSE(res.capacity.has_value());
   CHECK_FALSE(res.annual_loss.has_value());
-  CHECK_FALSE(res.vmin.has_value());
-  CHECK_FALSE(res.vmax.has_value());
+  CHECK_FALSE(res.emin.has_value());
+  CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.vcost.has_value());
   CHECK_FALSE(res.vini.has_value());
   CHECK_FALSE(res.vfin.has_value());
