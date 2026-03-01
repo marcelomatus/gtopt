@@ -47,8 +47,7 @@ def test_parse_multiple_batteries(tmp_path):
     """Test parsing multiple batteries."""
     f = tmp_path / "plpmanbat.dat"
     f.write_text(
-        "2\nBAT_A\n1\n5  0.0  100.0\n"
-        "BAT_B\n2\n3  0.0  200.0\n4  50.0  200.0\n"
+        "2\nBAT_A\n1\n5  0.0  100.0\nBAT_B\n2\n3  0.0  200.0\n4  50.0  200.0\n"
     )
     parser = ManbatParser(f)
     parser.parse()

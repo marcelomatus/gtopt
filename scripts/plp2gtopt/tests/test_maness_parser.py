@@ -90,12 +90,7 @@ def test_parse_skip_zero_blocks(tmp_path):
     """Test that entries with num_blocks <= 0 are skipped."""
     f = tmp_path / "plpmaness.dat"
     f.write_text(
-        " 2\n"
-        "'ESS_SKIP'\n"
-        "  0\n"
-        "'ESS_OK'\n"
-        "  1\n"
-        "   1    0.0   100.0   0.0   30.0   1\n"
+        " 2\n'ESS_SKIP'\n  0\n'ESS_OK'\n  1\n   1    0.0   100.0   0.0   30.0   1\n"
     )
     parser = ManessParser(f)
     parser.parse()
@@ -126,12 +121,7 @@ def test_parse_with_comments(tmp_path):
 def test_parse_without_dcmod(tmp_path):
     """Test that DCMod is optional (defaults to 1 like Fortran fallback)."""
     f = tmp_path / "plpmaness.dat"
-    f.write_text(
-        " 1\n"
-        "'ESS_NOMOD'\n"
-        "  1\n"
-        "   5    0.0   200.0   0.0   60.0\n"
-    )
+    f.write_text(" 1\n'ESS_NOMOD'\n  1\n   5    0.0   200.0   0.0   60.0\n")
     parser = ManessParser(f)
     parser.parse()
     m = parser.manesses[0]
