@@ -230,8 +230,8 @@ class JunctionWriter(BaseWriter):
             central_name + "_ver",
             central_id,
             central["ser_ver"],
-            central["vert_min"],
-            central["vert_max"],
+            central.get("vert_min", 0.0),
+            central.get("vert_max", 0.0),
         )
 
         # Add waterways if they exist

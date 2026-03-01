@@ -1,0 +1,4 @@
+# Archivo de configuracion de lineas (plpcnfli.dat)
+# Num.Lineas   Modela Perdidas  Perd.en.ERM   Ang. de Ref.
+         0          F             'M'         1000.d0
+# Nombre   F.Max.A-B  F.Max.B-A  Barra A  Barra B  Tension  R(Ohm)  X(ohm)  Mod.Perd.  Num.Tramos  Operativa
