@@ -614,6 +614,7 @@ def test_min_hydro_json_structure(tmp_path):
     assert len(sys["generator_array"]) == 1
     g = sys["generator_array"][0]
     assert g["name"] == "HydroGen"
+    assert g["type"] == "pasada"
     assert g["gcost"] == pytest.approx(0.0)
     assert g["pmax"] == pytest.approx(200.0)
     assert g["bus"] == 1
