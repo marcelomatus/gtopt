@@ -2,17 +2,22 @@
 
 """Parser for plpmaness.dat format files containing ESS maintenance data.
 
-File format (block-style, identical to plpmanbess.dat):
+File format (from PLP Fortran ``genpdess.f`` ``LeeManEss``):
 
-  # Numero de ESS con mantenimiento
+  # header comment
+  # header comment
    N
-  # Nombre de la ESS
-  'ESS_NAME'
-  # Numero de Etapas con mantenimiento
-    K
-  # Mes  Etapa  PMaxC  PMaxD
-     01    001    0.0    0.0
+  # comment
+  ESS_NAME               (quoted or unquoted)
+  # comment
+     K                   (number of blocks)
+  # comment
+     IBind  Emin  Emax  DCMin  DCMax  [DCMod]
      ...
+
+Each data line has 5-6 fields: block index, minimum energy (MWh),
+maximum energy (MWh), minimum charge/discharge power (MW),
+maximum charge/discharge power (MW), optional charge mode.
 """
 
 from typing import Any, Dict, List, Optional
@@ -55,38 +60,48 @@ class ManessParser(BaseParser):
             idx += 1
 
             if idx >= len(lines):
-                raise ValueError(f"Missing stage count for ESS '{name}'.")
-            num_stages = self._parse_int(lines[idx].split()[0])
+                raise ValueError(f"Missing block count for ESS '{name}'.")
+            num_blocks = self._parse_int(lines[idx].split()[0])
             idx += 1
 
-            if num_stages <= 0:
+            if num_blocks <= 0:
                 continue
 
-            stages = np.empty(num_stages, dtype=np.int32)
-            pmax_charge = np.empty(num_stages, dtype=np.float64)
-            pmax_discharge = np.empty(num_stages, dtype=np.float64)
+            block_index = np.empty(num_blocks, dtype=np.int32)
+            emin = np.empty(num_blocks, dtype=np.float64)
+            emax = np.empty(num_blocks, dtype=np.float64)
+            dcmin = np.empty(num_blocks, dtype=np.float64)
+            dcmax = np.empty(num_blocks, dtype=np.float64)
+            dcmod = np.empty(num_blocks, dtype=np.int32)
 
-            for i in range(num_stages):
+            for i in range(num_blocks):
                 if idx >= len(lines):
                     raise ValueError(
                         f"Unexpected end of maintenance entries for ESS '{name}'."
                     )
                 parts = lines[idx].split()
-                if len(parts) < 4:
+                if len(parts) < 5:
                     raise ValueError(
                         f"Invalid maintenance entry at line {idx + 1}: {lines[idx]}"
                     )
-                stages[i] = self._parse_int(parts[1])
-                pmax_charge[i] = self._parse_float(parts[2])
-                pmax_discharge[i] = self._parse_float(parts[3])
+                # Fortran: READ(line,*) IBind, Emin, Emax, DCMin, DCMax[, DCMod]
+                block_index[i] = self._parse_int(parts[0])
+                emin[i] = self._parse_float(parts[1])
+                emax[i] = self._parse_float(parts[2])
+                dcmin[i] = self._parse_float(parts[3])
+                dcmax[i] = self._parse_float(parts[4])
+                dcmod[i] = self._parse_int(parts[5]) if len(parts) > 5 else 1
                 idx += 1
 
             self._append(
                 {
                     "name": name,
-                    "stage": stages,
-                    "pmax_charge": pmax_charge,
-                    "pmax_discharge": pmax_discharge,
+                    "block_index": block_index,
+                    "emin": emin,
+                    "emax": emax,
+                    "dcmin": dcmin,
+                    "dcmax": dcmax,
+                    "dcmod": dcmod,
                 }
             )
 

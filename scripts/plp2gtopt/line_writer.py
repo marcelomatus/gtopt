@@ -24,7 +24,6 @@ class Line(TypedDict, total=False):
     tmax_ab: float | str
     tmax_ba: float | str
     voltage: float
-    is_hvdc: int
 
 
 class LineWriter(BaseWriter):
@@ -80,7 +79,6 @@ class LineWriter(BaseWriter):
                 "tmax_ab": tmax_ab,
                 "tmax_ba": tmax_ba,
                 "voltage": line["voltage"],
-                **({"is_hvdc": 1} if "hvdc" in line else {}),
             }
             json_lines.append(json_line)
 

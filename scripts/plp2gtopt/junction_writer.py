@@ -60,8 +60,8 @@ class Reservoir(TypedDict):
     junction: int
     vini: float
     vfin: float
-    vmin: float | str
-    vmax: float | str
+    emin: float | str
+    emax: float | str
     capacity: float
     fmin: float
     fmax: float
@@ -230,8 +230,8 @@ class JunctionWriter(BaseWriter):
             central_name + "_ver",
             central_id,
             central["ser_ver"],
-            central["vert_min"],
-            central["vert_max"],
+            central.get("vert_min", 0.0),
+            central.get("vert_max", 0.0),
         )
 
         # Add waterways if they exist
@@ -332,8 +332,8 @@ class JunctionWriter(BaseWriter):
             central_number = central["number"]
             pcol_name = self.pcol_name(central_name, central_number)
 
-            vmin = "vmin" if pcol_name in parquet_cols["vmin"] else central["vmin"]
-            vmax = "vmax" if pcol_name in parquet_cols["vmax"] else central["vmax"]
+            emin = "emin" if pcol_name in parquet_cols["emin"] else central["emin"]
+            emax = "emax" if pcol_name in parquet_cols["emax"] else central["emax"]
 
             reservoir: Reservoir = {
                 "uid": central["number"],
@@ -341,9 +341,9 @@ class JunctionWriter(BaseWriter):
                 "junction": central["number"],
                 "vini": central["vol_ini"],
                 "vfin": central["vol_fin"],
-                "vmin": vmin,
-                "vmax": vmax,
-                "capacity": central["vmax"],
+                "emin": emin,
+                "emax": emax,
+                "capacity": central["emax"],
                 "fmin": -12000.0,
                 "fmax": +6000.0,
                 "spillway_cost": 1.0,

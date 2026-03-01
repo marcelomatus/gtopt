@@ -7,14 +7,19 @@ Handles:
 - Battery maintenance data structure creation
 - Maintenance lookup by battery name
 
-File format (block-style; replaces the old plpmanbess.dat format, names are NOT quoted):
+File format (from PLP Fortran ``genpdbaterias.f`` ``LeeManBat``):
   N_batteries
   BATTERY_NAME     (NOT quoted)
-  N_stages
-  Mes  Etapa  PMaxC  PMaxD
+  N_blocks
+  IBind  EMin  EMax
   ...
 
-The maintenance overrides PMaxC and PMaxD per stage.
+Each data line has 3 fields: block index, minimum energy (MWh),
+maximum energy (MWh).  A value of -1 means "keep the default".
+
+The maintenance overrides BatEMin and BatEMax per block in PLP.
+In gtopt these map to Battery ``emin`` and ``emax`` schedules (normalised
+to capacity).
 """
 
 from typing import Any, Dict, List, Optional
@@ -53,44 +58,45 @@ class ManbatParser(BaseParser):
             if idx >= len(lines):
                 raise ValueError("Unexpected end of battery maintenance file.")
 
-            # Get battery name (NOT quoted, unlike plpmanbess.dat)
+            # Get battery name (NOT quoted)
             name = lines[idx].strip()
             idx += 1
 
-            # Get number of maintenance stages
+            # Get number of maintenance blocks
             if idx >= len(lines):
-                raise ValueError(f"Missing stage count for battery '{name}'.")
-            num_stages = self._parse_int(lines[idx].split()[0])
+                raise ValueError(f"Missing block count for battery '{name}'.")
+            num_blocks = self._parse_int(lines[idx].split()[0])
             idx += 1
 
-            if num_stages <= 0:
+            if num_blocks <= 0:
                 continue
 
-            stages = np.empty(num_stages, dtype=np.int32)
-            pmax_charge = np.empty(num_stages, dtype=np.float64)
-            pmax_discharge = np.empty(num_stages, dtype=np.float64)
+            block_index = np.empty(num_blocks, dtype=np.int32)
+            emin = np.empty(num_blocks, dtype=np.float64)
+            emax = np.empty(num_blocks, dtype=np.float64)
 
-            for i in range(num_stages):
+            for i in range(num_blocks):
                 if idx >= len(lines):
                     raise ValueError(
                         f"Unexpected end of maintenance entries for battery '{name}'."
                     )
                 parts = lines[idx].split()
-                if len(parts) < 4:
+                if len(parts) < 3:
                     raise ValueError(
                         f"Invalid maintenance entry at line {idx + 1}: {lines[idx]}"
                     )
-                stages[i] = self._parse_int(parts[1])
-                pmax_charge[i] = self._parse_float(parts[2])
-                pmax_discharge[i] = self._parse_float(parts[3])
+                # Fortran: READ(URead, *) IBind, EMin, EMax
+                block_index[i] = self._parse_int(parts[0])
+                emin[i] = self._parse_float(parts[1])
+                emax[i] = self._parse_float(parts[2])
                 idx += 1
 
             self._append(
                 {
                     "name": name,
-                    "stage": stages,
-                    "pmax_charge": pmax_charge,
-                    "pmax_discharge": pmax_discharge,
+                    "block_index": block_index,
+                    "emin": emin,
+                    "emax": emax,
                 }
             )
 

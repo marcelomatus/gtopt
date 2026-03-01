@@ -1,0 +1,10 @@
+# Archivo de caudales por etapa (plpaflce.dat)
+# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)
+  1                                         1
+# Nombre de la central
+'Reservoir1'
+# Numero de Bloques con caudales
+2
+# Datos: Mes  Bloque  Hidro1
+   01    001    20.0
+   01    002    25.0

@@ -25,7 +25,6 @@ class Generator(TypedDict):
     bus: int
     gcost: float | str
     capacity: float
-    efficiency: float
     pmax: float | str
     pmin: float | str
     type: str
@@ -103,7 +102,6 @@ class CentralWriter(BaseWriter):
                 "bus": bus_number,
                 "gcost": gcost,
                 "capacity": central["pmax"],
-                "efficiency": central["efficiency"],
                 "pmax": pmax,
                 "pmin": pmin,
                 "type": central.get("type", "unknown"),

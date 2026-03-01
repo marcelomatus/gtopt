@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from plp2gtopt.battery_writer import BATTERY_UID_OFFSET
 from plp2gtopt.main import main
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
@@ -22,8 +21,6 @@ _PLPMin2Bus = _CASES_DIR / "plp_min_2bus"
 _PLPMinBess = _CASES_DIR / "plp_min_bess"
 _PLPMinBattery = _CASES_DIR / "plp_min_battery"
 _PLPMinEss = _CASES_DIR / "plp_min_ess"
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -317,7 +314,7 @@ def test_min_bess_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert bat["vini"] == pytest.approx(0.50)
+    assert "vini" not in bat  # vini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -345,12 +342,13 @@ def test_min_bess_conversion(tmp_path):
 
     bess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
     assert bess_dem["bus"] == 1
-    assert bess_dem["lmax"] == "lmax"
+    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
+    assert bess_dem["lmax"] == pytest.approx(50.0)
 
 
 @pytest.mark.integration
 def test_min_bess_lmax_parquet(tmp_path):
-    """plp_min_bess: lmax.parquet contains both thermal and BESS charge columns."""
+    """plp_min_bess: lmax.parquet contains the thermal demand column."""
 
     opts = _make_opts(_PLPMinBess, tmp_path, "plp_min_bess")
     convert_plp_case(opts)
@@ -364,11 +362,6 @@ def test_min_bess_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # BESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert bat_col in df.columns
-    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +405,7 @@ def test_min_battery_conversion(tmp_path):
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
-    assert bat["vini"] == pytest.approx(0.50)
+    assert "vini" not in bat  # vini not read from PLP files
 
     # 1 converter
     assert len(sys.get("converter_array", [])) == 1
@@ -440,12 +433,13 @@ def test_min_battery_conversion(tmp_path):
 
     bat_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
     assert bat_dem["bus"] == 1
-    assert bat_dem["lmax"] == "lmax"
+    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
+    assert bat_dem["lmax"] == pytest.approx(50.0)
 
 
 @pytest.mark.integration
 def test_min_battery_lmax_parquet(tmp_path):
-    """plp_min_battery: lmax.parquet contains both thermal and battery charge columns."""
+    """plp_min_battery: lmax.parquet contains the thermal demand column."""
     opts = _make_opts(_PLPMinBattery, tmp_path, "plp_min_battery")
     convert_plp_case(opts)
 
@@ -458,11 +452,6 @@ def test_min_battery_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # Battery charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    bat_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert bat_col in df.columns
-    assert float(df[bat_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
@@ -504,9 +493,9 @@ def test_min_ess_conversion(tmp_path):
     assert bat["name"] == "BESS1"
     assert bat["input_efficiency"] == pytest.approx(0.95)
     assert bat["output_efficiency"] == pytest.approx(0.95)
-    # ESS capacity = pmax_discharge * hrs_reg = 50.0 * 4.0
-    assert bat["capacity"] == pytest.approx(50.0 * 4.0)
-    assert bat["vini"] == pytest.approx(0.50)
+    # ESS capacity = emax from plpess.dat = 200.0 MWh
+    assert bat["capacity"] == pytest.approx(200.0)
+    assert "vini" not in bat  # vini not read from PLP files
     # ESS has no active restriction
     assert "active" not in bat
 
@@ -520,16 +509,24 @@ def test_min_ess_conversion(tmp_path):
     assert "Thermal1" in gen_names
     assert "BESS1_disch" in gen_names
 
+    ess_gen = next(g for g in gens if g["name"] == "BESS1_disch")
+    assert ess_gen["pmax"] == pytest.approx(50.0)  # dcmax from plpess.dat
+    assert ess_gen["gcost"] == pytest.approx(0.0)
+
     # 2 demands: 1 thermal + 1 ESS charge
     dems = sys.get("demand_array", [])
     assert len(dems) == 2
     dem_names = {d["name"] for d in dems}
     assert "BESS1_chrg" in dem_names
 
+    ess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
+    # Without maintenance, lmax is a scalar (pmax_charge = dcmax)
+    assert ess_dem["lmax"] == pytest.approx(50.0)
+
 
 @pytest.mark.integration
 def test_min_ess_lmax_parquet(tmp_path):
-    """plp_min_ess: lmax.parquet contains both thermal and ESS charge columns."""
+    """plp_min_ess: lmax.parquet contains the thermal demand column."""
     opts = _make_opts(_PLPMinEss, tmp_path, "plp_min_ess")
     convert_plp_case(opts)
 
@@ -542,11 +539,6 @@ def test_min_ess_lmax_parquet(tmp_path):
     # Thermal demand column (bus uid = 1)
     assert "uid:1" in df.columns
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
-
-    # ESS charge column – bat central BESS1 has number=2 → uid = BATTERY_UID_OFFSET + 2
-    ess_col = f"uid:{BATTERY_UID_OFFSET + 2}"
-    assert ess_col in df.columns
-    assert float(df[ess_col].iloc[0]) == pytest.approx(50.0)
 
 
 # ---------------------------------------------------------------------------
@@ -846,3 +838,124 @@ def test_min_manli_lmax_parquet(tmp_path):
 
     assert float(df[df["block"] == 1]["uid:1"].iloc[0]) == pytest.approx(80.0)
     assert float(df[df["block"] == 1]["uid:2"].iloc[0]) == pytest.approx(120.0)
+
+
+# ---------------------------------------------------------------------------
+# plp_min_reservoir – single-bus hydro reservoir (embalse) with turbine and
+# flow.  Validates the full hydro system: junction, waterway, reservoir,
+# turbine, and flow arrays.
+# ---------------------------------------------------------------------------
+
+_PLPMinReservoir = _CASES_DIR / "plp_min_reservoir"
+
+
+@pytest.mark.integration
+def test_min_reservoir_parse():
+    """plp_min_reservoir: parser loads embalse + serie + falla centrals."""
+    parser = PLPParser({"input_dir": _PLPMinReservoir})
+    parser.parse_all()
+
+    cp = parser.parsed_data["central_parser"]
+    assert cp.num_embalses == 1
+    assert cp.num_series == 1
+    assert cp.num_fallas == 1
+
+    embalse = cp.get_item_by_name("Reservoir1")
+    assert embalse is not None
+    assert embalse["type"] == "embalse"
+    assert embalse["pmax"] == pytest.approx(100.0)
+    assert embalse["emin"] == pytest.approx(100.0)
+    assert embalse["emax"] == pytest.approx(1000.0)
+    assert embalse["vol_ini"] == pytest.approx(500.0)
+    assert embalse["vol_fin"] == pytest.approx(400.0)
+
+
+@pytest.mark.integration
+def test_min_reservoir_conversion(tmp_path):
+    """plp_min_reservoir: JSON output has reservoir, junction, waterway, turbine, flow."""
+    opts = _make_opts(_PLPMinReservoir, tmp_path, "plp_min_reservoir")
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sys_data = data["system"]
+
+    # Reservoir
+    reservoirs = sys_data.get("reservoir_array", [])
+    assert len(reservoirs) == 1
+    rsv = reservoirs[0]
+    assert rsv["name"] == "Reservoir1"
+    assert rsv["junction"] == 1
+    assert rsv["emin"] == pytest.approx(100.0)
+    assert rsv["emax"] == pytest.approx(1000.0)
+    assert rsv["capacity"] == pytest.approx(1000.0)
+    assert rsv["vini"] == pytest.approx(500.0)
+    assert rsv["vfin"] == pytest.approx(400.0)
+    assert rsv["flow_conversion_rate"] == pytest.approx(3.6 / 1000.0)
+
+    # Junctions (embalse + serie)
+    junctions = sys_data.get("junction_array", [])
+    assert len(junctions) == 2
+    j_names = {j["name"] for j in junctions}
+    assert "Reservoir1" in j_names
+    assert "TurbineGen" in j_names
+    # Embalse junction is not a drain
+    rsv_j = next(j for j in junctions if j["name"] == "Reservoir1")
+    assert rsv_j["drain"] is False
+    # Serie without downstream is a drain
+    turb_j = next(j for j in junctions if j["name"] == "TurbineGen")
+    assert turb_j["drain"] is True
+
+    # Waterway connects embalse → serie
+    waterways = sys_data.get("waterway_array", [])
+    assert len(waterways) == 1
+    ww = waterways[0]
+    assert ww["junction_a"] == 1  # Reservoir1
+    assert ww["junction_b"] == 2  # TurbineGen
+
+    # Turbine links waterway to generator
+    turbines = sys_data.get("turbine_array", [])
+    assert len(turbines) == 1
+    assert turbines[0]["generator"] == 1  # Reservoir1 uid
+    assert turbines[0]["waterway"] == ww["uid"]
+
+    # Flow (afluent) is a parquet reference
+    flows = sys_data.get("flow_array", [])
+    assert len(flows) == 1
+    assert flows[0]["junction"] == 1
+    assert flows[0]["discharge"] == "Afluent@afluent"
+
+    # Generators: embalse + serie (no falla)
+    gens = sys_data.get("generator_array", [])
+    assert len(gens) == 2
+    gen_names = {g["name"] for g in gens}
+    assert "Reservoir1" in gen_names
+    assert "TurbineGen" in gen_names
+    assert "Falla1" not in gen_names
+
+    # Generator types preserved
+    rsv_g = next(g for g in gens if g["name"] == "Reservoir1")
+    assert rsv_g["type"] == "embalse"
+    turb_g = next(g for g in gens if g["name"] == "TurbineGen")
+    assert turb_g["type"] == "serie"
+
+
+@pytest.mark.integration
+def test_min_reservoir_afluent_parquet(tmp_path):
+    """plp_min_reservoir: Afluent/afluent.parquet contains reservoir inflows."""
+    opts = _make_opts(_PLPMinReservoir, tmp_path, "plp_min_reservoir")
+    convert_plp_case(opts)
+
+    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
+    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+
+    df = pd.read_parquet(afluent_path)
+    assert "block" in df.columns
+    assert "uid:1" in df.columns  # Reservoir1 uid=1
+
+    # 1 scenario × 2 blocks = 2 rows
+    assert len(df) == 2
+
+    # Embalse afluent values are raw water inflows (not normalised)
+    values = sorted(df["uid:1"].tolist())
+    assert values[0] == pytest.approx(20.0)
+    assert values[1] == pytest.approx(25.0)

@@ -86,7 +86,6 @@ def test_json_output_structure(
             "first_block",
             "count_block",
             "active",
-            "duration",
             "discount_factor",
         }
         assert isinstance(stage["uid"], int)

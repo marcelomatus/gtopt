@@ -55,8 +55,8 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
           .name = "rsv1",
           .junction = Uid {1},
           .capacity = 1000.0,
-          .vmin = 0.0,
-          .vmax = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
           .vini = 500.0,
       },
   };
@@ -231,8 +231,8 @@ TEST_CASE("SystemLP with multi-stage hydro system")
           .name = "rsv1",
           .junction = Uid {1},
           .capacity = 2000.0,
-          .vmin = 100.0,
-          .vmax = 2000.0,
+          .emin = 100.0,
+          .emax = 2000.0,
           .vini = 1000.0,
       },
   };
