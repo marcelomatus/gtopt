@@ -221,7 +221,7 @@ def test_process_with_battery(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ESS path – plpess.dat format: Nombre nc nd mloss emax dcmax [dcmod] [cenpc]
+# ESS path – plpess.dat format: Nombre nd nc mloss emax dcmax [dcmod] [cenpc]
 # ---------------------------------------------------------------------------
 
 
@@ -336,8 +336,12 @@ def test_process_with_ess(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_battery_maintenance_sets_pmax_reference(tmp_path):
-    """When manbat provides maintenance, discharge generator pmax is file ref."""
+def test_battery_maintenance_sets_vmin_vmax_reference(tmp_path):
+    """When manbat provides maintenance, battery vmin/vmax are file refs.
+
+    plpmanbat.dat modifies Emin/Emax (energy bounds) in Fortran, which map
+    to Battery vmin/vmax schedules in gtopt.
+    """
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n"
@@ -348,19 +352,49 @@ def test_battery_maintenance_sets_pmax_reference(tmp_path):
     )
     mp = _make_manbat_parser(
         tmp_path,
-        "1\nBESS1\n2\n1  1  45.0  50.0\n1  2  30.0  40.0\n",
+        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # With maintenance, vmin/vmax are file references
+    assert b["vmin"] == "vmin"
+    assert b["vmax"] == "vmax"
+
+
+def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
+    """plpmanbat.dat does NOT affect generator pmax (only Emin/Emax).
+
+    Discharge generator pmax should remain a scalar value.
+    """
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n"
+        " 1     BESS1\n"
+        " 1\n"
+        " BESS1_NEG     0.95\n"
+        " 1     0.95     0.0     200.0\n",
+    )
+    mp = _make_manbat_parser(
+        tmp_path,
+        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
     )
     writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
     gens = writer.to_generator_array()
 
     assert len(gens) == 1
     g = gens[0]
-    # With maintenance, pmax references parquet file
-    assert g["pmax"] == "pmax"
+    # plpmanbat only modifies energy bounds, NOT pmax
+    assert isinstance(g["pmax"], float)
 
 
-def test_battery_maintenance_sets_lmax_reference(tmp_path):
-    """When manbat provides maintenance, charge demand lmax is file ref."""
+def test_battery_maintenance_dem_lmax_is_scalar(tmp_path):
+    """plpmanbat.dat does NOT affect demand lmax (only Emin/Emax).
+
+    Charge demand lmax should remain a scalar value.
+    """
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n"
@@ -371,26 +405,26 @@ def test_battery_maintenance_sets_lmax_reference(tmp_path):
     )
     mp = _make_manbat_parser(
         tmp_path,
-        "1\nBESS1\n2\n1  1  45.0  50.0\n1  2  30.0  40.0\n",
+        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
     )
     writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
     dems = writer.to_demand_array()
 
     assert len(dems) == 1
     d = dems[0]
-    # With maintenance, lmax references parquet file
-    assert d["lmax"] == "lmax"
+    # plpmanbat only modifies energy bounds, NOT pmax/lmax
+    assert isinstance(d["lmax"], float)
 
 
 def test_ess_maintenance_sets_pmax_reference(tmp_path):
-    """When maness provides maintenance, ESS discharge gen pmax is file ref."""
+    """When maness provides maintenance with DCMax, gen pmax is file ref."""
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
     )
     mp = _make_maness_parser(
         tmp_path,
-        "1\n'ESS1'\n2\n1  1  40.0  45.0\n1  2  30.0  35.0\n",
+        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
     )
     writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
     gens = writer.to_generator_array()
@@ -400,8 +434,26 @@ def test_ess_maintenance_sets_pmax_reference(tmp_path):
     assert g["pmax"] == "pmax"
 
 
-def test_maintenance_parquet_written(tmp_path):
-    """process() with maintenance writes Generator/pmax.parquet and Demand/lmax.parquet."""
+def test_ess_maintenance_sets_lmax_reference(tmp_path):
+    """When maness provides maintenance with DCMax, dem lmax is file ref."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
+    )
+    mp = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
+    dems = writer.to_demand_array()
+
+    assert len(dems) == 1
+    d = dems[0]
+    assert d["lmax"] == "lmax"
+
+
+def test_maintenance_parquet_battery(tmp_path):
+    """process() with battery maintenance writes Battery/vmin.parquet and vmax.parquet."""
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n"
@@ -412,21 +464,58 @@ def test_maintenance_parquet_written(tmp_path):
     )
     mp = _make_manbat_parser(
         tmp_path,
-        "1\nBESS1\n2\n1  1  45.0  50.0\n1  2  30.0  40.0\n",
+        "1\nBESS1\n2\n1  0.0  180.0\n2  10.0  150.0\n",
     )
     writer = BatteryWriter(battery_parser=bp, manbat_parser=mp)
     writer.process([], [], tmp_path)
 
+    vmin_path = tmp_path / "Battery" / "vmin.parquet"
+    assert vmin_path.exists(), "Battery/vmin.parquet not written"
+    df_vmin = pd.read_parquet(vmin_path)
+    assert "uid:1" in df_vmin.columns
+    assert len(df_vmin) == 2
+    # vmin = emin / capacity: [0.0/200, 10.0/200] = [0.0, 0.05]
+    assert df_vmin["uid:1"].iloc[0] == pytest.approx(0.0)
+    assert df_vmin["uid:1"].iloc[1] == pytest.approx(10.0 / 200.0)
+
+    vmax_path = tmp_path / "Battery" / "vmax.parquet"
+    assert vmax_path.exists(), "Battery/vmax.parquet not written"
+    df_vmax = pd.read_parquet(vmax_path)
+    assert "uid:1" in df_vmax.columns
+    # vmax = emax / capacity: [180/200, 150/200] = [0.9, 0.75]
+    assert df_vmax["uid:1"].iloc[0] == pytest.approx(180.0 / 200.0)
+    assert df_vmax["uid:1"].iloc[1] == pytest.approx(150.0 / 200.0)
+
+
+def test_maintenance_parquet_ess(tmp_path):
+    """process() with ESS maintenance writes Battery+Generator+Demand parquet."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
+    )
+    mp = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
+    writer.process([], [], tmp_path)
+
+    # Battery energy bounds
+    vmin_path = tmp_path / "Battery" / "vmin.parquet"
+    assert vmin_path.exists()
+    vmax_path = tmp_path / "Battery" / "vmax.parquet"
+    assert vmax_path.exists()
+
+    # DC power bounds
     pmax_path = tmp_path / "Generator" / "pmax.parquet"
     assert pmax_path.exists(), "Generator/pmax.parquet not written"
     df_pmax = pd.read_parquet(pmax_path)
-    assert "uid:1" in df_pmax.columns
+    assert "uid:0" in df_pmax.columns  # uid=0 because no central_parser
     assert len(df_pmax) == 2
 
     lmax_path = tmp_path / "Demand" / "lmax.parquet"
     assert lmax_path.exists(), "Demand/lmax.parquet not written"
     df_lmax = pd.read_parquet(lmax_path)
-    assert "uid:1" in df_lmax.columns
     assert len(df_lmax) == 2
 
 
@@ -445,3 +534,5 @@ def test_no_maintenance_no_parquet(tmp_path):
 
     pmax_path = tmp_path / "Generator" / "pmax.parquet"
     assert not pmax_path.exists()
+    vmin_path = tmp_path / "Battery" / "vmin.parquet"
+    assert not vmin_path.exists()
