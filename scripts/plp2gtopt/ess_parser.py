@@ -7,8 +7,8 @@ Handles:
 - ESS data structure creation
 - ESS lookup by name or number
 
-File format (tabular, 7-8 fields per row after stripping # comments):
-  Nombre  nc  nd  mloss  emax  dcmax  dcmod  [cenpc]
+File format (tabular, 9 fields per row after stripping # comments):
+  Num  Nombre  Barra  PMaxC  PMaxD  nc  nd  HrsReg  VolIni
 
 The first non-empty line contains the number of ESS entries.
 Each subsequent line contains the fields for one ESS entry.
@@ -57,27 +57,29 @@ class EssParser(BaseParser):
             idx += 1
 
             fields = line.split()
-            if len(fields) < 7:
+            if len(fields) < 9:
                 raise ValueError(f"Missing ESS fields in line: {line}")
 
-            name = fields[0].replace("'", "")
-            nc = self._parse_float(fields[1])
-            nd = self._parse_float(fields[2])
-            mloss = self._parse_float(fields[3])
-            emax = self._parse_float(fields[4])
-            dcmax = self._parse_float(fields[5])
-            dcmod = self._parse_float(fields[6])
-            cenpc = fields[7].strip().replace("'", "") if len(fields) > 7 else ""
+            number = self._parse_int(fields[0])
+            name = fields[1].replace("'", "")
+            bus = self._parse_int(fields[2])
+            pmax_charge = self._parse_float(fields[3])
+            pmax_discharge = self._parse_float(fields[4])
+            nc = self._parse_float(fields[5])
+            nd = self._parse_float(fields[6])
+            hrs_reg = self._parse_float(fields[7])
+            vol_ini = self._parse_float(fields[8])
 
             ess: Dict[str, Any] = {
+                "number": number,
                 "name": name,
+                "bus": bus,
+                "pmax_charge": pmax_charge,
+                "pmax_discharge": pmax_discharge,
                 "nc": nc,
                 "nd": nd,
-                "mloss": mloss,
-                "emax": emax,
-                "dcmax": dcmax,
-                "dcmod": dcmod,
-                "cenpc": cenpc,
+                "hrs_reg": hrs_reg,
+                "vol_ini": vol_ini,
             }
             self._append(ess)
 
