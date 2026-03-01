@@ -53,8 +53,8 @@ struct json_data_contract<Battery>
       json_variant_null<"vcost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Voltage cost
-      json_number_null<"vini", OptReal>,  ///< Initial voltage (optional)
-      json_number_null<"vfin", OptReal>,  ///< Final voltage (optional)
+      json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
+      json_number_null<"efin", OptReal>,  ///< Final energy (optional)
       json_variant_null<"capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Capacity
@@ -93,8 +93,8 @@ struct json_data_contract<Battery>
                                  battery.emin,
                                  battery.emax,
                                  battery.vcost,
-                                 battery.vini,
-                                 battery.vfin,
+                                 battery.eini,
+                                 battery.efin,
                                  battery.capacity,
                                  battery.expcap,
                                  battery.expmod,

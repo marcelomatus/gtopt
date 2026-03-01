@@ -57,7 +57,7 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
           .capacity = 1000.0,
           .emin = 0.0,
           .emax = 1000.0,
-          .vini = 500.0,
+          .eini = 500.0,
       },
   };
 
@@ -233,7 +233,7 @@ TEST_CASE("SystemLP with multi-stage hydro system")
           .capacity = 2000.0,
           .emin = 100.0,
           .emax = 2000.0,
-          .vini = 1000.0,
+          .eini = 1000.0,
       },
   };
 

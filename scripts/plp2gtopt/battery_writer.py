@@ -36,7 +36,7 @@ When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
   Each data line contains ``IBind EMin EMax`` (3 fields).
   These modify battery energy bounds per block.  In gtopt, they map to
   Battery ``emin``/``emax`` schedule files (``Battery/emin.parquet`` and
-  ``Battery/emax.parquet``), normalised by the battery capacity.
+  ``Battery/emax.parquet``).
 
 **plpmaness.dat** (ESS model, Fortran ``LeeManEss``):
   Each data line contains ``IBind Emin Emax DCMin DCMax [DCMod]`` (5-6 fields).
@@ -73,7 +73,7 @@ class BatteryEntry(TypedDict, total=False):
     output_efficiency: float
     emin: float
     emax: float
-    vini: float
+    eini: float
     capacity: float
 
 
@@ -246,15 +246,14 @@ class BatteryWriter(BaseWriter):
         for entry in entries:
             emax = entry["emax"]
             emin = entry["emin"]
-            emin_ratio = (emin / emax) if emax > 0.0 else 0.0
             has_man = entry.get("has_maintenance")
             bat: Dict[str, Any] = {
                 "uid": entry["number"],
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
-                "emin": "emin" if has_man else emin_ratio,
-                "emax": "emax" if has_man else 1.0,
+                "emin": "emin" if has_man else emin,
+                "emax": "emax" if has_man else emax,
                 "capacity": emax,
             }
             batteries.append(bat)
@@ -345,8 +344,8 @@ class BatteryWriter(BaseWriter):
         For entries with ``has_maintenance == True``, writes:
 
         **plpmanbat.dat** (battery model, ``man_data`` has ``emin``/``emax``):
-        - ``Battery/emin.parquet`` with per-block emin = emin/capacity
-        - ``Battery/emax.parquet`` with per-block emax = emax/capacity
+        - ``Battery/emin.parquet`` with per-block emin values
+        - ``Battery/emax.parquet`` with per-block emax values
 
         **plpmaness.dat** (ESS model, ``man_data`` has ``emin``/``emax``
         + ``dcmin``/``dcmax``):
@@ -373,8 +372,8 @@ class BatteryWriter(BaseWriter):
             if len(block_idx) > 0 and capacity > 0:
                 emin_data["block"] = list(block_idx)
                 emax_data["block"] = list(block_idx)
-                emin_data[col] = [e / capacity for e in man["emin"]]
-                emax_data[col] = [e / capacity for e in man["emax"]]
+                emin_data[col] = list(man["emin"])
+                emax_data[col] = list(man["emax"])
         if emin_data["block"]:
             pd.DataFrame(emin_data).to_parquet(bat_dir / "emin.parquet", index=False)
             pd.DataFrame(emax_data).to_parquet(bat_dir / "emax.parquet", index=False)

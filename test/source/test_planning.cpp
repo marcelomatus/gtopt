@@ -602,7 +602,7 @@ static constexpr std::string_view hydro_planning_json = R"({
         "junction": 1,
         "capacity": 1000,
         "emin": 0, "emax": 1000,
-        "vini": 500
+        "eini": 500
       }
     ],
     "turbine_array": [

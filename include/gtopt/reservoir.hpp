@@ -68,10 +68,10 @@ struct Reservoir
   OptTRealFieldSched vcost {};
   /// @brief Optional initial volume of water at the beginning of the
   /// optimization horizon.
-  OptReal vini {};
+  OptReal eini {};
   /// @brief Optional final (target) volume of water at the end of the
   /// optimization horizon.
-  OptReal vfin {};
+  OptReal efin {};
 
   OptReal fmin {-10'000.0};
   OptReal fmax {+10'000.0};
