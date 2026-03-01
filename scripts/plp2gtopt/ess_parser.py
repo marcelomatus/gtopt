@@ -8,20 +8,25 @@ Handles:
 - ESS lookup by name or number
 
 File format (tabular, 6-8 fields per row after stripping # comments):
-  Nombre  nc  nd  mloss  emax  dcmax  [dcmod]  [cenpc]
+  Nombre  nd  nc  mloss  emax  dcmax  [dcmod]  [cenpc]
 
 The first non-empty line contains the number of ESS entries.
 Each subsequent line contains the fields for one ESS entry.
 
-Field definitions (from PLP Fortran paress.f / genpdess.f):
+Field definitions (from PLP Fortran paress.f / genpdess.f LeeEss READ order):
   Nombre  – ESS name (must match a BAT central in plpcnfce.dat)
-  nc      – charge efficiency (p.u.)
   nd      – discharge efficiency (p.u.)
+  nc      – charge efficiency (p.u.)
   mloss   – monthly energy loss (% / month)
   emax    – maximum energy capacity (MWh)
   dcmax   – maximum discharge/charge power (MW)
   dcmod   – charge mode: 0 = standalone, 1 = coupled to cenpc (optional)
   cenpc   – primary charge central name (optional)
+
+Note: The Fortran READ statement is ``CenNombre, nd, nc, mloss, Emax, DCMax,
+DCMod, CenCarga`` (discharge efficiency first, then charge efficiency).  Some
+PLP data file comments label the columns as "nc nd" which reverses the names,
+but the Fortran reads nd first.
 """
 
 from typing import Any, Dict, List, Optional
@@ -70,10 +75,10 @@ class EssParser(BaseParser):
             if len(fields) < 6:
                 raise ValueError(f"Missing ESS fields in line: {line}")
 
-            # Format: Nombre  nc  nd  mloss  emax  dcmax  [dcmod]  [cenpc]
+            # Fortran READ order: CenNombre, nd, nc, mloss, Emax, DCMax, ...
             name = fields[0].replace("'", "")
-            nc = self._parse_float(fields[1])
-            nd = self._parse_float(fields[2])
+            nd = self._parse_float(fields[1])
+            nc = self._parse_float(fields[2])
             mloss = self._parse_float(fields[3])
             emax = self._parse_float(fields[4])
             dcmax = self._parse_float(fields[5])

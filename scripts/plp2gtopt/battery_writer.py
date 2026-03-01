@@ -30,11 +30,19 @@ UID allocation
 
 Maintenance schedules
 ---------------------
-When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-stage overrides for
-``pmax_charge`` and ``pmax_discharge``, the corresponding generator ``pmax`` and
-demand ``lmax`` fields reference Parquet files (``"pmax"`` / ``"lmax"``), and
-the block-level values are written to ``Generator/pmax.parquet`` and
-``Demand/lmax.parquet`` respectively.
+When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
+
+**plpmanbat.dat** (battery model, Fortran ``LeeManBat``):
+  Each data line contains ``IBind EMin EMax`` (3 fields).
+  These modify battery energy bounds per block.  In gtopt, they map to
+  Battery ``vmin``/``vmax`` schedule files (``Battery/vmin.parquet`` and
+  ``Battery/vmax.parquet``), normalised by the battery capacity.
+
+**plpmaness.dat** (ESS model, Fortran ``LeeManEss``):
+  Each data line contains ``IBind Emin Emax DCMin DCMax [DCMod]`` (5-6 fields).
+  Energy bounds map to Battery ``vmin``/``vmax`` schedules (same as above).
+  DC power bounds map to Generator ``pmax`` (``Generator/pmax.parquet``)
+  and Demand ``lmax`` (``Demand/lmax.parquet``) schedule files.
 """
 
 from pathlib import Path
@@ -185,9 +193,7 @@ class BatteryWriter(BaseWriter):
                         "pmax_discharge": pmax_discharge,
                         "annual_loss": mloss * 12,
                         "has_maintenance": man is not None,
-                        "man_stages": man["stage"] if man else None,
-                        "man_pmax_charge": (man["pmax_charge"] if man else None),
-                        "man_pmax_discharge": (man["pmax_discharge"] if man else None),
+                        "man_data": man,
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
@@ -223,9 +229,7 @@ class BatteryWriter(BaseWriter):
                         "pmax_discharge": pmax_discharge,
                         "annual_loss": 0.0,
                         "has_maintenance": man is not None,
-                        "man_stages": man["stage"] if man else None,
-                        "man_pmax_charge": (man["pmax_charge"] if man else None),
-                        "man_pmax_discharge": (man["pmax_discharge"] if man else None),
+                        "man_data": man,
                     }
                 )
 
@@ -243,13 +247,14 @@ class BatteryWriter(BaseWriter):
             emax = entry["emax"]
             emin = entry["emin"]
             vmin = (emin / emax) if emax > 0.0 else 0.0
+            has_man = entry.get("has_maintenance")
             bat: Dict[str, Any] = {
                 "uid": entry["number"],
                 "name": entry["name"],
                 "input_efficiency": entry["nc"],
                 "output_efficiency": entry["nd"],
-                "vmin": vmin,
-                "vmax": 1.0,
+                "vmin": "vmin" if has_man else vmin,
+                "vmax": "vmax" if has_man else 1.0,
                 "capacity": emax,
             }
             batteries.append(bat)
@@ -264,7 +269,9 @@ class BatteryWriter(BaseWriter):
         gens = []
         for entry in entries:
             pmax_d = entry["pmax_discharge"]
-            pmax_val: Any = "pmax" if entry.get("has_maintenance") else pmax_d
+            man = entry.get("man_data")
+            has_dc_man = man is not None and "dcmax" in man
+            pmax_val: Any = "pmax" if has_dc_man else pmax_d
             gens.append(
                 {
                     "uid": entry["number"],
@@ -286,8 +293,10 @@ class BatteryWriter(BaseWriter):
             entries = self._all_entries()
         dems = []
         for entry in entries:
+            man = entry.get("man_data")
+            has_dc_man = man is not None and "dcmax" in man
             lmax_val: Any = (
-                "lmax" if entry.get("has_maintenance") else entry["pmax_charge"]
+                "lmax" if has_dc_man else entry["pmax_charge"]
             )
             dems.append(
                 {
@@ -333,11 +342,19 @@ class BatteryWriter(BaseWriter):
     def _write_maintenance_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Write maintenance-schedule parquet files for battery gen/dem.
+        """Write maintenance-schedule parquet files for battery/ESS.
 
         For entries with ``has_maintenance == True``, writes:
-        - ``Generator/pmax.parquet`` with per-block pmax_discharge columns
-        - ``Demand/lmax.parquet`` with per-block pmax_charge columns
+
+        **plpmanbat.dat** (battery model, ``man_data`` has ``emin``/``emax``):
+        - ``Battery/vmin.parquet`` with per-block vmin = emin/capacity
+        - ``Battery/vmax.parquet`` with per-block vmax = emax/capacity
+
+        **plpmaness.dat** (ESS model, ``man_data`` has ``emin``/``emax``
+        + ``dcmin``/``dcmax``):
+        - ``Battery/vmin.parquet`` + ``Battery/vmax.parquet`` (energy bounds)
+        - ``Generator/pmax.parquet`` (dcmax → discharge gen pmax)
+        - ``Demand/lmax.parquet`` (dcmax → charge demand lmax)
         """
         import pandas as pd  # pylint: disable=import-outside-toplevel
 
@@ -345,31 +362,57 @@ class BatteryWriter(BaseWriter):
         if not man_entries:
             return
 
-        # Build Generator/pmax.parquet
+        # --- Battery energy bounds → Battery/vmin.parquet, Battery/vmax.parquet ---
+        bat_dir = output_dir / "Battery"
+        bat_dir.mkdir(parents=True, exist_ok=True)
+        vmin_data: Dict[str, Any] = {"block": []}
+        vmax_data: Dict[str, Any] = {"block": []}
+        for entry in man_entries:
+            man = entry["man_data"]
+            col = f"uid:{entry['number']}"
+            block_idx = man["block_index"]
+            capacity = entry["emax"]
+            if len(block_idx) > 0 and capacity > 0:
+                vmin_data["block"] = list(block_idx)
+                vmax_data["block"] = list(block_idx)
+                vmin_data[col] = [e / capacity for e in man["emin"]]
+                vmax_data[col] = [e / capacity for e in man["emax"]]
+        if vmin_data["block"]:
+            pd.DataFrame(vmin_data).to_parquet(bat_dir / "vmin.parquet", index=False)
+            pd.DataFrame(vmax_data).to_parquet(bat_dir / "vmax.parquet", index=False)
+
+        # --- DC power bounds (ESS only) → Generator/pmax, Demand/lmax ---
+        has_dc = any("dcmax" in e.get("man_data", {}) for e in man_entries)
+        if not has_dc:
+            return
+
         gen_dir = output_dir / "Generator"
         gen_dir.mkdir(parents=True, exist_ok=True)
         pmax_data: Dict[str, Any] = {"block": []}
         for entry in man_entries:
+            man = entry["man_data"]
+            if "dcmax" not in man:
+                continue
             col = f"uid:{entry['number']}"
-            stages = entry["man_stages"]
-            vals = entry["man_pmax_discharge"]
-            if len(stages) > 0:
-                pmax_data["block"] = list(range(1, len(stages) + 1))
-                pmax_data[col] = list(vals)
+            block_idx = man["block_index"]
+            if len(block_idx) > 0:
+                pmax_data["block"] = list(block_idx)
+                pmax_data[col] = list(man["dcmax"])
         if pmax_data["block"]:
             pd.DataFrame(pmax_data).to_parquet(gen_dir / "pmax.parquet", index=False)
 
-        # Build Demand/lmax.parquet (charge path)
         dem_dir = output_dir / "Demand"
         dem_dir.mkdir(parents=True, exist_ok=True)
         lmax_data: Dict[str, Any] = {"block": []}
         for entry in man_entries:
+            man = entry["man_data"]
+            if "dcmax" not in man:
+                continue
             col = f"uid:{entry['number']}"
-            stages = entry["man_stages"]
-            vals = entry["man_pmax_charge"]
-            if len(stages) > 0:
-                lmax_data["block"] = list(range(1, len(stages) + 1))
-                lmax_data[col] = list(vals)
+            block_idx = man["block_index"]
+            if len(block_idx) > 0:
+                lmax_data["block"] = list(block_idx)
+                lmax_data[col] = list(man["dcmax"])
         if lmax_data["block"]:
             pd.DataFrame(lmax_data).to_parquet(dem_dir / "lmax.parquet", index=False)
 

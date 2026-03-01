@@ -25,12 +25,12 @@ def test_parse_zero_esses(tmp_path):
 
 
 def test_parse_single_ess(tmp_path):
-    """Test parsing a single ESS entry (Nombre nc nd mloss emax dcmax)."""
+    """Test parsing a single ESS entry (Nombre nd nc mloss emax dcmax)."""
     f = tmp_path / "plpess.dat"
     f.write_text(
         "# Numero de ESS\n"
         " 1\n"
-        "# CenNom  nc  nd  mloss  Emax  DCMax  [DCMod CenPC]\n"
+        "# CenNom  nd  nc  mloss  Emax  DCMax  [DCMod CenPC]\n"
         "  ESS1    0.95  0.95   1.0   200.0  50.0   0\n"
     )
     parser = EssParser(f)
@@ -39,8 +39,8 @@ def test_parse_single_ess(tmp_path):
     assert parser.num_esses == 1
     e = parser.esses[0]
     assert e["name"] == "ESS1"
-    assert e["nc"] == pytest.approx(0.95)
     assert e["nd"] == pytest.approx(0.95)
+    assert e["nc"] == pytest.approx(0.95)
     assert e["mloss"] == pytest.approx(1.0)
     assert e["emax"] == pytest.approx(200.0)
     assert e["dcmax"] == pytest.approx(50.0)
@@ -58,8 +58,8 @@ def test_parse_ess_with_cenpc(tmp_path):
     assert parser.num_esses == 1
     e = parser.esses[0]
     assert e["name"] == "ALFALFAL_ERD"
-    assert e["nc"] == pytest.approx(0.9)
     assert e["nd"] == pytest.approx(0.9)
+    assert e["nc"] == pytest.approx(0.9)
     assert e["mloss"] == pytest.approx(1.0)
     assert e["emax"] == pytest.approx(244.3)
     assert e["dcmax"] == pytest.approx(59.3)
@@ -82,6 +82,7 @@ def test_parse_multiple_esses(tmp_path):
     assert parser.esses[0]["name"] == "ESS1"
     assert parser.esses[1]["name"] == "ESS2"
     assert parser.esses[1]["nc"] == pytest.approx(0.90)
+    assert parser.esses[1]["nd"] == pytest.approx(0.90)
     assert parser.esses[1]["emax"] == pytest.approx(100.0)
     assert parser.esses[1]["dcmod"] == 1
     assert parser.esses[1]["cenpc"] == "GEN_X"
@@ -117,6 +118,24 @@ def test_parse_minimal_fields(tmp_path):
     assert e["name"] == "MinESS"
     assert e["dcmod"] == 0
     assert e["cenpc"] == ""
+
+
+def test_parse_asymmetric_nd_nc(tmp_path):
+    """Verify field order matches Fortran: CenNombre nd nc mloss Emax DCMax.
+
+    In the Fortran LeeEss subroutine (genpdess.f) the READ statement is:
+        READ(line, *) CenNombre, nd, nc, mloss, Emax, DCMax, DCMod, CenCarga
+    So the first efficiency value (field[1]) is nd (discharge), and
+    the second (field[2]) is nc (charge).
+    """
+    f = tmp_path / "plpess.dat"
+    # File: Name nd=0.80 nc=0.70 mloss emax dcmax
+    f.write_text(" 1\n  ASYM_ESS  0.80  0.70  2.0  300.0  40.0  0\n")
+    parser = EssParser(f)
+    parser.parse()
+    e = parser.esses[0]
+    assert e["nd"] == pytest.approx(0.80)  # first value → discharge eff
+    assert e["nc"] == pytest.approx(0.70)  # second value → charge eff
 
 
 def test_parse_empty_file_raises(tmp_path):
