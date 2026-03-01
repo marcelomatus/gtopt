@@ -29,6 +29,7 @@ UID allocation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
+import pandas as pd
 
 from .base_writer import BaseWriter
 from .battery_parser import BatteryParser
@@ -38,6 +39,8 @@ from .stage_parser import StageParser
 from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
+
+BATTERY_UID_OFFSET = 10000
 
 # Default battery parameters used when only plpcnfce.dat BAT centrals are present
 _DEFAULT_FPC = 0.95
@@ -96,7 +99,6 @@ class BatteryWriter(BaseWriter):
         maness_parser: Optional[ManessParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Initialize the BatteryWriter with optional parsers and configuration options."""
         super().__init__(None, options)
         self.battery_parser = battery_parser
         self.ess_parser = ess_parser
@@ -130,67 +132,85 @@ class BatteryWriter(BaseWriter):
         2. plpcenbat.dat entries matched to BAT centrals (battery model)
         3. BAT centrals with no matching file → defaults applied
         """
-        batteries = self._bat_centrals()
+        bat = self._bat_centrals()
+        all_centrals = self._all_centrals_by_name()
         entries: List[Dict[str, Any]] = []
 
         if self.ess_parser and self.ess_parser.esses:
             # ESS path: capacity = pmax_discharge * hrs_reg
             for item in self.ess_parser.esses:
                 name = item["name"]
-                central = batteries.get(name, {})
-                uid = central.get("number", 0)
-                input_efficiency = item["nc"]
-                output_efficiency = item["nd"]
-                annual_loss = item["mloss"] * 12
-                vmax = item.get("emax", 0.0)
-                vmin = item.get("emin", 0.0)
-                pmax_discharge = central.get("pmax", 0.0)
-                pmax_charge = item.get("dcmax", pmax_discharge)
-
+                central = bat.get(name, {})
+                uid = central.get("number", item["number"])
+                pmax_d = central.get("pmax", item["pmax_discharge"])
+                bus = central.get("bus", item.get("bus", 0))
                 entries.append(
                     {
-                        "uid": uid,
+                        "number": uid,
                         "name": name,
-                        "input_efficiency": input_efficiency,
-                        "output_efficiency": output_efficiency,
-                        "annual_loss": annual_loss,
-                        "vmax": vmax,
-                        "vmin": vmin,
-                        "pmax_charge": pmax_charge,
-                        "pmax_discharge": pmax_discharge,
+                        "bus": bus,
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": item["pmax_charge"],
+                        "nc": item["nc"],
+                        "nd": item["nd"],
+                        "emax": pmax_d * item["hrs_reg"],
+                        "emin": 0.0,
+                        "vini": item["vol_ini"],
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
             for item in self.battery_parser.batteries:
                 name = item["name"]
-                central = batteries.get(name, {})
+                central = bat.get(name, {})
                 # UID and pmax_discharge come from BAT central (authoritative)
                 uid = central.get("number", item["number"])
+                pmax_d = central.get("pmax", 0.0)
+                # Bus comes from plpcenbat.dat (authoritative for new format)
+                bus = item.get("bus", central.get("bus", 0))
                 # Energy capacity directly from plpcenbat.dat
-                vmax = item.get("emax", 0.0)
-                vmin = item.get("emin", 0.0)
+                emax = item.get("emax", pmax_d * _DEFAULT_HRS_REG)
+                emin = item.get("emin", 0.0)
                 # Efficiencies from plpcenbat.dat
                 injections = item.get("injections", [])
-                input_efficiency = injections[0]["fpc"] if injections else _DEFAULT_FPC
-                output_efficiency = item.get("fpd", _DEFAULT_FPD)
-                pmax_discharge = central.get("pmax", 0.0)
-                pmax_charge = pmax_discharge
-
+                fpc = injections[0]["fpc"] if injections else _DEFAULT_FPC
+                fpd = item.get("fpd", _DEFAULT_FPD)
+                # pmax_charge: look up first injection central in plpcnfce.dat
+                pmax_c = pmax_d  # default fallback
+                if injections:
+                    inj_central = all_centrals.get(injections[0]["name"], {})
+                    pmax_c = inj_central.get("pmax", pmax_d)
                 entries.append(
                     {
-                        "uid": uid,
+                        "number": uid,
                         "name": name,
-                        "input_efficiency": input_efficiency,
-                        "output_efficiency": output_efficiency,
-                        "annual_loss": annual_loss,
-                        "vmax": vmax,
-                        "vmin": vmin,
-                        "pmax_charge": pmax_charge,
-                        "pmax_discharge": pmax_discharge,
+                        "bus": bus,
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": pmax_c,
+                        "nc": fpc,
+                        "nd": fpd,
+                        "emax": emax,
+                        "emin": emin,
+                        "vini": _DEFAULT_VINI,
                     }
                 )
         else:
-            pass
+            # No battery file - derive entries from BAT centrals with defaults
+            for name, central in bat.items():
+                pmax_d = central.get("pmax", 0.0)
+                entries.append(
+                    {
+                        "number": central["number"],
+                        "name": name,
+                        "bus": central.get("bus", 0),
+                        "pmax_discharge": pmax_d,
+                        "pmax_charge": pmax_d,
+                        "nc": _DEFAULT_FPC,
+                        "nd": _DEFAULT_FPD,
+                        "emax": pmax_d * _DEFAULT_HRS_REG,
+                        "emin": 0.0,
+                        "vini": _DEFAULT_VINI,
+                    }
+                )
 
         return entries
 
@@ -230,7 +250,7 @@ class BatteryWriter(BaseWriter):
             pmax_d = entry["pmax_discharge"]
             gens.append(
                 {
-                    "uid": entry["number"],
+                    "uid": BATTERY_UID_OFFSET + entry["number"],
                     "name": f"{entry['name']}_disch",
                     "bus": entry["bus"],
                     "pmin": 0.0,
@@ -251,10 +271,10 @@ class BatteryWriter(BaseWriter):
         for entry in entries:
             dems.append(
                 {
-                    "uid": entry["number"],
+                    "uid": BATTERY_UID_OFFSET + entry["number"],
                     "name": f"{entry['name']}_chrg",
-                    "bus": entry["busc"],
-                    "lmax": entry["pmax_charge"],
+                    "bus": entry["bus"],
+                    "lmax": "lmax",
                 }
             )
         return dems
@@ -273,9 +293,9 @@ class BatteryWriter(BaseWriter):
                     "uid": num,
                     "name": entry["name"],
                     "battery": num,
-                    "generator": num,
-                    "demand": num,
-                    "capacity": entry.get("capacity", entry["pmax_discharge"]),
+                    "generator": BATTERY_UID_OFFSET + num,
+                    "demand": BATTERY_UID_OFFSET + num,
+                    "capacity": entry["pmax_discharge"],
                 }
             )
         return convs
@@ -283,7 +303,40 @@ class BatteryWriter(BaseWriter):
     def _write_lmax_parquet(
         self, entries: List[Dict[str, Any]], output_dir: Path
     ) -> None:
-        """Do nothing by now."""
+        """Append battery charge-limit columns to Demand/lmax.parquet."""
+        if not entries:
+            return
+
+        lmax_path = output_dir / "lmax.parquet"
+        df = pd.read_parquet(lmax_path) if lmax_path.exists() else pd.DataFrame()
+
+        if df.empty or "block" not in df.columns:
+            df = pd.DataFrame({"block": [1]})
+
+        blocks = df["block"].tolist()
+
+        for entry in entries:
+            num = entry["number"]
+            col = f"uid:{BATTERY_UID_OFFSET + num}"
+            default_lmax = entry["pmax_charge"]
+            col_values = [default_lmax] * len(blocks)
+
+            # Apply per-stage maintenance overrides when available
+            if self._man_parser and "stage" in df.columns:
+                man = self._man_parser.get_item_by_name(entry["name"])
+                if man is not None:
+                    stage_lmax = {
+                        int(s): float(v)
+                        for s, v in zip(man["stage"], man["pmax_charge"])
+                    }
+                    col_values = [
+                        stage_lmax.get(int(stg), default_lmax)
+                        for stg in df["stage"].tolist()
+                    ]
+
+            df[col] = col_values
+
+        df.to_parquet(lmax_path, index=False, compression=self.get_compression())
 
     def process(
         self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
@@ -308,9 +361,9 @@ class BatteryWriter(BaseWriter):
                 "demand_array": existing_dem,
             }
 
-        # demand_dir = output_dir / "Demand"
-        # demand_dir.mkdir(parents=True, exist_ok=True)
-        # self._write_lmax_parquet(entries, demand_dir)
+        demand_dir = output_dir / "Demand"
+        demand_dir.mkdir(parents=True, exist_ok=True)
+        self._write_lmax_parquet(entries, demand_dir)
 
         return {
             "battery_array": self.to_battery_array(entries),
