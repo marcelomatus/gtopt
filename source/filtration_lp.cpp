@@ -32,8 +32,8 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
 
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
-  const auto vini_col = reservoir.vini_col_at(scenario, stage);
-  const auto vfin_col = reservoir.vfin_col_at(scenario, stage);
+  const auto eini_col = reservoir.eini_col_at(scenario, stage);
+  const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
   const auto& blocks = stage.blocks();
 
@@ -52,7 +52,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
         }
             .equal(constant());
 
-    frow[vini_col] = frow[vfin_col] = -slope() * 0.5;
+    frow[eini_col] = frow[efin_col] = -slope() * 0.5;
 
     frow[fcol] = 1;
 

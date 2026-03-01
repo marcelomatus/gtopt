@@ -18,8 +18,8 @@ TEST_CASE("Reservoir basic fields deserialization")
     "emin":null,
     "emax":null,
     "vcost":null,
-    "vini":null,
-    "vfin":null
+    "eini":null,
+    "efin":null
   })";
 
   Reservoir res = daw::json::from_json<Reservoir>(json_data);
@@ -34,8 +34,8 @@ TEST_CASE("Reservoir basic fields deserialization")
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.vcost.has_value());
-  CHECK_FALSE(res.vini.has_value());
-  CHECK_FALSE(res.vfin.has_value());
+  CHECK_FALSE(res.eini.has_value());
+  CHECK_FALSE(res.efin.has_value());
 }
 
 TEST_CASE("Reservoir optional fields deserialization")
@@ -49,8 +49,8 @@ TEST_CASE("Reservoir optional fields deserialization")
     "emin":100.0,
     "emax":1000.0,
     "vcost":5.0,
-    "vini":500.0,
-    "vfin":600.0
+    "eini":500.0,
+    "efin":600.0
   })";
 
   const Reservoir res = daw::json::from_json<Reservoir>(json_data);
@@ -60,8 +60,8 @@ TEST_CASE("Reservoir optional fields deserialization")
   CHECK(std::get<double>(res.emin.value_or(-1.0)) == 100.0);
   CHECK(std::get<double>(res.emax.value_or(-1.0)) == 1000.0);
   CHECK(std::get<double>(res.vcost.value_or(-1.0)) == 5.0);
-  CHECK(res.vini.value_or(-1.0) == 500.0);
-  CHECK(res.vfin.value_or(-1.0) == 600.0);
+  CHECK(res.eini.value_or(-1.0) == 500.0);
+  CHECK(res.efin.value_or(-1.0) == 600.0);
 }
 
 TEST_CASE("Reservoir array deserialization")
@@ -105,8 +105,8 @@ TEST_CASE("Reservoir roundtrip serialization")
       .emin = OptTRealFieldSched {100.0},
       .emax = OptTRealFieldSched {1000.0},
       .vcost = OptTRealFieldSched {5.0},
-      .vini = OptReal {500.0},
-      .vfin = OptReal {600.0},
+      .eini = OptReal {500.0},
+      .efin = OptReal {600.0},
   };
 
   auto json = daw::json::to_json(original);
@@ -135,10 +135,10 @@ TEST_CASE("Reservoir roundtrip serialization")
   CHECK(roundtrip.emax.value_or(-1.0) == original.emax.value_or(-2.0));
   CHECK(roundtrip.vcost.has_value());
   CHECK(roundtrip.vcost.value_or(-1.0) == original.vcost.value_or(-2.0));
-  CHECK(roundtrip.vini.has_value());
-  CHECK(roundtrip.vini.value_or(-1.0) == original.vini.value_or(-2.0));
-  CHECK(roundtrip.vfin.has_value());
-  CHECK(roundtrip.vfin.value_or(-1.0) == original.vfin.value_or(-2.0));
+  CHECK(roundtrip.eini.has_value());
+  CHECK(roundtrip.eini.value_or(-1.0) == original.eini.value_or(-2.0));
+  CHECK(roundtrip.efin.has_value());
+  CHECK(roundtrip.efin.value_or(-1.0) == original.efin.value_or(-2.0));
 }
 
 TEST_CASE("Reservoir with empty optional fields")
@@ -159,6 +159,6 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.vcost.has_value());
-  CHECK_FALSE(res.vini.has_value());
-  CHECK_FALSE(res.vfin.has_value());
+  CHECK_FALSE(res.eini.has_value());
+  CHECK_FALSE(res.efin.has_value());
 }

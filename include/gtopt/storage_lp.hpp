@@ -49,16 +49,16 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr auto vfin_col_at(const ScenarioLP& scenario,
+  [[nodiscard]] constexpr auto efin_col_at(const ScenarioLP& scenario,
                                            const StageLP& stage) const
   {
-    return vfin_cols.at({scenario.uid(), stage.uid()});
+    return efin_cols.at({scenario.uid(), stage.uid()});
   }
 
-  [[nodiscard]] constexpr auto vini_col_at(const ScenarioLP& scenario,
+  [[nodiscard]] constexpr auto eini_col_at(const ScenarioLP& scenario,
                                            const StageLP& stage) const
   {
-    return vini_cols.at({scenario.uid(), stage.uid()});
+    return eini_cols.at({scenario.uid(), stage.uid()});
   }
 
   template<typename SystemContextT>
@@ -98,11 +98,11 @@ public:
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
 
     const auto vicol = prev_stage
-        ? vfin_col_at(scenario, *prev_stage)
+        ? efin_col_at(scenario, *prev_stage)
         : lp.add_col({
-              .name = sc.lp_label(scenario, stage, cname, "vini", uid()),
-              .lowb = storage().vini.value_or(stage_emin),
-              .uppb = storage().vini.value_or(stage_emax),
+              .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
+              .lowb = storage().eini.value_or(stage_emin),
+              .uppb = storage().eini.value_or(stage_emax),
           });
 
     const auto& blocks = stage.blocks();
@@ -130,7 +130,7 @@ public:
       const auto vc = lp.add_col({
           .name = vrow.name,
           .lowb =
-              !is_last_block ? stage_emin : storage().vfin.value_or(stage_emin),
+              !is_last_block ? stage_emin : storage().efin.value_or(stage_emin),
           .uppb = stage_emax,
           .cost = stage_vcost,
       });
@@ -184,8 +184,8 @@ public:
 
     // storing the indices for this scenario and stage
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
-    vini_cols[st_key] = vicol;
-    vfin_cols[st_key] = prev_vc;
+    eini_cols[st_key] = vicol;
+    efin_cols[st_key] = prev_vc;
     volumen_rows[st_key] = std::move(vrows);
     volumen_cols[st_key] = std::move(vcols);
     if (drain_cost) {
@@ -204,10 +204,10 @@ public:
   {
     const auto pid = id();
 
-    out.add_col_sol(cname, "vini", pid, vini_cols);
-    out.add_col_cost(cname, "vini", pid, vini_cols);
-    out.add_col_sol(cname, "vfin", pid, vfin_cols);
-    out.add_col_cost(cname, "vfin", pid, vfin_cols);
+    out.add_col_sol(cname, "eini", pid, eini_cols);
+    out.add_col_cost(cname, "eini", pid, eini_cols);
+    out.add_col_sol(cname, "efin", pid, efin_cols);
+    out.add_col_cost(cname, "efin", pid, efin_cols);
 
     out.add_col_sol(cname, "volumen", pid, volumen_cols);
     out.add_col_cost(cname, "volumen", pid, volumen_cols);
@@ -233,8 +233,8 @@ private:
   STBIndexHolder<RowIndex> volumen_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 
-  STIndexHolder<ColIndex> vini_cols;
-  STIndexHolder<ColIndex> vfin_cols;
+  STIndexHolder<ColIndex> eini_cols;
+  STIndexHolder<ColIndex> efin_cols;
 };
 
 }  // namespace gtopt
