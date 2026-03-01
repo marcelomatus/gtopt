@@ -41,8 +41,8 @@ public:
                      const InputContext& ic,
                      const LPClassName& cname)
       : Object(std::forward<ObjectT>(pstorage), ic, cname)
-      , vmin(ic, cname.full_name(), id(), std::move(storage().vmin))
-      , vmax(ic, cname.full_name(), id(), std::move(storage().vmax))
+      , vmin(ic, cname.full_name(), id(), storage_emin(storage()))
+      , vmax(ic, cname.full_name(), id(), storage_emax(storage()))
       , vcost(ic, cname.full_name(), id(), std::move(storage().vcost))
       , annual_loss(
             ic, cname.full_name(), id(), std::move(storage().annual_loss))
@@ -222,6 +222,28 @@ public:
   }
 
 private:
+  /// Extract min energy/volume field: Battery uses emin, Reservoir uses vmin
+  template<typename S>
+  static constexpr OptTRealFieldSched storage_emin(S& s)
+  {
+    if constexpr (requires { s.emin; }) {
+      return std::move(s.emin);
+    } else {
+      return std::move(s.vmin);
+    }
+  }
+
+  /// Extract max energy/volume field: Battery uses emax, Reservoir uses vmax
+  template<typename S>
+  static constexpr OptTRealFieldSched storage_emax(S& s)
+  {
+    if constexpr (requires { s.emax; }) {
+      return std::move(s.emax);
+    } else {
+      return std::move(s.vmax);
+    }
+  }
+
   OptTRealSched vmin;
   OptTRealSched vmax;
   OptTRealSched vcost;

@@ -111,8 +111,8 @@ TEST_CASE("SystemLP with battery and converter")
           .name = "bat1",
           .input_efficiency = 0.95,
           .output_efficiency = 0.95,
-          .vmin = 0.0,
-          .vmax = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
           .capacity = 100.0,
       },
   };
