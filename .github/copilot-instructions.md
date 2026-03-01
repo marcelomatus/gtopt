@@ -559,7 +559,7 @@ python -m pytest -k "test_parse_single_bess" -q
 | `cvs2parquet/cvs2parquet.py` | 64% | High – CLI `main()` untested |
 | `igtopt/igtopt.py` | 69% | High – CLI `main()` untested |
 | `plp2gtopt/main.py` | 37% | High – CLI `main()` untested |
-| `maness_parser` | 22% | High – no test fixture with maness data |
+| `maness_parser` | 88% | — (improved from 22%) |
 
 `fail_under = 83` is enforced in `scripts/pyproject.toml`; `pytest --cov` will
 fail if total coverage drops below that threshold.
@@ -578,6 +578,37 @@ fail if total coverage drops below that threshold.
   in both the CLI (`main.py`) and integration tests.
 - Integration test fixtures live in `scripts/cases/`; use `_make_opts()` helper
   from `test_integration.py` to point them at a `tmp_path`.
+
+#### PLP file formats and Fortran field order
+
+All parsers match the PLP Fortran READ statements (source of truth in
+`marcelomatus/plp_storage` repo, `CEN65/src/` directory).
+
+| PLP file | Fortran subroutine | Fields per data line |
+|----------|-------------------|---------------------|
+| `plpess.dat` | `LeeEss` (genpdess.f) | `CenNombre nd nc mloss Emax DCMax [DCMod] [CenCarga]` |
+| `plpcenbat.dat` | `LeeCenBat` (genpdbaterias.f) | `BatInd BatNom`, `NIny`, `NomBatIny FPC` ×N, `BatBar FPD BatEMin BatEMax` |
+| `plpmanbat.dat` | `LeeManBat` (genpdbaterias.f) | `IBind EMin EMax` (3 fields per block) |
+| `plpmaness.dat` | `LeeManEss` (genpdess.f) | `IBind Emin Emax DCMin DCMax [DCMod]` (5-6 fields per block) |
+
+**Important**: In `plpess.dat` the Fortran READ order is `nd, nc` (discharge
+efficiency first, then charge efficiency).  Some PLP data file comments label
+the columns as "nc nd" but the Fortran reads nd first.
+
+#### Maintenance schedule mapping to gtopt
+
+| PLP file | Fortran modifies | gtopt mapping |
+|----------|-----------------|---------------|
+| `plpmanbat.dat` | `BatEMin(IBat,IBind)`, `BatEMax(IBat,IBind)` | Battery `vmin`/`vmax` schedules (normalised by capacity) |
+| `plpmaness.dat` | `Ess%Emin`, `Ess%Emax` | Battery `vmin`/`vmax` schedules |
+| `plpmaness.dat` | `Ess%DCMin`, `Ess%DCMax` | Generator `pmax` + Demand `lmax` schedules |
+
+When maintenance is present, the battery_writer:
+- Writes `Battery/vmin.parquet` and `Battery/vmax.parquet` with per-block values
+  normalised to capacity (applies to both plpmanbat and plpmaness).
+- For plpmaness.dat only (which has DCMin/DCMax): also writes
+  `Generator/pmax.parquet` and `Demand/lmax.parquet` for the discharge
+  generator and charge demand paths.
 
 ### Key facts for igtopt
 
