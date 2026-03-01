@@ -27,6 +27,7 @@ class Generator(TypedDict):
     capacity: float
     pmax: float | str
     pmin: float | str
+    type: str
 
 
 class CentralWriter(BaseWriter):
@@ -103,6 +104,7 @@ class CentralWriter(BaseWriter):
                 "capacity": central["pmax"],
                 "pmax": pmax,
                 "pmin": pmin,
+                "type": central.get("type", "unknown"),
             }
             json_centrals.append(generator)
 
