@@ -8,6 +8,7 @@
  * This module implements input data access using Arrow and Parquet
  */
 
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 
@@ -47,7 +48,7 @@ namespace
 
   // Read compressed stream in chunks into a buffer builder
   arrow::BufferBuilder builder;
-  constexpr int64_t chunk_size = 1024 * 1024;  // 1 MB chunks
+  constexpr auto chunk_size = static_cast<int64_t>(1024 * 1024);  // 1 MB chunks
   while (true) {
     ARROW_ASSIGN_OR_RAISE(auto chunk, stream->Read(chunk_size));
     if (chunk->size() == 0) {

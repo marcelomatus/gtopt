@@ -325,7 +325,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       const spdlog::stopwatch sw;
       PlanningLP planning_lp {std::move(my_planning),  // NOLINT
                               flat_opts};
-      spdlog::info(std::format("  Build lp {:.3f}s", sw.elapsed().count()));
+      spdlog::info(
+          std::format("  Build lp time {:.3f}s", sw.elapsed().count()));
 
       if (opts.lp_file) {
         planning_lp.write_lp(opts.lp_file.value());
@@ -384,7 +385,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       }
 
       if (!optimal) {
-        return 1;
+        return 1;  // non optimal solution found, but no critical error occurred
       }
 
       spdlog::info("=== Output writing ===");

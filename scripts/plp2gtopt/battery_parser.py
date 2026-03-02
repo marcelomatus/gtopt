@@ -93,7 +93,7 @@ class BatteryParser(BaseParser):
                 )
             bus = self._parse_int(params[0])
             fpd = self._parse_float(params[1])
-            emin = self._parse_float(params[2])  # Fixed: was _parse_floatplp
+            emin = self._parse_float(params[2])
             emax = self._parse_float(params[3])
             idx += 1
 
