@@ -2208,3 +2208,129 @@ class TestParquetNanHandling:
         rows = results["outputs"]["Test/values"]["data"]
         assert rows[0][2] is None  # +Inf → None
         assert rows[1][2] is None  # -Inf → None
+
+    def test_arrow_null_bitmap_produces_none(self):
+        """Arrow null bitmap (as produced by the C++ solver) must become None.
+
+        The C++ ``flat_helper`` marks missing solver entries using Arrow's
+        null bitmap.  When Python reads the parquet file, pandas converts
+        these to ``NaN``.  The guiservice must turn them into ``None``
+        (JSON ``null``) — matching how Arrow's CSV writer outputs empty
+        strings for the same nulls.
+        """
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from guiservice.app import _parse_results_zip
+
+        # Simulate what the C++ code produces: float64 array with null bitmap
+        scenario = pa.array([1, 1, 1], type=pa.int32())
+        stage = pa.array([1, 1, 1], type=pa.int32())
+        block = pa.array([1, 2, 3], type=pa.int32())
+        # uid:1 has value only at block 1; blocks 2-3 are null (missing)
+        uid1 = pa.array([42.0, None, None], type=pa.float64())
+        # uid:2 has values at all blocks
+        uid2 = pa.array([1.0, 2.0, 3.0], type=pa.float64())
+
+        table = pa.table(
+            {
+                "Scenario": scenario,
+                "Stage": stage,
+                "Block": block,
+                "uid:1": uid1,
+                "uid:2": uid2,
+            }
+        )
+
+        pq_buf = io.BytesIO()
+        pq.write_table(table, pq_buf)
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr(
+                "output/Generator/generation_sol.parquet", pq_buf.getvalue()
+            )
+        zip_buf.seek(0)
+
+        results = _parse_results_zip(zip_buf.getvalue())
+        output = results["outputs"]["Generator/generation_sol"]
+
+        # Prelude int32 columns must stay as integers
+        assert output["data"][0][0] == 1  # Scenario
+        assert isinstance(output["data"][0][0], int)
+
+        # uid:1 — null entries become None (JSON null)
+        assert output["data"][0][3] == 42.0  # valid value
+        assert output["data"][1][3] is None  # Arrow null → None
+        assert output["data"][2][3] is None  # Arrow null → None
+
+        # uid:2 — all valid
+        assert output["data"][0][4] == 1.0
+        assert output["data"][1][4] == 2.0
+        assert output["data"][2][4] == 3.0
+
+    def test_csv_and_parquet_null_consistency(self, client):
+        """CSV empty strings and parquet nulls both produce valid JSON.
+
+        When the C++ solver writes missing values:
+        - CSV format: Arrow writes empty strings → csv.reader reads ""
+        - Parquet format: Arrow writes null bitmap → pandas reads NaN
+          → _sanitize_value converts to None (JSON null)
+
+        Both must produce valid JSON responses from the results upload
+        endpoint.
+        """
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        # Build a results ZIP with both CSV and parquet outputs
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            # CSV with empty strings for missing values (as Arrow CSV writer
+            # produces)
+            zf.writestr(
+                "output/Generator/generation_sol.csv",
+                '"Scenario","Stage","Block","uid:1","uid:2"\n'
+                '1,1,1,42.0,1.0\n'
+                '1,1,2,,2.0\n'
+                '1,1,3,,3.0\n',
+            )
+
+            # Parquet with null bitmap for the same missing values
+            table = pa.table(
+                {
+                    "Scenario": pa.array([1, 1, 1], type=pa.int32()),
+                    "Stage": pa.array([1, 1, 1], type=pa.int32()),
+                    "Block": pa.array([1, 2, 3], type=pa.int32()),
+                    "uid:1": pa.array([42.0, None, None], type=pa.float64()),
+                    "uid:2": pa.array([1.0, 2.0, 3.0], type=pa.float64()),
+                }
+            )
+            pq_buf = io.BytesIO()
+            pq.write_table(table, pq_buf)
+            zf.writestr(
+                "output/Demand/load_sol.parquet", pq_buf.getvalue()
+            )
+        zip_buf.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (zip_buf, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+
+        # Must parse as valid JSON
+        data = json.loads(resp.data)
+
+        # CSV output: missing values are empty strings
+        csv_out = data["outputs"]["Generator/generation_sol.csv"]
+        assert csv_out["data"][0][3] == "42.0"
+        assert csv_out["data"][1][3] == ""  # missing → empty string
+        assert csv_out["data"][2][3] == ""  # missing → empty string
+
+        # Parquet output: missing values are None (JSON null)
+        pq_out = data["outputs"]["Demand/load_sol"]
+        assert pq_out["data"][0][3] == 42.0
+        assert pq_out["data"][1][3] is None  # missing → null
+        assert pq_out["data"][2][3] is None  # missing → null
