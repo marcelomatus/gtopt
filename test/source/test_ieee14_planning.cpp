@@ -30,6 +30,7 @@ static constexpr std::string_view ieee14_json = R"({
     "annual_discount_rate": 0.0,
     "use_lp_names": true,
     "output_format": "csv",
+    "output_compression": "uncompressed",
     "use_single_bus": false,
     "demand_fail_cost": 1000,
     "scale_objective": 1000,
