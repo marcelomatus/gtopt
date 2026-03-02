@@ -57,7 +57,7 @@ Global settings that control solver behavior and I/O formats.
 | `input_format`         | string   | Format of input files: `"csv"` or `"parquet"` |
 | `output_directory`     | string   | Directory for output files |
 | `output_format`        | string   | Format of output files: `"csv"` or `"parquet"` |
-| `compression_format`   | string   | Compression for output files |
+| `output_compression`   | string   | Compression for output files |
 
 ### Example
 
