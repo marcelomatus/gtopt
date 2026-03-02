@@ -59,8 +59,8 @@ struct Options
   OptName output_directory {};
   /** @brief Format of output files (e.g., "csv", "parquet") */
   OptName output_format {};
-  /** @brief Compression format for output files (e.g., "gzip") */
-  OptName compression_format {};
+  /** @brief Compression codec for output files (e.g., "gzip") */
+  OptName output_compression {};
   /** @brief Whether to use descriptive names in LP model for debugging */
   OptBool use_lp_names {};
   /** @brief Whether to use UIDs in filenames instead of names */
@@ -88,7 +88,7 @@ struct Options
     // Merge output-related options (always moving string values)
     merge_opt(output_directory, std::move(opts.output_directory));
     merge_opt(output_format, std::move(opts.output_format));
-    merge_opt(compression_format, std::move(opts.compression_format));
+    merge_opt(output_compression, std::move(opts.output_compression));
 
     merge_opt(use_lp_names, opts.use_lp_names);
     merge_opt(use_uid_fname, opts.use_uid_fname);

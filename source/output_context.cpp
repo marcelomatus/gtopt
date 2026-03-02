@@ -376,7 +376,7 @@ namespace gtopt
 void OutputContext::write() const
 {
   const auto fmt = options().output_format();
-  const auto zfmt = options().compression_format();
+  const auto zfmt = options().output_compression();
   auto path_tables =
       create_tables(options().output_directory(), field_vector_map);
 

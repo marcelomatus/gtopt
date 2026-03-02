@@ -75,9 +75,9 @@ template<typename T>
       ("output-format,f",
        po::value<std::string>(),
        "output format [parquet, csv]")  //
-      ("compression-format,C",
+      ("output-compression,C",
        po::value<std::string>(),
-       "compression format in parquet [uncompressed, gzip, zstd, lzo]")  //
+       "compression codec in parquet [uncompressed, gzip, zstd, lzo]")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
        "use single bus mode")  //
@@ -115,7 +115,7 @@ template<typename T>
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
  * @param output_format Optional output format string
- * @param compression_format Optional compression format string
+ * @param output_compression Optional compression codec string
  */
 inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
@@ -126,7 +126,7 @@ inline void apply_cli_options(
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
     const std::optional<std::string>& output_format,
-    const std::optional<std::string>& compression_format)
+    const std::optional<std::string>& output_compression)
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -152,8 +152,8 @@ inline void apply_cli_options(
     planning.options.output_format = output_format.value();
   }
 
-  if (compression_format) {
-    planning.options.compression_format = compression_format.value();
+  if (output_compression) {
+    planning.options.output_compression = output_compression.value();
   }
 
   if (input_format) {
@@ -181,7 +181,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.input_format,
                     opts.output_directory,
                     opts.output_format,
-                    opts.compression_format);
+                    opts.output_compression);
 }
 
 /**
@@ -230,7 +230,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .input_format = get_opt<std::string>(vm, "input-format"),
       .output_directory = get_opt<std::string>(vm, "output-directory"),
       .output_format = get_opt<std::string>(vm, "output-format"),
-      .compression_format = get_opt<std::string>(vm, "compression-format"),
+      .output_compression = get_opt<std::string>(vm, "output-compression"),
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
