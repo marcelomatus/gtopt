@@ -48,20 +48,28 @@ class GTOptWriter:
         output_format = (
             options.get("output_format", "parquet") if options else "parquet"
         )
-        input_format = options.get("input_format", output_format) if options else "parquet"
+        input_format = (
+            options.get("input_format", output_format) if options else "parquet"
+        )
         compression = options.get("compression", "gzip") if options else "gzip"
-        self.planning["options"] = {
+        planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
             "output_directory": "results",
             "output_format": output_format,
             "output_compression": compression,
             "use_lp_names": True,
-            "use_single_bus": False,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
+            "use_single_bus": options.get("use_single_bus", False),
+            "use_kirchhoff": options.get("use_kirchhoff", False),
+            "demand_fail_cost": options.get("demand_fail_cost", 1000),
+            "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
         }
+        if options and "reserve_fail_cost" in options:
+            planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
+        if options and "use_line_losses" in options:
+            planning_opts["use_line_losses"] = options["use_line_losses"]
+        self.planning["options"] = planning_opts
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages."""

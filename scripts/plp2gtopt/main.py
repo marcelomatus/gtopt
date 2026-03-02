@@ -180,6 +180,53 @@ def make_parser() -> argparse.ArgumentParser:
         help="compression codec for output files (default: %(default)s)",
     )
     parser.add_argument(
+        "--demand-fail-cost",
+        dest="demand_fail_cost",
+        type=float,
+        metavar="COST",
+        default=1000.0,
+        help="cost penalty for demand curtailment in $/MWh (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--reserve-fail-cost",
+        dest="reserve_fail_cost",
+        type=float,
+        metavar="COST",
+        default=None,
+        help="cost penalty for reserve shortfall in $/MWh (default: not set)",
+    )
+    parser.add_argument(
+        "--scale-objective",
+        dest="scale_objective",
+        type=float,
+        metavar="FACTOR",
+        default=1000.0,
+        help="objective function scaling factor (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-b",
+        "--use-single-bus",
+        dest="use_single_bus",
+        action="store_true",
+        default=False,
+        help="use single-bus (copper-plate) mode (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-k",
+        "--use-kirchhoff",
+        dest="use_kirchhoff",
+        action="store_true",
+        default=False,
+        help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--use-line-losses",
+        dest="use_line_losses",
+        action="store_true",
+        default=None,
+        help="model transmission line losses (default: not set, uses gtopt default)",
+    )
+    parser.add_argument(
         "-y",
         "--hydrologies",
         dest="hydrologies",
@@ -237,7 +284,7 @@ def build_options(args: argparse.Namespace) -> dict:
         output_file = Path(args.output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
-    return {
+    opts = {
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
         "output_file": output_file,
@@ -253,7 +300,16 @@ def build_options(args: argparse.Namespace) -> dict:
         "zip_output": args.zip_output,
         "name": name,
         "sys_version": args.sys_version,
+        "demand_fail_cost": args.demand_fail_cost,
+        "scale_objective": args.scale_objective,
+        "use_single_bus": args.use_single_bus,
+        "use_kirchhoff": args.use_kirchhoff,
     }
+    if args.reserve_fail_cost is not None:
+        opts["reserve_fail_cost"] = args.reserve_fail_cost
+    if args.use_line_losses is not None:
+        opts["use_line_losses"] = args.use_line_losses
+    return opts
 
 
 def main():
