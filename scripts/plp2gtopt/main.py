@@ -224,7 +224,7 @@ def make_parser() -> argparse.ArgumentParser:
         dest="use_line_losses",
         action="store_true",
         default=None,
-        help="model transmission line losses (default: not set, uses gtopt default)",
+        help="model transmission line losses (omit to use gtopt default: true)",
     )
     parser.add_argument(
         "-y",
