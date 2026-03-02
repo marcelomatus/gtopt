@@ -677,7 +677,6 @@ async function uploadCase(input) {
     loadOptions(data.options);
     updateBadges();
     switchTab("options");
-    alert("Case loaded successfully!");
   } catch (e) {
     alert("Upload failed: " + e.message);
   }
