@@ -5,7 +5,7 @@ using namespace gtopt;
 
 TEST_SUITE("SparseRow")
 {
-  TEST_CASE("Default Construction")
+  TEST_CASE("SparseRow - Default Construction")
   {
     const SparseRow row;
     CHECK(row.name.empty());
@@ -14,7 +14,7 @@ TEST_SUITE("SparseRow")
     CHECK(row.size() == 0);
   }
 
-  TEST_CASE("Bound Setting")
+  TEST_CASE("SparseRow - Bound Setting")
   {
     SparseRow row;
 
@@ -119,7 +119,7 @@ TEST_SUITE("SparseRow")
     }
   }
 
-  TEST_CASE("Compile Time Evaluation")
+  TEST_CASE("SparseRow - Compile Time Evaluation")
   {
     SparseRow row;
     row.bound(-1.0, 1.0);

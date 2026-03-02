@@ -44,7 +44,7 @@ TEST_SUITE("Scenario")
 
 TEST_SUITE("ScenarioLP")
 {
-  TEST_CASE("is_active")
+  TEST_CASE("ScenarioLP is_active")
   {
     SUBCASE("default constructed is active")
     {

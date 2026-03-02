@@ -88,7 +88,7 @@ TEST_SUITE("SceneLP")
     CHECK_FALSE(scene_lp.is_active());
   }
 
-  TEST_CASE("Edge cases")
+  TEST_CASE("SceneLP edge cases")
   {
     SUBCASE("Empty scenario list")
     {
