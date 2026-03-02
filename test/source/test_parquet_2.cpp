@@ -16,15 +16,15 @@
 
 using namespace gtopt;
 
-TEST_CASE("Parquet file write and read test")
+TEST_CASE("Parquet file write and read test 2")
 {
   const std::string iname = "input";
-  const std::string cname = "test_data";
+  const std::string cname = "test_data_2";
   const std::string dirname = iname + "/" + cname + "/";
   const std::string fname = "field";
   const std::string filename = dirname + fname + ".parquet";
 
-  CHECK(filename == "input/test_data/field.parquet");
+  CHECK(filename == "input/test_data_2/field.parquet");
 
   // Create directory if it doesn't exist
   std::filesystem::create_directories(dirname);
