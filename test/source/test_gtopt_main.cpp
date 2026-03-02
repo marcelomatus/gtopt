@@ -33,7 +33,8 @@ namespace
 // Minimal planning JSON usable by gtopt_main (no input-directory needed).
 constexpr auto minimal_json = R"({
   "options": {
-    "demand_fail_cost": 1000
+    "demand_fail_cost": 1000,
+    "output_compression": "uncompressed"
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -165,7 +166,7 @@ TEST_CASE("gtopt_main - multiple planning files merged")
   // Split the minimal JSON into two fragments that merge into one valid plan:
   // part1 provides options + simulation, part2 provides the system components.
   constexpr auto part1 = R"({
-    "options": {"demand_fail_cost": 1000},
+    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
     "simulation": {
       "block_array":    [{"uid": 1, "duration": 1}],
       "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
@@ -212,7 +213,7 @@ TEST_CASE("gtopt_main - stats=true, just_create (covers log_pre_solve_stats)")
 {
   // Richer system to exercise more stat counters
   constexpr auto rich_json = R"({
-    "options": {"demand_fail_cost": 500},
+    "options": {"demand_fail_cost": 500, "output_compression": "uncompressed"},
     "simulation": {
       "block_array":    [{"uid": 1, "duration": 2}],
       "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
@@ -305,7 +306,7 @@ TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
   // (the non-optimal logging block) and line 359 (spdlog::warn for
   // SolverError).
   constexpr auto infeasible_json = R"({
-    "options": {"demand_fail_cost": 1000},
+    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
     "simulation": {
       "block_array":    [{"uid": 1, "duration": 1}],
       "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
@@ -338,7 +339,7 @@ TEST_CASE("gtopt_main - solver non-optimal with stats=true")
   // Same infeasible LP but with print_stats=true to cover the non-optimal
   // branch of log_post_solve_stats.
   constexpr auto infeasible_stats_json = R"({
-    "options": {"demand_fail_cost": 1000},
+    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
     "simulation": {
       "block_array":    [{"uid": 1, "duration": 1}],
       "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
@@ -374,7 +375,7 @@ TEST_CASE("gtopt_main - demand with missing FileSched file throws exception")
   //   - array_index_traits.cpp lines 221-223 (the throw in read_arrow_table)
   //   - gtopt_main.cpp lines 402-404 (catch std::exception around LP creation)
   constexpr auto filesched_json = R"({
-    "options": {"demand_fail_cost": 1000},
+    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
     "simulation": {
       "block_array":    [{"uid": 1, "duration": 1}],
       "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
