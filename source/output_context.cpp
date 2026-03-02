@@ -16,12 +16,12 @@
 #include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
-#include <arrow/io/memory.h>
+#include <arrow/io/compressed.h>
+#include <arrow/util/compression.h>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <parquet/types.h>
 #include <spdlog/spdlog.h>
-#include <zlib.h>
 
 template<typename T>
 concept ArrowBuildable = requires {
@@ -266,46 +266,19 @@ auto csv_write_table_plain(const auto& fpath, const auto& table)
 
 auto csv_write_table_gzip(const auto& fpath, const auto& table)
 {
-  // Step 1: render CSV into an in-memory buffer via Arrow
-  ARROW_ASSIGN_OR_RAISE(auto buf_stream,
-                        arrow::io::BufferOutputStream::Create());
-  const auto write_options = arrow::csv::WriteOptions::Defaults();
-  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, buf_stream.get()));
-  ARROW_ASSIGN_OR_RAISE(auto buf, buf_stream->Finish());
-
-  // Step 2: gzip-compress the buffer and write to *.csv.gz
   const auto filename = std::format("{}.csv.gz", fpath.string());
-  gzFile gz = gzopen(filename.c_str(), "wb");  // NOLINT
-  if (gz == nullptr) [[unlikely]] {
-    return arrow::Status::IOError("Cannot open gzip file for writing: ",
-                                  filename);
-  }
+  ARROW_ASSIGN_OR_RAISE(auto file_output,
+                        arrow::io::FileOutputStream::Open(filename));
+  ARROW_ASSIGN_OR_RAISE(auto codec,
+                        arrow::util::Codec::Create(arrow::Compression::GZIP));
+  ARROW_ASSIGN_OR_RAISE(
+      auto gzip_output,
+      arrow::io::CompressedOutputStream::Make(codec.get(), file_output));
 
-  const auto* data = reinterpret_cast<const char*>(buf->data());  // NOLINT
-  const auto buf_size = buf->size();
-  // gzwrite takes unsigned (32-bit) length; guard against >4 GB CSV buffers
-
-  // NOLINTNEXTLINE
-  if (buf_size > static_cast<std::remove_cv_t<decltype(buf_size)>>(
-          std::numeric_limits<unsigned int>::max())) [[unlikely]]
-  {
-    gzclose(gz);  // NOLINT
-    return arrow::Status::IOError("CSV buffer too large for single gzwrite: ",
-                                  filename);
-  }
-  const auto size = static_cast<unsigned int>(buf_size);
-  const int written = gzwrite(gz, data, size);
-  gzclose(gz);  // NOLINT
-
-  // NOLINTNEXTLINE
-  if (written < 0
-      || (size  // NOLINT
-          != static_cast<std::remove_cv_t<decltype(size)>>(written)))  // NOLINT
-      [[unlikely]]
-  {
-    return arrow::Status::IOError("gzip write incomplete: ", filename);
-  }
-  return arrow::Status::OK();
+  const auto write_options = arrow::csv::WriteOptions::Defaults();
+  ARROW_RETURN_NOT_OK(WriteCSV(*table.get(), write_options, gzip_output.get()));
+  ARROW_RETURN_NOT_OK(gzip_output->Close());
+  return file_output->Close();
 }
 
 auto csv_write_table(const auto& fpath, const auto& table, const auto& zfmt)

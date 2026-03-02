@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/array_index_traits.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -536,6 +537,33 @@ TEST_CASE("OutputContext - CSV gzip compression produces .csv.gz")  // NOLINT
     // CSV must have at least a header row with comma-separated columns
     CHECK(content.find(',') != std::string::npos);
   }
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_gzip_readback";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  opts.output_compression = "gzip";
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  const auto table = csv_read_table(tmpdir / "Generator" / "generation_sol");
+  REQUIRE(table.has_value());
+  CHECK((table && (*table)->num_rows() > 0));
 
   std::filesystem::remove_all(tmpdir);
 }
