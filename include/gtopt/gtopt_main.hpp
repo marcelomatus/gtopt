@@ -49,8 +49,8 @@ struct MainOptions
   std::optional<std::string> output_directory {};
   /** @brief Output format ("parquet", "csv") */
   std::optional<std::string> output_format {};
-  /** @brief Compression format for parquet output ("gzip", "zstd", …) */
-  std::optional<std::string> compression_format {};
+  /** @brief Compression codec for parquet output ("gzip", "zstd", …) */
+  std::optional<std::string> output_compression {};
 
   // ---- modelling flags ----
   /** @brief Enable single-bus (copper-plate) mode */

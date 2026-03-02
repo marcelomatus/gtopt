@@ -31,7 +31,7 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.scale_theta.has_value());
   CHECK_FALSE(options.output_directory.has_value());
   CHECK_FALSE(options.output_format.has_value());
-  CHECK_FALSE(options.compression_format.has_value());
+  CHECK_FALSE(options.output_compression.has_value());
   CHECK_FALSE(options.use_lp_names.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
@@ -54,7 +54,7 @@ TEST_CASE("Options - Construction with values")
       .scale_theta = 10.0,
       .output_directory = "output_dir",
       .output_format = "csv",
-      .compression_format = "zip",
+      .output_compression = "zip",
       .use_lp_names = true,
       .use_uid_fname = false,
       .annual_discount_rate = 0.05,
@@ -97,8 +97,8 @@ TEST_CASE("Options - Construction with values")
   REQUIRE(options.output_format.has_value());
   CHECK(*options.output_format == "csv");
 
-  REQUIRE(options.compression_format.has_value());
-  CHECK(*options.compression_format == "zip");
+  REQUIRE(options.output_compression.has_value());
+  CHECK(*options.output_compression == "zip");
 
   REQUIRE(options.use_lp_names.has_value());
   CHECK(*options.use_lp_names == true);
@@ -275,8 +275,8 @@ TEST_CASE("OptionsLP - Default construction")
         == doctest::Approx(OptionsLP::default_scale_theta));
   CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.compression_format()
-        == OptionsLP::default_compression_format);
+  CHECK(options_lp.output_compression()
+        == OptionsLP::default_output_compression);
   CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
@@ -307,8 +307,8 @@ TEST_CASE("OptionsLP - Default construction 2")
         == doctest::Approx(OptionsLP::default_scale_theta));
   CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.compression_format()
-        == OptionsLP::default_compression_format);
+  CHECK(options_lp.output_compression()
+        == OptionsLP::default_output_compression);
   CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
@@ -338,8 +338,8 @@ TEST_CASE("OptionsLP - Default construction 3")
         == doctest::Approx(OptionsLP::default_scale_theta));
   CHECK(options_lp.output_directory() == OptionsLP::default_output_directory);
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.compression_format()
-        == OptionsLP::default_compression_format);
+  CHECK(options_lp.output_compression()
+        == OptionsLP::default_output_compression);
   CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
@@ -384,8 +384,8 @@ TEST_CASE("OptionsLP - Construction with Options")
   CHECK(options_lp.scale_theta()
         == doctest::Approx(OptionsLP::default_scale_theta));
   CHECK(options_lp.output_format() == OptionsLP::default_output_format);
-  CHECK(options_lp.compression_format()
-        == OptionsLP::default_compression_format);
+  CHECK(options_lp.output_compression()
+        == OptionsLP::default_output_compression);
   CHECK(options_lp.use_lp_names() == OptionsLP::default_use_lp_names);
   CHECK(options_lp.use_uid_fname() == OptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
@@ -410,7 +410,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
       .scale_theta = 20.0,
       .output_directory = "test_output",
       .output_format = "json",
-      .compression_format = "bzip2",
+      .output_compression = "bzip2",
       .use_lp_names = true,
       .use_uid_fname = true,
       .annual_discount_rate = 0.07,
@@ -440,7 +440,7 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.scale_theta() == doctest::Approx(20.0));
   CHECK(options_lp.output_directory() == "test_output");
   CHECK(options_lp.output_format() == "json");
-  CHECK(options_lp.compression_format() == "bzip2");
+  CHECK(options_lp.output_compression() == "bzip2");
   CHECK(options_lp.use_lp_names() == true);
   CHECK(options_lp.use_uid_fname() == true);
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));

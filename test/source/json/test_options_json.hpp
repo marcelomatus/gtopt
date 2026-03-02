@@ -21,7 +21,7 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "scale_theta": 10.0,
     "output_directory": "output_dir",
     "output_format": "csv",
-    "compression_format": "gzip",
+    "output_compression": "gzip",
     "use_lp_names": true,
     "use_uid_fname": false,
     "annual_discount_rate": 0.05
@@ -91,9 +91,9 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     CHECK(*options.output_format == "csv");
   }
 
-  REQUIRE(options.compression_format.has_value());
-  if (options.compression_format) {
-    CHECK(*options.compression_format == "gzip");
+  REQUIRE(options.output_compression.has_value());
+  if (options.output_compression) {
+    CHECK(*options.output_compression == "gzip");
   }
 
   REQUIRE(options.use_lp_names.has_value());
@@ -151,7 +151,7 @@ TEST_CASE(
   CHECK_FALSE(options.scale_objective.has_value());
   CHECK_FALSE(options.scale_theta.has_value());
   CHECK_FALSE(options.output_format.has_value());
-  CHECK_FALSE(options.compression_format.has_value());
+  CHECK_FALSE(options.output_compression.has_value());
   CHECK_FALSE(options.use_lp_names.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
@@ -191,7 +191,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK_FALSE(deserialized.kirchhoff_threshold.has_value());
   CHECK_FALSE(deserialized.scale_theta.has_value());
   CHECK_FALSE(deserialized.output_format.has_value());
-  CHECK_FALSE(deserialized.compression_format.has_value());
+  CHECK_FALSE(deserialized.output_compression.has_value());
   CHECK_FALSE(deserialized.use_uid_fname.has_value());
   CHECK_FALSE(deserialized.annual_discount_rate.has_value());
 }

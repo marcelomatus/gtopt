@@ -35,7 +35,7 @@ struct json_data_contract<Options>
 
                        json_string_null<"output_directory", OptName>,
                        json_string_null<"output_format", OptName>,
-                       json_string_null<"compression_format", OptName>,
+                       json_string_null<"output_compression", OptName>,
                        json_bool_null<"use_lp_names", OptBool>,
                        json_bool_null<"use_uid_fname", OptBool>,
                        json_number_null<"annual_discount_rate", OptReal> >;
@@ -55,7 +55,7 @@ struct json_data_contract<Options>
 
                                  opt.output_directory,
                                  opt.output_format,
-                                 opt.compression_format,
+                                 opt.output_compression,
                                  opt.use_lp_names,
                                  opt.use_uid_fname,
                                  opt.annual_discount_rate);

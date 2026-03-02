@@ -179,7 +179,7 @@ TEST_CASE("make_options_description - string options")
           "parquet",
           "--output-format",
           "csv",
-          "--compression-format",
+          "--output-compression",
           "gzip",
           "--lp-file",
           "model.lp",
@@ -192,7 +192,7 @@ TEST_CASE("make_options_description - string options")
   CHECK(get_opt<std::string>(vm, "output-directory").value_or("") == "/out");
   CHECK(get_opt<std::string>(vm, "input-format").value_or("") == "parquet");
   CHECK(get_opt<std::string>(vm, "output-format").value_or("") == "csv");
-  CHECK(get_opt<std::string>(vm, "compression-format").value_or("") == "gzip");
+  CHECK(get_opt<std::string>(vm, "output-compression").value_or("") == "gzip");
   CHECK(get_opt<std::string>(vm, "lp-file").value_or("") == "model.lp");
   CHECK(get_opt<std::string>(vm, "json-file").value_or("") == "model.json");
 }
@@ -219,7 +219,7 @@ TEST_CASE("apply_cli_options - no options applied")
   CHECK_FALSE(planning.options.input_format.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
-  CHECK_FALSE(planning.options.compression_format.has_value());
+  CHECK_FALSE(planning.options.output_compression.has_value());
 }
 
 TEST_CASE("apply_cli_options - all options applied")
@@ -263,9 +263,9 @@ TEST_CASE("apply_cli_options - all options applied")
   CHECK((planning.options.output_format
          && *planning.options.output_format == "csv"));
 
-  REQUIRE(planning.options.compression_format.has_value());
-  CHECK((planning.options.compression_format
-         && *planning.options.compression_format == "gzip"));
+  REQUIRE(planning.options.output_compression.has_value());
+  CHECK((planning.options.output_compression
+         && *planning.options.output_compression == "gzip"));
 }
 
 TEST_CASE("apply_cli_options - partial options applied")
@@ -353,7 +353,7 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
-  CHECK_FALSE(planning.options.compression_format.has_value());
+  CHECK_FALSE(planning.options.output_compression.has_value());
 }
 
 TEST_CASE("apply_cli_options(MainOptions) - all options applied")
@@ -365,7 +365,7 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .input_format = "parquet",
                         .output_directory = "/out",
                         .output_format = "csv",
-                        .compression_format = "gzip",
+                        .output_compression = "gzip",
                         .use_single_bus = true,
                         .use_kirchhoff = false,
                         .use_lp_names = 2,
@@ -391,9 +391,9 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
   CHECK((planning.options.output_format
          && *planning.options.output_format == "csv"));
 
-  REQUIRE(planning.options.compression_format.has_value());
-  CHECK((planning.options.compression_format
-         && *planning.options.compression_format == "gzip"));
+  REQUIRE(planning.options.output_compression.has_value());
+  CHECK((planning.options.output_compression
+         && *planning.options.output_compression == "gzip"));
 }
 
 TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
@@ -508,7 +508,7 @@ TEST_CASE("Integration - parse and extract all option types")
           "/results",
           "--output-format",
           "parquet",
-          "--compression-format",
+          "--output-compression",
           "zstd",
       },
       desc);
@@ -518,7 +518,7 @@ TEST_CASE("Integration - parse and extract all option types")
   auto matrix_eps = get_opt<double>(vm, "matrix-eps");
   auto output_directory = get_opt<std::string>(vm, "output-directory");
   auto output_format = get_opt<std::string>(vm, "output-format");
-  auto compression_format = get_opt<std::string>(vm, "compression-format");
+  auto output_compression = get_opt<std::string>(vm, "output-compression");
 
   REQUIRE(use_single_bus.has_value());
   CHECK((use_single_bus && *use_single_bus == true));
@@ -535,8 +535,8 @@ TEST_CASE("Integration - parse and extract all option types")
   REQUIRE(output_format.has_value());
   CHECK((output_format && *output_format == "parquet"));
 
-  REQUIRE(compression_format.has_value());
-  CHECK((compression_format && *compression_format == "zstd"));
+  REQUIRE(output_compression.has_value());
+  CHECK((output_compression && *output_compression == "zstd"));
 
   // Apply to planning
   Planning planning {};
@@ -548,7 +548,7 @@ TEST_CASE("Integration - parse and extract all option types")
                     get_opt<std::string>(vm, "input-format"),
                     output_directory,
                     output_format,
-                    compression_format);
+                    output_compression);
 
   REQUIRE(planning.options.use_single_bus.has_value());
   CHECK((planning.options.use_single_bus
