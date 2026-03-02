@@ -376,10 +376,7 @@ def _df_to_rows(df):
     Float ``NaN`` and ``Inf`` values are replaced with ``None`` to
     produce valid JSON (the JSON specification does not allow ``NaN``).
     """
-    return [
-        [_sanitize_value(x) for x in row]
-        for row in df.itertuples(index=False, name=None)
-    ]
+    return [[_sanitize_value(x) for x in row] for row in df.itertuples(index=False, name=None)]
 
 
 def _build_case_json(case_data):

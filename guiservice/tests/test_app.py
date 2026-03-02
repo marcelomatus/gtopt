@@ -2101,9 +2101,7 @@ class TestParquetNanHandling:
 
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, "w") as zf:
-            zf.writestr(
-                "output/Generator/generation_sol.parquet", pq_buf.getvalue()
-            )
+            zf.writestr("output/Generator/generation_sol.parquet", pq_buf.getvalue())
         zip_buf.seek(0)
 
         results = _parse_results_zip(zip_buf.getvalue())
