@@ -82,6 +82,7 @@
         <label>Use Kirchhoff <select id="opt-use_kirchhoff"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <label>Use Single Bus <select id="opt-use_single_bus"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <label>Use LP Names <select id="opt-use_lp_names"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
+        <label>Use UID Filename <select id="opt-use_uid_fname"><option value="">—</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <label>Input Directory <input type="text" id="opt-input_directory"></label>
         <label>Input Format
           <select id="opt-input_format">
@@ -95,6 +96,15 @@
           <select id="opt-output_format">
             <option value="csv">CSV</option>
             <option value="parquet">Parquet</option>
+          </select>
+        </label>
+        <label>Output Compression
+          <select id="opt-output_compression">
+            <option value="">— (default: gzip)</option>
+            <option value="gzip">gzip</option>
+            <option value="zstd">zstd</option>
+            <option value="lzo">lzo</option>
+            <option value="uncompressed">uncompressed</option>
           </select>
         </label>
       </div>
@@ -218,9 +228,11 @@
           <select id="resultsSelector" onchange="showResultsTable()">
             <option value="">Select output…</option>
           </select>
-          <button onclick="showResultsChart()">Show Chart</button>
+          <button onclick="selectAllResultColumns()">Select All</button>
+          <button onclick="deselectAllResultColumns()">Deselect All</button>
           <button id="resetZoomBtn" style="display:none" onclick="resetChartZoom()">Reset Zoom</button>
         </div>
+        <div id="resultsColumnSelector" style="display:none"></div>
         <div id="resultsTableContainer"></div>
         <canvas id="resultsChart" style="display:none; max-height:400px"></canvas>
         <!-- Line Settings Popup -->

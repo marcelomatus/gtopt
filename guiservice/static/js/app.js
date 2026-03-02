@@ -12,6 +12,8 @@ let spreadsheetInstance = null;
 let resultsData = null;
 let resultsChart = null;
 let chartLinePopupIndex = -1;
+let _selectedColumns = new Set();
+let _resultsCurrentKey = null;
 let solverJobId = null;
 let solverPollTimer = null;
 let webserviceUrl = "";
@@ -138,8 +140,9 @@ function gatherOptions() {
     "input_format",
     "output_directory",
     "output_format",
+    "output_compression",
   ];
-  const boolFields = ["use_line_losses", "use_kirchhoff", "use_single_bus", "use_lp_names"];
+  const boolFields = ["use_line_losses", "use_kirchhoff", "use_single_bus", "use_lp_names", "use_uid_fname"];
 
   for (const f of fields) {
     const el = document.getElementById("opt-" + f);
@@ -1087,12 +1090,40 @@ function toggleTerminalOutput() {
   el.style.display = el.style.display === "none" ? "block" : "none";
 }
 
+function resolveUidLabel(col, resultKey) {
+  const m = col.match(/^uid:(\d+)$/);
+  if (!m) return col;
+  const uid = Number(m[1]);
+  const segment = (resultKey || "").split("/")[0].toLowerCase();
+  const arr = caseData?.system?.[segment];
+  if (Array.isArray(arr)) {
+    const found = arr.find((e) => e.uid === uid);
+    if (found?.name) return found.name;
+  }
+  return col;
+}
+
+const _META_COLS = new Set(["scenario", "stage", "block"]);
+
 function showResultsTable() {
   const key = document.getElementById("resultsSelector").value;
   const container = document.getElementById("resultsTableContainer");
   container.innerHTML = "";
 
-  if (!key || !resultsData || !resultsData.outputs[key]) return;
+  if (!key || !resultsData || !resultsData.outputs[key]) {
+    _renderColumnSelector();
+    _renderResultChart();
+    return;
+  }
+
+  // Re-initialize _selectedColumns when a different file is selected
+  if (key !== _resultsCurrentKey) {
+    _resultsCurrentKey = key;
+    const data = resultsData.outputs[key];
+    _selectedColumns = new Set(
+      data.columns.filter((c) => !_META_COLS.has(c))
+    );
+  }
 
   const data = resultsData.outputs[key];
   const table = document.createElement("table");
@@ -1100,7 +1131,13 @@ function showResultsTable() {
   const headRow = document.createElement("tr");
   for (const col of data.columns) {
     const th = document.createElement("th");
-    th.textContent = col;
+    th.textContent = resolveUidLabel(col, key);
+    if (_META_COLS.has(col)) {
+      th.className = "col-meta";
+    } else {
+      th.className = _selectedColumns.has(col) ? "col-selected" : "";
+      th.onclick = () => toggleResultColumn(col);
+    }
     headRow.appendChild(th);
   }
   thead.appendChild(headRow);
@@ -1118,17 +1155,88 @@ function showResultsTable() {
   }
   table.appendChild(tbody);
   container.appendChild(table);
+
+  _renderColumnSelector();
+  _renderResultChart();
 }
 
-function showResultsChart() {
+function _renderColumnSelector() {
   const key = document.getElementById("resultsSelector").value;
+  const bar = document.getElementById("resultsColumnSelector");
+  bar.innerHTML = "";
+
   if (!key || !resultsData || !resultsData.outputs[key]) {
-    alert("Please select an output first.");
+    bar.style.display = "none";
     return;
   }
 
   const data = resultsData.outputs[key];
+  const dataCols = data.columns.filter((c) => !_META_COLS.has(c));
+  if (dataCols.length === 0) { bar.style.display = "none"; return; }
+
+  bar.style.display = "flex";
+  for (const col of dataCols) {
+    const chip = document.createElement("span");
+    chip.className = "col-chip" + (_selectedColumns.has(col) ? " col-chip-selected" : "");
+    chip.textContent = resolveUidLabel(col, key);
+    chip.onclick = () => toggleResultColumn(col);
+    bar.appendChild(chip);
+  }
+}
+
+function toggleResultColumn(col) {
+  if (_selectedColumns.has(col)) {
+    _selectedColumns.delete(col);
+  } else {
+    _selectedColumns.add(col);
+  }
+  _renderColumnSelector();
+  _refreshResultHeaders();
+  _renderResultChart();
+}
+
+function _refreshResultHeaders() {
+  const ths = document.querySelectorAll("#resultsTableContainer thead tr th");
+  const key = document.getElementById("resultsSelector").value;
+  const data = key && resultsData?.outputs?.[key];
+  if (!data) return;
+  data.columns.forEach((col, i) => {
+    if (i >= ths.length) return;
+    if (!_META_COLS.has(col)) {
+      ths[i].className = _selectedColumns.has(col) ? "col-selected" : "";
+    }
+  });
+}
+
+function selectAllResultColumns() {
+  const key = document.getElementById("resultsSelector").value;
+  if (!key || !resultsData?.outputs?.[key]) return;
+  const data = resultsData.outputs[key];
+  _selectedColumns = new Set(data.columns.filter((c) => !_META_COLS.has(c)));
+  _renderColumnSelector();
+  _refreshResultHeaders();
+  _renderResultChart();
+}
+
+function deselectAllResultColumns() {
+  _selectedColumns = new Set();
+  _renderColumnSelector();
+  _refreshResultHeaders();
+  _renderResultChart();
+}
+
+function _renderResultChart() {
+  const key = document.getElementById("resultsSelector").value;
   const canvas = document.getElementById("resultsChart");
+
+  if (!key || !resultsData || !resultsData.outputs[key] || _selectedColumns.size === 0) {
+    if (resultsChart) { resultsChart.destroy(); resultsChart = null; }
+    canvas.style.display = "none";
+    document.getElementById("resetZoomBtn").style.display = "none";
+    return;
+  }
+
+  const data = resultsData.outputs[key];
   canvas.style.display = "block";
 
   if (resultsChart) resultsChart.destroy();
@@ -1142,7 +1250,7 @@ function showResultsChart() {
     return parts.join("-");
   });
 
-  // Build datasets for uid columns
+  // Build datasets for selected columns only
   const datasets = [];
   const colors = [
     "#2563eb", "#dc2626", "#16a34a", "#ea580c", "#7c3aed",
@@ -1152,9 +1260,10 @@ function showResultsChart() {
 
   for (let c = 0; c < data.columns.length; c++) {
     const col = data.columns[c];
-    if (["scenario", "stage", "block"].includes(col)) continue;
+    if (_META_COLS.has(col)) continue;
+    if (!_selectedColumns.has(col)) continue;
     datasets.push({
-      label: col,
+      label: resolveUidLabel(col, key),
       data: data.data.map((row) => Number(row[c])),
       borderColor: colors[colorIdx % colors.length],
       backgroundColor: colors[colorIdx % colors.length] + "33",
@@ -1199,6 +1308,11 @@ function showResultsChart() {
   // Right-click on chart canvas opens the line settings popup
   canvas.removeEventListener("contextmenu", handleChartContextMenu);
   canvas.addEventListener("contextmenu", handleChartContextMenu);
+}
+
+// Alias kept for backwards compatibility
+function showResultsChart() {
+  _renderResultChart();
 }
 
 function resetChartZoom() {
