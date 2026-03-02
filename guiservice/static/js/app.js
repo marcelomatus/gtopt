@@ -1091,9 +1091,9 @@ function toggleTerminalOutput() {
 }
 
 function resolveUidLabel(col, resultKey) {
-  const m = col.match(/^uid:(\d+)$/);
-  if (!m) return col;
-  const uid = Number(m[1]);
+  const uidMatch = col.match(/^uid:(\d+)$/);
+  if (!uidMatch) return col;
+  const uid = Number(uidMatch[1]);
   const segment = (resultKey || "").split("/")[0].toLowerCase();
   const arr = caseData?.system?.[segment];
   if (Array.isArray(arr)) {
@@ -1116,7 +1116,7 @@ function showResultsTable() {
     return;
   }
 
-  // Re-initialize _selectedColumns when a different file is selected
+  // Reinitialize _selectedColumns when a different file is selected
   if (key !== _resultsCurrentKey) {
     _resultsCurrentKey = key;
     const data = resultsData.outputs[key];

@@ -457,7 +457,42 @@ auto make_csv_system()
 }
 }  // namespace
 
-TEST_CASE("OutputContext - CSV no compression (default)")  // NOLINT
+TEST_CASE("OutputContext - CSV gzip compression (default)")  // NOLINT
+{
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_default_gz";
+  std::filesystem::create_directories(tmpdir);
+
+  Options opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = "csv";
+  // output_compression not set → default "gzip" → produces .csv.gz files
+
+  const OptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
+  // .csv.gz files must exist (gzip is now the default)
+  bool found_gz = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    if (entry.path().string().ends_with(".csv.gz")) {
+      found_gz = true;
+    }
+  }
+  CHECK(found_gz);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(
+    "OutputContext - CSV no compression (explicit uncompressed)")  // NOLINT
 {
   auto [system, simulation] = make_csv_system();
   const auto tmpdir =
@@ -467,7 +502,7 @@ TEST_CASE("OutputContext - CSV no compression (default)")  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  // output_compression not set → default "" → no compression
+  opts.output_compression = "uncompressed";  // explicit no-compression
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);

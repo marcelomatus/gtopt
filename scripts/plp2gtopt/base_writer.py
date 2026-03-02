@@ -150,15 +150,32 @@ class BaseWriter(ABC):
         return df
 
     # Supported compression formats for Parquet files
-    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none"]
+    VALID_COMPRESSION = ["gzip", "snappy", "brotli", "none", "", "uncompressed"]
 
-    def get_compression(self, options: Optional[Dict[str, Any]] = None) -> str:
-        """Get and validate compression option from writer options."""
+    # Codecs that map to uncompressed (no-compression) output
+    UNCOMPRESSED_ALIASES = {"none", "", "uncompressed"}
+
+    def get_compression(self, options: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Get and validate compression option from writer options.
+
+        Returns the compression codec string for PyArrow ``write_table()``
+        (``None`` disables compression).  Warns and returns ``None``
+        (uncompressed) when an unrecognised codec is supplied.
+        """
         if options is None:
             options = self.options
 
         compression = options.get("compression", "gzip") if options else "gzip"
-        return compression if compression in self.VALID_COMPRESSION else "gzip"
+        if compression in self.UNCOMPRESSED_ALIASES:
+            return None
+        if compression not in self.VALID_COMPRESSION:
+            print(
+                f"Warning: unknown compression codec '{compression}'; "
+                "falling back to uncompressed output.",
+                file=sys.stderr,
+            )
+            return None
+        return compression
 
     def pcol_name(
         self,
