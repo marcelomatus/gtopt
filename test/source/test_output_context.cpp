@@ -467,7 +467,7 @@ TEST_CASE("OutputContext - CSV no compression (default)")  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  // compression_format not set → default "" → no compression
+  // output_compression not set → default "" → no compression
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -505,7 +505,7 @@ TEST_CASE("OutputContext - CSV gzip compression produces .csv.gz")  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  opts.compression_format = "gzip";
+  opts.output_compression = "gzip";
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -551,7 +551,7 @@ TEST_CASE(  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  opts.compression_format = "zstd";  // not supported for CSV → falls back
+  opts.output_compression = "zstd";  // not supported for CSV → falls back
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -589,7 +589,7 @@ TEST_CASE(  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "parquet";
-  opts.compression_format = "gzip";
+  opts.output_compression = "gzip";
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -624,7 +624,7 @@ TEST_CASE(  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "parquet";
-  opts.compression_format = "snappy";  // not in codec_map → triggers fallback
+  opts.output_compression = "snappy";  // not in codec_map → triggers fallback
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -658,7 +658,7 @@ TEST_CASE(  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "parquet";
-  opts.compression_format = "lzo";  // known in codec_map but unsupported
+  opts.output_compression = "lzo";  // known in codec_map but unsupported
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -822,7 +822,7 @@ TEST_CASE(  // NOLINT
   Options opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = "csv";
-  opts.compression_format = "gzip";
+  opts.output_compression = "gzip";
 
   const OptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);

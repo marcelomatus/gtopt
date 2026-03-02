@@ -161,6 +161,17 @@ def make_parser() -> argparse.ArgumentParser:
         help="output file format: parquet or csv (default: %(default)s)",
     )
     parser.add_argument(
+        "--input-format",
+        dest="input_format",
+        metavar="FORMAT",
+        default=None,
+        choices=["parquet", "csv"],
+        help=(
+            "input format for gtopt to read time-series files "
+            "(default: same as output-format)"
+        ),
+    )
+    parser.add_argument(
         "-c",
         "--compression",
         dest="compression",
@@ -225,6 +236,7 @@ def build_options(args: argparse.Namespace) -> dict:
     if output_file is None:
         output_file = Path(args.output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
+    input_format = args.input_format if args.input_format else args.output_format
     return {
         "input_dir": args.input_dir,
         "output_dir": args.output_dir,
@@ -233,6 +245,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "last_time": args.last_time,
         "compression": args.compression,
         "output_format": args.output_format,
+        "input_format": input_format,
         "hydrologies": args.hydrologies,
         "probability_factors": args.probability_factors,
         "discount_rate": args.discount_rate,
