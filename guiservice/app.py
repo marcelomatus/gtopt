@@ -11,6 +11,7 @@ import gzip
 import io
 import json
 import logging
+import math
 import os
 import signal
 import tempfile
@@ -351,6 +352,19 @@ ELEMENT_TO_ARRAY_KEY = {
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_value(x):
+    """Convert a single value to a JSON-safe Python type.
+
+    Numpy scalars are converted via ``.item()``.  Float ``NaN`` and
+    ``Inf`` values become ``None`` so they serialize as JSON ``null``
+    instead of the non-standard ``NaN`` / ``Infinity`` tokens.
+    """
+    val = x.item() if hasattr(x, "item") else x
+    if isinstance(val, float) and not math.isfinite(val):
+        return None
+    return val
+
+
 def _df_to_rows(df):
     """Convert a DataFrame to a list of rows preserving column types.
 
@@ -358,9 +372,12 @@ def _df_to_rows(df):
     dtype (e.g. float64 when int and float columns are mixed), which
     turns integer values into floats.  Converting per-row via
     ``itertuples`` keeps each value in its native Python type.
+
+    Float ``NaN`` and ``Inf`` values are replaced with ``None`` to
+    produce valid JSON (the JSON specification does not allow ``NaN``).
     """
     return [
-        [x.item() if hasattr(x, "item") else x for x in row]
+        [_sanitize_value(x) for x in row]
         for row in df.itertuples(index=False, name=None)
     ]
 
