@@ -155,7 +155,9 @@ class BaseWriter(ABC):
     # Codecs that map to uncompressed (no-compression) output
     UNCOMPRESSED_ALIASES = {"none", "", "uncompressed"}
 
-    def get_compression(self, options: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def get_compression(
+        self, options: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
         """Get and validate compression option from writer options.
 
         Returns the compression codec string for PyArrow ``write_table()``
