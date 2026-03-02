@@ -42,25 +42,30 @@ class GTOptWriter:
 
     def process_options(self, options):
         """Process options data to include input and output paths."""
-        discount_rate = (
-            options["discount_rate"] if options and "discount_rate" in options else 0.0
-        )
-        output_format = (
-            options.get("output_format", "parquet") if options else "parquet"
-        )
-        compression = options.get("compression", "gzip") if options else "gzip"
-        self.planning["options"] = {
+        if not options:
+            options = {}
+        discount_rate = options.get("discount_rate", 0.0)
+        output_format = options.get("output_format", "parquet")
+        input_format = options.get("input_format", output_format)
+        compression = options.get("compression", "gzip")
+        planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
-            "input_format": output_format,
+            "input_format": input_format,
             "output_directory": "results",
             "output_format": output_format,
-            "compression_format": compression,
+            "output_compression": compression,
             "use_lp_names": True,
-            "use_single_bus": False,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
+            "use_single_bus": options.get("use_single_bus", False),
+            "use_kirchhoff": options.get("use_kirchhoff", False),
+            "demand_fail_cost": options.get("demand_fail_cost", 1000),
+            "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
         }
+        if "reserve_fail_cost" in options:
+            planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
+        if "use_line_losses" in options:
+            planning_opts["use_line_losses"] = options["use_line_losses"]
+        self.planning["options"] = planning_opts
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages."""

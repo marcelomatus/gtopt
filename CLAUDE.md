@@ -377,7 +377,7 @@ planning stages, and time blocks.
 | `annual_discount_rate` | 0.1 | 10 % per year for CAPEX discounting |
 | `input_format` | `"parquet"` | Preferred input format (`"parquet"` default; falls back to CSV) |
 | `output_format` | `"parquet"` | Output format (`"parquet"` default; or `"csv"`) |
-| `compression_format` | `"gzip"` | Parquet compression codec (default `"gzip"`) |
+| `output_compression` | `"gzip"` | Parquet compression codec (default `"gzip"`) |
 
 ### IEEE benchmark cases in `cases/`
 

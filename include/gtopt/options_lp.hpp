@@ -54,8 +54,8 @@ public:
   static constexpr auto default_output_directory = "output";
   /** @brief Default output file format */
   static constexpr auto default_output_format = "parquet";
-  /** @brief Default compression format for output files (empty = none) */
-  static constexpr auto default_compression_format = "";
+  /** @brief Default compression codec for output files (empty = none) */
+  static constexpr auto default_output_compression = "";
   /** @brief Default setting for using LP variable/constraint names */
   static constexpr Bool default_use_lp_names = true;
   /** @brief Default setting for using UIDs in filenames */
@@ -199,12 +199,12 @@ public:
   }
 
   /**
-   * @brief Gets the compression format, using default if not set
-   * @return The compression format for output files
+   * @brief Gets the output compression codec, using default if not set
+   * @return The compression codec for output files
    */
-  [[nodiscard]] constexpr auto compression_format() const
+  [[nodiscard]] constexpr auto output_compression() const
   {
-    return m_options_.compression_format.value_or(default_compression_format);
+    return m_options_.output_compression.value_or(default_output_compression);
   }
 
   /**
