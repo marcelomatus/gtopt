@@ -363,9 +363,74 @@ button {
   border-radius: var(--radius);
   background: var(--surface);
 }
-#resultsTableContainer { margin-bottom: 20px; }
-#resultsTableContainer table { font-size: 0.8125rem; }
 #resultsOutputs { position: relative; }
+
+/* Results column selector chips */
+#resultsColumnSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 100px;
+  overflow-y: auto;
+}
+.col-chip {
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.col-chip-selected {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* Results table – scrollable with max-height */
+#resultsTableContainer {
+  max-height: 260px;
+  overflow: auto;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+#resultsTableContainer table {
+  font-size: 0.8125rem;
+  width: 100%;
+  border-collapse: collapse;
+}
+#resultsTableContainer th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+  padding: 5px 8px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+#resultsTableContainer th.col-selected {
+  background: var(--primary);
+  color: #fff;
+}
+#resultsTableContainer th.col-meta {
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: default;
+}
+#resultsTableContainer td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
 
 /* Chart Line Settings Popup */
 .chart-line-popup {
