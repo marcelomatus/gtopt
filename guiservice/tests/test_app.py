@@ -2069,3 +2069,144 @@ class TestSolveErrorPaths:
         mock_get.side_effect = RuntimeError("unexpected")
         resp = client.get("/api/solve/job_logs/tok-1")
         assert resp.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# NaN / non-finite float handling in parquet → JSON
+# ---------------------------------------------------------------------------
+
+
+class TestParquetNanHandling:
+    """Verify that NaN and Inf values in parquet files are converted to
+    ``null`` in JSON responses instead of the non-standard ``NaN`` token."""
+
+    def test_parse_results_zip_parquet_with_nan(self):
+        """_parse_results_zip must replace NaN with None for valid JSON."""
+        import numpy as np
+        import pandas as pd
+
+        from guiservice.app import _parse_results_zip
+
+        df = pd.DataFrame(
+            {
+                "scenario": [1, 1, 1],
+                "stage": [1, 1, 1],
+                "block": [1, 2, 3],
+                "uid:1": [10.0, float("nan"), 30.0],
+                "uid:2": [np.nan, 0.0, np.nan],
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr(
+                "output/Generator/generation_sol.parquet", pq_buf.getvalue()
+            )
+        zip_buf.seek(0)
+
+        results = _parse_results_zip(zip_buf.getvalue())
+        output = results["outputs"]["Generator/generation_sol"]
+        # NaN values should have been replaced with None
+        row0 = output["data"][0]
+        assert row0[3] == 10.0
+        assert row0[4] is None  # was np.nan
+
+        row1 = output["data"][1]
+        assert row1[3] is None  # was float('nan')
+        assert row1[4] == 0.0
+
+        row2 = output["data"][2]
+        assert row2[3] == 30.0
+        assert row2[4] is None
+
+    def test_parse_results_zip_parquet_nan_produces_valid_json(self, client):
+        """Upload results with NaN parquet data; response must be valid JSON."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": [1, 1],
+                "stage": [1, 1],
+                "block": [1, 2],
+                "uid:1": [0.0, float("nan")],
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("output/Demand/fail_sol.parquet", pq_buf.getvalue())
+        zip_buf.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (zip_buf, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        # Must parse as valid JSON without errors
+        data = json.loads(resp.data)
+        output = data["outputs"]["Demand/fail_sol"]
+        assert output["data"][0][3] == 0.0
+        assert output["data"][1][3] is None
+
+    def test_parse_uploaded_zip_parquet_with_nan(self):
+        """_parse_uploaded_zip must replace NaN with None in data files."""
+        import numpy as np
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "scenario": [1],
+                "stage": [1],
+                "block": [1],
+                "uid:1": [np.nan],
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+
+        case_json = {
+            "options": {"input_directory": "mycase", "input_format": "parquet"},
+            "system": {"name": "mycase"},
+        }
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("mycase.json", json.dumps(case_json))
+            zf.writestr("mycase/Demand/lmax.parquet", pq_buf.getvalue())
+        zip_buf.seek(0)
+
+        result = _parse_uploaded_zip(zip_buf.read())
+        row0 = result["data_files"]["Demand/lmax"]["data"][0]
+        assert row0[3] is None  # NaN → None
+
+    def test_infinity_replaced_with_none(self):
+        """Infinity and -Infinity must also become None for valid JSON."""
+        import numpy as np
+        import pandas as pd
+
+        from guiservice.app import _parse_results_zip
+
+        df = pd.DataFrame(
+            {
+                "scenario": [1, 1],
+                "block": [1, 2],
+                "value": [float("inf"), float("-inf")],
+            }
+        )
+        pq_buf = io.BytesIO()
+        df.to_parquet(pq_buf, index=False)
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("output/Test/values.parquet", pq_buf.getvalue())
+        zip_buf.seek(0)
+
+        results = _parse_results_zip(zip_buf.getvalue())
+        rows = results["outputs"]["Test/values"]["data"]
+        assert rows[0][2] is None  # +Inf → None
+        assert rows[1][2] is None  # -Inf → None
