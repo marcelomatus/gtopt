@@ -247,7 +247,7 @@ TEST_CASE("WorkPool stress testing")
   pool.shutdown();
 }
 
-TEST_CASE("Basic functionality")
+TEST_CASE("CPUMonitor basic functionality")
 {
   CPUMonitor monitor;
 
@@ -274,7 +274,7 @@ TEST_CASE("Basic functionality")
   }
 }
 
-TEST_CASE("Edge cases")
+TEST_CASE("CPUMonitor edge cases")
 {
   CPUMonitor monitor;
 

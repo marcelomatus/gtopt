@@ -7,7 +7,7 @@
 
 using namespace gtopt;
 
-TEST_CASE("Construction and basic properties")
+TEST_CASE("CostHelper construction and basic properties")
 {
   const OptionsLP options;
   const std::vector<ScenarioLP> scenarios;

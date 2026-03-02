@@ -432,13 +432,13 @@ TEST_SUITE("ArrowTraits int types use int32")
 
 TEST_SUITE("is_compatible_double_type")
 {
-  TEST_CASE("compatible types")
+  TEST_CASE("compatible double types")
   {
     CHECK(is_compatible_double_type(arrow::Type::FLOAT));
     CHECK(is_compatible_double_type(arrow::Type::DOUBLE));
   }
 
-  TEST_CASE("incompatible types")
+  TEST_CASE("incompatible double types")
   {
     CHECK_FALSE(is_compatible_double_type(arrow::Type::INT32));
     CHECK_FALSE(is_compatible_double_type(arrow::Type::INT64));
@@ -478,7 +478,7 @@ TEST_SUITE("cast_to_double_array")
     CHECK(result->Value(2) == doctest::Approx(30.0));
   }
 
-  TEST_CASE("cast incompatible type returns nullptr")
+  TEST_CASE("cast double incompatible type returns nullptr")
   {
     arrow::Int32Builder builder;
     REQUIRE(builder.AppendValues({1, 2}).ok());
@@ -489,7 +489,7 @@ TEST_SUITE("cast_to_double_array")
     CHECK(result == nullptr);
   }
 
-  TEST_CASE("cast null chunk returns nullptr")
+  TEST_CASE("cast double null chunk returns nullptr")
   {
     auto result = cast_to_double_array(nullptr);
     CHECK(result == nullptr);
