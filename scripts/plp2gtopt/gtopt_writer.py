@@ -42,16 +42,12 @@ class GTOptWriter:
 
     def process_options(self, options):
         """Process options data to include input and output paths."""
-        discount_rate = (
-            options["discount_rate"] if options and "discount_rate" in options else 0.0
-        )
-        output_format = (
-            options.get("output_format", "parquet") if options else "parquet"
-        )
-        input_format = (
-            options.get("input_format", output_format) if options else "parquet"
-        )
-        compression = options.get("compression", "gzip") if options else "gzip"
+        if not options:
+            options = {}
+        discount_rate = options.get("discount_rate", 0.0)
+        output_format = options.get("output_format", "parquet")
+        input_format = options.get("input_format", output_format)
+        compression = options.get("compression", "gzip")
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
@@ -65,9 +61,9 @@ class GTOptWriter:
             "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
         }
-        if options and "reserve_fail_cost" in options:
+        if "reserve_fail_cost" in options:
             planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
-        if options and "use_line_losses" in options:
+        if "use_line_losses" in options:
             planning_opts["use_line_losses"] = options["use_line_losses"]
         self.planning["options"] = planning_opts
 
