@@ -563,7 +563,7 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
 
   const auto table = csv_read_table(tmpdir / "Generator" / "generation_sol");
   REQUIRE(table.has_value());
-  CHECK((*table)->num_rows() > 0);
+  CHECK((table && (*table)->num_rows() > 0));
 
   std::filesystem::remove_all(tmpdir);
 }
