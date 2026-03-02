@@ -832,7 +832,7 @@ Scenario (probability)
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
-| `compression_format` | `"gzip"` (default) | Parquet compression codec (`"gzip"`, `"zstd"`, `"lzo"`, `"uncompressed"`) |
+| `output_compression` | `"gzip"` (default) | Parquet compression codec (`"gzip"`, `"zstd"`, `"lzo"`, `"uncompressed"`) |
 
 ### Capacity Expansion Fields
 

@@ -19,7 +19,7 @@ runs:
     - name: install base packages (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev zlib1g-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
+        packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev zlib1g-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
         version: 1.1
         execute_install_scripts: true
 
