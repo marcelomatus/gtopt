@@ -2247,9 +2247,7 @@ class TestParquetNanHandling:
 
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, "w") as zf:
-            zf.writestr(
-                "output/Generator/generation_sol.parquet", pq_buf.getvalue()
-            )
+            zf.writestr("output/Generator/generation_sol.parquet", pq_buf.getvalue())
         zip_buf.seek(0)
 
         results = _parse_results_zip(zip_buf.getvalue())
@@ -2291,9 +2289,9 @@ class TestParquetNanHandling:
             zf.writestr(
                 "output/Generator/generation_sol.csv",
                 '"Scenario","Stage","Block","uid:1","uid:2"\n'
-                '1,1,1,42.0,1.0\n'
-                '1,1,2,,2.0\n'
-                '1,1,3,,3.0\n',
+                "1,1,1,42.0,1.0\n"
+                "1,1,2,,2.0\n"
+                "1,1,3,,3.0\n",
             )
 
             # Parquet with null bitmap for the same missing values
@@ -2308,9 +2306,7 @@ class TestParquetNanHandling:
             )
             pq_buf = io.BytesIO()
             pq.write_table(table, pq_buf)
-            zf.writestr(
-                "output/Demand/load_sol.parquet", pq_buf.getvalue()
-            )
+            zf.writestr("output/Demand/load_sol.parquet", pq_buf.getvalue())
         zip_buf.seek(0)
 
         resp = client.post(
