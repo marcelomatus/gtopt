@@ -42,7 +42,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cvs2parquet*", "igtopt*", "plp2gtopt*"]
+include = ["cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
 
 # ---------------------------------------------------------------------------
 # Tool configuration (mirrors root pyproject.toml, scoped to scripts/)
@@ -54,6 +54,7 @@ testpaths = [
     "cvs2parquet/tests",
     "igtopt/tests",
     "plp2gtopt/tests",
+    "pp2gtopt/tests",
 ]
 addopts = "-v --import-mode=importlib"
 pythonpath = ["."]
@@ -62,7 +63,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["cvs2parquet", "igtopt", "plp2gtopt"]
+source = ["cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -79,7 +80,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "igtopt", "plp2gtopt"]
+known_first_party = ["cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
 
 [tool.ruff]
 line-length = 88
