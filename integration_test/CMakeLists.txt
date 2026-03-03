@@ -103,10 +103,24 @@ set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
+# ---- Python for pandapower comparison tests ----
+# Override with -DPANDAPOWER_PYTHON=/path/to/python3 if the default python
+# does not have pandapower installed.
+set(PANDAPOWER_PYTHON "" CACHE FILEPATH "Python interpreter with pandapower")
+if(NOT PANDAPOWER_PYTHON)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_FOUND)
+    set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
+  endif()
+endif()
+include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
+
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
 # an output/ directory containing the expected CSV results, then add a line:
 #   add_e2e_case(<name> <system_json>)
+# To also compare against pandapower, add:
+#   add_pandapower_comparison(<name>)   (requires compare_pandapower.py in the case dir)
 
 add_e2e_case(c0 system_c0.json)
 add_e2e_case(c1 system_c1.json)
@@ -115,3 +129,10 @@ add_e2e_case(ieee_14b ieee_14b.json)
 add_e2e_case(ieee_9b_ori ieee_9b_ori.json)
 add_e2e_case(ieee_14b_ori ieee_14b_ori.json)
 add_e2e_case(ieee_4b_ori ieee_4b_ori.json)
+add_e2e_case(s1b s1b.json)
+add_e2e_case(bat_4b bat_4b.json)
+add_e2e_case(ieee30b ieee30b.json)
+
+# ---- Pandapower comparison tests ----
+add_pandapower_comparison(s1b)
+add_pandapower_comparison(ieee_4b_ori)
