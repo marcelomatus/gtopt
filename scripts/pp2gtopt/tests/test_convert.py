@@ -316,3 +316,135 @@ class TestConvertOutputFile:
         monkeypatch.setattr(_convert_mod, "__file__", str(tmp_path / "convert.py"))
         convert(None)
         assert (tmp_path / "ieee30b.json").exists()
+
+    def test_custom_name_in_default_path(self, monkeypatch, tmp_path):
+        """convert(None, name='mynet') writes mynet.json next to convert.py."""
+        monkeypatch.setattr(_convert_mod, "__file__", str(tmp_path / "convert.py"))
+        convert(None, name="mynet")
+        assert (tmp_path / "mynet.json").exists()
+
+    def test_custom_name_in_json(self, tmp_path):
+        """convert(path, name='custom') embeds the given name in system.name."""
+        out = tmp_path / "custom.json"
+        convert(out, name="custom")
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["system"]["name"] == "custom"
+
+
+# ---------------------------------------------------------------------------
+# main.py — CLI argument parsing and entry point
+# ---------------------------------------------------------------------------
+
+
+class TestMakeParser:
+    def test_returns_parser(self):
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        p = make_parser()
+        import argparse  # noqa: PLC0415
+
+        assert isinstance(p, argparse.ArgumentParser)
+
+    def test_default_network(self):
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        args = make_parser().parse_args([])
+        assert args.network == "ieee30b"
+
+    def test_default_output_is_none(self):
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        args = make_parser().parse_args([])
+        assert args.output is None
+
+    def test_network_flag(self):
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        args = make_parser().parse_args(["-n", "case14"])
+        assert args.network == "case14"
+
+    def test_output_flag(self):
+        from pathlib import Path  # noqa: PLC0415
+
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        args = make_parser().parse_args(["-o", "/tmp/out.json"])
+        assert args.output == Path("/tmp/out.json")
+
+    def test_version_exits(self, capsys):
+        import sys  # noqa: PLC0415
+
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        with pytest.raises(SystemExit) as exc:
+            make_parser().parse_args(["--version"])
+        assert exc.value.code == 0
+
+    def test_invalid_network_exits(self):
+        from pp2gtopt.main import make_parser  # noqa: PLC0415
+
+        with pytest.raises(SystemExit):
+            make_parser().parse_args(["-n", "nonexistent_network"])
+
+
+class TestMain:
+    def test_main_version(self, capsys):
+        """main() --version prints version string and exits."""
+        import sys  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from pp2gtopt.main import main  # noqa: PLC0415
+
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["pp2gtopt", "--version"]):
+                main()
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "pp2gtopt" in out
+
+    def test_main_list_networks(self, capsys):
+        """main() --list-networks prints network names and exits."""
+        import sys  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from pp2gtopt.main import main  # noqa: PLC0415
+
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["pp2gtopt", "--list-networks"]):
+                main()
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "ieee30b" in out
+
+    def test_main_default_conversion(self, tmp_path):
+        """main() with -o writes ieee30b JSON."""
+        import sys  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from pp2gtopt.main import main  # noqa: PLC0415
+
+        out = tmp_path / "out.json"
+        with patch.object(sys, "argv", ["pp2gtopt", "-o", str(out)]):
+            main()
+        assert out.exists()
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["system"]["name"] == "ieee30b"
+        assert len(data["system"]["bus_array"]) == 30
+
+    def test_main_network_case14(self, tmp_path):
+        """main() -n case14 writes a 14-bus JSON."""
+        import sys  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from pp2gtopt.main import main  # noqa: PLC0415
+
+        out = tmp_path / "case14.json"
+        with patch.object(sys, "argv", ["pp2gtopt", "-n", "case14", "-o", str(out)]):
+            main()
+        assert out.exists()
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["system"]["name"] == "case14"
+        assert len(data["system"]["bus_array"]) == 14
