@@ -92,10 +92,7 @@ def make_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         default=None,
-        help=(
-            f"pandapower network file to convert "
-            f"(supported: {_SUPPORTED_FORMATS})"
-        ),
+        help=(f"pandapower network file to convert (supported: {_SUPPORTED_FORMATS})"),
     )
     source.add_argument(
         "-n",

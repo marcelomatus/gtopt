@@ -83,6 +83,7 @@ import pandapower as pp  # noqa: E402
 import pandapower.networks as pn  # noqa: E402
 # pylint: enable=wrong-import-position,wrong-import-order
 
+
 @pytest.fixture(scope="module")
 def net():
     """Load the IEEE 30-bus network once per test module."""
