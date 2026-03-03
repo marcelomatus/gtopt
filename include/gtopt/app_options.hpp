@@ -101,7 +101,8 @@ template<typename T>
        "print system statistics before and after solving")  //
       ("lp-algorithm,a",
        po::value<int>(),
-       "LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier)")  //
+       "LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier) "
+       "[default: 3]")  //
       ("lp-threads,t",
        po::value<int>(),
        "number of solver threads (0=automatic)")  //

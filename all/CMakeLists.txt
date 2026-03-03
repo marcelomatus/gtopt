@@ -17,3 +17,12 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../test ${CMAKE_BINARY_DIR}/test)
 add_subdirectory(
   ${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/documentation
 )
+add_subdirectory(
+  ${CMAKE_CURRENT_LIST_DIR}/../scripts ${CMAKE_BINARY_DIR}/scripts
+)
+add_subdirectory(
+  ${CMAKE_CURRENT_LIST_DIR}/../webservice ${CMAKE_BINARY_DIR}/webservice
+)
+add_subdirectory(
+  ${CMAKE_CURRENT_LIST_DIR}/../guiservice ${CMAKE_BINARY_DIR}/guiservice
+)
