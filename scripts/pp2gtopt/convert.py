@@ -1,30 +1,82 @@
 #!/usr/bin/env python3
-"""Convert pandapower IEEE 30-bus case to gtopt JSON format.
+"""Convert pandapower networks to gtopt JSON format.
 
-Usage:
-    python3 convert_from_pandapower.py [output_file]
-
-Outputs ieee30b.json in the same directory by default.
-
-The IEEE 30-bus case is the Washington 30-bus test system from MATPOWER,
-available as pandapower.networks.case_ieee30(). This script:
+The default network is the IEEE 30-bus Washington test system from MATPOWER,
+available as pandapower.networks.case_ieee30(). Arbitrary pandapower networks
+can be loaded from files via ``load_network(path)`` (JSON, Excel, MATPOWER).
+The conversion:
   - Converts line/trafo reactances from physical (Ohm) to per-unit (p.u.)
   - Linearises quadratic generator costs to their cp1 coefficient ($/MWh)
   - Models lossless transformers as lines with x = vk_percent / 100 p.u.
   - Disables network thermal limits (max_i_ka = inf in the pandapower case)
+
+For CLI usage run ``pp2gtopt --help``.
 """
 
 import json
 import math
-import sys
 from pathlib import Path
 from typing import Any
 
 import pandapower as pp
 import pandapower.networks as pn
 
-_BASE_MVA = 100.0  # IEEE 30-bus system base (MVA)
+_BASE_MVA = 100.0  # system base (MVA) used for per-unit conversions
 _TMAX_UNLIMITED: float = 9999  # sentinel for unconstrained thermal limit
+
+# File extensions recognised by load_network()
+_FORMAT_JSON = ".json"
+_FORMAT_EXCEL = {".xlsx", ".xls"}
+_FORMAT_MATPOWER = ".m"
+_SUPPORTED_FORMATS = f"{_FORMAT_JSON}, .xlsx/.xls, {_FORMAT_MATPOWER}"
+
+
+def load_network(path: Path) -> pp.pandapowerNet:
+    """Load a pandapower network from a file.
+
+    Supported formats
+    -----------------
+    ``.json``
+        pandapower JSON (written by ``pandapower.to_json()``).
+    ``.xlsx`` / ``.xls``
+        pandapower Excel workbook (written by ``pandapower.to_excel()``).
+    ``.m``
+        MATPOWER case file (converted via ``pandapower.converter.from_mpc()``).
+
+    Parameters
+    ----------
+    path:
+        Path to the network file.
+
+    Returns
+    -------
+    pp.pandapowerNet
+        The loaded network.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    ValueError
+        If the file extension is not recognised.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Network file not found: {path}")
+    suffix = path.suffix.lower()
+    if suffix == _FORMAT_JSON:
+        return pp.from_json(str(path))
+    if suffix in _FORMAT_EXCEL:
+        return pp.from_excel(str(path))
+    if suffix == _FORMAT_MATPOWER:
+        from pandapower.converter.matpower.from_mpc import (  # pylint: disable=import-outside-toplevel
+            from_mpc,
+        )
+
+        return from_mpc(str(path))
+    raise ValueError(
+        f"Unsupported file format {suffix!r} for {path.name}. "
+        f"Supported extensions: {_SUPPORTED_FORMATS}"
+    )
 
 
 def get_bus_base_kv(net: pp.pandapowerNet, bus_idx: int) -> float:
@@ -185,9 +237,28 @@ def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]
     return entries
 
 
-def convert(output_path: Path | None = None) -> None:
-    """Load case_ieee30 and write the gtopt JSON file."""
-    net = pn.case_ieee30()
+def convert(
+    output_path: Path | None = None,
+    net: pp.pandapowerNet | None = None,
+    name: str | None = None,
+) -> None:
+    """Load a pandapower network and write the gtopt JSON file.
+
+    Parameters
+    ----------
+    output_path:
+        Destination for the JSON file.  When *None* the file is written as
+        ``<name>.json`` in the same directory as this module.
+    net:
+        A pre-loaded ``pandapowerNet`` object.  When *None* ``case_ieee30()``
+        is loaded automatically.
+    name:
+        System name to embed in the JSON.  Defaults to ``"ieee30b"``.
+    """
+    if net is None:
+        net = pn.case_ieee30()
+    if name is None:
+        name = "ieee30b"
     data = {
         "options": {
             "annual_discount_rate": 0.0,
@@ -207,7 +278,7 @@ def convert(output_path: Path | None = None) -> None:
             "scenario_array": [{"uid": 1, "probability_factor": 1}],
         },
         "system": {
-            "name": "ieee30b",
+            "name": name,
             "bus_array": _build_buses(net),
             "generator_array": _build_generators(net),
             "demand_array": _build_demands(net),
@@ -216,13 +287,8 @@ def convert(output_path: Path | None = None) -> None:
     }
 
     if output_path is None:
-        output_path = Path(__file__).parent / "ieee30b.json"
+        output_path = Path(__file__).parent / f"{name}.json"
 
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     print(f"Written: {output_path}")
-
-
-if __name__ == "__main__":
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    convert(out)

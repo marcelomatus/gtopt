@@ -6,8 +6,8 @@
 #   pip install -e ./scripts       # editable install from repo root
 #   pip install -e .               # editable install from inside scripts/
 #
-# The three console-script entry-points (cvs2parquet, igtopt, plp2gtopt)
-# are registered here so they land on PATH alongside the gtopt binary.
+# The three console-script entry-points (cvs2parquet, igtopt, plp2gtopt,
+# pp2gtopt) are registered here so they land on PATH alongside the gtopt binary.
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -16,12 +16,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion and utility scripts (cvs2parquet, igtopt, plp2gtopt)"
+description = "gtopt conversion and utility scripts (cvs2parquet, igtopt, plp2gtopt, pp2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.24.0",
     "openpyxl>=3.1.0",
     "pandas>=2.0.0",
+    "pandapower>=2.13.0",
     "pyarrow>=12.0.0",
 ]
 
@@ -29,6 +30,7 @@ dependencies = [
 cvs2parquet = "cvs2parquet.cvs2parquet:main"
 igtopt      = "igtopt.igtopt:main"
 plp2gtopt   = "plp2gtopt.main:main"
+pp2gtopt    = "pp2gtopt.main:main"
 
 [project.optional-dependencies]
 dev = [
