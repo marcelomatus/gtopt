@@ -5,7 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .convert import convert
+from .convert import _SUPPORTED_FORMATS, convert, load_network
 
 try:
     from importlib.metadata import PackageNotFoundError
@@ -33,25 +33,36 @@ _NETWORKS: dict[str, str] = {
 
 _DEFAULT_NETWORK = "ieee30b"
 
-_DESCRIPTION = """\
-Convert a pandapower test network to gtopt JSON format.
+_DESCRIPTION = f"""\
+Convert a pandapower network to gtopt JSON format.
 
-Reads a standard pandapower IEEE test network and writes a self-contained
-gtopt JSON file ready for use with the gtopt solver or gtopt_guisrv / gtopt_websrv.
+Input sources (mutually exclusive):
+  -f FILE   Load a pandapower network file ({_SUPPORTED_FORMATS}).
+  -n NAME   Use a built-in pandapower test network (see --list-networks).
+            Default: {_DEFAULT_NETWORK}
+
+Writes a self-contained gtopt JSON file ready for the gtopt solver,
+gtopt_guisrv, or gtopt_websrv.
 """
 
 _EPILOG = """
 examples:
-  # Convert the default IEEE 30-bus network → ieee30b.json
+  # Convert the default IEEE 30-bus built-in network → ieee30b.json
   pp2gtopt
 
-  # Write to a specific output file
-  pp2gtopt -o /tmp/my_case.json
+  # Convert a saved pandapower JSON file
+  pp2gtopt -f my_network.json -o my_case.json
 
-  # Convert the IEEE 14-bus network
+  # Convert a MATPOWER case file
+  pp2gtopt -f case39.m -o case39.json
+
+  # Convert a pandapower Excel workbook
+  pp2gtopt -f network.xlsx -o network.json
+
+  # Use a specific built-in test network
   pp2gtopt -n case14 -o ieee14b.json
 
-  # List all available pandapower test networks
+  # List all available built-in networks
   pp2gtopt --list-networks
 """
 
@@ -73,29 +84,43 @@ def make_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_EPILOG,
     )
+
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "-f",
+        "--file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            f"pandapower network file to convert "
+            f"(supported: {_SUPPORTED_FORMATS})"
+        ),
+    )
+    source.add_argument(
+        "-n",
+        "--network",
+        metavar="NAME",
+        default=None,
+        choices=list(_NETWORKS),
+        help=(
+            "built-in pandapower test network to convert "
+            f"(default: {_DEFAULT_NETWORK}; see --list-networks)"
+        ),
+    )
+
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
         metavar="FILE",
         default=None,
-        help="output JSON file path (default: <network>.json in the current directory)",
-    )
-    parser.add_argument(
-        "-n",
-        "--network",
-        metavar="NAME",
-        default=_DEFAULT_NETWORK,
-        choices=list(_NETWORKS),
-        help=(
-            "pandapower test network to convert "
-            f"(default: {_DEFAULT_NETWORK}; see --list-networks)"
-        ),
+        help="output JSON file path (default: <stem>.json in the current directory)",
     )
     parser.add_argument(
         "--list-networks",
         action="store_true",
-        help="list all available pandapower test networks and exit",
+        help="list all available built-in pandapower test networks and exit",
     )
     parser.add_argument(
         "-V",
@@ -114,13 +139,19 @@ def main() -> None:
     if args.list_networks:
         _list_networks_and_exit()
 
-    import pandapower.networks as pn  # pylint: disable=import-outside-toplevel
+    if args.file is not None:
+        net = load_network(args.file)
+        name = args.file.stem
+    else:
+        import pandapower.networks as pn  # pylint: disable=import-outside-toplevel
 
-    fn_name = _NETWORKS[args.network]
-    net = getattr(pn, fn_name)()
+        network = args.network if args.network is not None else _DEFAULT_NETWORK
+        fn_name = _NETWORKS[network]
+        net = getattr(pn, fn_name)()
+        name = network
 
-    output = args.output if args.output is not None else Path(f"{args.network}.json")
-    convert(output, net=net, name=args.network)
+    output = args.output if args.output is not None else Path(f"{name}.json")
+    convert(output, net=net, name=name)
 
 
 if __name__ == "__main__":

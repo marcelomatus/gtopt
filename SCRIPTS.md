@@ -176,28 +176,48 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 
 ## pp2gtopt
 
-Converts a **pandapower** standard test network to gtopt JSON format.  Reads a
-built-in pandapower IEEE test network and writes a self-contained gtopt JSON
-file ready to be solved directly with the `gtopt` binary or submitted via
-`gtopt_guisrv` / `gtopt_websrv`.
+Converts a **pandapower** network to gtopt JSON format.  Accepts either a
+built-in IEEE test network (via `-n`) or any pandapower network file saved to
+disk (via `-f`).  Writes a self-contained gtopt JSON file ready to be solved
+directly with the `gtopt` binary or submitted via `gtopt_guisrv` / `gtopt_websrv`.
 
 ### Basic usage
 
 ```bash
-# Convert the default IEEE 30-bus network → ieee30b.json
+# Convert the default IEEE 30-bus built-in network → ieee30b.json
 pp2gtopt
 
-# Write to a specific output file
-pp2gtopt -o /tmp/my_case.json
+# Convert a saved pandapower JSON file
+pp2gtopt -f my_network.json -o my_case.json
 
-# Convert the IEEE 14-bus network
+# Convert a MATPOWER case file
+pp2gtopt -f case39.m -o case39.json
+
+# Convert a pandapower Excel workbook
+pp2gtopt -f network.xlsx -o network.json
+
+# Use a specific built-in test network
 pp2gtopt -n case14 -o ieee14b.json
 
-# List all available pandapower test networks
+# List all available built-in test networks
 pp2gtopt --list-networks
 ```
 
-### Available networks (`-n / --network`)
+### Input from file (`-f / --file`)
+
+`-f FILE` loads any pandapower network saved to disk.  The format is
+auto-detected from the file extension:
+
+| Extension | Format | Produced by |
+|-----------|--------|-------------|
+| `.json` | pandapower JSON | `pandapower.to_json()` |
+| `.xlsx` / `.xls` | pandapower Excel | `pandapower.to_excel()` |
+| `.m` | MATPOWER case file | MATPOWER / Octave |
+
+The output JSON system `name` is derived from the file stem (e.g. `case39.m`
+→ `"case39"`).
+
+### Available built-in networks (`-n / --network`)
 
 | Network name | pandapower function | Description |
 |---|---|---|
@@ -215,9 +235,10 @@ pp2gtopt --list-networks
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-n, --network NAME` | `ieee30b` | pandapower test network (see table above) |
-| `-o, --output FILE` | `<network>.json` | Output JSON file path |
-| `--list-networks` | — | Print all available network names and exit |
+| `-f, --file FILE` | — | pandapower network file (`.json`, `.xlsx`/`.xls`, `.m`) |
+| `-n, --network NAME` | `ieee30b` | built-in test network (mutually exclusive with `-f`) |
+| `-o, --output FILE` | `<stem>.json` | Output JSON file path |
+| `--list-networks` | — | Print all available built-in network names and exit |
 | `-V, --version` | — | Print version and exit |
 
 ---

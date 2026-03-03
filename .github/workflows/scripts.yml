@@ -238,6 +238,24 @@ jobs:
           print("✓ pp2gtopt ieee30b JSON validated")
           EOF
 
+      - name: pp2gtopt – convert from pandapower JSON file
+        run: |
+          python3 - <<'EOF'
+          import pandapower as pp
+          import pandapower.networks as pn
+          net = pn.case9()
+          pp.to_json(net, "/tmp/case9_pp.json")
+          print("Saved case9 pandapower JSON to /tmp/case9_pp.json")
+          EOF
+          pp2gtopt -f /tmp/case9_pp.json -o /tmp/case9_gtopt.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/case9_gtopt.json"))
+          assert d["system"]["name"] == "case9_pp"
+          assert len(d["system"]["bus_array"]) == 9
+          print("✓ pp2gtopt file-based conversion (JSON) validated")
+          EOF
+
       - name: pp2gtopt – list-networks
         run: |
           pp2gtopt --list-networks
