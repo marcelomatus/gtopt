@@ -91,6 +91,13 @@ endif()
 
 enable_testing()
 
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 1)
+endif()
+list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
+
 # Note: doctest and similar testing frameworks can automatically configure CMake
 # tests. For other testing frameworks add the tests target instead: add_test(NAME
 # ${PROJECT_NAME} COMMAND ${PROJECT_NAME})
