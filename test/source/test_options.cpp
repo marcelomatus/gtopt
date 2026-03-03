@@ -11,6 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/options.hpp>
 #include <gtopt/options_lp.hpp>
+#include <gtopt/solver_options.hpp>
 
 TEST_CASE("Options - Default construction")
 {
@@ -35,6 +36,9 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.use_lp_names.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
+  CHECK_FALSE(options.lp_algorithm.has_value());
+  CHECK_FALSE(options.lp_threads.has_value());
+  CHECK_FALSE(options.lp_presolve.has_value());
 }
 
 TEST_CASE("Options - Construction with values")
@@ -444,4 +448,80 @@ TEST_CASE("OptionsLP - Test all accessor methods")
   CHECK(options_lp.use_lp_names() == true);
   CHECK(options_lp.use_uid_fname() == true);
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));
+}
+
+TEST_CASE("Options - Solver algorithm fields default to empty")  // NOLINT
+{
+  using namespace gtopt;
+
+  const Options options {};
+  CHECK_FALSE(options.lp_algorithm.has_value());
+  CHECK_FALSE(options.lp_threads.has_value());
+  CHECK_FALSE(options.lp_presolve.has_value());
+}
+
+TEST_CASE("Options - Solver algorithm fields construction")  // NOLINT
+{
+  using namespace gtopt;
+
+  const Options options {
+      .lp_algorithm = std::to_underlying(LPAlgo::dual),
+      .lp_threads = 2,
+      .lp_presolve = false,
+  };
+
+  REQUIRE(options.lp_algorithm.has_value());
+  CHECK(*options.lp_algorithm == std::to_underlying(LPAlgo::dual));
+  REQUIRE(options.lp_threads.has_value());
+  CHECK(*options.lp_threads == 2);
+  REQUIRE(options.lp_presolve.has_value());
+  CHECK(*options.lp_presolve == false);
+}
+
+TEST_CASE("Options - Solver algorithm fields merge")  // NOLINT
+{
+  using namespace gtopt;
+
+  Options base {.lp_algorithm = std::to_underlying(LPAlgo::primal)};
+  Options overlay {
+      .lp_algorithm = std::to_underlying(LPAlgo::dual),
+      .lp_threads = 4,
+  };
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.lp_algorithm.has_value());
+  CHECK(*base.lp_algorithm == std::to_underlying(LPAlgo::dual));
+  REQUIRE(base.lp_threads.has_value());
+  CHECK(*base.lp_threads == 4);
+  CHECK_FALSE(base.lp_presolve.has_value());
+}
+
+TEST_CASE(
+    "OptionsLP - Solver algorithm accessor returns nullopt by default")  // NOLINT
+{
+  using namespace gtopt;
+
+  const OptionsLP options_lp {};
+  CHECK_FALSE(options_lp.lp_algorithm().has_value());
+  CHECK_FALSE(options_lp.lp_threads().has_value());
+  CHECK_FALSE(options_lp.lp_presolve().has_value());
+}
+
+TEST_CASE("OptionsLP - Solver algorithm accessors with set values")  // NOLINT
+{
+  using namespace gtopt;
+
+  const Options options {
+      .lp_algorithm = std::to_underlying(LPAlgo::barrier),
+      .lp_threads = 4,
+      .lp_presolve = false,
+  };
+  const OptionsLP options_lp {options};
+
+  REQUIRE(options_lp.lp_algorithm().has_value());
+  CHECK(*options_lp.lp_algorithm() == std::to_underlying(LPAlgo::barrier));
+  REQUIRE(options_lp.lp_threads().has_value());
+  CHECK(*options_lp.lp_threads() == 4);
+  REQUIRE(options_lp.lp_presolve().has_value());
+  CHECK(*options_lp.lp_presolve() == false);
 }
