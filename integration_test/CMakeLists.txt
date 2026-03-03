@@ -136,3 +136,4 @@ add_e2e_case(ieee30b ieee30b.json)
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
 add_pandapower_comparison(ieee_4b_ori)
+add_pandapower_comparison(ieee30b)

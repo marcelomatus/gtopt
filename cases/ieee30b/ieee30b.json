@@ -36,7 +36,8 @@
     "bus_array": [
       {
         "uid": 1,
-        "name": "b1"
+        "name": "b1",
+        "reference_theta": 0
       },
       {
         "uid": 2,
@@ -430,6 +431,7 @@
         "bus_a": 1,
         "bus_b": 2,
         "reactance": 0.0575,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -439,6 +441,7 @@
         "bus_a": 1,
         "bus_b": 3,
         "reactance": 0.1652,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -448,6 +451,7 @@
         "bus_a": 2,
         "bus_b": 4,
         "reactance": 0.1737,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -457,6 +461,7 @@
         "bus_a": 3,
         "bus_b": 4,
         "reactance": 0.0379,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -466,6 +471,7 @@
         "bus_a": 2,
         "bus_b": 5,
         "reactance": 0.1983,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -475,6 +481,7 @@
         "bus_a": 2,
         "bus_b": 6,
         "reactance": 0.1763,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -484,6 +491,7 @@
         "bus_a": 4,
         "bus_b": 6,
         "reactance": 0.0414,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -493,6 +501,7 @@
         "bus_a": 5,
         "bus_b": 7,
         "reactance": 0.116,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -502,6 +511,7 @@
         "bus_a": 6,
         "bus_b": 7,
         "reactance": 0.082,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -511,6 +521,7 @@
         "bus_a": 6,
         "bus_b": 8,
         "reactance": 0.042,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -520,6 +531,7 @@
         "bus_a": 12,
         "bus_b": 14,
         "reactance": 0.2559,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -529,6 +541,7 @@
         "bus_a": 12,
         "bus_b": 15,
         "reactance": 0.1304,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -538,6 +551,7 @@
         "bus_a": 12,
         "bus_b": 16,
         "reactance": 0.1987,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -547,6 +561,7 @@
         "bus_a": 14,
         "bus_b": 15,
         "reactance": 0.1997,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -556,6 +571,7 @@
         "bus_a": 16,
         "bus_b": 17,
         "reactance": 0.1923,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -565,6 +581,7 @@
         "bus_a": 15,
         "bus_b": 18,
         "reactance": 0.2185,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -574,6 +591,7 @@
         "bus_a": 18,
         "bus_b": 19,
         "reactance": 0.1292,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -583,6 +601,7 @@
         "bus_a": 19,
         "bus_b": 20,
         "reactance": 0.068,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -592,6 +611,7 @@
         "bus_a": 10,
         "bus_b": 20,
         "reactance": 0.209,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -601,6 +621,7 @@
         "bus_a": 10,
         "bus_b": 17,
         "reactance": 0.0845,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -610,6 +631,7 @@
         "bus_a": 10,
         "bus_b": 21,
         "reactance": 0.0749,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -619,6 +641,7 @@
         "bus_a": 10,
         "bus_b": 22,
         "reactance": 0.1499,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -628,6 +651,7 @@
         "bus_a": 21,
         "bus_b": 22,
         "reactance": 0.0236,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -637,6 +661,7 @@
         "bus_a": 15,
         "bus_b": 23,
         "reactance": 0.202,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -646,6 +671,7 @@
         "bus_a": 22,
         "bus_b": 24,
         "reactance": 0.179,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -655,6 +681,7 @@
         "bus_a": 23,
         "bus_b": 24,
         "reactance": 0.27,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -664,6 +691,7 @@
         "bus_a": 24,
         "bus_b": 25,
         "reactance": 0.3292,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -673,6 +701,7 @@
         "bus_a": 25,
         "bus_b": 26,
         "reactance": 0.38,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -682,6 +711,7 @@
         "bus_a": 25,
         "bus_b": 27,
         "reactance": 0.2087,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -691,6 +721,7 @@
         "bus_a": 27,
         "bus_b": 29,
         "reactance": 0.4153,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -700,6 +731,7 @@
         "bus_a": 27,
         "bus_b": 30,
         "reactance": 0.6027,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -709,6 +741,7 @@
         "bus_a": 29,
         "bus_b": 30,
         "reactance": 0.4533,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -718,6 +751,7 @@
         "bus_a": 8,
         "bus_b": 28,
         "reactance": 0.2,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -727,6 +761,7 @@
         "bus_a": 6,
         "bus_b": 28,
         "reactance": 0.0599,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -736,6 +771,7 @@
         "bus_a": 6,
         "bus_b": 9,
         "reactance": 0.208,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -745,6 +781,7 @@
         "bus_a": 6,
         "bus_b": 10,
         "reactance": 0.556,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -754,6 +791,7 @@
         "bus_a": 11,
         "bus_b": 9,
         "reactance": 0.208,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -763,6 +801,7 @@
         "bus_a": 10,
         "bus_b": 9,
         "reactance": 0.11,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -772,6 +811,7 @@
         "bus_a": 4,
         "bus_b": 12,
         "reactance": 0.256,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -781,6 +821,7 @@
         "bus_a": 12,
         "bus_b": 13,
         "reactance": 0.14,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       },
@@ -790,6 +831,7 @@
         "bus_a": 28,
         "bus_b": 27,
         "reactance": 0.396,
+        "voltage": 10,
         "tmax_ab": 9999,
         "tmax_ba": 9999
       }
