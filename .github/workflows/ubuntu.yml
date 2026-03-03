@@ -143,7 +143,7 @@ jobs:
         run: |
           set -o pipefail
           cd build
-          ctest --build-config Debug --output-on-failure 2>&1 | tee ctest_output.log
+          ctest --build-config Debug --output-on-failure  -j$(nproc) 2>&1 | tee ctest_output.log
           echo ""
           echo "=== Test Summary ==="
           TOTAL=$(grep -c "Test #" ctest_output.log || echo 0)

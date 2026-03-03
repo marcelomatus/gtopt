@@ -1,12 +1,13 @@
 # gtopt Python Scripts
 
-The `scripts/` directory contains three Python command-line utilities for
+The `scripts/` directory contains four Python command-line utilities for
 preparing and converting data for use with gtopt.
 
 ## Table of Contents
 
 - [Installation](#installation)
 - [plp2gtopt](#plp2gtopt)
+- [pp2gtopt](#pp2gtopt)
 - [igtopt](#igtopt)
 - [cvs2parquet](#cvs2parquet)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
@@ -15,13 +16,13 @@ preparing and converting data for use with gtopt.
 
 ## Installation
 
-Install all three tools with a single `pip` command from the repository root:
+Install all four tools with a single `pip` command from the repository root:
 
 ```bash
 pip install ./scripts
 ```
 
-This registers the `plp2gtopt`, `igtopt`, and `cvs2parquet` commands on your
+This registers the `plp2gtopt`, `pp2gtopt`, `igtopt`, and `cvs2parquet` commands on your
 `PATH`.  An editable install is useful during development:
 
 ```bash
@@ -36,6 +37,7 @@ pip install -e "./scripts[dev]"
 | `pandas` | DataFrame I/O |
 | `pyarrow` | Parquet read/write |
 | `openpyxl` | Excel file support (`igtopt`) |
+| `pandapower` | Power system network data (`pp2gtopt`) |
 
 ---
 
@@ -169,6 +171,75 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 | Input directory missing | `Input directory does not exist: 'plp_case/'` |
 | Required `.dat` file missing | `Required file not found: …/plpblo.dat` |
 | Invalid data format | `Invalid data format: …` |
+
+---
+
+## pp2gtopt
+
+Converts a **pandapower** network to gtopt JSON format.  Accepts either a
+built-in IEEE test network (via `-n`) or any pandapower network file saved to
+disk (via `-f`).  Writes a self-contained gtopt JSON file ready to be solved
+directly with the `gtopt` binary or submitted via `gtopt_guisrv` / `gtopt_websrv`.
+
+### Basic usage
+
+```bash
+# Convert the default IEEE 30-bus built-in network → ieee30b.json
+pp2gtopt
+
+# Convert a saved pandapower JSON file
+pp2gtopt -f my_network.json -o my_case.json
+
+# Convert a MATPOWER case file
+pp2gtopt -f case39.m -o case39.json
+
+# Convert a pandapower Excel workbook
+pp2gtopt -f network.xlsx -o network.json
+
+# Use a specific built-in test network
+pp2gtopt -n case14 -o ieee14b.json
+
+# List all available built-in test networks
+pp2gtopt --list-networks
+```
+
+### Input from file (`-f / --file`)
+
+`-f FILE` loads any pandapower network saved to disk.  The format is
+auto-detected from the file extension:
+
+| Extension | Format | Produced by |
+|-----------|--------|-------------|
+| `.json` | pandapower JSON | `pandapower.to_json()` |
+| `.xlsx` / `.xls` | pandapower Excel | `pandapower.to_excel()` |
+| `.m` | MATPOWER case file | MATPOWER / Octave |
+
+The output JSON system `name` is derived from the file stem (e.g. `case39.m`
+→ `"case39"`).
+
+### Available built-in networks (`-n / --network`)
+
+| Network name | pandapower function | Description |
+|---|---|---|
+| `ieee30b` *(default)* | `case_ieee30` | IEEE 30-bus (Washington) |
+| `case4gs` | `case4gs` | 4-bus Glover-Sarma |
+| `case5` | `case5` | 5-bus example |
+| `case6ww` | `case6ww` | 6-bus Wood-Wollenberg |
+| `case9` | `case9` | IEEE 9-bus |
+| `case14` | `case14` | IEEE 14-bus |
+| `case33bw` | `case33bw` | 33-bus Baran-Wu |
+| `case57` | `case57` | IEEE 57-bus |
+| `case118` | `case118` | IEEE 118-bus |
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f, --file FILE` | — | pandapower network file (`.json`, `.xlsx`/`.xls`, `.m`) |
+| `-n, --network NAME` | `ieee30b` | built-in test network (mutually exclusive with `-f`) |
+| `-o, --output FILE` | `<stem>.json` | Output JSON file path |
+| `--list-networks` | — | Print all available built-in network names and exit |
+| `-V, --version` | — | Print version and exit |
 
 ---
 

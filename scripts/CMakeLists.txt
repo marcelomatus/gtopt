@@ -3,7 +3,7 @@ Scripts
 -------
 
 CMake configuration for installing and testing the gtopt Python scripts:
-cvs2parquet, igtopt, and plp2gtopt.
+cvs2parquet, igtopt, plp2gtopt, and pp2gtopt.
 
 The scripts/ directory is a self-contained Python package with its own
 ``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
@@ -33,18 +33,18 @@ Build targets
   would be reformatted.
 
 ``scripts-lint``
-  Run pylint over cvs2parquet, igtopt, and plp2gtopt; exit non-zero on
+  Run pylint over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero on
   any error/warning.
 
 ``scripts-ruff``
-  Run ruff check over cvs2parquet, igtopt, and plp2gtopt; exit non-zero
+  Run ruff check over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero
   on any lint violation.
 
 ``scripts-mypy``
   Run mypy static type checking; exit non-zero on any type error.
 
 ``scripts-test``
-  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt) with pytest.
+  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt, pp2gtopt) with pytest.
 
 ``scripts-test-integration``
   Run the integration tests (marked ``integration``) using the sample PLP
@@ -133,6 +133,7 @@ add_custom_target(scripts-format
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
+    "${SCRIPTS_DIR}/pp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Auto-formatting Python source files with ruff format"
   DEPENDS scripts-install
@@ -145,6 +146,7 @@ add_custom_target(scripts-check-format
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
+    "${SCRIPTS_DIR}/pp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Checking Python source formatting with ruff format (no files modified)"
   DEPENDS scripts-install
@@ -157,6 +159,7 @@ add_custom_target(scripts-lint
     cvs2parquet
     igtopt
     plp2gtopt
+    pp2gtopt
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running pylint static analysis"
   DEPENDS scripts-install
@@ -169,6 +172,7 @@ add_custom_target(scripts-ruff
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
+    "${SCRIPTS_DIR}/pp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running ruff static analysis"
   DEPENDS scripts-install
@@ -181,6 +185,7 @@ add_custom_target(scripts-mypy
     cvs2parquet
     igtopt
     plp2gtopt
+    pp2gtopt
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running mypy static type checking"
@@ -194,6 +199,7 @@ add_custom_target(scripts-test
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
+    "${SCRIPTS_DIR}/pp2gtopt/tests"
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running gtopt script unit tests"
@@ -218,10 +224,12 @@ add_custom_target(scripts-coverage
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
+    "${SCRIPTS_DIR}/pp2gtopt/tests"
     -v
     --cov="${SCRIPTS_DIR}/cvs2parquet"
     --cov="${SCRIPTS_DIR}/igtopt"
     --cov="${SCRIPTS_DIR}/plp2gtopt"
+    --cov="${SCRIPTS_DIR}/pp2gtopt"
     --cov-report=html:${CMAKE_BINARY_DIR}/scripts-coverage-report
     --cov-report=term-missing
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -255,6 +263,7 @@ add_test(
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
+    "${SCRIPTS_DIR}/pp2gtopt/tests"
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -273,6 +282,7 @@ add_test(
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
+    "${SCRIPTS_DIR}/pp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
@@ -282,6 +292,7 @@ add_test(
     cvs2parquet
     igtopt
     plp2gtopt
+    pp2gtopt
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
@@ -291,6 +302,7 @@ add_test(
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
+    "${SCRIPTS_DIR}/pp2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
@@ -300,6 +312,7 @@ add_test(
     cvs2parquet
     igtopt
     plp2gtopt
+    pp2gtopt
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -350,5 +363,5 @@ install(CODE "
   if(NOT _pip_rc EQUAL 0)
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
-  message(STATUS \"Scripts installed: cvs2parquet, igtopt, plp2gtopt\")
+  message(STATUS \"Scripts installed: cvs2parquet, igtopt, plp2gtopt, pp2gtopt\")
 ")
