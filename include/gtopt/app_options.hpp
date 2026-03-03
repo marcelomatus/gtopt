@@ -173,15 +173,15 @@ inline void apply_cli_options(
   }
 
   if (lp_algorithm) {
-    planning.options.lp_algorithm = lp_algorithm.value();
+    planning.options.lp_algorithm = lp_algorithm;
   }
 
   if (lp_threads) {
-    planning.options.lp_threads = lp_threads.value();
+    planning.options.lp_threads = lp_threads;
   }
 
   if (lp_presolve) {
-    planning.options.lp_presolve = lp_presolve.value();
+    planning.options.lp_presolve = lp_presolve;
   }
 }
 
