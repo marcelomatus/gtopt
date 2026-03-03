@@ -1,5 +1,5 @@
 # Runtime dependencies for the gtopt Python scripts
-# (cvs2parquet, igtopt, plp2gtopt)
+# (cvs2parquet, igtopt, plp2gtopt, pp2gtopt)
 #
 # Install:
 #   pip install -r scripts/requirements.txt
@@ -7,4 +7,5 @@
 numpy>=1.24.0
 openpyxl>=3.1.0
 pandas>=2.0.0
+pandapower>=2.13.0
 pyarrow>=12.0.0
