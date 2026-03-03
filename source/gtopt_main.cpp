@@ -341,9 +341,19 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
       {
         const spdlog::stopwatch solve_sw;
 
-        // SolverOptions uses library defaults (primal simplex, single thread,
-        // presolve enabled).  Future work: expose these through MainOptions.
-        const SolverOptions solver_opts {};
+        // Build SolverOptions from Planning options (JSON) merged with any
+        // CLI overrides already applied via apply_cli_options.
+        const auto& plp_opts_ref = planning_lp.options();
+        SolverOptions solver_opts {};
+        if (const auto algo = plp_opts_ref.lp_algorithm()) {
+          solver_opts.algorithm = *algo;
+        }
+        if (const auto thr = plp_opts_ref.lp_threads()) {
+          solver_opts.threads = *thr;
+        }
+        if (const auto pre = plp_opts_ref.lp_presolve()) {
+          solver_opts.presolve = *pre;
+        }
         auto result = planning_lp.resolve(solver_opts);
         const auto solve_elapsed =
             std::chrono::duration<double>(solve_sw.elapsed()).count();

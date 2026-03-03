@@ -68,6 +68,14 @@ struct Options
   /** @brief Annual discount rate for multi-year planning (per unit) */
   OptReal annual_discount_rate {};
 
+  // Solver algorithm settings
+  /** @brief LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier) */
+  OptInt lp_algorithm {};
+  /** @brief Number of solver threads (0=automatic) */
+  OptInt lp_threads {};
+  /** @brief Whether to apply presolve optimizations */
+  OptBool lp_presolve {};
+
   void merge(Options&& opts)  // NOLINT
   {
     // Merge input-related options (always moving string values)
@@ -93,6 +101,11 @@ struct Options
     merge_opt(use_lp_names, opts.use_lp_names);
     merge_opt(use_uid_fname, opts.use_uid_fname);
     merge_opt(annual_discount_rate, opts.annual_discount_rate);
+
+    // Merge solver algorithm settings
+    merge_opt(lp_algorithm, opts.lp_algorithm);
+    merge_opt(lp_threads, opts.lp_threads);
+    merge_opt(lp_presolve, opts.lp_presolve);
   }
 };
 
