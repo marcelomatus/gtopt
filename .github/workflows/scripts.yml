@@ -147,10 +147,12 @@ jobs:
       - name: Install scripts via cmake --install
         run: cmake --install build-scripts
 
-      - name: Verify installed entry-point script is on PATH
+      - name: Verify installed entry-point scripts are on PATH
         run: |
           plp2gtopt --version
           echo "✓ plp2gtopt found on PATH after cmake --install"
+          pp2gtopt --version
+          echo "✓ pp2gtopt found on PATH after cmake --install"
 
       - name: plp_min_1bus – convert and validate JSON
         run: |
@@ -222,6 +224,24 @@ jobs:
           assert d["system"]["generator_array"][0]["name"] == "HydroGen"
           print("✓ plp_min_hydro JSON validated")
           EOF
+
+      - name: pp2gtopt – convert ieee30b and validate JSON
+        run: |
+          pp2gtopt -o /tmp/ieee30b.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/ieee30b.json"))
+          assert d["system"]["name"] == "ieee30b"
+          assert len(d["system"]["bus_array"]) == 30
+          assert len(d["system"]["generator_array"]) == 6
+          assert d["options"]["use_kirchhoff"] is True
+          print("✓ pp2gtopt ieee30b JSON validated")
+          EOF
+
+      - name: pp2gtopt – list-networks
+        run: |
+          pp2gtopt --list-networks
+          echo "✓ pp2gtopt --list-networks works"
 
   lint:
     runs-on: ubuntu-latest
