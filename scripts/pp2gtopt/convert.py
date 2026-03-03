@@ -2,7 +2,9 @@
 """Convert pandapower networks to gtopt JSON format.
 
 The default network is the IEEE 30-bus Washington test system from MATPOWER,
-available as pandapower.networks.case_ieee30(). The conversion:
+available as pandapower.networks.case_ieee30(). Arbitrary pandapower networks
+can be loaded from files via ``load_network(path)`` (JSON, Excel, MATPOWER).
+The conversion:
   - Converts line/trafo reactances from physical (Ohm) to per-unit (p.u.)
   - Linearises quadratic generator costs to their cp1 coefficient ($/MWh)
   - Models lossless transformers as lines with x = vk_percent / 100 p.u.
@@ -19,8 +21,62 @@ from typing import Any
 import pandapower as pp
 import pandapower.networks as pn
 
-_BASE_MVA = 100.0  # IEEE 30-bus system base (MVA)
+_BASE_MVA = 100.0  # system base (MVA) used for per-unit conversions
 _TMAX_UNLIMITED: float = 9999  # sentinel for unconstrained thermal limit
+
+# File extensions recognised by load_network()
+_FORMAT_JSON = ".json"
+_FORMAT_EXCEL = {".xlsx", ".xls"}
+_FORMAT_MATPOWER = ".m"
+_SUPPORTED_FORMATS = f"{_FORMAT_JSON}, .xlsx/.xls, {_FORMAT_MATPOWER}"
+
+
+def load_network(path: Path) -> pp.pandapowerNet:
+    """Load a pandapower network from a file.
+
+    Supported formats
+    -----------------
+    ``.json``
+        pandapower JSON (written by ``pandapower.to_json()``).
+    ``.xlsx`` / ``.xls``
+        pandapower Excel workbook (written by ``pandapower.to_excel()``).
+    ``.m``
+        MATPOWER case file (converted via ``pandapower.converter.from_mpc()``).
+
+    Parameters
+    ----------
+    path:
+        Path to the network file.
+
+    Returns
+    -------
+    pp.pandapowerNet
+        The loaded network.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    ValueError
+        If the file extension is not recognised.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Network file not found: {path}")
+    suffix = path.suffix.lower()
+    if suffix == _FORMAT_JSON:
+        return pp.from_json(str(path))
+    if suffix in _FORMAT_EXCEL:
+        return pp.from_excel(str(path))
+    if suffix == _FORMAT_MATPOWER:
+        from pandapower.converter.matpower.from_mpc import (  # pylint: disable=import-outside-toplevel
+            from_mpc,
+        )
+
+        return from_mpc(str(path))
+    raise ValueError(
+        f"Unsupported file format {suffix!r} for {path.name}. "
+        f"Supported extensions: {_SUPPORTED_FORMATS}"
+    )
 
 
 def get_bus_base_kv(net: pp.pandapowerNet, bus_idx: int) -> float:

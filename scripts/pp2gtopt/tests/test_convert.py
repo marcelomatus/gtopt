@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Unit and integration tests for pp2gtopt.convert."""
 
+import argparse
 import copy
 import json
 import math
+import sys
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+import pp2gtopt.convert as _convert_mod
 from pp2gtopt.convert import (
     _TMAX_UNLIMITED,
     _build_demands,
@@ -17,8 +22,10 @@ from pp2gtopt.convert import (
     _line_tmax,
     convert,
     get_bus_base_kv,
+    load_network,
     ohm_to_pu,
 )
+from pp2gtopt.main import main, make_parser
 
 
 # ---------------------------------------------------------------------------
@@ -72,10 +79,9 @@ class TestLineTmax:
 
 pytest.importorskip("pandapower", reason="pandapower not installed")
 # pylint: disable=wrong-import-position,wrong-import-order
+import pandapower as pp  # noqa: E402
 import pandapower.networks as pn  # noqa: E402
-import pp2gtopt.convert as _convert_mod  # noqa: E402
 # pylint: enable=wrong-import-position,wrong-import-order
-
 
 @pytest.fixture(scope="module")
 def net():
@@ -339,51 +345,47 @@ class TestConvertOutputFile:
 
 class TestMakeParser:
     def test_returns_parser(self):
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
+        assert isinstance(make_parser(), argparse.ArgumentParser)
 
-        p = make_parser()
-        import argparse  # noqa: PLC0415
-
-        assert isinstance(p, argparse.ArgumentParser)
-
-    def test_default_network(self):
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
+    def test_default_network_is_none(self):
+        # -n is in a mutually exclusive group; no default set → None
         args = make_parser().parse_args([])
-        assert args.network == "ieee30b"
+        assert args.network is None
+
+    def test_default_file_is_none(self):
+        args = make_parser().parse_args([])
+        assert args.file is None
 
     def test_default_output_is_none(self):
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
         args = make_parser().parse_args([])
         assert args.output is None
 
     def test_network_flag(self):
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
         args = make_parser().parse_args(["-n", "case14"])
         assert args.network == "case14"
 
+    def test_file_flag(self, tmp_path):
+        f = tmp_path / "net.json"
+        f.touch()
+        args = make_parser().parse_args(["-f", str(f)])
+        assert args.file == f
+
+    def test_file_and_network_mutually_exclusive(self, tmp_path):
+        f = tmp_path / "net.json"
+        f.touch()
+        with pytest.raises(SystemExit):
+            make_parser().parse_args(["-f", str(f), "-n", "case14"])
+
     def test_output_flag(self):
-        from pathlib import Path  # noqa: PLC0415
-
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
         args = make_parser().parse_args(["-o", "/tmp/out.json"])
         assert args.output == Path("/tmp/out.json")
 
-    def test_version_exits(self, capsys):
-        import sys  # noqa: PLC0415
-
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
+    def test_version_exits(self):
         with pytest.raises(SystemExit) as exc:
             make_parser().parse_args(["--version"])
         assert exc.value.code == 0
 
     def test_invalid_network_exits(self):
-        from pp2gtopt.main import make_parser  # noqa: PLC0415
-
         with pytest.raises(SystemExit):
             make_parser().parse_args(["-n", "nonexistent_network"])
 
@@ -391,39 +393,22 @@ class TestMakeParser:
 class TestMain:
     def test_main_version(self, capsys):
         """main() --version prints version string and exits."""
-        import sys  # noqa: PLC0415
-        from unittest.mock import patch  # noqa: PLC0415
-
-        from pp2gtopt.main import main  # noqa: PLC0415
-
         with pytest.raises(SystemExit) as exc:
             with patch.object(sys, "argv", ["pp2gtopt", "--version"]):
                 main()
         assert exc.value.code == 0
-        out = capsys.readouterr().out
-        assert "pp2gtopt" in out
+        assert "pp2gtopt" in capsys.readouterr().out
 
     def test_main_list_networks(self, capsys):
         """main() --list-networks prints network names and exits."""
-        import sys  # noqa: PLC0415
-        from unittest.mock import patch  # noqa: PLC0415
-
-        from pp2gtopt.main import main  # noqa: PLC0415
-
         with pytest.raises(SystemExit) as exc:
             with patch.object(sys, "argv", ["pp2gtopt", "--list-networks"]):
                 main()
         assert exc.value.code == 0
-        out = capsys.readouterr().out
-        assert "ieee30b" in out
+        assert "ieee30b" in capsys.readouterr().out
 
     def test_main_default_conversion(self, tmp_path):
-        """main() with -o writes ieee30b JSON."""
-        import sys  # noqa: PLC0415
-        from unittest.mock import patch  # noqa: PLC0415
-
-        from pp2gtopt.main import main  # noqa: PLC0415
-
+        """main() with no source flag defaults to ieee30b."""
         out = tmp_path / "out.json"
         with patch.object(sys, "argv", ["pp2gtopt", "-o", str(out)]):
             main()
@@ -435,11 +420,6 @@ class TestMain:
 
     def test_main_network_case14(self, tmp_path):
         """main() -n case14 writes a 14-bus JSON."""
-        import sys  # noqa: PLC0415
-        from unittest.mock import patch  # noqa: PLC0415
-
-        from pp2gtopt.main import main  # noqa: PLC0415
-
         out = tmp_path / "case14.json"
         with patch.object(sys, "argv", ["pp2gtopt", "-n", "case14", "-o", str(out)]):
             main()
@@ -448,3 +428,73 @@ class TestMain:
             data = json.load(fh)
         assert data["system"]["name"] == "case14"
         assert len(data["system"]["bus_array"]) == 14
+
+    def test_main_file_json(self, tmp_path):
+        """main() -f <json_file> loads a saved pandapower JSON and converts it."""
+
+        net = pn.case9()
+        src = tmp_path / "case9.json"
+        pp.to_json(net, str(src))
+
+        out = tmp_path / "case9_gtopt.json"
+        with patch.object(sys, "argv", ["pp2gtopt", "-f", str(src), "-o", str(out)]):
+            main()
+
+        assert out.exists()
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["system"]["name"] == "case9"
+        assert len(data["system"]["bus_array"]) == 9
+
+
+# ---------------------------------------------------------------------------
+# load_network() — file-format detection
+# ---------------------------------------------------------------------------
+
+
+class TestLoadNetwork:
+    def test_load_json(self, tmp_path):
+        """load_network() reads a pandapower JSON file."""
+
+        net_orig = pn.case9()
+        src = tmp_path / "case9.json"
+        pp.to_json(net_orig, str(src))
+
+        net = load_network(src)
+        assert len(net.bus) == 9
+
+    def test_load_excel(self, tmp_path):
+        """load_network() reads a pandapower Excel file."""
+        pytest.importorskip("xlsxwriter", reason="xlsxwriter not installed")
+        net_orig = pn.case9()
+        src = tmp_path / "case9.xlsx"
+        pp.to_excel(net_orig, str(src))
+
+        net = load_network(src)
+        assert len(net.bus) == 9
+
+    def test_file_not_found(self, tmp_path):
+        """load_network() raises FileNotFoundError for missing files."""
+        with pytest.raises(FileNotFoundError, match="Network file not found"):
+            load_network(tmp_path / "nonexistent.json")
+
+    def test_unsupported_extension(self, tmp_path):
+        """load_network() raises ValueError for unknown extensions."""
+        f = tmp_path / "net.csv"
+        f.write_text("dummy")
+        with pytest.raises(ValueError, match="Unsupported file format"):
+            load_network(f)
+
+    def test_name_derived_from_stem(self, tmp_path):
+        """convert() called with a file-loaded net uses the file stem as name."""
+
+        net_orig = pn.case14()
+        src = tmp_path / "mynetwork.json"
+        pp.to_json(net_orig, str(src))
+
+        net = load_network(src)
+        out = tmp_path / "mynetwork_gtopt.json"
+        convert(out, net=net, name=src.stem)
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["system"]["name"] == "mynetwork"
