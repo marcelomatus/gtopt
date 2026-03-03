@@ -53,6 +53,7 @@ jobs:
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
+            --cov=pp2gtopt \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
@@ -260,8 +261,8 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint cvs2parquet igtopt plp2gtopt
+        run: pylint cvs2parquet igtopt plp2gtopt pp2gtopt
 
       - name: mypy
         working-directory: scripts
-        run: mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
+        run: mypy cvs2parquet igtopt plp2gtopt pp2gtopt --ignore-missing-imports
