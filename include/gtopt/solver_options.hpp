@@ -46,7 +46,7 @@ enum class LPAlgo : uint8_t
 struct SolverOptions
 {
   /** @brief The solution algorithm to use */
-  int algorithm {0};
+  LPAlgo algorithm {LPAlgo::barrier};
 
   /** @brief Number of parallel threads to use (0 = automatic) */
   int threads {0};

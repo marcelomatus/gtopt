@@ -15,6 +15,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include <daw/daw_read_file.h>
 #include <gtopt/app_options.hpp>
@@ -346,7 +347,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         const auto& plp_opts_ref = planning_lp.options();
         SolverOptions solver_opts {};
         if (const auto algo = plp_opts_ref.lp_algorithm()) {
-          solver_opts.algorithm = *algo;
+          solver_opts.algorithm = static_cast<LPAlgo>(*algo);
         }
         if (const auto thr = plp_opts_ref.lp_threads()) {
           solver_opts.threads = *thr;
@@ -380,7 +381,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                           " algorithm={}, threads={}, presolve={},"
                           " optimal_eps={}, feasible_eps={}, barrier_eps={},"
                           " log_level={}",
-                          solver_opts.algorithm,
+                          std::to_underlying(solver_opts.algorithm),
                           solver_opts.threads,
                           solver_opts.presolve,
                           solver_opts.optimal_eps,

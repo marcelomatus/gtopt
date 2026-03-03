@@ -301,7 +301,7 @@ void LinearInterface::set_solver_opts(const SolverOptions& solver_options)
 
   const bool On = true;
   const bool Off = false;
-  const auto lp_algo = static_cast<LPAlgo>(solver_options.algorithm);
+  const auto lp_algo = solver_options.algorithm;
 
   switch (lp_algo) {
     case LPAlgo::default_algo:
