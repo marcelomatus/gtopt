@@ -1,0 +1,56 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "s1b",
+    "bus_array": [
+      {"uid": 1, "name": "b1"}
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g1",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 200,
+        "gcost": 20,
+        "capacity": 200
+      },
+      {
+        "uid": 2,
+        "name": "g2",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 300,
+        "gcost": 40,
+        "capacity": 300
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": "b1",
+        "lmax": [[250.0]]
+      }
+    ]
+  }
+}
