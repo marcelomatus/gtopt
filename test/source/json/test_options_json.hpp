@@ -195,3 +195,47 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK_FALSE(deserialized.use_uid_fname.has_value());
   CHECK_FALSE(deserialized.annual_discount_rate.has_value());
 }
+
+TEST_CASE("json_options - Solver algorithm fields JSON round-trip")  // NOLINT
+{
+  // Verify that lp_algorithm, lp_threads, and lp_presolve are serialized and
+  // deserialized correctly.
+  const Options original {
+      .lp_algorithm = 2,  // LPAlgo::dual
+      .lp_threads = 4,
+      .lp_presolve = false,
+  };
+
+  const auto json_data = daw::json::to_json(original);
+  const auto deserialized = daw::json::from_json<Options>(json_data);
+
+  REQUIRE(deserialized.lp_algorithm.has_value());
+  CHECK(*deserialized.lp_algorithm == 2);
+  REQUIRE(deserialized.lp_threads.has_value());
+  CHECK(*deserialized.lp_threads == 4);
+  REQUIRE(deserialized.lp_presolve.has_value());
+  CHECK(*deserialized.lp_presolve == false);
+}
+
+TEST_CASE(
+    "json_options - lp_algorithm deserialization from JSON string")  // NOLINT
+{
+  const std::string json_string = R"({
+    "lp_algorithm": 1,
+    "lp_threads": 2,
+    "lp_presolve": true
+  })";
+
+  const auto options = daw::json::from_json<Options>(json_string);
+
+  REQUIRE(options.lp_algorithm.has_value());
+  CHECK(*options.lp_algorithm == 1);
+  REQUIRE(options.lp_threads.has_value());
+  CHECK(*options.lp_threads == 2);
+  REQUIRE(options.lp_presolve.has_value());
+  CHECK(*options.lp_presolve == true);
+
+  // Other fields should be null
+  CHECK_FALSE(options.use_single_bus.has_value());
+  CHECK_FALSE(options.demand_fail_cost.has_value());
+}

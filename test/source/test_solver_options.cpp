@@ -245,3 +245,126 @@ TEST_CASE("SolverOptions - Presolve and logging options")
     CHECK(options.log_level == 3);
   }
 }
+
+TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
+{
+  // Verify that selecting the dual simplex algorithm still yields the correct
+  // solution on the same simple 1x1 problem.
+  FlatLinearProblem flat_lp;
+  flat_lp.name = "dual_algo_test";
+  flat_lp.ncols = 1;
+  flat_lp.nrows = 1;
+  flat_lp.matbeg = {0, 1};
+  flat_lp.matind = {0};
+  flat_lp.matval = {1.0};
+  flat_lp.collb = {2.0};
+  flat_lp.colub = {10.0};
+  flat_lp.objval = {1.0};
+  flat_lp.rowlb = {2.0};
+  flat_lp.rowub = {10.0};
+  flat_lp.colnm = {"x"};
+  flat_lp.rownm = {"r1"};
+
+  LinearInterface lp(flat_lp);
+
+  const SolverOptions solver_options {
+      .algorithm = std::to_underlying(LPAlgo::dual),
+  };
+
+  const auto result = lp.initial_solve(solver_options);
+
+  CHECK(result);
+  CHECK(lp.is_optimal() == true);
+  CHECK(lp.get_obj_value() == doctest::Approx(2.0));
+  const auto sol = lp.get_col_sol();
+  REQUIRE(sol.size() == 1);
+  CHECK(sol[0] == doctest::Approx(2.0));
+}
+
+TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
+{
+  FlatLinearProblem flat_lp;
+  flat_lp.name = "primal_algo_test";
+  flat_lp.ncols = 1;
+  flat_lp.nrows = 1;
+  flat_lp.matbeg = {0, 1};
+  flat_lp.matind = {0};
+  flat_lp.matval = {1.0};
+  flat_lp.collb = {3.0};
+  flat_lp.colub = {10.0};
+  flat_lp.objval = {1.0};
+  flat_lp.rowlb = {3.0};
+  flat_lp.rowub = {10.0};
+  flat_lp.colnm = {"x"};
+  flat_lp.rownm = {"r1"};
+
+  LinearInterface lp(flat_lp);
+
+  const SolverOptions solver_options {
+      .algorithm = std::to_underlying(LPAlgo::primal),
+  };
+
+  const auto result = lp.initial_solve(solver_options);
+
+  CHECK(result);
+  CHECK(lp.is_optimal() == true);
+  CHECK(lp.get_obj_value() == doctest::Approx(3.0));
+  const auto sol = lp.get_col_sol();
+  REQUIRE(sol.size() == 1);
+  CHECK(sol[0] == doctest::Approx(3.0));
+}
+
+TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
+{
+  // Verify all available algorithms solve:
+  //   min  x + y
+  //   s.t. x + y >= 4
+  //        x, y >= 0
+  // Optimal solution: any (x,y) with x+y=4, obj=4.
+
+  auto make_lp = []() -> LinearInterface
+  {
+    FlatLinearProblem flat_lp;
+    flat_lp.name = "algo_test_2x2";
+    flat_lp.ncols = 2;
+    flat_lp.nrows = 1;
+    flat_lp.matbeg = {0, 1, 2};
+    flat_lp.matind = {0, 0};
+    flat_lp.matval = {1.0, 1.0};
+    flat_lp.collb = {0.0, 0.0};
+    flat_lp.colub = {1e30, 1e30};
+    flat_lp.objval = {1.0, 1.0};
+    flat_lp.rowlb = {4.0};
+    flat_lp.rowub = {1e30};
+    flat_lp.colnm = {"x", "y"};
+    flat_lp.rownm = {"sum_row"};
+    return LinearInterface(flat_lp);
+  };
+
+  SUBCASE("default algorithm")
+  {
+    auto lp = make_lp();
+    const auto result = lp.initial_solve(
+        SolverOptions {.algorithm = std::to_underlying(LPAlgo::default_algo)});
+    CHECK(result);
+    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+  }
+
+  SUBCASE("primal simplex")
+  {
+    auto lp = make_lp();
+    const auto result = lp.initial_solve(
+        SolverOptions {.algorithm = std::to_underlying(LPAlgo::primal)});
+    CHECK(result);
+    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+  }
+
+  SUBCASE("dual simplex")
+  {
+    auto lp = make_lp();
+    const auto result = lp.initial_solve(
+        SolverOptions {.algorithm = std::to_underlying(LPAlgo::dual)});
+    CHECK(result);
+    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+  }
+}

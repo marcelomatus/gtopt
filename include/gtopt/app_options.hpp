@@ -98,7 +98,16 @@ template<typename T>
        "use fast (non strict) json parsing")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
-       "print system statistics before and after solving");
+       "print system statistics before and after solving")  //
+      ("lp-algorithm,a",
+       po::value<int>(),
+       "LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier)")  //
+      ("lp-threads,t",
+       po::value<int>(),
+       "number of solver threads (0=automatic)")  //
+      ("lp-presolve",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "enable/disable LP presolve");
   return desc;
 }
 
@@ -126,7 +135,10 @@ inline void apply_cli_options(
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
     const std::optional<std::string>& output_format,
-    const std::optional<std::string>& output_compression)
+    const std::optional<std::string>& output_compression,
+    const std::optional<int>& lp_algorithm = {},
+    const std::optional<int>& lp_threads = {},
+    const std::optional<bool>& lp_presolve = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -159,6 +171,18 @@ inline void apply_cli_options(
   if (input_format) {
     planning.options.input_format = input_format.value();
   }
+
+  if (lp_algorithm) {
+    planning.options.lp_algorithm = lp_algorithm.value();
+  }
+
+  if (lp_threads) {
+    planning.options.lp_threads = lp_threads.value();
+  }
+
+  if (lp_presolve) {
+    planning.options.lp_presolve = lp_presolve.value();
+  }
 }
 
 /**
@@ -181,7 +205,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.input_format,
                     opts.output_directory,
                     opts.output_format,
-                    opts.output_compression);
+                    opts.output_compression,
+                    opts.lp_algorithm,
+                    opts.lp_threads,
+                    opts.lp_presolve);
 }
 
 /**
@@ -240,6 +267,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .just_create = get_opt<bool>(vm, "just-create"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .print_stats = get_opt<bool>(vm, "stats"),
+      .lp_algorithm = get_opt<int>(vm, "lp-algorithm"),
+      .lp_threads = get_opt<int>(vm, "lp-threads"),
+      .lp_presolve = get_opt<bool>(vm, "lp-presolve"),
   };
 }
 
