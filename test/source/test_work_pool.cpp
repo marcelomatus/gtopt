@@ -1,6 +1,9 @@
+#include <chrono>
 #include <random>
+#include <thread>
 
 #include <doctest/doctest.h>
+#include <gtopt/cpu_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 
 using namespace std::chrono_literals;
@@ -322,4 +325,44 @@ TEST_CASE("Mock CPU monitoring")
     monitor.set_test_load(90.0);
     CHECK(monitor.get_load() == 90.0);
   }
+}
+
+TEST_CASE("CPUMonitor default interval")
+{
+  const CPUMonitor monitor;
+
+  CHECK(monitor.get_load() == doctest::Approx(0.0));
+  CHECK(monitor.get_interval() == std::chrono::milliseconds {100});
+}
+
+TEST_CASE("CPUMonitor set_interval")
+{
+  CPUMonitor monitor;
+
+  monitor.set_interval(std::chrono::milliseconds {200});
+  CHECK(monitor.get_interval() == std::chrono::milliseconds {200});
+
+  monitor.set_interval(std::chrono::milliseconds {50});
+  CHECK(monitor.get_interval() == std::chrono::milliseconds {50});
+}
+
+TEST_CASE("CPUMonitor get_system_cpu_usage with fallback")
+{
+  const double usage = CPUMonitor::get_system_cpu_usage(42.0);
+
+  CHECK(usage >= 0.0);
+  CHECK(usage <= 100.0);
+}
+
+TEST_CASE("CPUMonitor start and sample load")
+{
+  CPUMonitor monitor;
+  monitor.set_interval(std::chrono::milliseconds {50});
+
+  monitor.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds {200});
+  monitor.stop();
+
+  CHECK(monitor.get_load() >= 0.0);
+  CHECK(monitor.get_load() <= 100.0);
 }
