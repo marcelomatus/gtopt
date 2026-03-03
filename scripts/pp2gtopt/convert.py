@@ -18,9 +18,13 @@ import json
 import math
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandapower as pp
 import pandapower.networks as pn
+
+_BASE_MVA = 100.0  # IEEE 30-bus system base (MVA)
+_TMAX_UNLIMITED: float = 9999  # sentinel for unconstrained thermal limit
 
 
 def get_bus_base_kv(net: pp.pandapowerNet, bus_idx: int) -> float:
@@ -34,155 +38,156 @@ def ohm_to_pu(ohm: float, base_kv: float, base_mva: float = 100.0) -> float:
     return ohm / z_base
 
 
-def convert(output_path: Path | None = None) -> None:
-    """Load case_ieee30 and write the gtopt JSON file."""
-    net = pn.case_ieee30()
-    base_mva = 100.0  # IEEE 30-bus system base
+def _get_poly_cost(
+    net: pp.pandapowerNet, et: str, element: int, default: float
+) -> float:
+    """Return cp1 linear cost coefficient for an element, or *default*."""
+    mask = (net.poly_cost["et"] == et) & (net.poly_cost["element"] == element)
+    row = net.poly_cost[mask]
+    return float(row["cp1_eur_per_mw"].iloc[0]) if not row.empty else default
 
-    # ---- buses ---------------------------------------------------------------
-    # The ext_grid bus is the DC OPF reference bus (slack bus, theta = 0).
-    # Without a fixed reference the LP angle variables are underdetermined and
-    # may drift to their bounds, creating artificial congestion.
+
+def _build_buses(net: pp.pandapowerNet) -> list[dict[str, Any]]:
+    """Build bus array; fix the ext_grid bus as the DC OPF reference (theta=0)."""
     slack_bus = int(net.ext_grid.iloc[0]["bus"]) + 1  # 1-indexed
-    bus_array = []
-    for idx, row in net.bus.iterrows():
+    bus_array: list[dict[str, Any]] = []
+    for idx, _row in net.bus.iterrows():
         bus_uid = int(idx) + 1
-        entry: dict = {"uid": bus_uid, "name": f"b{bus_uid}"}
+        entry: dict[str, Any] = {"uid": bus_uid, "name": f"b{bus_uid}"}
         if bus_uid == slack_bus:
             entry["reference_theta"] = 0  # fix slack angle to 0 rad
         bus_array.append(entry)
+    return bus_array
 
-    # ---- generators ----------------------------------------------------------
-    # ext_grid (slack/reference generator) + PV generators
-    generator_array = []
-    gen_uid = 1
 
-    # ext_grid at bus index 0 → bus uid 1
+def _build_ext_grid_gen(net: pp.pandapowerNet) -> dict[str, Any]:
+    """Return the gtopt generator entry for the ext_grid (slack generator)."""
     eg = net.ext_grid.iloc[0]
     eg_bus = int(eg["bus"])
-    # cost from poly_cost where et='ext_grid' and element=0
-    eg_cost_row = net.poly_cost[
-        (net.poly_cost["et"] == "ext_grid") & (net.poly_cost["element"] == 0)
-    ]
-    eg_gcost = float(eg_cost_row["cp1_eur_per_mw"].iloc[0]) if not eg_cost_row.empty else 20.0
-    generator_array.append(
-        {
-            "uid": gen_uid,
-            "name": "g1",
-            "bus": eg_bus + 1,
-            "pmin": 0,
-            "pmax": float(eg.get("max_p_mw", 360.2)),
-            "gcost": eg_gcost,
-            "capacity": float(eg.get("max_p_mw", 360.2)),
-        }
-    )
-    gen_uid += 1
+    gcost = _get_poly_cost(net, "ext_grid", 0, default=20.0)
+    pmax = float(eg.get("max_p_mw", 360.2))
+    return {
+        "uid": 1,
+        "name": "g1",
+        "bus": eg_bus + 1,
+        "pmin": 0,
+        "pmax": pmax,
+        "gcost": gcost,
+        "capacity": pmax,
+    }
 
-    for i, (idx, row) in enumerate(net.gen.iterrows()):
-        bus_idx = int(row["bus"])
+
+def _build_generators(net: pp.pandapowerNet) -> list[dict[str, Any]]:
+    """Build generator array: ext_grid first, then PV generators."""
+    generators = [_build_ext_grid_gen(net)]
+    for gen_uid, (idx, row) in enumerate(net.gen.iterrows(), start=2):
         pmax = float(row["max_p_mw"])
         pmin = float(row.get("min_p_mw", 0.0))
-        # find linear cost coefficient
-        cost_row = net.poly_cost[
-            (net.poly_cost["et"] == "gen") & (net.poly_cost["element"] == int(idx))
-        ]
-        gcost = float(cost_row["cp1_eur_per_mw"].iloc[0]) if not cost_row.empty else 40.0
-        generator_array.append(
+        gcost = _get_poly_cost(net, "gen", int(idx), default=40.0)
+        generators.append(
             {
                 "uid": gen_uid,
                 "name": f"g{gen_uid}",
-                "bus": bus_idx + 1,
+                "bus": int(row["bus"]) + 1,
                 "pmin": pmin,
                 "pmax": pmax,
                 "gcost": gcost,
                 "capacity": pmax,
             }
         )
-        gen_uid += 1
+    return generators
 
-    # ---- demands -------------------------------------------------------------
-    demand_array = []
-    for i, (idx, row) in enumerate(net.load.iterrows()):
-        bus_idx = int(row["bus"])
+
+def _build_demands(net: pp.pandapowerNet) -> list[dict[str, Any]]:
+    """Build demand array from net.load, skipping zero-load entries."""
+    demand_array: list[dict[str, Any]] = []
+    uid = 1
+    for _idx, row in net.load.iterrows():
         p_mw = float(row["p_mw"])
         if p_mw <= 0.0:
             continue
         demand_array.append(
             {
-                "uid": i + 1,
-                "name": f"d{i + 1}",
-                "bus": bus_idx + 1,
+                "uid": uid,
+                "name": f"d{uid}",
+                "bus": int(row["bus"]) + 1,
                 "lmax": [[p_mw]],
             }
         )
+        uid += 1
+    return demand_array
 
-    # ---- lines (physical lines, no transformers) ----------------------------
-    line_array = []
-    line_uid = 1
 
+def _line_tmax(max_i_ka: float, base_kv: float) -> float:
+    """Return thermal limit in MW; 9999 if the pandapower value is unconstrained."""
+    if math.isinf(max_i_ka) or max_i_ka >= _TMAX_UNLIMITED:
+        return _TMAX_UNLIMITED
+    return round(max_i_ka * base_kv * math.sqrt(3), 1)
+
+
+def _build_physical_lines(
+    net: pp.pandapowerNet, base_mva: float
+) -> list[dict[str, Any]]:
+    """Build line entries for physical lines (not transformers)."""
+    lines: list[dict[str, Any]] = []
     for _idx, row in net.line.iterrows():
         fb = int(row["from_bus"])
         tb = int(row["to_bus"])
-        x_ohm = float(row["x_ohm_per_km"]) * float(row["length_km"])
-        r_ohm = float(row["r_ohm_per_km"]) * float(row["length_km"])
-
-        # Use the from-bus voltage for per-unit conversion
         base_kv = get_bus_base_kv(net, fb)
-        x_pu = ohm_to_pu(x_ohm, base_kv, base_mva)
-        r_pu = ohm_to_pu(r_ohm, base_kv, base_mva)
-
-        # Skip degenerate lines
+        x_pu = ohm_to_pu(
+            float(row["x_ohm_per_km"]) * float(row["length_km"]), base_kv, base_mva
+        )
         if x_pu < 1e-6:
             continue
+        tmax = _line_tmax(float(row.get("max_i_ka", float("inf"))), base_kv)
+        lines.append(
+            {
+                "name": f"l{fb + 1}_{tb + 1}",
+                "bus_a": fb + 1,
+                "bus_b": tb + 1,
+                "reactance": round(x_pu, 6),
+                "voltage": 10,
+                "tmax_ab": tmax,
+                "tmax_ba": tmax,
+            }
+        )
+    return lines
 
-        # Thermal limit: convert kA limit to MW, or use large default
-        max_i_ka = float(row.get("max_i_ka", float("inf")))
-        if math.isinf(max_i_ka) or max_i_ka >= 9999:
-            # No thermal limit in pandapower case — use a large sentinel value
-            tmax = 9999
-        else:
-            # Convert kA × kV × sqrt(3) → MVA ≈ MW (for DC OPF)
-            tmax = round(max_i_ka * base_kv * math.sqrt(3), 1)
 
-        entry = {
-            "uid": line_uid,
-            "name": f"l{fb + 1}_{tb + 1}",
-            "bus_a": fb + 1,
-            "bus_b": tb + 1,
-            "reactance": round(x_pu, 6),
-            "voltage": 10,
-            "tmax_ab": tmax,
-            "tmax_ba": tmax,
-        }
-        line_array.append(entry)
-        line_uid += 1
-
-    # ---- transformers (modelled as lossless lines) ---------------------------
+def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
+    """Build line entries for transformers (modelled as lossless lines)."""
+    trafos: list[dict[str, Any]] = []
     for _idx, row in net.trafo.iterrows():
         hv = int(row["hv_bus"])
         lv = int(row["lv_bus"])
-        vk = float(row["vk_percent"])
-        sn_mva = float(row["sn_mva"])
-        # p.u. reactance on the system base
-        x_pu = (vk / 100.0) * (base_mva / sn_mva)
-
+        x_pu = (float(row["vk_percent"]) / 100.0) * (base_mva / float(row["sn_mva"]))
         if x_pu < 1e-6:
             continue
+        trafos.append(
+            {
+                "name": f"t{hv + 1}_{lv + 1}",
+                "bus_a": hv + 1,
+                "bus_b": lv + 1,
+                "reactance": round(x_pu, 6),
+                "voltage": 10,
+                "tmax_ab": _TMAX_UNLIMITED,
+                "tmax_ba": _TMAX_UNLIMITED,
+            }
+        )
+    return trafos
 
-        entry = {
-            "uid": line_uid,
-            "name": f"t{hv + 1}_{lv + 1}",
-            "bus_a": hv + 1,
-            "bus_b": lv + 1,
-            "reactance": round(x_pu, 6),
-            "voltage": 10,
-            "tmax_ab": 9999,
-            "tmax_ba": 9999,
-        }
-        line_array.append(entry)
-        line_uid += 1
 
-    # ---- assemble JSON -------------------------------------------------------
+def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
+    """Build line array: physical lines followed by transformers, with sequential UIDs."""
+    entries = _build_physical_lines(net, base_mva) + _build_transformers(net, base_mva)
+    for uid, entry in enumerate(entries, start=1):
+        entry["uid"] = uid
+    return entries
+
+
+def convert(output_path: Path | None = None) -> None:
+    """Load case_ieee30 and write the gtopt JSON file."""
+    net = pn.case_ieee30()
     data = {
         "options": {
             "annual_discount_rate": 0.0,
@@ -196,15 +201,17 @@ def convert(output_path: Path | None = None) -> None:
         },
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],
-            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+            "stage_array": [
+                {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
+            ],
             "scenario_array": [{"uid": 1, "probability_factor": 1}],
         },
         "system": {
             "name": "ieee30b",
-            "bus_array": bus_array,
-            "generator_array": generator_array,
-            "demand_array": demand_array,
-            "line_array": line_array,
+            "bus_array": _build_buses(net),
+            "generator_array": _build_generators(net),
+            "demand_array": _build_demands(net),
+            "line_array": _build_lines(net, _BASE_MVA),
         },
     }
 
