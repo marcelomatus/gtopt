@@ -75,6 +75,15 @@ struct MainOptions
   std::optional<bool> fast_parsing {};
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
+
+  // ---- solver algorithm ----
+  /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
+   * 3=barrier) */
+  std::optional<int> lp_algorithm {};
+  /** @brief Number of solver threads override (0=automatic) */
+  std::optional<int> lp_threads {};
+  /** @brief Presolve override */
+  std::optional<bool> lp_presolve {};
 };
 
 /**

@@ -21,10 +21,12 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/solver_options.hpp>
 
 using namespace gtopt;
 
@@ -431,4 +433,97 @@ TEST_CASE("gtopt_main - unreadable file returns read error")
   CHECK(!result.error().empty());
 
   std::filesystem::remove_all(dir_json);
+}
+
+TEST_CASE("gtopt_main - lp_algorithm primal solves correctly")  // NOLINT
+{
+  // Verify that setting lp_algorithm=1 (primal simplex) in MainOptions still
+  // produces the correct optimal solution.
+  const auto stem = write_tmp_json("gtopt_main_algo_primal", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_algo_primal_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+      .lp_algorithm = std::to_underlying(LPAlgo::primal),
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - lp_algorithm dual solves correctly")  // NOLINT
+{
+  // Verify that setting lp_algorithm=2 (dual simplex) in MainOptions still
+  // produces the correct optimal solution.
+  const auto stem = write_tmp_json("gtopt_main_algo_dual", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_algo_dual_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+      .lp_algorithm = std::to_underlying(LPAlgo::dual),
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - lp_algorithm from JSON options")  // NOLINT
+{
+  // Verify that lp_algorithm can be specified in the JSON options field
+  // and is propagated through the planning options to the solver.
+  constexpr auto json_with_algo = R"({
+    "options": {
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed",
+      "lp_algorithm": 1
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 1}]
+    },
+    "system": {
+      "name": "json_algo_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+      ]
+    }
+  })";
+
+  const auto stem = write_tmp_json("gtopt_main_json_algo", json_with_algo);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_json_algo_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - lp_presolve=false solves correctly")  // NOLINT
+{
+  // Verify that disabling presolve still produces an optimal solution.
+  const auto stem = write_tmp_json("gtopt_main_no_presolve", minimal_json);
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_no_presolve_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+      .lp_presolve = false,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
 }

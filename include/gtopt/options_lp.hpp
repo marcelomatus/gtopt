@@ -217,6 +217,34 @@ public:
         default_annual_discount_rate);
   }
 
+  /**
+   * @brief Gets the LP algorithm option (raw optional, no default applied)
+   * @return The LP algorithm index as an optional int
+   */
+  [[nodiscard]] constexpr auto lp_algorithm() const
+  {
+    return m_options_.lp_algorithm;
+  }
+
+  /**
+   * @brief Gets the LP solver threads option (raw optional, no default
+   * applied)
+   * @return The number of solver threads as an optional int
+   */
+  [[nodiscard]] constexpr auto lp_threads() const
+  {
+    return m_options_.lp_threads;
+  }
+
+  /**
+   * @brief Gets the LP presolve option (raw optional, no default applied)
+   * @return Whether to use presolve as an optional bool
+   */
+  [[nodiscard]] constexpr auto lp_presolve() const
+  {
+    return m_options_.lp_presolve;
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
