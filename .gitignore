@@ -36,3 +36,5 @@ build/
 webservice/tsconfig.tsbuildinfo
 webservice/coverage/
 output/
+LastTest.log
+node_modules/
