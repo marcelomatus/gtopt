@@ -59,6 +59,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
 
 option(GTOPT_BUILD_STANDALONE  "Build and install the gtopt solver binary"          ON)
 option(GTOPT_BUILD_TESTS       "Build the unit + integration test suite"             ON)
+option(GTOPT_BUILD_INTEGRATION_TESTS "Build and run e2e integration tests (requires GTOPT_BUILD_STANDALONE)" ON)
 option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"               ON)
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)
@@ -84,6 +85,19 @@ if(GTOPT_BUILD_STANDALONE)
   add_subdirectory(
     ${CMAKE_CURRENT_LIST_DIR}/../standalone ${CMAKE_BINARY_DIR}/standalone
   )
+endif()
+
+if(GTOPT_BUILD_INTEGRATION_TESTS)
+  if(NOT GTOPT_BUILD_STANDALONE)
+    message(WARNING
+      "GTOPT_BUILD_INTEGRATION_TESTS requires GTOPT_BUILD_STANDALONE. "
+      "Disabling integration tests.")
+  else()
+    add_subdirectory(
+      ${CMAKE_CURRENT_LIST_DIR}/../integration_test
+      ${CMAKE_BINARY_DIR}/integration_test
+    )
+  endif()
 endif()
 
 if(GTOPT_BUILD_TESTS)

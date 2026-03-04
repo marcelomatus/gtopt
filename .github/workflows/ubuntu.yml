@@ -116,7 +116,7 @@ jobs:
           if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
           fi
-          cmake -Stest -Bbuild -DENABLE_INTEGRATION_TESTS=ON ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -127,8 +127,8 @@ jobs:
       - name: verify binary has no missing shared libraries
         run: |
           echo "=== ldd output ==="
-          ldd build/gtopt
-          if ldd build/gtopt | grep -q "not found"; then
+          ldd build/standalone/gtopt
+          if ldd build/standalone/gtopt | grep -q "not found"; then
             echo "::error::gtopt binary has missing shared libraries"
             exit 1
           fi
@@ -136,7 +136,7 @@ jobs:
 
       - name: verify binary runs
         run: |
-          build/gtopt --version
+          build/standalone/gtopt --version
           echo "✓ gtopt --version works"
 
       - name: test
@@ -155,7 +155,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gtopt-binary-debug
-          path: build/gtopt
+          path: build/standalone/gtopt
           retention-days: 7
 
       - name: collect coverage (unit + integration)

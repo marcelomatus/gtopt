@@ -56,41 +56,46 @@ set(CPLEX_ROOT_DIR
 set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(../cmake_local/Solver.cmake)
 
-# ---- Build the gtopt executable ----
-
-file(GLOB sources CONFIGURE_DEPENDS
-     ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
-)
-
-add_executable(${PROJECT_NAME} ${sources})
-
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
-
-target_include_directories(
-  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
-)
-
-target_link_libraries(
-  ${PROJECT_NAME}
-  gtopt::gtopt
-  "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
-)
-
-# ---- Code coverage ----
-
-if(ENABLE_TEST_COVERAGE)
-  target_compile_options(
-    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
-    -fprofile-update=atomic
+# ---- Build or reuse the gtopt executable ----
+# When included from all/CMakeLists.txt the standalone binary is already
+# built as target 'gtoptStandalone'.  Reuse it to avoid recompilation.
+# GTOPT_EXECUTABLE_TARGET is consumed by add_e2e_case() in add_e2e_case.cmake
+# to reference the correct binary via $<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>.
+if(TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+else()
+  file(GLOB sources CONFIGURE_DEPENDS
+       ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
   )
-  target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
 
-  if(TARGET gtopt)
+  add_executable(${PROJECT_NAME} ${sources})
+
+  set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
+
+  target_include_directories(
+    ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
+  )
+
+  target_link_libraries(
+    ${PROJECT_NAME}
+    gtopt::gtopt
+    "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
+  )
+
+  if(ENABLE_TEST_COVERAGE)
     target_compile_options(
-      gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
+      ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
       -fprofile-update=atomic
-    )                           #
-    target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
+
+    if(TARGET gtopt)
+      target_compile_options(
+        gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
+        -fprofile-update=atomic
+      )
+      target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+    endif()
   endif()
 endif()
 
