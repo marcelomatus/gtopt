@@ -248,6 +248,13 @@ add_custom_target(scripts-coverage
 
 enable_testing()
 
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 1)
+endif()
+list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
+
 # Setup fixture: install dev dependencies before running any tests.
 # This mirrors the DEPENDS scripts-install that the custom targets use,
 # so that 'cmake --build <dir> --target test' works out of the box without
