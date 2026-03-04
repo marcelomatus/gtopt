@@ -56,4 +56,4 @@ allow-wildcard-with-all=no
 
 [TYPECHECK]
 # Ignore import errors for third-party modules
-ignored-modules=pyomo,pytest
+ignored-modules=pytest
