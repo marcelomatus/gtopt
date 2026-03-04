@@ -18,10 +18,17 @@ cmake_policy(SET CMP0167 NEW)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---- Force Debug build ----
-
-if(NOT CMAKE_BUILD_TYPE)
+# ---- Build type default ----
+# Only set when building integration_test as a standalone top-level project
+# (i.e. cmake -S integration_test).  When included from all/CMakeLists.txt the
+# build type has already been set at the top level, so we must not force-override
+# it here.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+  set_property(
+    CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel
+  )
+  message(STATUS "Build type not set — defaulting to Debug")
 endif()
 
 # ---- No install rules ----
@@ -36,7 +43,9 @@ include(../cmake/tools.cmake)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+if(NOT TARGET gtopt::gtopt)
+  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+endif()
 
 include(../cmake/ClangFormat.cmake)
 
@@ -56,41 +65,46 @@ set(CPLEX_ROOT_DIR
 set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
 include(../cmake_local/Solver.cmake)
 
-# ---- Build the gtopt executable ----
-
-file(GLOB sources CONFIGURE_DEPENDS
-     ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
-)
-
-add_executable(${PROJECT_NAME} ${sources})
-
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
-
-target_include_directories(
-  ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
-)
-
-target_link_libraries(
-  ${PROJECT_NAME}
-  gtopt::gtopt
-  "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
-)
-
-# ---- Code coverage ----
-
-if(ENABLE_TEST_COVERAGE)
-  target_compile_options(
-    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
-    -fprofile-update=atomic
+# ---- Build or reuse the gtopt executable ----
+# When included from all/CMakeLists.txt the standalone binary is already
+# built as target 'gtoptStandalone'.  Reuse it to avoid recompilation.
+# GTOPT_EXECUTABLE_TARGET is consumed by add_e2e_case() in add_e2e_case.cmake
+# to reference the correct binary via $<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>.
+if(TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+else()
+  file(GLOB sources CONFIGURE_DEPENDS
+       ${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp
   )
-  target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
 
-  if(TARGET gtopt)
+  add_executable(${PROJECT_NAME} ${sources})
+
+  set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
+
+  target_include_directories(
+    ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
+  )
+
+  target_link_libraries(
+    ${PROJECT_NAME}
+    gtopt::gtopt
+    "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
+  )
+
+  if(ENABLE_TEST_COVERAGE)
     target_compile_options(
-      gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
+      ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
       -fprofile-update=atomic
-    )                           #
-    target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
+
+    if(TARGET gtopt)
+      target_compile_options(
+        gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
+        -fprofile-update=atomic
+      )
+      target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+    endif()
   endif()
 endif()
 
@@ -110,7 +124,21 @@ set(PANDAPOWER_PYTHON "" CACHE FILEPATH "Python interpreter with pandapower")
 if(NOT PANDAPOWER_PYTHON)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_FOUND)
-    set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" -c "import pandapower"
+      RESULT_VARIABLE _pandapower_import_result
+      OUTPUT_QUIET
+      ERROR_QUIET
+    )
+    if(_pandapower_import_result EQUAL 0)
+      set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
+    else()
+      message(STATUS
+        "Python3 found but pandapower is not installed — "
+        "skipping pandapower comparison tests. "
+        "Install pandapower or set -DPANDAPOWER_PYTHON=/path/to/python3 "
+        "with pandapower available.")
+    endif()
   endif()
 endif()
 include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
