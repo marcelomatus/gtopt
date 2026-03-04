@@ -293,8 +293,11 @@ jobs:
 
       - name: configure (clang-tidy mode)
         run: |
-          cmake -Stest -Bbuild \
-            -DENABLE_INTEGRATION_TESTS=OFF \
+          cmake -S all -Bbuild \
+            -DGTOPT_BUILD_INTEGRATION_TESTS=OFF \
+            -DGTOPT_BUILD_WEBSERVICE=OFF \
+            -DGTOPT_BUILD_GUISERVICE=OFF \
+            -DGTOPT_BUILD_SCRIPTS=OFF \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
