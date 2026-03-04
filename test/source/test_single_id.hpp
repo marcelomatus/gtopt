@@ -1,5 +1,5 @@
 /**
- * @file      test_single_id.cpp
+ * @file      test_single_id.hpp
  * @brief     Unit tests for SingleId utilities
  * @date      Sat Feb  8 07:37:00 2026
  * @author    copilot

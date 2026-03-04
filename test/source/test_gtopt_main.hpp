@@ -1,5 +1,5 @@
 /**
- * @file      test_gtopt_main.cpp
+ * @file      test_gtopt_main.hpp
  * @brief     Unit tests for the gtopt::gtopt_main() library entry point
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo

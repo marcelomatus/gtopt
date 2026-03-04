@@ -1,5 +1,5 @@
 /**
- * @file      test_benchmark_map.cpp
+ * @file      test_benchmark_map.hpp
  * @brief     Benchmark comparing std::map vs flat_map
  * (boost::container::flat_map and std::flat_map when available)
  * @date      Tue Feb 11 16:43:00 2026

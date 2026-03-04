@@ -1,5 +1,5 @@
 /**
- * @file      test_simulation.cpp
+ * @file      test_simulation_lp.hpp
  * @brief     Tests for the Simulation class
  * @date      Sat Apr 19 12:30:00 2025
  * @author    marcelo

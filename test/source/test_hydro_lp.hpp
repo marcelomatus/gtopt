@@ -1,5 +1,5 @@
 /**
- * @file      test_hydro_lp.cpp
+ * @file      test_hydro_lp.hpp
  * @brief     Unit tests for hydro system LP components (junction, waterway,
  *            flow, reservoir, turbine, filtration)
  * @date      2026-02-18
