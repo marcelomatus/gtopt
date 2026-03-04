@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <format>
 #include <optional>
-#include <ranges>
 #include <string_view>
 
 namespace gtopt
