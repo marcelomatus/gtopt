@@ -63,10 +63,10 @@ struct LPAlgoEntry
  * compile time without any manual maintenance.
  */
 inline constexpr auto lp_algo_entries = std::to_array<LPAlgoEntry>({
-    {"default", LPAlgo::default_algo},
-    {"primal", LPAlgo::primal},
-    {"dual", LPAlgo::dual},
-    {"barrier", LPAlgo::barrier},
+    {.name = "default", .value = LPAlgo::default_algo},
+    {.name = "primal", .value = LPAlgo::primal},
+    {.name = "dual", .value = LPAlgo::dual},
+    {.name = "barrier", .value = LPAlgo::barrier},
 });
 
 /**
@@ -78,7 +78,7 @@ inline constexpr auto lp_algo_entries = std::to_array<LPAlgoEntry>({
 [[nodiscard]] constexpr std::optional<LPAlgo> lp_algo_from_name(
     std::string_view name) noexcept
 {
-  const auto it = std::ranges::find_if(
+  const auto* const it = std::ranges::find_if(
       lp_algo_entries, [name](const LPAlgoEntry& e) { return e.name == name; });
   if (it != lp_algo_entries.end()) {
     return it->value;
@@ -94,9 +94,9 @@ inline constexpr auto lp_algo_entries = std::to_array<LPAlgoEntry>({
  */
 [[nodiscard]] constexpr std::string_view lp_algo_name(LPAlgo algo) noexcept
 {
-  const auto it = std::ranges::find_if(lp_algo_entries,
-                                       [algo](const LPAlgoEntry& e)
-                                       { return e.value == algo; });
+  const auto* const it = std::ranges::find_if(lp_algo_entries,
+                                              [algo](const LPAlgoEntry& e)
+                                              { return e.value == algo; });
   return it != lp_algo_entries.end() ? it->name : "unknown";
 }
 
