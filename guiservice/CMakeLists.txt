@@ -44,9 +44,16 @@ The install step always uses the Python found at **configure time**
 regular user) and ``sudo cmake --install`` (system-wide) work
 correctly with the same Python.
 
+Python dependencies are installed with ``pip install --prefix
+<CMAKE_INSTALL_PREFIX>``, which defaults to ``~/.local`` for non-root
+users (see ``cmake_local/DefaultInstallPrefix.cmake``).  This avoids
+permission errors when the active Python environment contains
+root-owned packages (e.g. a previous ``sudo pip install`` in a pyenv).
+
 This installs:
 - ``gtopt_gui`` launcher script to ``bin/gtopt_gui``
 - GUI service files to ``share/gtopt/guiservice/``
+- Python dependencies to ``lib/pythonX.Y/site-packages/`` under the prefix
 
 #]=======================================================================]
 
@@ -229,13 +236,14 @@ install(CODE "
 
   execute_process(
     COMMAND \${_pip_cmd} install
+      --prefix \"\${CMAKE_INSTALL_PREFIX}\"
       --ignore-installed
       -r \"${GUISERVICE_DIR}/requirements.txt\"
     RESULT_VARIABLE _pip_rc
   )
   if(NOT _pip_rc EQUAL 0)
     message(WARNING \"pip install failed (exit code \${_pip_rc}). \"
-      \"Please run manually: pip install --ignore-installed -r ${GUISERVICE_DIR}/requirements.txt\")
+      \"Please run manually: pip install --prefix \${CMAKE_INSTALL_PREFIX} --ignore-installed -r ${GUISERVICE_DIR}/requirements.txt\")
   else()
     message(STATUS \"Python dependencies installed successfully\")
   endif()
