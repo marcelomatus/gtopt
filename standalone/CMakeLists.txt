@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptStandalone LANGUAGES CXX)
 
+# Default to ~/.local for non-root users (XDG Base Directory)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+
 # ---- Options ----
 
 set(CMAKE_CXX_STANDARD 26)
