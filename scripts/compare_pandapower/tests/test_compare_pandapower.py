@@ -30,7 +30,9 @@ def _write_generation_csv(tmp_path: Path, values: list) -> Path:
     csv_path = gen_dir / "generation_sol.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        header = ["scenario", "stage", "block"] + [f"uid:{i + 1}" for i in range(len(values))]
+        header = ["scenario", "stage", "block"] + [
+            f"uid:{i + 1}" for i in range(len(values))
+        ]
         writer.writerow(header)
         writer.writerow([1, 1, 1] + values)
     return tmp_path
@@ -43,7 +45,9 @@ def _write_lmps_csv(tmp_path: Path, values: list) -> Path:
     csv_path = bus_dir / "balance_dual.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        header = ["scenario", "stage", "block"] + [f"uid:{i + 1}" for i in range(len(values))]
+        header = ["scenario", "stage", "block"] + [
+            f"uid:{i + 1}" for i in range(len(values))
+        ]
         writer.writerow(header)
         writer.writerow([1, 1, 1] + values)
     return tmp_path
@@ -159,7 +163,9 @@ class TestCasesDispatchTable:
 class TestMainArgParsing:
     def test_missing_case_exits(self):
         with pytest.raises(SystemExit):
-            with patch.object(sys, "argv", ["compare_pandapower", "--gtopt-output", "/tmp"]):
+            with patch.object(
+                sys, "argv", ["compare_pandapower", "--gtopt-output", "/tmp"]
+            ):
                 main()
 
     def test_missing_output_exits(self):
@@ -172,7 +178,13 @@ class TestMainArgParsing:
             with patch.object(
                 sys,
                 "argv",
-                ["compare_pandapower", "--case", "nonexistent", "--gtopt-output", "/tmp"],
+                [
+                    "compare_pandapower",
+                    "--case",
+                    "nonexistent",
+                    "--gtopt-output",
+                    "/tmp",
+                ],
             ):
                 main()
 

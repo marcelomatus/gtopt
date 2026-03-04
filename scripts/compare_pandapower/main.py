@@ -214,21 +214,84 @@ def build_net_ieee_57b():
 
 # Solar generation profile for bat_4b_24 (same shape as ieee_9b)
 _SOLAR_PROFILE_4B = [
-    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05, 0.15,
-    0.35, 0.55, 0.75, 0.9, 1.0, 0.95, 0.85, 0.7,
-    0.5, 0.3, 0.1, 0.02, 0.0, 0.0, 0.0, 0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.05,
+    0.15,
+    0.35,
+    0.55,
+    0.75,
+    0.9,
+    1.0,
+    0.95,
+    0.85,
+    0.7,
+    0.5,
+    0.3,
+    0.1,
+    0.02,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
 ]
 
 # Demand profiles for bat_4b_24 (loads at b3 and b4)
 _DEMAND_4B_D3 = [
-    30.0, 28.0, 27.0, 27.0, 28.0, 32.0, 40.0, 55.0,
-    70.0, 80.0, 85.0, 88.0, 90.0, 88.0, 84.0, 80.0,
-    82.0, 88.0, 100.0, 110.0, 105.0, 95.0, 75.0, 50.0,
+    30.0,
+    28.0,
+    27.0,
+    27.0,
+    28.0,
+    32.0,
+    40.0,
+    55.0,
+    70.0,
+    80.0,
+    85.0,
+    88.0,
+    90.0,
+    88.0,
+    84.0,
+    80.0,
+    82.0,
+    88.0,
+    100.0,
+    110.0,
+    105.0,
+    95.0,
+    75.0,
+    50.0,
 ]
 _DEMAND_4B_D4 = [
-    20.0, 18.0, 17.0, 17.0, 18.0, 22.0, 28.0, 38.0,
-    48.0, 55.0, 58.0, 60.0, 62.0, 60.0, 57.0, 55.0,
-    56.0, 60.0, 68.0, 75.0, 72.0, 65.0, 50.0, 32.0,
+    20.0,
+    18.0,
+    17.0,
+    17.0,
+    18.0,
+    22.0,
+    28.0,
+    38.0,
+    48.0,
+    55.0,
+    58.0,
+    60.0,
+    62.0,
+    60.0,
+    57.0,
+    55.0,
+    56.0,
+    60.0,
+    68.0,
+    75.0,
+    72.0,
+    65.0,
+    50.0,
+    32.0,
 ]
 
 
@@ -269,27 +332,41 @@ def build_net_bat_4b_24(block: int, bat_fout: float, bat_finp: float):
 
     bat_net = bat_fout - bat_finp
     if bat_net > 1e-6:
-        pp.create_gen(net, bus=b3, p_mw=bat_net, name="bat_net",
-                      min_p_mw=bat_net, max_p_mw=bat_net)
+        pp.create_gen(
+            net,
+            bus=b3,
+            p_mw=bat_net,
+            name="bat_net",
+            min_p_mw=bat_net,
+            max_p_mw=bat_net,
+        )
     elif bat_net < -1e-6:
         pp.create_load(net, bus=b3, p_mw=-bat_net, name="bat_net")
 
     line_params = [
-        (b1, b2, 0.02, 300), (b1, b3, 0.02, 300), (b2, b3, 0.03, 200),
-        (b2, b4, 0.02, 200), (b3, b4, 0.03, 150),
+        (b1, b2, 0.02, 300),
+        (b1, b3, 0.02, 300),
+        (b2, b3, 0.03, 200),
+        (b2, b4, 0.02, 200),
+        (b3, b4, 0.03, 150),
     ]
     z_base = 132.0**2 / 100.0  # Ω (132 kV, 100 MVA base)
     for from_b, to_b, x_pu, tmax in line_params:
         pp.create_line_from_parameters(
-            net, from_bus=from_b, to_bus=to_b, length_km=1,
-            r_ohm_per_km=0, x_ohm_per_km=x_pu * z_base, c_nf_per_km=0,
+            net,
+            from_bus=from_b,
+            to_bus=to_b,
+            length_km=1,
+            r_ohm_per_km=0,
+            x_ohm_per_km=x_pu * z_base,
+            c_nf_per_km=0,
             max_i_ka=tmax / (132.0 * math.sqrt(3)),
         )
 
     pp.create_poly_cost(net, element=0, et="ext_grid", cp1_eur_per_mw=1e6)
-    pp.create_poly_cost(net, element=0, et="gen", cp1_eur_per_mw=20.0)   # g1
-    pp.create_poly_cost(net, element=1, et="gen", cp1_eur_per_mw=40.0)   # g2
-    pp.create_poly_cost(net, element=2, et="gen", cp1_eur_per_mw=0.0)    # g_solar
+    pp.create_poly_cost(net, element=0, et="gen", cp1_eur_per_mw=20.0)  # g1
+    pp.create_poly_cost(net, element=1, et="gen", cp1_eur_per_mw=40.0)  # g2
+    pp.create_poly_cost(net, element=2, et="gen", cp1_eur_per_mw=0.0)  # g_solar
     if bat_net > 1e-6:
         pp.create_poly_cost(net, element=3, et="gen", cp1_eur_per_mw=0.0)
 
