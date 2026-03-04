@@ -57,6 +57,9 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptWebService LANGUAGES NONE)
 
+# Default to ~/.local for non-root users (XDG Base Directory)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+
 # ---- Configuration ----
 
 set(GTOPT_WEBSERVICE_PORT "3000" CACHE STRING "Web service port")

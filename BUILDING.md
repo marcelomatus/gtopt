@@ -273,12 +273,24 @@ cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
 cmake -S standalone -B build -DGTOPT_SOLVER=HiGHS
 ```
 
-## Installing System-wide
+## Installing
 
-To install gtopt to the system path (default: `/usr/local/bin/gtopt`):
+### Non-root user install (default)
+
+When configuring as a non-root user, `CMAKE_INSTALL_PREFIX` automatically
+defaults to `~/.local` (the XDG user prefix).  No `sudo` is needed:
 
 ```bash
-sudo cmake --install build
+cmake --install build
+# Binary installed to: ~/.local/bin/gtopt
+```
+
+Ensure `~/.local/bin` is in your `PATH` (most modern Linux distributions
+include it automatically; add the following to `~/.bashrc` or `~/.profile`
+if it is missing):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Verify the installation:
@@ -288,7 +300,18 @@ gtopt --version
 which gtopt
 ```
 
-To install to a custom prefix:
+### System-wide install (root)
+
+To install to the system path (`/usr/local/bin/gtopt`), run as root or with
+`sudo`:
+
+```bash
+sudo cmake --install build
+```
+
+### Custom prefix
+
+Override the install location with `--prefix` at install time:
 
 ```bash
 cmake --install build --prefix /opt/gtopt
@@ -296,11 +319,21 @@ cmake --install build --prefix /opt/gtopt
 # Add to PATH: export PATH=/opt/gtopt/bin:$PATH
 ```
 
+Or set the prefix at configure time:
+
+```bash
+cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
+cmake --install build
+```
+
 To uninstall:
 
 ```bash
-sudo cmake --build build --target uninstall
-# Or manually: sudo rm /usr/local/bin/gtopt
+# System-wide install
+sudo rm /usr/local/bin/gtopt
+
+# User install
+rm ~/.local/bin/gtopt
 ```
 
 ## Building and Running Tests
@@ -482,15 +515,20 @@ CC=gcc-14 CXX=g++-14 cmake -S standalone -B build
 
 **Error**: `Permission denied` during `cmake --install`
 
-**Solution**: Use `sudo` or install to a user-writable location:
+**Cause**: The install prefix is set to a system directory (e.g.
+`/usr/local`) that requires root privileges.
+
+**Solution**: This should not happen for non-root users when configuring
+with a fresh build directory, because `CMAKE_INSTALL_PREFIX` is
+automatically defaulted to `~/.local`.  If it does occur:
 
 ```bash
-# Option 1: Use sudo
-sudo cmake --install build
-
-# Option 2: Install to user directory
+# Option 1: install to user prefix (no sudo needed)
 cmake --install build --prefix $HOME/.local
 export PATH=$HOME/.local/bin:$PATH
+
+# Option 2: system-wide install with sudo
+sudo cmake --install build
 ```
 
 ## Next Steps
