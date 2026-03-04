@@ -57,13 +57,38 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptWebService LANGUAGES NONE)
 
+# Default to ~/.local for non-root users (XDG Base Directory)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+
 # ---- Configuration ----
 
 set(GTOPT_WEBSERVICE_PORT "3000" CACHE STRING "Web service port")
 set(GTOPT_DATA_DIR "" CACHE PATH "Data directory for job storage")
 
-find_program(NPM_EXECUTABLE npm REQUIRED)
-find_program(NODE_EXECUTABLE node REQUIRED)
+find_program(NPM_EXECUTABLE npm)
+find_program(NODE_EXECUTABLE node)
+
+if(NOT NPM_EXECUTABLE OR NOT NODE_EXECUTABLE)
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    # Running as the top-level project – treat missing npm/node as a fatal error
+    # so the user gets a clear diagnostic instead of a broken install.
+    message(FATAL_ERROR
+      "npm and Node.js are required for the web service but were not found.\n"
+      "Install Node.js (https://nodejs.org) and re-run cmake.\n"
+      "To skip the web service in a unified build use:\n"
+      "  cmake -S all -B build -DGTOPT_BUILD_WEBSERVICE=OFF"
+    )
+  else()
+    # Running as a sub-project (e.g. from all/) – emit a warning and skip
+    # all web-service targets so the rest of the build continues normally.
+    message(WARNING
+      "npm or Node.js not found – web service targets will be skipped.\n"
+      "Install Node.js (https://nodejs.org) and re-configure to enable them.\n"
+      "Or disable this warning with -DGTOPT_BUILD_WEBSERVICE=OFF."
+    )
+    return()
+  endif()
+endif()
 
 set(WEBSERVICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 

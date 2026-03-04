@@ -54,12 +54,33 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptGuiService LANGUAGES NONE)
 
+# Default to ~/.local for non-root users (XDG Base Directory)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+
 # ---- Configuration ----
 
 set(GTOPT_GUISERVICE_PORT "5001" CACHE STRING "GUI service port")
 set(GTOPT_WEBSERVICE_URL "http://localhost:3000" CACHE STRING "Webservice URL")
 
-find_program(PYTHON_EXECUTABLE python3 REQUIRED)
+find_program(PYTHON_EXECUTABLE python3)
+
+if(NOT PYTHON_EXECUTABLE)
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    message(FATAL_ERROR
+      "python3 is required for the GUI service but was not found.\n"
+      "Install Python 3.10+ and re-run cmake.\n"
+      "To skip the GUI service in a unified build use:\n"
+      "  cmake -S all -B build -DGTOPT_BUILD_GUISERVICE=OFF"
+    )
+  else()
+    message(WARNING
+      "python3 not found – GUI service targets will be skipped.\n"
+      "Install Python 3.10+ and re-configure to enable them.\n"
+      "Or disable this warning with -DGTOPT_BUILD_GUISERVICE=OFF."
+    )
+    return()
+  endif()
+endif()
 
 set(GUISERVICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
