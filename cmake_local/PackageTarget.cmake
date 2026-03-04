@@ -82,24 +82,25 @@ function(package_target)
   )
 
   # ---- Install ----
-  # Controlled by GTOPT_INSTALL_LIBRARY (defaults to ON when the gtopt
-  # CMakeLists.txt is the top-level project, or when all/CMakeLists.txt sets
-  # it ON before adding the library subdirectory).
+  # GTOPT_INSTALL_LIBRARY (default OFF)
+  #   Install the library binary (libgtopt.a/.so) and the CMake package config
+  #   files so that external projects can consume gtopt via find_package().
+  #   Within a cmake -S all -B build, no installation is required: all
+  #   component subprojects share the in-tree build target gtopt::gtopt
+  #   through the if(NOT TARGET gtopt::gtopt) guard.
   #
-  # When installed, downstream projects can use:
+  # GTOPT_INSTALL_HEADERS (default OFF)
+  #   Also install the public C++ header tree under ${CMAKE_INSTALL_INCLUDEDIR}.
+  #   Keep this OFF when you only need to link against a pre-built libgtopt for
+  #   a co-located build; turn it ON when shipping a development package that
+  #   other projects will build against.
+  #
+  # Usage after installation:
   #   find_package(gtopt REQUIRED)
   #   target_link_libraries(my_app PRIVATE gtopt::gtopt)
-  #
-  # Note: consumers that include <gtopt/osi_solver.hpp> also need COIN-OR
-  # headers and libraries on their build machine.  The installed
-  # gtoptConfig.cmake bundles the custom COIN-OR Find modules from
-  # cmake_local/ to simplify that discovery.
 
-  option(
-    GTOPT_INSTALL_LIBRARY
-    "Install the gtopt library headers and CMake config files"
-    ${PROJECT_IS_TOP_LEVEL}
-  )
+  option(GTOPT_INSTALL_LIBRARY "Install the gtopt library and CMake package files" OFF)
+  option(GTOPT_INSTALL_HEADERS "Install the gtopt public C++ headers (requires GTOPT_INSTALL_LIBRARY)" OFF)
 
   if(GTOPT_INSTALL_LIBRARY)
     include(GNUInstallDirs)
@@ -109,30 +110,36 @@ function(package_target)
         "${CMAKE_INSTALL_LIBDIR}/cmake/${PT_NAME}-${PT_VERSION}"
     )
 
-    # ---- Library target ----
+    # ---- Library binary ----
+    # IMPORTANT: no EXPORT clause here.  Using install(EXPORT) with targets
+    # whose PUBLIC link deps are built from CPM source (not find_package
+    # IMPORTED targets) causes CMake to error:
+    #   "install(EXPORT) includes target 'gtopt' which requires target
+    #    'spdlog' that is not in any export set."
+    # Instead we write a manual IMPORTED target in gtoptConfig.cmake.in.
     install(
       TARGETS ${PT_NAME}
-      EXPORT ${PT_NAME}Targets
       LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
       ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
       RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-      INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     )
 
-    # ---- Public headers ----
-    install(
-      DIRECTORY "${PT_INCLUDE_DIR}/"
-      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-      FILES_MATCHING
-        PATTERN "*.hpp"
-        PATTERN "*.h"
-    )
+    # ---- Public headers (optional) ----
+    if(GTOPT_INSTALL_HEADERS)
+      install(
+        DIRECTORY "${PT_INCLUDE_DIR}/"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FILES_MATCHING
+          PATTERN "*.hpp"
+          PATTERN "*.h"
+      )
 
-    # ---- Generated version header ----
-    install(
-      FILES "${_version_include_dir}/${PT_VERSION_HEADER}"
-      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${PT_NAME}"
-    )
+      # Generated version header
+      install(
+        FILES "${_version_include_dir}/${PT_VERSION_HEADER}"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${PT_NAME}"
+      )
+    endif() # GTOPT_INSTALL_HEADERS
 
     # ---- Bundled COIN-OR Find modules ----
     # Consumers who call find_package(gtopt) need to locate COIN-OR libraries
@@ -151,21 +158,18 @@ function(package_target)
         PATTERN "DefaultInstallPrefix.cmake" EXCLUDE
         PATTERN "InstallRpath.cmake" EXCLUDE
         PATTERN "version.hpp.in" EXCLUDE
-    )
-
-    # ---- CMake Targets export ----
-    install(
-      EXPORT ${PT_NAME}Targets
-      FILE "${PT_NAME}Targets.cmake"
-      NAMESPACE "${PT_NAMESPACE}::"
-      DESTINATION "${_cmake_install_dir}"
+        PATTERN "gtoptConfig.cmake.in" EXCLUDE
     )
 
     # ---- Config and ConfigVersion files ----
+    # gtoptConfig.cmake.in creates a manual IMPORTED target (gtopt::gtopt)
+    # pointing to the installed library.  PATH_VARS makes the lib and include
+    # directories relocatable relative to the Config file's location.
     configure_package_config_file(
       "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${PT_NAME}Config.cmake.in"
       "${PT_BINARY_DIR}/${PT_NAME}Config.cmake"
       INSTALL_DESTINATION "${_cmake_install_dir}"
+      PATH_VARS CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_INCLUDEDIR
     )
 
     write_basic_package_version_file(

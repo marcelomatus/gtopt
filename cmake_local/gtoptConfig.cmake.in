@@ -25,12 +25,21 @@ for the COIN-OR solver components.
 * ``Boost`` (≥ 1.70, component: ``container``)
 * ``ZLIB``
 * ``strong_type`` (rollbear, header-only)
+* ``daw_json_link`` (beached/daw_json_link; pulled via CPM if not installed)
 * COIN-OR solver back-end: one of ``OsiClp`` (Clp), ``OsiCbc`` (Cbc), or
   ``OsiCpx`` (CPLEX).  The ``Solver.cmake`` in ``cmake_local/`` auto-detects
   which solver is available.
 
 Note: if your project includes ``<gtopt/osi_solver.hpp>`` you also need
 COIN-OR development headers installed on the build machine.
+
+Headers
+^^^^^^^
+
+Public headers are installed only when the library was built with
+``-DGTOPT_INSTALL_HEADERS=ON``.  Without headers the target is still
+usable for linking when the include paths are provided another way (e.g.
+via the source tree in a co-located build).
 
 #]=======================================================================]
 
@@ -47,20 +56,83 @@ find_dependency(Boost REQUIRED COMPONENTS container)
 find_dependency(ZLIB REQUIRED)
 find_dependency(strong_type REQUIRED)
 
-# daw_json_link is a header-only library used in the public gtopt/json/ headers.
-# If not installed as a system package, consumers can pull it via CPM:
-#   CPMAddPackage("gh:beached/daw_json_link@3.31.0")
+# daw_json_link: used in the public gtopt/json/ headers.
+# Try the installed package first; if absent the consumer must supply it
+# (e.g. via CPMAddPackage("gh:beached/daw_json_link@3.31.0")).
 find_dependency(daw QUIET)
 
 # ---- COIN-OR solver ----
 # Bundled Find modules allow consumers to discover the solver backend without
 # needing to copy the custom Find*.cmake scripts themselves.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake_local")
-set(COIN_SOLVER
-    "AUTO"
-    CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX)"
-)
+if(NOT DEFINED COIN_SOLVER)
+  set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end (AUTO, CLP, CBC, CPX)")
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake_local/Solver.cmake")
 
-# ---- Exported targets ----
-include("${CMAKE_CURRENT_LIST_DIR}/gtoptTargets.cmake")
+# ---- Create the imported target ----
+# We do NOT use install(EXPORT) because gtopt's PUBLIC link dependencies
+# (spdlog, daw, strong_type) are typically built from CPM source rather
+# than found via find_package(), making them non-exported CMake targets.
+# CMake refuses to generate an export file in that situation.  Instead we
+# create the IMPORTED target manually here, referencing the installed
+# library via a PATH_VARS-based relocatable path.
+
+if(NOT TARGET gtopt::gtopt)
+  # Relocatable path to the installed library (computed from this file's
+  # location by configure_package_config_file with PATH_VARS).
+  set_and_check(_gtopt_libdir "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
+
+  # Static library name (libgtopt.a on Unix, gtopt.lib on Windows).
+  if(WIN32)
+    set(_gtopt_lib_file "${_gtopt_libdir}/gtopt.lib")
+  else()
+    set(_gtopt_lib_file "${_gtopt_libdir}/libgtopt.a")
+  endif()
+
+  # Build the INTERFACE_LINK_LIBRARIES list incrementally for clarity.
+  # spdlog, daw, strong_type: resolved by find_dependency calls above.
+  # COIN-OR: resolved by Solver.cmake above (sets COIN_OSI_LIBRARIES /
+  #   SOLVER_LIBRARIES as plain library paths on the consumer machine).
+  # Arrow, Parquet, Boost, ZLIB: resolved by find_dependency calls above.
+  set(_gtopt_link_libs
+      spdlog::spdlog
+      daw::daw-json-link
+      strong_type::strong_type
+      ${COIN_OSI_LIBRARIES}
+      ${SOLVER_LIBRARIES}
+      Arrow::arrow_shared
+      Parquet::parquet_shared
+      Boost::container
+      ZLIB::ZLIB
+  )
+
+  add_library(gtopt::gtopt STATIC IMPORTED)
+
+  set_target_properties(
+    gtopt::gtopt
+    PROPERTIES
+      IMPORTED_LOCATION     "${_gtopt_lib_file}"
+      INTERFACE_LINK_LIBRARIES "${_gtopt_link_libs}"
+      INTERFACE_COMPILE_FEATURES "cxx_std_26"
+  )
+
+  # Include directories: only set when headers were installed.
+  # @GTOPT_INSTALL_HEADERS@ is substituted at cmake configure time with the
+  # value of the GTOPT_INSTALL_HEADERS option (ON or OFF), recording what
+  # was actually installed into the package.
+  set(_gtopt_headers_installed "@GTOPT_INSTALL_HEADERS@")
+  if(_gtopt_headers_installed)
+    set_and_check(_gtopt_includedir "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+    set_property(
+      TARGET gtopt::gtopt APPEND
+      PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_gtopt_includedir}"
+    )
+    unset(_gtopt_includedir)
+  endif()
+
+  unset(_gtopt_libdir)
+  unset(_gtopt_lib_file)
+  unset(_gtopt_link_libs)
+  unset(_gtopt_headers_installed)
+endif()
