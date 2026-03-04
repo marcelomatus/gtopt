@@ -159,6 +159,7 @@ add_custom_target(scripts-check-format
 
 add_custom_target(scripts-lint
   COMMAND ${PYTHON_EXECUTABLE} -m pylint
+    --jobs=0
     cvs2parquet
     igtopt
     plp2gtopt
@@ -292,6 +293,7 @@ add_test(
 add_test(
   NAME scripts-lint
   COMMAND ${PYTHON_EXECUTABLE} -m pylint
+    --jobs=0
     cvs2parquet
     igtopt
     plp2gtopt
