@@ -117,27 +117,65 @@ set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
-# ---- Python for pandapower comparison tests ----
-# Override with -DPANDAPOWER_PYTHON=/path/to/python3 if the default python
-# does not have pandapower installed.
-set(PANDAPOWER_PYTHON "" CACHE FILEPATH "Python interpreter with pandapower")
-if(NOT PANDAPOWER_PYTHON)
-  find_package(Python3 COMPONENTS Interpreter QUIET)
-  if(Python3_FOUND)
-    execute_process(
-      COMMAND "${Python3_EXECUTABLE}" -c "import pandapower"
-      RESULT_VARIABLE _pandapower_import_result
-      OUTPUT_QUIET
-      ERROR_QUIET
-    )
-    if(_pandapower_import_result EQUAL 0)
-      set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
-    else()
-      message(STATUS
-        "Python3 found but pandapower is not installed — "
-        "skipping pandapower comparison tests. "
-        "Install pandapower or set -DPANDAPOWER_PYTHON=/path/to/python3 "
-        "with pandapower available.")
+# ---- Python / compare_pandapower for pandapower comparison tests ----
+#
+# Detection priority (first match wins):
+#
+# 1. User explicitly sets -DCOMPARE_PANDAPOWER_PROGRAM=/path/to/compare_pandapower
+#    (a pre-installed entry-point from 'pip install -e scripts/').
+#
+# 2. The installed 'compare_pandapower' command is found via find_program.
+#    This is the preferred route: the entry-point script has the real Python
+#    interpreter path baked in, so it is immune to pyenv/virtualenv shim issues.
+#    Install with: pip install -e scripts/   (from the repo root)
+#
+# 3. Fallback: find Python3 that has pandapower installed and use the per-case
+#    compare_pandapower.py script.  Override the auto-detected interpreter with
+#    -DPANDAPOWER_PYTHON=/path/to/python3 when auto-detection fails.
+#    The real interpreter path is resolved via sys.executable to avoid pyenv shims.
+
+set(COMPARE_PANDAPOWER_PROGRAM "" CACHE FILEPATH
+  "Path to the compare_pandapower command (from 'pip install -e scripts/')")
+
+if(NOT COMPARE_PANDAPOWER_PROGRAM)
+  find_program(_found_compare_pandapower compare_pandapower)
+  if(_found_compare_pandapower)
+    set(COMPARE_PANDAPOWER_PROGRAM "${_found_compare_pandapower}")
+    message(STATUS "Found compare_pandapower command: ${COMPARE_PANDAPOWER_PROGRAM}")
+  endif()
+endif()
+
+if(NOT COMPARE_PANDAPOWER_PROGRAM)
+  # Fallback: find Python3 with pandapower
+  set(PANDAPOWER_PYTHON "" CACHE FILEPATH
+    "Python interpreter with pandapower (used when compare_pandapower is not installed)")
+  if(NOT PANDAPOWER_PYTHON)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_FOUND)
+      execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -c "import pandapower"
+        RESULT_VARIABLE _pandapower_import_result
+        OUTPUT_QUIET
+        ERROR_QUIET
+      )
+      if(_pandapower_import_result EQUAL 0)
+        # Resolve the real interpreter path to avoid pyenv/shim issues:
+        # sys.executable always returns the actual Python binary, not a shim.
+        execute_process(
+          COMMAND "${Python3_EXECUTABLE}" -c
+            "import sys; print(sys.executable, end='')"
+          OUTPUT_VARIABLE _real_python_exec
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(PANDAPOWER_PYTHON "${_real_python_exec}")
+        message(STATUS "Found Python with pandapower: ${PANDAPOWER_PYTHON}")
+      else()
+        message(STATUS
+          "Python3 found but pandapower is not installed — "
+          "skipping pandapower comparison tests. "
+          "Install scripts with 'pip install -e scripts/' (preferred) or "
+          "set -DPANDAPOWER_PYTHON=/path/to/python3 with pandapower available.")
+      endif()
     endif()
   endif()
 endif()
@@ -160,8 +198,12 @@ add_e2e_case(ieee_4b_ori ieee_4b_ori.json)
 add_e2e_case(s1b s1b.json)
 add_e2e_case(bat_4b bat_4b.json)
 add_e2e_case(ieee30b ieee30b.json)
+add_e2e_case(ieee_57b ieee_57b.json)
+add_e2e_case(bat_4b_24 bat_4b_24.json)
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
 add_pandapower_comparison(ieee_4b_ori)
 add_pandapower_comparison(ieee30b)
+add_pandapower_comparison(ieee_57b)
+add_pandapower_comparison(bat_4b_24)

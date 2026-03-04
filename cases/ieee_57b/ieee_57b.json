@@ -1,0 +1,1557 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": false,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000,
+    "use_kirchhoff": true
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 1,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "ieee_57b",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1",
+        "reference_theta": 0
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      },
+      {
+        "uid": 5,
+        "name": "b5"
+      },
+      {
+        "uid": 6,
+        "name": "b6"
+      },
+      {
+        "uid": 7,
+        "name": "b7"
+      },
+      {
+        "uid": 8,
+        "name": "b8"
+      },
+      {
+        "uid": 9,
+        "name": "b9"
+      },
+      {
+        "uid": 10,
+        "name": "b10"
+      },
+      {
+        "uid": 11,
+        "name": "b11"
+      },
+      {
+        "uid": 12,
+        "name": "b12"
+      },
+      {
+        "uid": 13,
+        "name": "b13"
+      },
+      {
+        "uid": 14,
+        "name": "b14"
+      },
+      {
+        "uid": 15,
+        "name": "b15"
+      },
+      {
+        "uid": 16,
+        "name": "b16"
+      },
+      {
+        "uid": 17,
+        "name": "b17"
+      },
+      {
+        "uid": 18,
+        "name": "b18"
+      },
+      {
+        "uid": 19,
+        "name": "b19"
+      },
+      {
+        "uid": 20,
+        "name": "b20"
+      },
+      {
+        "uid": 21,
+        "name": "b21"
+      },
+      {
+        "uid": 22,
+        "name": "b22"
+      },
+      {
+        "uid": 23,
+        "name": "b23"
+      },
+      {
+        "uid": 24,
+        "name": "b24"
+      },
+      {
+        "uid": 25,
+        "name": "b25"
+      },
+      {
+        "uid": 26,
+        "name": "b26"
+      },
+      {
+        "uid": 27,
+        "name": "b27"
+      },
+      {
+        "uid": 28,
+        "name": "b28"
+      },
+      {
+        "uid": 29,
+        "name": "b29"
+      },
+      {
+        "uid": 30,
+        "name": "b30"
+      },
+      {
+        "uid": 31,
+        "name": "b31"
+      },
+      {
+        "uid": 32,
+        "name": "b32"
+      },
+      {
+        "uid": 33,
+        "name": "b33"
+      },
+      {
+        "uid": 34,
+        "name": "b34"
+      },
+      {
+        "uid": 35,
+        "name": "b35"
+      },
+      {
+        "uid": 36,
+        "name": "b36"
+      },
+      {
+        "uid": 37,
+        "name": "b37"
+      },
+      {
+        "uid": 38,
+        "name": "b38"
+      },
+      {
+        "uid": 39,
+        "name": "b39"
+      },
+      {
+        "uid": 40,
+        "name": "b40"
+      },
+      {
+        "uid": 41,
+        "name": "b41"
+      },
+      {
+        "uid": 42,
+        "name": "b42"
+      },
+      {
+        "uid": 43,
+        "name": "b43"
+      },
+      {
+        "uid": 44,
+        "name": "b44"
+      },
+      {
+        "uid": 45,
+        "name": "b45"
+      },
+      {
+        "uid": 46,
+        "name": "b46"
+      },
+      {
+        "uid": 47,
+        "name": "b47"
+      },
+      {
+        "uid": 48,
+        "name": "b48"
+      },
+      {
+        "uid": 49,
+        "name": "b49"
+      },
+      {
+        "uid": 50,
+        "name": "b50"
+      },
+      {
+        "uid": 51,
+        "name": "b51"
+      },
+      {
+        "uid": 52,
+        "name": "b52"
+      },
+      {
+        "uid": 53,
+        "name": "b53"
+      },
+      {
+        "uid": 54,
+        "name": "b54"
+      },
+      {
+        "uid": 55,
+        "name": "b55"
+      },
+      {
+        "uid": 56,
+        "name": "b56"
+      },
+      {
+        "uid": 57,
+        "name": "b57"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g1",
+        "bus": 1,
+        "pmin": 0,
+        "pmax": 575.88,
+        "gcost": 20.0,
+        "capacity": 575.88
+      },
+      {
+        "uid": 2,
+        "name": "g2",
+        "bus": 2,
+        "pmin": 0.0,
+        "pmax": 100.0,
+        "gcost": 40.0,
+        "capacity": 100.0
+      },
+      {
+        "uid": 3,
+        "name": "g3",
+        "bus": 3,
+        "pmin": 0.0,
+        "pmax": 140.0,
+        "gcost": 20.0,
+        "capacity": 140.0
+      },
+      {
+        "uid": 4,
+        "name": "g4",
+        "bus": 6,
+        "pmin": 0.0,
+        "pmax": 100.0,
+        "gcost": 40.0,
+        "capacity": 100.0
+      },
+      {
+        "uid": 5,
+        "name": "g5",
+        "bus": 8,
+        "pmin": 0.0,
+        "pmax": 550.0,
+        "gcost": 20.0,
+        "capacity": 550.0
+      },
+      {
+        "uid": 6,
+        "name": "g6",
+        "bus": 9,
+        "pmin": 0.0,
+        "pmax": 100.0,
+        "gcost": 40.0,
+        "capacity": 100.0
+      },
+      {
+        "uid": 7,
+        "name": "g7",
+        "bus": 12,
+        "pmin": 0.0,
+        "pmax": 410.0,
+        "gcost": 20.0,
+        "capacity": 410.0
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": 1,
+        "lmax": [
+          [
+            55.0
+          ]
+        ]
+      },
+      {
+        "uid": 2,
+        "name": "d2",
+        "bus": 2,
+        "lmax": [
+          [
+            3.0
+          ]
+        ]
+      },
+      {
+        "uid": 3,
+        "name": "d3",
+        "bus": 3,
+        "lmax": [
+          [
+            41.0
+          ]
+        ]
+      },
+      {
+        "uid": 4,
+        "name": "d4",
+        "bus": 5,
+        "lmax": [
+          [
+            13.0
+          ]
+        ]
+      },
+      {
+        "uid": 5,
+        "name": "d5",
+        "bus": 6,
+        "lmax": [
+          [
+            75.0
+          ]
+        ]
+      },
+      {
+        "uid": 6,
+        "name": "d6",
+        "bus": 8,
+        "lmax": [
+          [
+            150.0
+          ]
+        ]
+      },
+      {
+        "uid": 7,
+        "name": "d7",
+        "bus": 9,
+        "lmax": [
+          [
+            121.0
+          ]
+        ]
+      },
+      {
+        "uid": 8,
+        "name": "d8",
+        "bus": 10,
+        "lmax": [
+          [
+            5.0
+          ]
+        ]
+      },
+      {
+        "uid": 9,
+        "name": "d9",
+        "bus": 12,
+        "lmax": [
+          [
+            377.0
+          ]
+        ]
+      },
+      {
+        "uid": 10,
+        "name": "d10",
+        "bus": 13,
+        "lmax": [
+          [
+            18.0
+          ]
+        ]
+      },
+      {
+        "uid": 11,
+        "name": "d11",
+        "bus": 14,
+        "lmax": [
+          [
+            10.5
+          ]
+        ]
+      },
+      {
+        "uid": 12,
+        "name": "d12",
+        "bus": 15,
+        "lmax": [
+          [
+            22.0
+          ]
+        ]
+      },
+      {
+        "uid": 13,
+        "name": "d13",
+        "bus": 16,
+        "lmax": [
+          [
+            43.0
+          ]
+        ]
+      },
+      {
+        "uid": 14,
+        "name": "d14",
+        "bus": 17,
+        "lmax": [
+          [
+            42.0
+          ]
+        ]
+      },
+      {
+        "uid": 15,
+        "name": "d15",
+        "bus": 18,
+        "lmax": [
+          [
+            27.2
+          ]
+        ]
+      },
+      {
+        "uid": 16,
+        "name": "d16",
+        "bus": 19,
+        "lmax": [
+          [
+            3.3
+          ]
+        ]
+      },
+      {
+        "uid": 17,
+        "name": "d17",
+        "bus": 20,
+        "lmax": [
+          [
+            2.3
+          ]
+        ]
+      },
+      {
+        "uid": 18,
+        "name": "d18",
+        "bus": 23,
+        "lmax": [
+          [
+            6.3
+          ]
+        ]
+      },
+      {
+        "uid": 19,
+        "name": "d19",
+        "bus": 25,
+        "lmax": [
+          [
+            6.3
+          ]
+        ]
+      },
+      {
+        "uid": 20,
+        "name": "d20",
+        "bus": 27,
+        "lmax": [
+          [
+            9.3
+          ]
+        ]
+      },
+      {
+        "uid": 21,
+        "name": "d21",
+        "bus": 28,
+        "lmax": [
+          [
+            4.6
+          ]
+        ]
+      },
+      {
+        "uid": 22,
+        "name": "d22",
+        "bus": 29,
+        "lmax": [
+          [
+            17.0
+          ]
+        ]
+      },
+      {
+        "uid": 23,
+        "name": "d23",
+        "bus": 30,
+        "lmax": [
+          [
+            3.6
+          ]
+        ]
+      },
+      {
+        "uid": 24,
+        "name": "d24",
+        "bus": 31,
+        "lmax": [
+          [
+            5.8
+          ]
+        ]
+      },
+      {
+        "uid": 25,
+        "name": "d25",
+        "bus": 32,
+        "lmax": [
+          [
+            1.6
+          ]
+        ]
+      },
+      {
+        "uid": 26,
+        "name": "d26",
+        "bus": 33,
+        "lmax": [
+          [
+            3.8
+          ]
+        ]
+      },
+      {
+        "uid": 27,
+        "name": "d27",
+        "bus": 35,
+        "lmax": [
+          [
+            6.0
+          ]
+        ]
+      },
+      {
+        "uid": 28,
+        "name": "d28",
+        "bus": 38,
+        "lmax": [
+          [
+            14.0
+          ]
+        ]
+      },
+      {
+        "uid": 29,
+        "name": "d29",
+        "bus": 41,
+        "lmax": [
+          [
+            6.3
+          ]
+        ]
+      },
+      {
+        "uid": 30,
+        "name": "d30",
+        "bus": 42,
+        "lmax": [
+          [
+            7.1
+          ]
+        ]
+      },
+      {
+        "uid": 31,
+        "name": "d31",
+        "bus": 43,
+        "lmax": [
+          [
+            2.0
+          ]
+        ]
+      },
+      {
+        "uid": 32,
+        "name": "d32",
+        "bus": 44,
+        "lmax": [
+          [
+            12.0
+          ]
+        ]
+      },
+      {
+        "uid": 33,
+        "name": "d33",
+        "bus": 47,
+        "lmax": [
+          [
+            29.7
+          ]
+        ]
+      },
+      {
+        "uid": 34,
+        "name": "d34",
+        "bus": 49,
+        "lmax": [
+          [
+            18.0
+          ]
+        ]
+      },
+      {
+        "uid": 35,
+        "name": "d35",
+        "bus": 50,
+        "lmax": [
+          [
+            21.0
+          ]
+        ]
+      },
+      {
+        "uid": 36,
+        "name": "d36",
+        "bus": 51,
+        "lmax": [
+          [
+            18.0
+          ]
+        ]
+      },
+      {
+        "uid": 37,
+        "name": "d37",
+        "bus": 52,
+        "lmax": [
+          [
+            4.9
+          ]
+        ]
+      },
+      {
+        "uid": 38,
+        "name": "d38",
+        "bus": 53,
+        "lmax": [
+          [
+            20.0
+          ]
+        ]
+      },
+      {
+        "uid": 39,
+        "name": "d39",
+        "bus": 54,
+        "lmax": [
+          [
+            4.1
+          ]
+        ]
+      },
+      {
+        "uid": 40,
+        "name": "d40",
+        "bus": 55,
+        "lmax": [
+          [
+            6.8
+          ]
+        ]
+      },
+      {
+        "uid": 41,
+        "name": "d41",
+        "bus": 56,
+        "lmax": [
+          [
+            7.6
+          ]
+        ]
+      },
+      {
+        "uid": 42,
+        "name": "d42",
+        "bus": 57,
+        "lmax": [
+          [
+            6.7
+          ]
+        ]
+      }
+    ],
+    "line_array": [
+      {
+        "name": "l1_2",
+        "bus_a": 1,
+        "bus_b": 2,
+        "reactance": 0.028,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 1
+      },
+      {
+        "name": "l2_3",
+        "bus_a": 2,
+        "bus_b": 3,
+        "reactance": 0.085,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 2
+      },
+      {
+        "name": "l3_4",
+        "bus_a": 3,
+        "bus_b": 4,
+        "reactance": 0.0366,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 3
+      },
+      {
+        "name": "l4_5",
+        "bus_a": 4,
+        "bus_b": 5,
+        "reactance": 0.132,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 4
+      },
+      {
+        "name": "l4_6",
+        "bus_a": 4,
+        "bus_b": 6,
+        "reactance": 0.148,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 5
+      },
+      {
+        "name": "l6_7",
+        "bus_a": 6,
+        "bus_b": 7,
+        "reactance": 0.102,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 6
+      },
+      {
+        "name": "l6_8",
+        "bus_a": 6,
+        "bus_b": 8,
+        "reactance": 0.173,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 7
+      },
+      {
+        "name": "l8_9",
+        "bus_a": 8,
+        "bus_b": 9,
+        "reactance": 0.0505,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 8
+      },
+      {
+        "name": "l9_10",
+        "bus_a": 9,
+        "bus_b": 10,
+        "reactance": 0.1679,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 9
+      },
+      {
+        "name": "l9_11",
+        "bus_a": 9,
+        "bus_b": 11,
+        "reactance": 0.0848,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 10
+      },
+      {
+        "name": "l9_12",
+        "bus_a": 9,
+        "bus_b": 12,
+        "reactance": 0.295,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 11
+      },
+      {
+        "name": "l9_13",
+        "bus_a": 9,
+        "bus_b": 13,
+        "reactance": 0.158,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 12
+      },
+      {
+        "name": "l13_14",
+        "bus_a": 13,
+        "bus_b": 14,
+        "reactance": 0.0434,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 13
+      },
+      {
+        "name": "l13_15",
+        "bus_a": 13,
+        "bus_b": 15,
+        "reactance": 0.0869,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 14
+      },
+      {
+        "name": "l1_15",
+        "bus_a": 1,
+        "bus_b": 15,
+        "reactance": 0.091,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 15
+      },
+      {
+        "name": "l1_16",
+        "bus_a": 1,
+        "bus_b": 16,
+        "reactance": 0.206,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 16
+      },
+      {
+        "name": "l1_17",
+        "bus_a": 1,
+        "bus_b": 17,
+        "reactance": 0.108,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 17
+      },
+      {
+        "name": "l3_15",
+        "bus_a": 3,
+        "bus_b": 15,
+        "reactance": 0.053,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 18
+      },
+      {
+        "name": "l5_6",
+        "bus_a": 5,
+        "bus_b": 6,
+        "reactance": 0.0641,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 19
+      },
+      {
+        "name": "l7_8",
+        "bus_a": 7,
+        "bus_b": 8,
+        "reactance": 0.0712,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 20
+      },
+      {
+        "name": "l10_12",
+        "bus_a": 10,
+        "bus_b": 12,
+        "reactance": 0.1262,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 21
+      },
+      {
+        "name": "l11_13",
+        "bus_a": 11,
+        "bus_b": 13,
+        "reactance": 0.0732,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 22
+      },
+      {
+        "name": "l12_13",
+        "bus_a": 12,
+        "bus_b": 13,
+        "reactance": 0.058,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 23
+      },
+      {
+        "name": "l12_16",
+        "bus_a": 12,
+        "bus_b": 16,
+        "reactance": 0.0813,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 24
+      },
+      {
+        "name": "l12_17",
+        "bus_a": 12,
+        "bus_b": 17,
+        "reactance": 0.179,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 25
+      },
+      {
+        "name": "l14_15",
+        "bus_a": 14,
+        "bus_b": 15,
+        "reactance": 0.0547,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 26
+      },
+      {
+        "name": "l18_19",
+        "bus_a": 18,
+        "bus_b": 19,
+        "reactance": 0.685,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 27
+      },
+      {
+        "name": "l19_20",
+        "bus_a": 19,
+        "bus_b": 20,
+        "reactance": 0.434,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 28
+      },
+      {
+        "name": "l21_22",
+        "bus_a": 21,
+        "bus_b": 22,
+        "reactance": 0.117,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 29
+      },
+      {
+        "name": "l22_23",
+        "bus_a": 22,
+        "bus_b": 23,
+        "reactance": 0.0152,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 30
+      },
+      {
+        "name": "l23_24",
+        "bus_a": 23,
+        "bus_b": 24,
+        "reactance": 0.256,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 31
+      },
+      {
+        "name": "l26_27",
+        "bus_a": 26,
+        "bus_b": 27,
+        "reactance": 0.254,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 32
+      },
+      {
+        "name": "l27_28",
+        "bus_a": 27,
+        "bus_b": 28,
+        "reactance": 0.0954,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 33
+      },
+      {
+        "name": "l28_29",
+        "bus_a": 28,
+        "bus_b": 29,
+        "reactance": 0.0587,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 34
+      },
+      {
+        "name": "l25_30",
+        "bus_a": 25,
+        "bus_b": 30,
+        "reactance": 0.202,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 35
+      },
+      {
+        "name": "l30_31",
+        "bus_a": 30,
+        "bus_b": 31,
+        "reactance": 0.497,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 36
+      },
+      {
+        "name": "l31_32",
+        "bus_a": 31,
+        "bus_b": 32,
+        "reactance": 0.755,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 37
+      },
+      {
+        "name": "l32_33",
+        "bus_a": 32,
+        "bus_b": 33,
+        "reactance": 0.036,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 38
+      },
+      {
+        "name": "l34_35",
+        "bus_a": 34,
+        "bus_b": 35,
+        "reactance": 0.078,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 39
+      },
+      {
+        "name": "l35_36",
+        "bus_a": 35,
+        "bus_b": 36,
+        "reactance": 0.0537,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 40
+      },
+      {
+        "name": "l36_37",
+        "bus_a": 36,
+        "bus_b": 37,
+        "reactance": 0.0366,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 41
+      },
+      {
+        "name": "l37_38",
+        "bus_a": 37,
+        "bus_b": 38,
+        "reactance": 0.1009,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 42
+      },
+      {
+        "name": "l37_39",
+        "bus_a": 37,
+        "bus_b": 39,
+        "reactance": 0.0379,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 43
+      },
+      {
+        "name": "l36_40",
+        "bus_a": 36,
+        "bus_b": 40,
+        "reactance": 0.0466,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 44
+      },
+      {
+        "name": "l22_38",
+        "bus_a": 22,
+        "bus_b": 38,
+        "reactance": 0.0295,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 45
+      },
+      {
+        "name": "l41_42",
+        "bus_a": 41,
+        "bus_b": 42,
+        "reactance": 0.352,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 46
+      },
+      {
+        "name": "l41_43",
+        "bus_a": 41,
+        "bus_b": 43,
+        "reactance": 0.412,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 47
+      },
+      {
+        "name": "l38_44",
+        "bus_a": 38,
+        "bus_b": 44,
+        "reactance": 0.0585,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 48
+      },
+      {
+        "name": "l46_47",
+        "bus_a": 46,
+        "bus_b": 47,
+        "reactance": 0.068,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 49
+      },
+      {
+        "name": "l47_48",
+        "bus_a": 47,
+        "bus_b": 48,
+        "reactance": 0.0233,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 50
+      },
+      {
+        "name": "l48_49",
+        "bus_a": 48,
+        "bus_b": 49,
+        "reactance": 0.129,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 51
+      },
+      {
+        "name": "l49_50",
+        "bus_a": 49,
+        "bus_b": 50,
+        "reactance": 0.128,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 52
+      },
+      {
+        "name": "l50_51",
+        "bus_a": 50,
+        "bus_b": 51,
+        "reactance": 0.22,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 53
+      },
+      {
+        "name": "l29_52",
+        "bus_a": 29,
+        "bus_b": 52,
+        "reactance": 0.187,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 54
+      },
+      {
+        "name": "l52_53",
+        "bus_a": 52,
+        "bus_b": 53,
+        "reactance": 0.0984,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 55
+      },
+      {
+        "name": "l53_54",
+        "bus_a": 53,
+        "bus_b": 54,
+        "reactance": 0.232,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 56
+      },
+      {
+        "name": "l54_55",
+        "bus_a": 54,
+        "bus_b": 55,
+        "reactance": 0.2265,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 57
+      },
+      {
+        "name": "l44_45",
+        "bus_a": 44,
+        "bus_b": 45,
+        "reactance": 0.1242,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 58
+      },
+      {
+        "name": "l56_41",
+        "bus_a": 56,
+        "bus_b": 41,
+        "reactance": 0.549,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 59
+      },
+      {
+        "name": "l56_42",
+        "bus_a": 56,
+        "bus_b": 42,
+        "reactance": 0.354,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 60
+      },
+      {
+        "name": "l57_56",
+        "bus_a": 57,
+        "bus_b": 56,
+        "reactance": 0.26,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 61
+      },
+      {
+        "name": "l38_49",
+        "bus_a": 38,
+        "bus_b": 49,
+        "reactance": 0.177,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 62
+      },
+      {
+        "name": "l38_48",
+        "bus_a": 38,
+        "bus_b": 48,
+        "reactance": 0.0482,
+        "voltage": 10,
+        "tmax_ab": 9900.0,
+        "tmax_ba": 9900.0,
+        "uid": 63
+      },
+      {
+        "name": "t18_4",
+        "bus_a": 18,
+        "bus_b": 4,
+        "reactance": 0.555,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 64
+      },
+      {
+        "name": "t18_4_2",
+        "bus_a": 18,
+        "bus_b": 4,
+        "reactance": 0.43,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 65
+      },
+      {
+        "name": "t20_21",
+        "bus_a": 20,
+        "bus_b": 21,
+        "reactance": 0.7767,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 66
+      },
+      {
+        "name": "t25_24",
+        "bus_a": 25,
+        "bus_b": 24,
+        "reactance": 1.182,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 67
+      },
+      {
+        "name": "t25_24_2",
+        "bus_a": 25,
+        "bus_b": 24,
+        "reactance": 1.23,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 68
+      },
+      {
+        "name": "t26_24",
+        "bus_a": 26,
+        "bus_b": 24,
+        "reactance": 0.0473,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 69
+      },
+      {
+        "name": "t29_7",
+        "bus_a": 29,
+        "bus_b": 7,
+        "reactance": 0.0648,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 70
+      },
+      {
+        "name": "t32_34",
+        "bus_a": 32,
+        "bus_b": 34,
+        "reactance": 0.953,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 71
+      },
+      {
+        "name": "t41_11",
+        "bus_a": 41,
+        "bus_b": 11,
+        "reactance": 0.749,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 72
+      },
+      {
+        "name": "t45_15",
+        "bus_a": 45,
+        "bus_b": 15,
+        "reactance": 0.1042,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 73
+      },
+      {
+        "name": "t46_14",
+        "bus_a": 46,
+        "bus_b": 14,
+        "reactance": 0.0735,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 74
+      },
+      {
+        "name": "t51_10",
+        "bus_a": 51,
+        "bus_b": 10,
+        "reactance": 0.0712,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 75
+      },
+      {
+        "name": "t49_13",
+        "bus_a": 49,
+        "bus_b": 13,
+        "reactance": 0.191,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 76
+      },
+      {
+        "name": "t43_11",
+        "bus_a": 43,
+        "bus_b": 11,
+        "reactance": 0.153,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 77
+      },
+      {
+        "name": "t56_40",
+        "bus_a": 56,
+        "bus_b": 40,
+        "reactance": 1.195,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 78
+      },
+      {
+        "name": "t57_39",
+        "bus_a": 57,
+        "bus_b": 39,
+        "reactance": 1.355,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 79
+      },
+      {
+        "name": "t55_9",
+        "bus_a": 55,
+        "bus_b": 9,
+        "reactance": 0.1205,
+        "voltage": 10,
+        "tmax_ab": 9999,
+        "tmax_ba": 9999,
+        "uid": 80
+      }
+    ]
+  }
+}
