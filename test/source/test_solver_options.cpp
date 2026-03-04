@@ -24,7 +24,7 @@ TEST_CASE("SolverOptions - Default construction")
   const SolverOptions options {};
 
   // Verify default values
-  CHECK(options.algorithm == std::to_underlying(LPAlgo::default_algo));
+  CHECK(options.algorithm == LPAlgo::barrier);
   CHECK(options.threads == 0);
   CHECK(options.presolve == true);  // Only non-zero default
   CHECK(options.optimal_eps == 1.0e-6);
@@ -37,7 +37,7 @@ TEST_CASE("SolverOptions - Custom construction")
 {
   // Test constructing SolverOptions with custom values
   const SolverOptions options {
-      .algorithm = std::to_underlying(LPAlgo::barrier),
+      .algorithm = LPAlgo::barrier,
       .threads = 4,
       .presolve = false,
       .optimal_eps = 1e-6,
@@ -47,7 +47,7 @@ TEST_CASE("SolverOptions - Custom construction")
   };
 
   // Verify custom values
-  CHECK(options.algorithm == std::to_underlying(LPAlgo::barrier));
+  CHECK(options.algorithm == LPAlgo::barrier);
   CHECK(options.threads == 4);
   CHECK(options.presolve == false);
   CHECK(options.optimal_eps == doctest::Approx(1e-6));
@@ -70,7 +70,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
 {
   // Create a SolverOptions object with non-default values
   const SolverOptions original {
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
       .threads = 2,
       .presolve = false,
       .optimal_eps = 1e-6,
@@ -119,7 +119,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
 
   // Create solver options with custom values
   const SolverOptions solver_options {
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
       .presolve = true,
       .optimal_eps = 1e-6,
       .feasible_eps = 1e-5,
@@ -268,7 +268,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
   LinearInterface lp(flat_lp);
 
   const SolverOptions solver_options {
-      .algorithm = std::to_underlying(LPAlgo::dual),
+      .algorithm = LPAlgo::dual,
   };
 
   const auto result = lp.initial_solve(solver_options);
@@ -301,7 +301,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
   LinearInterface lp(flat_lp);
 
   const SolverOptions solver_options {
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
   };
 
   const auto result = lp.initial_solve(solver_options);
@@ -344,8 +344,8 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
   SUBCASE("default algorithm")
   {
     auto lp = make_lp();
-    const auto result = lp.initial_solve(
-        SolverOptions {.algorithm = std::to_underlying(LPAlgo::default_algo)});
+    const auto result =
+        lp.initial_solve(SolverOptions {.algorithm = LPAlgo::default_algo});
     CHECK(result);
     CHECK(lp.get_obj_value() == doctest::Approx(4.0));
   }
@@ -353,8 +353,8 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
   SUBCASE("primal simplex")
   {
     auto lp = make_lp();
-    const auto result = lp.initial_solve(
-        SolverOptions {.algorithm = std::to_underlying(LPAlgo::primal)});
+    const auto result =
+        lp.initial_solve(SolverOptions {.algorithm = LPAlgo::primal});
     CHECK(result);
     CHECK(lp.get_obj_value() == doctest::Approx(4.0));
   }
@@ -362,8 +362,8 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
   SUBCASE("dual simplex")
   {
     auto lp = make_lp();
-    const auto result = lp.initial_solve(
-        SolverOptions {.algorithm = std::to_underlying(LPAlgo::dual)});
+    const auto result =
+        lp.initial_solve(SolverOptions {.algorithm = LPAlgo::dual});
     CHECK(result);
     CHECK(lp.get_obj_value() == doctest::Approx(4.0));
   }

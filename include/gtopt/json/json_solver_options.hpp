@@ -23,7 +23,7 @@ using gtopt::SolverOptions;
 template<>
 struct json_data_contract<SolverOptions>
 {
-  using type = json_member_list<json_number<"algorithm", int>,
+  using type = json_member_list<json_number<"algorithm", LPAlgo>,
                                 json_number<"threads", int>,
                                 json_bool<"presolve", bool>,
                                 json_number<"optimal_eps", double>,

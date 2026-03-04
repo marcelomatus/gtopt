@@ -20,6 +20,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
+#include <gtopt/solver_options.hpp>
 
 namespace gtopt
 {
@@ -43,6 +44,40 @@ template<typename T>
     return vm[name].as<T>();
   }
   return std::nullopt;
+}
+
+/**
+ * @brief Parse an LP algorithm value from a string (name or integer).
+ *
+ * Accepts either a numeric string ("0"–"3") or a case-sensitive algorithm
+ * name ("default", "primal", "dual", "barrier").  The name lookup is
+ * driven by @c lp_algo_entries – the same compile-time table used for
+ * logging – so the two are always in sync.  With C++26 P2996 static
+ * reflection that table would itself be generated automatically from the
+ * @c LPAlgo enum, making this function fully reflection-driven.
+ *
+ * @param s The string to parse.
+ * @return The corresponding integer value for the algorithm.
+ * @throws cli::parse_error on unrecognised input.
+ */
+[[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
+{
+  // Name-based lookup via the constexpr table in solver_options.hpp.
+  if (const auto algo = lp_algo_from_name(s)) {
+    return static_cast<int>(*algo);
+  }
+  // Numeric fallback: "0", "1", "2", "3"
+  try {
+    const int v = std::stoi(s);
+    if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
+      return v;
+    }
+  } catch (const std::exception&) {
+  }
+  throw cli::parse_error(
+      std::format("invalid lp-algorithm value: '{}' "
+                  "(expected 0-3 or default/primal/dual/barrier)",
+                  s));
 }
 
 /**
@@ -100,8 +135,9 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "print system statistics before and after solving")  //
       ("lp-algorithm,a",
-       po::value<int>(),
-       "LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier)")  //
+       po::value<std::string>(),
+       "LP solution algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
+       "[default: barrier]")  //
       ("lp-threads,t",
        po::value<int>(),
        "number of solver threads (0=automatic)")  //
@@ -267,7 +303,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .just_create = get_opt<bool>(vm, "just-create"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .print_stats = get_opt<bool>(vm, "stats"),
-      .lp_algorithm = get_opt<int>(vm, "lp-algorithm"),
+      .lp_algorithm = [&]() -> std::optional<int>
+      {
+        if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {
+          return parse_lp_algorithm(*raw);
+        }
+        return std::nullopt;
+      }(),
       .lp_threads = get_opt<int>(vm, "lp-threads"),
       .lp_presolve = get_opt<bool>(vm, "lp-presolve"),
   };
