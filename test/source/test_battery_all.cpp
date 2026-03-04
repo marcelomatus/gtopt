@@ -1,6 +1,7 @@
 /**
  * @file      test_battery_all.cpp
- * @brief     Consolidated battery, converter, and state variable test compilation unit
+ * @brief     Consolidated battery, converter, and state variable test
+ * compilation unit
  * @date      2026-03-04
  * @copyright BSD-3-Clause
  *

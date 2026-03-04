@@ -886,7 +886,9 @@ def main() -> None:
             sys.exit(0)
 
     if args.gtopt_output is None:
-        parser.error("--gtopt-output is required when not using --save-pandapower-file alone")
+        parser.error(
+            "--gtopt-output is required when not using --save-pandapower-file alone"
+        )
 
     try:
         compare_fn = _CASES[args.case]
