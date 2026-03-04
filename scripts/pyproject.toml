@@ -39,6 +39,7 @@ dev = [
     "pylint>=4.0",
     "pytest>=8.0",
     "pytest-cov>=6.0",
+    "pytest-xdist>=3.0",
     "ruff>=0.15",
 ]
 
@@ -58,7 +59,7 @@ testpaths = [
     "plp2gtopt/tests",
     "pp2gtopt/tests",
 ]
-addopts = "-v --import-mode=importlib"
+addopts = "-v --import-mode=importlib -n auto"
 pythonpath = ["."]
 markers = [
     "integration: end-to-end tests that use sample PLP case files",

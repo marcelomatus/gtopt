@@ -9,4 +9,5 @@ mypy>=1.15
 pylint>=4.0
 pytest>=8.0
 pytest-cov>=6.0
+pytest-xdist>=3.0
 ruff>=0.15

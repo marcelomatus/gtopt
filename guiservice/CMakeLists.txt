@@ -116,7 +116,7 @@ add_custom_target(guiservice-install
 # ---- Test ----
 
 add_custom_target(guiservice-test
-  COMMAND ${PYTHON_EXECUTABLE} -m pytest tests/test_app.py -v
+  COMMAND ${PYTHON_EXECUTABLE} -m pytest tests/test_app.py -n auto -v
   WORKING_DIRECTORY "${GUISERVICE_DIR}"
   COMMENT "Running GUI service tests"
   DEPENDS guiservice-install
