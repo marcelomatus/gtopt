@@ -44,16 +44,17 @@ The install step always uses the Python found at **configure time**
 regular user) and ``sudo cmake --install`` (system-wide) work
 correctly with the same Python.
 
-Python dependencies are installed with ``pip install --prefix
-<CMAKE_INSTALL_PREFIX>``, which defaults to ``~/.local`` for non-root
-users (see ``cmake_local/DefaultInstallPrefix.cmake``).  This avoids
-permission errors when the active Python environment contains
-root-owned packages (e.g. a previous ``sudo pip install`` in a pyenv).
+Python dependencies are installed with ``pip install --user`` for non-root
+users on Unix (packages land in ``~/.local/lib/pythonX.Y/site-packages/``,
+which Python always includes on ``sys.path``) and with plain
+``pip install`` for root or Windows (packages land in the system
+site-packages).  This is the standard portable approach: no
+``CMAKE_INSTALL_PREFIX`` juggling and no ``PYTHONPATH`` adjustments.
 
 This installs:
 - ``gtopt_gui`` launcher script to ``bin/gtopt_gui``
 - GUI service files to ``share/gtopt/guiservice/``
-- Python dependencies to ``lib/pythonX.Y/site-packages/`` under the prefix
+- Python dependencies to ``~/.local`` (non-root) or system site-packages (root)
 
 #]=======================================================================]
 
@@ -234,16 +235,31 @@ install(CODE "
   set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
   message(STATUS \"Using pip: ${PYTHON_EXECUTABLE} -m pip\")
 
+  # Use --user for non-root users on Unix so packages land in ~/.local, which
+  # Python always includes on sys.path.  Root installations (and Windows)
+  # install directly into the active environment's site-packages.
+  set(_pip_user_flag \"\")
+  if(UNIX)
+    execute_process(
+      COMMAND id -u
+      OUTPUT_VARIABLE _uid
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(_uid MATCHES \"^[0-9]+\$\" AND NOT _uid EQUAL 0)
+      set(_pip_user_flag \"--user\")
+    endif()
+  endif()
+
   execute_process(
     COMMAND \${_pip_cmd} install
-      --prefix \"\${CMAKE_INSTALL_PREFIX}\"
-      --ignore-installed
+      \${_pip_user_flag}
       -r \"${GUISERVICE_DIR}/requirements.txt\"
     RESULT_VARIABLE _pip_rc
   )
   if(NOT _pip_rc EQUAL 0)
     message(WARNING \"pip install failed (exit code \${_pip_rc}). \"
-      \"Please run manually: pip install --prefix \${CMAKE_INSTALL_PREFIX} --ignore-installed -r ${GUISERVICE_DIR}/requirements.txt\")
+      \"Please run manually: ${PYTHON_EXECUTABLE} -m pip install --user -r ${GUISERVICE_DIR}/requirements.txt\")
   else()
     message(STATUS \"Python dependencies installed successfully\")
   endif()
