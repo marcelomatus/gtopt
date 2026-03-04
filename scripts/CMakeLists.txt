@@ -88,9 +88,12 @@ invoking pip, and removes the staging directory afterwards.
 
 #]=======================================================================]
 
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptScripts LANGUAGES NONE)
+
+# Default to ~/.local for non-root users (XDG Base Directory)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
 
 # ---- Find Python ----
 
@@ -355,6 +358,7 @@ install(CODE "
   )
   execute_process(
     COMMAND \${_pip_cmd} install
+      --prefix \"\${CMAKE_INSTALL_PREFIX}\"
       --ignore-installed
       \"\${_stage}\"
     RESULT_VARIABLE _pip_rc
@@ -363,5 +367,6 @@ install(CODE "
   if(NOT _pip_rc EQUAL 0)
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
-  message(STATUS \"Scripts installed: cvs2parquet, igtopt, plp2gtopt, pp2gtopt\")
+  message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
+    \"cvs2parquet, igtopt, plp2gtopt, pp2gtopt\")
 ")

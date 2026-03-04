@@ -9,8 +9,9 @@ This guide provides detailed instructions for building gtopt from source, includ
   - [Ubuntu/Debian](#ubuntudebian)
   - [macOS](#macos)
   - [Other Linux Distributions](#other-linux-distributions)
+- [Building Everything (Unified)](#building-everything-unified)
 - [Building the Standalone Binary](#building-the-standalone-binary)
-- [Installing System-wide](#installing-system-wide)
+- [Installing](#installing)
 - [Building and Running Tests](#building-and-running-tests)
 - [Formatting and Linting](#formatting-and-linting)
 - [Troubleshooting](#troubleshooting)
@@ -221,6 +222,57 @@ sudo dnf install gcc-c++ cmake boost-devel
 sudo pacman -S gcc cmake boost arrow coin-or-cbc
 ```
 
+## Building Everything (Unified)
+
+The `all/` sub-project is the single entry point that configures and installs
+every gtopt component in one pass: the solver binary, Python conversion scripts,
+web service, and GUI service.  It is the recommended starting point for a
+complete installation.
+
+```bash
+# Configure all components
+cmake -S all -B build-all \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"   # if Arrow was installed via conda
+
+# Build (C++ binary and web-service assets)
+cmake --build build-all -j$(nproc)
+
+# Install everything (defaults to ~/.local for non-root users)
+cmake --install build-all
+```
+
+### Component options
+
+All components are enabled by default except documentation (which requires a
+network connection).  Disable individual components by passing `-D<OPTION>=OFF`:
+
+| CMake option | Default | Requires |
+|---|---|---|
+| `GTOPT_BUILD_STANDALONE` | `ON` | C++26 compiler, COIN-OR, Arrow/Parquet |
+| `GTOPT_BUILD_TESTS` | `ON` | C++26 compiler, doctest (fetched via CPM) |
+| `GTOPT_BUILD_SCRIPTS` | `ON` | Python ≥ 3.8, pip |
+| `GTOPT_BUILD_WEBSERVICE` | `ON` | Node.js / npm (auto-skipped with warning if absent) |
+| `GTOPT_BUILD_GUISERVICE` | `ON` | Python ≥ 3.10 (auto-skipped with warning if absent) |
+| `GTOPT_BUILD_DOCS` | `OFF` | Doxygen + internet (m.css theme) |
+
+Example – build only the solver binary and Python scripts:
+
+```bash
+cmake -S all -B build-all \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGTOPT_BUILD_WEBSERVICE=OFF \
+  -DGTOPT_BUILD_GUISERVICE=OFF \
+  -DGTOPT_BUILD_TESTS=OFF
+cmake --build build-all -j$(nproc)
+cmake --install build-all
+```
+
+For single-component builds, use the individual sub-project directories
+(`standalone/`, `scripts/`, `webservice/`, `guiservice/`, `test/`).
+
 ## Building the Standalone Binary
 
 Once all dependencies are installed:
@@ -273,12 +325,24 @@ cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
 cmake -S standalone -B build -DGTOPT_SOLVER=HiGHS
 ```
 
-## Installing System-wide
+## Installing
 
-To install gtopt to the system path (default: `/usr/local/bin/gtopt`):
+### Non-root user install (default)
+
+When configuring as a non-root user, `CMAKE_INSTALL_PREFIX` automatically
+defaults to `~/.local` (the XDG user prefix).  No `sudo` is needed:
 
 ```bash
-sudo cmake --install build
+cmake --install build
+# Binary installed to: ~/.local/bin/gtopt
+```
+
+Ensure `~/.local/bin` is in your `PATH` (most modern Linux distributions
+include it automatically; add the following to `~/.bashrc` or `~/.profile`
+if it is missing):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Verify the installation:
@@ -288,7 +352,18 @@ gtopt --version
 which gtopt
 ```
 
-To install to a custom prefix:
+### System-wide install (root)
+
+To install to the system path (`/usr/local/bin/gtopt`), run as root or with
+`sudo`:
+
+```bash
+sudo cmake --install build
+```
+
+### Custom prefix
+
+Override the install location with `--prefix` at install time:
 
 ```bash
 cmake --install build --prefix /opt/gtopt
@@ -296,11 +371,21 @@ cmake --install build --prefix /opt/gtopt
 # Add to PATH: export PATH=/opt/gtopt/bin:$PATH
 ```
 
+Or set the prefix at configure time:
+
+```bash
+cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
+cmake --install build
+```
+
 To uninstall:
 
 ```bash
-sudo cmake --build build --target uninstall
-# Or manually: sudo rm /usr/local/bin/gtopt
+# System-wide install
+sudo rm /usr/local/bin/gtopt
+
+# User install
+rm ~/.local/bin/gtopt
 ```
 
 ## Building and Running Tests
@@ -482,15 +567,20 @@ CC=gcc-14 CXX=g++-14 cmake -S standalone -B build
 
 **Error**: `Permission denied` during `cmake --install`
 
-**Solution**: Use `sudo` or install to a user-writable location:
+**Cause**: The install prefix is set to a system directory (e.g.
+`/usr/local`) that requires root privileges.
+
+**Solution**: This should not happen for non-root users when configuring
+with a fresh build directory, because `CMAKE_INSTALL_PREFIX` is
+automatically defaulted to `~/.local`.  If it does occur:
 
 ```bash
-# Option 1: Use sudo
-sudo cmake --install build
-
-# Option 2: Install to user directory
+# Option 1: install to user prefix (no sudo needed)
 cmake --install build --prefix $HOME/.local
 export PATH=$HOME/.local/bin:$PATH
+
+# Option 2: system-wide install with sudo
+sudo cmake --install build
 ```
 
 ## Next Steps
