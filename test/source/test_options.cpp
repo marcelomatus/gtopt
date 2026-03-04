@@ -490,9 +490,10 @@ TEST_CASE("Options - Solver algorithm fields merge")  // NOLINT
   base.merge(std::move(overlay));
 
   REQUIRE(base.lp_algorithm.has_value());
-  CHECK(*base.lp_algorithm == std::to_underlying(LPAlgo::dual));
+  CHECK(base.lp_algorithm.value_or(std::to_underlying(LPAlgo::primal))
+        == std::to_underlying(LPAlgo::dual));
   REQUIRE(base.lp_threads.has_value());
-  CHECK(*base.lp_threads == 4);
+  CHECK(base.lp_threads.value_or(0) == 4);
   CHECK_FALSE(base.lp_presolve.has_value());
 }
 
@@ -519,9 +520,10 @@ TEST_CASE("OptionsLP - Solver algorithm accessors with set values")  // NOLINT
   const OptionsLP options_lp {options};
 
   REQUIRE(options_lp.lp_algorithm().has_value());
-  CHECK(*options_lp.lp_algorithm() == std::to_underlying(LPAlgo::barrier));
+  CHECK(options_lp.lp_algorithm().value_or(std::to_underlying(LPAlgo::primal))
+        == std::to_underlying(LPAlgo::barrier));
   REQUIRE(options_lp.lp_threads().has_value());
-  CHECK(*options_lp.lp_threads() == 4);
+  CHECK(options_lp.lp_threads().value_or(0) == 4);
   REQUIRE(options_lp.lp_presolve().has_value());
-  CHECK(*options_lp.lp_presolve() == false);
+  CHECK_FALSE(options_lp.lp_presolve().value_or(true));
 }

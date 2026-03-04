@@ -567,14 +567,14 @@ TEST_CASE("Integration - parse and extract all option types")
 
 TEST_CASE("lp_algo_from_name - recognises all valid names")  // NOLINT
 {
-  CHECK((lp_algo_from_name("default")
-         && *lp_algo_from_name("default") == LPAlgo::default_algo));
-  CHECK((lp_algo_from_name("primal")
-         && *lp_algo_from_name("primal") == LPAlgo::primal));
-  CHECK((lp_algo_from_name("dual")
-         && *lp_algo_from_name("dual") == LPAlgo::dual));
-  CHECK((lp_algo_from_name("barrier")
-         && *lp_algo_from_name("barrier") == LPAlgo::barrier));
+  CHECK(lp_algo_from_name("default").value_or(LPAlgo::barrier)
+        == LPAlgo::default_algo);
+  CHECK(lp_algo_from_name("primal").value_or(LPAlgo::default_algo)
+        == LPAlgo::primal);
+  CHECK(lp_algo_from_name("dual").value_or(LPAlgo::default_algo)
+        == LPAlgo::dual);
+  CHECK(lp_algo_from_name("barrier").value_or(LPAlgo::default_algo)
+        == LPAlgo::barrier);
 }
 
 TEST_CASE("lp_algo_from_name - returns nullopt for unknown name")  // NOLINT
