@@ -33,6 +33,7 @@ jobs:
         run: cmake --build build --config Debug -j4
 
       - name: test
+        shell: bash
         run: |
           cd build
-          ctest --build-config Debug
+          ctest --build-config Debug -j$(nproc)
