@@ -15,13 +15,31 @@ and Python utility scripts.
 
 ## Environment Setup
 
+### How the CI installs Clang 21
+
+The canonical Clang 21 install procedure is defined in
+`.github/actions/install-clang/action.yml`.  The CI workflow (`ubuntu.yml`)
+runs it **after `ccache` is set up and other apt dependencies are installed,
+but before cmake is configured**.  The ordering matters: cmake bakes the
+compiler-launcher path at configure time.
+
+> **Note**: clang-22 packages are not yet available in the `apt.llvm.org`
+> repository.  Use version 21 until clang-22 becomes available.
+
+The action adds the LLVM APT repository with GPG key verification, installs
+the versioned packages, and registers unversioned `update-alternatives`
+entries so that `clang`, `clang++`, `clang-format`, and `clang-tidy` all
+resolve to version 21 without a version suffix.
+
 ### Preferred bootstrap (conda Arrow + Clang 21)
 
 In sandboxed / CI agent environments the APT Arrow repo
-(`packages.apache.org/artifactory`) is frequently blocked. Use conda:
+(`packages.apache.org/artifactory`) is frequently blocked. Use conda.
+Follow the same step order as `ubuntu.yml`: ccache first, then
+dependencies, then Clang 21, then cmake.
 
 ```bash
-# 1. System packages — install ccache FIRST
+# 1. System packages — install ccache FIRST (CMake bakes its path at configure time)
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   ccache \
@@ -33,10 +51,21 @@ sudo apt-get install -y --no-install-recommends \
 # 2. Arrow / Parquet via conda
 conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
-# 3. Clang 21 (matches CI)
-wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-chmod +x /tmp/llvm.sh
-sudo /tmp/llvm.sh 21 all
+# 3. Clang 21 — via LLVM APT repository (matches .github/actions/install-clang)
+wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+  /tmp/llvm-snapshot.gpg.key
+CODENAME=$(lsb_release -cs)
+echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
+  | sudo tee /etc/apt/sources.list.d/llvm-21.list
+sudo apt-get update -q
+sudo apt-get install -y --no-install-recommends \
+  clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
+  llvm-21-dev llvm-21-tools libomp-21-dev \
+  libc++-21-dev libc++abi-21-dev \
+  libclang-common-21-dev libclang-21-dev libclang-cpp21-dev
+# Register unversioned aliases (clang, clang++, clang-format, clang-tidy…)
 for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   [ -e "$versioned" ] || continue
   base=$(basename "$versioned" "-21")
@@ -68,7 +97,7 @@ GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
 | `COIN solver: none configured` | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev` |
 | `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or `sudo apt-get install -y libboost-container-dev`) |
 | `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
-| Clang not found / wrong version | Clang 21 not installed | Run the `llvm.sh 21` install + `update-alternatives` loop above |
+| Clang not found / wrong version | Clang 21 not installed | Follow the LLVM APT install steps in the "How the CI installs Clang 21" section above (see also `.github/actions/install-clang/action.yml`) |
 
 > **Critical rule**: always install `ccache` **before** running `cmake -S test -B build`.
 > CMake bakes the launcher path at configure time; installing ccache later does not help.
@@ -84,6 +113,7 @@ GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
 
 Run **exactly this sequence** in a fresh Ubuntu 24.04 environment.
 Every step is required; skipping any one will cause a build failure.
+This mirrors the step order in `.github/workflows/ubuntu.yml`.
 
 ```bash
 # 1. System packages – install ccache FIRST (CMake bakes the path at configure time)
@@ -98,10 +128,22 @@ sudo apt-get install -y --no-install-recommends \
 # 2. Arrow / Parquet via conda (most reliable in sandboxes; APT source is often blocked)
 conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
-# 3. Clang 21 – preferred compiler, matches CI exactly
-wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-chmod +x /tmp/llvm.sh
-sudo /tmp/llvm.sh 21 all
+# 3. Clang 21 – via LLVM APT repository (matches .github/actions/install-clang/action.yml)
+#    Must be installed BEFORE cmake configure so the compiler path is baked in correctly.
+#    Note: clang-22 is not yet available on apt.llvm.org; use version 21.
+wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+  /tmp/llvm-snapshot.gpg.key
+CODENAME=$(lsb_release -cs)
+echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
+  | sudo tee /etc/apt/sources.list.d/llvm-21.list
+sudo apt-get update -q
+sudo apt-get install -y --no-install-recommends \
+  clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
+  llvm-21-dev llvm-21-tools libomp-21-dev \
+  libc++-21-dev libc++abi-21-dev \
+  libclang-common-21-dev libclang-21-dev libclang-cpp21-dev
 # Register unversioned aliases (clang, clang++, clang-format, clang-tidy…)
 for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   [ -e "$versioned" ] || continue
