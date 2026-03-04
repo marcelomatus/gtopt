@@ -46,7 +46,11 @@ runs:
         echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
           https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
           | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
-        sudo apt-get update -q
+        # Update only the newly added LLVM source (avoids re-fetching all Ubuntu
+        # package lists; a full apt-get update is not needed here).
+        sudo apt-get update -q \
+          -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+          -o "Dir::Etc::sourceparts=-"
 
     - name: install full LLVM/Clang suite (cached)
       if: ${{ inputs.packages == '' }}

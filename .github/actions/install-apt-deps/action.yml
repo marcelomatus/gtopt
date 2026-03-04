@@ -19,18 +19,18 @@ runs:
     - name: install base packages (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev zlib1g-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
+        packages: ccache coinor-libcbc-dev libboost-container-dev libspdlog-dev liblapack-dev libblas-dev liblapack3 libblas3 zlib1g-dev ca-certificates lsb-release wget ${{ inputs.extra-packages }}
         version: 1.1
         execute_install_scripts: true
 
     - name: ensure LAPACK runtime is present
       shell: bash
       run: |
-        sudo apt-get install -y --no-install-recommends liblapack3 libblas3
         # Refresh linker cache and re-run update-alternatives so that the
         # liblapack.so and libblas.so symlinks exist even when packages were
         # restored from a cache snapshot (awalsh128/cache-apt-pkgs-action may
         # skip dpkg trigger scripts that create the alternatives symlinks).
+        # (liblapack3 and libblas3 are installed via the cached step above.)
         DEB_ARCH=$(dpkg --print-architecture)-linux-gnu
         sudo ldconfig
         sudo update-alternatives --auto "liblapack.so-${DEB_ARCH}" 2>/dev/null || true
@@ -46,7 +46,16 @@ runs:
         wget -q "https://packages.apache.org/artifactory/arrow/${DISTRO}/apache-arrow-apt-source-latest-${CODENAME}.deb"
         sudo apt-get install -y -q --no-install-recommends \
           "./apache-arrow-apt-source-latest-${CODENAME}.deb"
-        sudo apt-get update -q
+        # Update only the newly added Arrow source (avoids re-fetching all Ubuntu
+        # package lists; a full apt-get update is not needed here).
+        ARROW_SRC=$(find /etc/apt/sources.list.d -name 'apache-arrow.*' -print -quit 2>/dev/null || true)
+        if [ -n "$ARROW_SRC" ]; then
+          sudo apt-get update -q \
+            -o "Dir::Etc::sourcelist=${ARROW_SRC}" \
+            -o "Dir::Etc::sourceparts=-"
+        else
+          sudo apt-get update -q
+        fi
 
     - name: install Arrow and Parquet (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest
