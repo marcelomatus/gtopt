@@ -88,7 +88,7 @@ invoking pip, and removes the staging directory afterwards.
 
 #]=======================================================================]
 
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptScripts LANGUAGES NONE)
 

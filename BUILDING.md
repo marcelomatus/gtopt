@@ -9,8 +9,9 @@ This guide provides detailed instructions for building gtopt from source, includ
   - [Ubuntu/Debian](#ubuntudebian)
   - [macOS](#macos)
   - [Other Linux Distributions](#other-linux-distributions)
+- [Building Everything (Unified)](#building-everything-unified)
 - [Building the Standalone Binary](#building-the-standalone-binary)
-- [Installing System-wide](#installing-system-wide)
+- [Installing](#installing)
 - [Building and Running Tests](#building-and-running-tests)
 - [Formatting and Linting](#formatting-and-linting)
 - [Troubleshooting](#troubleshooting)
@@ -220,6 +221,57 @@ sudo dnf install gcc-c++ cmake boost-devel
 ```bash
 sudo pacman -S gcc cmake boost arrow coin-or-cbc
 ```
+
+## Building Everything (Unified)
+
+The `all/` sub-project is the single entry point that configures and installs
+every gtopt component in one pass: the solver binary, Python conversion scripts,
+web service, and GUI service.  It is the recommended starting point for a
+complete installation.
+
+```bash
+# Configure all components
+cmake -S all -B build-all \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"   # if Arrow was installed via conda
+
+# Build (C++ binary and web-service assets)
+cmake --build build-all -j$(nproc)
+
+# Install everything (defaults to ~/.local for non-root users)
+cmake --install build-all
+```
+
+### Component options
+
+All components are enabled by default except documentation (which requires a
+network connection).  Disable individual components by passing `-D<OPTION>=OFF`:
+
+| CMake option | Default | Requires |
+|---|---|---|
+| `GTOPT_BUILD_STANDALONE` | `ON` | C++26 compiler, COIN-OR, Arrow/Parquet |
+| `GTOPT_BUILD_TESTS` | `ON` | C++26 compiler, doctest (fetched via CPM) |
+| `GTOPT_BUILD_SCRIPTS` | `ON` | Python ≥ 3.8, pip |
+| `GTOPT_BUILD_WEBSERVICE` | `ON` | Node.js / npm (auto-skipped with warning if absent) |
+| `GTOPT_BUILD_GUISERVICE` | `ON` | Python ≥ 3.10 (auto-skipped with warning if absent) |
+| `GTOPT_BUILD_DOCS` | `OFF` | Doxygen + internet (m.css theme) |
+
+Example – build only the solver binary and Python scripts:
+
+```bash
+cmake -S all -B build-all \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGTOPT_BUILD_WEBSERVICE=OFF \
+  -DGTOPT_BUILD_GUISERVICE=OFF \
+  -DGTOPT_BUILD_TESTS=OFF
+cmake --build build-all -j$(nproc)
+cmake --install build-all
+```
+
+For single-component builds, use the individual sub-project directories
+(`standalone/`, `scripts/`, `webservice/`, `guiservice/`, `test/`).
 
 ## Building the Standalone Binary
 
