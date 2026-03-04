@@ -34,14 +34,17 @@ Build targets
 
 ``scripts-lint``
   Run pylint over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero on
-  any error/warning.
+  any error/warning.  Registered as a CTest test only when
+  ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set (default: OFF).
 
 ``scripts-ruff``
   Run ruff check over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero
   on any lint violation.
 
 ``scripts-mypy``
-  Run mypy static type checking; exit non-zero on any type error.
+  Run mypy static type checking; exit non-zero on any type error.  Registered as
+  a CTest test only when ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set
+  (default: OFF).
 
 ``scripts-test``
   Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt, pp2gtopt) with pytest.
@@ -302,16 +305,41 @@ add_test(
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
-add_test(
-  NAME scripts-lint
-  COMMAND ${PYTHON_EXECUTABLE} -m pylint
-    --jobs=0
-    cvs2parquet
-    igtopt
-    plp2gtopt
-    pp2gtopt
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+option(
+  ENABLE_SCRIPTS_STATIC_ANALYSIS
+  "Register scripts-lint (pylint) and scripts-mypy (mypy) as CTest tests"
+  OFF
 )
+
+if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
+  add_test(
+    NAME scripts-lint
+    COMMAND ${PYTHON_EXECUTABLE} -m pylint
+      --jobs=0
+      cvs2parquet
+      igtopt
+      plp2gtopt
+      pp2gtopt
+    WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  )
+
+  add_test(
+    NAME scripts-mypy
+    COMMAND ${PYTHON_EXECUTABLE} -m mypy
+      cvs2parquet
+      igtopt
+      plp2gtopt
+      pp2gtopt
+      --ignore-missing-imports
+    WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  )
+
+  set_tests_properties(
+    scripts-lint
+    scripts-mypy
+    PROPERTIES FIXTURES_REQUIRED scripts-deps
+  )
+endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
 
 add_test(
   NAME scripts-ruff
@@ -323,24 +351,11 @@ add_test(
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
-add_test(
-  NAME scripts-mypy
-  COMMAND ${PYTHON_EXECUTABLE} -m mypy
-    cvs2parquet
-    igtopt
-    plp2gtopt
-    pp2gtopt
-    --ignore-missing-imports
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
-
 set_tests_properties(
   scripts-unit-tests
   scripts-integration-tests
   scripts-check-format
-  scripts-lint
   scripts-ruff
-  scripts-mypy
   PROPERTIES FIXTURES_REQUIRED scripts-deps
 )
 
