@@ -230,10 +230,21 @@ def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str
 
 
 def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
-    """Build line array: physical lines followed by transformers, with sequential UIDs."""
+    """Build line array: physical lines followed by transformers, with sequential UIDs.
+
+    Duplicate names (e.g. parallel transformers between the same buses) are
+    made unique by appending ``_2``, ``_3``, … to later occurrences.
+    """
     entries = _build_physical_lines(net, base_mva) + _build_transformers(net, base_mva)
+    seen: dict[str, int] = {}
     for uid, entry in enumerate(entries, start=1):
         entry["uid"] = uid
+        name = entry.get("name", "")
+        if name in seen:
+            seen[name] += 1
+            entry["name"] = f"{name}_{seen[name]}"
+        else:
+            seen[name] = 1
     return entries
 
 
