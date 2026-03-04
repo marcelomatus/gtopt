@@ -7,6 +7,7 @@
 
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
+  using namespace gtopt;
   // JSON string representing Options
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -115,6 +116,8 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
 TEST_CASE(
     "json_options - Deserialization with missing fields (should use nulls)")
 {
+  using namespace gtopt;
+
   // JSON string with only some fields
   const std::string json_string = R"({
     "input_directory": "input_dir",
@@ -159,6 +162,8 @@ TEST_CASE(
 
 TEST_CASE("json_options - Round-trip serialization and deserialization")
 {
+  using namespace gtopt;
+
   // Create original Options
   Options original {
       .input_directory = "input_dir",
@@ -198,6 +203,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
 
 TEST_CASE("json_options - Solver algorithm fields JSON round-trip")  // NOLINT
 {
+  using namespace gtopt;
   // Verify that lp_algorithm, lp_threads, and lp_presolve are serialized and
   // deserialized correctly.
   const Options original {
@@ -210,16 +216,17 @@ TEST_CASE("json_options - Solver algorithm fields JSON round-trip")  // NOLINT
   const auto deserialized = daw::json::from_json<Options>(json_data);
 
   REQUIRE(deserialized.lp_algorithm.has_value());
-  CHECK(*deserialized.lp_algorithm == 2);
+  CHECK(deserialized.lp_algorithm.value_or(-1) == 2);
   REQUIRE(deserialized.lp_threads.has_value());
-  CHECK(*deserialized.lp_threads == 4);
+  CHECK(deserialized.lp_threads.value_or(-1) == 4);
   REQUIRE(deserialized.lp_presolve.has_value());
-  CHECK(*deserialized.lp_presolve == false);
+  CHECK(deserialized.lp_presolve.value_or(true) == false);
 }
 
 TEST_CASE(
     "json_options - lp_algorithm deserialization from JSON string")  // NOLINT
 {
+  using namespace gtopt;
   const std::string json_string = R"({
     "lp_algorithm": 1,
     "lp_threads": 2,
@@ -229,11 +236,11 @@ TEST_CASE(
   const auto options = daw::json::from_json<Options>(json_string);
 
   REQUIRE(options.lp_algorithm.has_value());
-  CHECK(*options.lp_algorithm == 1);
+  CHECK(options.lp_algorithm.value_or(-1) == 1);
   REQUIRE(options.lp_threads.has_value());
-  CHECK(*options.lp_threads == 2);
+  CHECK(options.lp_threads.value_or(-1) == 2);
   REQUIRE(options.lp_presolve.has_value());
-  CHECK(*options.lp_presolve == true);
+  CHECK(options.lp_presolve.value_or(-1) == true);
 
   // Other fields should be null
   CHECK_FALSE(options.use_single_bus.has_value());

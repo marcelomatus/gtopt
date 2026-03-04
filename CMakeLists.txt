@@ -63,20 +63,24 @@ CPMAddPackage(
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.0
   OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO" # create an installable
-          # target
-          SYSTEM YES EXCLUDE_FROM_ALL YES
+  SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
   NAME daw
   GITHUB_REPOSITORY beached/daw_json_link
-  VERSION 3.31.0 SYSTEM YES EXCLUDE_FROM_ALL YES
+  VERSION 3.31.0
+  SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 CPMAddPackage(
   NAME strong_type
   GITHUB_REPOSITORY rollbear/strong_type
-  VERSION 15 SYSTEM YES EXCLUDE_FROM_ALL YES
+  VERSION 15
+  SYSTEM YES
+  EXCLUDE_FROM_ALL YES
 )
 
 # ---- Solver configuration ----
