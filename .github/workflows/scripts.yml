@@ -49,6 +49,7 @@ jobs:
         run: |
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
+            -n auto \
             -v \
             --cov=cvs2parquet \
             --cov=igtopt \
@@ -111,6 +112,7 @@ jobs:
         working-directory: scripts
         run: |
           pytest plp2gtopt/tests/test_integration.py \
+            -n auto \
             -v -m integration \
             --cov=cvs2parquet \
             --cov=igtopt \
