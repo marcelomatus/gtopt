@@ -40,7 +40,14 @@ runs:
       shell: bash
       run: |
         VER=${{ inputs.version }}
-        wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+        # Retry wget — apt.llvm.org is intermittently unreachable (wget exits 4 on
+        # network failure, which would otherwise abort the whole step via set -e).
+        for attempt in 1 2 3; do
+          wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key \
+            && break
+          echo "Attempt $attempt/3: wget failed, retrying in 15s..."
+          sleep 15
+        done
         sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg /tmp/llvm-snapshot.gpg.key
         CODENAME=$(lsb_release -cs)
         echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
@@ -48,9 +55,15 @@ runs:
           | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
         # Update only the newly added LLVM source (avoids re-fetching all Ubuntu
         # package lists; a full apt-get update is not needed here).
-        sudo apt-get update -q \
-          -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
-          -o "Dir::Etc::sourceparts=-"
+        # Retry in case apt.llvm.org is temporarily unreachable.
+        for attempt in 1 2 3; do
+          sudo apt-get update -q \
+            -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+            -o "Dir::Etc::sourceparts=-" \
+            && break
+          echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
+          sleep 15
+        done
 
     - name: install full LLVM/Clang suite (cached)
       if: ${{ inputs.packages == '' }}

@@ -1,5 +1,5 @@
 /**
- * @file      test_app_options.cpp
+ * @file      test_app_options.hpp
  * @brief     Unit tests for application command-line option utilities
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo

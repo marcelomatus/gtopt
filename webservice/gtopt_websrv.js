@@ -110,11 +110,13 @@ function findGtoptBinary() {
     // Not found in PATH
   }
   
-  // Try common locations
+  // Try common locations — user-local installation first so that a non-root
+  // installation in ~/.local/bin takes precedence over a system-wide one in
+  // /usr/local/bin.
   const commonLocations = [
+    path.join(process.env.HOME || '', '.local', 'bin', 'gtopt'),
     '/usr/local/bin/gtopt',
     '/usr/bin/gtopt',
-    path.join(process.env.HOME || '', '.local', 'bin', 'gtopt'),
   ];
   
   for (const location of commonLocations) {

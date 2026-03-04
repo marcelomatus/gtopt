@@ -1,5 +1,5 @@
 /**
- * @file      test_mvector_traits.cpp
+ * @file      test_mvector_traits.hpp
  * @brief     Unit tests for mvector_traits template classes
  * @date      Mon Jun  2 21:30:23 2025
  * @author    marcelo

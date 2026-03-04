@@ -1,5 +1,5 @@
 /**
- * @file      test_linear_parser.cpp
+ * @file      test_linear_parser.hpp
  * @brief     Unit tests for the LinearParser class
  * @date      Wed Feb 19 01:30:00 2026
  * @author    copilot

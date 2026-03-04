@@ -1,5 +1,5 @@
 /**
- * @file      test_linear_interface.cpp
+ * @file      test_linear_interface.hpp
  * @brief     Tests for the LinearInterface class
  * @date      Sat Apr 19 12:45:00 2025
  * @author    marcelo

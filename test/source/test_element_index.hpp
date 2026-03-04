@@ -1,5 +1,5 @@
 /**
- * @file      test_element_index.cpp
+ * @file      test_element_index.hpp
  * @brief     Unit tests for ElementIndex type-safe index
  * @date      Sat Feb  8 07:36:00 2026
  * @author    copilot
