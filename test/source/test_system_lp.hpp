@@ -1,11 +1,11 @@
 /**
- * @file      test_system_lp.cpp
- * @brief     Header of
+ * @file      test_system_lp.hpp
+ * @brief     Unit tests for SystemLP
  * @date      Sat Mar 29 22:09:55 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module contains unit tests for the SystemLP class.
  */
 
 #include <doctest/doctest.h>

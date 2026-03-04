@@ -1,5 +1,5 @@
 /**
- * @file      test_array_index_traits.cpp
+ * @file      test_array_index_traits.hpp
  * @brief     Unit tests for the refactored array_index_traits helpers
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo

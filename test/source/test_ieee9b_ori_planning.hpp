@@ -1,5 +1,5 @@
 /**
- * @file      test_ieee9b_ori_planning.cpp
+ * @file      test_ieee9b_ori_planning.hpp
  * @brief     Integration test for IEEE 9-bus original base case
  * @date      2026-02-22
  * @copyright BSD-3-Clause

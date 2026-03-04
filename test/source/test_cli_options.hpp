@@ -1,5 +1,5 @@
 /**
- * @file      test_cli_options.cpp
+ * @file      test_cli_options.hpp
  * @brief     Unit tests for the modern C++ command-line parser
  * (cli_options.hpp)
  * @date      Wed Feb 12 22:00:00 2026
