@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <ranges>
 #include <string_view>
@@ -131,3 +132,17 @@ struct SolverOptions
 };
 
 }  // namespace gtopt
+
+// Specialize std::formatter for LPAlgo using its canonical name
+namespace std
+{
+template<>
+struct formatter<gtopt::LPAlgo> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::LPAlgo algo, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::lp_algo_name(algo), ctx);
+  }
+};
+}  // namespace std

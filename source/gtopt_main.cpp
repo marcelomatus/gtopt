@@ -381,7 +381,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                           " algorithm={}, threads={}, presolve={},"
                           " optimal_eps={}, feasible_eps={}, barrier_eps={},"
                           " log_level={}",
-                          std::to_underlying(solver_opts.algorithm),
+                          solver_opts.algorithm,
                           solver_opts.threads,
                           solver_opts.presolve,
                           solver_opts.optimal_eps,
