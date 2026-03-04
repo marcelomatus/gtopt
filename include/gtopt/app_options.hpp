@@ -66,13 +66,13 @@ template<typename T>
   if (const auto algo = lp_algo_from_name(s)) {
     return static_cast<int>(*algo);
   }
-  // Numeric fallback: "0", "1", "2", "3"
-  try {
-    const int v = std::stoi(s);
+  // Numeric fallback: exactly one digit, "0"–"3"
+  if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
+  {
+    const int v = s.front() - '0';
     if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
       return v;
     }
-  } catch (const std::exception&) {
   }
   throw cli::parse_error(
       std::format("invalid lp-algorithm value: '{}' "

@@ -355,7 +355,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         if (const auto pre = plp_opts_ref.lp_presolve()) {
           solver_opts.presolve = *pre;
         }
-        auto result = planning_lp.resolve(solver_opts);
+        const auto result = planning_lp.resolve(solver_opts);
         const auto solve_elapsed =
             std::chrono::duration<double>(solve_sw.elapsed()).count();
         spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
