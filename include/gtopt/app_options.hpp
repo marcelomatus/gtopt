@@ -50,7 +50,11 @@ template<typename T>
  * @brief Parse an LP algorithm value from a string (name or integer).
  *
  * Accepts either a numeric string ("0"–"3") or a case-sensitive algorithm
- * name ("default", "primal", "dual", "barrier").
+ * name ("default", "primal", "dual", "barrier").  The name lookup is
+ * driven by @c lp_algo_entries – the same compile-time table used for
+ * logging – so the two are always in sync.  With C++26 P2996 static
+ * reflection that table would itself be generated automatically from the
+ * @c LPAlgo enum, making this function fully reflection-driven.
  *
  * @param s The string to parse.
  * @return The corresponding integer value for the algorithm.
@@ -58,19 +62,11 @@ template<typename T>
  */
 [[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
 {
-  if (s == "default") {
-    return static_cast<int>(LPAlgo::default_algo);
+  // Name-based lookup via the constexpr table in solver_options.hpp.
+  if (const auto algo = lp_algo_from_name(s)) {
+    return static_cast<int>(*algo);
   }
-  if (s == "primal") {
-    return static_cast<int>(LPAlgo::primal);
-  }
-  if (s == "dual") {
-    return static_cast<int>(LPAlgo::dual);
-  }
-  if (s == "barrier") {
-    return static_cast<int>(LPAlgo::barrier);
-  }
-  // Fall through: try to parse as an integer
+  // Numeric fallback: "0", "1", "2", "3"
   try {
     const int v = std::stoi(s);
     if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
@@ -84,7 +80,9 @@ template<typename T>
                   s));
 }
 
-
+/**
+ * @brief Create the command-line options description for the gtopt application
+ *
  * @return po::options_description The options description containing all
  * supported options
  */

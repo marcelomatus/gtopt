@@ -15,17 +15,39 @@ and Python utility scripts.
 
 ## Environment Setup
 
-### Install system dependencies (Ubuntu)
+### Preferred bootstrap (conda Arrow + Clang 21)
+
+In sandboxed / CI agent environments the APT Arrow repo
+(`packages.apache.org/artifactory`) is frequently blocked. Use conda:
 
 ```bash
+# 1. System packages — install ccache FIRST
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+  ccache \
+  coinor-libcbc-dev \
+  libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  lcov ca-certificates lsb-release wget \
-  ccache zlib1g-dev
+  zlib1g-dev ca-certificates lsb-release wget
 
-# Apache Arrow (required for Parquet I/O)
+# 2. Arrow / Parquet via conda
+conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+
+# 3. Clang 21 (matches CI)
+wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+chmod +x /tmp/llvm.sh
+sudo /tmp/llvm.sh 21 all
+for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
+  [ -e "$versioned" ] || continue
+  base=$(basename "$versioned" "-21")
+  sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+  sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
+done
+```
+
+### Install Arrow via APT (when network allows)
+
+```bash
 wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
   | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
 sudo apt-get install -y -V \
@@ -34,28 +56,49 @@ sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 ```
 
-### Install Arrow via Conda (verified alternative)
+GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
 
-When the APT repo is unavailable (network-restricted environments, non-Ubuntu
-distros), use conda. Verified on Ubuntu 24.04 with conda 26.1.0 → Arrow 12.0.0:
+### Common build failures and fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **then delete the build dir and reconfigure** |
+| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
+| `Unable to fetch some archives` from apt | Stale package lists | `sudo apt-get update` before `apt-get install` |
+| `COIN solver: none configured` | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev` |
+| `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or `sudo apt-get install -y libboost-container-dev`) |
+| `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
+| Clang not found / wrong version | Clang 21 not installed | Run the `llvm.sh 21` install + `update-alternatives` loop above |
+
+> **Critical rule**: always install `ccache` **before** running `cmake -S test -B build`.
+> CMake bakes the launcher path at configure time; installing ccache later does not help.
+> Delete the build directory and reconfigure from scratch.
+
+## Build Commands
+
+> **Important**: The primary build target for development and testing is `cmake -S test -B build`,
+> NOT the root `CMakeLists.txt`.  The root CMakeLists only builds the library; the test
+> sub-project includes the library via CPM and also builds the test binary.
+
+### Complete bootstrap from scratch (sandboxed / CI agents)
+
+Run **exactly this sequence** in a fresh Ubuntu 24.04 environment.
+Every step is required; skipping any one will cause a build failure.
 
 ```bash
-# Install Arrow, Parquet, and Boost via conda
+# 1. System packages – install ccache FIRST (CMake bakes the path at configure time)
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  ccache \
+  coinor-libcbc-dev \
+  libboost-container-dev libspdlog-dev \
+  liblapack-dev libblas-dev \
+  zlib1g-dev ca-certificates lsb-release wget
+
+# 2. Arrow / Parquet via conda (most reliable in sandboxes; APT source is often blocked)
 conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
-# Use conda info --base, NOT $CONDA_PREFIX (only set inside activated env)
-cmake -S test -B build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_COMPILER=gcc-14 \
-  -DCMAKE_CXX_COMPILER=g++-14 \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
-```
-
-### Install Clang 21 (preferred compiler, same as CI)
-
-```bash
+# 3. Clang 21 – preferred compiler, matches CI exactly
 wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
 sudo /tmp/llvm.sh 21 all
@@ -66,40 +109,41 @@ for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   sudo update-alternatives --remove-all "$base" 2>/dev/null || true
   sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
 done
-```
 
-GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
-
-### Common build failures and fixes
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **before** running `cmake -S test -B build` |
-| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
-| `Unable to fetch some archives` from apt | Stale package lists | Always run `sudo apt-get update` before `apt-get install` |
-| `COIN solver: none configured` | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev` |
-| `Could not find BoostConfig.cmake` | Boost not installed | `sudo apt-get install -y libboost-container-dev` |
-
-> **Critical**: install `ccache` **before** `cmake -S test -B build`.
-> CMake bakes the launcher path into the build system at configure time; if
-> ccache is absent when you configure, every subsequent build invocation fails
-> even after installing ccache later. Delete the build directory and reconfigure.
-
-## Build Commands
-
-> **Important**: The primary build target for development and testing is `cmake -S test -B build`,
-> NOT the root `CMakeLists.txt`.  The root CMakeLists only builds the library; the test
-> sub-project includes the library via CPM and also builds the test binary.
-
-### Unit tests (development)
-
-```bash
+# 4. Configure – use clang-21 + conda Arrow prefix
 cmake -S test -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+
+# 5. Build and test
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
+```
+
+> **Why conda for Arrow?** The APT repo at `packages.apache.org/artifactory` is
+> frequently unreachable from network-restricted CI sandboxes.  `conda install`
+> from the `conda-forge` channel is the verified-reliable alternative.
+
+> **Why ccache before cmake configure?** CMake bakes the launcher path into the
+> build system at configure time.  Installing ccache *after* configure causes
+> every subsequent `cmake --build` to fail even though ccache is now present.
+> Always delete the build directory and reconfigure if ccache was missing.
+
+### GCC 14 fallback (when Clang 21 is unavailable)
+
+```bash
+# Steps 1-2 same as above (system packages + conda Arrow), then:
+cmake -S test -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=gcc-14 \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
@@ -115,7 +159,10 @@ cd build && ctest --output-on-failure
 ### Unit + integration tests (e2e)
 
 ```bash
-cmake -S test -B build -DENABLE_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+cmake -S test -B build -DENABLE_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
@@ -123,7 +170,10 @@ cd build && ctest --output-on-failure
 ### Standalone binary
 
 ```bash
-cmake -S standalone -B build-standalone -DCMAKE_BUILD_TYPE=Release
+cmake -S standalone -B build-standalone -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build-standalone -j$(nproc)
 ./build-standalone/gtopt --version
 ```
@@ -131,7 +181,10 @@ cmake --build build-standalone -j$(nproc)
 ### Test coverage
 
 ```bash
-cmake -S test -B build -DENABLE_TEST_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug
+cmake -S test -B build -DENABLE_TEST_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 ```
 
