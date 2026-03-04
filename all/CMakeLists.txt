@@ -71,6 +71,13 @@ include(../cmake/tools.cmake)
 # Needed to generate the test target even when only some subprojects define tests.
 enable_testing()
 
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 1)
+endif()
+list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
+
 # ---- Subprojects ----
 
 if(GTOPT_BUILD_STANDALONE)
