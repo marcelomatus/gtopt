@@ -110,7 +110,21 @@ set(PANDAPOWER_PYTHON "" CACHE FILEPATH "Python interpreter with pandapower")
 if(NOT PANDAPOWER_PYTHON)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_FOUND)
-    set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" -c "import pandapower"
+      RESULT_VARIABLE _pandapower_import_result
+      OUTPUT_QUIET
+      ERROR_QUIET
+    )
+    if(_pandapower_import_result EQUAL 0)
+      set(PANDAPOWER_PYTHON "${Python3_EXECUTABLE}")
+    else()
+      message(STATUS
+        "Python3 found but pandapower is not installed — "
+        "skipping pandapower comparison tests. "
+        "Install pandapower or set -DPANDAPOWER_PYTHON=/path/to/python3 "
+        "with pandapower available.")
+    endif()
   endif()
 endif()
 include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
