@@ -1,5 +1,5 @@
 /**
- * @file test_phase_lp.cpp
+ * @file      test_phase_lp.hpp
  * @brief Unit tests for PhaseLP class
  */
 

@@ -1,5 +1,5 @@
 /**
- * @file      test_output_context.cpp
+ * @file      test_output_context.hpp
  * @brief     Unit tests for OutputContext (output writing and formatting)
  * @date      2026-02-19
  * @copyright BSD-3-Clause

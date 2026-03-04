@@ -1,5 +1,5 @@
 /**
- * @file      test_solver_options.cpp
+ * @file      test_solver_options.hpp
  * @brief     Unit tests for the SolverOptions class
  * @date      Sun May  5 11:30:00 2025
  * @author    Claude

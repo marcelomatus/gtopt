@@ -1,5 +1,5 @@
 /**
- * @file      test_ieee14_planning.cpp
+ * @file      test_ieee14_planning.hpp
  * @brief     Integration test for IEEE 14-bus system
  * @date      2026-02-19
  * @copyright BSD-3-Clause
