@@ -18,10 +18,17 @@ cmake_policy(SET CMP0167 NEW)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---- Force Debug build ----
-
-if(NOT CMAKE_BUILD_TYPE)
+# ---- Build type default ----
+# Only set when building integration_test as a standalone top-level project
+# (i.e. cmake -S integration_test).  When included from all/CMakeLists.txt the
+# build type has already been set at the top level, so we must not force-override
+# it here.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+  set_property(
+    CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel
+  )
+  message(STATUS "Build type not set — defaulting to Debug")
 endif()
 
 # ---- No install rules ----

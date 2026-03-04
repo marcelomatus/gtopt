@@ -59,6 +59,21 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(BuildAll LANGUAGES CXX)
 
+# ---- Build type ----
+# Set a default before any subdirectory is processed so that every C++
+# component (library, standalone binary, tests) is compiled in the same mode.
+# Passing -DCMAKE_BUILD_TYPE=Release on the command line overrides this default.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE
+      Debug
+      CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE
+  )
+  set_property(
+    CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel
+  )
+  message(STATUS "Build type not set — defaulting to Debug")
+endif()
+
 # Default to ~/.local for non-root users (XDG Base Directory).
 # Must be included before add_subdirectory() so the prefix is established
 # before any install() rules are processed.
@@ -78,6 +93,29 @@ option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e test
 # ---- Tools ----
 
 include(../cmake/tools.cmake)
+
+# ---- gtopt library ----
+# Build (or locate) the gtopt library exactly once, before any component
+# subproject is processed.  This guarantees:
+#   • a single compiled copy shared by standalone, tests, and integration tests;
+#   • all C++ targets are compiled with the same build type set above.
+#
+# With CPM_USE_LOCAL_PACKAGES=ON (the default), CPM calls find_package(gtopt)
+# first.  If a previously installed library is found, it is reused without
+# recompilation.  Otherwise the library is built from source.
+#
+# GTOPT_INSTALL_LIBRARY=ON ensures that `cmake --install` deploys the library
+# headers and CMake config files alongside the standalone binary so that
+# downstream projects can use find_package(gtopt).
+option(CPM_USE_LOCAL_PACKAGES "Try find_package before building from source" ON)
+set(GTOPT_INSTALL_LIBRARY
+    ON
+    CACHE BOOL "Install the gtopt library headers and CMake config files" FORCE
+)
+include(../cmake/CPM.cmake)
+if(NOT TARGET gtopt::gtopt)
+  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+endif()
 
 # Needed to generate the test target even when only some subprojects define tests.
 enable_testing()
