@@ -15,8 +15,7 @@ file(COPY "${SCRIPTS_DIR}/" DESTINATION "${STAGE_DIR}"
 )
 
 execute_process(
-  COMMAND "${PYTHON_EXECUTABLE}" -m pip install --ignore-installed -e
-    "${STAGE_DIR}[dev]"
+  COMMAND "${PYTHON_EXECUTABLE}" -m pip install -q -e "${STAGE_DIR}[dev]"
   RESULT_VARIABLE _pip_rc
 )
 
