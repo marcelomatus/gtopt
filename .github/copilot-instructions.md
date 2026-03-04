@@ -20,10 +20,30 @@ The repository also contains:
 
 ## Environment Setup (Ubuntu / GitHub Actions)
 
+### How the CI installs Clang 21
+
+The canonical procedure for installing Clang 21 is defined in
+`.github/actions/install-clang/action.yml`.  The CI workflow
+(`.github/workflows/ubuntu.yml`) runs it in this order:
+
+1. **Set up ccache** (before any compilation, including cmake feature tests)
+2. **Install APT dependencies** (`install-apt-deps` action — Arrow, COIN-OR, Boost, etc.)
+3. **Install Clang 21** (`install-clang` action — adds LLVM APT repo, installs packages, registers alternatives)
+4. **Configure** (`cmake -Stest -Bbuild …`)
+5. **Build and test**
+
+> **Note**: clang-22 packages are not yet available on `apt.llvm.org`.
+> Use version 21 until clang-22 packages become available.
+
+The `install-clang` action registers unversioned `update-alternatives` entries
+so that `clang`, `clang++`, `clang-format`, `clang-tidy`, etc. resolve to
+version 21 without a version suffix.
+
 ### Complete bootstrap from scratch (sandboxed / CI agents)
 
 Run **exactly this sequence** in a fresh Ubuntu 24.04 environment.
 Every step is required; skipping any one causes a build failure.
+This mirrors the step order in `.github/workflows/ubuntu.yml`.
 
 ```bash
 # 1. System packages — install ccache FIRST (CMake bakes its path at configure time)
@@ -38,10 +58,21 @@ sudo apt-get install -y --no-install-recommends \
 # 2. Arrow / Parquet via conda (reliable in sandboxes; APT source is often blocked)
 conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
-# 3. Clang 21 — preferred compiler, matches CI exactly
-wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-chmod +x /tmp/llvm.sh
-sudo /tmp/llvm.sh 21 all
+# 3. Clang 21 — via LLVM APT repository (matches .github/actions/install-clang/action.yml)
+#    Must be installed BEFORE cmake configure so the compiler path is baked in correctly.
+wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+  /tmp/llvm-snapshot.gpg.key
+CODENAME=$(lsb_release -cs)
+echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
+  | sudo tee /etc/apt/sources.list.d/llvm-21.list
+sudo apt-get update -q
+sudo apt-get install -y --no-install-recommends \
+  clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
+  llvm-21-dev llvm-21-tools libomp-21-dev \
+  libc++-21-dev libc++abi-21-dev \
+  libclang-common-21-dev libclang-21-dev libclang-cpp21-dev
 # Register unversioned aliases (clang, clang++, clang-format, clang-tidy…)
 for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   [ -e "$versioned" ] || continue
@@ -183,7 +214,7 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 | Component | Version | Notes |
 |-----------|---------|-------|
 | OS | Ubuntu 24.04 (Noble) | GitHub Actions runner |
-| Compiler | Clang 21 (primary) | Installed via `llvm.sh 21`; GCC 14.2 also works |
+| Compiler | Clang 21 (primary) | Installed via LLVM APT repo (`.github/actions/install-clang`); GCC 14.2 also works |
 | CMake | 3.31.6 | Pre-installed on runner |
 | Arrow / Parquet | 12.0.0 | `conda install -c conda-forge arrow-cpp parquet-cpp` |
 | Boost.Container | 1.83.0 | `conda install -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
@@ -218,7 +249,7 @@ cd build && ctest --output-on-failure
 | `COIN solver: none configured` / no solver found | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev`; CLP is auto-selected and sufficient for unit tests |
 | `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
 | `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
-| `clang: command not found` or wrong version | Clang 21 not installed | Run the `llvm.sh 21` + `update-alternatives` loop from the bootstrap section |
+| `clang: command not found` or wrong version | Clang 21 not installed | Follow the LLVM APT install steps in the "Complete bootstrap" section above (see `.github/actions/install-clang/action.yml`) |
 
 **Critical rule**: install `ccache` **before** `cmake -S test -B build`.
 CMake bakes the launcher path into the build system at configure time; if ccache
