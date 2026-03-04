@@ -299,7 +299,7 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint cvs2parquet igtopt plp2gtopt pp2gtopt
+        run: pylint --jobs=0 cvs2parquet igtopt plp2gtopt pp2gtopt
 
       - name: mypy
         working-directory: scripts
