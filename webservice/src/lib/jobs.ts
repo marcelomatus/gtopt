@@ -215,8 +215,11 @@ export async function resolveGtoptBinary(): Promise<string> {
     // Fall through
   }
 
-  // Check common install locations
+  // Check common install locations — user-local installation first so that a
+  // non-root installation in ~/.local/bin takes precedence over a system-wide
+  // one in /usr/local/bin.
   const candidates = [
+    path.join(process.env.HOME || "", ".local", "bin", "gtopt"),
     "/usr/local/bin/gtopt",
     "/usr/bin/gtopt",
     path.join(process.cwd(), "..", "build", "standalone", "gtopt"),

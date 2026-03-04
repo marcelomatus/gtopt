@@ -20,6 +20,19 @@ Detection priority (set by the including CMakeLists.txt):
    installed.  Used together with the per-case ``compare_pandapower.py``
    script found in ``${CASES_DIR}/<case>/compare_pandapower.py``.
 
+External pandapower network files:
+   When ``${CASES_DIR}/<case>/pandapower_net.json`` exists the test
+   automatically passes ``--pandapower-file <path>`` so the comparison uses
+   the saved network instead of rebuilding it from scratch.  This allows the
+   test to work with any external pandapower network (not just the built-in
+   ones) and makes the comparison independent of pandapower's built-in case
+   loaders.
+
+   Save a network file with::
+
+     compare_pandapower --case <name> --save-pandapower-file \\
+         ${CASES_DIR}/<case>/pandapower_net.json
+
 Required variables (set before including this file):
 ``CASES_DIR``          Top-level cases directory.
 ``CMAKE_SCRIPTS_DIR``  Directory containing run_gtopt.cmake etc.
@@ -40,6 +53,13 @@ include_guard(GLOBAL)
 function(add_pandapower_comparison case_name)
   set(gtopt_output "${CMAKE_CURRENT_BINARY_DIR}/test_output/${case_name}")
 
+  # Optional: use a pre-saved pandapower network JSON if present in the case dir.
+  set(_pp_file_args "")
+  set(_pp_net_json "${CASES_DIR}/${case_name}/pandapower_net.json")
+  if(EXISTS "${_pp_net_json}")
+    set(_pp_file_args "--pandapower-file" "${_pp_net_json}")
+  endif()
+
   if(COMPARE_PANDAPOWER_PROGRAM)
     # Preferred: use the installed compare_pandapower entry-point.
     # The entry-point has the real Python path baked in, so it works
@@ -49,6 +69,7 @@ function(add_pandapower_comparison case_name)
       COMMAND "${COMPARE_PANDAPOWER_PROGRAM}"
         --case "${case_name}"
         --gtopt-output "${gtopt_output}"
+        ${_pp_file_args}
     )
     set_tests_properties(e2e_${case_name}_compare_pandapower
       PROPERTIES DEPENDS e2e_${case_name}_solve
@@ -67,6 +88,7 @@ function(add_pandapower_comparison case_name)
       NAME e2e_${case_name}_compare_pandapower
       COMMAND "${PANDAPOWER_PYTHON}" "${script}"
         --gtopt-output "${gtopt_output}"
+        ${_pp_file_args}
       WORKING_DIRECTORY "${CASES_DIR}/${case_name}"
     )
     set_tests_properties(e2e_${case_name}_compare_pandapower
