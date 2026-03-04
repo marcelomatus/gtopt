@@ -198,8 +198,12 @@ add_e2e_case(ieee_4b_ori ieee_4b_ori.json)
 add_e2e_case(s1b s1b.json)
 add_e2e_case(bat_4b bat_4b.json)
 add_e2e_case(ieee30b ieee30b.json)
+add_e2e_case(ieee_57b ieee_57b.json)
+add_e2e_case(bat_4b_24 bat_4b_24.json)
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
 add_pandapower_comparison(ieee_4b_ori)
 add_pandapower_comparison(ieee30b)
+add_pandapower_comparison(ieee_57b)
+add_pandapower_comparison(bat_4b_24)
