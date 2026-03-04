@@ -10,6 +10,7 @@ import pytest
 
 from compare_pandapower.main import (
     _CASES,
+    _NET_BUILDERS,
     _SCALE_OBJECTIVE,
     main,
     read_gtopt_cost,
@@ -154,6 +155,16 @@ class TestCasesDispatchTable:
         for name, fn in _CASES.items():
             assert callable(fn), f"_CASES[{name!r}] is not callable"
 
+    def test_net_builders_present_for_static_cases(self):
+        """All static cases (not bat_4b_24) must have a network builder."""
+        for case in ("s1b", "ieee_4b_ori", "ieee30b", "ieee_57b"):
+            assert case in _NET_BUILDERS, f"_NET_BUILDERS missing '{case}'"
+            assert callable(_NET_BUILDERS[case])
+
+    def test_bat_4b_24_not_in_net_builders(self):
+        """bat_4b_24 is block-dependent and must not have a static builder."""
+        assert "bat_4b_24" not in _NET_BUILDERS
+
 
 # ---------------------------------------------------------------------------
 # CLI — argument parsing via main()
@@ -169,6 +180,7 @@ class TestMainArgParsing:
                 main()
 
     def test_missing_output_exits(self):
+        """--gtopt-output is required when not using --save-pandapower-file alone."""
         with pytest.raises(SystemExit):
             with patch.object(sys, "argv", ["compare_pandapower", "--case", "s1b"]):
                 main()
@@ -201,6 +213,46 @@ class TestMainArgParsing:
                     "s1b",
                     "--gtopt-output",
                     str(missing),
+                ],
+            ):
+                main()
+        assert exc.value.code == 2
+
+    def test_save_pandapower_file_bat_4b_24_exits_with_2(self, tmp_path):
+        """--save-pandapower-file with bat_4b_24 should exit with code 2."""
+        out_file = tmp_path / "net.json"
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "compare_pandapower",
+                    "--case",
+                    "bat_4b_24",
+                    "--save-pandapower-file",
+                    str(out_file),
+                ],
+            ):
+                main()
+        assert exc.value.code == 2
+
+    def test_pandapower_file_not_found_exits_with_2(self, tmp_path):
+        """--pandapower-file pointing to a missing file exits with code 2."""
+        _write_generation_csv(tmp_path, [200.0, 50.0])
+        _write_solution_csv(tmp_path, 6.0)
+        missing_file = tmp_path / "nonexistent_net.json"
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "compare_pandapower",
+                    "--case",
+                    "s1b",
+                    "--gtopt-output",
+                    str(tmp_path),
+                    "--pandapower-file",
+                    str(missing_file),
                 ],
             ):
                 main()

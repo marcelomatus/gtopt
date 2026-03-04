@@ -207,3 +207,24 @@ add_pandapower_comparison(ieee_4b_ori)
 add_pandapower_comparison(ieee30b)
 add_pandapower_comparison(ieee_57b)
 add_pandapower_comparison(bat_4b_24)
+
+# ---- Target: generate pandapower network JSON files ----
+# Run 'cmake --build . --target generate-pandapower-nets' (requires compare_pandapower
+# and pandapower to be installed) to save a pandapower_net.json file into each
+# case directory.  The saved files are then used automatically by the
+# add_pandapower_comparison() tests via --pandapower-file.
+if(COMPARE_PANDAPOWER_PROGRAM)
+  foreach(_pp_case s1b ieee_4b_ori ieee30b ieee_57b)
+    list(APPEND _generate_pandapower_commands
+      COMMAND "${COMPARE_PANDAPOWER_PROGRAM}"
+        --case "${_pp_case}"
+        --save-pandapower-file "${CASES_DIR}/${_pp_case}/pandapower_net.json"
+    )
+  endforeach()
+
+  add_custom_target(generate-pandapower-nets
+    ${_generate_pandapower_commands}
+    COMMENT "Generating pandapower network JSON files in cases/ directories"
+    VERBATIM
+  )
+endif()

@@ -3,7 +3,12 @@
 """Compare gtopt solver output against pandapower DC OPF reference.
 
 Usage:
-    compare_pandapower --case <name> --gtopt-output <dir> [--tol <MW>] [--tol-lmp <$/MWh>]
+    compare_pandapower --case <name> --gtopt-output <dir> [options]
+
+    compare_pandapower --case <name> --gtopt-output <dir> \\
+        --pandapower-file <net.json>
+
+    compare_pandapower --case <name> --save-pandapower-file <net.json>
 
 Supported cases:
     s1b          1-bus dispatch (g1=$20/MWh 200 MW, g2=$40/MWh 300 MW, d1=250 MW)
@@ -22,6 +27,21 @@ effective load per block before running pandapower.  This validates that the
 conventional-generator dispatch is consistent with the DC power flow given the
 battery dispatch that gtopt chose.
 
+External pandapower files:
+    Use --pandapower-file to load a pre-saved pandapower network from a JSON
+    file produced by pandapower.to_json().  This allows using any external
+    pandapower network instead of the built-in network builders, so the
+    comparison is not restricted to the internally defined cases.
+
+    For static cases (all except bat_4b_24) the file replaces the built-in
+    network completely.  For bat_4b_24 the file provides the base 4-bus
+    topology; battery net injections are still applied per-block.
+
+    Use --save-pandapower-file to write the built network to a JSON file for
+    later reuse.  Combine with --case to select which network to save:
+
+        compare_pandapower --case s1b --save-pandapower-file cases/s1b/pandapower_net.json
+
 Exit codes:
     0  PASS — pandapower and gtopt agree within tolerance
     1  FAIL — numeric mismatch detected
@@ -35,6 +55,50 @@ import sys
 from pathlib import Path
 
 _SCALE_OBJECTIVE = 1000.0  # gtopt scale_objective used in all supported cases
+
+
+# ---------------------------------------------------------------------------
+# Pandapower network file I/O
+# ---------------------------------------------------------------------------
+
+
+def save_pandapower_net(net, file_path: Path) -> None:
+    """Save a pandapower network to a JSON file using pandapower.to_json().
+
+    Parameters
+    ----------
+    net:       pandapower network object to save.
+    file_path: destination path for the JSON file.
+    """
+    import pandapower as pp  # pylint: disable=import-outside-toplevel
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    pp.to_json(net, str(file_path))
+
+
+def load_pandapower_net(file_path: Path):
+    """Load a pandapower network from a JSON file produced by to_json().
+
+    Parameters
+    ----------
+    file_path: path to the JSON file saved by save_pandapower_net() or
+               pandapower.to_json().
+
+    Returns
+    -------
+    pandapower network object.
+
+    Raises
+    ------
+    FileNotFoundError if *file_path* does not exist.
+    """
+    import pandapower as pp  # pylint: disable=import-outside-toplevel
+
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"Pandapower network file not found: {file_path}")
+    return pp.from_json(str(file_path))
 
 
 # ---------------------------------------------------------------------------
@@ -378,11 +442,20 @@ def build_net_bat_4b_24(block: int, bat_fout: float, bat_finp: float):
 # ---------------------------------------------------------------------------
 
 
-def _compare_s1b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
+def _compare_s1b(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+) -> bool:
     """Compare s1b generation and cost; no bus LMPs for this 1-bus case."""
     import pandapower as pp  # pylint: disable=import-outside-toplevel
 
-    net = build_net_s1b()
+    net = (
+        load_pandapower_net(pandapower_file)
+        if pandapower_file is not None
+        else build_net_s1b()
+    )
     pp.rundcopp(net, verbose=False)
 
     pp_gen = list(net.res_gen["p_mw"].values)
@@ -417,11 +490,20 @@ def _compare_s1b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     return passed
 
 
-def _compare_ieee_4b_ori(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
+def _compare_ieee_4b_ori(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+) -> bool:
     """Compare ieee_4b_ori generation, cost, and bus LMPs."""
     import pandapower as pp  # pylint: disable=import-outside-toplevel
 
-    net = build_net_ieee_4b_ori()
+    net = (
+        load_pandapower_net(pandapower_file)
+        if pandapower_file is not None
+        else build_net_ieee_4b_ori()
+    )
     pp.rundcopp(net, verbose=False)
 
     pp_gen = list(net.res_gen["p_mw"].values)
@@ -470,7 +552,12 @@ def _compare_ieee_4b_ori(output_dir: Path, tol_mw: float, tol_lmp: float) -> boo
     return passed
 
 
-def _compare_ieee30b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
+def _compare_ieee30b(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+) -> bool:
     """Compare ieee30b total generation, cost, and bus LMPs.
 
     The ext_grid generation is summed separately because gtopt models
@@ -478,7 +565,11 @@ def _compare_ieee30b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     """
     import pandapower as pp  # pylint: disable=import-outside-toplevel
 
-    net = build_net_ieee30b()
+    net = (
+        load_pandapower_net(pandapower_file)
+        if pandapower_file is not None
+        else build_net_ieee30b()
+    )
     pp.rundcopp(net, verbose=False)
 
     pp_ext = float(net.res_ext_grid["p_mw"].sum())
@@ -528,7 +619,12 @@ def _compare_ieee30b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     return passed
 
 
-def _compare_ieee_57b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
+def _compare_ieee_57b(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+) -> bool:
     """Compare ieee_57b total generation, cost, and bus LMPs.
 
     Uses case57() with quadratic costs zeroed so it matches the linear-cost
@@ -538,7 +634,11 @@ def _compare_ieee_57b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     """
     import pandapower as pp  # pylint: disable=import-outside-toplevel
 
-    net = build_net_ieee_57b()
+    net = (
+        load_pandapower_net(pandapower_file)
+        if pandapower_file is not None
+        else build_net_ieee_57b()
+    )
     pp.rundcopp(net, verbose=False)
 
     pp_ext = float(net.res_ext_grid["p_mw"].sum())
@@ -588,7 +688,12 @@ def _compare_ieee_57b(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     return passed
 
 
-def _compare_bat_4b_24(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
+def _compare_bat_4b_24(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+) -> bool:
     """Compare bat_4b_24 conventional-generator dispatch across 24 hourly blocks.
 
     bat_4b_24 extends the Grainger & Stevenson 4-bus network with a 24-hour
@@ -603,8 +708,18 @@ def _compare_bat_4b_24(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
     LMP comparison is skipped for the same reason as in the battery case:
     battery coupling between blocks means the dual variables from a single-block
     pandapower OPF do not match gtopt's multi-block duals.
+
+    When *pandapower_file* is provided it is ignored for bat_4b_24 because the
+    network must be rebuilt per-block to apply the battery dispatch.  The
+    built-in :func:`build_net_bat_4b_24` is always used for this case.
     """
     import pandapower as pp  # pylint: disable=import-outside-toplevel
+
+    if pandapower_file is not None:
+        print(
+            "Note: --pandapower-file is ignored for bat_4b_24 "
+            "(network is rebuilt per-block with battery dispatch)."
+        )
 
     n_blocks = 24
 
@@ -663,12 +778,24 @@ def _compare_bat_4b_24(output_dir: Path, tol_mw: float, tol_lmp: float) -> bool:
 # Dispatch table
 # ---------------------------------------------------------------------------
 
+# Maps case name → (build_net_fn, compare_fn).
+# build_net_fn must accept no arguments and return a pandapower network.
+# It is None for bat_4b_24 because that case builds the network per-block.
 _CASES = {
     "s1b": _compare_s1b,
     "ieee_4b_ori": _compare_ieee_4b_ori,
     "ieee30b": _compare_ieee30b,
     "ieee_57b": _compare_ieee_57b,
     "bat_4b_24": _compare_bat_4b_24,
+}
+
+# Maps case name → network builder (for --save-pandapower-file).
+# bat_4b_24 is excluded because its network is block-dependent.
+_NET_BUILDERS = {
+    "s1b": build_net_s1b,
+    "ieee_4b_ori": build_net_ieee_4b_ori,
+    "ieee30b": build_net_ieee30b,
+    "ieee_57b": build_net_ieee_57b,
 }
 
 
@@ -692,10 +819,36 @@ def main() -> None:
     )
     parser.add_argument(
         "--gtopt-output",
-        required=True,
         type=Path,
         metavar="DIR",
-        help="Directory containing gtopt CSV output files.",
+        help=(
+            "Directory containing gtopt CSV output files.  "
+            "Required unless --save-pandapower-file is the only action."
+        ),
+    )
+    parser.add_argument(
+        "--pandapower-file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "Load the pandapower network from this JSON file instead of "
+            "rebuilding it with the built-in network builder.  "
+            "The file must have been saved with pandapower.to_json() (or "
+            "--save-pandapower-file).  "
+            "Ignored for bat_4b_24 (network is rebuilt per-block)."
+        ),
+    )
+    parser.add_argument(
+        "--save-pandapower-file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "Save the built pandapower network to this JSON file and exit "
+            "(no gtopt comparison is performed).  "
+            "Not supported for bat_4b_24."
+        ),
     )
     parser.add_argument(
         "--tol",
@@ -713,9 +866,36 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # --save-pandapower-file: build the network and write to JSON, then exit.
+    if args.save_pandapower_file is not None:
+        if args.case not in _NET_BUILDERS:
+            print(
+                f"ERROR: --save-pandapower-file is not supported for case '{args.case}'",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        try:
+            net = _NET_BUILDERS[args.case]()
+            save_pandapower_net(net, args.save_pandapower_file)
+            print(f"Saved pandapower network to: {args.save_pandapower_file}")
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"ERROR saving pandapower network: {exc}", file=sys.stderr)
+            sys.exit(2)
+        # If --gtopt-output was not given, exit after saving.
+        if args.gtopt_output is None:
+            sys.exit(0)
+
+    if args.gtopt_output is None:
+        parser.error("--gtopt-output is required when not using --save-pandapower-file alone")
+
     try:
         compare_fn = _CASES[args.case]
-        ok = compare_fn(args.gtopt_output, tol_mw=args.tol, tol_lmp=args.tol_lmp)
+        ok = compare_fn(
+            args.gtopt_output,
+            tol_mw=args.tol,
+            tol_lmp=args.tol_lmp,
+            pandapower_file=args.pandapower_file,
+        )
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(2)
