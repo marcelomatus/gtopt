@@ -1,6 +1,7 @@
 /**
  * @file      test_schedule_io_all.cpp
- * @brief     Consolidated schedule, I/O, and output context test compilation unit
+ * @brief     Consolidated schedule, I/O, and output context test compilation
+ * unit
  * @date      2026-03-04
  * @copyright BSD-3-Clause
  *

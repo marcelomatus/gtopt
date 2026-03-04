@@ -1,6 +1,7 @@
 /**
  * @file      test_simulation_all.cpp
- * @brief     Consolidated simulation LP, planning, and flat helper test compilation unit
+ * @brief     Consolidated simulation LP, planning, and flat helper test
+ * compilation unit
  * @date      2026-03-04
  * @copyright BSD-3-Clause
  *

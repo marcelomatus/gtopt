@@ -1,6 +1,7 @@
 /**
  * @file      test_main_all.cpp
- * @brief     Consolidated gtopt_main, work pool, and benchmark map test compilation unit
+ * @brief     Consolidated gtopt_main, work pool, and benchmark map test
+ * compilation unit
  * @date      2026-03-04
  * @copyright BSD-3-Clause
  *
