@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion and utility scripts (cvs2parquet, igtopt, plp2gtopt, pp2gtopt)"
+description = "gtopt conversion and utility scripts (compare_pandapower, cvs2parquet, igtopt, plp2gtopt, pp2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -27,6 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
+compare_pandapower = "compare_pandapower.main:main"
 cvs2parquet = "cvs2parquet.cvs2parquet:main"
 igtopt      = "igtopt.igtopt:main"
 plp2gtopt   = "plp2gtopt.main:main"
@@ -45,7 +46,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
+include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
 
 # ---------------------------------------------------------------------------
 # Tool configuration (mirrors root pyproject.toml, scoped to scripts/)
@@ -54,6 +55,7 @@ include = ["cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = [
+    "compare_pandapower/tests",
     "cvs2parquet/tests",
     "igtopt/tests",
     "plp2gtopt/tests",
@@ -66,7 +68,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
+source = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -83,7 +85,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
+known_first_party = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
 
 [tool.ruff]
 line-length = 88
