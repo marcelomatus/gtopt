@@ -30,7 +30,9 @@ include(../cmake/tools.cmake)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+if(NOT TARGET gtopt::gtopt)
+  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+endif()
 
 include(../cmake/ClangFormat.cmake)
 
