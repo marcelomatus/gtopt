@@ -104,14 +104,11 @@ include(../cmake/tools.cmake)
 # first.  If a previously installed library is found, it is reused without
 # recompilation.  Otherwise the library is built from source.
 #
-# GTOPT_INSTALL_LIBRARY=ON ensures that `cmake --install` deploys the library
-# headers and CMake config files alongside the standalone binary so that
-# downstream projects can use find_package(gtopt).
+# In-tree sharing (the usual cmake -S all scenario) is achieved via the
+# if(NOT TARGET gtopt::gtopt) guard in each component — no installation is
+# required.  Set -DGTOPT_INSTALL_LIBRARY=ON explicitly when you also want
+# cmake --install to deploy the library binary and CMake package files.
 option(CPM_USE_LOCAL_PACKAGES "Try find_package before building from source" ON)
-set(GTOPT_INSTALL_LIBRARY
-    ON
-    CACHE BOOL "Install the gtopt library headers and CMake config files" FORCE
-)
 include(../cmake/CPM.cmake)
 if(NOT TARGET gtopt::gtopt)
   CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
