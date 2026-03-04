@@ -29,6 +29,10 @@ Component options (all ON by default except docs)
 ``GTOPT_BUILD_TESTS``
   Build and register the unit test suite (requires doctest).
 
+``GTOPT_BUILD_INTEGRATION_TESTS``
+  Build and run end-to-end integration tests (requires GTOPT_BUILD_STANDALONE).
+  Reuses the standalone binary — no recompilation.
+
 ``GTOPT_BUILD_SCRIPTS``
   Install the Python conversion scripts (requires Python ≥ 3.8 and pip).
 
@@ -43,6 +47,11 @@ Component options (all ON by default except docs)
 ``GTOPT_BUILD_DOCS``
   Build Doxygen HTML documentation (requires internet access to fetch
   the m.css theme; disabled by default).
+
+``ENABLE_TEST_COVERAGE``
+  Instrument all C++ targets (unit tests, gtopt library, standalone binary)
+  with ``-fprofile-arcs -ftest-coverage`` so that ``lcov --capture
+  --directory build`` captures both unit-test and e2e-run coverage data.
 
 #]=======================================================================]
 
@@ -64,6 +73,7 @@ option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"          
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)
 option(GTOPT_BUILD_DOCS        "Build Doxygen documentation (needs internet)"        OFF)
+option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e tests)"  OFF)
 
 # ---- Tools ----
 

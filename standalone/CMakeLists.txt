@@ -11,6 +11,8 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(ENABLE_TEST_COVERAGE "Enable coverage instrumentation for the gtopt binary" OFF)
+
 include(../cmake/CompilerCheck.cmake)
 
 option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
@@ -77,6 +79,18 @@ target_link_libraries(
   gtopt::gtopt
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
+
+# ---- Code coverage ----
+# When ON, instrument the binary so that running it during e2e tests writes
+# .gcda files that lcov can collect alongside the unit-test coverage data.
+
+if(ENABLE_TEST_COVERAGE)
+  target_compile_options(
+    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
+    -fprofile-update=atomic
+  )
+  target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
+endif()
 
 # configure_install_rpath walks the link-library tree of the gtopt library
 # target, resolves imported-target locations, and sets INSTALL_RPATH so that
