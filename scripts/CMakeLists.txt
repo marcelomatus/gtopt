@@ -204,6 +204,7 @@ add_custom_target(scripts-test
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    -n auto
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running gtopt script unit tests"
@@ -215,6 +216,7 @@ add_custom_target(scripts-test
 add_custom_target(scripts-test-integration
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    -n auto
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running plp2gtopt integration tests"
@@ -229,6 +231,7 @@ add_custom_target(scripts-coverage
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    -n auto
     -v
     --cov="${SCRIPTS_DIR}/cvs2parquet"
     --cov="${SCRIPTS_DIR}/igtopt"
@@ -268,6 +271,7 @@ add_test(
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    -n auto
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -276,6 +280,7 @@ add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    -n auto
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
