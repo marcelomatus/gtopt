@@ -351,7 +351,7 @@ TEST_CASE("LinearInterface - solve with solver options (dual algorithm)")
   interface.add_row(row);
 
   SolverOptions opts;
-  opts.algorithm = static_cast<int>(LPAlgo::dual);
+  opts.algorithm = LPAlgo::dual;
   opts.presolve = true;
 
   auto result = interface.initial_solve(opts);
@@ -374,7 +374,7 @@ TEST_CASE("LinearInterface - solve with primal algorithm")
   interface.add_row(row);
 
   SolverOptions opts;
-  opts.algorithm = static_cast<int>(LPAlgo::primal);
+  opts.algorithm = LPAlgo::primal;
 
   auto result = interface.initial_solve(opts);
   REQUIRE(result.has_value());

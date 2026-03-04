@@ -15,6 +15,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/app_options.hpp>
+#include <gtopt/solver_options.hpp>
 
 using namespace gtopt;
 
@@ -560,4 +561,134 @@ TEST_CASE("Integration - parse and extract all option types")
   CHECK(flat_opts.eps == doctest::Approx(0.01));
   CHECK(flat_opts.col_with_names == true);
   CHECK(flat_opts.col_with_name_map == true);
+}
+
+// ---- Tests for lp_algo_from_name / lp_algo_name (solver_options.hpp) ----
+
+TEST_CASE("lp_algo_from_name - recognises all valid names")  // NOLINT
+{
+  CHECK((lp_algo_from_name("default")
+         && *lp_algo_from_name("default") == LPAlgo::default_algo));
+  CHECK((lp_algo_from_name("primal")
+         && *lp_algo_from_name("primal") == LPAlgo::primal));
+  CHECK((lp_algo_from_name("dual")
+         && *lp_algo_from_name("dual") == LPAlgo::dual));
+  CHECK((lp_algo_from_name("barrier")
+         && *lp_algo_from_name("barrier") == LPAlgo::barrier));
+}
+
+TEST_CASE("lp_algo_from_name - returns nullopt for unknown name")  // NOLINT
+{
+  CHECK_FALSE(lp_algo_from_name("interior").has_value());
+  CHECK_FALSE(lp_algo_from_name("").has_value());
+  CHECK_FALSE(lp_algo_from_name("Barrier").has_value());  // case-sensitive
+}
+
+TEST_CASE("lp_algo_name - round-trips all enumerators")  // NOLINT
+{
+  CHECK(lp_algo_name(LPAlgo::default_algo) == "default");
+  CHECK(lp_algo_name(LPAlgo::primal) == "primal");
+  CHECK(lp_algo_name(LPAlgo::dual) == "dual");
+  CHECK(lp_algo_name(LPAlgo::barrier) == "barrier");
+}
+
+TEST_CASE("lp_algo_name - unknown value returns 'unknown'")  // NOLINT
+{
+  CHECK(lp_algo_name(LPAlgo::last_algo) == "unknown");
+}
+
+// ---- Tests for parse_lp_algorithm ----
+
+TEST_CASE("parse_lp_algorithm - accepts algorithm names")  // NOLINT
+{
+  CHECK(parse_lp_algorithm("default") == 0);
+  CHECK(parse_lp_algorithm("primal") == 1);
+  CHECK(parse_lp_algorithm("dual") == 2);
+  CHECK(parse_lp_algorithm("barrier") == 3);
+}
+
+TEST_CASE("parse_lp_algorithm - accepts numeric strings")  // NOLINT
+{
+  CHECK(parse_lp_algorithm("0") == 0);
+  CHECK(parse_lp_algorithm("1") == 1);
+  CHECK(parse_lp_algorithm("2") == 2);
+  CHECK(parse_lp_algorithm("3") == 3);
+}
+
+TEST_CASE(
+    "parse_lp_algorithm - rejects unknown names and out-of-range numbers")  // NOLINT
+{
+  const auto throws = [](const std::string& s)
+  { [[maybe_unused]] auto r = parse_lp_algorithm(s); };
+  CHECK_THROWS_AS(throws("interior"), cli::parse_error);
+  CHECK_THROWS_AS(throws("Barrier"), cli::parse_error);
+  CHECK_THROWS_AS(throws("4"), cli::parse_error);
+  CHECK_THROWS_AS(throws("-1"), cli::parse_error);
+  CHECK_THROWS_AS(throws("abc"), cli::parse_error);
+}
+
+// ---- Tests for --lp-algorithm CLI option ----
+
+TEST_CASE("--lp-algorithm - accepts name via CLI")  // NOLINT
+{
+  auto desc = make_options_description();
+
+  SUBCASE("barrier name")
+  {
+    auto vm = parse_args({"--lp-algorithm", "barrier"}, desc);
+    REQUIRE(vm.contains("lp-algorithm"));
+    const auto opts = parse_main_options(vm, {});
+    REQUIRE(opts.lp_algorithm.has_value());
+    CHECK(opts.lp_algorithm.value_or(-1) == 3);
+  }
+
+  SUBCASE("primal name")
+  {
+    auto vm = parse_args({"--lp-algorithm", "primal"}, desc);
+    const auto opts = parse_main_options(vm, {});
+    CHECK(opts.lp_algorithm.value_or(-1) == 1);
+  }
+
+  SUBCASE("dual name")
+  {
+    auto vm = parse_args({"--lp-algorithm", "dual"}, desc);
+    const auto opts = parse_main_options(vm, {});
+    CHECK(opts.lp_algorithm.value_or(-1) == 2);
+  }
+
+  SUBCASE("default name")
+  {
+    auto vm = parse_args({"--lp-algorithm", "default"}, desc);
+    const auto opts = parse_main_options(vm, {});
+    CHECK(opts.lp_algorithm.value_or(-1) == 0);
+  }
+}
+
+TEST_CASE("--lp-algorithm - accepts numeric value via CLI")  // NOLINT
+{
+  auto desc = make_options_description();
+  auto vm = parse_args({"--lp-algorithm", "2"}, desc);
+  const auto opts = parse_main_options(vm, {});
+  REQUIRE(opts.lp_algorithm.has_value());
+  CHECK(opts.lp_algorithm.value_or(-1) == 2);
+}
+
+TEST_CASE("-a short option - accepts name")  // NOLINT
+{
+  auto desc = make_options_description();
+  auto vm = parse_args({"-a", "barrier"}, desc);
+  const auto opts = parse_main_options(vm, {});
+  REQUIRE(opts.lp_algorithm.has_value());
+  CHECK(opts.lp_algorithm.value_or(-1) == 3);
+}
+
+TEST_CASE(
+    "--lp-algorithm - invalid name throws at parse_main_options")  // NOLINT
+{
+  auto desc = make_options_description();
+  auto vm = parse_args({"--lp-algorithm", "unknown_algo"}, desc);
+  // Wrap in lambda to avoid [[nodiscard]] warning on the throw path
+  CHECK_THROWS_AS([&]
+                  { [[maybe_unused]] auto r = parse_main_options(vm, {}); }(),
+                  cli::parse_error);
 }
