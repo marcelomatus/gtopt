@@ -1825,22 +1825,26 @@ function _showTopoPopup(node, domPos) {
   const title = node.label || node.id;
   titleEl.textContent = title;
 
-  const tooltip = (node.title || "").replace(/<[^>]+>/g, ""); // strip any HTML
+  // Build the table safely using DOM to prevent HTML injection
+  const tooltip = (node.title || "");
   const lines   = tooltip.split(/\n/).filter(Boolean);
+  const table   = document.createElement("table");
 
-  let html = "<table>";
   lines.forEach((line) => {
-    const idx = line.indexOf(":");
+    const row = table.insertRow();
+    const idx  = line.indexOf(":");
     if (idx > 0) {
-      const k = line.slice(0, idx).trim();
-      const v = line.slice(idx + 1).trim();
-      html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+      row.insertCell().textContent = line.slice(0, idx).trim();
+      row.insertCell().textContent = line.slice(idx + 1).trim();
     } else if (line.trim()) {
-      html += `<tr><td colspan="2">${line}</td></tr>`;
+      const cell = row.insertCell();
+      cell.colSpan = 2;
+      cell.textContent = line.trim();
     }
   });
-  html += "</table>";
-  bodyEl.innerHTML = html;
+
+  bodyEl.textContent = "";
+  bodyEl.appendChild(table);
 
   // Position popup near the click, but keep it inside the panel
   let left = domPos.x + 12;
