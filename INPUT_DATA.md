@@ -4,12 +4,17 @@ This document describes the input data structure required to define and run
 optimization cases with **gtopt** (Generation and Transmission Optimization
 Planning Tool).
 
+> For a step-by-step tutorial with worked examples and time-series workflow,
+> see **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)**.
+> For auto-generated field tables from source code run:
+> `python3 scripts/gtopt_field_extractor.py --format html --output field_reference.html`
+
 ---
 
 ## Overview
 
-A gtopt case is defined by a single **JSON configuration file** (e.g.
-`system_c0.json`) that contains three top-level sections:
+A gtopt case is defined by one or more **JSON configuration files** that
+contain three top-level sections:
 
 | Section        | Description |
 |----------------|-------------|
@@ -40,24 +45,24 @@ case_name/
 
 Global settings that control solver behavior and I/O formats.
 
-| Field                  | Type     | Description |
-|------------------------|----------|-------------|
-| `annual_discount_rate` | number   | Annual discount rate for cost calculations |
-| `demand_fail_cost`     | number   | Penalty cost for unserved demand |
-| `reserve_fail_cost`    | number   | Penalty cost for unserved reserve |
-| `scale_objective`      | number   | Scaling factor for the objective function |
-| `scale_theta`          | number   | Scaling factor for voltage angles |
-| `kirchhoff_threshold`  | number   | Threshold for Kirchhoff constraints |
-| `use_line_losses`      | boolean  | Enable line loss modeling |
-| `use_kirchhoff`        | boolean  | Enable Kirchhoff's voltage law constraints |
-| `use_single_bus`       | boolean  | Collapse system to single bus |
-| `use_lp_names`         | boolean  | Use human-readable LP variable names |
-| `use_uid_fname`        | boolean  | Use UID-based file names |
-| `input_directory`      | string   | Directory for external data files |
-| `input_format`         | string   | Format of input files: `"csv"` or `"parquet"` |
-| `output_directory`     | string   | Directory for output files |
-| `output_format`        | string   | Format of output files: `"csv"` or `"parquet"` |
-| `output_compression`   | string   | Compression for output files |
+| Field                  | Type     | Units        | Description |
+|------------------------|----------|--------------|-------------|
+| `annual_discount_rate` | number   | p.u./year    | Annual discount rate for cost calculations |
+| `demand_fail_cost`     | number   | $/MWh        | Penalty cost for unserved demand (value of lost load) |
+| `reserve_fail_cost`    | number   | $/MWh        | Penalty cost for unserved spinning reserve |
+| `scale_objective`      | number   | dimensionless| Divide objective by this value for numerical stability |
+| `scale_theta`          | number   | dimensionless| Scaling factor for voltage-angle variables |
+| `kirchhoff_threshold`  | number   | kV           | Minimum bus voltage for Kirchhoff constraint application |
+| `use_line_losses`      | boolean  | —            | Enable line loss modeling |
+| `use_kirchhoff`        | boolean  | —            | Enable Kirchhoff's voltage law constraints |
+| `use_single_bus`       | boolean  | —            | Collapse system to single bus (copper-plate) |
+| `use_lp_names`         | boolean  | —            | Use human-readable LP variable names |
+| `use_uid_fname`        | boolean  | —            | Use UID-based file names |
+| `input_directory`      | string   | —            | Directory for external data files |
+| `input_format`         | string   | —            | Format of input files: `"csv"` or `"parquet"` |
+| `output_directory`     | string   | —            | Directory for output files |
+| `output_format`        | string   | —            | Format of output files: `"csv"` or `"parquet"` |
+| `output_compression`   | string   | —            | Compression for output files: `"gzip"`, `"zstd"`, `"uncompressed"` |
 
 ### Example
 
@@ -85,37 +90,37 @@ Defines the temporal structure of the optimization.
 
 ### 2.1 Block
 
-A block represents a time period within a stage.
+A block is the smallest indivisible time unit. `energy [MWh] = power [MW] × duration [h]`.
 
-| Field      | Type   | Required | Description |
-|------------|--------|----------|-------------|
-| `uid`      | integer| Yes      | Unique identifier |
-| `name`     | string | No       | Optional name |
-| `duration` | number | Yes      | Duration of the block (hours) |
+| Field      | Type   | Units | Required | Description |
+|------------|--------|-------|----------|-------------|
+| `uid`      | integer| —     | Yes      | Unique identifier |
+| `name`     | string | —     | No       | Optional name |
+| `duration` | number | h     | Yes      | Duration of the block |
 
 ### 2.2 Stage
 
-A stage groups consecutive blocks into a planning period.
+A stage groups consecutive blocks into a planning/investment period.
 
-| Field            | Type    | Required | Description |
-|------------------|---------|----------|-------------|
-| `uid`            | integer | Yes      | Unique identifier |
-| `name`           | string  | No       | Optional name |
-| `first_block`    | integer | Yes      | Index of the first block (0-based) |
-| `count_block`    | integer | Yes      | Number of blocks in this stage |
-| `discount_factor`| number  | No       | Stage-specific discount factor |
-| `active`         | boolean | No       | Whether the stage is active |
+| Field            | Type    | Units | Required | Description |
+|------------------|---------|-------|----------|-------------|
+| `uid`            | integer | —     | Yes      | Unique identifier |
+| `name`           | string  | —     | No       | Optional name |
+| `first_block`    | integer | —     | Yes      | 0-based index of the first block in this stage |
+| `count_block`    | integer | —     | Yes      | Number of consecutive blocks in this stage |
+| `discount_factor`| number  | p.u.  | No       | Present-value cost multiplier for this stage |
+| `active`         | boolean | —     | No       | Whether the stage is active |
 
 ### 2.3 Scenario
 
-A scenario represents a possible future realization.
+A scenario represents a possible future realization (hydrology, demand level, etc.).
 
-| Field               | Type    | Required | Description |
-|---------------------|---------|----------|-------------|
-| `uid`               | integer | Yes      | Unique identifier |
-| `name`              | string  | No       | Optional name |
-| `probability_factor`| number  | No       | Probability weight of this scenario |
-| `active`            | boolean | No       | Whether the scenario is active |
+| Field               | Type    | Units | Required | Description |
+|---------------------|---------|-------|----------|-------------|
+| `uid`               | integer | —     | Yes      | Unique identifier |
+| `name`              | string  | —     | No       | Optional name |
+| `probability_factor`| number  | p.u.  | No       | Probability weight (values are normalised to sum to 1) |
+| `active`            | boolean | —     | No       | Whether the scenario is active |
 
 ### Example
 
@@ -147,282 +152,283 @@ The system section defines all physical components of the power system.
 
 An electrical bus (node) in the network.
 
-| Field             | Type    | Required | Description |
-|-------------------|---------|----------|-------------|
-| `uid`             | integer | Yes      | Unique identifier |
-| `name`            | string  | Yes      | Bus name |
-| `active`          | boolean | No       | Whether the bus is active |
-| `voltage`         | number  | No       | Nominal voltage |
-| `reference_theta` | number  | No       | Reference voltage angle |
-| `use_kirchhoff`   | boolean | No       | Override global Kirchhoff setting |
+| Field             | Type    | Units | Required | Description |
+|-------------------|---------|-------|----------|-------------|
+| `uid`             | integer | —     | Yes      | Unique identifier |
+| `name`            | string  | —     | Yes      | Bus name |
+| `active`          | boolean | —     | No       | Whether the bus is active |
+| `voltage`         | number  | kV    | No       | Nominal voltage level |
+| `reference_theta` | number  | rad   | No       | Fixed voltage angle (reference bus: set to 0) |
+| `use_kirchhoff`   | boolean | —     | No       | Override global Kirchhoff setting for this bus |
 
 ### 3.2 Generator
 
 A generation unit connected to a bus.
 
-| Field              | Type           | Required | Description |
-|--------------------|----------------|----------|-------------|
-| `uid`              | integer        | Yes      | Unique identifier |
-| `name`             | string         | Yes      | Generator name |
-| `bus`              | string         | Yes      | Name of the connected bus |
-| `active`           | boolean        | No       | Whether the generator is active |
-| `pmin`             | number/string  | No       | Minimum generation |
-| `pmax`             | number/string  | No       | Maximum generation |
-| `gcost`            | number/string  | No       | Generation cost ($/MWh) |
-| `lossfactor`       | number/string  | No       | Loss factor |
-| `capacity`         | number/string  | No       | Installed capacity |
-| `expcap`           | number/string  | No       | Expansion capacity per module |
-| `expmod`           | number/string  | No       | Number of expansion modules |
-| `capmax`           | number/string  | No       | Maximum total capacity |
-| `annual_capcost`   | number/string  | No       | Annual cost per unit of capacity |
-| `annual_derating`  | number/string  | No       | Annual capacity derating factor |
+| Field              | Type                | Units        | Required | Description |
+|--------------------|---------------------|--------------|----------|-------------|
+| `uid`              | integer             | —            | Yes      | Unique identifier |
+| `name`             | string              | —            | Yes      | Generator name |
+| `bus`              | integer\|string     | —            | Yes      | Connected bus UID or name |
+| `active`           | boolean             | —            | No       | Whether the generator is active |
+| `pmin`             | number\|array\|string| MW          | No       | Minimum active power output |
+| `pmax`             | number\|array\|string| MW          | No       | Maximum active power output |
+| `gcost`            | number\|array\|string| $/MWh       | No       | Variable generation cost |
+| `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
+| `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
+| `expcap`           | number\|array\|string| MW          | No       | Capacity added per expansion module |
+| `expmod`           | number\|array\|string| —           | No       | Maximum number of expansion modules |
+| `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
+| `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
+| `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
-> **Note:** Fields that accept `number/string` can be either a numeric constant
-> or a string referencing an external data file (CSV/Parquet).
+> **Note:** Fields that accept `number|array|string` can be a numeric constant,
+> an inline array (indexed by `[stage][block]`), or a filename referencing an
+> external Parquet/CSV file in `input_directory/Generator/`.
 
 ### 3.3 Demand
 
 An electrical demand (load) connected to a bus.
 
-| Field              | Type           | Required | Description |
-|--------------------|----------------|----------|-------------|
-| `uid`              | integer        | Yes      | Unique identifier |
-| `name`             | string         | Yes      | Demand name |
-| `bus`              | string         | Yes      | Name of the connected bus |
-| `active`           | boolean        | No       | Whether the demand is active |
-| `lmax`             | number/string  | No       | Maximum load level |
-| `lossfactor`       | number/string  | No       | Loss factor |
-| `fcost`            | number/string  | No       | Curtailment cost |
-| `emin`             | number/string  | No       | Minimum energy requirement |
-| `ecost`            | number/string  | No       | Energy cost |
-| `capacity`         | number/string  | No       | Installed capacity |
-| `expcap`           | number/string  | No       | Expansion capacity per module |
-| `expmod`           | number/string  | No       | Number of expansion modules |
-| `capmax`           | number/string  | No       | Maximum total capacity |
-| `annual_capcost`   | number/string  | No       | Annual cost per unit of capacity |
-| `annual_derating`  | number/string  | No       | Annual capacity derating factor |
+| Field              | Type                | Units        | Required | Description |
+|--------------------|---------------------|--------------|----------|-------------|
+| `uid`              | integer             | —            | Yes      | Unique identifier |
+| `name`             | string              | —            | Yes      | Demand name |
+| `bus`              | integer\|string     | —            | Yes      | Connected bus UID or name |
+| `active`           | boolean             | —            | No       | Whether the demand is active |
+| `lmax`             | number\|array\|string| MW          | No       | Maximum served load |
+| `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
+| `fcost`            | number\|array\|string| $/MWh       | No       | Demand curtailment cost |
+| `emin`             | number\|array\|string| MWh         | No       | Minimum energy that must be served per stage |
+| `ecost`            | number\|array\|string| $/MWh       | No       | Energy-shortage cost |
+| `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
+| `expcap`           | number\|array\|string| MW          | No       | Capacity added per expansion module |
+| `expmod`           | number\|array\|string| —           | No       | Maximum number of expansion modules |
+| `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
+| `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
+| `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
 ### 3.4 Line
 
 A transmission line connecting two buses.
 
-| Field              | Type           | Required | Description |
-|--------------------|----------------|----------|-------------|
-| `uid`              | integer        | Yes      | Unique identifier |
-| `name`             | string         | Yes      | Line name |
-| `bus_a`            | string         | Yes      | Name of bus A |
-| `bus_b`            | string         | Yes      | Name of bus B |
-| `active`           | boolean        | No       | Whether the line is active |
-| `voltage`          | number/string  | No       | Line voltage |
-| `resistance`       | number/string  | No       | Line resistance |
-| `reactance`        | number/string  | No       | Line reactance |
-| `lossfactor`       | number/string  | No       | Loss factor |
-| `tmax_ab`          | number/string  | No       | Max transfer A→B |
-| `tmax_ba`          | number/string  | No       | Max transfer B→A |
-| `tcost`            | number/string  | No       | Transfer cost |
-| `capacity`         | number/string  | No       | Installed capacity |
-| `expcap`           | number/string  | No       | Expansion capacity per module |
-| `expmod`           | number/string  | No       | Number of expansion modules |
-| `capmax`           | number/string  | No       | Maximum total capacity |
-| `annual_capcost`   | number/string  | No       | Annual cost per unit of capacity |
-| `annual_derating`  | number/string  | No       | Annual capacity derating factor |
+| Field              | Type                | Units        | Required | Description |
+|--------------------|---------------------|--------------|----------|-------------|
+| `uid`              | integer             | —            | Yes      | Unique identifier |
+| `name`             | string              | —            | Yes      | Line name |
+| `bus_a`            | integer\|string     | —            | Yes      | Sending-end (from) bus |
+| `bus_b`            | integer\|string     | —            | Yes      | Receiving-end (to) bus |
+| `active`           | boolean             | —            | No       | Whether the line is active |
+| `voltage`          | number\|array\|string| kV          | No       | Nominal voltage level |
+| `resistance`       | number\|array\|string| p.u.        | No       | Series resistance |
+| `reactance`        | number\|array\|string| p.u.        | No       | Series reactance (DC power flow) |
+| `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
+| `tmax_ab`          | number\|array\|string| MW          | No       | Max flow in A→B direction |
+| `tmax_ba`          | number\|array\|string| MW          | No       | Max flow in B→A direction |
+| `tcost`            | number\|array\|string| $/MWh       | No       | Variable transmission cost |
+| `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
+| `expcap`           | number\|array\|string| MW          | No       | Capacity added per expansion module |
+| `expmod`           | number\|array\|string| —           | No       | Maximum number of expansion modules |
+| `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
+| `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
+| `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
 ### 3.5 Battery
 
-An energy storage device.
+A battery energy storage system (BESS).
 
-| Field               | Type           | Required | Description |
-|---------------------|----------------|----------|-------------|
-| `uid`               | integer        | Yes      | Unique identifier |
-| `name`              | string         | Yes      | Battery name |
-| `active`            | boolean        | No       | Whether the battery is active |
-| `input_efficiency`  | number/string  | No       | Charging efficiency |
-| `output_efficiency` | number/string  | No       | Discharging efficiency |
-| `annual_loss`       | number/string  | No       | Annual energy loss rate |
-| `vmin`              | number/string  | No       | Minimum stored energy |
-| `vmax`              | number/string  | No       | Maximum stored energy |
-| `vcost`             | number/string  | No       | Storage cost |
-| `vini`              | number         | No       | Initial stored energy |
-| `vfin`              | number         | No       | Final stored energy |
-| `capacity`          | number/string  | No       | Installed capacity |
-| `expcap`            | number/string  | No       | Expansion capacity per module |
-| `expmod`            | number/string  | No       | Number of expansion modules |
-| `capmax`            | number/string  | No       | Maximum total capacity |
-| `annual_capcost`    | number/string  | No       | Annual cost per unit of capacity |
-| `annual_derating`   | number/string  | No       | Annual capacity derating factor |
+| Field               | Type                | Units        | Required | Description |
+|---------------------|---------------------|--------------|----------|-------------|
+| `uid`               | integer             | —            | Yes      | Unique identifier |
+| `name`              | string              | —            | Yes      | Battery name |
+| `active`            | boolean             | —            | No       | Whether the battery is active |
+| `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
+| `output_efficiency` | number\|array\|string| p.u.        | No       | Discharging efficiency |
+| `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate |
+| `emin`              | number\|array\|string| MWh         | No       | Minimum state of charge |
+| `emax`              | number\|array\|string| MWh         | No       | Maximum state of charge |
+| `vcost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
+| `eini`              | number              | MWh          | No       | Initial state of charge |
+| `efin`              | number              | MWh          | No       | Terminal state of charge |
+| `capacity`          | number\|array\|string| MWh         | No       | Installed energy capacity |
+| `expcap`            | number\|array\|string| MWh         | No       | Energy capacity per expansion module |
+| `expmod`            | number\|array\|string| —           | No       | Maximum number of expansion modules |
+| `capmax`            | number\|array\|string| MWh         | No       | Absolute maximum energy capacity |
+| `annual_capcost`    | number\|array\|string| $/MWh-year  | No       | Annualized investment cost |
+| `annual_derating`   | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
 
 ### 3.6 Converter
 
-Links a battery to a generator and demand for charge/discharge.
+Links a battery to a discharge generator and a charge demand.
 
-| Field              | Type           | Required | Description |
-|--------------------|----------------|----------|-------------|
-| `uid`              | integer        | Yes      | Unique identifier |
-| `name`             | string         | Yes      | Converter name |
-| `active`           | boolean        | No       | Whether the converter is active |
-| `battery`          | string         | Yes      | Name of associated battery |
-| `generator`        | string         | Yes      | Name of associated generator |
-| `demand`           | string         | Yes      | Name of associated demand |
-| `conversion_rate`  | number/string  | No       | Conversion rate |
-| `capacity`         | number/string  | No       | Installed capacity |
-| `expcap`           | number/string  | No       | Expansion capacity per module |
-| `expmod`           | number/string  | No       | Number of expansion modules |
-| `capmax`           | number/string  | No       | Maximum total capacity |
-| `annual_capcost`   | number/string  | No       | Annual cost per unit of capacity |
-| `annual_derating`  | number/string  | No       | Annual capacity derating factor |
+| Field              | Type                | Units           | Required | Description |
+|--------------------|---------------------|-----------------|----------|-------------|
+| `uid`              | integer             | —               | Yes      | Unique identifier |
+| `name`             | string              | —               | Yes      | Converter name |
+| `active`           | boolean             | —               | No       | Whether the converter is active |
+| `battery`          | integer\|string     | —               | Yes      | Associated battery UID or name |
+| `generator`        | integer\|string     | —               | Yes      | Discharge generator UID or name |
+| `demand`           | integer\|string     | —               | Yes      | Charge demand UID or name |
+| `conversion_rate`  | number\|array\|string| MW/(MWh/h)     | No       | Electrical output per unit stored energy withdrawn |
+| `capacity`         | number\|array\|string| MW              | No       | Installed power capacity |
+| `expcap`           | number\|array\|string| MW              | No       | Power capacity per expansion module |
+| `expmod`           | number\|array\|string| —               | No       | Maximum number of expansion modules |
+| `capmax`           | number\|array\|string| MW              | No       | Absolute maximum power capacity |
+| `annual_capcost`   | number\|array\|string| $/MW-year       | No       | Annualized investment cost |
+| `annual_derating`  | number\|array\|string| p.u./year       | No       | Annual capacity derating factor |
 
 ### 3.7 Junction
 
 A hydraulic node in the water network.
 
-| Field    | Type    | Required | Description |
-|----------|---------|----------|-------------|
-| `uid`    | integer | Yes      | Unique identifier |
-| `name`   | string  | Yes      | Junction name |
-| `active` | boolean | No       | Whether the junction is active |
-| `drain`  | boolean | No       | Whether the junction drains water |
+| Field    | Type    | Units | Required | Description |
+|----------|---------|-------|----------|-------------|
+| `uid`    | integer | —     | Yes      | Unique identifier |
+| `name`   | string  | —     | Yes      | Junction name |
+| `active` | boolean | —     | No       | Whether the junction is active |
+| `drain`  | boolean | —     | No       | If true, excess water can leave the system freely |
 
 ### 3.8 Waterway
 
 A water channel connecting two junctions.
 
-| Field        | Type           | Required | Description |
-|--------------|----------------|----------|-------------|
-| `uid`        | integer        | Yes      | Unique identifier |
-| `name`       | string         | Yes      | Waterway name |
-| `active`     | boolean        | No       | Whether the waterway is active |
-| `junction_a` | string         | Yes      | Name of upstream junction |
-| `junction_b` | string         | Yes      | Name of downstream junction |
-| `capacity`   | number/string  | No       | Flow capacity |
-| `lossfactor` | number/string  | No       | Loss factor |
-| `fmin`       | number/string  | No       | Minimum flow |
-| `fmax`       | number/string  | No       | Maximum flow |
+| Field        | Type                | Units  | Required | Description |
+|--------------|---------------------|--------|----------|-------------|
+| `uid`        | integer             | —      | Yes      | Unique identifier |
+| `name`       | string              | —      | Yes      | Waterway name |
+| `active`     | boolean             | —      | No       | Whether the waterway is active |
+| `junction_a` | integer\|string     | —      | Yes      | Upstream junction UID or name |
+| `junction_b` | integer\|string     | —      | Yes      | Downstream junction UID or name |
+| `capacity`   | number\|array\|string| m³/s  | No       | Maximum flow capacity |
+| `lossfactor` | number\|array\|string| p.u.  | No       | Transit loss coefficient |
+| `fmin`       | number\|array\|string| m³/s  | No       | Minimum required water flow |
+| `fmax`       | number\|array\|string| m³/s  | No       | Maximum allowed water flow |
 
 ### 3.9 Reservoir
 
-A water reservoir connected to a junction.
+A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1 000 m³).
 
-| Field                  | Type           | Required | Description |
-|------------------------|----------------|----------|-------------|
-| `uid`                  | integer        | Yes      | Unique identifier |
-| `name`                 | string         | Yes      | Reservoir name |
-| `active`               | boolean        | No       | Whether the reservoir is active |
-| `junction`             | string         | Yes      | Name of associated junction |
-| `spillway_capacity`    | number         | No       | Spillway capacity |
-| `spillway_cost`        | number         | No       | Spillway cost |
-| `capacity`             | number/string  | No       | Storage capacity |
-| `annual_loss`          | number/string  | No       | Annual loss rate |
-| `vmin`                 | number/string  | No       | Minimum volume |
-| `vmax`                 | number/string  | No       | Maximum volume |
-| `vcost`                | number/string  | No       | Storage cost |
-| `vini`                 | number         | No       | Initial volume |
-| `vfin`                 | number         | No       | Final volume |
-| `fmin`                 | number         | No       | Minimum flow |
-| `fmax`                 | number         | No       | Maximum flow |
-| `vol_scale`            | number         | No       | Volume scaling factor |
-| `flow_conversion_rate` | number         | No       | Flow to volume conversion |
+| Field                  | Type                | Units       | Required | Description |
+|------------------------|---------------------|-------------|----------|-------------|
+| `uid`                  | integer             | —           | Yes      | Unique identifier |
+| `name`                 | string              | —           | Yes      | Reservoir name |
+| `active`               | boolean             | —           | No       | Whether the reservoir is active |
+| `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
+| `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
+| `spillway_cost`        | number              | $/dam³      | No       | Penalty per unit of spilled water |
+| `capacity`             | number\|array\|string| dam³       | No       | Total usable storage capacity |
+| `annual_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
+| `emin`                 | number\|array\|string| dam³       | No       | Minimum allowed stored volume |
+| `emax`                 | number\|array\|string| dam³       | No       | Maximum allowed stored volume |
+| `vcost`                | number\|array\|string| $/dam³     | No       | Water value (shadow cost of stored water) |
+| `eini`                 | number              | dam³        | No       | Initial stored volume |
+| `efin`                 | number              | dam³        | No       | Target final stored volume |
+| `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
+| `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
+| `vol_scale`            | number              | —           | No       | Multiplicative scaling factor for volume |
+| `flow_conversion_rate` | number              | dam³/(m³/s·h)| No     | Converts m³/s × hours to dam³ (default: 0.0036) |
 
 ### 3.10 Turbine
 
 A hydro turbine linking a waterway to a generator.
 
-| Field             | Type           | Required | Description |
-|-------------------|----------------|----------|-------------|
-| `uid`             | integer        | Yes      | Unique identifier |
-| `name`            | string         | Yes      | Turbine name |
-| `active`          | boolean        | No       | Whether the turbine is active |
-| `waterway`        | string         | Yes      | Name of associated waterway |
-| `generator`       | string         | Yes      | Name of associated generator |
-| `drain`           | boolean        | No       | Whether the turbine drains water |
-| `conversion_rate` | number/string  | No       | Water-to-power conversion rate |
-| `capacity`        | number/string  | No       | Installed capacity |
+| Field             | Type                | Units      | Required | Description |
+|-------------------|---------------------|------------|----------|-------------|
+| `uid`             | integer             | —          | Yes      | Unique identifier |
+| `name`            | string              | —          | Yes      | Turbine name |
+| `active`          | boolean             | —          | No       | Whether the turbine is active |
+| `waterway`        | integer\|string     | —          | Yes      | Associated waterway UID or name |
+| `generator`       | integer\|string     | —          | Yes      | Associated generator UID or name |
+| `drain`           | boolean             | —          | No       | If true, turbine can spill water without generating |
+| `conversion_rate` | number\|array\|string| MW·s/m³   | No       | Water-to-power conversion factor |
+| `capacity`        | number\|array\|string| MW        | No       | Maximum turbine power output |
 
 ### 3.11 Flow (Inflow)
 
-A water inflow at a junction.
+A water inflow or outflow at a junction.
 
-| Field       | Type           | Required | Description |
-|-------------|----------------|----------|-------------|
-| `uid`       | integer        | Yes      | Unique identifier |
-| `name`      | string         | Yes      | Flow name |
-| `active`    | boolean        | No       | Whether the flow is active |
-| `direction` | integer        | No       | Flow direction (1 = inflow, -1 = outflow) |
-| `junction`  | string         | Yes      | Name of associated junction |
-| `discharge` | number/string  | Yes      | Discharge schedule |
+| Field       | Type                | Units | Required | Description |
+|-------------|---------------------|-------|----------|-------------|
+| `uid`       | integer             | —     | Yes      | Unique identifier |
+| `name`      | string              | —     | Yes      | Flow name |
+| `active`    | boolean             | —     | No       | Whether the flow is active |
+| `direction` | integer             | —     | No       | +1 = inflow, −1 = outflow |
+| `junction`  | integer\|string     | —     | Yes      | Associated junction UID or name |
+| `discharge` | number\|array\|string| m³/s | Yes      | Water discharge schedule |
 
 ### 3.12 Filtration
 
-Connects a waterway to a reservoir for water filtration.
+Linear seepage model from a waterway to an adjacent reservoir.
 
-| Field       | Type    | Required | Description |
-|-------------|---------|----------|-------------|
-| `uid`       | integer | Yes      | Unique identifier |
-| `name`      | string  | Yes      | Filtration name |
-| `active`    | boolean | No       | Whether the filtration is active |
-| `waterway`  | string  | Yes      | Name of associated waterway |
-| `reservoir` | string  | Yes      | Name of associated reservoir |
-| `slope`     | number  | No       | Filtration slope coefficient |
-| `constant`  | number  | No       | Filtration constant |
+| Field       | Type    | Units      | Required | Description |
+|-------------|---------|------------|----------|-------------|
+| `uid`       | integer | —          | Yes      | Unique identifier |
+| `name`      | string  | —          | Yes      | Filtration name |
+| `active`    | boolean | —          | No       | Whether the filtration is active |
+| `waterway`  | integer\|string | — | Yes      | Source waterway UID or name |
+| `reservoir` | integer\|string | — | Yes      | Receiving reservoir UID or name |
+| `slope`     | number  | p.u.       | No       | Seepage rate proportional to waterway flow |
+| `constant`  | number  | m³/s       | No       | Constant seepage rate independent of flow |
 
 ### 3.13 Generator Profile
 
-A time-series generation profile for a generator.
+A time-varying capacity-factor profile for a generator.
 
-| Field       | Type           | Required | Description |
-|-------------|----------------|----------|-------------|
-| `uid`       | integer        | Yes      | Unique identifier |
-| `name`      | string         | Yes      | Profile name |
-| `active`    | boolean        | No       | Whether the profile is active |
-| `generator` | string         | Yes      | Name of associated generator |
-| `profile`   | number/string  | Yes      | Generation profile data |
-| `scost`     | number/string  | No       | Profile-specific cost |
+| Field       | Type                | Units | Required | Description |
+|-------------|---------------------|-------|----------|-------------|
+| `uid`       | integer             | —     | Yes      | Unique identifier |
+| `name`      | string              | —     | Yes      | Profile name |
+| `active`    | boolean             | —     | No       | Whether the profile is active |
+| `generator` | integer\|string     | —     | Yes      | Associated generator UID or name |
+| `profile`   | number\|array\|string| p.u. | Yes      | Capacity-factor profile (0–1) |
+| `scost`     | number\|array\|string| $/MWh| No       | Short-run generation cost override |
 
 ### 3.14 Demand Profile
 
-A time-series demand profile.
+A time-varying load-shape profile for a demand element.
 
-| Field    | Type           | Required | Description |
-|----------|----------------|----------|-------------|
-| `uid`    | integer        | Yes      | Unique identifier |
-| `name`   | string         | Yes      | Profile name |
-| `active` | boolean        | No       | Whether the profile is active |
-| `demand` | string         | Yes      | Name of associated demand |
-| `profile`| number/string  | Yes      | Demand profile data |
-| `scost`  | number/string  | No       | Profile-specific cost |
+| Field    | Type                | Units | Required | Description |
+|----------|---------------------|-------|----------|-------------|
+| `uid`    | integer             | —     | Yes      | Unique identifier |
+| `name`   | string              | —     | Yes      | Profile name |
+| `active` | boolean             | —     | No       | Whether the profile is active |
+| `demand` | integer\|string     | —     | Yes      | Associated demand UID or name |
+| `profile`| number\|array\|string| p.u. | Yes      | Load-scaling profile (0–1) |
+| `scost`  | number\|array\|string| $/MWh| No       | Short-run load-shedding cost override |
 
 ### 3.15 Reserve Zone
 
-A zone for reserve requirements.
+A spinning-reserve requirement zone.
 
-| Field    | Type           | Required | Description |
-|----------|----------------|----------|-------------|
-| `uid`    | integer        | Yes      | Unique identifier |
-| `name`   | string         | Yes      | Zone name |
-| `active` | boolean        | No       | Whether the zone is active |
-| `urreq`  | number/string  | No       | Up-reserve requirement |
-| `drreq`  | number/string  | No       | Down-reserve requirement |
-| `urcost` | number/string  | No       | Up-reserve cost |
-| `drcost` | number/string  | No       | Down-reserve cost |
+| Field    | Type                | Units  | Required | Description |
+|----------|---------------------|--------|----------|-------------|
+| `uid`    | integer             | —      | Yes      | Unique identifier |
+| `name`   | string              | —      | Yes      | Zone name |
+| `active` | boolean             | —      | No       | Whether the zone is active |
+| `urreq`  | number\|array\|string| MW    | No       | Up-reserve requirement |
+| `drreq`  | number\|array\|string| MW    | No       | Down-reserve requirement |
+| `urcost` | number\|array\|string| $/MW  | No       | Up-reserve shortage penalty |
+| `drcost` | number\|array\|string| $/MW  | No       | Down-reserve shortage penalty |
 
 ### 3.16 Reserve Provision
 
-A reserve provision linking a generator to reserve zones.
+A generator's contribution to reserve zones.
 
-| Field                  | Type           | Required | Description |
-|------------------------|----------------|----------|-------------|
-| `uid`                  | integer        | Yes      | Unique identifier |
-| `name`                 | string         | Yes      | Provision name |
-| `active`               | boolean        | No       | Whether the provision is active |
-| `generator`            | string         | Yes      | Name of associated generator |
-| `reserve_zones`        | string         | Yes      | Associated reserve zone(s) |
-| `urmax`                | number/string  | No       | Maximum up-reserve |
-| `drmax`                | number/string  | No       | Maximum down-reserve |
-| `ur_capacity_factor`   | number/string  | No       | Up-reserve capacity factor |
-| `dr_capacity_factor`   | number/string  | No       | Down-reserve capacity factor |
-| `ur_provision_factor`  | number/string  | No       | Up-reserve provision factor |
-| `dr_provision_factor`  | number/string  | No       | Down-reserve provision factor |
-| `urcost`               | number/string  | No       | Up-reserve cost |
-| `drcost`               | number/string  | No       | Down-reserve cost |
+| Field                  | Type                | Units  | Required | Description |
+|------------------------|---------------------|--------|----------|-------------|
+| `uid`                  | integer             | —      | Yes      | Unique identifier |
+| `name`                 | string              | —      | Yes      | Provision name |
+| `active`               | boolean             | —      | No       | Whether the provision is active |
+| `generator`            | integer\|string     | —      | Yes      | Associated generator UID or name |
+| `reserve_zones`        | string              | —      | Yes      | Comma-separated reserve zone UIDs or names |
+| `urmax`                | number\|array\|string| MW    | No       | Maximum up-reserve offer |
+| `drmax`                | number\|array\|string| MW    | No       | Maximum down-reserve offer |
+| `ur_capacity_factor`   | number\|array\|string| p.u.  | No       | Up-reserve capacity factor |
+| `dr_capacity_factor`   | number\|array\|string| p.u.  | No       | Down-reserve capacity factor |
+| `ur_provision_factor`  | number\|array\|string| p.u.  | No       | Up-reserve provision factor |
+| `dr_provision_factor`  | number\|array\|string| p.u.  | No       | Down-reserve provision factor |
+| `urcost`               | number\|array\|string| $/MW  | No       | Up-reserve bid cost |
+| `drcost`               | number\|array\|string| $/MW  | No       | Down-reserve bid cost |
 
 ---
 

@@ -6,13 +6,30 @@
  * @copyright BSD-3-Clause
  *
  * This module defines data structures for representing battery energy storage
- * systems in power system planning models. Batteries are modeled with
- * energy storage capabilities, efficiency parameters, and expansion options.
+ * systems (BESS) in power system planning models. A battery stores and
+ * releases electrical energy between time blocks, subject to capacity and
+ * efficiency constraints. It is coupled to the electrical network through a
+ * @ref Converter that links it to a discharge @ref Generator and a charge
+ * @ref Demand.
  *
- * @details Batteries in power systems provide services like energy arbitrage,
- * reserves, and grid support. This implementation models both operational
- * characteristics (state of charge limits, losses) and investment decisions
- * (expansion capacity).
+ * ### JSON Example
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "bess1",
+ *   "input_efficiency": 0.95,
+ *   "output_efficiency": 0.95,
+ *   "emin": 0,
+ *   "emax": 100,
+ *   "capacity": 100
+ * }
+ * ```
+ *
+ * Fields that accept a `number/array/string` value can hold:
+ * - A scalar constant
+ * - A 1-D inline array indexed by `[stage]`
+ * - A filename string referencing a Parquet/CSV schedule in
+ *   `input_directory/Battery/`
  */
 
 #pragma once
@@ -23,47 +40,44 @@ namespace gtopt
 {
 /**
  * @struct Battery
- * @brief Represents a battery energy storage system in a power system
- * planning model
+ * @brief Represents a battery energy storage system (BESS)
  *
- * @details This structure defines a complete battery entity with
- * identification, technical parameters, and economic attributes.
+ * @details A battery can charge (absorb energy) and discharge (deliver
+ * energy) within its operational constraints. The state of charge (SoC)
+ * is tracked between time blocks, accounting for round-trip efficiency
+ * losses.
  *
- * A battery can charge (absorb energy) and discharge (deliver energy) within
- * its operational constraints. The state of charge is tracked between time
- * periods, accounting for efficiency losses.
+ * The energy balance per block is:
+ * ```
+ * SoC[t+1] = SoC[t] × (1 − annual_loss/8760) + input_efficiency × charge
+ *            − discharge / output_efficiency
+ * ```
  *
- * @see BatteryLP for planning model formulation
+ * @see Converter for the generator/demand coupling
+ * @see BatteryLP for the LP formulation
  */
 struct Battery
 {
-  Uid uid {unknown_uid};  ///< Unique identifier for database references
+  Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable battery name
-  OptActive active {};  ///< Activation status (whether the battery is modeled)
+  OptActive active {};  ///< Activation status (default: active)
 
-  OptTRealFieldSched
-      input_efficiency {};  ///< Input (charging) efficiency (fraction)
+  OptTRealFieldSched input_efficiency {};   ///< Charging (round-trip in) efficiency [p.u.]
+  OptTRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
+  OptTRealFieldSched annual_loss {};        ///< Annual self-discharge rate [p.u./year]
 
-  OptTRealFieldSched
-      output_efficiency {};  ///< Output (discharging) efficiency (fraction)
+  OptTRealFieldSched emin {};    ///< Minimum state of charge [MWh]
+  OptTRealFieldSched emax {};    ///< Maximum state of charge (usable capacity) [MWh]
+  OptTRealFieldSched vcost {};   ///< Storage usage cost (penalty for SoC) [$/MWh]
+  OptReal eini {};               ///< Initial state of charge [MWh]
+  OptReal efin {};               ///< Terminal state of charge (end condition) [MWh]
 
-  OptTRealFieldSched
-      annual_loss {};  ///< Annual energy loss rate (fraction per year)
-
-  OptTRealFieldSched emin {};  ///< Minimum energy storage level (energy units)
-  OptTRealFieldSched emax {};  ///< Maximum energy storage level (energy units)
-  OptTRealFieldSched vcost {};  ///< Storage usage cost (per unit energy stored)
-  OptReal eini {};  ///< Initial state of charge (initial condition)
-  OptReal efin {};  ///< Final state of charge (terminal condition)
-
-  OptTRealFieldSched capacity {};  ///< Installed capacity (energy units)
-  OptTRealFieldSched expcap {};  ///< Expansion capacity (potential additions)
-  OptTRealFieldSched expmod {};  ///< Expansion module size (minimum increment)
-  OptTRealFieldSched capmax {};  ///< Maximum capacity limit (total upper bound)
-  OptTRealFieldSched
-      annual_capcost {};  ///< Annual capacity cost (per unit per year)
-  OptTRealFieldSched
-      annual_derating {};  ///< Annual derating factor (degradation rate)
+  OptTRealFieldSched capacity {};       ///< Installed energy capacity [MWh]
+  OptTRealFieldSched expcap {};         ///< Energy capacity per expansion module [MWh]
+  OptTRealFieldSched expmod {};         ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched capmax {};         ///< Absolute maximum energy capacity [MWh]
+  OptTRealFieldSched annual_capcost {}; ///< Annualized investment cost [$/MWh-year]
+  OptTRealFieldSched annual_derating {};///< Annual capacity derating factor [p.u./year]
 };
 
 }  // namespace gtopt
