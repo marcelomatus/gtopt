@@ -1,0 +1,70 @@
+```mermaid
+---
+title: gtopt Planning Data Model
+---
+classDiagram
+    direction TB
+
+    class Planning {
+        +string name
+        +Options options
+    }
+    class Simulation {
+        +Scenario[] scenario_array
+        +Stage[]    stage_array
+        +Phase[]    phase_array
+        +Block[]    block_array
+    }
+    class Scenario {
+        +Uid  uid
+        +Name name
+        +Real probability_factor [p.u.]
+        +Bool active
+    }
+    class Phase {
+        +Uid  uid
+        +Name name
+        +Size first_stage
+        +Size count_stage
+    }
+    class Stage {
+        +Uid  uid
+        +Name name
+        +Size first_block
+        +Size count_block
+        +Real discount_factor [p.u.]
+        +Bool active
+    }
+    class Block {
+        +Uid  uid
+        +Name name
+        +Real duration [h]
+    }
+    class Scene {
+        +Scenario scenario
+        +Phase    phase
+        <<internal>>
+    }
+    class System {
+        +Bus[]       bus_array
+        +Generator[] generator_array
+        +Demand[]    demand_array
+        +Line[]      line_array
+        +Battery[]   battery_array
+        +Converter[] converter_array
+        +Junction[]  junction_array
+        +Reservoir[] reservoir_array
+        +Turbine[]   turbine_array
+    }
+
+    Planning  *--  Simulation : contains
+    Planning  *--  System     : contains
+    Simulation *-- Scenario   : has many
+    Simulation *-- Stage      : has many
+    Simulation *-- Phase      : has many (optional)
+    Simulation *-- Block      : has many
+    Phase      o-- Stage      : groups
+    Stage      o-- Block      : references by first_block+count_block
+    Scene      --> Scenario   : cross-product
+    Scene      --> Phase      : cross-product
+```
