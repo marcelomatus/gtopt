@@ -34,14 +34,18 @@ gtopt-diagram --help
 ## Quick Start
 
 ```bash
-# Electrical topology — IEEE 9-bus test case (SVG, default)
-gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+# Auto mode (DEFAULT) — the tool picks the right strategy for the case size
+gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg        # small: all individual
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # large: type+200kV
 
 # Interactive HTML for the battery 4-bus case
 gtopt-diagram cases/bat_4b/bat_4b.json --format html -o bat4b.html
 
+# Network topology only — no generators (clean bus/line view)
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+
 # Hydro cascade only
-gtopt-diagram cases/bat_4b/bat_4b.json --subsystem hydro -o hydro.svg
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --subsystem hydro -o hydro.svg
 
 # Planning time structure
 gtopt-diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
@@ -86,7 +90,7 @@ gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
 
 ## Diagram Samples
 
-### IEEE 9-bus electrical network
+### IEEE 9-bus electrical network (auto mode → individual elements)
 
 ![IEEE 9-bus electrical](docs/diagrams/ieee9b_electrical.svg)
 
@@ -103,13 +107,58 @@ gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
 ## Reduction Options for Large Cases
 
 Real-world cases can have hundreds of buses and thousands of generators.
-The following options make diagrams manageable.
+The tool uses **`auto` mode by default** to automatically apply the right level
+of reduction.
+
+### Auto mode (`--aggregate auto`, the default)
+
+The default mode selects a strategy based on the **total element count** of the
+case (generators + buses + demands + lines + hydro elements + …):
+
+| Total elements | Strategy applied |
+|----------------|-----------------|
+| **< 100** | `none` — show every element individually |
+| **100 – 999** | `bus` — one summary node per bus |
+| **≥ 1000** | `type` + voltage threshold 200 kV — aggregate by generator type and fold LV buses |
+
+The status line printed to stderr always shows what was chosen:
+
+```
+Diagram: 15 nodes, 15 edges                          # <100: none (ieee9b)
+Diagram: 732 nodes, 903 edges  [aggregate=type, voltage≥200 kV, auto(2794 elements)]
+```
+
+To override auto mode, use one of the explicit values:
+
+```bash
+# Force individual elements even for a large case
+gtopt-diagram big_case.json --aggregate none -o big_full.svg
+
+# Force per-bus summary
+gtopt-diagram big_case.json --aggregate bus -o big_bus.svg
+```
+
+### Topology-only view (`--no-generators`)
+
+Sometimes you want to inspect the **network structure** (buses, lines, demands,
+hydro cascade) without the clutter of generator nodes.  Use `--no-generators`:
+
+```bash
+# Network structure only — no generators
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+    --no-generators -o topo.svg
+
+# Combine with voltage threshold for the HV backbone
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+    --no-generators --voltage-threshold 220 -o topo_hv220.svg
+```
 
 ### Generator aggregation (`--aggregate`)
 
 | Mode | Description |
 |------|-------------|
-| `none` | Show every generator individually (default; best for small cases ≤ 30 buses) |
+| `auto` | Smart automatic selection (default) |
+| `none` | Show every generator individually (best for small cases ≤ ~50 nodes) |
 | `bus` | One summary node per bus: `"BusA generators\n12 units · 1 440 MW"` |
 | `type` | One node per *(bus, type)* pair: `"☀️ Solar @ BusA\n3 units · 90 MW"` |
 | `global` | One node per generator type for the whole system |
@@ -138,6 +187,9 @@ Buses whose `voltage` field is **strictly less** than the threshold [kV] are
 *lumped into* their nearest high-voltage neighbour via BFS through the line
 network.  Lines between lumped buses are hidden; parallel lines that collapse to
 the same HV bus pair are de-duplicated.
+
+> **Auto mode applies this automatically** with threshold = 200 kV when the
+> case has ≥ 1000 elements.
 
 ```bash
 # Keep only buses ≥ 220 kV; fold everything below into the HV network
@@ -182,7 +234,7 @@ Within each bus (or bus+type group), keep only the top-N generators by
 gtopt-diagram case.json --aggregate bus --top-gens 5 -o case_top5.svg
 ```
 
-### Auto-upgrade (`--max-nodes N`)
+### Hard node cap (`--max-nodes N`)
 
 If the estimated node count exceeds N, the aggregation mode is automatically
 upgraded: `none → bus → type → global`.
@@ -226,33 +278,52 @@ directory using `plp2gtopt`.  It contains:
 | Waterways | 113 |
 | Stages | 24 |
 
+With 2 794 total elements the auto mode selects `type` + voltage threshold
+200 kV automatically — no flags needed:
+
+```bash
+# Auto mode picks type + 200 kV (2794 elements ≥ 1000)
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
+```
+
 ### Recommended workflows
 
 ```bash
-# 1. Global summary — best overview, very fast
+# 0. Auto mode (default — no options needed)
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
+
+# 1. Network topology only — no generators
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+    --no-generators -o case2y_topo.svg
+
+# 2. HV backbone only (≥ 220 kV), no generators
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+    --no-generators --voltage-threshold 220 -o case2y_hv_topo.svg
+
+# 3. Global summary — best overview, very fast
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --aggregate global --subsystem electrical \
     --compact --format svg -o case2y_global.svg
 
-# 2. High-voltage network (≥ 220 kV) with type aggregation
+# 4. High-voltage network (≥ 220 kV) with type aggregation
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --aggregate type --voltage-threshold 220 \
     --compact --format svg -o case2y_hv220.svg
 
-# 3. Hydro cascade
+# 5. Hydro cascade
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --subsystem hydro --format svg -o case2y_hydro.svg
 
-# 4. Interactive HTML — explore all 236 buses with physics simulation
+# 6. Interactive HTML — explore all 236 buses with physics simulation
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --aggregate type --voltage-threshold 100 --compact \
     --format html -o case2y_interactive.html
 
-# 5. Planning structure (24 stages, 1 scenario)
+# 7. Planning structure (24 stages, 1 scenario)
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --diagram-type planning -o case2y_planning.svg
 
-# 6. Focus on a local area (2 hops from a specific bus)
+# 8. Focus on a local area (2 hops from a specific bus)
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --focus-bus "AltaRapel" --focus-hops 3 --aggregate type \
     --format html -o case2y_focus.html
@@ -296,7 +367,7 @@ usage: gtopt-diagram [-h] [--diagram-type {topology,planning}]
                      [--output OUTPUT] [--subsystem {full,electrical,hydro}]
                      [--layout {dot,neato,fdp,sfdp,circo,twopi}]
                      [--direction {LR,TD,BT,RL}] [--clusters]
-                     [--aggregate MODE] [--top-gens N]
+                     [--aggregate MODE] [--no-generators] [--top-gens N]
                      [--filter-type TYPE [TYPE ...]]
                      [--focus-bus BUS [BUS ...]] [--focus-hops N]
                      [--max-nodes N] [--voltage-threshold KV]
@@ -321,12 +392,14 @@ Mermaid:
   --direction, -d        LR (default) | TD | BT | RL
 
 Reduction:
-  --aggregate, -a        none (default) | bus | type | global
+  --aggregate, -a        auto (default) | none | bus | type | global
+                         auto: <100 → none, 100-999 → bus, ≥1000 → type+200kV
+  --no-generators        Omit all generator nodes (topology-only view)
   --top-gens, -g N       Top-N generators per bus by pmax (0=all)
   --filter-type TYPE...  Show only: hydro solar wind thermal battery
   --focus-bus BUS...     Show only N-hop neighbourhood of these buses
   --focus-hops N         Hops for --focus-bus (default: 2)
-  --max-nodes N          Auto-upgrade aggregation to stay ≤ N nodes
+  --max-nodes N          Hard cap: escalate aggregation to stay ≤ N nodes
   --voltage-threshold KV Lump buses below KV into nearest HV neighbour
   --hide-isolated        Remove unconnected nodes
   --compact              Omit pmax/gcost/reactance labels
