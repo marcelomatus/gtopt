@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion and utility scripts (compare_pandapower, cvs2parquet, igtopt, plp2gtopt, pp2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -28,10 +28,11 @@ dependencies = [
 
 [project.scripts]
 compare_pandapower = "compare_pandapower.main:main"
-cvs2parquet = "cvs2parquet.cvs2parquet:main"
-igtopt      = "igtopt.igtopt:main"
-plp2gtopt   = "plp2gtopt.main:main"
-pp2gtopt    = "pp2gtopt.main:main"
+cvs2parquet        = "cvs2parquet.cvs2parquet:main"
+gtopt-diagram      = "gtopt_diagram:main"
+igtopt             = "igtopt.igtopt:main"
+plp2gtopt          = "plp2gtopt.main:main"
+pp2gtopt           = "pp2gtopt.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -43,10 +44,19 @@ dev = [
     "pytest-xdist>=3.0",
     "ruff>=0.15",
 ]
+diagram = [
+    "graphviz>=0.20",
+    "pyvis>=0.3",
+    "cairosvg>=2.7",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
+
+[tool.setuptools]
+py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
+
 
 # ---------------------------------------------------------------------------
 # Tool configuration (mirrors root pyproject.toml, scoped to scripts/)
@@ -68,7 +78,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
+source = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -85,7 +95,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt"]
+known_first_party = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt"]
 
 [tool.ruff]
 line-length = 88

@@ -226,7 +226,7 @@
 <!-- gen_1 -->
 <g id="node10" class="node">
 <title>gen_1</title>
-<g id="a_node10"><a xlink:title="Generator uid=1 pmax=250 gcost=20">
+<g id="a_node10"><a xlink:title="Generator uid=1 type=thermal pmax=250 gcost=20">
 <polygon fill="#fef9e7" stroke="transparent" points="408.57,-4 408.57,-38 511.57,-38 511.57,-4 408.57,-4"/>
 <polygon fill="none" stroke="#e67e22" points="409.07,-4 409.07,-38 512.07,-38 512.07,-4 409.07,-4"/>
 <text text-anchor="start" x="454.57" y="-24" font-family="Arial" font-weight="bold" font-size="10.00">g1</text>
@@ -243,7 +243,7 @@
 <!-- gen_2 -->
 <g id="node11" class="node">
 <title>gen_2</title>
-<g id="a_node11"><a xlink:title="Generator uid=2 pmax=300 gcost=35">
+<g id="a_node11"><a xlink:title="Generator uid=2 type=thermal pmax=300 gcost=35">
 <polygon fill="#fef9e7" stroke="transparent" points="858.72,-98.75 858.72,-132.75 961.72,-132.75 961.72,-98.75 858.72,-98.75"/>
 <polygon fill="none" stroke="#e67e22" points="859.22,-98.75 859.22,-132.75 962.22,-132.75 962.22,-98.75 859.22,-98.75"/>
 <text text-anchor="start" x="904.72" y="-118.75" font-family="Arial" font-weight="bold" font-size="10.00">g2</text>
@@ -260,7 +260,7 @@
 <!-- gen_3 -->
 <g id="node12" class="node">
 <title>gen_3</title>
-<g id="a_node12"><a xlink:title="Generator uid=3 pmax=270 gcost=0">
+<g id="a_node12"><a xlink:title="Generator uid=3 type=thermal pmax=270 gcost=0">
 <polygon fill="#fef9e7" stroke="transparent" points="4,-313.77 4,-347.77 102,-347.77 102,-313.77 4,-313.77"/>
 <polygon fill="none" stroke="#e67e22" points="4,-313.77 4,-347.77 102,-347.77 102,-313.77 4,-313.77"/>
 <text text-anchor="start" x="47" y="-333.77" font-family="Arial" font-weight="bold" font-size="10.00">g3</text>

@@ -1,6 +1,6 @@
 {
     "options": {
-        "input_directory": "/tmp/gtopt_case_2y",
+        "input_directory": "/tmp/plp2y_out",
         "input_format": "parquet",
         "output_directory": "results",
         "output_format": "parquet",

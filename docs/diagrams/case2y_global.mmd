@@ -1,0 +1,1258 @@
+```mermaid
+---
+title: gtopt_case_2y
+---
+flowchart LR
+
+    bus_1["🔌 AltoNorte110<br/>110.0 kV"]
+    bus_2["🔌 Andes220<br/>220.0 kV"]
+    bus_3["🔌 Andes345<br/>345.0 kV"]
+    bus_4["🔌 Angamos220<br/>220.0 kV"]
+    bus_5["🔌 Antofagasta110<br/>110.0 kV"]
+    bus_6["🔌 Arica066<br/>66.0 kV"]
+    bus_7["🔌 Atacama220_BP1<br/>220.0 kV"]
+    bus_8["🔌 Barriles220<br/>220.0 kV"]
+    bus_9["🔌 Capricornio110<br/>110.0 kV"]
+    bus_10["🔌 Capricornio220<br/>220.0 kV"]
+    bus_11["🔌 Cardones110<br/>110.0 kV"]
+    bus_12["🔌 Cardones220<br/>220.0 kV"]
+    bus_13["🔌 Chacaya220<br/>220.0 kV"]
+    bus_14["🔌 Chuquicamata100<br/>100.0 kV"]
+    bus_15["🔌 Chuquicamata220<br/>220.0 kV"]
+    bus_16["🔌 Cochrane220<br/>220.0 kV"]
+    bus_17["🔌 Collahuasi220<br/>220.0 kV"]
+    bus_18["🔌 Conchi220<br/>220.0 kV"]
+    bus_19["🔌 Condores220<br/>220.0 kV"]
+    bus_20["🔌 CPinto220<br/>220.0 kV"]
+    bus_21["🔌 Crucero220<br/>220.0 kV"]
+    bus_22["🔌 Parinas500<br/>500.0 kV"]
+    bus_23["🔌 Cumbre500<br/>500.0 kV"]
+    bus_24["🔌 DAlmagro110<br/>110.0 kV"]
+    bus_25["🔌 DAlmagro220<br/>220.0 kV"]
+    bus_26["🔌 DArica066<br/>66.0 kV"]
+    bus_27["🔌 Desalant110<br/>110.0 kV"]
+    bus_28["🔌 Domeyko220<br/>220.0 kV"]
+    bus_29["🔌 DonaCarmen220<br/>220.0 kV"]
+    bus_30["🔌 DonGoyo220<br/>220.0 kV"]
+    bus_31["🔌 DonHector220<br/>220.0 kV"]
+    bus_32["🔌 ElCobre220<br/>220.0 kV"]
+    bus_33["🔌 ElLoa220<br/>220.0 kV"]
+    bus_34["🔌 ElNegro110<br/>110.0 kV"]
+    bus_35["🔌 ElPenon110<br/>110.0 kV"]
+    bus_36["🔌 ElTesoro220<br/>220.0 kV"]
+    bus_37["🔌 Esmeralda110<br/>110.0 kV"]
+    bus_38["🔌 Esmeralda220<br/>220.0 kV"]
+    bus_39["🔌 Esperanza220<br/>220.0 kV"]
+    bus_40["🔌 Guacolda220<br/>220.0 kV"]
+    bus_41["🔌 Huasco110<br/>110.0 kV"]
+    bus_42["🔌 Kapatur220_BP1<br/>220.0 kV"]
+    bus_43["🔌 Laberinto220<br/>220.0 kV"]
+    bus_44["🔌 LaCebada220<br/>220.0 kV"]
+    bus_45["🔌 LaCruz220<br/>220.0 kV"]
+    bus_46["🔌 Lagunas220<br/>220.0 kV"]
+    bus_47["🔌 LaNegra110<br/>110.0 kV"]
+    bus_48["🔌 LosChangos220<br/>220.0 kV"]
+    bus_49["🔌 LosChangos500<br/>500.0 kV"]
+    bus_50["🔌 LPalmas220<br/>220.0 kV"]
+    bus_51["🔌 LVilos220<br/>220.0 kV"]
+    bus_52["🔌 Maitencillo110<br/>110.0 kV"]
+    bus_53["🔌 Maitencillo220<br/>220.0 kV"]
+    bus_54["🔌 Mantos220<br/>220.0 kV"]
+    bus_55["🔌 MariaElena220<br/>220.0 kV"]
+    bus_56["🔌 Mejillones110<br/>110.0 kV"]
+    bus_57["🔌 Mejillones220<br/>220.0 kV"]
+    bus_58["🔌 Miraje220<br/>220.0 kV"]
+    bus_59["🔌 MRedondo220<br/>220.0 kV"]
+    bus_60["🔌 Norgener220<br/>220.0 kV"]
+    bus_61["🔌 NvaCardones500<br/>500.0 kV"]
+    bus_62["🔌 NvaMaitencillo500<br/>500.0 kV"]
+    bus_63["🔌 NvaPAzucar500<br/>500.0 kV"]
+    bus_64["🔌 NvaZaldivar220<br/>220.0 kV"]
+    bus_65["🔌 Oeste220<br/>220.0 kV"]
+    bus_66["🔌 Ohiggins220_BP1<br/>220.0 kV"]
+    bus_67["🔌 Palestina220<br/>220.0 kV"]
+    bus_68["🔌 PAlmonte110<br/>110.0 kV"]
+    bus_69["🔌 PAlmonte220<br/>220.0 kV"]
+    bus_70["🔌 Paposo220<br/>220.0 kV"]
+    bus_71["🔌 PAzucar110<br/>110.0 kV"]
+    bus_72["🔌 PAzucar220<br/>220.0 kV"]
+    bus_73["🔌 PColorada220<br/>220.0 kV"]
+    bus_74["🔌 PuntaSierra220<br/>220.0 kV"]
+    bus_75["🔌 S-AA100<br/>100.0 kV"]
+    bus_76["🔌 Salar110<br/>110.0 kV"]
+    bus_77["🔌 Salar220<br/>220.0 kV"]
+    bus_78["🔌 Salta345<br/>345.0 kV"]
+    bus_79["🔌 Talinay220<br/>220.0 kV"]
+    bus_80["🔌 Tamaya110<br/>110.0 kV"]
+    bus_81["🔌 Tarapaca220<br/>220.0 kV"]
+    bus_82["🔌 TO_Enlace220<br/>220.0 kV"]
+    bus_83["🔌 Tocopilla110<br/>110.0 kV"]
+    bus_84["🔌 Tocopilla220_BP1<br/>220.0 kV"]
+    bus_85["🔌 AJahuel110<br/>110.0 kV"]
+    bus_86["🔌 AJahuel154<br/>154.0 kV"]
+    bus_87["🔌 AJahuel220<br/>220.0 kV"]
+    bus_88["🔌 AJahuel500<br/>500.0 kV"]
+    bus_89["🔌 Alfalfal220<br/>220.0 kV"]
+    bus_90["🔌 Almendros110<br/>110.0 kV"]
+    bus_91["🔌 Almendros220<br/>220.0 kV"]
+    bus_92["🔌 AMelipilla220<br/>220.0 kV"]
+    bus_93["🔌 Ancoa220<br/>220.0 kV"]
+    bus_94["🔌 Ancoa500<br/>500.0 kV"]
+    bus_95["🔌 LosNotros220<br/>220.0 kV"]
+    bus_96["🔌 Antuco220<br/>220.0 kV"]
+    bus_97["🔌 Apoquindo110<br/>110.0 kV"]
+    bus_98["🔌 ASanta110<br/>110.0 kV"]
+    bus_99["🔌 ASanta220<br/>220.0 kV"]
+    bus_100["🔌 Buin110<br/>110.0 kV"]
+    bus_101["🔌 Candelaria220<br/>220.0 kV"]
+    bus_102["🔌 Canutillar220<br/>220.0 kV"]
+    bus_103["🔌 Cautin220<br/>220.0 kV"]
+    bus_104["🔌 Charrua066<br/>66.0 kV"]
+    bus_105["🔌 Charrua154<br/>154.0 kV"]
+    bus_106["🔌 Charrua220<br/>220.0 kV"]
+    bus_107["🔌 Charrua500<br/>500.0 kV"]
+    bus_108["🔌 Chena110<br/>110.0 kV"]
+    bus_109["🔌 Chena220<br/>220.0 kV"]
+    bus_110["🔌 Chillan154<br/>154.0 kV"]
+    bus_111["🔌 Chiloe110<br/>110.0 kV"]
+    bus_112["🔌 Cholguan066<br/>66.0 kV"]
+    bus_113["🔌 Cholguan220<br/>220.0 kV"]
+    bus_114["🔌 Chonchi110<br/>110.0 kV"]
+    bus_115["🔌 Cipreses154<br/>154.0 kV"]
+    bus_116["🔌 Ciruelos220<br/>220.0 kV"]
+    bus_117["🔌 CNavia110<br/>110.0 kV"]
+    bus_118["🔌 CNavia220<br/>220.0 kV"]
+    bus_119["🔌 CNavia220_Desf<br/>220.0 kV"]
+    bus_120["🔌 Colbun220<br/>220.0 kV"]
+    bus_121["🔌 Concepcion066<br/>66.0 kV"]
+    bus_122["🔌 Concepcion154<br/>154.0 kV"]
+    bus_123["🔌 Constitucion066<br/>66.0 kV"]
+    bus_124["🔌 Coronel066<br/>66.0 kV"]
+    bus_125["🔌 Coronel154<br/>154.0 kV"]
+    bus_126["🔌 Degan110<br/>110.0 kV"]
+    bus_127["🔌 Duqueco220<br/>220.0 kV"]
+    bus_128["🔌 ElSalto110<br/>110.0 kV"]
+    bus_129["🔌 EntreRios220<br/>220.0 kV"]
+    bus_130["🔌 EntreRios500<br/>500.0 kV"]
+    bus_131["🔌 Florida110<br/>110.0 kV"]
+    bus_132["🔌 Fopaco154<br/>154.0 kV"]
+    bus_133["🔌 Horcones066<br/>66.0 kV"]
+    bus_134["🔌 Hualpen154<br/>154.0 kV"]
+    bus_135["🔌 Hualpen220<br/>220.0 kV"]
+    bus_136["🔌 Itahue154<br/>154.0 kV"]
+    bus_137["🔌 Lagunillas154<br/>154.0 kV"]
+    bus_138["🔌 Lagunillas220<br/>220.0 kV"]
+    bus_139["🔌 Lautaro066<br/>66.0 kV"]
+    bus_140["🔌 Linares154<br/>154.0 kV"]
+    bus_141["🔌 LoAguirre220<br/>220.0 kV"]
+    bus_142["🔌 LoAguirre500<br/>500.0 kV"]
+    bus_143["🔌 LoEspejo110<br/>110.0 kV"]
+    bus_144["🔌 LVegas110<br/>110.0 kV"]
+    bus_145["🔌 LVegas110_exp<br/>110.0 kV"]
+    bus_146["🔌 Malloa154<br/>154.0 kV"]
+    bus_147["🔌 Maule154<br/>154.0 kV"]
+    bus_148["🔌 Miraflores110<br/>110.0 kV"]
+    bus_149["🔌 Molinos110<br/>110.0 kV"]
+    bus_150["🔌 Mulchen220<br/>220.0 kV"]
+    bus_151["🔌 Nogales220<br/>220.0 kV"]
+    bus_152["🔌 NvaCauquenes220<br/>220.0 kV"]
+    bus_153["🔌 NvaNirivilo220<br/>220.0 kV"]
+    bus_154["🔌 Ochagavia110<br/>110.0 kV"]
+    bus_155["🔌 Pachacama110<br/>110.0 kV"]
+    bus_156["🔌 Paine154<br/>154.0 kV"]
+    bus_157["🔌 PAltoCmpc110<br/>110.0 kV"]
+    bus_158["🔌 Pangue220<br/>220.0 kV"]
+    bus_159["🔌 Parral154<br/>154.0 kV"]
+    bus_160["🔌 PCortes154<br/>154.0 kV"]
+    bus_161["🔌 Pehuenche220<br/>220.0 kV"]
+    bus_162["🔌 Petroquim154<br/>154.0 kV"]
+    bus_163["🔌 Pichirrahue220<br/>220.0 kV"]
+    bus_164["🔌 Pichirropulli220<br/>220.0 kV"]
+    bus_165["🔌 Pid-Pid110<br/>110.0 kV"]
+    bus_166["🔌 PMontt220<br/>220.0 kV"]
+    bus_167["🔌 PNegro220<br/>220.0 kV"]
+    bus_168["🔌 Polpaico220<br/>220.0 kV"]
+    bus_169["🔌 Polpaico500<br/>500.0 kV"]
+    bus_170["🔌 PPeuco110<br/>110.0 kV"]
+    bus_171["🔌 Quillota110<br/>110.0 kV"]
+    bus_172["🔌 Quillota220<br/>220.0 kV"]
+    bus_173["🔌 Quintero220<br/>220.0 kV"]
+    bus_174["🔌 Rahue220<br/>220.0 kV"]
+    bus_175["🔌 Ralco220<br/>220.0 kV"]
+    bus_176["🔌 Rancagua154<br/>154.0 kV"]
+    bus_177["🔌 Rapel220<br/>220.0 kV"]
+    bus_178["🔌 Renca110<br/>110.0 kV"]
+    bus_179["🔌 RioTolten220<br/>220.0 kV"]
+    bus_180["🔌 SanLuis220<br/>220.0 kV"]
+    bus_181["🔌 SantaElvira066<br/>66.0 kV"]
+    bus_182["🔌 SantaMaria220<br/>220.0 kV"]
+    bus_183["🔌 SantaMarta220<br/>220.0 kV"]
+    bus_184["🔌 Sauzal110_BP1<br/>110.0 kV"]
+    bus_185["🔌 Sauzal110_BP2<br/>110.0 kV"]
+    bus_186["🔌 Sauzal154<br/>154.0 kV"]
+    bus_187["🔌 SCristobal110<br/>110.0 kV"]
+    bus_188["🔌 SFcoMost066<br/>66.0 kV"]
+    bus_189["🔌 SJavier066<br/>66.0 kV"]
+    bus_190["🔌 StaRosa110<br/>110.0 kV"]
+    bus_191["🔌 SVicente154<br/>154.0 kV"]
+    bus_192["🔌 Talca066<br/>66.0 kV"]
+    bus_193["🔌 Temuco066<br/>66.0 kV"]
+    bus_194["🔌 Temuco220<br/>220.0 kV"]
+    bus_195["🔌 Teno154<br/>154.0 kV"]
+    bus_196["🔌 Tilcoco154<br/>154.0 kV"]
+    bus_197["🔌 Tineo220<br/>220.0 kV"]
+    bus_198["🔌 Tinguiririca220<br/>220.0 kV"]
+    bus_199["🔌 Tinguiririca154<br/>154.0 kV"]
+    bus_200["🔌 Torquemada110<br/>110.0 kV"]
+    bus_201["🔌 Trupan220<br/>220.0 kV"]
+    bus_202["🔌 Tuniche154_I<br/>154.0 kV"]
+    bus_203["🔌 Tuniche154_II<br/>154.0 kV"]
+    bus_204["🔌 Valdivia220<br/>220.0 kV"]
+    bus_205["🔌 Ventanas110<br/>110.0 kV"]
+    bus_206["🔌 Ventanas220<br/>220.0 kV"]
+    bus_207["🔌 Guindo066<br/>66.0 kV"]
+    bus_208["🔌 Guindo220<br/>220.0 kV"]
+    bus_209["🔌 Mauro220<br/>220.0 kV"]
+    bus_210["🔌 Chiloe220<br/>220.0 kV"]
+    bus_211["🔌 PAzucar220_aux<br/>220.0 kV"]
+    bus_212["🔌 Nogales220_aux<br/>220.0 kV"]
+    bus_213["🔌 Ancoa500auxS<br/>1.0 kV"]
+    bus_214["🔌 Pichirropulli220AuxS<br/>1.0 kV"]
+    bus_215["🔌 Pichirropulli220Aux<br/>1.0 kV"]
+    bus_216["🔌 NvaChuquicamata220<br/>220.0 kV"]
+    bus_217["🔌 Calama220<br/>220.0 kV"]
+    bus_218["🔌 Illapa220<br/>220.0 kV"]
+    bus_219["🔌 Cumbre220<br/>220.0 kV"]
+    bus_220["🔌 AnaMaria220<br/>220.0 kV"]
+    bus_221["🔌 Encuentro220<br/>220.0 kV"]
+    bus_222["🔌 Kimal220<br/>220.0 kV"]
+    bus_223["🔌 Kimal500<br/>500.0 kV"]
+    bus_224["🔌 Frontera220<br/>220.0 kV"]
+    bus_225["🔌 NuevaCentinela220<br/>220.0 kV"]
+    bus_226["🔌 Likanantai220<br/>220.0 kV"]
+    bus_227["🔌 OGP1220<br/>1220.0 kV"]
+    bus_228["🔌 Sulfuros220<br/>220.0 kV"]
+    bus_229["🔌 Escondida220<br/>220.0 kV"]
+    bus_230["🔌 Parinas220<br/>220.0 kV"]
+    bus_231["🔌 Puri220<br/>220.0 kV"]
+    bus_232["🔌 Farellon220<br/>220.0 kV"]
+    bus_233["🔌 Itahue220<br/>220.0 kV"]
+    bus_234["🔌 SantaIsabel220<br/>220.0 kV"]
+    bus_235["🔌 Maule220<br/>220.0 kV"]
+    bus_236["🔌 FrutillarNorte220<br/>220.0 kV"]
+    agg_global_hydro[/"💧 💧 Hydro<br/>31 units · 25 MW total"\]
+    agg_global_thermal[/"⚡ ⚡ Thermal<br/>1640 units · 1835 MW total"\]
+    agg_global_solar[/"☀️ ☀️ Solar<br/>42 units · 2 MW total"\]
+    agg_global_battery[("🔋 🔋 BESS<br/>27 units · 1778 MW total")]
+    dem_124[\"📊 Coronel066"/]
+    dem_19[\"📊 Condores220"/]
+    dem_85[\"📊 AJahuel110"/]
+    dem_97[\"📊 Apoquindo110"/]
+    dem_28[\"📊 Domeyko220"/]
+    dem_6[\"📊 Arica066"/]
+    dem_174[\"📊 Rahue220"/]
+    dem_176[\"📊 Rancagua154"/]
+    dem_177[\"📊 Rapel220"/]
+    dem_98[\"📊 ASanta110"/]
+    dem_52[\"📊 Maitencillo110"/]
+    dem_178[\"📊 Renca110"/]
+    dem_166[\"📊 PMontt220"/]
+    dem_1[\"📊 AltoNorte110"/]
+    dem_93[\"📊 Ancoa220"/]
+    dem_111[\"📊 Chiloe110"/]
+    dem_35[\"📊 ElPenon110"/]
+    dem_121[\"📊 Concepcion066"/]
+    dem_90[\"📊 Almendros110"/]
+    dem_4[\"📊 Angamos220"/]
+    dem_105[\"📊 Charrua154"/]
+    dem_5[\"📊 Antofagasta110"/]
+    dem_82[\"📊 TO_Enlace220"/]
+    dem_70[\"📊 Paposo220"/]
+    dem_7[\"📊 Atacama220_BP1"/]
+    dem_8[\"📊 Barriles220"/]
+    dem_170[\"📊 PPeuco110"/]
+    dem_108[\"📊 Chena110"/]
+    dem_92[\"📊 AMelipilla220"/]
+    dem_66[\"📊 Ohiggins220_BP1"/]
+    dem_200[\"📊 Torquemada110"/]
+    dem_104[\"📊 Charrua066"/]
+    dem_100[\"📊 Buin110"/]
+    dem_191[\"📊 SVicente154"/]
+    dem_20[\"📊 CPinto220"/]
+    dem_51[\"📊 LVilos220"/]
+    dem_160[\"📊 PCortes154"/]
+    dem_217[\"📊 Calama220"/]
+    dem_149[\"📊 Molinos110"/]
+    dem_11[\"📊 Cardones110"/]
+    dem_155[\"📊 Pachacama110"/]
+    dem_144[\"📊 LVegas110"/]
+    dem_133[\"📊 Horcones066"/]
+    dem_12[\"📊 Cardones220"/]
+    dem_171[\"📊 Quillota110"/]
+    dem_165[\"📊 Pid-Pid110"/]
+    dem_159[\"📊 Parral154"/]
+    dem_26[\"📊 DArica066"/]
+    dem_68[\"📊 PAlmonte110"/]
+    dem_37[\"📊 Esmeralda110"/]
+    dem_187[\"📊 SCristobal110"/]
+    dem_140[\"📊 Linares154"/]
+    dem_13[\"📊 Chacaya220"/]
+    dem_168[\"📊 Polpaico220"/]
+    dem_128[\"📊 ElSalto110"/]
+    dem_122[\"📊 Concepcion154"/]
+    dem_110[\"📊 Chillan154"/]
+    dem_199[\"📊 Tinguiririca154"/]
+    dem_232[\"📊 Farellon220"/]
+    dem_193[\"📊 Temuco066"/]
+    dem_113[\"📊 Cholguan220"/]
+    dem_112[\"📊 Cholguan066"/]
+    dem_204[\"📊 Valdivia220"/]
+    dem_14[\"📊 Chuquicamata100"/]
+    dem_15[\"📊 Chuquicamata220"/]
+    dem_115[\"📊 Cipreses154"/]
+    dem_116[\"📊 Ciruelos220"/]
+    dem_154[\"📊 Ochagavia110"/]
+    dem_120[\"📊 Colbun220"/]
+    dem_17[\"📊 Collahuasi220"/]
+    dem_123[\"📊 Constitucion066"/]
+    dem_131[\"📊 Florida110"/]
+    dem_179[\"📊 RioTolten220"/]
+    dem_127[\"📊 Duqueco220"/]
+    dem_141[\"📊 LoAguirre220"/]
+    dem_136[\"📊 Itahue154"/]
+    dem_24[\"📊 DAlmagro110"/]
+    dem_126[\"📊 Degan110"/]
+    dem_27[\"📊 Desalant110"/]
+    dem_162[\"📊 Petroquim154"/]
+    dem_56[\"📊 Mejillones110"/]
+    dem_34[\"📊 ElNegro110"/]
+    dem_18[\"📊 Conchi220"/]
+    dem_32[\"📊 ElCobre220"/]
+    dem_146[\"📊 Malloa154"/]
+    dem_221[\"📊 Encuentro220"/]
+    dem_205[\"📊 Ventanas110"/]
+    dem_229[\"📊 Escondida220"/]
+    dem_39[\"📊 Esperanza220"/]
+    dem_203[\"📊 Tuniche154_II"/]
+    dem_132[\"📊 Fopaco154"/]
+    dem_71[\"📊 PAzucar110"/]
+    dem_156[\"📊 Paine154"/]
+    dem_41[\"📊 Huasco110"/]
+    dem_47[\"📊 LaNegra110"/]
+    dem_42[\"📊 Kapatur220_BP1"/]
+    dem_164[\"📊 Pichirropulli220"/]
+    dem_143[\"📊 LoEspejo110"/]
+    dem_190[\"📊 StaRosa110"/]
+    dem_43[\"📊 Laberinto220"/]
+    dem_45[\"📊 LaCruz220"/]
+    dem_46[\"📊 Lagunas220"/]
+    dem_138[\"📊 Lagunillas220"/]
+    dem_106[\"📊 Charrua220"/]
+    dem_189[\"📊 SJavier066"/]
+    dem_139[\"📊 Lautaro066"/]
+    dem_117[\"📊 CNavia110"/]
+    dem_33[\"📊 ElLoa220"/]
+    dem_54[\"📊 Mantos220"/]
+    dem_53[\"📊 Maitencillo220"/]
+    dem_148[\"📊 Miraflores110"/]
+    dem_147[\"📊 Maule154"/]
+    dem_101[\"📊 Candelaria220"/]
+    dem_118[\"📊 CNavia220"/]
+    dem_65[\"📊 Oeste220"/]
+    dem_227[\"📊 OGP1220"/]
+    dem_67[\"📊 Palestina220"/]
+    dem_87[\"📊 AJahuel220"/]
+    dem_158[\"📊 Pangue220"/]
+    dem_210[\"📊 Chiloe220"/]
+    dem_134[\"📊 Hualpen154"/]
+    dem_150[\"📊 Mulchen220"/]
+    dem_192[\"📊 Talca066"/]
+    dem_231[\"📊 Puri220"/]
+    dem_196[\"📊 Tilcoco154"/]
+    dem_209[\"📊 Mauro220"/]
+    dem_173[\"📊 Quintero220"/]
+    dem_21[\"📊 Crucero220"/]
+    dem_188[\"📊 SFcoMost066"/]
+    dem_77[\"📊 Salar220"/]
+    dem_184[\"📊 Sauzal110_BP1"/]
+    dem_228[\"📊 Sulfuros220"/]
+    dem_72[\"📊 PAzucar220"/]
+    dem_73[\"📊 PColorada220"/]
+    dem_81[\"📊 Tarapaca220"/]
+    dem_195[\"📊 Teno154"/]
+    dem_36[\"📊 ElTesoro220"/]
+    dem_84[\"📊 Tocopilla220_BP1"/]
+    dem_1189[\"📊 BAT_ARICA_chrg"/]
+    dem_1193[\"📊 BAT_ALICANTO_chrg"/]
+    dem_1195[\"📊 ANDES_2B_BESS_chrg"/]
+    dem_1197[\"📊 SALVADOR_BESS_chrg"/]
+    dem_1199[\"📊 COYA_BESS_chrg"/]
+    dem_1201[\"📊 URIBE_SOLAR_BESS_chrg"/]
+    dem_1203[\"📊 ANDES_2B_AMP_BESS_chrg"/]
+    dem_1205[\"📊 SAN_MARCOS_BESS_chrg"/]
+    dem_1207[\"📊 SAN_ANDRES_BESS_chrg"/]
+    dem_1209[\"📊 LA_CABANA_BESS_chrg"/]
+    dem_1213[\"📊 ANDES_4_BESS_chrg"/]
+    dem_1215[\"📊 ANDES_2A_BESS_chrg"/]
+    dem_1217[\"📊 DON_HUMBERTO_BESS_chrg"/]
+    dem_1219[\"📊 EL_MANZANO_BESS_chrg"/]
+    dem_1221[\"📊 TAMAYA_BESS_chrg"/]
+    dem_1211[\"📊 CAPRICORNIO_BESS_chrg"/]
+    dem_1223[\"📊 NUEVO_QUILLAGUA_BESS_chrg"/]
+    dem_1187[\"📊 ALFALFAL_BESS_chrg"/]
+    dem_1191[\"📊 DIEGO_ALMAGRO_SUR_BESS_chrg"/]
+    dem_1225[\"📊 PUNTA_SIERRA_BESS_chrg"/]
+    dem_1227[\"📊 MARIA_ELENA_BESS_chrg"/]
+    dem_1229[\"📊 DESIERTO_DE_ATACAMA_BESS_chrg"/]
+    dem_1231[\"📊 GABRIELA_COBRE_BESS_chrg"/]
+    dem_1233[\"📊 SOL_DE_DESIERTO_BESS_chrg"/]
+    dem_1235[\"📊 ANDES_3_BESS_chrg"/]
+    bat_1189[("🔋 BAT_ARICA")]
+    bat_1193[("🔋 BAT_ALICANTO")]
+    bat_1195[("🔋 ANDES_2B_BESS")]
+    bat_1197[("🔋 SALVADOR_BESS")]
+    bat_1199[("🔋 COYA_BESS")]
+    bat_1201[("🔋 URIBE_SOLAR_BESS")]
+    bat_1203[("🔋 ANDES_2B_AMP_BESS")]
+    bat_1205[("🔋 SAN_MARCOS_BESS")]
+    bat_1207[("🔋 SAN_ANDRES_BESS")]
+    bat_1209[("🔋 LA_CABANA_BESS")]
+    bat_1213[("🔋 ANDES_4_BESS")]
+    bat_1215[("🔋 ANDES_2A_BESS")]
+    bat_1217[("🔋 DON_HUMBERTO_BESS")]
+    bat_1219[("🔋 EL_MANZANO_BESS")]
+    bat_1221[("🔋 TAMAYA_BESS")]
+    bat_1211[("🔋 CAPRICORNIO_BESS")]
+    bat_1223[("🔋 NUEVO_QUILLAGUA_BESS")]
+    bat_1187[("🔋 ALFALFAL_BESS")]
+    bat_1191[("🔋 DIEGO_ALMAGRO_SUR_BESS")]
+    bat_1225[("🔋 PUNTA_SIERRA_BESS")]
+    bat_1227[("🔋 MARIA_ELENA_BESS")]
+    bat_1229[("🔋 DESIERTO_DE_ATACAMA_BESS")]
+    bat_1231[("🔋 GABRIELA_COBRE_BESS")]
+    bat_1233[("🔋 SOL_DE_DESIERTO_BESS")]
+    bat_1235[("🔋 ANDES_3_BESS")]
+    conv_1189(["🔄 BAT_ARICA"])
+    conv_1193(["🔄 BAT_ALICANTO"])
+    conv_1195(["🔄 ANDES_2B_BESS"])
+    conv_1197(["🔄 SALVADOR_BESS"])
+    conv_1199(["🔄 COYA_BESS"])
+    conv_1201(["🔄 URIBE_SOLAR_BESS"])
+    conv_1203(["🔄 ANDES_2B_AMP_BESS"])
+    conv_1205(["🔄 SAN_MARCOS_BESS"])
+    conv_1207(["🔄 SAN_ANDRES_BESS"])
+    conv_1209(["🔄 LA_CABANA_BESS"])
+    conv_1213(["🔄 ANDES_4_BESS"])
+    conv_1215(["🔄 ANDES_2A_BESS"])
+    conv_1217(["🔄 DON_HUMBERTO_BESS"])
+    conv_1219(["🔄 EL_MANZANO_BESS"])
+    conv_1221(["🔄 TAMAYA_BESS"])
+    conv_1211(["🔄 CAPRICORNIO_BESS"])
+    conv_1223(["🔄 NUEVO_QUILLAGUA_BESS"])
+    conv_1187(["🔄 ALFALFAL_BESS"])
+    conv_1191(["🔄 DIEGO_ALMAGRO_SUR_BESS"])
+    conv_1225(["🔄 PUNTA_SIERRA_BESS"])
+    conv_1227(["🔄 MARIA_ELENA_BESS"])
+    conv_1229(["🔄 DESIERTO_DE_ATACAMA_BESS"])
+    conv_1231(["🔄 GABRIELA_COBRE_BESS"])
+    conv_1233(["🔄 SOL_DE_DESIERTO_BESS"])
+    conv_1235(["🔄 ANDES_3_BESS"])
+
+    agg_global_hydro --> bus_115
+    agg_global_hydro --> bus_161
+    agg_global_hydro --> bus_120
+    agg_global_hydro --> bus_96
+    agg_global_hydro --> bus_175
+    agg_global_hydro --> bus_158
+    agg_global_hydro --> bus_174
+    agg_global_hydro --> bus_93
+    agg_global_hydro --> bus_140
+    agg_global_hydro --> bus_192
+    agg_global_hydro --> bus_105
+    agg_global_hydro --> bus_106
+    agg_global_hydro --> bus_168
+    agg_global_hydro --> bus_163
+    agg_global_thermal --> bus_177
+    agg_global_thermal --> bus_102
+    agg_global_thermal --> bus_140
+    agg_global_thermal --> bus_106
+    agg_global_thermal --> bus_168
+    agg_global_thermal --> bus_95
+    agg_global_thermal --> bus_167
+    agg_global_thermal --> bus_184
+    agg_global_thermal --> bus_163
+    agg_global_thermal --> bus_35
+    agg_global_thermal --> bus_204
+    agg_global_thermal --> bus_131
+    agg_global_thermal --> bus_174
+    agg_global_thermal --> bus_85
+    agg_global_thermal --> bus_89
+    agg_global_thermal --> bus_185
+    agg_global_thermal --> bus_71
+    agg_global_thermal --> bus_194
+    agg_global_thermal --> bus_147
+    agg_global_thermal --> bus_105
+    agg_global_thermal --> bus_110
+    agg_global_thermal --> bus_161
+    agg_global_thermal --> bus_166
+    agg_global_thermal --> bus_92
+    agg_global_thermal --> bus_100
+    agg_global_thermal --> bus_114
+    agg_global_thermal --> bus_136
+    agg_global_thermal --> bus_87
+    agg_global_thermal --> bus_193
+    agg_global_thermal --> bus_52
+    agg_global_thermal --> bus_93
+    agg_global_thermal --> bus_91
+    agg_global_thermal --> bus_103
+    agg_global_thermal --> bus_195
+    agg_global_thermal --> bus_139
+    agg_global_thermal --> bus_179
+    agg_global_thermal --> bus_6
+    agg_global_thermal --> bus_150
+    agg_global_thermal --> bus_113
+    agg_global_thermal --> bus_199
+    agg_global_thermal --> bus_160
+    agg_global_thermal --> bus_68
+    agg_global_thermal --> bus_19
+    agg_global_thermal --> bus_127
+    agg_global_thermal --> bus_217
+    agg_global_thermal --> bus_221
+    agg_global_thermal --> bus_133
+    agg_global_thermal --> bus_79
+    agg_global_thermal --> bus_30
+    agg_global_thermal --> bus_50
+    agg_global_thermal --> bus_73
+    agg_global_thermal --> bus_59
+    agg_global_thermal --> bus_197
+    agg_global_thermal --> bus_53
+    agg_global_thermal --> bus_104
+    agg_global_thermal --> bus_111
+    agg_global_thermal --> bus_44
+    agg_global_thermal --> bus_230
+    agg_global_thermal --> bus_232
+    agg_global_thermal --> bus_18
+    agg_global_thermal --> bus_236
+    agg_global_thermal --> bus_66
+    agg_global_thermal --> bus_116
+    agg_global_thermal --> bus_22
+    agg_global_thermal --> bus_11
+    agg_global_thermal --> bus_2
+    agg_global_thermal --> bus_43
+    agg_global_thermal --> bus_224
+    agg_global_thermal --> bus_77
+    agg_global_thermal --> bus_24
+    agg_global_thermal --> bus_12
+    agg_global_thermal --> bus_20
+    agg_global_thermal --> bus_70
+    agg_global_thermal --> bus_170
+    agg_global_thermal --> bus_31
+    agg_global_thermal --> bus_29
+    agg_global_thermal --> bus_51
+    agg_global_thermal --> bus_144
+    agg_global_thermal --> bus_117
+    agg_global_thermal --> bus_176
+    agg_global_thermal --> bus_188
+    agg_global_thermal --> bus_159
+    agg_global_thermal --> bus_146
+    agg_global_thermal --> bus_99
+    agg_global_thermal --> bus_192
+    agg_global_thermal --> bus_90
+    agg_global_thermal --> bus_148
+    agg_global_thermal --> bus_178
+    agg_global_thermal --> bus_220
+    agg_global_thermal --> bus_172
+    agg_global_thermal --> bus_219
+    agg_global_thermal --> bus_189
+    agg_global_thermal --> bus_46
+    agg_global_thermal --> bus_156
+    agg_global_thermal --> bus_108
+    agg_global_thermal --> bus_196
+    agg_global_thermal --> bus_28
+    agg_global_thermal --> bus_171
+    agg_global_thermal --> bus_141
+    agg_global_thermal --> bus_58
+    agg_global_thermal --> bus_128
+    agg_global_thermal --> bus_120
+    agg_global_thermal --> bus_222
+    agg_global_thermal --> bus_218
+    agg_global_thermal --> bus_200
+    agg_global_thermal --> bus_54
+    agg_global_thermal --> bus_37
+    agg_global_thermal --> bus_225
+    agg_global_thermal --> bus_183
+    agg_global_thermal --> bus_47
+    agg_global_thermal --> bus_187
+    agg_global_thermal --> bus_21
+    agg_global_thermal --> bus_123
+    agg_global_thermal --> bus_55
+    agg_global_thermal --> bus_81
+    agg_global_thermal --> bus_151
+    agg_global_thermal --> bus_4
+    agg_global_thermal --> bus_173
+    agg_global_thermal --> bus_40
+    agg_global_thermal --> bus_9
+    agg_global_thermal --> bus_80
+    agg_global_thermal --> bus_74
+    agg_global_thermal --> bus_32
+    agg_global_thermal --> bus_112
+    agg_global_thermal --> bus_132
+    agg_global_thermal --> bus_138
+    agg_global_thermal --> bus_181
+    agg_global_thermal --> bus_13
+    agg_global_thermal --> bus_206
+    agg_global_thermal --> bus_16
+    agg_global_thermal --> bus_48
+    agg_global_thermal --> bus_182
+    agg_global_thermal --> bus_7
+    agg_global_thermal --> bus_101
+    agg_global_thermal --> bus_124
+    agg_global_thermal --> bus_180
+    agg_global_thermal --> bus_191
+    agg_global_thermal --> bus_157
+    agg_global_thermal --> bus_145
+    agg_global_thermal --> bus_84
+    agg_global_thermal --> bus_83
+    agg_global_thermal --> bus_42
+    agg_global_thermal --> bus_67
+    agg_global_thermal --> bus_26
+    agg_global_thermal --> bus_186
+    agg_global_thermal --> bus_126
+    agg_global_thermal --> bus_98
+    agg_global_thermal --> bus_134
+    agg_global_thermal --> bus_41
+    agg_global_thermal --> bus_72
+    agg_global_thermal --> bus_25
+    agg_global_thermal --> bus_149
+    agg_global_thermal --> bus_17
+    agg_global_thermal --> bus_56
+    agg_global_solar --> bus_70
+    agg_global_solar --> bus_170
+    agg_global_solar --> bus_168
+    agg_global_solar --> bus_11
+    agg_global_solar --> bus_177
+    agg_global_solar --> bus_52
+    agg_global_solar --> bus_144
+    agg_global_solar --> bus_51
+    agg_global_solar --> bus_110
+    agg_global_solar --> bus_156
+    agg_global_solar --> bus_46
+    agg_global_solar --> bus_183
+    agg_global_solar --> bus_21
+    agg_global_solar --> bus_140
+    agg_global_solar --> bus_19
+    agg_global_solar --> bus_146
+    agg_global_solar --> bus_92
+    agg_global_solar --> bus_192
+    agg_global_solar --> bus_108
+    agg_global_solar --> bus_159
+    agg_global_solar --> bus_68
+    agg_global_solar --> bus_35
+    agg_global_solar --> bus_136
+    agg_global_solar --> bus_6
+    agg_global_solar --> bus_71
+    agg_global_solar --> bus_99
+    agg_global_solar --> bus_164
+    agg_global_solar --> bus_37
+    agg_global_battery --> bus_195
+    agg_global_battery --> bus_6
+    agg_global_battery --> bus_25
+    agg_global_battery --> bus_2
+    agg_global_battery --> bus_24
+    agg_global_battery --> bus_21
+    agg_global_battery --> bus_20
+    agg_global_battery --> bus_150
+    agg_global_battery --> bus_170
+    agg_global_battery --> bus_168
+    agg_global_battery --> bus_80
+    agg_global_battery --> bus_9
+    agg_global_battery --> bus_55
+    agg_global_battery --> bus_89
+    agg_global_battery --> bus_218
+    agg_global_battery --> bus_74
+    agg_global_battery --> bus_11
+    agg_global_battery --> bus_32
+    bus_124 --> dem_124
+    bus_19 --> dem_19
+    bus_85 --> dem_85
+    bus_97 --> dem_97
+    bus_28 --> dem_28
+    bus_6 --> dem_6
+    bus_174 --> dem_174
+    bus_176 --> dem_176
+    bus_177 --> dem_177
+    bus_98 --> dem_98
+    bus_52 --> dem_52
+    bus_178 --> dem_178
+    bus_166 --> dem_166
+    bus_1 --> dem_1
+    bus_93 --> dem_93
+    bus_111 --> dem_111
+    bus_35 --> dem_35
+    bus_121 --> dem_121
+    bus_90 --> dem_90
+    bus_4 --> dem_4
+    bus_105 --> dem_105
+    bus_5 --> dem_5
+    bus_82 --> dem_82
+    bus_70 --> dem_70
+    bus_7 --> dem_7
+    bus_8 --> dem_8
+    bus_170 --> dem_170
+    bus_108 --> dem_108
+    bus_92 --> dem_92
+    bus_66 --> dem_66
+    bus_200 --> dem_200
+    bus_104 --> dem_104
+    bus_100 --> dem_100
+    bus_191 --> dem_191
+    bus_20 --> dem_20
+    bus_51 --> dem_51
+    bus_160 --> dem_160
+    bus_217 --> dem_217
+    bus_149 --> dem_149
+    bus_11 --> dem_11
+    bus_155 --> dem_155
+    bus_144 --> dem_144
+    bus_133 --> dem_133
+    bus_12 --> dem_12
+    bus_171 --> dem_171
+    bus_165 --> dem_165
+    bus_159 --> dem_159
+    bus_26 --> dem_26
+    bus_68 --> dem_68
+    bus_37 --> dem_37
+    bus_187 --> dem_187
+    bus_140 --> dem_140
+    bus_13 --> dem_13
+    bus_168 --> dem_168
+    bus_128 --> dem_128
+    bus_122 --> dem_122
+    bus_110 --> dem_110
+    bus_199 --> dem_199
+    bus_232 --> dem_232
+    bus_193 --> dem_193
+    bus_113 --> dem_113
+    bus_112 --> dem_112
+    bus_204 --> dem_204
+    bus_14 --> dem_14
+    bus_15 --> dem_15
+    bus_115 --> dem_115
+    bus_116 --> dem_116
+    bus_154 --> dem_154
+    bus_120 --> dem_120
+    bus_17 --> dem_17
+    bus_123 --> dem_123
+    bus_131 --> dem_131
+    bus_179 --> dem_179
+    bus_127 --> dem_127
+    bus_141 --> dem_141
+    bus_136 --> dem_136
+    bus_24 --> dem_24
+    bus_126 --> dem_126
+    bus_27 --> dem_27
+    bus_162 --> dem_162
+    bus_56 --> dem_56
+    bus_34 --> dem_34
+    bus_18 --> dem_18
+    bus_32 --> dem_32
+    bus_146 --> dem_146
+    bus_221 --> dem_221
+    bus_205 --> dem_205
+    bus_229 --> dem_229
+    bus_39 --> dem_39
+    bus_203 --> dem_203
+    bus_132 --> dem_132
+    bus_71 --> dem_71
+    bus_156 --> dem_156
+    bus_41 --> dem_41
+    bus_47 --> dem_47
+    bus_42 --> dem_42
+    bus_164 --> dem_164
+    bus_143 --> dem_143
+    bus_190 --> dem_190
+    bus_43 --> dem_43
+    bus_45 --> dem_45
+    bus_46 --> dem_46
+    bus_138 --> dem_138
+    bus_106 --> dem_106
+    bus_189 --> dem_189
+    bus_139 --> dem_139
+    bus_117 --> dem_117
+    bus_33 --> dem_33
+    bus_54 --> dem_54
+    bus_53 --> dem_53
+    bus_148 --> dem_148
+    bus_147 --> dem_147
+    bus_101 --> dem_101
+    bus_118 --> dem_118
+    bus_65 --> dem_65
+    bus_227 --> dem_227
+    bus_67 --> dem_67
+    bus_87 --> dem_87
+    bus_158 --> dem_158
+    bus_210 --> dem_210
+    bus_134 --> dem_134
+    bus_150 --> dem_150
+    bus_192 --> dem_192
+    bus_231 --> dem_231
+    bus_196 --> dem_196
+    bus_209 --> dem_209
+    bus_173 --> dem_173
+    bus_21 --> dem_21
+    bus_188 --> dem_188
+    bus_77 --> dem_77
+    bus_184 --> dem_184
+    bus_228 --> dem_228
+    bus_72 --> dem_72
+    bus_73 --> dem_73
+    bus_81 --> dem_81
+    bus_195 --> dem_195
+    bus_36 --> dem_36
+    bus_84 --> dem_84
+    bus_6 --> dem_1189
+    bus_25 --> dem_1193
+    bus_2 --> dem_1195
+    bus_24 --> dem_1197
+    bus_21 --> dem_1199
+    bus_37 --> dem_1201
+    bus_2 --> dem_1203
+    bus_6 --> dem_1205
+    bus_20 --> dem_1207
+    bus_150 --> dem_1209
+    bus_2 --> dem_1213
+    bus_2 --> dem_1215
+    bus_170 --> dem_1217
+    bus_168 --> dem_1219
+    bus_80 --> dem_1221
+    bus_9 --> dem_1211
+    bus_55 --> dem_1223
+    bus_89 --> dem_1187
+    bus_218 --> dem_1191
+    bus_74 --> dem_1225
+    bus_55 --> dem_1227
+    bus_11 --> dem_1229
+    bus_32 --> dem_1231
+    bus_55 --> dem_1233
+    bus_2 --> dem_1235
+    bus_2 ---|Andes220->Oeste220| bus_65
+    bus_3 ---|Andes345->Andes220| bus_2
+    bus_4 ---|Angamos220->Kapatur220| bus_42
+    bus_5 ---|Antofag110->Desalant110| bus_27
+    bus_5 ---|Antofag110->LaNegra110| bus_47
+    bus_7 ---|Atacama220->OHiggins220| bus_66
+    bus_10 ---|Capricorn220->Capricorn110| bus_9
+    bus_9 ---|Capricornio110->Antofag110| bus_5
+    bus_9 ---|Capricornio110->ElNegro110| bus_34
+    bus_9 ---|Capricornio110->LaNegra110| bus_47
+    bus_10 ---|Capricornio220->Mantos220| bus_54
+    bus_12 ---|Cardones220->Cardones110| bus_11
+    bus_12 ---|Cardones220->CPinto220| bus_20
+    bus_13 ---|Chacaya220->Capricornio220| bus_10
+    bus_13 ---|Chacaya220->ElCobre220| bus_32
+    bus_13 ---|Chacaya220->Mejillones220| bus_57
+    bus_15 ---|Chuqui220->Chuqui100| bus_14
+    bus_14 ---|Chuquicamata100->S-AA100| bus_75
+    bus_16 ---|Cochrane220->Encuentro220| bus_221
+    bus_19 ---|Condores220->PAlmonte220| bus_69
+    bus_21 ---|Crucero220->Barriles220| bus_8
+    bus_21 ---|Crucero220->Chacaya220| bus_13
+    bus_21 ---|Crucero220->Conchi220| bus_18
+    bus_21 ---|Crucero220->LaCruz220| bus_45
+    bus_84 ---|Tocopilla220->ElLoa220| bus_33
+    bus_23 ---|Cumbre500->NvaCardones500| bus_61
+    bus_24 ---|DAlmagro220->DAlmagro110| bus_25
+    bus_26 ---|DArica066->Arica066| bus_6
+    bus_6 ---|Arica066->PAlmonte110| bus_68
+    bus_29 ---|DonaCarmen220->Nogales220_aux| bus_212
+    bus_30 ---|DonGoyo220->LaCebada220| bus_44
+    bus_30 ---|DonGoyo220->Talinay220| bus_79
+    bus_31 ---|DonHector220->PColorada220| bus_73
+    bus_32 ---|ElCobre220->Esperanza220| bus_39
+    bus_34 ---|ElNegro110->AltoNorte110| bus_1
+    bus_221 ---|Encuentro220->Colla220| bus_17
+    bus_221 ---|Encuentro220->NuevaCentinela220| bus_225
+    bus_225 ---|NuevaCentinela220->ElTesoro220| bus_36
+    bus_225 ---|NuevaCentinela220->Esperanza220| bus_39
+    bus_46 ---|Lagunas220->AnaMaria220| bus_220
+    bus_46 ---|Lagunas220->Frontera220| bus_224
+    bus_46 ---|Lagunas220->Frontera220_II| bus_224
+    bus_224 ---|Frontera220->MariaElena220| bus_55
+    bus_224 ---|Frontera220->AnaMaria220_I| bus_220
+    bus_224 ---|Frontera220->AnaMaria220_II| bus_220
+    bus_220 ---|AnaMaria220->MariaElena| bus_55
+    bus_220 ---|AnaMaria220->Encuentro220| bus_221
+    bus_55 ---|MariaElena220->Kimal220| bus_222
+    bus_223 ---|Kimal500->Kimal220| bus_222
+    bus_221 ---|Encuentro220->Kimal220| bus_222
+    bus_21 ---|Crucero220->Kimal220| bus_222
+    bus_33 ---|ElLoa220->Kimal220| bus_222
+    bus_222 ---|Kimal220->Laberinto220| bus_43
+    bus_216 ---|NvaChuquicamata220->Kimal220| bus_222
+    bus_221 ---|Encuentro220->Miraje220| bus_58
+    bus_38 ---|Esmeralda220->Esmeralda110| bus_37
+    bus_7 ---|GasAta220->Esmeralda220| bus_38
+    bus_40 ---|Guacolda220->Maitenc220| bus_53
+    bus_218 ---|Illapa220->Cumbre220| bus_219
+    bus_23 ---|Cumbre500->Cumbre220| bus_219
+    bus_20 ---|CarreraPinto220->Illapa220| bus_218
+    bus_218 ---|Illapa220->DAlmagro220| bus_25
+    bus_42 ---|Kapatur220->Laberinto220| bus_43
+    bus_42 ---|Kapatur220->Ohiggins220| bus_66
+    bus_43 ---|Laberinto220->ElCobre220| bus_32
+    bus_43 ---|Laberinto220->Mantos220| bus_54
+    bus_43 ---|Laberinto220->NvaZald220| bus_64
+    bus_43 ---|Laberinto220->Oeste220| bus_65
+    bus_2 ---|Andes220->Likanantai220| bus_226
+    bus_226 ---|Likanantai220->NuevaZaldivar220| bus_64
+    bus_64 ---|NuevaZaldivar220->Escondida220| bus_229
+    bus_64 ---|NuevaZaldivar220->Sulfuros220| bus_228
+    bus_64 ---|NuevaZaldivar220->OGP1220| bus_227
+    bus_28 ---|Domeyko220->Sulfuros220| bus_228
+    bus_28 ---|Domeyko220->Escondida220| bus_229
+    bus_227 ---|OGP1220->Domeyko220| bus_28
+    bus_66 ---|Ohiggins220->Puri220| bus_231
+    bus_231 ---|Puri220->Domeyko220| bus_28
+    bus_66 ---|Ohiggins220->Farellon220| bus_232
+    bus_232 ---|Farellon220->Domeyko220| bus_28
+    bus_44 ---|LaCebada220->MRedondo220| bus_59
+    bus_44 ---|LaCebada220->PuntaSierra220| bus_74
+    bus_46 ---|Lagunas220->Collahuasi220| bus_17
+    bus_46 ---|Lagunas220->Tarapaca220| bus_81
+    bus_47 ---|LaNegra110->AltoNorte110| bus_1
+    bus_48 ---|LosChangos220->Kapatur220| bus_42
+    bus_49 ---|LosChangos500->Cumbre500| bus_23
+    bus_49 ---|LosChangos500->Parinas500| bus_22
+    bus_22 ---|Parinas500->Cumbre500| bus_23
+    bus_22 ---|Parinas500->Parinas220| bus_230
+    bus_230 ---|Parinas220->Likanantai220| bus_226
+    bus_49 ---|LosChangos500->Kimal500| bus_223
+    bus_49 ---|LosChangos500->LosChangos220| bus_48
+    bus_50 ---|LPalmas220->LVilos220| bus_51
+    bus_51 ---|LVilos220->DonaCarmen220| bus_29
+    bus_51 ---|LVilos220->Nogales220_aux| bus_212
+    bus_52 ---|Maitenc110->Cardones110| bus_11
+    bus_52 ---|Maitenc110->Huasco110| bus_41
+    bus_53 ---|Maitenc220->Cardones220| bus_12
+    bus_53 ---|Maitenc220->DonHector220| bus_31
+    bus_53 ---|Maitenc220->Maitenc110| bus_52
+    bus_53 ---|Maitencillo220->PColorada220_II| bus_73
+    bus_209 ---|Mauro220->Quillota220| bus_172
+    bus_27 ---|Desalant110->Mejillones110| bus_56
+    bus_57 ---|Mejillones220->Mejillones110| bus_56
+    bus_57 ---|Mejillones220->OHiggins220| bus_66
+    bus_58 ---|Miraje220->Atacama220| bus_7
+    bus_58 ---|Miraje220->TOEnlace220| bus_82
+    bus_59 ---|MRedondo220->PuntaSierra220| bus_74
+    bus_60 ---|Norgener220->Barriles220| bus_8
+    bus_60 ---|Norgener220->LaCruz220| bus_45
+    bus_61 ---|NvaCardones500->Cardones220| bus_12
+    bus_62 ---|NvaMaitenc500->Maitenc220| bus_53
+    bus_62 ---|NvaMaitenc500->NvaCardones500| bus_61
+    bus_63 ---|NvaPAzucar500->NvaMaitenc500| bus_62
+    bus_63 ---|NvaPAzucar500->PAzucar220| bus_72
+    bus_63 ---|NvaPAzucar500->Polpaico500| bus_169
+    bus_64 ---|NvaZaldivar220->Andes220| bus_2
+    bus_66 ---|OHiggins220->Palestina220| bus_67
+    bus_67 ---|Palestina220->Domeyko220| bus_28
+    bus_69 ---|PAlmonte220->Lagunas220| bus_46
+    bus_69 ---|PAlmonte220->PAlmonte110| bus_68
+    bus_70 ---|Paposo220->DAlmagro220| bus_25
+    bus_71 ---|PAzucar110->ElPenon110| bus_35
+    bus_71 ---|PAzucar110->Maitenc110| bus_52
+    bus_211 ---|PAzucar220_aux->DonGoyo220| bus_30
+    bus_72 ---|PAzucar220->PAzucar110| bus_71
+    bus_72 ---|PAzucar220->PuntaSierra220| bus_74
+    bus_73 ---|PColorada220->PAzucar220| bus_72
+    bus_73 ---|PColorada220->PAzucar220_II| bus_72
+    bus_74 ---|PuntaSierra220->LPalmas220| bus_50
+    bus_74 ---|PuntaSierra220->Mauro220| bus_209
+    bus_76 ---|Salar110->Salar220| bus_77
+    bus_77 ---|Salar220->Chuquicamata220| bus_15
+    bus_77 ---|Salar220->NvaChuquicamata220| bus_216
+    bus_15 ---|Chuquicamata220->NvaChuquicamata220| bus_216
+    bus_217 ---|Calama220->NvaChuquicamata220| bus_216
+    bus_37 ---|SalardelCarmen| bus_5
+    bus_78 ---|Salta345->Andes345| bus_3
+    bus_79 ---|Talinay220->LaCebada220| bus_44
+    bus_80 ---|Tamaya110->S-AA100_3B| bus_75
+    bus_80 ---|Tamaya110->Salar110_4B| bus_76
+    bus_81 ---|Tarapaca220->Condores220| bus_19
+    bus_82 ---|TO_Enlace220->Atacama220| bus_7
+    bus_83 ---|Tocopilla110->S-AA100| bus_75
+    bus_83 ---|Tocopilla110->Tamaya110| bus_80
+    bus_84 ---|Tocopilla220->Tocopi110| bus_83
+    bus_85 ---|AJahuel110->Sauzal110_BP1| bus_184
+    bus_86 ---|AJahuel154->Paine154| bus_156
+    bus_86 ---|AJahuel154->Tuniche154_II| bus_203
+    bus_87 ---|AJahuel220->AJahuel110| bus_85
+    bus_87 ---|AJahuel220->AJahuel154| bus_86
+    bus_87 ---|AJahuel220->Buin110| bus_100
+    bus_87 ---|AJahuel220->Chena220| bus_109
+    bus_87 ---|AJahuel220->PAltoCmpc110| bus_157
+    bus_87 ---|AJahuel220->SantaMarta220| bus_183
+    bus_88 ---|AJahuel500->AJahuel220| bus_87
+    bus_89 ---|Alfalfal220->Almendros220| bus_91
+    bus_90 ---|Almendros110->Apoquindo110| bus_97
+    bus_91 ---|Almendros220->AJahuel220| bus_87
+    bus_91 ---|Almendros220->Almendros110| bus_90
+    bus_92 ---|AMelipill220->LoAguirre220| bus_141
+    bus_93 ---|Ancoa220->SantaIsabel220| bus_234
+    bus_234 ---|SantaIsabel220->Itahue220| bus_233
+    bus_234 ---|SantaIsabel220->Maule220| bus_235
+    bus_235 ---|Maule220->Maule154| bus_147
+    bus_233 ---|Itahue220->Itahue154| bus_136
+    bus_233 ---|Itahue220->NvaNirivilo220| bus_153
+    bus_94 ---|Ancoa500->AJahuel500| bus_88
+    bus_94 ---|Ancoa500->Ancoa220| bus_93
+    bus_95 ---|LosNotros220->Mulchen220| bus_150
+    bus_96 ---|Antuco220->Charrua220| bus_106
+    bus_96 ---|Antuco220->Trupan220| bus_201
+    bus_97 ---|Apoquindo110->ElSalto110| bus_128
+    bus_98 ---|ASanta110->Mirafl110| bus_148
+    bus_99 ---|ASanta220->ASanta110| bus_98
+    bus_100 ---|Buin110->LoEspejo110| bus_143
+    bus_101 ---|Candela220->AJahuel220| bus_87
+    bus_102 ---|Canutilla220->PMontt220| bus_166
+    bus_103 ---|Cautin220->RioTolten220| bus_179
+    bus_104 ---|Charrua066->Cholguan066| bus_112
+    bus_105 ---|Charrua154->Charrua066| bus_104
+    bus_105 ---|Charrua154->Chillan154| bus_110
+    bus_105 ---|Charrua154->Conce154| bus_122
+    bus_105 ---|Charrua154->Parral154| bus_159
+    bus_106 ---|Charrua220->Charrua154| bus_105
+    bus_106 ---|Charrua220->Charrua500| bus_107
+    bus_106 ---|Charrua220->Conce154| bus_122
+    bus_106 ---|Charrua220->Duqueco220| bus_127
+    bus_106 ---|Charrua220->EntreRios220| bus_129
+    bus_106 ---|Charrua220->Hualpen220| bus_135
+    bus_106 ---|Charrua220->Lagunillas220| bus_138
+    bus_106 ---|Charrua220->Mulchen220| bus_150
+    bus_175 ---|Ralco220->LosNotros220| bus_95
+    bus_95 ---|LosNotros220->Charrua220| bus_106
+    bus_107 ---|Charrua500->Ancoa500AuxS| bus_213
+    bus_108 ---|Chena110->LoEspejo110| bus_143
+    bus_109 ---|Chena220->Chena110| bus_108
+    bus_105 ---|Monterrico154->SantaElvira066| bus_181
+    bus_111 ---|Chiloe110->Degan110| bus_126
+    bus_111 ---|Chiloe110->Pid-Pid110| bus_165
+    bus_210 ---|Chiloe220->Chiloe110| bus_111
+    bus_113 ---|Cholguan220->Charrua220| bus_106
+    bus_115 ---|Cipreses154->Itahue154| bus_136
+    bus_116 ---|Ciruelos220->Pichirropulli220Aux| bus_215
+    bus_116 ---|Ciruelos220->Valdivia220| bus_204
+    bus_117 ---|CNavia110->PPeuco110| bus_170
+    bus_117 ---|CNavia110->PPeuco110_I| bus_170
+    bus_117 ---|CNavia110->Chena110| bus_108
+    bus_117 ---|CNavia110->LVegas110_exp| bus_145
+    bus_119 ---|CNavia220_Aux_D->Polpaico220| bus_168
+    bus_118 ---|CNavia220->Chena220| bus_109
+    bus_118 ---|CNavia220->CNavia110| bus_117
+    bus_118 ---|CNavia220->CNavia220_Aux_D| bus_119
+    bus_120 ---|Colbun220->Ancoa220| bus_93
+    bus_120 ---|Colbun220->PNegro220| bus_167
+    bus_122 ---|Conce154->Conce066| bus_121
+    bus_122 ---|Conce154->SVicente154| bus_191
+    bus_124 ---|Coronel066->Guindo066| bus_207
+    bus_125 ---|Coronel154->Coronel066| bus_124
+    bus_125 ---|Coronel154->Horcones066| bus_133
+    bus_127 ---|Duqueco220->Temuco220| bus_194
+    bus_128 ---|ElSalto110->SCristobal110| bus_187
+    bus_130 ---|EntreRios500->Ancoa500AuxS| bus_213
+    bus_130 ---|EntreRios500->Charrua500| bus_107
+    bus_130 ---|EntreRios500->EntreRios220| bus_129
+    bus_131 ---|Florida110->Almendros110| bus_90
+    bus_131 ---|Florida110->StaRosa110| bus_190
+    bus_132 ---|Fopaco154->Lagunillas154| bus_137
+    bus_207 ---|Guindo066->Concepcio066| bus_121
+    bus_208 ---|Guindo220->Guindo066| bus_207
+    bus_208 ---|Guindo220->Hualpen220| bus_135
+    bus_134 ---|Hualpen154->Fopaco154| bus_132
+    bus_135 ---|Hualpen220->Hualpen154| bus_134
+    bus_136 ---|Itahue154->Maule154| bus_147
+    bus_136 ---|Itahue154->Teno154| bus_195
+    bus_137 ---|Lagunillas154->Coronel154| bus_125
+    bus_138 ---|Lagunilla220->Guindo220| bus_208
+    bus_138 ---|Lagunillas220->Lagunillas154| bus_137
+    bus_140 ---|Linares154->SJavier066| bus_189
+    bus_141 ---|LoAguirre220->CNavia220| bus_118
+    bus_142 ---|LoAguirre500->AJahuel500| bus_88
+    bus_142 ---|LoAguirre500->LoAguirre220| bus_141
+    bus_142 ---|LoAguirre500->LoAguirre220_2| bus_141
+    bus_142 ---|LoAguirre500->Polpaico500| bus_169
+    bus_143 ---|LoEspejo110->Ochagavia110| bus_154
+    bus_146 ---|Malloa154->Tinguiririca154| bus_199
+    bus_147 ---|Maule154->Linares154| bus_140
+    bus_147 ---|Maule154->Talca066| bus_192
+    bus_150 ---|Mulchen220->Cautin220| bus_103
+    bus_151 ---|Nogales220->Polpaico220| bus_168
+    bus_151 ---|Nogales220->Quillota220| bus_172
+    bus_151 ---|Nogales220->Ventanas220| bus_206
+    bus_154 ---|Ochagavia110->Florida110| bus_131
+    bus_155 ---|Pachacama110->LVegas110| bus_144
+    bus_156 ---|Paine154->Tuniche154_I| bus_202
+    bus_159 ---|Parral154->Linares154| bus_140
+    bus_158 ---|Pangue220->LosNotros220| bus_95
+    bus_95 ---|LosNotros220->Cholguan220| bus_113
+    bus_95 ---|LosNotros220->Trupan220| bus_201
+    bus_161 ---|Pehuenche220->Ancoa220| bus_93
+    bus_162 ---|Petroquim154->Hualpen154| bus_134
+    bus_164 ---|Pichirropulli220->Tineo220| bus_197
+    bus_165 ---|Pid-Pid110->Chonchi110| bus_114
+    bus_193 ---|Temuco66->Lautaro066| bus_139
+    bus_166 ---|PMontt220->Chiloe220| bus_210
+    bus_197 ---|Tineo220->Chiloe220| bus_210
+    bus_166 ---|PMontt220->Molinos110| bus_149
+    bus_167 ---|PNegro220->Candela220| bus_101
+    bus_167 ---|PNegro220->Tinguiririca220| bus_198
+    bus_168 ---|Polpaico220->ElSalto110| bus_128
+    bus_169 ---|Polpaico500->Polpaico220| bus_168
+    bus_170 ---|PPeuco110->LVegas110| bus_144
+    bus_170 ---|PPeuco110->LVegas110_I| bus_144
+    bus_163 ---|Prrahue220->Rahue220| bus_174
+    bus_214 ---|Prropulli220AuxS->Prrahue220| bus_163
+    bus_214 ---|Prropulli220AuxS->Rahue220| bus_174
+    bus_171 ---|Quillota110->Mirafl110| bus_148
+    bus_171 ---|Quillota110->Pachacam110| bus_155
+    bus_172 ---|Quillota220->Polpaico220| bus_168
+    bus_172 ---|Quillota220->Quillota110| bus_171
+    bus_173 ---|Quintero220->SanLuis220| bus_180
+    bus_236 ---|FrutillarNorte->Tineo220| bus_197
+    bus_174 ---|Rahue220->FrutillarNorte220| bus_236
+    bus_197 ---|Tineo220->PMontt220| bus_166
+    bus_176 ---|Rancagua154->Tuniche154_I| bus_202
+    bus_176 ---|Rancagua154->Tuniche154_II| bus_203
+    bus_177 ---|Rapel220->AMelipill220| bus_92
+    bus_178 ---|Renca110->CNavia110| bus_117
+    bus_179 ---|RioTolten220->Ciruelos220| bus_116
+    bus_180 ---|SanLuis220->ASanta220| bus_99
+    bus_180 ---|SanLuis220->Quillota220| bus_172
+    bus_182 ---|SantaMaria220->Charrua220| bus_106
+    bus_183 ---|SantaMarta220->Chena220| bus_109
+    bus_185 ---|Sauzal110_2->Sauzal154| bus_186
+    bus_186 ---|Sauzal154->Rancagua154| bus_176
+    bus_187 ---|SCristobal110->CNavia110| bus_117
+    bus_188 ---|SFcoMost066->Paine154| bus_156
+    bus_189 ---|SJavier66->Constituci66| bus_123
+    bus_190 ---|StaRosa110->AJahuel110| bus_85
+    bus_191 ---|SVicente154->Hualpen154| bus_134
+    bus_191 ---|SVicente154->Petroq154| bus_162
+    bus_192 ---|Talca66->SJavier66| bus_189
+    bus_194 ---|Temuco220->Cautin220| bus_103
+    bus_194 ---|Temuco220->Temuco66| bus_193
+    bus_196 ---|Tilcoco154->Malloa154| bus_146
+    bus_196 ---|Tilcoco154->PCortes154| bus_160
+    bus_199 ---|Tinguiririca154->Itahue154| bus_136
+    bus_199 ---|Tinguiririca154->Teno154| bus_195
+    bus_198 ---|Tinguiririca220->Tinguiririca154| bus_199
+    bus_200 ---|Torquemada110->Mirafl110| bus_148
+    bus_201 ---|Trupan220->Charrua220| bus_106
+    bus_202 ---|Tuniche_1->PCortes154| bus_160
+    bus_202 ---|Tuniche_1->Tinguiririca154| bus_199
+    bus_203 ---|Tuniche_2->PCortes154| bus_160
+    bus_204 ---|Valdivia220->Pichirropulli220Aux| bus_215
+    bus_205 ---|Ventanas110->Mirafl110| bus_148
+    bus_205 ---|Ventanas110->Quillota110| bus_171
+    bus_205 ---|Ventanas110->Torquemada110| bus_200
+    bus_206 ---|Ventanas220->Ventanas110| bus_205
+    bus_72 ---|PAzucar220->PAzucar220_aux| bus_211
+    bus_212 ---|Nogales220aux->Nogales220| bus_151
+    bus_213 ---|Ancoa500AuxS->Ancoa500| bus_94
+    bus_164 ---|Pichirropulli220->Pichirropulli220AuxS| bus_214
+    bus_215 ---|Pichirropulli220Aux->Pichirropulli220| bus_164
+    bus_99 ---|ASanta220->AMelipilla220| bus_92
+    bus_153 ---|NvaNirivilo220->NvaCauquenes220| bus_152
+    bus_152 ---|NvaCauquenes220->Lagunillas220| bus_138
+    bus_153 ---|NvaNirivilo220->Constitucion066| bus_123
+    bus_152 ---|NvaCauquenes220->Parral154| bus_159
+    bat_1189 -.->|stored energy| conv_1189
+    conv_1189 -.->|discharge| gen_1189
+    dem_1189 -.->|charge| conv_1189
+    bat_1193 -.->|stored energy| conv_1193
+    conv_1193 -.->|discharge| gen_1193
+    dem_1193 -.->|charge| conv_1193
+    bat_1195 -.->|stored energy| conv_1195
+    conv_1195 -.->|discharge| gen_1195
+    dem_1195 -.->|charge| conv_1195
+    bat_1197 -.->|stored energy| conv_1197
+    conv_1197 -.->|discharge| gen_1197
+    dem_1197 -.->|charge| conv_1197
+    bat_1199 -.->|stored energy| conv_1199
+    conv_1199 -.->|discharge| gen_1199
+    dem_1199 -.->|charge| conv_1199
+    bat_1201 -.->|stored energy| conv_1201
+    conv_1201 -.->|discharge| gen_1201
+    dem_1201 -.->|charge| conv_1201
+    bat_1203 -.->|stored energy| conv_1203
+    conv_1203 -.->|discharge| gen_1203
+    dem_1203 -.->|charge| conv_1203
+    bat_1205 -.->|stored energy| conv_1205
+    conv_1205 -.->|discharge| gen_1205
+    dem_1205 -.->|charge| conv_1205
+    bat_1207 -.->|stored energy| conv_1207
+    conv_1207 -.->|discharge| gen_1207
+    dem_1207 -.->|charge| conv_1207
+    bat_1209 -.->|stored energy| conv_1209
+    conv_1209 -.->|discharge| gen_1209
+    dem_1209 -.->|charge| conv_1209
+    bat_1213 -.->|stored energy| conv_1213
+    conv_1213 -.->|discharge| gen_1213
+    dem_1213 -.->|charge| conv_1213
+    bat_1215 -.->|stored energy| conv_1215
+    conv_1215 -.->|discharge| gen_1215
+    dem_1215 -.->|charge| conv_1215
+    bat_1217 -.->|stored energy| conv_1217
+    conv_1217 -.->|discharge| gen_1217
+    dem_1217 -.->|charge| conv_1217
+    bat_1219 -.->|stored energy| conv_1219
+    conv_1219 -.->|discharge| gen_1219
+    dem_1219 -.->|charge| conv_1219
+    bat_1221 -.->|stored energy| conv_1221
+    conv_1221 -.->|discharge| gen_1221
+    dem_1221 -.->|charge| conv_1221
+    bat_1211 -.->|stored energy| conv_1211
+    conv_1211 -.->|discharge| gen_1211
+    dem_1211 -.->|charge| conv_1211
+    bat_1223 -.->|stored energy| conv_1223
+    conv_1223 -.->|discharge| gen_1223
+    dem_1223 -.->|charge| conv_1223
+    bat_1187 -.->|stored energy| conv_1187
+    conv_1187 -.->|discharge| gen_1187
+    dem_1187 -.->|charge| conv_1187
+    bat_1191 -.->|stored energy| conv_1191
+    conv_1191 -.->|discharge| gen_1191
+    dem_1191 -.->|charge| conv_1191
+    bat_1225 -.->|stored energy| conv_1225
+    conv_1225 -.->|discharge| gen_1225
+    dem_1225 -.->|charge| conv_1225
+    bat_1227 -.->|stored energy| conv_1227
+    conv_1227 -.->|discharge| gen_1227
+    dem_1227 -.->|charge| conv_1227
+    bat_1229 -.->|stored energy| conv_1229
+    conv_1229 -.->|discharge| gen_1229
+    dem_1229 -.->|charge| conv_1229
+    bat_1231 -.->|stored energy| conv_1231
+    conv_1231 -.->|discharge| gen_1231
+    dem_1231 -.->|charge| conv_1231
+    bat_1233 -.->|stored energy| conv_1233
+    conv_1233 -.->|discharge| gen_1233
+    dem_1233 -.->|charge| conv_1233
+    bat_1235 -.->|stored energy| conv_1235
+    conv_1235 -.->|discharge| gen_1235
+    dem_1235 -.->|charge| conv_1235
+
+    classDef cls_bus fill:#D6EAF8,stroke:#1A5276,color:#1C2833
+    class bus_1,bus_2,bus_3,bus_4,bus_5,bus_6,bus_7,bus_8,bus_9,bus_10,bus_11,bus_12,bus_13,bus_14,bus_15,bus_16,bus_17,bus_18,bus_19,bus_20,bus_21,bus_22,bus_23,bus_24,bus_25,bus_26,bus_27,bus_28,bus_29,bus_30,bus_31,bus_32,bus_33,bus_34,bus_35,bus_36,bus_37,bus_38,bus_39,bus_40,bus_41,bus_42,bus_43,bus_44,bus_45,bus_46,bus_47,bus_48,bus_49,bus_50,bus_51,bus_52,bus_53,bus_54,bus_55,bus_56,bus_57,bus_58,bus_59,bus_60,bus_61,bus_62,bus_63,bus_64,bus_65,bus_66,bus_67,bus_68,bus_69,bus_70,bus_71,bus_72,bus_73,bus_74,bus_75,bus_76,bus_77,bus_78,bus_79,bus_80,bus_81,bus_82,bus_83,bus_84,bus_85,bus_86,bus_87,bus_88,bus_89,bus_90,bus_91,bus_92,bus_93,bus_94,bus_95,bus_96,bus_97,bus_98,bus_99,bus_100,bus_101,bus_102,bus_103,bus_104,bus_105,bus_106,bus_107,bus_108,bus_109,bus_110,bus_111,bus_112,bus_113,bus_114,bus_115,bus_116,bus_117,bus_118,bus_119,bus_120,bus_121,bus_122,bus_123,bus_124,bus_125,bus_126,bus_127,bus_128,bus_129,bus_130,bus_131,bus_132,bus_133,bus_134,bus_135,bus_136,bus_137,bus_138,bus_139,bus_140,bus_141,bus_142,bus_143,bus_144,bus_145,bus_146,bus_147,bus_148,bus_149,bus_150,bus_151,bus_152,bus_153,bus_154,bus_155,bus_156,bus_157,bus_158,bus_159,bus_160,bus_161,bus_162,bus_163,bus_164,bus_165,bus_166,bus_167,bus_168,bus_169,bus_170,bus_171,bus_172,bus_173,bus_174,bus_175,bus_176,bus_177,bus_178,bus_179,bus_180,bus_181,bus_182,bus_183,bus_184,bus_185,bus_186,bus_187,bus_188,bus_189,bus_190,bus_191,bus_192,bus_193,bus_194,bus_195,bus_196,bus_197,bus_198,bus_199,bus_200,bus_201,bus_202,bus_203,bus_204,bus_205,bus_206,bus_207,bus_208,bus_209,bus_210,bus_211,bus_212,bus_213,bus_214,bus_215,bus_216,bus_217,bus_218,bus_219,bus_220,bus_221,bus_222,bus_223,bus_224,bus_225,bus_226,bus_227,bus_228,bus_229,bus_230,bus_231,bus_232,bus_233,bus_234,bus_235,bus_236 cls_bus
+    classDef cls_gen_hydro fill:#D1F2EB,stroke:#1E8449,color:#1C2833
+    class agg_global_hydro cls_gen_hydro
+    classDef cls_gen fill:#FEF9E7,stroke:#E67E22,color:#1C2833
+    class agg_global_thermal cls_gen
+    classDef cls_gen_solar fill:#FDEBD0,stroke:#F39C12,color:#1C2833
+    class agg_global_solar cls_gen_solar
+    classDef cls_battery fill:#F4ECF7,stroke:#7D3C98,color:#1C2833
+    class agg_global_battery,bat_1189,bat_1193,bat_1195,bat_1197,bat_1199,bat_1201,bat_1203,bat_1205,bat_1207,bat_1209,bat_1213,bat_1215,bat_1217,bat_1219,bat_1221,bat_1211,bat_1223,bat_1187,bat_1191,bat_1225,bat_1227,bat_1229,bat_1231,bat_1233,bat_1235 cls_battery
+    classDef cls_demand fill:#FADBD8,stroke:#C0392B,color:#1C2833
+    class dem_124,dem_19,dem_85,dem_97,dem_28,dem_6,dem_174,dem_176,dem_177,dem_98,dem_52,dem_178,dem_166,dem_1,dem_93,dem_111,dem_35,dem_121,dem_90,dem_4,dem_105,dem_5,dem_82,dem_70,dem_7,dem_8,dem_170,dem_108,dem_92,dem_66,dem_200,dem_104,dem_100,dem_191,dem_20,dem_51,dem_160,dem_217,dem_149,dem_11,dem_155,dem_144,dem_133,dem_12,dem_171,dem_165,dem_159,dem_26,dem_68,dem_37,dem_187,dem_140,dem_13,dem_168,dem_128,dem_122,dem_110,dem_199,dem_232,dem_193,dem_113,dem_112,dem_204,dem_14,dem_15,dem_115,dem_116,dem_154,dem_120,dem_17,dem_123,dem_131,dem_179,dem_127,dem_141,dem_136,dem_24,dem_126,dem_27,dem_162,dem_56,dem_34,dem_18,dem_32,dem_146,dem_221,dem_205,dem_229,dem_39,dem_203,dem_132,dem_71,dem_156,dem_41,dem_47,dem_42,dem_164,dem_143,dem_190,dem_43,dem_45,dem_46,dem_138,dem_106,dem_189,dem_139,dem_117,dem_33,dem_54,dem_53,dem_148,dem_147,dem_101,dem_118,dem_65,dem_227,dem_67,dem_87,dem_158,dem_210,dem_134,dem_150,dem_192,dem_231,dem_196,dem_209,dem_173,dem_21,dem_188,dem_77,dem_184,dem_228,dem_72,dem_73,dem_81,dem_195,dem_36,dem_84,dem_1189,dem_1193,dem_1195,dem_1197,dem_1199,dem_1201,dem_1203,dem_1205,dem_1207,dem_1209,dem_1213,dem_1215,dem_1217,dem_1219,dem_1221,dem_1211,dem_1223,dem_1187,dem_1191,dem_1225,dem_1227,dem_1229,dem_1231,dem_1233,dem_1235 cls_demand
+    classDef cls_converter fill:#D6EAF8,stroke:#1F618D,color:#1C2833
+    class conv_1189,conv_1193,conv_1195,conv_1197,conv_1199,conv_1201,conv_1203,conv_1205,conv_1207,conv_1209,conv_1213,conv_1215,conv_1217,conv_1219,conv_1221,conv_1211,conv_1223,conv_1187,conv_1191,conv_1225,conv_1227,conv_1229,conv_1231,conv_1233,conv_1235 cls_converter
+```
