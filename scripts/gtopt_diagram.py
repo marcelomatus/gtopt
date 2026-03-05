@@ -26,16 +26,29 @@ Output formats (--format)
 ``mermaid``  — Mermaid flowchart source (embeds in GitHub Markdown).
 ``html``     — Interactive HTML with vis.js / font-awesome (open in browser).
 
-Reduction options (for large cases with many elements)
-------------------------------------------------------
-``--aggregate MODE``         Aggregate generators: none | bus | type | global.
-``--aggregate type``         One node per (bus, generator-type) pair.
-                             Types: hydro ☀️ solar 🌬️ wind ⚡ thermal 🔋 battery.
+Aggregation / reduction (--aggregate, default: auto)
+-----------------------------------------------------
+``auto``     Smart selection based on total element count (default):
+               < 100  elements → ``none``  (show every element individually)
+               100-999 elements → ``bus``  (one summary node per bus)
+               ≥ 1000 elements  → ``type`` + voltage threshold 200 kV
+                                  (aggregate by type and fold LV buses)
+``none``     Show every individual element.
+``bus``      One summary node per bus.
+``type``     One node per (bus, generator-type) pair with icon.
+             Types: 💧 hydro ☀️ solar 🌬️ wind ⚡ thermal 🔋 battery.
+``global``   One node per generator type for the whole system.
+
+``--no-generators``  Omit all generator nodes (topology-only view):
+                     buses, lines, demands, hydro elements only.
+
+Other reduction options (--voltage-threshold, --filter-type, …)
+----------------------------------------------------------------
 ``--voltage-threshold KV``   Lump buses below KV into their nearest HV neighbour.
 ``--filter-type TYPE...``    Show only generators of listed types.
 ``--focus-bus BUS...``       Show only N-hop neighbourhood of named buses.
 ``--top-gens N``             Keep only top-N generators per bus by pmax.
-``--max-nodes N``            Auto-upgrade aggregation mode until ≤ N nodes.
+``--max-nodes N``            Escalate aggregation mode until ≤ N nodes.
 ``--compact``                Omit pmax/gcost/reactance labels.
 ``--hide-isolated``          Remove nodes with no connections.
 
@@ -46,10 +59,14 @@ Dependencies
 
 Usage examples
 --------------
-    # Small case — individual elements
-    gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+    # Auto mode (default) — picks right strategy automatically
+    gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg       # <100 → none
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+200kV
 
-    # Large case — per-(bus,type) aggregation + voltage reduction ≥ 220 kV
+    # Topology-only (no generators) — clean network view
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+
+    # Force explicit aggregation
     gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate type --voltage-threshold 220 --compact -o case2y_hv.svg
 
@@ -494,18 +511,31 @@ def _gen_pmax(gen: dict) -> float:
 # FilterOptions — controls diagram reduction for large cases
 # ---------------------------------------------------------------------------
 
+# Auto-reduction thresholds (element count)
+# When --aggregate auto (default): pick a strategy based on total element count.
+_AUTO_NONE_THRESHOLD   = 100    # < 100 elements  → show everything individually
+_AUTO_BUS_THRESHOLD    = 1000   # 100–999 elements → aggregate per bus
+# ≥ 1000 elements: aggregate per type + voltage threshold 200 kV (aggressive)
+_AUTO_VOLTAGE_THRESHOLD = 200.0  # kV applied in the ≥1000-element "aggressive" auto mode
+
+
 @dataclass
 class FilterOptions:
     """Controls element-reduction strategies for large gtopt diagrams.
 
     Aggregation modes (``--aggregate``):
-      ``none``    Show every individual element (default; best for small cases).
+      ``auto``    Automatically choose based on element count (default):
+                    < 100  → ``none``
+                    100–999 → ``bus``
+                    ≥ 1000  → ``type`` + voltage_threshold=200 kV (aggressive)
+      ``none``    Show every individual element (best for small cases).
       ``bus``     Collapse all generators at each bus into one summary node.
       ``type``    Collapse generators by type (hydro/solar/wind/thermal/BESS)
                   within each bus — one node per (bus, type) pair.
       ``global``  One node per generator type for the whole system.
 
     Additional filters:
+      ``no_generators``     If True, omit all generator nodes (topology-only view).
       ``top_gens``          Keep only the top-N generators by pmax per bus (0 = all).
       ``filter_types``      List of generator types to include (empty = all).
       ``focus_buses``       Show only elements reachable within ``focus_hops`` hops
@@ -519,7 +549,8 @@ class FilterOptions:
                             without a ``voltage`` field are never lumped.
                             0 = disabled (default).
     """
-    aggregate:         str        = "none"   # none | bus | type | global
+    aggregate:         str        = "auto"   # auto | none | bus | type | global
+    no_generators:     bool       = False    # omit all generator nodes
     top_gens:          int        = 0        # 0 = no limit
     filter_types:      list[str]  = field(default_factory=list)
     focus_buses:       list[str]  = field(default_factory=list)
@@ -538,6 +569,7 @@ def _build_voltage_map(
     buses: list[dict],
     lines: list[dict],
     threshold: float,
+
 ) -> dict:
     """Return a mapping {bus_ref -> representative_hv_bus_ref}.
 
@@ -866,8 +898,11 @@ class TopologyBuilder:
             self.opts.voltage_threshold,
         )
         self._bus_node_ids: set = set()
-        self._eff_agg: str = "none"
-        self._focus_nids = None
+        self._eff_agg: str      = "none"
+        self._eff_vthresh: float = self.opts.voltage_threshold
+        self._auto_info         = None   # set by build() when aggregate="auto"
+        self._focus_nids        = None
+
 
     @staticmethod
     def _bid(b):   return f"bus_{b.get('uid', b.get('name','?'))}"
@@ -907,8 +942,35 @@ class TopologyBuilder:
         gt = _classify_gen(gen, self._turb_refs)
         return {"hydro": "gen_hydro", "solar": "gen_solar", "wind": "gen_solar"}.get(gt, "gen")
 
+    def _count_elements(self) -> int:
+        """Return a rough total element count for auto-mode decisions."""
+        s = self.sys
+        return sum(len(s.get(k, [])) for k in (
+            "generator_array", "bus_array", "demand_array", "line_array",
+            "battery_array", "converter_array", "junction_array",
+            "waterway_array", "reservoir_array", "turbine_array",
+            "flow_array", "filtration_array",
+        ))
+
     def build(self):
         agg = self.opts.aggregate
+        vthresh = self.opts.voltage_threshold
+
+        # ── Auto mode: choose strategy from element count ──────────────────
+        if agg == "auto":
+            n_total = self._count_elements()
+            if n_total < _AUTO_NONE_THRESHOLD:
+                agg = "none"
+            elif n_total < _AUTO_BUS_THRESHOLD:
+                agg = "bus"
+            else:
+                # Aggressive: aggregate by type AND apply voltage threshold
+                agg = "type"
+                if vthresh == 0.0:
+                    vthresh = _AUTO_VOLTAGE_THRESHOLD
+            self._auto_info = (n_total, agg, vthresh)
+
+        # ── Explicit max_nodes escalation (overrides auto-resolved mode) ───
         if self.opts.max_nodes > 0:
             n_g = len(self.sys.get("generator_array", []))
             n_b = len(self.sys.get("bus_array", []))
@@ -920,11 +982,25 @@ class TopologyBuilder:
                 agg = "type"
             if agg == "type" and n_b * 6 > self.opts.max_nodes * 2:
                 agg = "global"
-        self._eff_agg = agg
+
+        self._eff_agg    = agg
+        self._eff_vthresh = vthresh
+        # Update the voltage map if auto-mode changed the threshold
+        if vthresh != self.opts.voltage_threshold:
+            self._vmap = _build_voltage_map(
+                self.sys.get("bus_array", []),
+                self.sys.get("line_array", []),
+                vthresh,
+            )
+            self._bus_node_ids = set()  # reset; will be repopulated by _buses()
+
         self._focus_nids = self._compute_focus_set() if self.opts.focus_buses else None
         s = self.subsystem
         if s in ("full", "electrical"):
-            self._buses(); self._generators(); self._demands()
+            self._buses()
+            if not self.opts.no_generators:
+                self._generators()
+            self._demands()
             self._lines(); self._batteries(); self._converters()
         if s in ("full", "hydro"):
             self._junctions(); self._waterways(); self._reservoirs()
@@ -1918,35 +1994,51 @@ Output formats (--format):
   mermaid              Mermaid source for GitHub Markdown
   html                 Interactive vis.js browser diagram (requires pyvis)
 
-Reduction / aggregation (useful for large cases with many generators):
-  --aggregate bus     One summary node per bus (counts + total MW)
-  --aggregate type    One node per (bus, generator-type) pair
-  --aggregate global  One node per generator type for the whole system
+Aggregation modes (--aggregate):
+  auto    [DEFAULT] Automatically choose based on total element count:
+            < 100  elements → none   (show everything individually)
+            100-999 elements → bus   (one summary node per bus)
+            ≥ 1000 elements  → type + --voltage-threshold 200
+                               (aggressive: per-type nodes + fold LV buses)
+  none    Show every generator individually (best for small cases)
+  bus     One summary node per bus (counts + total MW)
+  type    One node per (bus, generator-type) pair with type icon
+  global  One node per generator type for the whole system
+
+Generator visibility:
+  --no-generators     Show only network topology (buses, lines, demands,
+                      hydro elements) — no generator nodes at all.
+                      Useful for large networks where generators clutter the view.
+
+Other reduction options:
   --top-gens N        Keep only the top-N generators per bus by pmax
   --filter-type TYPE  Show only generators of TYPE (hydro/solar/wind/thermal/battery)
   --focus-bus NAME    Show only buses within N hops of NAME (repeat for multiple)
   --focus-hops N      Number of hops for --focus-bus (default: 2)
-  --max-nodes N       Auto-upgrade aggregation until node count ≤ N
+  --max-nodes N       Hard cap: escalate aggregation until node count ≤ N
   --voltage-threshold V   Lump buses and lines below V kV into their nearest
                           high-voltage neighbour (e.g. --voltage-threshold 200)
   --hide-isolated     Remove nodes with no connections
   --compact           Omit detail labels (show only names / counts)
 
 Examples:
-  # Small case — individual elements, interactive HTML
+  # Auto mode (default) — picks the right aggregation for case size
+  gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg          # <100: none
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+200kV
+
+  # Topology-only (no generators) — clean network diagram
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+
+  # Interactive HTML — explore with physics simulation
   gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
 
-  # Large case — aggregate generators by type per bus, voltage ≥ 220 kV
+  # Force explicit mode
   gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
       --aggregate type --voltage-threshold 220 --format html -o case2y.html
 
-  # Show only hydro generators in a 2-bus neighbourhood of 'Chapo220'
+  # Show only hydro generators in 2-hop neighbourhood of a bus
   gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
       --filter-type hydro --focus-bus Chapo220 --focus-hops 3 --format svg
-
-  # Global summary (one node per type) for very large cases
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
-      --aggregate global --format svg -o case2y_global.svg
 
   # Planning structure from a real case
   gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
@@ -1989,12 +2081,25 @@ Examples:
     )
     red.add_argument(
         "--aggregate", "-a",
-        choices=["none", "bus", "type", "global"],
-        default="none",
+        choices=["auto", "none", "bus", "type", "global"],
+        default="auto",
         metavar="MODE",
         help=(
-            "Aggregate generators: none=individual (default), bus=per-bus summary, "
+            "Aggregation mode (default: auto). "
+            "auto=smart selection by element count (<100: none, 100-999: bus, "
+            "≥1000: type+voltage-threshold 200 kV). "
+            "none=individual elements, bus=per-bus summary, "
             "type=per-(bus,type) node, global=one node per type"
+        ),
+    )
+    red.add_argument(
+        "--no-generators",
+        action="store_true", default=False,
+        dest="no_generators",
+        help=(
+            "Omit all generator nodes — show only network topology "
+            "(buses, lines, demands, hydro elements). "
+            "Useful for very large cases where generators clutter the diagram."
         ),
     )
     red.add_argument(
@@ -2103,6 +2208,7 @@ Examples:
     # ── Topology diagram ─────────────────────────────────────────────────────
     opts = FilterOptions(
         aggregate         = args.aggregate,
+        no_generators     = args.no_generators,
         top_gens          = args.top_gens,
         filter_types      = [t.lower() for t in args.filter_types],
         focus_buses       = args.focus_buses,
@@ -2122,11 +2228,20 @@ Examples:
               file=sys.stderr)
     else:
         agg_used = builder._eff_agg
-        print(
-            f"Diagram: {n_nodes} nodes, {n_edges} edges"
-            + (f"  [aggregate={agg_used}]" if agg_used != "none" else ""),
-            file=sys.stderr,
-        )
+        vt_used  = builder._eff_vthresh
+        flags: list[str] = []
+        if agg_used != "none":
+            flags.append(f"aggregate={agg_used}")
+        if vt_used > 0:
+            flags.append(f"voltage≥{vt_used:.0f} kV")
+        if opts.no_generators:
+            flags.append("no-generators")
+        if opts.aggregate == "auto" and builder._auto_info:
+            n_total, _, _ = builder._auto_info
+            flags.append(f"auto({n_total} elements)")
+        suffix = ("  [" + ", ".join(flags) + "]") if flags else ""
+        print(f"Diagram: {n_nodes} nodes, {n_edges} edges{suffix}", file=sys.stderr)
+
 
     if fmt == "mermaid":
         result = render_mermaid(model, direction=args.direction)
