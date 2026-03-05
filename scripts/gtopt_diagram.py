@@ -31,8 +31,8 @@ Aggregation / reduction (--aggregate, default: auto)
 ``auto``     Smart selection based on total element count (default):
                < 100  elements → ``none``  (show every element individually)
                100-999 elements → ``bus``  (one summary node per bus)
-               ≥ 1000 elements  → ``type`` + voltage threshold 200 kV
-                                  (aggregate by type and fold LV buses)
+               ≥ 1000 elements  → ``type`` + smart voltage threshold
+                                  (aggregate by type; threshold chosen so ≤ 64 buses remain)
 ``none``     Show every individual element.
 ``bus``      One summary node per bus.
 ``type``     One node per (bus, generator-type) pair with icon.
@@ -61,7 +61,7 @@ Usage examples
 --------------
     # Auto mode (default) — picks right strategy automatically
     gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg       # <100 → none
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+200kV
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+smart threshold
 
     # Topology-only (no generators) — clean network view
     gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
@@ -513,10 +513,12 @@ def _gen_pmax(gen: dict) -> float:
 
 # Auto-reduction thresholds (element count)
 # When --aggregate auto (default): pick a strategy based on total element count.
-_AUTO_NONE_THRESHOLD   = 100    # < 100 elements  → show everything individually
-_AUTO_BUS_THRESHOLD    = 1000   # 100–999 elements → aggregate per bus
-# ≥ 1000 elements: aggregate per type + voltage threshold 200 kV (aggressive)
-_AUTO_VOLTAGE_THRESHOLD = 200.0  # kV applied in the ≥1000-element "aggressive" auto mode
+_AUTO_NONE_THRESHOLD  = 100    # < 100 elements  → show everything individually
+_AUTO_BUS_THRESHOLD   = 1000   # 100–999 elements → aggregate per bus
+# ≥ 1000 elements: aggregate per type + smart voltage threshold (aggressive)
+
+# Smart voltage threshold: target at most this many visible buses after reduction.
+_AUTO_MAX_HV_BUSES    = 64     # target bus count for aggressive auto mode
 
 
 @dataclass
@@ -527,7 +529,8 @@ class FilterOptions:
       ``auto``    Automatically choose based on element count (default):
                     < 100  → ``none``
                     100–999 → ``bus``
-                    ≥ 1000  → ``type`` + voltage_threshold=200 kV (aggressive)
+                    ≥ 1000  → ``type`` + smart voltage threshold that keeps
+                               at most ``_AUTO_MAX_HV_BUSES`` visible buses
       ``none``    Show every individual element (best for small cases).
       ``bus``     Collapse all generators at each bus into one summary node.
       ``type``    Collapse generators by type (hydro/solar/wind/thermal/BESS)
@@ -655,6 +658,70 @@ def _build_voltage_map(
             result[name] = rep
 
     return result
+
+
+def _count_visible_buses(buses: list[dict], lines: list[dict], threshold: float) -> int:
+    """Return the number of distinct representative buses after voltage reduction.
+
+    A bus is a representative if at least one other bus (including itself) maps
+    to it after the BFS voltage reduction.  This is the number of *visible* bus
+    nodes that would appear in the diagram at the given threshold.
+    """
+    if threshold <= 0:
+        return len(buses)
+    vmap = _build_voltage_map(buses, lines, threshold)
+    representatives: set[int | str] = set()
+    for bus in buses:
+        uid  = bus.get("uid")
+        name = bus.get("name")
+        ref  = uid if uid is not None else name
+        if ref is None:
+            continue
+        representatives.add(vmap.get(ref, ref))
+    return len(representatives)
+
+
+def _auto_voltage_threshold(
+    buses: list[dict],
+    lines: list[dict],
+    max_buses: int = _AUTO_MAX_HV_BUSES,
+) -> float:
+    """Compute the lowest voltage threshold [kV] that keeps ≤ *max_buses* visible.
+
+    The function iterates over all distinct voltage levels found in the bus
+    array (from highest to lowest) and returns the **smallest** threshold that
+    still produces at most *max_buses* representative buses after reduction.
+
+    If no threshold achieves the target (e.g. all buses have the same voltage
+    level) the highest found voltage level is returned as a fallback so the
+    diagram is at least somewhat reduced.
+
+    Returns 0.0 when the total bus count is already ≤ *max_buses* (no
+    reduction needed).
+    """
+    if len(buses) <= max_buses:
+        return 0.0
+
+    # Collect distinct voltage levels using safe .get() to avoid KeyError
+    levels = sorted(
+        {float(v) for b in buses
+         if (v := b.get("voltage")) is not None},
+    )
+    if not levels:
+        return 0.0
+
+    # Find the smallest threshold (lowest voltage level) that hits the target.
+    # We scan levels from highest to lowest: once we fall below the target,
+    # the previous (higher) level is the answer.
+    chosen = levels[-1]   # fallback: the highest voltage level found
+    for lvl in reversed(levels):
+        n = _count_visible_buses(buses, lines, lvl)
+        if n <= max_buses:
+            chosen = lvl
+        else:
+            # going lower won't help — stop searching downward
+            break
+    return chosen
 
 
 def _resolve_bus_ref(ref, vmap: dict):
@@ -962,10 +1029,15 @@ class TopologyBuilder:
             elif n_total < _AUTO_BUS_THRESHOLD:
                 agg = "bus"
             else:
-                # Aggressive: aggregate by type AND apply voltage threshold
+                # Aggressive: aggregate by type AND apply a smart voltage
+                # threshold chosen so that ≤ _AUTO_MAX_HV_BUSES buses remain.
                 agg = "type"
                 if vthresh == 0.0:
-                    vthresh = _AUTO_VOLTAGE_THRESHOLD
+                    vthresh = _auto_voltage_threshold(
+                        self.sys.get("bus_array", []),
+                        self.sys.get("line_array", []),
+                        max_buses=_AUTO_MAX_HV_BUSES,
+                    )
             self._auto_info = (n_total, agg, vthresh)
 
         # ── Explicit max_nodes escalation (overrides auto-resolved mode) ───
@@ -1812,6 +1884,59 @@ def render_mermaid(model: GraphModel, direction: str = "LR") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Public vis.js data export
+# ---------------------------------------------------------------------------
+
+def model_to_visjs(model: GraphModel) -> dict:
+    """Convert a :class:`GraphModel` to a vis.js-compatible ``{nodes, edges}`` dict.
+
+    This is the **public API** for converting a topology model to a format
+    suitable for use with `vis-network <https://visjs.github.io/vis-network/>`_.
+    It replaces the need to import the private ``_PYVIS_*`` constants directly.
+
+    Returns a dict with two keys:
+
+    ``nodes``
+        A list of vis.js node objects, each with the fields ``id``, ``label``,
+        ``title`` (tooltip), ``shape``, ``color`` (``{background, border}``),
+        ``size``, ``kind``, and ``group``.
+
+    ``edges``
+        A list of vis.js edge objects with ``id``, ``from``, ``to``, ``label``,
+        ``title``, ``dashes``, ``arrows``, ``color``, and ``width``.
+    """
+    vis_nodes = []
+    for node in model.nodes:
+        colors = _PYVIS_COLORS.get(node.kind, {"background": "#F0F0F0", "border": "#555"})
+        vis_nodes.append({
+            "id":    node.node_id,
+            "label": node.label,
+            "title": node.tooltip or node.label,
+            "shape": _PYVIS_SHAPE_MAP.get(node.kind, "dot"),
+            "color": colors,
+            "size":  _PYVIS_SIZE_MAP.get(node.kind, 20),
+            "kind":  node.kind,
+            "group": node.cluster or node.kind,
+        })
+
+    vis_edges = []
+    for i, edge in enumerate(model.edges):
+        vis_edges.append({
+            "id":     i,
+            "from":   edge.src,
+            "to":     edge.dst,
+            "label":  edge.label.replace("\n", " ") if edge.label else "",
+            "title":  edge.label.replace("\n", " ") if edge.label else "",
+            "dashes": edge.style in ("dashed", "dotted"),
+            "arrows": "to" if edge.directed else "",
+            "color":  {"color": edge.color or "#2C3E50", "opacity": 0.8},
+            "width":  max(1.0, min(4.0, 1.0 + edge.weight / 100)),
+        })
+
+    return {"nodes": vis_nodes, "edges": vis_edges}
+
+
+# ---------------------------------------------------------------------------
 # Interactive HTML renderer (pyvis + font-awesome + custom icons)
 # ---------------------------------------------------------------------------
 
@@ -2022,7 +2147,7 @@ Other reduction options:
 Examples:
   # Auto mode (default) — picks the right aggregation for case size
   gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg          # <100: none
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+200kV
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+smart threshold
 
   # Topology-only (no generators) — clean network diagram
   gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
@@ -2085,7 +2210,7 @@ Examples:
         help=(
             "Aggregation mode (default: auto). "
             "auto=smart selection by element count (<100: none, 100-999: bus, "
-            "≥1000: type+voltage-threshold 200 kV). "
+            "≥1000: type+smart voltage threshold). "
             "none=individual elements, bus=per-bus summary, "
             "type=per-(bus,type) node, global=one node per type"
         ),

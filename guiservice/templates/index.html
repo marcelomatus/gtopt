@@ -30,6 +30,7 @@
       <h3>Case Setup</h3>
       <a href="#" class="nav-link active" data-tab="options">Options</a>
       <a href="#" class="nav-link" data-tab="simulation">Simulation</a>
+      <a href="#" class="nav-link" data-tab="topology">🗺 Topology</a>
     </div>
     <div class="nav-section">
       <h3>Electrical</h3>
@@ -136,6 +137,53 @@
           <thead><tr><th>UID</th><th>Name</th><th>Probability Factor</th><th>Active</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Topology Diagram Tab -->
+    <div class="tab-panel" id="panel-topology">
+      <div class="topo-header">
+        <h2>Network Topology</h2>
+        <div class="topo-controls">
+          <label>Subsystem
+            <select id="topoSubsystem">
+              <option value="full">Full</option>
+              <option value="electrical">Electrical</option>
+              <option value="hydro">Hydro</option>
+            </select>
+          </label>
+          <label>Aggregation
+            <select id="topoAggregate">
+              <option value="auto" selected>Auto</option>
+              <option value="none">None (all elements)</option>
+              <option value="bus">Per Bus</option>
+              <option value="type">Per Type</option>
+              <option value="global">Global</option>
+            </select>
+          </label>
+          <label class="topo-checkbox">
+            <input type="checkbox" id="topoNoGenerators"> Hide generators
+          </label>
+          <label class="topo-checkbox">
+            <input type="checkbox" id="topoCompact"> Compact labels
+          </label>
+          <button class="primary" onclick="renderTopology()">🔄 Render</button>
+          <button class="btn-sm" onclick="topoFitView()">⊞ Fit</button>
+        </div>
+      </div>
+
+      <div id="topoStatus" class="topo-status"></div>
+
+      <!-- vis.js network container -->
+      <div id="topoNetwork" class="topo-network"></div>
+
+      <!-- Node detail popup -->
+      <div id="topoPopup" class="topo-popup" style="display:none">
+        <div class="topo-popup-header">
+          <strong id="topoPopupTitle">Node</strong>
+          <button onclick="closeTopoPopup()">&times;</button>
+        </div>
+        <div id="topoPopupBody" class="topo-popup-body"></div>
       </div>
     </div>
 
@@ -340,6 +388,9 @@
   <script src="/static/vendor/chartjs/chartjs-plugin-zoom.min.js"></script>
   <script src="/static/vendor/jsuites/jsuites.js"></script>
   <script src="/static/vendor/jspreadsheet-ce/jspreadsheet.js"></script>
+  <!-- vis.js Network for topology diagram (loaded on-demand in renderTopology) -->
+  <!-- Uses same CDN pattern as chart.js above; add SRI hash when bundling locally -->
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>
