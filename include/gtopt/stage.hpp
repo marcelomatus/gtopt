@@ -1,27 +1,23 @@
 /**
  * @file      stage.hpp
- * @brief     Time period representation for power system optimization models
+ * @brief     Planning-period (stage) definition for power system optimization
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * @struct Stage
- * @brief Represents a distinct time period in optimization planning
+ * A Stage represents an investment period in the multi-stage planning
+ * horizon.  Capacity decisions made in a stage persist into all subsequent
+ * stages.  Stage-level discount factors allow modelling the time value of
+ * money.
  *
- * Each Stage:
- * - Defines a contiguous set of time blocks
- * - Applies optional discount factors for cost calculations
- * - Can be marked active/inactive for scenario filtering
+ * ### JSON Example
+ * ```json
+ * {"uid": 1, "first_block": 0, "count_block": 24, "discount_factor": 0.9}
+ * ```
  *
- * Key attributes:
- * - uid: Unique identifier for the stage
- * - first_block: Index of first block in the stage
- * - count_block: Number of blocks in the stage
- * - discount_factor: Optional stage-specific cost multiplier
- * - active: Controls whether stage is included in optimizations
- *
- * @see StageLP for the linear programming representation
- * @see Phase for higher-level time groupings
+ * @see Block for the time blocks contained within a stage
+ * @see Phase for higher-level groupings of stages
+ * @see StageLP for the LP representation
  */
 
 #pragma once
@@ -33,15 +29,28 @@
 namespace gtopt
 {
 
+/**
+ * @struct Stage
+ * @brief Investment period grouping consecutive time blocks
+ *
+ * Each stage:
+ * - References `count_block` consecutive blocks starting at `first_block`
+ * - Applies an optional `discount_factor` to all costs incurred in this
+ *   period (present-value discounting)
+ * - Can be individually deactivated for scenario analysis
+ *
+ * @see Block for the time blocks contained within a stage
+ * @see StageLP for the linear programming representation
+ */
 struct Stage
 {
-  Uid uid {unknown_uid};
-  OptName name {};
-  OptBool active {};
+  Uid uid {unknown_uid};     ///< Unique identifier
+  OptName name {};           ///< Optional human-readable label
+  OptBool active {};         ///< Activation status (default: active)
 
-  Size first_block {0};
-  Size count_block {std::dynamic_extent};
-  OptReal discount_factor {1};
+  Size first_block {0};      ///< 0-based index of the first block in this stage [dimensionless]
+  Size count_block {std::dynamic_extent}; ///< Number of consecutive blocks in this stage [dimensionless]
+  OptReal discount_factor {1}; ///< Present-value cost multiplier for this stage [p.u.]
 
   static constexpr std::string_view class_name = "stage";
 

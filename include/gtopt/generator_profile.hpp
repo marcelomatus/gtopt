@@ -5,12 +5,26 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines the GeneratorProfile structure which contains configuration data
- * for generator operational profiles including:
- * - Identification and activation status
- * - Associated generator reference
- * - Generation profile schedule
- * - Short-term cost schedule
+ * Defines the GeneratorProfile structure which provides a time-varying
+ * capacity-factor profile for a generator. The actual available capacity in
+ * each block is `capacity × profile`, enabling renewable (solar, wind) and
+ * hydro run-of-river generation modeling.
+ *
+ * ### JSON Example — inline 24-hour solar profile
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "g3_solar",
+ *   "generator": "g3",
+ *   "profile": [0,0,0,0,0,0.1,0.4,0.7,0.9,1,1,0.95,0.9,0.85,0.8,0.6,0.3,0.1,0,0,0,0,0,0]
+ * }
+ * ```
+ *
+ * Fields that accept a `number/array/string` value can hold:
+ * - A scalar constant (applies uniformly to all blocks)
+ * - A 3-D inline array indexed by `[scenario][stage][block]`
+ * - A filename string referencing a Parquet/CSV schedule in
+ *   `input_directory/GeneratorProfile/`
  */
 
 #pragma once
@@ -21,21 +35,24 @@ namespace gtopt
 {
 
 /**
- * @brief Configuration data for generator operational profiles
+ * @brief Time-varying capacity-factor profile for a generator
  *
- * Contains all parameters needed to model a generator's operational
- * characteristics in the optimization problem.
+ * Multiplies the generator's maximum active power (`pmax` or `capacity`) by
+ * the profile value in each block.  Useful for solar irradiance, wind speed,
+ * or hydro run-of-river availability.
+ *
+ * @see Generator for the generation unit
+ * @see GeneratorProfileLP for the LP formulation
  */
 struct GeneratorProfile
 {
-  Uid uid {unknown_uid};  ///< Unique identifier for this profile
-  Name name {};  ///< Human-readable name
-  OptActive active {};  ///< Activation status schedule
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};           ///< Human-readable name
+  OptActive active {};    ///< Activation status (default: active)
 
-  SingleId generator {unknown_uid};  ///< Associated generator ID
-  STBRealFieldSched
-      profile {};  ///< Generation profile schedule (per scenario/time/block)
-  OptTRealFieldSched scost {};  ///< Short-term cost schedule (optional)
+  SingleId generator {unknown_uid};  ///< ID of the associated generator
+  STBRealFieldSched profile {};      ///< Capacity-factor profile [p.u. of installed capacity]
+  OptTRealFieldSched scost {};       ///< Short-run generation cost override [$/MWh]
 };
 
 }  // namespace gtopt

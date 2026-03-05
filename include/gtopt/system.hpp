@@ -5,7 +5,19 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the System class, which contains all the system elements.
+ * This module defines the System class, which contains all the physical
+ * elements of the power system: buses, generators, demands, lines, storage,
+ * reserves, and hydro components.
+ *
+ * ### Element categories
+ *
+ * | Category | Elements |
+ * |----------|---------|
+ * | Electrical network | Bus, Generator, Demand, Line |
+ * | Profiles | GeneratorProfile, DemandProfile |
+ * | Energy storage | Battery, Converter |
+ * | Reserve | ReserveZone, ReserveProvision |
+ * | Hydro cascade | Junction, Waterway, Flow, Reservoir, Filtration, Turbine |
  */
 
 #pragma once
@@ -32,33 +44,42 @@ namespace gtopt
 {
 
 /**
- * @brief Represents a complete power system model
+ * @brief Complete physical power system model
+ *
+ * Contains all component arrays that define the electrical network and
+ * hydro cascade system. Multiple System objects can be merged with
+ * `System::merge()`, allowing the system to be split across JSON files.
  */
 struct System
 {
-  Name name {};
-  String version {};
+  Name name {};      ///< System name (used in output filenames)
+  String version {}; ///< Optional schema version string
 
-  Array<Bus> bus_array {};
-  Array<Demand> demand_array {};
-  Array<Generator> generator_array {};
-  Array<Line> line_array {};
+  // ── Electrical network ──────────────────────────────────────────────────
+  Array<Bus> bus_array {};             ///< Electrical buses (nodes)
+  Array<Demand> demand_array {};       ///< Electrical demands (loads)
+  Array<Generator> generator_array {}; ///< Generation units
+  Array<Line> line_array {};           ///< Transmission lines
 
-  Array<GeneratorProfile> generator_profile_array {};
-  Array<DemandProfile> demand_profile_array {};
+  // ── Time-varying profiles ───────────────────────────────────────────────
+  Array<GeneratorProfile> generator_profile_array {}; ///< Capacity-factor profiles for generators
+  Array<DemandProfile> demand_profile_array {};        ///< Load-shape profiles for demands
 
-  Array<Battery> battery_array {};
-  Array<Converter> converter_array {};
+  // ── Energy storage ──────────────────────────────────────────────────────
+  Array<Battery> battery_array {};     ///< Battery energy storage systems
+  Array<Converter> converter_array {}; ///< Battery ↔ generator/demand couplings
 
-  Array<ReserveZone> reserve_zone_array {};
-  Array<ReserveProvision> reserve_provision_array {};
+  // ── Reserve modeling ────────────────────────────────────────────────────
+  Array<ReserveZone> reserve_zone_array {};         ///< Spinning-reserve requirement zones
+  Array<ReserveProvision> reserve_provision_array {};///< Generator → reserve zone links
 
-  Array<Junction> junction_array {};
-  Array<Waterway> waterway_array {};
-  Array<Flow> flow_array {};
-  Array<Reservoir> reservoir_array {};
-  Array<Filtration> filtration_array {};
-  Array<Turbine> turbine_array {};
+  // ── Hydro cascade ───────────────────────────────────────────────────────
+  Array<Junction> junction_array {};     ///< Hydraulic nodes
+  Array<Waterway> waterway_array {};     ///< Water channels between junctions
+  Array<Flow> flow_array {};             ///< Exogenous inflows / mandatory releases
+  Array<Reservoir> reservoir_array {};   ///< Water storage reservoirs
+  Array<Filtration> filtration_array {}; ///< Waterway → reservoir seepage links
+  Array<Turbine> turbine_array {};       ///< Hydro turbines (waterway → generator)
 
   /**
    * @brief Merges another system into this one

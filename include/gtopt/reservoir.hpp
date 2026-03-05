@@ -6,10 +6,34 @@
  * @copyright BSD-3-Clause
  *
  * This file defines the `gtopt::Reservoir` structure, which models a water
- * reservoir within a hydro-thermal power system. A reservoir is a key component
- * for storing and managing water resources, influencing power generation
- * schedules and water flow dynamics. It is characterized by its storage
- * capacity, operational limits, and associated costs.
+ * reservoir within a hydro-thermal power system. A reservoir stores water
+ * that drives turbines, subject to volume limits, spill constraints, and
+ * evaporation losses.
+ *
+ * ### Unit conventions
+ * - Volume fields (`emin`, `emax`, `eini`, `efin`, `capacity`): **dam³**
+ *   (decacubic metres; 1 dam³ = 1 000 m³)
+ * - Flow fields (`spillway_capacity`, `fmin`, `fmax`): **m³/s**
+ * - The default `flow_conversion_rate = 0.0036` converts m³/s × h → dam³:
+ *   `volume_dam3 = 0.0036 × flow_m3s × duration_h`
+ *
+ * ### JSON Example
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "res1",
+ *   "junction": "j1",
+ *   "emin": 100,
+ *   "emax": 5000,
+ *   "eini": 2500
+ * }
+ * ```
+ *
+ * Fields that accept a `number/array/string` value can hold:
+ * - A scalar constant
+ * - A 1-D inline array indexed by `[stage]`
+ * - A filename string referencing a Parquet/CSV schedule in
+ *   `input_directory/Reservoir/`
  */
 
 #pragma once
@@ -21,64 +45,44 @@ namespace gtopt
 {
 
 /**
- * @brief Models a water reservoir with its physical and economic attributes.
+ * @brief Water reservoir in a hydro cascade system
  *
- * This structure holds all the data defining a water reservoir, including its
- * physical properties (like capacity, minimum/maximum volumes) and economic
- * factors (like storage costs). It also links to a junction in the water
- * network. The data can be static or time-varying to model different
- * conditions over an optimization horizon.
+ * The reservoir accumulates and releases water between time blocks. The
+ * volume balance per block is:
+ * ```
+ * V[t+1] = V[t] × (1 − annual_loss/8760 × duration)
+ *        + flow_conversion_rate × (inflows − outflows) × duration
+ * ```
+ * where inflows/outflows include waterway flows, turbine discharges, natural
+ * inflows (Flow), and seepage (Filtration).
  *
- * All the volume and capacity variables or parameters are in Deca cubic
- * meters, dam3, where  1 dam3 = 1'000 m3.
- *
- * The flows are in m3/second, then in one hour, the accumulate volume for a
- * given flow is V = flow * 3600 second / (1'000 m3 / dam3).
- *
- * Example: if flow = 1 m3/second, then in one hour, the accumulated volume is
- *               V = 3.6 * flow [dam3]
- *
+ * @see Junction for the hydraulic node the reservoir is attached to
+ * @see ReservoirLP for the LP formulation
  */
 struct Reservoir
 {
-  /// @brief Unique identifier for the reservoir.
-  Uid uid {unknown_uid};
-  /// @brief Name of the reservoir.
-  Name name {};
-  /// @brief Optional flag indicating if the reservoir is active.
-  OptActive active {};
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};           ///< Human-readable name
+  OptActive active {};    ///< Activation status (default: active)
 
-  /// @brief ID of the junction associated with this reservoir.
-  SingleId junction {unknown_uid};
+  SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 
-  OptReal spillway_capacity {+6'000.0};  // in dam3/second
-  OptReal spillway_cost {};  // cost per dam3 of spillage
+  OptReal spillway_capacity {+6'000.0};  ///< Maximum uncontrolled spill capacity [m³/s]
+  OptReal spillway_cost {};              ///< Penalty cost per unit of spilled water [$/dam³]
 
-  /// @brief Optional time-varying storage capacity of the reservoir.
-  OptTRealFieldSched capacity {};
+  OptTRealFieldSched capacity {};    ///< Total usable storage capacity [dam³]
+  OptTRealFieldSched annual_loss {}; ///< Annual fractional evaporation/seepage loss [p.u./year]
+  OptTRealFieldSched emin {};        ///< Minimum allowed stored volume [dam³]
+  OptTRealFieldSched emax {};        ///< Maximum allowed stored volume [dam³]
+  OptTRealFieldSched vcost {};       ///< Shadow cost of stored water (water value) [$/dam³]
+  OptReal eini {};                   ///< Initial stored volume at start of horizon [dam³]
+  OptReal efin {};                   ///< Target stored volume at end of horizon [dam³]
 
-  /// @brief Optional time-varying annual water loss as a fraction of the stored
-  /// volume (e.g., due to evaporation).
-  OptTRealFieldSched annual_loss {};
-  /// @brief Optional time-varying minimum allowed volume.
-  OptTRealFieldSched emin {};
-  /// @brief Optional time-varying maximum allowed volume.
-  OptTRealFieldSched emax {};
-  /// @brief Optional time-varying cost associated with stored water volume.
-  OptTRealFieldSched vcost {};
-  /// @brief Optional initial volume of water at the beginning of the
-  /// optimization horizon.
-  OptReal eini {};
-  /// @brief Optional final (target) volume of water at the end of the
-  /// optimization horizon.
-  OptReal efin {};
+  OptReal fmin {-10'000.0};  ///< Minimum net flow into the reservoir junction [m³/s]
+  OptReal fmax {+10'000.0};  ///< Maximum net flow into the reservoir junction [m³/s]
 
-  OptReal fmin {-10'000.0};
-  OptReal fmax {+10'000.0};
-
-  /// @brief Optional scaling factor for volume units. Defaults to 1.0.
-  OptReal vol_scale {1.0};
-  OptReal flow_conversion_rate {0.0036};
+  OptReal vol_scale {1.0};              ///< Multiplicative scaling factor for volume units [dimensionless]
+  OptReal flow_conversion_rate {0.0036}; ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
 };
 
 }  // namespace gtopt
