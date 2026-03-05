@@ -833,14 +833,29 @@ def _read_max_fail_sol(output_dir: Path) -> float:
 
 
 def _read_solution_status(output_dir: Path) -> int:
-    """Return the solver status from ``output/solution.csv`` (0 = optimal)."""
+    """Return the solver status from ``output/solution.csv`` (0 = optimal).
+
+    gtopt writes solution.csv as a key-value CSV with leading spaces:
+
+    .. code-block:: text
+
+        obj_value,12.4342
+               kappa,1
+              status,0
+
+    We parse it with ``header=None``, strip whitespace from the first column,
+    and find the row whose key equals ``"status"``.
+    """
     sol_path = output_dir / "solution.csv"
     if not sol_path.exists():
         return -1
-    df = pd.read_csv(sol_path)
-    if "status" in df.columns:
-        return int(df["status"].iloc[0])
-    return -1
+    df = pd.read_csv(sol_path, header=None)
+    df.columns = ["key", "value"]
+    df["key"] = df["key"].str.strip()
+    status_rows = df[df["key"] == "status"]
+    if status_rows.empty:
+        return -1
+    return int(status_rows["value"].iloc[0])
 
 
 @pytest.fixture(scope="module")
