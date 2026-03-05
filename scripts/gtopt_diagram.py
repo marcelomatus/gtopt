@@ -3,53 +3,75 @@
 gtopt_diagram.py — Generate electrical, hydro and planning-structure diagrams
 from gtopt JSON planning files.
 
+This module is installed as the ``gtopt-diagram`` command-line tool.
+See ``DIAGRAM_TOOL.md`` for the full user guide.
+
 Diagram types (--diagram-type)
 -------------------------------
-``topology``  — Network topology diagram (default)
-``planning``  — Conceptual diagram of planning time structure
-                (blocks, stages, phases, scenarios and their relationships)
+``topology``  — Network topology diagram (default).
+``planning``  — Planning time hierarchy: scenarios → phases → stages → blocks.
 
 Subsystems for topology diagrams (--subsystem)
 -----------------------------------------------
-``electrical`` — Buses, generators, demands, lines, batteries, converters
-``hydro``      — Junctions, waterways, reservoirs, turbines, flows, filtrations
-``full``       — Both subsystems together (default)
+``electrical`` — Buses, generators, demands, lines, batteries, converters.
+``hydro``      — Junctions, waterways, reservoirs, turbines, flows, filtrations.
+``full``       — Both subsystems together (default).
 
 Output formats (--format)
 --------------------------
-``svg``      — Scalable SVG via Graphviz (recommended for docs)
-``png``      — Rasterised PNG via Graphviz
-``pdf``      — PDF via Graphviz
-``dot``      — Raw Graphviz DOT source
-``mermaid``  — Mermaid flowchart source (embeds in GitHub Markdown)
-``html``     — Interactive HTML with vis.js / font-awesome (open in browser)
+``svg``      — Scalable SVG via Graphviz (recommended for docs).
+``png``      — Rasterised PNG via Graphviz.
+``pdf``      — PDF via Graphviz.
+``dot``      — Raw Graphviz DOT source.
+``mermaid``  — Mermaid flowchart source (embeds in GitHub Markdown).
+``html``     — Interactive HTML with vis.js / font-awesome (open in browser).
+
+Reduction options (for large cases with many elements)
+------------------------------------------------------
+``--aggregate MODE``         Aggregate generators: none | bus | type | global.
+``--aggregate type``         One node per (bus, generator-type) pair.
+                             Types: hydro ☀️ solar 🌬️ wind ⚡ thermal 🔋 battery.
+``--voltage-threshold KV``   Lump buses below KV into their nearest HV neighbour.
+``--filter-type TYPE...``    Show only generators of listed types.
+``--focus-bus BUS...``       Show only N-hop neighbourhood of named buses.
+``--top-gens N``             Keep only top-N generators per bus by pmax.
+``--max-nodes N``            Auto-upgrade aggregation mode until ≤ N nodes.
+``--compact``                Omit pmax/gcost/reactance labels.
+``--hide-isolated``          Remove nodes with no connections.
 
 Dependencies
 ------------
-    pip install graphviz pyvis cairosvg
+    pip install "gtopt-scripts[diagram]"   # installs graphviz pyvis cairosvg
     sudo apt-get install graphviz
 
 Usage examples
 --------------
-    # Full topology SVG
-    python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+    # Small case — individual elements
+    gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
 
-    # Electrical-only interactive HTML
-    python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json \\
-        --subsystem electrical --format html -o bat4b_elec.html
+    # Large case — per-(bus,type) aggregation + voltage reduction ≥ 220 kV
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+        --aggregate type --voltage-threshold 220 --compact -o case2y_hv.svg
 
-    # Hydro-only diagram
-    python3 scripts/gtopt_diagram.py cases/hydro.json --subsystem hydro -o hydro.svg
+    # Global summary (one node per generator type)
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+        --aggregate global --compact -o case2y_global.svg
 
-    # Planning structure (no case file needed for generic diagram)
-    python3 scripts/gtopt_diagram.py --diagram-type planning -o planning.svg
+    # Hydro cascade only
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+        --subsystem hydro -o case2y_hydro.svg
 
-    # Planning structure from a real case
-    python3 scripts/gtopt_diagram.py cases/c0/system_c0.json \\
-        --diagram-type planning --format html -o c0_planning.html
+    # Interactive HTML for exploration
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+        --aggregate type --voltage-threshold 100 --compact \\
+        --format html -o case2y.html
 
-    # Mermaid snippet for embedding in Markdown
-    python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json --format mermaid
+    # Planning structure
+    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+        --diagram-type planning -o case2y_planning.svg
+
+    # Mermaid snippet for GitHub Markdown
+    gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
 """
 
 from __future__ import annotations
@@ -62,6 +84,7 @@ import os
 import sys
 import tempfile
 import textwrap
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -236,6 +259,24 @@ _ICON_SVG["filtration"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 
 _ICON_CACHE: dict[str, str] = {}
 
+# Cache-key suffix — bump when the icon SVG format changes to force re-render
+_ICON_CACHE_VER = "v2"
+
+# Mapping from palette keys to generator-type names (used in icon lookups)
+_PALETTE_TO_GEN_TYPE: dict[str, str] = {
+    "gen":       "thermal",
+    "gen_solar": "solar",
+    "gen_hydro": "hydro",
+}
+
+# Layout algorithm thresholds (node count) — chosen empirically
+_LAYOUT_DOT_THRESHOLD   = 10    # dot:   hierarchical, best for ≤10 nodes
+_LAYOUT_NEATO_THRESHOLD = 40    # neato: spring-model, fast for ≤40 nodes
+_LAYOUT_FDP_THRESHOLD   = 150   # fdp:   force-directed, ≤150 nodes
+
+# Maximum BFS depth when searching for the nearest HV bus; prevents infinite
+# loops in pathological cases while being sufficient for any real power network
+_VOLTAGE_BFS_MAX_DEPTH = 20
 
 def _icon_cache_dir() -> str:
     d = os.path.join(tempfile.gettempdir(), "gtopt_icons")
@@ -244,17 +285,28 @@ def _icon_cache_dir() -> str:
 
 
 def _icon_png_path(kind: str) -> Optional[str]:
-    """Return absolute path to a cached PNG icon, creating it if needed."""
-    if kind not in _ICON_SVG:
+    """Return absolute path to a cached PNG icon, creating it if needed.
+
+    Looks up *kind* first in the element-type icon dict (``_ICON_SVG``), then
+    falls back to the generator-type specific icons (``_GEN_TYPE_ICON_SVG``).
+    Returns *None* when *cairosvg* is not installed.
+    """
+    # Determine the SVG source — prefer element icons, fall back to gen-type icons
+    svg_src = _ICON_SVG.get(kind)
+    if svg_src is None:
+        gt = _PALETTE_TO_GEN_TYPE.get(kind)
+        if gt:
+            svg_src = _GEN_TYPE_ICON_SVG.get(gt)
+    if svg_src is None:
         return None
-    if kind in _ICON_CACHE:
-        return _ICON_CACHE[kind]
+    cache_key = f"{kind}_{_ICON_CACHE_VER}"
+    if cache_key in _ICON_CACHE:
+        return _ICON_CACHE[cache_key]
     try:
         import cairosvg  # noqa: PLC0415
     except ImportError:
         return None
     cache_dir = _icon_cache_dir()
-    svg_src   = _ICON_SVG[kind]
     sig       = hashlib.md5(svg_src.encode()).hexdigest()[:8]
     png_path  = os.path.join(cache_dir, f"icon_{kind}_{sig}.png")
     if not os.path.exists(png_path):
@@ -262,14 +314,19 @@ def _icon_png_path(kind: str) -> Optional[str]:
                                     output_width=48, output_height=48)
         with open(png_path, "wb") as fh:
             fh.write(png_data)
-    _ICON_CACHE[kind] = png_path
+    _ICON_CACHE[cache_key] = png_path
     return png_path
 
 
 def _icon_b64_uri(kind: str) -> str:
-    """Return a base64 data URI for the SVG icon (for HTML embedding)."""
-    svg = _ICON_SVG.get(kind, "")
-    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode() if svg else ""
+    """Return a base64 data URI for the best SVG icon for *kind*."""
+    svg = _ICON_SVG.get(kind)
+    if svg is None:
+        gt = _PALETTE_TO_GEN_TYPE.get(kind)
+        svg = _GEN_TYPE_ICON_SVG.get(gt, "") if gt else ""
+    return ("data:image/svg+xml;base64,"
+            + base64.b64encode(svg.encode()).decode()) if svg else ""
+
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +394,10 @@ _MM_ICONS: dict[str, str] = {
     "turbine":    "⚙️",
     "flow":       "🌊",
     "filtration": "🔽",
+    # aggregated generator nodes inherit the type icon
+    "gen_wind":   "🌬️",
+    "gen_nuclear": "☢️",
+    "gen_gas":    "🔥",
 }
 
 _FA_CDN = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -371,6 +432,203 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
     "junction": 28, "reservoir": 28, "turbine": 22,
     "flow": 16,  "filtration": 14,
 }
+
+
+# ---------------------------------------------------------------------------
+# Generator-type classification
+# ---------------------------------------------------------------------------
+
+# Map internal type key → (display label, mermaid-icon, palette-key)
+_GEN_TYPE_META: dict[str, tuple[str, str, str]] = {
+    "hydro":   ("Hydro",   "💧", "gen_hydro"),
+    "solar":   ("Solar",   "☀️", "gen_solar"),
+    "wind":    ("Wind",    "🌬️", "gen_solar"),   # reuse solar palette
+    "battery": ("BESS",    "🔋", "battery"),
+    "thermal": ("Thermal", "⚡", "gen"),
+}
+
+
+def _turbine_gen_refs(sys: dict) -> set:
+    """Return the set of generator uid/name references that have a turbine."""
+    refs: set = set()
+    for t in sys.get("turbine_array", []):
+        g = t.get("generator")
+        if g is not None:
+            refs.add(g)
+    return refs
+
+
+def _classify_gen(gen: dict, turb_refs: set) -> str:
+    """Classify a generator as 'hydro', 'solar', 'wind', 'battery', or 'thermal'."""
+    uid  = gen.get("uid")
+    name_ref = gen.get("name")
+    name = str(name_ref or "").lower()
+    if uid in turb_refs or name_ref in turb_refs:
+        return "hydro"
+    if any(k in name for k in ("solar", "pv", "foto", "fotov", "cspv")):
+        return "solar"
+    if any(k in name for k in ("wind", "eol", "eólico", "eolico", "aerog")):
+        return "wind"
+    if any(k in name for k in ("bat", "bess", "ess", "storage", "almac")):
+        return "battery"
+    return "thermal"
+
+
+def _gen_pmax(gen: dict) -> float:
+    v = gen.get("pmax") or gen.get("capacity")
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, list):
+        flat: list[float] = []
+        def _flatten_numeric(x):  # noqa: ANN001
+            if isinstance(x, list):
+                for i in x: _flatten_numeric(i)
+            elif isinstance(x, (int, float)):
+                flat.append(float(x))
+        _flatten_numeric(v)
+        return max(flat) if flat else 0.0
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# FilterOptions — controls diagram reduction for large cases
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FilterOptions:
+    """Controls element-reduction strategies for large gtopt diagrams.
+
+    Aggregation modes (``--aggregate``):
+      ``none``    Show every individual element (default; best for small cases).
+      ``bus``     Collapse all generators at each bus into one summary node.
+      ``type``    Collapse generators by type (hydro/solar/wind/thermal/BESS)
+                  within each bus — one node per (bus, type) pair.
+      ``global``  One node per generator type for the whole system.
+
+    Additional filters:
+      ``top_gens``          Keep only the top-N generators by pmax per bus (0 = all).
+      ``filter_types``      List of generator types to include (empty = all).
+      ``focus_buses``       Show only elements reachable within ``focus_hops`` hops
+                            from the named buses.
+      ``max_nodes``         Hard cap: if node count would exceed this, auto-upgrade
+                            to the next aggregation mode.
+      ``hide_isolated``     Remove nodes with no edges.
+      ``compact``           Suppress detail labels (show only name/type/count).
+      ``voltage_threshold`` Lump buses (and their lines) below this voltage [kV]
+                            into their nearest high-voltage neighbour.  Buses
+                            without a ``voltage`` field are never lumped.
+                            0 = disabled (default).
+    """
+    aggregate:         str        = "none"   # none | bus | type | global
+    top_gens:          int        = 0        # 0 = no limit
+    filter_types:      list[str]  = field(default_factory=list)
+    focus_buses:       list[str]  = field(default_factory=list)
+    focus_hops:        int        = 2
+    max_nodes:         int        = 0        # 0 = no limit
+    hide_isolated:     bool       = False
+    compact:           bool       = False
+    voltage_threshold: float      = 0.0     # kV; 0 = disabled
+
+
+# ---------------------------------------------------------------------------
+# Voltage-level bus reduction
+# ---------------------------------------------------------------------------
+
+def _build_voltage_map(
+    buses: list[dict],
+    lines: list[dict],
+    threshold: float,
+) -> dict:
+    """Return a mapping {bus_ref -> representative_hv_bus_ref}.
+
+    Every bus whose ``voltage`` field is set and is **strictly less** than
+    *threshold* [kV] is mapped to the nearest bus with voltage ≥ threshold
+    reachable via the line network.  Buses without a voltage field and buses
+    already at or above the threshold map to themselves.
+
+    The representative bus is chosen by BFS over the adjacency graph built
+    from ``line_array``.  If no high-voltage neighbour is found within 20 hops
+    the low-voltage bus is left unmapped (maps to itself).
+    """
+    if threshold <= 0:
+        return {}
+
+    # Build adjacency using whichever reference type appears in the lines
+    adj: dict = defaultdict(set)
+    for line in lines:
+        a = line.get("bus_a")
+        b = line.get("bus_b")
+        if a is not None and b is not None:
+            adj[a].add(b)
+            adj[b].add(a)
+
+    # Collect voltage per bus reference (uid and name both used as keys)
+    bus_voltage: dict = {}
+    for bus in buses:
+        uid  = bus.get("uid")
+        name = bus.get("name")
+        v    = bus.get("voltage")
+        try:
+            fv: Optional[float] = float(v) if v is not None else None
+        except (ValueError, TypeError):
+            fv = None
+        for ref in (uid, name):
+            if ref is not None:
+                bus_voltage[ref] = fv
+
+    def _is_hv(ref) -> bool:
+        v = bus_voltage.get(ref)
+        return v is None or v >= threshold  # unknown → treat as HV to avoid
+                                            # unintended lumping of buses whose
+                                            # voltage was not provided in the JSON
+
+    result: dict = {}
+    for bus in buses:
+        uid  = bus.get("uid")
+        name = bus.get("name")
+        ref  = uid if uid is not None else name
+        if ref is None:
+            continue
+        if _is_hv(ref):
+            result[ref] = ref
+            if name is not None and name != ref:
+                result[name] = name
+            continue
+
+        # BFS from this LV bus to find the nearest HV bus
+        visited: set = {uid, name} - {None}
+        queue   = list(visited)
+        found   = None
+        for _ in range(_VOLTAGE_BFS_MAX_DEPTH):
+            if not queue:
+                break
+            next_q: list = []
+            for curr in queue:
+                for nb in adj.get(curr, set()):
+                    if nb in visited:
+                        continue
+                    if _is_hv(nb):
+                        found = nb
+                        break
+                    visited.add(nb)
+                    next_q.append(nb)
+                if found:
+                    break
+            if found:
+                break
+            queue = next_q
+
+        rep = found if found is not None else ref
+        result[ref] = rep
+        if name is not None and name != ref:
+            result[name] = rep
+
+    return result
+
+
+def _resolve_bus_ref(ref, vmap: dict):
+    """Translate a bus reference through the voltage map (identity if absent)."""
+    return vmap.get(ref, ref)
 
 
 # ---------------------------------------------------------------------------
@@ -418,12 +676,12 @@ def _scalar(v) -> str:
         return str(int(v)) if isinstance(v, float) and v == int(v) else str(v)
     if isinstance(v, list):
         flat: list = []
-        def _fl(x):
+        def _flatten_values(x):  # noqa: ANN001
             if isinstance(x, list):
-                for i in x: _fl(i)
+                for i in x: _flatten_values(i)
             else:
                 flat.append(x)
-        _fl(v)
+        _flatten_values(v)
         if flat:
             mn, mx = min(flat), max(flat)
             return f"{mn}\u2026{mx}" if mn != mx else _scalar(mn)
@@ -440,122 +698,436 @@ def _resolve(arr: list[dict], ref) -> Optional[dict]:
     return None
 
 # ---------------------------------------------------------------------------
-# Topology builder — builds a GraphModel from a gtopt JSON file
+# SVG icons for generator types — used in Graphviz HTML labels and HTML output
+# ---------------------------------------------------------------------------
+
+_GEN_TYPE_ICON_SVG: dict[str, str] = {}
+
+_GEN_TYPE_ICON_SVG["thermal"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><radialGradient id="rg" cx="50%" cy="60%" r="55%">
+    <stop offset="0%" stop-color="#FEF9E7"/><stop offset="100%" stop-color="#F0B27A"/>
+  </radialGradient></defs>
+  <circle cx="24" cy="28" r="18" fill="url(#rg)" stroke="#E67E22" stroke-width="2.5"/>
+  <path d="M9 28 C12 22 15 22 18 28 C21 34 24 34 27 28 C30 22 33 22 36 28"
+        fill="none" stroke="#E67E22" stroke-width="2.2" stroke-linecap="round"/>
+  <rect x="20" y="6" width="8" height="14" rx="2" fill="#BDC3C7" stroke="#7F8C8D" stroke-width="1.5"/>
+  <rect x="17" y="3" width="14" height="5" rx="1" fill="#95A5A6"/>
+  <path d="M22 6 Q22 1 24 1 Q26 1 26 6" fill="#E74C3C" opacity="0.7"/>
+  <line x1="24" y1="8" x2="24" y2="12" stroke="#E74C3C" stroke-width="2"/>
+  <circle cx="24" cy="46" r="2" fill="#7F8C8D"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["hydro"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="dam" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#BDC3C7"/><stop offset="100%" stop-color="#7F8C8D"/>
+    </linearGradient>
+    <linearGradient id="wtr" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#AED6F1"/><stop offset="100%" stop-color="#2980B9"/>
+    </linearGradient>
+  </defs>
+  <polygon points="4,44 10,8 38,8 44,44" fill="url(#dam)" stroke="#5D6D7E" stroke-width="2"/>
+  <polygon points="10,8 38,8 36,44 12,44" fill="url(#wtr)" opacity="0.8"/>
+  <path d="M13 22 Q18 18 23 22 Q28 26 33 22"
+        fill="none" stroke="white" stroke-width="1.8" opacity="0.9"/>
+  <circle cx="24" cy="36" r="5" fill="#1A5276" stroke="white" stroke-width="1.5"/>
+  <text x="24" y="40" text-anchor="middle" font-family="Arial" font-weight="bold"
+        font-size="7" fill="white">G</text>
+  <line x1="24" y1="41" x2="24" y2="46" stroke="#1A5276" stroke-width="2.5"/>
+  <circle cx="24" cy="47" r="2" fill="#1A5276"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["solar"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="pv" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#FDEBD0"/><stop offset="100%" stop-color="#F8C471"/>
+  </linearGradient></defs>
+  <g stroke="#F39C12" stroke-width="2.2" stroke-linecap="round">
+    <line x1="24" y1="4" x2="24" y2="10"/>
+    <line x1="24" y1="38" x2="24" y2="44"/>
+    <line x1="4" y1="24" x2="10" y2="24"/>
+    <line x1="38" y1="24" x2="44" y2="24"/>
+    <line x1="9" y1="9" x2="13" y2="13"/>
+    <line x1="35" y1="35" x2="39" y2="39"/>
+    <line x1="39" y1="9" x2="35" y2="13"/>
+    <line x1="9" y1="39" x2="13" y2="35"/>
+  </g>
+  <rect x="10" y="16" width="28" height="16" rx="2"
+        fill="url(#pv)" stroke="#E67E22" stroke-width="2"/>
+  <line x1="19" y1="16" x2="19" y2="32" stroke="#E67E22" stroke-width="1" opacity="0.6"/>
+  <line x1="29" y1="16" x2="29" y2="32" stroke="#E67E22" stroke-width="1" opacity="0.6"/>
+  <line x1="10" y1="24" x2="38" y2="24" stroke="#E67E22" stroke-width="1" opacity="0.6"/>
+  <circle cx="24" cy="24" r="3.5" fill="#F39C12" opacity="0.85"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["wind"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="wnd" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#EBF5FB"/><stop offset="100%" stop-color="#5DADE2"/>
+  </linearGradient></defs>
+  <polygon points="22,44 26,44 25,20 23,20" fill="#BDC3C7" stroke="#95A5A6" stroke-width="1"/>
+  <ellipse cx="24" cy="20" rx="4" ry="3" fill="#7F8C8D"/>
+  <path d="M24 20 Q20 14 18 8 Q22 11 24 20" fill="url(#wnd)" stroke="#2980B9" stroke-width="1.2"/>
+  <path d="M24 20 Q32 18 39 17 Q36 21 24 20" fill="url(#wnd)" stroke="#2980B9" stroke-width="1.2"/>
+  <path d="M24 20 Q22 28 20 35 Q18 31 24 20" fill="url(#wnd)" stroke="#2980B9" stroke-width="1.2"/>
+  <circle cx="24" cy="20" r="2.5" fill="#566573"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["battery_discharge"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="batt" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stop-color="#E8DAEF"/><stop offset="100%" stop-color="#9B59B6"/>
+  </linearGradient></defs>
+  <rect x="5" y="13" width="38" height="24" rx="3" fill="url(#batt)" stroke="#7D3C98" stroke-width="2.5"/>
+  <rect x="19" y="8" width="10" height="5" rx="1" fill="#7D3C98"/>
+  <rect x="10" y="17" width="5" height="16" rx="1" fill="#7D3C98"/>
+  <rect x="18" y="17" width="5" height="16" rx="1" fill="#7D3C98"/>
+  <rect x="26" y="17" width="5" height="16" rx="1" fill="#7D3C98"/>
+  <rect x="34" y="17" width="5" height="16" rx="1" fill="#D7BDE2"/>
+  <polygon points="44,28 40,24 40,32" fill="#E74C3C"/>
+  <line x1="40" y1="28" x2="47" y2="28" stroke="#E74C3C" stroke-width="2.5"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["nuclear"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><radialGradient id="nuc" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#FDEDEC"/><stop offset="100%" stop-color="#E74C3C"/>
+  </radialGradient></defs>
+  <circle cx="24" cy="24" r="20" fill="url(#nuc)" stroke="#C0392B" stroke-width="2.5"/>
+  <circle cx="24" cy="24" r="4" fill="#C0392B"/>
+  <path d="M24 20 Q18 10 12 8 Q16 14 24 20" fill="#C0392B" opacity="0.85"/>
+  <path d="M28 26 Q38 22 40 16 Q34 20 28 26" fill="#C0392B" opacity="0.85"/>
+  <path d="M20 26 Q10 30 8 36 Q14 32 20 26" fill="#C0392B" opacity="0.85"/>
+  <circle cx="24" cy="24" r="2.5" fill="white"/>
+</svg>"""
+
+_GEN_TYPE_ICON_SVG["gas"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="gas" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#FEF9E7"/><stop offset="100%" stop-color="#F8C471"/>
+  </linearGradient></defs>
+  <ellipse cx="24" cy="30" rx="16" ry="12" fill="url(#gas)" stroke="#E67E22" stroke-width="2.5"/>
+  <path d="M24 22 Q30 16 36 14 Q32 20 24 22" fill="#E67E22" opacity="0.8"/>
+  <path d="M24 22 Q18 28 16 34 Q12 28 24 22" fill="#E67E22" opacity="0.8"/>
+  <circle cx="24" cy="22" r="3" fill="#D35400"/>
+  <rect x="20" y="6" width="8" height="14" rx="3" fill="#95A5A6" stroke="#7F8C8D" stroke-width="1.5"/>
+  <path d="M22 6 Q22 2 24 2 Q26 2 26 6" fill="#E74C3C" opacity="0.6"/>
+</svg>"""
+
+
+def _gen_type_icon_svg(gen_type: str) -> str:
+    """Return the best SVG string for a generator type."""
+    mapping = {
+        "hydro":   "hydro",
+        "solar":   "solar",
+        "wind":    "wind",
+        "battery": "battery_discharge",
+        "nuclear": "nuclear",
+        "gas":     "gas",
+        "thermal": "thermal",
+    }
+    key = mapping.get(gen_type, "thermal")
+    return _GEN_TYPE_ICON_SVG.get(key) or _ICON_SVG.get("gen", "")
+
+
+def _icon_key_for_type(gen_type: str) -> str:
+    return {
+        "hydro":   "gen_hydro",
+        "solar":   "gen_solar",
+        "wind":    "gen_solar",
+        "battery": "battery",
+        "nuclear": "gen",
+        "gas":     "gen",
+        "thermal": "gen",
+    }.get(gen_type, "gen")
+
+
+def _dominant_kind(types: list) -> str:
+    counts: dict = {}
+    for t in types:
+        counts[t] = counts.get(t, 0) + 1
+    for p in ["hydro", "solar", "wind", "battery", "thermal"]:
+        if counts.get(p, 0) > 0:
+            return _GEN_TYPE_META.get(p, ("?", "⚡", "gen"))[2]
+    return "gen"
+
+
+# ---------------------------------------------------------------------------
+# Topology builder
 # ---------------------------------------------------------------------------
 
 class TopologyBuilder:
-    def __init__(self, planning: dict, subsystem: str = "full"):
-        self.sys      = planning.get("system", {})
-        self.subsystem = subsystem
-        self.model    = GraphModel(title=self.sys.get("name", "gtopt Network"))
+    """Build a GraphModel from a gtopt JSON planning structure."""
 
-    # ── node ID helpers ──────────────────────────────────────────────────────
+    def __init__(self, planning, subsystem="full", opts=None):
+        self.sys        = planning.get("system", {})
+        self.subsystem  = subsystem
+        self.opts       = opts or FilterOptions()
+        self.model      = GraphModel(title=self.sys.get("name", "gtopt Network"))
+        self._turb_refs = _turbine_gen_refs(self.sys)
+        self._vmap      = _build_voltage_map(
+            self.sys.get("bus_array", []),
+            self.sys.get("line_array", []),
+            self.opts.voltage_threshold,
+        )
+        self._bus_node_ids: set = set()
+        self._eff_agg: str = "none"
+        self._focus_nids = None
+
     @staticmethod
-    def _bid(b):  return f"bus_{b.get('uid', b.get('name','?'))}"
+    def _bid(b):   return f"bus_{b.get('uid', b.get('name','?'))}"
     @staticmethod
-    def _gid(g):  return f"gen_{g.get('uid', g.get('name','?'))}"
+    def _gid(g):   return f"gen_{g.get('uid', g.get('name','?'))}"
     @staticmethod
-    def _did(d):  return f"dem_{d.get('uid', d.get('name','?'))}"
+    def _did(d):   return f"dem_{d.get('uid', d.get('name','?'))}"
     @staticmethod
     def _batid(b): return f"bat_{b.get('uid', b.get('name','?'))}"
     @staticmethod
-    def _cid(c):  return f"conv_{c.get('uid', c.get('name','?'))}"
+    def _cid(c):   return f"conv_{c.get('uid', c.get('name','?'))}"
     @staticmethod
-    def _jid(j):  return f"junc_{j.get('uid', j.get('name','?'))}"
+    def _jid(j):   return f"junc_{j.get('uid', j.get('name','?'))}"
     @staticmethod
-    def _rid(r):  return f"res_{r.get('uid', r.get('name','?'))}"
+    def _rid(r):   return f"res_{r.get('uid', r.get('name','?'))}"
     @staticmethod
-    def _tid(t):  return f"turb_{t.get('uid', t.get('name','?'))}"
+    def _tid(t):   return f"turb_{t.get('uid', t.get('name','?'))}"
     @staticmethod
-    def _fid(f):  return f"flow_{f.get('uid', f.get('name','?'))}"
-    @staticmethod
-    def _wwid(w): return f"wway_{w.get('uid', w.get('name','?'))}"
+    def _fid(f):   return f"flow_{f.get('uid', f.get('name','?'))}"
 
-    def _find(self, arr_key: str, ref) -> Optional[dict]:
+    def _find(self, arr_key, ref):
         return _resolve(self.sys.get(arr_key, []), ref)
 
-    def _find_node_id(self, arr_key: str, ref, id_fn) -> Optional[str]:
+    def _find_node_id(self, arr_key, ref, id_fn):
         item = self._find(arr_key, ref)
         return id_fn(item) if item else None
 
-    def _gen_kind(self, gen: dict) -> str:
-        name  = str(gen.get("name", "")).lower()
-        uid   = gen.get("uid") or gen.get("name")
-        for t in self.sys.get("turbine_array", []):
-            if t.get("generator") in (uid, gen.get("name")):
-                return "gen_hydro"
-        if any(k in name for k in ("solar", "pv", "foto", "wind", "eol")):
-            return "gen_solar"
-        return "gen"
+    def _bus_node_id(self, bus_ref):
+        rep  = _resolve_bus_ref(bus_ref, self._vmap)
+        bus  = self._find("bus_array", rep) or self._find("bus_array", bus_ref)
+        if bus is None:
+            return None
+        nid  = self._bid(bus)
+        return nid if nid in self._bus_node_ids else None
 
-    # ── public build entry point ─────────────────────────────────────────────
-    def build(self) -> GraphModel:
+    def _gen_kind(self, gen):
+        gt = _classify_gen(gen, self._turb_refs)
+        return {"hydro": "gen_hydro", "solar": "gen_solar", "wind": "gen_solar"}.get(gt, "gen")
+
+    def build(self):
+        agg = self.opts.aggregate
+        if self.opts.max_nodes > 0:
+            n_g = len(self.sys.get("generator_array", []))
+            n_b = len(self.sys.get("bus_array", []))
+            n_d = len(self.sys.get("demand_array", []))
+            rough = n_b + n_g + n_d
+            if agg == "none" and rough > self.opts.max_nodes:
+                agg = "bus"
+            if agg == "bus" and (n_b * 2 + n_d) > self.opts.max_nodes:
+                agg = "type"
+            if agg == "type" and n_b * 6 > self.opts.max_nodes * 2:
+                agg = "global"
+        self._eff_agg = agg
+        self._focus_nids = self._compute_focus_set() if self.opts.focus_buses else None
         s = self.subsystem
         if s in ("full", "electrical"):
             self._buses(); self._generators(); self._demands()
             self._lines(); self._batteries(); self._converters()
         if s in ("full", "hydro"):
             self._junctions(); self._waterways(); self._reservoirs()
-            self._turbines();  self._flows();     self._filtrations()
+            self._turbines(); self._flows(); self._filtrations()
+        if self.opts.hide_isolated:
+            connected = {e.src for e in self.model.edges} | {e.dst for e in self.model.edges}
+            self.model.nodes = [n for n in self.model.nodes if n.node_id in connected]
         return self.model
 
-    # ── electrical elements ──────────────────────────────────────────────────
+    def _compute_focus_set(self):
+        adj = defaultdict(set)
+        for line in self.sys.get("line_array", []):
+            ab = self._find("bus_array", line.get("bus_a"))
+            bb = self._find("bus_array", line.get("bus_b"))
+            if ab and bb:
+                a, b = self._bid(ab), self._bid(bb)
+                adj[a].add(b); adj[b].add(a)
+        seeds = set()
+        for fb in self.opts.focus_buses:
+            bus = self._find("bus_array", fb)
+            if bus:
+                seeds.add(self._bid(bus))
+        visited, frontier = set(seeds), set(seeds)
+        for _ in range(self.opts.focus_hops):
+            nxt = set()
+            for nid in frontier:
+                for nb in adj.get(nid, set()):
+                    if nb not in visited:
+                        visited.add(nb); nxt.add(nb)
+            frontier = nxt
+        return visited
+
     def _buses(self):
+        seen = set()
         for bus in self.sys.get("bus_array", []):
+            ref = bus.get("uid") if bus.get("uid") is not None else bus.get("name")
+            rep = _resolve_bus_ref(ref, self._vmap)
+            if rep != ref:
+                continue
+            nid = self._bid(bus)
+            if nid in seen:
+                continue
+            seen.add(nid)
+            if self._focus_nids is not None and nid not in self._focus_nids:
+                continue
             v    = f"\n{bus['voltage']} kV" if "voltage" in bus else ""
             name = bus.get("name", bus.get("uid", "?"))
             self.model.add_node(Node(
-                node_id=self._bid(bus), label=f"{name}{v}", kind="bus",
-                cluster="electrical",
+                node_id=nid, label=f"{name}{v}", kind="bus", cluster="electrical",
                 tooltip=f"Bus uid={bus.get('uid')} name={name}{v}",
             ))
+            self._bus_node_ids.add(nid)
 
     def _generators(self):
-        for gen in self.sys.get("generator_array", []):
-            name  = gen.get("name", gen.get("uid", "?"))
+        gens = self.sys.get("generator_array", [])
+        ftypes = [t.lower() for t in self.opts.filter_types]
+        if ftypes:
+            gens = [g for g in gens if _classify_gen(g, self._turb_refs) in ftypes]
+        agg = self._eff_agg
+        if agg == "none":   self._gen_individual(gens)
+        elif agg == "bus":  self._gen_agg_bus(gens)
+        elif agg == "type": self._gen_agg_type(gens)
+        else:               self._gen_agg_global(gens)
+
+    def _gen_individual(self, gens):
+        for gen in gens:
             pmax  = _scalar(gen.get("pmax") or gen.get("capacity"))
             gcost = _scalar(gen.get("gcost", "\u2014"))
+            gt    = _classify_gen(gen, self._turb_refs)
             kind  = self._gen_kind(gen)
+            name  = gen.get("name", gen.get("uid", "?"))
+            lbl   = f"{name}\n{pmax} MW" if self.opts.compact else f"{name}\n{pmax} MW  {gcost} $/MWh"
+            nid   = self._gid(gen)
             self.model.add_node(Node(
-                node_id=self._gid(gen), label=f"{name}\n{pmax} MW  {gcost} $/MWh",
-                kind=kind, cluster="electrical",
-                tooltip=f"Generator uid={gen.get('uid')} pmax={pmax} gcost={gcost}",
+                node_id=nid, label=lbl, kind=kind, cluster="electrical",
+                tooltip=f"Generator uid={gen.get('uid')} type={gt} pmax={pmax} gcost={gcost}",
             ))
-            bus_id = self._find_node_id("bus_array", gen.get("bus"), self._bid)
+            bus_id = self._bus_node_id(gen.get("bus"))
             if bus_id:
-                self.model.add_edge(Edge(self._gid(gen), bus_id,
-                                        color=_PALETTE[f"{kind}_border"]))
+                self.model.add_edge(Edge(nid, bus_id, color=_PALETTE[f"{kind}_border"]))
+
+    def _gen_agg_bus(self, gens):
+        by_bus = defaultdict(list)
+        for g in gens:
+            by_bus[g.get("bus")].append(g)
+        for bus_ref, grp in by_bus.items():
+            bus_id = self._bus_node_id(bus_ref)
+            if bus_id is None:
+                continue
+            if self.opts.top_gens > 0:
+                grp = sorted(grp, key=_gen_pmax, reverse=True)[:self.opts.top_gens]
+            total = sum(_gen_pmax(g) for g in grp)
+            bname = bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}"
+            types = [_classify_gen(g, self._turb_refs) for g in grp]
+            kind  = _dominant_kind(types)
+            nid   = f"agg_bus_{bus_ref}"
+            lbl   = f"{bname} generators\n{len(grp)} units · {total:.0f} MW"
+            self.model.add_node(Node(
+                node_id=nid, label=lbl, kind=kind, cluster="electrical",
+                tooltip=f"Agg. generators at {bname}: {len(grp)} units, {total:.0f} MW",
+            ))
+            self.model.add_edge(Edge(nid, bus_id, color=_PALETTE[f"{kind}_border"]))
+
+    def _gen_agg_type(self, gens):
+        by_bus_type = defaultdict(list)
+        for g in gens:
+            gt = _classify_gen(g, self._turb_refs)
+            by_bus_type[(g.get("bus"), gt)].append(g)
+        for (bus_ref, gt), grp in by_bus_type.items():
+            bus_id = self._bus_node_id(bus_ref)
+            if bus_id is None:
+                continue
+            if self.opts.top_gens > 0:
+                grp = sorted(grp, key=_gen_pmax, reverse=True)[:self.opts.top_gens]
+            total = sum(_gen_pmax(g) for g in grp)
+            bname = bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}"
+            meta  = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
+            label, icon, palette_key = meta
+            nid   = f"agg_type_{bus_ref}_{gt}"
+            lbl   = f"{icon} {label} @ {bname}\n{len(grp)} units · {total:.0f} MW"
+            self.model.add_node(Node(
+                node_id=nid, label=lbl, kind=palette_key, cluster="electrical",
+                tooltip=f"{label} at {bname}: {len(grp)} units, {total:.0f} MW",
+            ))
+            border = _PALETTE.get(f"{palette_key}_border", _PALETTE["gen_border"])
+            self.model.add_edge(Edge(nid, bus_id, color=border))
+
+    def _gen_agg_global(self, gens):
+        by_type = defaultdict(list)
+        for g in gens:
+            by_type[_classify_gen(g, self._turb_refs)].append(g)
+        for gt, grp in by_type.items():
+            if self.opts.top_gens > 0:
+                grp = sorted(grp, key=_gen_pmax, reverse=True)[:self.opts.top_gens]
+            total = sum(_gen_pmax(g) for g in grp)
+            meta  = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
+            label, icon, palette_key = meta
+            nid   = f"agg_global_{gt}"
+            lbl   = f"{icon} {label}\n{len(grp)} units · {total:.0f} MW total"
+            self.model.add_node(Node(
+                node_id=nid, label=lbl, kind=palette_key, cluster="electrical",
+                tooltip=f"All {label}: {len(grp)} units, {total:.0f} MW",
+            ))
+            seen_buses: set = set()
+            for gen in grp:
+                bus_id = self._bus_node_id(gen.get("bus"))
+                if bus_id and bus_id not in seen_buses:
+                    seen_buses.add(bus_id)
+                    border = _PALETTE.get(f"{palette_key}_border", _PALETTE["gen_border"])
+                    self.model.add_edge(Edge(nid, bus_id, color=border))
 
     def _demands(self):
         for dem in self.sys.get("demand_array", []):
-            name = dem.get("name", dem.get("uid", "?"))
-            lmax = _scalar(dem.get("lmax"))
+            name   = dem.get("name", dem.get("uid", "?"))
+            lmax   = _scalar(dem.get("lmax"))
+            nid    = self._did(dem)
+            lbl    = f"{name}" if self.opts.compact else f"{name}\n{lmax} MW"
             self.model.add_node(Node(
-                node_id=self._did(dem), label=f"{name}\n{lmax} MW",
-                kind="demand", cluster="electrical",
+                node_id=nid, label=lbl, kind="demand", cluster="electrical",
                 tooltip=f"Demand uid={dem.get('uid')} name={name} lmax={lmax}",
             ))
-            bus_id = self._find_node_id("bus_array", dem.get("bus"), self._bid)
+            bus_id = self._bus_node_id(dem.get("bus"))
             if bus_id:
-                self.model.add_edge(Edge(bus_id, self._did(dem),
-                                        color=_PALETTE["demand_border"]))
+                self.model.add_edge(Edge(bus_id, nid, color=_PALETTE["demand_border"]))
 
     def _lines(self):
+        seen_edges: set = set()
         for line in self.sys.get("line_array", []):
-            name = line.get("name", line.get("uid", "?"))
-            x    = line.get("reactance", "")
-            tmax = line.get("tmax_ab", line.get("tmax_ba", ""))
-            parts = [name]
-            if x:    parts.append(f"x={x} p.u.")
-            if tmax: parts.append(f"{_scalar(tmax)} MW")
-            bus_a = self._find_node_id("bus_array", line.get("bus_a"), self._bid)
-            bus_b = self._find_node_id("bus_array", line.get("bus_b"), self._bid)
-            if bus_a and bus_b:
-                self.model.add_edge(Edge(
-                    src=bus_a, dst=bus_b, label="\n".join(parts),
-                    color=_PALETTE["line_edge"], directed=False,
-                    weight=float(tmax) if tmax else 1.0,
-                ))
+            a_ref = line.get("bus_a")
+            b_ref = line.get("bus_b")
+            rep_a = _resolve_bus_ref(a_ref, self._vmap)
+            rep_b = _resolve_bus_ref(b_ref, self._vmap)
+            if rep_a == rep_b and self.opts.voltage_threshold > 0:
+                continue
+            ba = self._find("bus_array", rep_a) or self._find("bus_array", a_ref)
+            bb = self._find("bus_array", rep_b) or self._find("bus_array", b_ref)
+            if not ba or not bb:
+                continue
+            aid, bid2 = self._bid(ba), self._bid(bb)
+            if aid not in self._bus_node_ids or bid2 not in self._bus_node_ids:
+                continue
+            if aid == bid2:
+                continue
+            # De-duplicate parallel lines in voltage-aggregated mode
+            edge_key = tuple(sorted([aid, bid2]))
+            if self.opts.voltage_threshold > 0 and edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            name  = line.get("name", line.get("uid", "?"))
+            x     = line.get("reactance", "")
+            tmax  = line.get("tmax_ab", line.get("tmax_ba", ""))
+            if self.opts.compact:
+                lbl = str(name)
+            else:
+                parts = [str(name)]
+                if x:    parts.append(f"x={x} p.u.")
+                if tmax: parts.append(f"{_scalar(tmax)} MW")
+                lbl = "\n".join(parts)
+            self.model.add_edge(Edge(
+                src=aid, dst=bid2, label=lbl,
+                color=_PALETTE["line_edge"], directed=False,
+                weight=float(tmax) if isinstance(tmax, (int, float)) else 1.0,
+            ))
 
     def _batteries(self):
         for bat in self.sys.get("battery_array", []):
@@ -563,10 +1135,10 @@ class TopologyBuilder:
             emax = _scalar(bat.get("emax") or bat.get("capacity"))
             ein  = bat.get("input_efficiency", "")
             eout = bat.get("output_efficiency", "")
-            eff  = f"\n\u03b7={ein}/{eout}" if ein else ""
+            eff  = f"\nη={ein}/{eout}" if ein else ""
+            lbl  = f"{name}" if self.opts.compact else f"{name}\n{emax} MWh{eff}"
             self.model.add_node(Node(
-                node_id=self._batid(bat), label=f"{name}\n{emax} MWh{eff}",
-                kind="battery", cluster="electrical",
+                node_id=self._batid(bat), label=lbl, kind="battery", cluster="electrical",
                 tooltip=f"Battery uid={bat.get('uid')} emax={emax}",
             ))
 
@@ -575,31 +1147,29 @@ class TopologyBuilder:
             name = conv.get("name", conv.get("uid", "?"))
             cap  = _scalar(conv.get("capacity"))
             cid  = self._cid(conv)
+            lbl  = f"{name}" if self.opts.compact else f"{name}\n{cap} MW"
             self.model.add_node(Node(
-                node_id=cid, label=f"{name}\n{cap} MW",
-                kind="converter", cluster="electrical",
+                node_id=cid, label=lbl, kind="converter", cluster="electrical",
                 tooltip=f"Converter uid={conv.get('uid')} cap={cap}",
             ))
-            bat_id = self._find_node_id("battery_array",  conv.get("battery"),   self._batid)
+            bat_id = self._find_node_id("battery_array",   conv.get("battery"),   self._batid)
             gen_id = self._find_node_id("generator_array", conv.get("generator"), self._gid)
             dem_id = self._find_node_id("demand_array",    conv.get("demand"),    self._did)
             if bat_id:
                 self.model.add_edge(Edge(bat_id, cid, label="stored\nenergy",
-                                        style="dashed", color=_PALETTE["bat_link_edge"]))
+                                         style="dashed", color=_PALETTE["bat_link_edge"]))
             if gen_id:
                 self.model.add_edge(Edge(cid, gen_id, label="discharge",
-                                        style="dashed", color=_PALETTE["bat_link_edge"]))
+                                         style="dashed", color=_PALETTE["bat_link_edge"]))
             if dem_id:
                 self.model.add_edge(Edge(dem_id, cid, label="charge",
-                                        style="dashed", color=_PALETTE["bat_link_edge"]))
+                                         style="dashed", color=_PALETTE["bat_link_edge"]))
 
-    # ── hydro elements ───────────────────────────────────────────────────────
     def _junctions(self):
         for j in self.sys.get("junction_array", []):
             name = j.get("name", j.get("uid", "?"))
             self.model.add_node(Node(
-                node_id=self._jid(j), label=name,
-                kind="junction", cluster="hydro",
+                node_id=self._jid(j), label=name, kind="junction", cluster="hydro",
                 tooltip=f"Junction uid={j.get('uid')} name={name}",
             ))
 
@@ -610,9 +1180,9 @@ class TopologyBuilder:
             ja   = self._find_node_id("junction_array", w.get("junction_a"), self._jid)
             jb   = self._find_node_id("junction_array", w.get("junction_b"), self._jid)
             if ja and jb:
+                lbl = str(name) if self.opts.compact else f"{name}\n≤{fmax} m³/s"
                 self.model.add_edge(Edge(
-                    src=ja, dst=jb, label=f"{name}\n\u2264{fmax} m\u00b3/s",
-                    color=_PALETTE["waterway_edge"],
+                    src=ja, dst=jb, label=lbl, color=_PALETTE["waterway_edge"],
                     weight=float(w["fmax"]) if w.get("fmax") else 1.0,
                 ))
 
@@ -620,15 +1190,15 @@ class TopologyBuilder:
         for r in self.sys.get("reservoir_array", []):
             name = r.get("name", r.get("uid", "?"))
             emax = _scalar(r.get("emax") or r.get("capacity"))
+            lbl  = str(name) if self.opts.compact else f"{name}\n{emax} dam³"
             self.model.add_node(Node(
-                node_id=self._rid(r), label=f"{name}\n{emax} dam\u00b3",
-                kind="reservoir", cluster="hydro",
+                node_id=self._rid(r), label=lbl, kind="reservoir", cluster="hydro",
                 tooltip=f"Reservoir uid={r.get('uid')} emax={emax}",
             ))
             junc_id = self._find_node_id("junction_array", r.get("junction"), self._jid)
             if junc_id:
                 self.model.add_edge(Edge(self._rid(r), junc_id,
-                                        style="dashed", color=_PALETTE["reservoir_border"]))
+                                         style="dashed", color=_PALETTE["reservoir_border"]))
 
     def _turbines(self):
         for t in self.sys.get("turbine_array", []):
@@ -636,9 +1206,9 @@ class TopologyBuilder:
             cap  = _scalar(t.get("capacity"))
             cr   = _scalar(t.get("conversion_rate"))
             tid  = self._tid(t)
+            lbl  = str(name) if self.opts.compact else f"{name}\n{cap} MW  cr={cr}"
             self.model.add_node(Node(
-                node_id=tid, label=f"{name}\n{cap} MW  cr={cr}",
-                kind="turbine", cluster="hydro",
+                node_id=tid, label=lbl, kind="turbine", cluster="hydro",
                 tooltip=f"Turbine uid={t.get('uid')} cap={cap}",
             ))
             way = _resolve(self.sys.get("waterway_array", []), t.get("waterway"))
@@ -646,21 +1216,21 @@ class TopologyBuilder:
                 ja = self._find_node_id("junction_array", way.get("junction_a"), self._jid)
                 if ja:
                     self.model.add_edge(Edge(ja, tid, label="water in",
-                                            color=_PALETTE["waterway_edge"]))
+                                             color=_PALETTE["waterway_edge"]))
             gen_id = self._find_node_id("generator_array", t.get("generator"), self._gid)
             if gen_id:
                 self.model.add_edge(Edge(tid, gen_id, label="power out",
-                                        color=_PALETTE["gen_hydro_border"], style="dashed"))
+                                         color=_PALETTE["gen_hydro_border"], style="dashed"))
 
     def _flows(self):
         for f in self.sys.get("flow_array", []):
-            name  = f.get("name", f.get("uid", "?"))
-            disc  = _scalar(f.get("discharge"))
+            name      = f.get("name", f.get("uid", "?"))
+            disc      = _scalar(f.get("discharge"))
             direction = f.get("direction", 1)
-            fid   = self._fid(f)
+            fid       = self._fid(f)
+            lbl       = str(name) if self.opts.compact else f"{name}\n{disc} m³/s"
             self.model.add_node(Node(
-                node_id=fid, label=f"{name}\n{disc} m\u00b3/s",
-                kind="flow", cluster="hydro",
+                node_id=fid, label=lbl, kind="flow", cluster="hydro",
                 tooltip=f"Flow uid={f.get('uid')} discharge={disc}",
             ))
             junc_id = self._find_node_id("junction_array", f.get("junction"), self._jid)
@@ -677,8 +1247,9 @@ class TopologyBuilder:
                 ja = self._find_node_id("junction_array", wway.get("junction_a"), self._jid)
                 if ja:
                     self.model.add_edge(Edge(ja, res_id,
-                        label=f"{name}\n(filtration)",
+                        label=f"{fi.get('name', 'filtration')}\n(filtration)",
                         style="dotted", color=_PALETTE["filtration_border"]))
+
 
 # ---------------------------------------------------------------------------
 # Planning structure diagram — pure SVG generator
@@ -1311,49 +1882,77 @@ def _auto_layout(model: GraphModel, subsystem: str) -> str:
     n = len(model.nodes)
     if subsystem == "hydro":
         return "dot"
-    if n <= 8:
+    if n <= _LAYOUT_DOT_THRESHOLD:
         return "dot"
-    if n <= 25:
+    if n <= _LAYOUT_NEATO_THRESHOLD:
         return "neato"
-    return "fdp"
+    if n <= _LAYOUT_FDP_THRESHOLD:
+        return "fdp"
+    return "sfdp"   # best for very large graphs
 
 
 # ---------------------------------------------------------------------------
 # Main CLI
 # ---------------------------------------------------------------------------
 
-def main(argv: list[str] | None = None) -> int:  # noqa: C901
+def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0912,PLR0915
     parser = argparse.ArgumentParser(
+        prog="gtopt-diagram",
         description=(
             "Generate electrical, hydro, and planning-structure diagrams "
             "from a gtopt JSON planning file."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Diagram types:
-              topology   Network topology (buses, generators, lines, hydro elements, ...)
-              planning   Conceptual time-structure (blocks / stages / phases / scenarios)
+Diagram types (--diagram-type):
+  topology   Network topology (buses, generators, lines, hydro elements, …)
+  planning   Conceptual time-structure (blocks / stages / phases / scenarios)
 
-            Subsystems (topology only):
-              full        All elements together (default)
-              electrical  Buses, generators, demands, lines, batteries, converters
-              hydro       Junctions, waterways, reservoirs, turbines, flows, filtrations
+Subsystems (topology, --subsystem):
+  full        All elements together (default)
+  electrical  Buses, generators, demands, lines, batteries, converters
+  hydro       Junctions, waterways, reservoirs, turbines, flows, filtrations
 
-            Output formats:
-              svg, png, pdf, dot   Graphviz-rendered static images
-              mermaid              Mermaid source for GitHub Markdown
-              html                 Interactive vis.js browser diagram
+Output formats (--format):
+  svg, png, pdf, dot   Graphviz-rendered static images (requires graphviz)
+  mermaid              Mermaid source for GitHub Markdown
+  html                 Interactive vis.js browser diagram (requires pyvis)
 
-            Examples:
-              python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json -o ieee9b.svg
-              python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json \\
-                  --subsystem electrical --format html -o bat4b.html
-              python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json \\
-                  --subsystem hydro --format svg -o hydro.svg
-              python3 scripts/gtopt_diagram.py --diagram-type planning -o planning.svg
-              python3 scripts/gtopt_diagram.py cases/c0/system_c0.json \\
-                  --diagram-type planning --format html
-              python3 scripts/gtopt_diagram.py cases/bat_4b/bat_4b.json --format mermaid
+Reduction / aggregation (useful for large cases with many generators):
+  --aggregate bus     One summary node per bus (counts + total MW)
+  --aggregate type    One node per (bus, generator-type) pair
+  --aggregate global  One node per generator type for the whole system
+  --top-gens N        Keep only the top-N generators per bus by pmax
+  --filter-type TYPE  Show only generators of TYPE (hydro/solar/wind/thermal/battery)
+  --focus-bus NAME    Show only buses within N hops of NAME (repeat for multiple)
+  --focus-hops N      Number of hops for --focus-bus (default: 2)
+  --max-nodes N       Auto-upgrade aggregation until node count ≤ N
+  --voltage-threshold V   Lump buses and lines below V kV into their nearest
+                          high-voltage neighbour (e.g. --voltage-threshold 200)
+  --hide-isolated     Remove nodes with no connections
+  --compact           Omit detail labels (show only names / counts)
+
+Examples:
+  # Small case — individual elements, interactive HTML
+  gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
+
+  # Large case — aggregate generators by type per bus, voltage ≥ 220 kV
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+      --aggregate type --voltage-threshold 220 --format html -o case2y.html
+
+  # Show only hydro generators in a 2-bus neighbourhood of 'Chapo220'
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+      --filter-type hydro --focus-bus Chapo220 --focus-hops 3 --format svg
+
+  # Global summary (one node per type) for very large cases
+  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+      --aggregate global --format svg -o case2y_global.svg
+
+  # Planning structure from a real case
+  gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
+
+  # Mermaid snippet for GitHub Markdown
+  gtopt-diagram cases/bat_4b/bat_4b.json --format mermaid
         """),
     )
     parser.add_argument("json_file", nargs="?",
@@ -1366,7 +1965,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
                         default="svg",
                         help="Output format (default: svg)")
     parser.add_argument("--output", "-o", default=None,
-                        help="Output file path")
+                        help="Output file path (default: <case>_<type>.<ext>)")
     parser.add_argument("--subsystem", "-s",
                         choices=["full", "electrical", "hydro"],
                         default="full",
@@ -1381,10 +1980,74 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
                         help="Mermaid flowchart direction (default: LR)")
     parser.add_argument("--clusters",
                         action="store_true", default=False,
-                        help="Group electrical/hydro in Graphviz clusters (full topology)")
+                        help="Group electrical/hydro in Graphviz sub-clusters (full topology)")
+
+    # ── Reduction / aggregation options ─────────────────────────────────────
+    red = parser.add_argument_group(
+        "reduction",
+        "Options for simplifying large diagrams with many elements",
+    )
+    red.add_argument(
+        "--aggregate", "-a",
+        choices=["none", "bus", "type", "global"],
+        default="none",
+        metavar="MODE",
+        help=(
+            "Aggregate generators: none=individual (default), bus=per-bus summary, "
+            "type=per-(bus,type) node, global=one node per type"
+        ),
+    )
+    red.add_argument(
+        "--top-gens", "-g",
+        type=int, default=0, metavar="N",
+        help="Keep only the top-N generators per bus by pmax (0 = all)",
+    )
+    red.add_argument(
+        "--filter-type",
+        nargs="+", default=[],
+        metavar="TYPE",
+        dest="filter_types",
+        help="Show only generators of these types: hydro solar wind thermal battery",
+    )
+    red.add_argument(
+        "--focus-bus",
+        nargs="+", default=[],
+        metavar="BUS",
+        dest="focus_buses",
+        help="Show only elements reachable from these bus names",
+    )
+    red.add_argument(
+        "--focus-hops",
+        type=int, default=2, metavar="N",
+        help="Number of line hops for --focus-bus (default: 2)",
+    )
+    red.add_argument(
+        "--max-nodes",
+        type=int, default=0, metavar="N",
+        help="Auto-upgrade aggregation mode until node count ≤ N (0 = disabled)",
+    )
+    red.add_argument(
+        "--voltage-threshold", "-V",
+        type=float, default=0.0, metavar="KV",
+        help=(
+            "Lump buses below this voltage [kV] into their nearest HV neighbour. "
+            "Lines between lumped buses are hidden. Buses without a voltage field "
+            "are never lumped. (0 = disabled, e.g. --voltage-threshold 200)"
+        ),
+    )
+    red.add_argument(
+        "--hide-isolated",
+        action="store_true", default=False,
+        help="Remove nodes with no connections from the diagram",
+    )
+    red.add_argument(
+        "--compact",
+        action="store_true", default=False,
+        help="Show only names/counts; omit pmax/gcost/reactance detail labels",
+    )
     args = parser.parse_args(argv)
 
-    # Load JSON if provided
+    # ── Load JSON ────────────────────────────────────────────────────────────
     planning: dict = {}
     case_name = "gtopt"
     if args.json_file:
@@ -1401,7 +2064,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
            "mermaid": ".md", "html": ".html"}.get(fmt, f".{fmt}")
     out = args.output or f"{case_name}_{args.diagram_type}{sfx}"
 
-    # ── Planning structure diagram ──────────────────────────────────────────
+    # ── Planning structure diagram ───────────────────────────────────────────
     if args.diagram_type == "planning":
         if fmt == "mermaid":
             result = _build_planning_mermaid(planning)
@@ -1412,13 +2075,12 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
                 print(result)
             return 0
         if fmt == "html":
-            ttl = (f"{case_name} \u2014 Planning Structure"
+            ttl = (f"{case_name} — Planning Structure"
                    if case_name != "gtopt" else "gtopt Planning Structure")
             Path(out).write_text(_build_planning_html(planning, title=ttl),
                                  encoding="utf-8")
             print(f"Planning HTML written to {out}", file=sys.stderr)
             return 0
-        # SVG / PNG / PDF / DOT
         svg_src = _build_planning_svg(planning)
         if fmt in ("svg", "dot"):
             Path(out).write_text(svg_src, encoding="utf-8")
@@ -1438,12 +2100,33 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         print(f"Planning diagram written to {out}", file=sys.stderr)
         return 0
 
-    # ── Topology diagram ────────────────────────────────────────────────────
-    builder = TopologyBuilder(planning, subsystem=args.subsystem)
+    # ── Topology diagram ─────────────────────────────────────────────────────
+    opts = FilterOptions(
+        aggregate         = args.aggregate,
+        top_gens          = args.top_gens,
+        filter_types      = [t.lower() for t in args.filter_types],
+        focus_buses       = args.focus_buses,
+        focus_hops        = args.focus_hops,
+        max_nodes         = args.max_nodes,
+        voltage_threshold = args.voltage_threshold,
+        hide_isolated     = args.hide_isolated,
+        compact           = args.compact,
+    )
+    builder = TopologyBuilder(planning, subsystem=args.subsystem, opts=opts)
     model   = builder.build()
 
-    if not model.nodes:
-        print("Warning: no elements found for the requested subsystem.", file=sys.stderr)
+    n_nodes = len(model.nodes)
+    n_edges = len(model.edges)
+    if n_nodes == 0:
+        print("Warning: no elements found for the requested subsystem / filters.",
+              file=sys.stderr)
+    else:
+        agg_used = builder._eff_agg
+        print(
+            f"Diagram: {n_nodes} nodes, {n_edges} edges"
+            + (f"  [aggregate={agg_used}]" if agg_used != "none" else ""),
+            file=sys.stderr,
+        )
 
     if fmt == "mermaid":
         result = render_mermaid(model, direction=args.direction)
@@ -1472,10 +2155,11 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901
         return 0
 
     rendered = render_graphviz(model, fmt=fmt, output_path=out,
-                                layout=layout, use_clusters=clusters)
+                               layout=layout, use_clusters=clusters)
     print(f"Diagram written to {rendered}", file=sys.stderr)
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

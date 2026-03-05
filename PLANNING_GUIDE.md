@@ -842,5 +842,7 @@ grep -v "^scenario" output/Demand/fail_sol.csv | awk -F, '{print $NF}' | sort -n
 - **[SCRIPTS.md](SCRIPTS.md)** — `plp2gtopt`, `igtopt`, `cvs2parquet`
   conversion utilities
 - **[BUILDING.md](BUILDING.md)** — Build and installation instructions
+- **[DIAGRAM_TOOL.md](DIAGRAM_TOOL.md)** — `gtopt-diagram` network and
+  planning diagram tool: aggregation, voltage reduction, large-case workflows
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables
   from C++ headers

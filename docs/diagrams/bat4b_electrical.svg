@@ -144,7 +144,7 @@
 <!-- gen_1 -->
 <g id="node5" class="node">
 <title>gen_1</title>
-<g id="a_node5"><a xlink:title="Generator uid=1 pmax=250 gcost=20">
+<g id="a_node5"><a xlink:title="Generator uid=1 type=thermal pmax=250 gcost=20">
 <polygon fill="#fef9e7" stroke="transparent" points="4,-264.36 4,-298.36 107,-298.36 107,-264.36 4,-264.36"/>
 <polygon fill="none" stroke="#e67e22" points="4.5,-264.36 4.5,-298.36 107.5,-298.36 107.5,-264.36 4.5,-264.36"/>
 <text text-anchor="start" x="50" y="-284.36" font-family="Arial" font-weight="bold" font-size="10.00">g1</text>
@@ -161,7 +161,7 @@
 <!-- gen_2 -->
 <g id="node6" class="node">
 <title>gen_2</title>
-<g id="a_node6"><a xlink:title="Generator uid=2 pmax=150 gcost=40">
+<g id="a_node6"><a xlink:title="Generator uid=2 type=thermal pmax=150 gcost=40">
 <polygon fill="#fef9e7" stroke="transparent" points="144.12,-357.2 144.12,-391.2 247.12,-391.2 247.12,-357.2 144.12,-357.2"/>
 <polygon fill="none" stroke="#e67e22" points="144.62,-357.2 144.62,-391.2 247.62,-391.2 247.62,-357.2 144.62,-357.2"/>
 <text text-anchor="start" x="190.12" y="-377.2" font-family="Arial" font-weight="bold" font-size="10.00">g2</text>
@@ -178,7 +178,7 @@
 <!-- gen_3 -->
 <g id="node7" class="node">
 <title>gen_3</title>
-<g id="a_node7"><a xlink:title="Generator uid=3 pmax=90 gcost=0">
+<g id="a_node7"><a xlink:title="Generator uid=3 type=solar pmax=90 gcost=0">
 <polygon fill="#fdebd0" stroke="transparent" points="22.02,-114.87 22.02,-148.87 115.02,-148.87 115.02,-114.87 22.02,-114.87"/>
 <polygon fill="none" stroke="#f39c12" points="22.52,-114.87 22.52,-148.87 115.52,-148.87 115.52,-114.87 22.52,-114.87"/>
 <text text-anchor="start" x="51.52" y="-134.87" font-family="Arial" font-weight="bold" font-size="10.00">g_solar</text>
@@ -195,7 +195,7 @@
 <!-- gen_4 -->
 <g id="node8" class="node">
 <title>gen_4</title>
-<g id="a_node8"><a xlink:title="Generator uid=4 pmax=60 gcost=0">
+<g id="a_node8"><a xlink:title="Generator uid=4 type=battery pmax=60 gcost=0">
 <polygon fill="#fef9e7" stroke="transparent" points="379.57,-220.11 379.57,-254.11 472.57,-254.11 472.57,-220.11 379.57,-220.11"/>
 <polygon fill="none" stroke="#e67e22" points="380.07,-220.11 380.07,-254.11 473.07,-254.11 473.07,-220.11 380.07,-220.11"/>
 <text text-anchor="start" x="403.57" y="-240.11" font-family="Arial" font-weight="bold" font-size="10.00">g_bat_out</text>
