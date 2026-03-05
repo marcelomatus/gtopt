@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 418" width="920" height="418">
+<rect width="920" height="418" fill="#FAFBFC"/>
+<rect x="3.0" y="3.0" width="914.0" height="412.0" rx="10" fill="none" stroke="#CBD5E0" stroke-width="2"/>
+<text x="460.0" y="32.0" font-family='Arial, sans-serif' font-size="17" fill="#1A252F" text-anchor="middle" font-weight="bold">system_c0 — Planning Time Structure</text>
+<line x1="48.0" y1="46.0" x2="872.0" y2="46.0" stroke="#CFD8DC" stroke-width="1.5"/>
+<text x="112.0" y="78.0" font-family='Arial, sans-serif' font-size="11" fill="#2E7D32" text-anchor="end" font-weight="bold">SCENARIOS</text>
+<text x="112.0" y="92.0" font-family='Arial, sans-serif' font-size="8" fill="#2E7D32" text-anchor="end" font-weight="normal" font-style='italic'>(parallel futures,</text>
+<text x="112.0" y="103.0" font-family='Arial, sans-serif' font-size="8" fill="#2E7D32" text-anchor="end" font-weight="normal" font-style='italic'>weighted by prob)</text>
+<rect x="120.0" y="70.0" width="752.0" height="26.0" rx="5" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="496.0" y="87.0" font-family='Arial, sans-serif' font-size="11" fill="#1B5E20" text-anchor="middle" font-weight="normal">Scenario 1  —  probability_factor = 1</text>
+<text x="112.0" y="154.0" font-family='Arial, sans-serif' font-size="11" fill="#E65100" text-anchor="end" font-weight="bold">STAGES</text>
+<text x="112.0" y="166.0" font-family='Arial, sans-serif' font-size="8" fill="#E65100" text-anchor="end" font-weight="normal" font-style='italic'>(investment period,</text>
+<text x="112.0" y="177.0" font-family='Arial, sans-serif' font-size="8" fill="#E65100" text-anchor="end" font-weight="normal" font-style='italic'>discounted cost)</text>
+<rect x="121.0" y="136.0" width="148.4" height="62.0" rx="5" fill="#FFF8E1" stroke="#E65100" stroke-width="1.5"/>
+<text x="195.2" y="158.0" font-family='Arial, sans-serif' font-size="10" fill="#BF360C" text-anchor="middle" font-weight="bold">Stage 1</text>
+<text x="195.2" y="174.0" font-family='Arial, sans-serif' font-size="9" fill="#E65100" text-anchor="middle" font-weight="normal" font-style='italic'>1 block(s)</text>
+<rect x="271.4" y="136.0" width="148.4" height="62.0" rx="5" fill="#FFF8E1" stroke="#E65100" stroke-width="1.5"/>
+<text x="345.6" y="158.0" font-family='Arial, sans-serif' font-size="10" fill="#BF360C" text-anchor="middle" font-weight="bold">Stage 2</text>
+<text x="345.6" y="174.0" font-family='Arial, sans-serif' font-size="9" fill="#E65100" text-anchor="middle" font-weight="normal" font-style='italic'>1 block(s)</text>
+<rect x="421.8" y="136.0" width="148.4" height="62.0" rx="5" fill="#FFF8E1" stroke="#E65100" stroke-width="1.5"/>
+<text x="496.0" y="158.0" font-family='Arial, sans-serif' font-size="10" fill="#BF360C" text-anchor="middle" font-weight="bold">Stage 3</text>
+<text x="496.0" y="174.0" font-family='Arial, sans-serif' font-size="9" fill="#E65100" text-anchor="middle" font-weight="normal" font-style='italic'>1 block(s)</text>
+<rect x="572.2" y="136.0" width="148.4" height="62.0" rx="5" fill="#FFF8E1" stroke="#E65100" stroke-width="1.5"/>
+<text x="646.4" y="158.0" font-family='Arial, sans-serif' font-size="10" fill="#BF360C" text-anchor="middle" font-weight="bold">Stage 4</text>
+<text x="646.4" y="174.0" font-family='Arial, sans-serif' font-size="9" fill="#E65100" text-anchor="middle" font-weight="normal" font-style='italic'>1 block(s)</text>
+<rect x="722.6" y="136.0" width="148.4" height="62.0" rx="5" fill="#FFF8E1" stroke="#E65100" stroke-width="1.5"/>
+<text x="796.8" y="158.0" font-family='Arial, sans-serif' font-size="10" fill="#BF360C" text-anchor="middle" font-weight="bold">Stage 5</text>
+<text x="796.8" y="174.0" font-family='Arial, sans-serif' font-size="9" fill="#E65100" text-anchor="middle" font-weight="normal" font-style='italic'>1 block(s)</text>
+<text x="112.0" y="224.0" font-family='Arial, sans-serif' font-size="11" fill="#6A1B9A" text-anchor="end" font-weight="bold">BLOCKS</text>
+<text x="112.0" y="237.0" font-family='Arial, sans-serif' font-size="8" fill="#6A1B9A" text-anchor="end" font-weight="normal" font-style='italic'>(time steps,</text>
+<text x="112.0" y="248.0" font-family='Arial, sans-serif' font-size="8" fill="#6A1B9A" text-anchor="end" font-weight="normal" font-style='italic'>energy=power×dur.)</text>
+<rect x="121.0" y="208.0" width="148.4" height="64.0" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+<text x="195.2" y="230.0" font-family='Arial, sans-serif' font-size="11" fill="#4A148C" text-anchor="middle" font-weight="bold">B1</text>
+<text x="195.2" y="248.0" font-family='Arial, sans-serif' font-size="10" fill="#6A1B9A" text-anchor="middle" font-weight="normal">1h</text>
+<rect x="271.4" y="208.0" width="148.4" height="64.0" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+<text x="345.6" y="230.0" font-family='Arial, sans-serif' font-size="11" fill="#4A148C" text-anchor="middle" font-weight="bold">B2</text>
+<text x="345.6" y="248.0" font-family='Arial, sans-serif' font-size="10" fill="#6A1B9A" text-anchor="middle" font-weight="normal">2h</text>
+<rect x="421.8" y="208.0" width="148.4" height="64.0" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+<text x="496.0" y="230.0" font-family='Arial, sans-serif' font-size="11" fill="#4A148C" text-anchor="middle" font-weight="bold">B3</text>
+<text x="496.0" y="248.0" font-family='Arial, sans-serif' font-size="10" fill="#6A1B9A" text-anchor="middle" font-weight="normal">3h</text>
+<rect x="572.2" y="208.0" width="148.4" height="64.0" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+<text x="646.4" y="230.0" font-family='Arial, sans-serif' font-size="11" fill="#4A148C" text-anchor="middle" font-weight="bold">B4</text>
+<text x="646.4" y="248.0" font-family='Arial, sans-serif' font-size="10" fill="#6A1B9A" text-anchor="middle" font-weight="normal">4h</text>
+<rect x="722.6" y="208.0" width="148.4" height="64.0" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+<text x="796.8" y="230.0" font-family='Arial, sans-serif' font-size="11" fill="#4A148C" text-anchor="middle" font-weight="bold">B5</text>
+<text x="796.8" y="248.0" font-family='Arial, sans-serif' font-size="10" fill="#6A1B9A" text-anchor="middle" font-weight="normal">5h</text>
+<rect x="120.0" y="286.0" width="752.0" height="76.0" rx="8" fill="#ECEFF1" stroke="#546E7A" stroke-width="1.5"/>
+<text x="134.0" y="306.0" font-family='Arial, sans-serif' font-size="11" fill="#1A252F" text-anchor="start" font-weight="bold">OBJECTIVE FUNCTION:</text>
+<text x="138.0" y="326.0" font-family='Arial, sans-serif' font-size="12" fill="#37474F" text-anchor="start" font-weight="normal">min  Σ_s  Σ_t  Σ_b   prob_s × discount_t × duration_b × dispatch_cost(s, t, b)</text>
+<text x="138.0" y="344.0" font-family='Arial, sans-serif' font-size="12" fill="#37474F" text-anchor="start" font-weight="normal">+  Σ_t   annual_capcost_t × expansion_modules_t      [CAPEX / investment]</text>
+<text x="138.0" y="360.0" font-family='Arial, sans-serif' font-size="10" fill="#78909C" text-anchor="start" font-weight="normal" font-style='italic'>subject to: bus power balance, Kirchhoff voltage law, generator / line / battery / hydro constraints</text>
+</svg>

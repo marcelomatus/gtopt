@@ -1,0 +1,49 @@
+```mermaid
+---
+title: bat_4b
+---
+flowchart LR
+
+    bus_1["🔌 b1"]
+    bus_2["🔌 b2"]
+    bus_3["🔌 b3"]
+    bus_4["🔌 b4"]
+    gen_1[/"⚡ g1<br/>250 MW  20 $/MWh"\]
+    gen_2[/"⚡ g2<br/>150 MW  40 $/MWh"\]
+    gen_3[/"☀️ g_solar<br/>90 MW  0 $/MWh"\]
+    gen_4[/"⚡ g_bat_out<br/>60 MW  0 $/MWh"\]
+    dem_1[\"📊 d3<br/>30.0…200.0 MW"/]
+    dem_2[\"📊 d4<br/>20.0…130.0 MW"/]
+    dem_3[\"📊 d_bat_in<br/>60 MW"/]
+    bat_1[("🔋 bat1<br/>200 MWh<br/>η=0.95/0.95")]
+    conv_1(["🔄 conv1<br/>60 MW"])
+
+    gen_1 --> bus_1
+    gen_2 --> bus_2
+    gen_3 --> bus_1
+    gen_4 --> bus_3
+    bus_3 --> dem_1
+    bus_4 --> dem_2
+    bus_3 --> dem_3
+    bus_1 ---|l1_2 x=0.02 p.u. 300 MW| bus_2
+    bus_1 ---|l1_3 x=0.02 p.u. 300 MW| bus_3
+    bus_2 ---|l2_3 x=0.03 p.u. 200 MW| bus_3
+    bus_2 ---|l2_4 x=0.02 p.u. 200 MW| bus_4
+    bus_3 ---|l3_4 x=0.03 p.u. 150 MW| bus_4
+    bat_1 -.->|stored energy| conv_1
+    conv_1 -.->|discharge| gen_4
+    dem_3 -.->|charge| conv_1
+
+    classDef cls_bus fill:#D6EAF8,stroke:#1A5276,color:#1C2833
+    class bus_1,bus_2,bus_3,bus_4 cls_bus
+    classDef cls_gen fill:#FEF9E7,stroke:#E67E22,color:#1C2833
+    class gen_1,gen_2,gen_4 cls_gen
+    classDef cls_gen_solar fill:#FDEBD0,stroke:#F39C12,color:#1C2833
+    class gen_3 cls_gen_solar
+    classDef cls_demand fill:#FADBD8,stroke:#C0392B,color:#1C2833
+    class dem_1,dem_2,dem_3 cls_demand
+    classDef cls_battery fill:#F4ECF7,stroke:#7D3C98,color:#1C2833
+    class bat_1 cls_battery
+    classDef cls_converter fill:#D6EAF8,stroke:#1F618D,color:#1C2833
+    class conv_1 cls_converter
+```

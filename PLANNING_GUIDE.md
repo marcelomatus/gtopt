@@ -32,11 +32,82 @@ external time-series data.
 
 ### 1.1 Time structure: Blocks, Stages, Scenarios
 
+The **planning data model** defines how time and uncertainty are represented.
+The diagram below shows the class hierarchy:
+
+```mermaid
+---
+title: gtopt Planning Data Model
+---
+classDiagram
+    direction TB
+
+    class Planning {
+        +string name
+        +Options options
+    }
+    class Simulation {
+        +Scenario[] scenario_array
+        +Stage[]    stage_array
+        +Phase[]    phase_array
+        +Block[]    block_array
+    }
+    class Scenario {
+        +Uid  uid
+        +Name name
+        +Real probability_factor [p.u.]
+        +Bool active
+    }
+    class Phase {
+        +Uid  uid
+        +Name name
+        +Size first_stage
+        +Size count_stage
+    }
+    class Stage {
+        +Uid  uid
+        +Name name
+        +Size first_block
+        +Size count_block
+        +Real discount_factor [p.u.]
+        +Bool active
+    }
+    class Block {
+        +Uid  uid
+        +Name name
+        +Real duration [h]
+    }
+    class Scene {
+        +Scenario scenario
+        +Phase    phase
+        <<internal>>
+    }
+    class System {
+        +Bus[]       bus_array
+        +Generator[] generator_array
+        +Demand[]    demand_array
+        +Line[]      line_array
+        +Battery[]   battery_array
+        +Converter[] converter_array
+        +Junction[]  junction_array
+        +Reservoir[] reservoir_array
+        +Turbine[]   turbine_array
+    }
+
+    Planning  *--  Simulation : contains
+    Planning  *--  System     : contains
+    Simulation *-- Scenario   : has many
+    Simulation *-- Stage      : has many
+    Simulation *-- Phase      : has many (optional)
+    Simulation *-- Block      : has many
+    Phase      o-- Stage      : groups
+    Stage      o-- Block      : references by first_block+count_block
+    Scene      --> Scenario   : cross-product
+    Scene      --> Phase      : cross-product
 ```
-Scenario  (probability_factor [p.u.])
-  └─ Stage  (discount_factor [p.u.])
-       └─ Block  (duration [h])
-```
+
+> 💾 **Auto-generated SVG**: `docs/diagrams/planning_structure.svg`
+> (regenerate with `python3 scripts/gtopt_diagram.py --diagram-type planning -o docs/diagrams/planning_structure.svg`)
 
 | Element | Role |
 |---------|------|
@@ -164,12 +235,22 @@ All three sections are **optional** — omitted sections use defaults.
 
 A minimal case: one bus, one cheap generator, one load, one hour.
 
-### One-line diagram
+### Network diagram
 
-```
-         g1 (100 MW, $20/MWh)
-          │
-     b1 ──┤── d1 (80 MW load)
+```mermaid
+flowchart LR
+    gen_1[/"⚡ g1\n100 MW · $20/MWh"\]
+    bus_1["🔌 b1"]
+    dem_1[\"📊 d1\n80 MW load"/]
+
+    gen_1 --> bus_1
+    bus_1 --> dem_1
+    classDef cls_bus fill:#D6EAF8,stroke:#1A5276,color:#1C2833
+    classDef cls_gen fill:#FEF9E7,stroke:#E67E22,color:#1C2833
+    classDef cls_demand fill:#FADBD8,stroke:#C0392B,color:#1C2833
+    class bus_1 cls_bus
+    class gen_1 cls_gen
+    class dem_1 cls_demand
 ```
 
 ### JSON
@@ -216,28 +297,62 @@ A minimal case: one bus, one cheap generator, one load, one hour.
 The classic Anderson–Fouad 9-bus benchmark. Three generators, three loads, nine
 transmission lines. DC power flow (Kirchhoff's voltage law) is enabled.
 
-### One-line diagram
+### Network diagram
 
-```
-  g1 (250 MW)                 g2 (300 MW)
-     │                           │
-    b1                          b2
-     │                           │
-    l1_4                        l2_7
-     │                           │
-    b4 ──── l4_5 ──── b5         b7 ──── l5_7 ──── b5
-     │                │ d1(125)  │
-    l4_6              └──────────┘
-     │
-    b6 ──── l6_9 ──── b9 ──── l8_9 ──── b8 ──── l7_8 ──── b7
-                      │ d3(90)
-  g3 (270 MW)         │
-    │                 b3
-   l3_9 ─────────────┘
-                  d2(100) at b7
+The IEEE 9-bus test system (Anderson & Fouad, 1994). Three generators,
+three loads, nine transmission lines with DC power flow:
+
+```mermaid
+---
+title: IEEE 9-bus test system
+---
+flowchart LR
+
+    bus_1["🔌 b1"]
+    bus_2["🔌 b2"]
+    bus_3["🔌 b3"]
+    bus_4["🔌 b4"]
+    bus_5["🔌 b5"]
+    bus_6["🔌 b6"]
+    bus_7["🔌 b7"]
+    bus_8["🔌 b8"]
+    bus_9["🔌 b9"]
+    gen_1[/"⚡ g1\n250 MW · $20/MWh"\]
+    gen_2[/"⚡ g2\n300 MW · $35/MWh"\]
+    gen_3[/"☀️ g3\n270 MW · $0/MWh"\]
+    dem_1[\"📊 d1\n125 MW"/]
+    dem_2[\"📊 d2\n100 MW"/]
+    dem_3[\"📊 d3\n90 MW"/]
+
+    gen_1 --> bus_1
+    gen_2 --> bus_2
+    gen_3 --> bus_3
+    bus_5 --> dem_1
+    bus_7 --> dem_2
+    bus_9 --> dem_3
+    bus_1 ---|l1_4 x=0.058| bus_4
+    bus_2 ---|l2_7 x=0.063| bus_7
+    bus_3 ---|l3_9 x=0.059| bus_9
+    bus_4 ---|l4_5 x=0.085| bus_5
+    bus_4 ---|l4_6 x=0.092| bus_6
+    bus_5 ---|l5_7 x=0.161| bus_7
+    bus_6 ---|l6_9 x=0.170| bus_9
+    bus_7 ---|l7_8 x=0.072| bus_8
+    bus_8 ---|l8_9 x=0.101| bus_9
+
+    classDef cls_bus fill:#D6EAF8,stroke:#1A5276,color:#1C2833
+    class bus_1,bus_2,bus_3,bus_4,bus_5,bus_6,bus_7,bus_8,bus_9 cls_bus
+    classDef cls_gen fill:#FEF9E7,stroke:#E67E22,color:#1C2833
+    class gen_1,gen_2 cls_gen
+    classDef cls_solar fill:#FDEBD0,stroke:#F39C12,color:#1C2833
+    class gen_3 cls_solar
+    classDef cls_demand fill:#FADBD8,stroke:#C0392B,color:#1C2833
+    class dem_1,dem_2,dem_3 cls_demand
 ```
 
-(Simplified; actual reactances from Anderson & Fouad, 1994.)
+> 🛠 Regenerate the full SVG: `python3 scripts/gtopt_diagram.py cases/ieee_9b/ieee_9b.json --subsystem electrical -o docs/diagrams/ieee9b_electrical.svg`
+> 
+> See also: `docs/diagrams/ieee9b_electrical.svg`
 
 ### Run the bundled case
 
