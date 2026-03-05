@@ -98,6 +98,12 @@ function switchTab(tab) {
   } else if (tab === "simulation") {
     showPanel("panel-simulation");
     renderSimulation();
+  } else if (tab === "topology") {
+    showPanel("panel-topology");
+    // Auto-render on first visit if there is case data
+    if (!topoNetwork) {
+      renderTopology();
+    }
   } else if (tab === "results") {
     showPanel("panel-results");
   } else if (tab === "logs") {
@@ -114,6 +120,7 @@ function switchTab(tab) {
     renderCurrentElementView();
   }
 }
+
 
 function showPanel(id) {
   const panel = document.getElementById(id);
@@ -1660,3 +1667,192 @@ function minimizeAssistant() {
     document.addEventListener("pointerup", onPointerUp);
   });
 })();
+
+// ── Topology diagram ──────────────────────────────────────────────────────
+
+/** @type {import('vis-network/standalone').Network | null} */
+var topoNetwork = null;
+var topoNodes   = null;
+var topoEdges   = null;
+
+/** Dimensions of the node-detail popup (must match CSS .topo-popup width). */
+var TOPO_POPUP_WIDTH  = 288;
+var TOPO_POPUP_HEIGHT = 280;
+
+/**
+ * Fetch topology data from the backend and render it in vis-network.
+ * Automatically called when the Topology tab is first opened, and
+ * explicitly by the "Render" button.
+ */
+async function renderTopology() {
+  const statusEl = document.getElementById("topoStatus");
+  const container = document.getElementById("topoNetwork");
+  if (!container) return;
+
+  statusEl.textContent = "⏳ Building topology…";
+  closeTopoPopup();
+
+  const subsystem  = document.getElementById("topoSubsystem").value;
+  const aggregate  = document.getElementById("topoAggregate").value;
+  const noGen      = document.getElementById("topoNoGenerators").checked;
+  const compact    = document.getElementById("topoCompact").checked;
+
+  try {
+    const resp = await fetch("/api/diagram/topology", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        caseData:     caseData,
+        subsystem:    subsystem,
+        aggregate:    aggregate,
+        no_generators: noGen,
+        compact:      compact,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      statusEl.textContent = "❌ Error: " + (err.error || resp.statusText);
+      return;
+    }
+    const data = await resp.json();
+    if (data.error) {
+      statusEl.textContent = "❌ " + data.error;
+      return;
+    }
+
+    // Build status line
+    const m = data.meta || {};
+    let statusParts = [`${m.n_nodes} nodes · ${m.n_edges} edges`];
+    if (m.aggregate && m.aggregate !== "none") statusParts.push(`aggregate=${m.aggregate}`);
+    if (m.voltage_threshold > 0) statusParts.push(`voltage≥${m.voltage_threshold} kV`);
+    if (m.no_generators) statusParts.push("no generators");
+    if (m.auto_mode && m.n_total) statusParts.push(`auto (${m.n_total} elements)`);
+    statusEl.textContent = statusParts.join(" · ");
+
+    _drawTopoNetwork(container, data.nodes, data.edges);
+  } catch (e) {
+    statusEl.textContent = "❌ " + e.message;
+  }
+}
+
+/**
+ * Draw (or redraw) the vis-network inside *container* using the given
+ * vis.js nodes and edges returned by the API.
+ */
+function _drawTopoNetwork(container, nodes, edges) {
+  // Destroy previous instance so the canvas is recreated cleanly
+  if (topoNetwork) {
+    topoNetwork.destroy();
+    topoNetwork = null;
+  }
+
+  topoNodes = new vis.DataSet(nodes);
+  topoEdges = new vis.DataSet(edges);
+
+  const options = {
+    physics: {
+      enabled: true,
+      solver: "forceAtlas2Based",
+      forceAtlas2Based: {
+        gravitationalConstant: -50,
+        centralGravity: 0.01,
+        springConstant: 0.08,
+        springLength: 100,
+        damping: 0.4,
+      },
+      stabilization: { iterations: 200, updateInterval: 25 },
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 200,
+      zoomView: true,
+      dragView: true,
+      selectConnectedEdges: false,
+    },
+    nodes: {
+      font: { size: 11, face: "Arial" },
+      borderWidth: 2,
+    },
+    edges: {
+      font: { size: 9, face: "Arial", align: "middle" },
+      smooth: { type: "dynamic" },
+    },
+  };
+
+  topoNetwork = new vis.Network(container, { nodes: topoNodes, edges: topoEdges }, options);
+
+  // Show popup on node click
+  topoNetwork.on("click", function (params) {
+    if (params.nodes.length === 0) {
+      closeTopoPopup();
+      return;
+    }
+    const nodeId = params.nodes[0];
+    const nodeData = topoNodes.get(nodeId);
+    if (nodeData) _showTopoPopup(nodeData, params.pointer.DOM);
+  });
+
+  // Hide popup when canvas is double-clicked (fit view)
+  topoNetwork.on("doubleClick", function (params) {
+    if (params.nodes.length === 0) {
+      topoNetwork.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+      closeTopoPopup();
+    }
+  });
+}
+
+/** Fit the vis-network viewport to show all nodes. */
+function topoFitView() {
+  if (topoNetwork) {
+    topoNetwork.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+  }
+}
+
+/**
+ * Show the floating popup for a clicked node.
+ * @param {object} node  - vis.js node data object
+ * @param {{x: number, y: number}} domPos - canvas-relative DOM position
+ */
+function _showTopoPopup(node, domPos) {
+  const popup     = document.getElementById("topoPopup");
+  const titleEl   = document.getElementById("topoPopupTitle");
+  const bodyEl    = document.getElementById("topoPopupBody");
+  const container = document.getElementById("topoNetwork");
+  if (!popup || !container) return;
+
+  // Parse structured info from the tooltip (which gtopt_diagram already
+  // formats as "key: value\nkey2: value2" lines).
+  const title = node.label || node.id;
+  titleEl.textContent = title;
+
+  const tooltip = (node.title || "").replace(/<[^>]+>/g, ""); // strip any HTML
+  const lines   = tooltip.split(/\n/).filter(Boolean);
+
+  let html = "<table>";
+  lines.forEach((line) => {
+    const idx = line.indexOf(":");
+    if (idx > 0) {
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+    } else if (line.trim()) {
+      html += `<tr><td colspan="2">${line}</td></tr>`;
+    }
+  });
+  html += "</table>";
+  bodyEl.innerHTML = html;
+
+  // Position popup near the click, but keep it inside the panel
+  let left = domPos.x + 12;
+  let top  = domPos.y - 20;
+  if (left + TOPO_POPUP_WIDTH  > container.offsetWidth)  left = domPos.x - TOPO_POPUP_WIDTH  - 12;
+  if (top  + TOPO_POPUP_HEIGHT > container.offsetHeight) top  = container.offsetHeight - TOPO_POPUP_HEIGHT - 8;
+  popup.style.left    = Math.max(0, left) + "px";
+  popup.style.top     = Math.max(0, top)  + "px";
+  popup.style.display = "flex";
+}
+
+function closeTopoPopup() {
+  const popup = document.getElementById("topoPopup");
+  if (popup) popup.style.display = "none";
+}

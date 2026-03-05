@@ -36,7 +36,7 @@ gtopt-diagram --help
 ```bash
 # Auto mode (DEFAULT) — the tool picks the right strategy for the case size
 gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg        # small: all individual
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # large: type+200kV
+gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # large: type+smart threshold (e.g. 345 kV for 2y)
 
 # Interactive HTML for the battery 4-bus case
 gtopt-diagram cases/bat_4b/bat_4b.json --format html -o bat4b.html
@@ -119,13 +119,13 @@ case (generators + buses + demands + lines + hydro elements + …):
 |----------------|-----------------|
 | **< 100** | `none` — show every element individually |
 | **100 – 999** | `bus` — one summary node per bus |
-| **≥ 1000** | `type` + voltage threshold 200 kV — aggregate by generator type and fold LV buses |
+| **≥ 1000** | `type` + **smart voltage threshold** — aggregate by type; threshold auto-computed to keep ≤ 64 representative buses |
 
 The status line printed to stderr always shows what was chosen:
 
 ```
 Diagram: 15 nodes, 15 edges                          # <100: none (ieee9b)
-Diagram: 732 nodes, 903 edges  [aggregate=type, voltage≥200 kV, auto(2794 elements)]
+Diagram: 605 nodes, 727 edges  [aggregate=type, voltage≥345 kV, auto(2794 elements)]
 ```
 
 To override auto mode, use one of the explicit values:
@@ -188,8 +188,9 @@ Buses whose `voltage` field is **strictly less** than the threshold [kV] are
 network.  Lines between lumped buses are hidden; parallel lines that collapse to
 the same HV bus pair are de-duplicated.
 
-> **Auto mode applies this automatically** with threshold = 200 kV when the
-> case has ≥ 1000 elements.
+> **Auto mode applies this automatically** with a threshold chosen so that ≤ 64
+> representative buses remain when the case has ≥ 1000 elements.
+> For the `gtopt_case_2y` case this resolves to 345 kV (16 buses remain).
 
 ```bash
 # Keep only buses ≥ 220 kV; fold everything below into the HV network
@@ -278,11 +279,11 @@ directory using `plp2gtopt`.  It contains:
 | Waterways | 113 |
 | Stages | 24 |
 
-With 2 794 total elements the auto mode selects `type` + voltage threshold
-200 kV automatically — no flags needed:
+With 2 794 total elements the auto mode selects `type` + smart voltage threshold
+(345 kV, keeping 16 buses) automatically — no flags needed:
 
 ```bash
-# Auto mode picks type + 200 kV (2794 elements ≥ 1000)
+# Auto mode picks type + smart threshold (345 kV here; ≤ 64 buses remain)
 gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
 ```
 
@@ -393,7 +394,8 @@ Mermaid:
 
 Reduction:
   --aggregate, -a        auto (default) | none | bus | type | global
-                         auto: <100 → none, 100-999 → bus, ≥1000 → type+200kV
+                         auto: <100 → none, 100-999 → bus,
+                               ≥1000 → type+smart threshold (≤64 buses)
   --no-generators        Omit all generator nodes (topology-only view)
   --top-gens, -g N       Top-N generators per bus by pmax (0=all)
   --filter-type TYPE...  Show only: hydro solar wind thermal battery
@@ -404,3 +406,51 @@ Reduction:
   --hide-isolated        Remove unconnected nodes
   --compact              Omit pmax/gcost/reactance labels
 ```
+
+---
+
+## Guiservice Integration (interactive browser UI)
+
+The `guiservice` Flask application exposes the topology diagram directly
+in its browser UI through:
+
+### REST API: `POST /api/diagram/topology`
+
+Returns a vis.js-compatible JSON object for the current case data.
+
+```json
+// Request body
+{
+  "caseData":      { ... },          // GUI caseData object
+  "subsystem":     "full",           // "full" | "electrical" | "hydro"
+  "aggregate":     "auto",           // aggregation mode
+  "no_generators": false,            // true to hide generators
+  "compact":       false             // true for compact labels
+}
+
+// Response
+{
+  "nodes": [ { "id": "bus_1", "label": "b1", "kind": "bus", ... } ],
+  "edges": [ { "from": "bus_1", "to": "bus_2", ... } ],
+  "meta":  { "aggregate": "none", "voltage_threshold": 0, "n_nodes": 15, ... }
+}
+```
+
+### Topology Tab in the GUI
+
+The GUI has a dedicated **🗺 Topology** tab in the "Case Setup" sidebar
+section.  It uses [vis-network](https://visjs.github.io/vis-network/) for
+interactive exploration:
+
+- **Pan / zoom** — drag the canvas, scroll to zoom
+- **Click a node** — opens a floating popup with node details
+  (name, type, voltage, pmax, connected elements, …)
+- **Double-click canvas** — fits the view to all nodes
+- **Controls** — Subsystem selector, Aggregation selector,
+  "Hide generators" checkbox, "Compact labels" checkbox, Render/Fit buttons
+
+The topology tab automatically renders when first opened.  The **smart auto
+mode** (default) selects the most appropriate aggregation and voltage
+threshold based on the case size, so the diagram is readable regardless
+of whether the case has 15 nodes or thousands.
+

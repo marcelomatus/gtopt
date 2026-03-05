@@ -1057,6 +1057,86 @@ def check_server():
     return jsonify(results)
 
 
+# ---------------------------------------------------------------------------
+# Topology diagram API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/diagram/topology", methods=["POST"])
+def diagram_topology():
+    """Generate a vis.js-compatible topology graph from case data.
+
+    Accepts a JSON body with the same structure as ``/api/case/upload``
+    (the GUI ``caseData`` object) and optional rendering parameters.
+
+    Request body (JSON):
+        caseData     (required) – the GUI case data object
+        subsystem    (optional) – "full" | "electrical" | "hydro"  [default: "full"]
+        aggregate    (optional) – "auto" | "none" | "bus" | "type" | "global"
+        no_generators (optional) – true to hide all generator nodes
+        compact      (optional) – true to suppress detail labels
+
+    Response JSON:
+        nodes  – list of vis.js node objects
+        edges  – list of vis.js edge objects
+        meta   – dict with aggregate, voltage_threshold, n_total, visible_buses
+    """
+    try:
+        import sys as _sys
+        import os as _os
+        # Locate gtopt_diagram relative to this file
+        _scripts_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "scripts")
+        if _scripts_dir not in _sys.path:
+            _sys.path.insert(0, _scripts_dir)
+        from gtopt_diagram import (  # noqa: PLC0415
+            FilterOptions, TopologyBuilder, model_to_visjs,
+        )
+    except ImportError as exc:
+        return jsonify({"error": f"gtopt_diagram not available: {exc}"}), 500
+
+    body = request.get_json(silent=True) or {}
+    case_data = body.get("caseData", body)
+    subsystem  = body.get("subsystem", "full")
+    aggregate  = body.get("aggregate", "auto")
+    no_gen     = bool(body.get("no_generators", False))
+    compact    = bool(body.get("compact", False))
+    vthresh    = float(body.get("voltage_threshold", 0.0))
+
+    # Build the gtopt planning JSON from GUI case data
+    try:
+        planning = _build_case_json(case_data)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to build case JSON: {exc}"}), 400
+
+    opts = FilterOptions(
+        aggregate         = aggregate,
+        no_generators     = no_gen,
+        compact           = compact,
+        voltage_threshold = vthresh,
+    )
+    try:
+        builder = TopologyBuilder(planning, subsystem=subsystem, opts=opts)
+        model   = builder.build()
+    except Exception as exc:
+        app.logger.exception("Topology builder error")
+        return jsonify({"error": str(exc)}), 500
+
+    # Convert GraphModel to vis.js format using the public API
+    graph = model_to_visjs(model)
+
+    meta = {
+        "aggregate":         builder._eff_agg,
+        "voltage_threshold": builder._eff_vthresh,
+        "no_generators":     no_gen,
+        "n_nodes":           len(graph["nodes"]),
+        "n_edges":           len(graph["edges"]),
+    }
+    if builder._auto_info:
+        meta["n_total"]   = builder._auto_info[0]
+        meta["auto_mode"] = True
+
+    return jsonify({"nodes": graph["nodes"], "edges": graph["edges"], "meta": meta})
+
+
 def main():
     """Run the guiservice development server."""
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
