@@ -569,7 +569,6 @@ def _build_voltage_map(
     buses: list[dict],
     lines: list[dict],
     threshold: float,
-
 ) -> dict:
     """Return a mapping {bus_ref -> representative_hv_bus_ref}.
 
@@ -902,7 +901,6 @@ class TopologyBuilder:
         self._eff_vthresh: float = self.opts.voltage_threshold
         self._auto_info         = None   # set by build() when aggregate="auto"
         self._focus_nids        = None
-
 
     @staticmethod
     def _bid(b):   return f"bus_{b.get('uid', b.get('name','?'))}"
@@ -2241,7 +2239,6 @@ Examples:
             flags.append(f"auto({n_total} elements)")
         suffix = ("  [" + ", ".join(flags) + "]") if flags else ""
         print(f"Diagram: {n_nodes} nodes, {n_edges} edges{suffix}", file=sys.stderr)
-
 
     if fmt == "mermaid":
         result = render_mermaid(model, direction=args.direction)
