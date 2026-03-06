@@ -3,7 +3,7 @@ Scripts
 -------
 
 CMake configuration for installing and testing the gtopt Python scripts:
-cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
+compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
 
 The scripts/ directory is a self-contained Python package with its own
 ``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
@@ -33,12 +33,12 @@ Build targets
   would be reformatted.
 
 ``scripts-lint``
-  Run pylint over cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  Run pylint over compare_pandapower, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
   exit non-zero on any error/warning.  Registered as a CTest test only when
   ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set (default: OFF).
 
 ``scripts-ruff``
-  Run ruff check over cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  Run ruff check over compare_pandapower, cvs2parquet, gtopt_diagram.py, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
   exit non-zero on any lint violation.
 
 ``scripts-mypy``
@@ -47,7 +47,7 @@ Build targets
   (default: OFF).
 
 ``scripts-test``
-  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt, pp2gtopt,
+  Run the full unit-test suite (compare_pandapower, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt,
   ts2gtopt) with pytest.
 
 ``scripts-test-integration``
@@ -204,7 +204,7 @@ add_custom_target(scripts-mypy
   COMMAND ${PYTHON_EXECUTABLE} -m mypy
     compare_pandapower
     cvs2parquet
-    gtopt_diagram
+    gtopt_diagram.py
     igtopt
     plp2gtopt
     pp2gtopt
@@ -362,7 +362,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     COMMAND ${PYTHON_EXECUTABLE} -m mypy
       compare_pandapower
       cvs2parquet
-      gtopt_diagram
+      gtopt_diagram.py
       igtopt
       plp2gtopt
       pp2gtopt
@@ -437,5 +437,5 @@ install(CODE "
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
   message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
-    \"compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt\")
+    \"compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
 ")
