@@ -117,13 +117,13 @@ classDiagram
     Planning  *--  System     : contains
     Simulation *-- Scenario   : has many
     Simulation *-- Stage      : has many
-    Simulation *-- Phase      : has many (default: 1)
+    Simulation *-- Phase      : has many
     Simulation *-- Block      : has many
-    Simulation *-- Scene      : has many (default: 1)
-    Phase      o-- Stage      : groups (first_stage + count_stage)
-    Stage      o-- Block      : references (first_block + count_block)
-    Scene      --> Scenario   : indexes (first_scenario + count_scenario)
-    Scene      ..> Phase      : paired with (via LP formulation)
+    Simulation *-- Scene      : has many
+    Phase      o-- Stage      : groups
+    Stage      o-- Block      : references
+    Scene      --> Scenario   : indexes
+    Scene      ..> Phase      : paired with
 ```
 
 > 💾 **Auto-generated SVG**: `docs/diagrams/planning_structure.svg`
