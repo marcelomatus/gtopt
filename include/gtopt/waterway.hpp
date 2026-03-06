@@ -54,18 +54,18 @@ namespace gtopt
  */
 struct Waterway
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  Name name {};            ///< Human-readable waterway name
-  OptActive active {};     ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable waterway name
+  OptActive active {};  ///< Activation status (default: active)
 
   SingleId junction_a {unknown_uid};  ///< Upstream junction ID
   SingleId junction_b {unknown_uid};  ///< Downstream junction ID
 
-  OptTRealFieldSched capacity {};            ///< Maximum flow capacity [m³/s]
-  OptTRealFieldSched lossfactor {0.0};       ///< Transit loss coefficient [p.u.]
+  OptTRealFieldSched capacity {};  ///< Maximum flow capacity [m³/s]
+  OptTRealFieldSched lossfactor {0.0};  ///< Transit loss coefficient [p.u.]
 
-  OptTBRealFieldSched fmin {0.0};            ///< Minimum required water flow [m³/s]
-  OptTBRealFieldSched fmax {300'000.0};      ///< Maximum allowed water flow [m³/s]
+  OptTBRealFieldSched fmin {0.0};  ///< Minimum required water flow [m³/s]
+  OptTBRealFieldSched fmax {300'000.0};  ///< Maximum allowed water flow [m³/s]
 };
 
 }  // namespace gtopt

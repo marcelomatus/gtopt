@@ -34,11 +34,12 @@ namespace gtopt
  */
 struct Scenario
 {
-  Uid uid {unknown_uid};    ///< Unique identifier
-  OptName name {};          ///< Optional human-readable label
-  OptBool active {};        ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  OptName name {};  ///< Optional human-readable label
+  OptBool active {};  ///< Activation status (default: active)
 
-  OptReal probability_factor {1};  ///< Probability weight of this scenario [p.u.]; values are normalised to sum 1
+  OptReal probability_factor {1};  ///< Probability weight of this scenario
+                                   ///< [p.u.]; values are normalised to sum 1
 
   static constexpr std::string_view class_name = "scenario";
 

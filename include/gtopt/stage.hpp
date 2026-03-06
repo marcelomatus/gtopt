@@ -44,13 +44,16 @@ namespace gtopt
  */
 struct Stage
 {
-  Uid uid {unknown_uid};     ///< Unique identifier
-  OptName name {};           ///< Optional human-readable label
-  OptBool active {};         ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  OptName name {};  ///< Optional human-readable label
+  OptBool active {};  ///< Activation status (default: active)
 
-  Size first_block {0};      ///< 0-based index of the first block in this stage [dimensionless]
-  Size count_block {std::dynamic_extent}; ///< Number of consecutive blocks in this stage [dimensionless]
-  OptReal discount_factor {1}; ///< Present-value cost multiplier for this stage [p.u.]
+  Size first_block {
+      0};  ///< 0-based index of the first block in this stage [dimensionless]
+  Size count_block {std::dynamic_extent};  ///< Number of consecutive blocks in
+                                           ///< this stage [dimensionless]
+  OptReal discount_factor {
+      1};  ///< Present-value cost multiplier for this stage [p.u.]
 
   static constexpr std::string_view class_name = "stage";
 

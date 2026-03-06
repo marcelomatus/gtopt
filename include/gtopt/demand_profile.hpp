@@ -47,12 +47,13 @@ namespace gtopt
 struct DemandProfile
 {
   Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};           ///< Human-readable name
-  OptActive active {};    ///< Activation status (default: active)
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status (default: active)
 
-  SingleId demand {unknown_uid};   ///< ID of the associated demand element
-  STBRealFieldSched profile {};    ///< Load-scaling profile [p.u. of lmax]
-  OptTRealFieldSched scost {};     ///< Short-run load-shedding cost override [$/MWh]
+  SingleId demand {unknown_uid};  ///< ID of the associated demand element
+  STBRealFieldSched profile {};  ///< Load-scaling profile [p.u. of lmax]
+  OptTRealFieldSched
+      scost {};  ///< Short-run load-shedding cost override [$/MWh]
 };
 
 }  // namespace gtopt

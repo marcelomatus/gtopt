@@ -44,6 +44,7 @@ from typing import Optional
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FieldInfo:
     name: str
@@ -107,8 +108,15 @@ def _is_required(cpp_type: str, field_name: str) -> bool:
     """Heuristic: uid, name, bus_a/bus_b, junction, waterway, generator, demand,
     battery, reserve_zones are required; everything else is optional."""
     required_names = {
-        "uid", "bus_a", "bus_b", "junction", "waterway",
-        "generator", "demand", "battery", "reserve_zones",
+        "uid",
+        "bus_a",
+        "bus_b",
+        "junction",
+        "waterway",
+        "generator",
+        "demand",
+        "battery",
+        "reserve_zones",
     }
     if field_name in required_names:
         return True
@@ -202,7 +210,9 @@ def parse_header(path: Path) -> list[StructInfo]:
                     brief_text = re.split(r"\s@", bm.group(1))[0].strip()
                     pending_brief = brief_text
                 # Capture @details
-                detail_match = re.search(r"@details?\s+(.+?)(?=\s@|\Z)", block_text, re.DOTALL)
+                detail_match = re.search(
+                    r"@details?\s+(.+?)(?=\s@|\Z)", block_text, re.DOTALL
+                )
                 if detail_match:
                     pending_details = [detail_match.group(1).strip()]
             i += 1
@@ -261,7 +271,9 @@ def parse_header(path: Path) -> list[StructInfo]:
                 )
 
             # End of struct
-            if brace_depth < 0 or (brace_depth == 0 and "}" in stripped and ";" in stripped):
+            if brace_depth < 0 or (
+                brace_depth == 0 and "}" in stripped and ";" in stripped
+            ):
                 current_struct = None
                 brace_depth = 0
 
@@ -306,6 +318,7 @@ ALL_ELEMENTS = OPTIONS_ELEMENTS + SIMULATION_ELEMENTS + SYSTEM_ELEMENTS
 # Markdown renderer
 # ---------------------------------------------------------------------------
 
+
 def _md_field_row(f: FieldInfo) -> str:
     req = "**Yes**" if f.required else "No"
     units = f"`{f.units}`" if f.units else "—"
@@ -333,8 +346,12 @@ def render_markdown(structs_by_name: dict[str, StructInfo], elements: list[str])
         if info.details:
             lines.append(f"{info.details}\n")
         lines.append("")
-        lines.append("| Field | C++ Type | JSON Type | Units | Required | Description |")
-        lines.append("|-------|----------|-----------|-------|----------|-------------|")
+        lines.append(
+            "| Field | C++ Type | JSON Type | Units | Required | Description |"
+        )
+        lines.append(
+            "|-------|----------|-----------|-------|----------|-------------|"
+        )
         for f in info.fields:
             lines.append(_md_field_row(f))
         lines.append("")
@@ -396,10 +413,12 @@ def render_html(structs_by_name: dict[str, StructInfo], elements: list[str]) -> 
             parts.append(f"<p><em>{info.brief}</em></p>\n")
         if info.details:
             parts.append(f"<p>{info.details}</p>\n")
-        parts.append("<table>\n<tr>"
-                     "<th>Field</th><th>C++ Type</th><th>JSON Type</th>"
-                     "<th>Units</th><th>Required</th><th>Description</th>"
-                     "</tr>\n")
+        parts.append(
+            "<table>\n<tr>"
+            "<th>Field</th><th>C++ Type</th><th>JSON Type</th>"
+            "<th>Units</th><th>Required</th><th>Description</th>"
+            "</tr>\n"
+        )
         for f in info.fields:
             req_str = '<span class="req">Yes</span>' if f.required else "No"
             units_str = f"<code>{f.units}</code>" if f.units else "—"
@@ -422,6 +441,7 @@ def render_html(structs_by_name: dict[str, StructInfo], elements: list[str]) -> 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def _find_repo_root(start: Path) -> Path:
     """Walk up until we find a directory containing 'include/gtopt'."""

@@ -60,7 +60,8 @@ struct Line
 
   OptTRealFieldSched voltage {};  ///< Nominal voltage level [kV]
   OptTRealFieldSched resistance {};  ///< Series resistance [p.u.]
-  OptTRealFieldSched reactance {};  ///< Series reactance used in DC power flow [p.u.]
+  OptTRealFieldSched
+      reactance {};  ///< Series reactance used in DC power flow [p.u.]
   OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
@@ -68,10 +69,14 @@ struct Line
 
   OptTRealFieldSched capacity {};  ///< Installed transfer capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
-  OptTRealFieldSched expmod {};  ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity after expansion [MW]
-  OptTRealFieldSched annual_capcost {};  ///< Annualized investment cost [$/MW-year]
-  OptTRealFieldSched annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched
+      capmax {};  ///< Absolute maximum capacity after expansion [MW]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MW-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 };
 
 }  // namespace gtopt

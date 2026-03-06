@@ -53,10 +53,14 @@ struct GeneratorAttrs
 
   OptTRealFieldSched capacity {};  ///< Installed generation capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
-  OptTRealFieldSched expmod {};  ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity after expansion [MW]
-  OptTRealFieldSched annual_capcost {};  ///< Annualized investment cost [$/MW-year]
-  OptTRealFieldSched annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched
+      capmax {};  ///< Absolute maximum capacity after expansion [MW]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MW-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 };
 
 /**
@@ -86,10 +90,14 @@ struct Generator
 
   OptTRealFieldSched capacity {};  ///< Installed generation capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
-  OptTRealFieldSched expmod {};  ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity after expansion [MW]
-  OptTRealFieldSched annual_capcost {};  ///< Annualized investment cost [$/MW-year]
-  OptTRealFieldSched annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched
+      capmax {};  ///< Absolute maximum capacity after expansion [MW]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MW-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object

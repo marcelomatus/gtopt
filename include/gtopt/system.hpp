@@ -52,34 +52,40 @@ namespace gtopt
  */
 struct System
 {
-  Name name {};      ///< System name (used in output filenames)
-  String version {}; ///< Optional schema version string
+  Name name {};  ///< System name (used in output filenames)
+  String version {};  ///< Optional schema version string
 
   // ── Electrical network ──────────────────────────────────────────────────
-  Array<Bus> bus_array {};             ///< Electrical buses (nodes)
-  Array<Demand> demand_array {};       ///< Electrical demands (loads)
-  Array<Generator> generator_array {}; ///< Generation units
-  Array<Line> line_array {};           ///< Transmission lines
+  Array<Bus> bus_array {};  ///< Electrical buses (nodes)
+  Array<Demand> demand_array {};  ///< Electrical demands (loads)
+  Array<Generator> generator_array {};  ///< Generation units
+  Array<Line> line_array {};  ///< Transmission lines
 
   // ── Time-varying profiles ───────────────────────────────────────────────
-  Array<GeneratorProfile> generator_profile_array {}; ///< Capacity-factor profiles for generators
-  Array<DemandProfile> demand_profile_array {};        ///< Load-shape profiles for demands
+  Array<GeneratorProfile>
+      generator_profile_array {};  ///< Capacity-factor profiles for generators
+  Array<DemandProfile>
+      demand_profile_array {};  ///< Load-shape profiles for demands
 
   // ── Energy storage ──────────────────────────────────────────────────────
-  Array<Battery> battery_array {};     ///< Battery energy storage systems
-  Array<Converter> converter_array {}; ///< Battery ↔ generator/demand couplings
+  Array<Battery> battery_array {};  ///< Battery energy storage systems
+  Array<Converter>
+      converter_array {};  ///< Battery ↔ generator/demand couplings
 
   // ── Reserve modeling ────────────────────────────────────────────────────
-  Array<ReserveZone> reserve_zone_array {};         ///< Spinning-reserve requirement zones
-  Array<ReserveProvision> reserve_provision_array {};///< Generator → reserve zone links
+  Array<ReserveZone>
+      reserve_zone_array {};  ///< Spinning-reserve requirement zones
+  Array<ReserveProvision>
+      reserve_provision_array {};  ///< Generator → reserve zone links
 
   // ── Hydro cascade ───────────────────────────────────────────────────────
-  Array<Junction> junction_array {};     ///< Hydraulic nodes
-  Array<Waterway> waterway_array {};     ///< Water channels between junctions
-  Array<Flow> flow_array {};             ///< Exogenous inflows / mandatory releases
-  Array<Reservoir> reservoir_array {};   ///< Water storage reservoirs
-  Array<Filtration> filtration_array {}; ///< Waterway → reservoir seepage links
-  Array<Turbine> turbine_array {};       ///< Hydro turbines (waterway → generator)
+  Array<Junction> junction_array {};  ///< Hydraulic nodes
+  Array<Waterway> waterway_array {};  ///< Water channels between junctions
+  Array<Flow> flow_array {};  ///< Exogenous inflows / mandatory releases
+  Array<Reservoir> reservoir_array {};  ///< Water storage reservoirs
+  Array<Filtration>
+      filtration_array {};  ///< Waterway → reservoir seepage links
+  Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
 
   /**
    * @brief Merges another system into this one
