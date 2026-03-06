@@ -30,28 +30,46 @@ update_horizon_durations(horizon, schedule_df)
 convert_timeseries(input_paths, output_dir, horizon, ...)
     High-level batch conversion (load → project → write) with optional
     output of the duration-updated horizon JSON.
+
+build_hour_block_map(horizon, year)
+    Build a sequential hour-to-(stage, block) mapping from a planning horizon.
+    Returns a list of ``{"hour": i, "stage": s, "block": b}`` dicts.
+
+reconstruct_output_hours(output_dir, hour_block_map, ...)
+    Expand block-level gtopt output files into hourly time-series.
+    Writes ``output_hour/`` with ``scenario, hour, uid:X`` format.
+
+write_output_hours(case_json_path, ...)
+    Convenience wrapper: reads ``hour_block_map`` from the case JSON and
+    calls :func:`reconstruct_output_hours`.
 """
 
 from .ts2gtopt import (
+    build_hour_block_map,
     convert_timeseries,
     energy_conservation_check,
     load_horizon,
     load_timeseries,
     make_horizon,
     project_timeseries,
+    reconstruct_output_hours,
     update_horizon_durations,
+    write_output_hours,
     write_schedule,
 )
 from .main import main
 
 __all__ = [
+    "build_hour_block_map",
     "convert_timeseries",
     "energy_conservation_check",
     "load_horizon",
     "load_timeseries",
     "make_horizon",
     "project_timeseries",
+    "reconstruct_output_hours",
     "update_horizon_durations",
+    "write_output_hours",
     "write_schedule",
     "main",
 ]

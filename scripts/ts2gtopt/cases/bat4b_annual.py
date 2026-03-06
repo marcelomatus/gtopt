@@ -838,6 +838,13 @@ def write_bat4b_case(
         output_dir / "input", year, g1_pmax=g1_pmax, g2_pmax=g2_pmax
     )
 
+    from ts2gtopt.ts2gtopt import (  # pylint: disable=import-outside-toplevel
+        build_hour_block_map,
+        make_horizon,
+    )
+
+    horizon = make_horizon(year, n_stages=12, n_blocks=24, interval_hours=1.0)
+
     case = {
         "options": {
             "annual_discount_rate": 0.0,
@@ -853,6 +860,7 @@ def write_bat4b_case(
         },
         "simulation": _make_gtopt_simulation(year),
         "system": _make_gtopt_system(year, g1_pmax, g2_pmax),
+        "hour_block_map": build_hour_block_map(horizon, year=year),
     }
     json_path = output_dir / f"bat_4b_{year}.json"
     json_path.write_text(json.dumps(case, indent=2), encoding="utf-8")
