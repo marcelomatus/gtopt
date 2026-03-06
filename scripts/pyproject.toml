@@ -6,8 +6,8 @@
 #   pip install -e ./scripts       # editable install from repo root
 #   pip install -e .               # editable install from inside scripts/
 #
-# The three console-script entry-points (cvs2parquet, igtopt, plp2gtopt,
-# pp2gtopt) are registered here so they land on PATH alongside the gtopt binary.
+# The four console-script entry-points (cvs2parquet, igtopt, plp2gtopt,
+# pp2gtopt, ts2gtopt) are registered here so they land on PATH alongside the gtopt binary.
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -33,6 +33,8 @@ gtopt-diagram      = "gtopt_diagram:main"
 igtopt             = "igtopt.igtopt:main"
 plp2gtopt          = "plp2gtopt.main:main"
 pp2gtopt           = "pp2gtopt.main:main"
+ts2gtopt           = "ts2gtopt.main:main"
+
 
 [project.optional-dependencies]
 dev = [
@@ -52,7 +54,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*"]
+include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
 
 [tool.setuptools]
 py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
@@ -71,6 +73,7 @@ testpaths = [
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
+    "ts2gtopt/tests",
 ]
 addopts = "-v --import-mode=importlib -n auto"
 pythonpath = ["."]
@@ -79,7 +82,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt"]
+source = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -96,7 +99,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt"]
+known_first_party = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88
