@@ -82,8 +82,8 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
-omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
+source = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py"]
 
 [tool.coverage.report]
 show_missing = true
