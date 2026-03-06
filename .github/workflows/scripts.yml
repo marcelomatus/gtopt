@@ -42,7 +42,7 @@ jobs:
           cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
-        run: pip install -e "./scripts[dev]" graphviz
+        run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Run unit tests with coverage
         working-directory: scripts
@@ -50,7 +50,7 @@ jobs:
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
             -n auto \
-            -v \
+            -q --tb=short \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -107,14 +107,15 @@ jobs:
           cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
-        run: pip install -e "./scripts[dev]"
+        run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Run integration tests
         working-directory: scripts
         run: |
           pytest plp2gtopt/tests/test_integration.py \
             -n auto \
-            -v -m integration \
+            -q --tb=short \
+            -m integration \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -143,6 +144,12 @@ jobs:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: "scripts/pyproject.toml"
+
+      # Pre-install runtime deps before cmake configure so that cmake's
+      # find_program(PYTHON_EXECUTABLE) picks the same Python whose packages
+      # are already cached, and the cmake --install pip step is faster.
+      - name: Pre-install scripts runtime dependencies
+        run: uv pip install --system -e "./scripts"
 
       - name: Configure scripts with CMake
         run: cmake -S scripts -B build-scripts
@@ -283,7 +290,7 @@ jobs:
           cache-dependency-path: "scripts/pyproject.toml"
 
       - name: Install dev dependencies
-        run: pip install -e "./scripts[dev]"
+        run: uv pip install --system -e "./scripts[dev]"
 
       - name: ruff (lint)
         working-directory: scripts
