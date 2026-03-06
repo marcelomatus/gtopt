@@ -3,7 +3,7 @@ Scripts
 -------
 
 CMake configuration for installing and testing the gtopt Python scripts:
-cvs2parquet, igtopt, plp2gtopt, and pp2gtopt.
+cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
 
 The scripts/ directory is a self-contained Python package with its own
 ``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
@@ -33,13 +33,13 @@ Build targets
   would be reformatted.
 
 ``scripts-lint``
-  Run pylint over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero on
-  any error/warning.  Registered as a CTest test only when
+  Run pylint over cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  exit non-zero on any error/warning.  Registered as a CTest test only when
   ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set (default: OFF).
 
 ``scripts-ruff``
-  Run ruff check over cvs2parquet, igtopt, plp2gtopt, and pp2gtopt; exit non-zero
-  on any lint violation.
+  Run ruff check over cvs2parquet, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  exit non-zero on any lint violation.
 
 ``scripts-mypy``
   Run mypy static type checking; exit non-zero on any type error.  Registered as
@@ -47,7 +47,8 @@ Build targets
   (default: OFF).
 
 ``scripts-test``
-  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt, pp2gtopt) with pytest.
+  Run the full unit-test suite (cvs2parquet, igtopt, plp2gtopt, pp2gtopt,
+  ts2gtopt) with pytest.
 
 ``scripts-test-integration``
   Run the integration tests (marked ``integration``) using the sample PLP
@@ -142,6 +143,7 @@ add_custom_target(scripts-format
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
+    "${SCRIPTS_DIR}/ts2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Auto-formatting Python source files with ruff format"
   DEPENDS scripts-install
@@ -157,6 +159,7 @@ add_custom_target(scripts-check-format
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
+    "${SCRIPTS_DIR}/ts2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Checking Python source formatting with ruff format (no files modified)"
   DEPENDS scripts-install
@@ -173,6 +176,7 @@ add_custom_target(scripts-lint
     igtopt
     plp2gtopt
     pp2gtopt
+    ts2gtopt
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running pylint static analysis"
   DEPENDS scripts-install
@@ -188,6 +192,7 @@ add_custom_target(scripts-ruff
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
+    "${SCRIPTS_DIR}/ts2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running ruff static analysis"
   DEPENDS scripts-install
@@ -203,6 +208,7 @@ add_custom_target(scripts-mypy
     igtopt
     plp2gtopt
     pp2gtopt
+    ts2gtopt
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running mypy static type checking"
@@ -219,6 +225,7 @@ add_custom_target(scripts-test
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -248,6 +255,7 @@ add_custom_target(scripts-coverage
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
     -v
     --cov="${SCRIPTS_DIR}/compare_pandapower"
@@ -256,6 +264,7 @@ add_custom_target(scripts-coverage
     --cov="${SCRIPTS_DIR}/igtopt"
     --cov="${SCRIPTS_DIR}/plp2gtopt"
     --cov="${SCRIPTS_DIR}/pp2gtopt"
+    --cov="${SCRIPTS_DIR}/ts2gtopt"
     --cov-report=html:${CMAKE_BINARY_DIR}/scripts-coverage-report
     --cov-report=term-missing
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -299,6 +308,7 @@ add_test(
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
+    "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
     -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -322,6 +332,7 @@ add_test(
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
+    "${SCRIPTS_DIR}/ts2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
@@ -342,6 +353,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
       igtopt
       plp2gtopt
       pp2gtopt
+      ts2gtopt
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
 
@@ -354,6 +366,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
       igtopt
       plp2gtopt
       pp2gtopt
+      ts2gtopt
       --ignore-missing-imports
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
@@ -374,6 +387,7 @@ add_test(
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
+    "${SCRIPTS_DIR}/ts2gtopt"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 

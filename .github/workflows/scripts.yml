@@ -56,6 +56,7 @@ jobs:
             --cov=igtopt \
             --cov=plp2gtopt \
             --cov=pp2gtopt \
+            --cov=ts2gtopt \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
@@ -158,6 +159,8 @@ jobs:
           echo "✓ pp2gtopt found on PATH after cmake --install"
           gtopt-diagram --help > /dev/null
           echo "✓ gtopt-diagram found on PATH after cmake --install"
+          ts2gtopt --help > /dev/null
+          echo "✓ ts2gtopt found on PATH after cmake --install"
 
       - name: plp_min_1bus – convert and validate JSON
         run: |
@@ -304,8 +307,8 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint --jobs=0 cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt
+        run: pylint --jobs=0 cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
 
       - name: mypy
         working-directory: scripts
-        run: mypy cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt --ignore-missing-imports
+        run: mypy cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports
