@@ -154,7 +154,9 @@ class TestTopologyBuilder:
 
 class TestModelToVisjs:
     def test_returns_nodes_and_edges(self):
-        builder = gd.TopologyBuilder(_IEEE9_JSON, opts=gd.FilterOptions(aggregate="none"))
+        builder = gd.TopologyBuilder(
+            _IEEE9_JSON, opts=gd.FilterOptions(aggregate="none")
+        )
         model = builder.build()
         result = gd.model_to_visjs(model)
         assert "nodes" in result
@@ -163,7 +165,9 @@ class TestModelToVisjs:
         assert isinstance(result["edges"], list)
 
     def test_nodes_have_required_vis_fields(self):
-        builder = gd.TopologyBuilder(_MINI_PLANNING, opts=gd.FilterOptions(aggregate="none"))
+        builder = gd.TopologyBuilder(
+            _MINI_PLANNING, opts=gd.FilterOptions(aggregate="none")
+        )
         model = builder.build()
         visjs = gd.model_to_visjs(model)
         for node in visjs["nodes"]:
@@ -171,7 +175,9 @@ class TestModelToVisjs:
             assert "label" in node
 
     def test_edges_have_from_to(self):
-        builder = gd.TopologyBuilder(_IEEE9_JSON, opts=gd.FilterOptions(aggregate="none"))
+        builder = gd.TopologyBuilder(
+            _IEEE9_JSON, opts=gd.FilterOptions(aggregate="none")
+        )
         model = builder.build()
         visjs = gd.model_to_visjs(model)
         for edge in visjs["edges"]:
@@ -179,7 +185,9 @@ class TestModelToVisjs:
             assert "to" in edge
 
     def test_empty_model_returns_empty_lists(self):
-        builder = gd.TopologyBuilder({"system": {}}, opts=gd.FilterOptions(aggregate="none"))
+        builder = gd.TopologyBuilder(
+            {"system": {}}, opts=gd.FilterOptions(aggregate="none")
+        )
         model = builder.build()
         result = gd.model_to_visjs(model)
         assert result["nodes"] == []
@@ -248,8 +256,15 @@ class TestMain:
         json_path.write_text(json.dumps(_MINI_PLANNING))
         out_path = tmp_path / "out.dot"
         rc = gd.main(
-            [str(json_path), "--format", "dot", "--output", str(out_path),
-             "--aggregate", "none"]
+            [
+                str(json_path),
+                "--format",
+                "dot",
+                "--output",
+                str(out_path),
+                "--aggregate",
+                "none",
+            ]
         )
         assert rc == 0
         assert out_path.exists()
@@ -259,7 +274,14 @@ class TestMain:
         json_path = tmp_path / "mini.json"
         json_path.write_text(json.dumps(_MINI_PLANNING))
         rc = gd.main(
-            [str(json_path), "--format", "mermaid", "--no-generators", "--aggregate", "none"]
+            [
+                str(json_path),
+                "--format",
+                "mermaid",
+                "--no-generators",
+                "--aggregate",
+                "none",
+            ]
         )
         assert rc == 0
 
