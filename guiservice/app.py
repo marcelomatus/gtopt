@@ -30,6 +30,27 @@ from flask import (
     send_file,
 )
 
+# Optional: gtopt_diagram may not be installed; guiservice works without it
+# but the /api/diagram/topology endpoint will return a 503.
+# The module-level import with try/except is preferred over deferred imports
+# so that the optional dependency is resolved once at startup.
+try:
+    import sys as _sys
+
+    _scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts")
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    from gtopt_diagram import FilterOptions as _FilterOptions
+    from gtopt_diagram import TopologyBuilder as _TopologyBuilder
+    from gtopt_diagram import model_to_visjs as _model_to_visjs
+
+    _DIAGRAM_AVAILABLE = True
+except ImportError:
+    _FilterOptions = None  # type: ignore[assignment,misc]
+    _TopologyBuilder = None  # type: ignore[assignment,misc]
+    _model_to_visjs = None  # type: ignore[assignment,misc]
+    _DIAGRAM_AVAILABLE = False
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 
@@ -1081,21 +1102,8 @@ def diagram_topology():
         edges  – list of vis.js edge objects
         meta   – dict with aggregate, voltage_threshold, n_total, visible_buses
     """
-    try:
-        import sys as _sys
-        import os as _os
-
-        # Locate gtopt_diagram relative to this file
-        _scripts_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "scripts")
-        if _scripts_dir not in _sys.path:
-            _sys.path.insert(0, _scripts_dir)
-        from gtopt_diagram import (  # noqa: PLC0415
-            FilterOptions,
-            TopologyBuilder,
-            model_to_visjs,
-        )
-    except ImportError as exc:
-        return jsonify({"error": f"gtopt_diagram not available: {exc}"}), 500
+    if not _DIAGRAM_AVAILABLE:
+        return jsonify({"error": "gtopt_diagram not available"}), 503
 
     body = request.get_json(silent=True) or {}
     case_data = body.get("caseData", body)
@@ -1111,31 +1119,31 @@ def diagram_topology():
     except Exception as exc:
         return jsonify({"error": f"Failed to build case JSON: {exc}"}), 400
 
-    opts = FilterOptions(
+    opts = _FilterOptions(
         aggregate=aggregate,
         no_generators=no_gen,
         compact=compact,
         voltage_threshold=vthresh,
     )
     try:
-        builder = TopologyBuilder(planning, subsystem=subsystem, opts=opts)
+        builder = _TopologyBuilder(planning, subsystem=subsystem, opts=opts)
         model = builder.build()
     except Exception as exc:
         app.logger.exception("Topology builder error")
         return jsonify({"error": str(exc)}), 500
 
     # Convert GraphModel to vis.js format using the public API
-    graph = model_to_visjs(model)
+    graph = _model_to_visjs(model)
 
     meta = {
-        "aggregate": builder._eff_agg,
-        "voltage_threshold": builder._eff_vthresh,
+        "aggregate": builder.eff_agg,
+        "voltage_threshold": builder.eff_vthresh,
         "no_generators": no_gen,
         "n_nodes": len(graph["nodes"]),
         "n_edges": len(graph["edges"]),
     }
-    if builder._auto_info:
-        meta["n_total"] = builder._auto_info[0]
+    if builder.auto_info:
+        meta["n_total"] = builder.auto_info[0]
         meta["auto_mode"] = True
 
     return jsonify({"nodes": graph["nodes"], "edges": graph["edges"], "meta": meta})

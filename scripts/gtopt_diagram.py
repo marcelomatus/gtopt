@@ -718,7 +718,7 @@ def _count_visible_buses(buses: list[dict], lines: list[dict], threshold: float)
     return len(representatives)
 
 
-def _auto_voltage_threshold(
+def auto_voltage_threshold(
     buses: list[dict],
     lines: list[dict],
     max_buses: int = _AUTO_MAX_HV_BUSES,
@@ -1029,6 +1029,23 @@ class TopologyBuilder:
         self._auto_info = None  # set by build() when aggregate="auto"
         self._focus_nids = None
 
+    # ── Public accessors for build metadata ────────────────────────────────
+
+    @property
+    def eff_agg(self) -> str:
+        """Effective aggregation mode resolved by :meth:`build`."""
+        return self._eff_agg
+
+    @property
+    def eff_vthresh(self) -> float:
+        """Effective voltage threshold resolved by :meth:`build`."""
+        return self._eff_vthresh
+
+    @property
+    def auto_info(self):
+        """(n_total, agg, vthresh) tuple set by auto mode, or *None*."""
+        return self._auto_info
+
     @staticmethod
     def _bid(b):
         return f"bus_{b.get('uid', b.get('name', '?'))}"
@@ -1123,7 +1140,7 @@ class TopologyBuilder:
                 # threshold chosen so that ≤ _AUTO_MAX_HV_BUSES buses remain.
                 agg = "type"
                 if vthresh == 0.0:
-                    vthresh = _auto_voltage_threshold(
+                    vthresh = auto_voltage_threshold(
                         self.sys.get("bus_array", []),
                         self.sys.get("line_array", []),
                         max_buses=_AUTO_MAX_HV_BUSES,
@@ -1611,7 +1628,6 @@ class TopologyBuilder:
 
     def _filtrations(self):
         for fi in self.sys.get("filtration_array", []):
-            name = fi.get("name", fi.get("uid", "?"))
             wway = _resolve(self.sys.get("waterway_array", []), fi.get("waterway"))
             res_id = self._find_node_id(
                 "reservoir_array", fi.get("reservoir"), self._rid
@@ -1955,7 +1971,7 @@ def _build_planning_svg(planning: dict) -> str:
         )
         info = f"discount={df}" if df != "" else f"{cb} block(s)"
         el.append(
-            t(sx + sw2 / 2, y + 42, info, size=9, color=C_STAGE_BDR, italic=(df == ""))
+            t(sx + sw2 / 2, y + 42, info, size=9, color=C_STAGE_BDR, italic=df == "")
         )
     y += STAGE_H
 
@@ -2047,7 +2063,8 @@ def _build_planning_svg(planning: dict) -> str:
         t(
             LABEL_W + 18,
             fy,
-            "min  \u03a3_s  \u03a3_t  \u03a3_b   prob_s \u00d7 discount_t \u00d7 duration_b \u00d7 dispatch_cost(s, t, b)",
+            "min  \u03a3_s  \u03a3_t  \u03a3_b   prob_s \u00d7 discount_t"
+            " \u00d7 duration_b \u00d7 dispatch_cost(s, t, b)",
             size=12,
             color=C_FORM_TXT,
             anchor="start",
@@ -2069,7 +2086,8 @@ def _build_planning_svg(planning: dict) -> str:
         t(
             LABEL_W + 18,
             fy,
-            "subject to: bus power balance, Kirchhoff voltage law, generator / line / battery / hydro constraints",
+            "subject to: bus power balance, Kirchhoff voltage law,"
+            " generator / line / battery / hydro constraints",
             size=10,
             color="#78909C",
             anchor="start",
@@ -2083,10 +2101,10 @@ def _build_planning_svg(planning: dict) -> str:
     )
 
 
-def _build_planning_mermaid(planning: dict) -> str:  # noqa: ARG001
+def _build_planning_mermaid(_planning: dict) -> str:  # noqa: ARG001
     """Return a Mermaid classDiagram of the gtopt planning data model.
 
-    The *planning* argument is accepted for API consistency but is not used
+    The *_planning* argument is accepted for API consistency but is not used
     because the class diagram describes the generic data model rather than
     instance-specific data.
     """
@@ -2467,7 +2485,7 @@ def model_to_visjs(model: GraphModel) -> dict:
 
 def _legend_html(model: GraphModel) -> str:
     kinds = {n.kind for n in model.nodes}
-    LABELS = {
+    labels = {
         "bus": "Bus (electrical node)",
         "gen": "Generator (thermal)",
         "gen_solar": "Generator (solar/wind)",
@@ -2482,7 +2500,7 @@ def _legend_html(model: GraphModel) -> str:
         "filtration": "Filtration / seepage",
     }
     entries = []
-    for kind, lbl in LABELS.items():
+    for kind, lbl in labels.items():
         if kind not in kinds:
             continue
         icon = _MM_ICONS.get(kind, "\u25cf")
@@ -2951,8 +2969,8 @@ Examples:
             file=sys.stderr,
         )
     else:
-        agg_used = builder._eff_agg
-        vt_used = builder._eff_vthresh
+        agg_used = builder.eff_agg
+        vt_used = builder.eff_vthresh
         flags: list[str] = []
         if agg_used != "none":
             flags.append(f"aggregate={agg_used}")
@@ -2960,8 +2978,8 @@ Examples:
             flags.append(f"voltage≥{vt_used:.0f} kV")
         if opts.no_generators:
             flags.append("no-generators")
-        if opts.aggregate == "auto" and builder._auto_info:
-            n_total, _, _ = builder._auto_info
+        if opts.aggregate == "auto" and builder.auto_info:
+            n_total, _, _ = builder.auto_info
             flags.append(f"auto({n_total} elements)")
         suffix = ("  [" + ", ".join(flags) + "]") if flags else ""
         print(f"Diagram: {n_nodes} nodes, {n_edges} edges{suffix}", file=sys.stderr)

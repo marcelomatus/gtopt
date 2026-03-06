@@ -138,6 +138,7 @@ add_custom_target(scripts-format
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format
     "${SCRIPTS_DIR}/compare_pandapower"
     "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
@@ -152,6 +153,7 @@ add_custom_target(scripts-check-format
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
     "${SCRIPTS_DIR}/compare_pandapower"
     "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
@@ -167,6 +169,7 @@ add_custom_target(scripts-lint
     --jobs=0
     compare_pandapower
     cvs2parquet
+    gtopt_diagram
     igtopt
     plp2gtopt
     pp2gtopt
@@ -181,6 +184,7 @@ add_custom_target(scripts-ruff
   COMMAND ${PYTHON_EXECUTABLE} -m ruff check
     "${SCRIPTS_DIR}/compare_pandapower"
     "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
@@ -195,6 +199,7 @@ add_custom_target(scripts-mypy
   COMMAND ${PYTHON_EXECUTABLE} -m mypy
     compare_pandapower
     cvs2parquet
+    gtopt_diagram
     igtopt
     plp2gtopt
     pp2gtopt
@@ -210,6 +215,7 @@ add_custom_target(scripts-test
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/compare_pandapower/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
@@ -238,6 +244,7 @@ add_custom_target(scripts-coverage
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/compare_pandapower/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
@@ -245,6 +252,7 @@ add_custom_target(scripts-coverage
     -v
     --cov="${SCRIPTS_DIR}/compare_pandapower"
     --cov="${SCRIPTS_DIR}/cvs2parquet"
+    --cov="${SCRIPTS_DIR}/gtopt_diagram.py"
     --cov="${SCRIPTS_DIR}/igtopt"
     --cov="${SCRIPTS_DIR}/plp2gtopt"
     --cov="${SCRIPTS_DIR}/pp2gtopt"
@@ -287,6 +295,7 @@ add_test(
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/compare_pandapower/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
+    "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
@@ -309,6 +318,7 @@ add_test(
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
     "${SCRIPTS_DIR}/compare_pandapower"
     "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
@@ -328,6 +338,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
       --jobs=0
       compare_pandapower
       cvs2parquet
+      gtopt_diagram
       igtopt
       plp2gtopt
       pp2gtopt
@@ -339,6 +350,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     COMMAND ${PYTHON_EXECUTABLE} -m mypy
       compare_pandapower
       cvs2parquet
+      gtopt_diagram
       igtopt
       plp2gtopt
       pp2gtopt
@@ -358,6 +370,7 @@ add_test(
   COMMAND ${PYTHON_EXECUTABLE} -m ruff check
     "${SCRIPTS_DIR}/compare_pandapower"
     "${SCRIPTS_DIR}/cvs2parquet"
+    "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
     "${SCRIPTS_DIR}/plp2gtopt"
     "${SCRIPTS_DIR}/pp2gtopt"
@@ -410,5 +423,5 @@ install(CODE "
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
   message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
-    \"compare_pandapower, cvs2parquet, igtopt, plp2gtopt, pp2gtopt\")
+    \"compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt\")
 ")
