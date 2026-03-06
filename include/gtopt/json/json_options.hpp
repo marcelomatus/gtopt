@@ -32,13 +32,13 @@ struct json_data_contract<Options>
                        json_number_null<"kirchhoff_threshold", OptReal>,
                        json_number_null<"scale_objective", OptReal>,
                        json_number_null<"scale_theta", OptReal>,
+                       json_number_null<"annual_discount_rate", OptReal>,
 
                        json_string_null<"output_directory", OptName>,
                        json_string_null<"output_format", OptName>,
                        json_string_null<"output_compression", OptName>,
                        json_bool_null<"use_lp_names", OptBool>,
                        json_bool_null<"use_uid_fname", OptBool>,
-                       json_number_null<"annual_discount_rate", OptReal>,
 
                        json_number_null<"lp_algorithm", OptInt>,
                        json_number_null<"lp_threads", OptInt>,
@@ -56,13 +56,13 @@ struct json_data_contract<Options>
                                  opt.kirchhoff_threshold,
                                  opt.scale_objective,
                                  opt.scale_theta,
+                                 opt.annual_discount_rate,
 
                                  opt.output_directory,
                                  opt.output_format,
                                  opt.output_compression,
                                  opt.use_lp_names,
                                  opt.use_uid_fname,
-                                 opt.annual_discount_rate,
 
                                  opt.lp_algorithm,
                                  opt.lp_threads,

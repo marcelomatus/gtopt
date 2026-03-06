@@ -67,6 +67,7 @@ python_files = "test_*.py"
 testpaths = [
     "compare_pandapower/tests",
     "cvs2parquet/tests",
+    "gtopt_diagram_tests",
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
@@ -140,6 +141,20 @@ disable = [
     "duplicate-code",
     # protected-access is intentional in test helpers that set up internal state
     "protected-access",
+    # optional-dependency imports (graphviz, pyvis, cairosvg) are intentionally
+    # deferred to the functions that need them so the package works without them
+    "import-outside-toplevel",
+    # complex rendering/conversion functions in gtopt_diagram.py and plp2gtopt:
+    # these match the thresholds already disabled in the root .pylintrc
+    "too-many-statements",
+    "too-many-locals",
+    "too-many-branches",
+    "too-many-return-statements",
+    "too-many-nested-blocks",
+    "invalid-name",
+    "too-many-lines",
+    "too-many-instance-attributes",
+    "too-many-public-methods",
 ]
 
 [tool.mypy]
