@@ -84,7 +84,7 @@ done
 # 4. Pre-install Python scripts dependencies (speeds up scripts-install-deps CTest
 #    fixture from ~35 s to ~3–5 s).  Must run BEFORE cmake configure so that
 #    cmake's find_program(PYTHON_EXECUTABLE) picks the same Python.
-pip install -q -e "./scripts[dev]" graphviz
+uv pip install --system -q -e "./scripts[dev]" graphviz
 
 # 5. Configure — clang-21 + conda Arrow prefix
 #    Use `all/` super-project (builds library + binary + tests in one step)
@@ -113,12 +113,12 @@ cd build && ctest --output-on-failure
 > present.  Delete the build directory and reconfigure if this happens.
 
 > **Why pre-install Python scripts deps before cmake configure?**
-> The `scripts-install-deps` CTest fixture calls `pip install -e ./scripts[dev]`
+> The `scripts-install-deps` CTest fixture calls `uv pip install -e ./scripts[dev]`
 > which downloads and installs pandapower and dozens of transitive dependencies
 > from scratch (~35 s) unless they are already present.  Pre-installing via
-> `pip install -q -e "./scripts[dev]" graphviz` before configure means cmake's
-> `find_program(PYTHON_EXECUTABLE)` finds the same Python that already has all
-> packages, so the CTest fixture only needs to verify the install (~3–5 s).
+> `uv pip install --system -q -e "./scripts[dev]" graphviz` before configure means
+> cmake's `find_program(PYTHON_EXECUTABLE)` finds the same Python that already has
+> all packages, so the CTest fixture only needs to verify the install (~3–5 s).
 
 ### GCC 14 fallback (when Clang 21 unavailable)
 
@@ -243,7 +243,7 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 
 ```bash
 # Pre-install scripts deps first (speeds up scripts-install-deps CTest fixture)
-pip install -q -e "./scripts[dev]" graphviz
+uv pip install --system -q -e "./scripts[dev]" graphviz
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
@@ -267,14 +267,14 @@ cd build && ctest --output-on-failure
 | `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
 | `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
 | `clang: command not found` or wrong version | Clang 21 not installed | Follow the LLVM APT install steps in the "Complete bootstrap" section above (see `.github/actions/install-clang/action.yml`) |
-| `scripts-install-deps` CTest fixture slow (~35 s) | Python scripts deps not pre-installed | Run `pip install -q -e "./scripts[dev]" graphviz` **before** `cmake -S all -B build` |
+| `scripts-install-deps` CTest fixture slow (~35 s) | Python scripts deps not pre-installed | Run `uv pip install --system -q -e "./scripts[dev]" graphviz` **before** `cmake -S all -B build` |
 
 **Critical rule**: install `ccache` **before** `cmake -S all -B build`.
 CMake bakes the launcher path into the build system at configure time; if ccache
 is missing when you configure, every subsequent `cmake --build` invocation fails
 even after installing ccache later.
 
-**Second critical rule**: pre-install scripts deps (`pip install -q -e "./scripts[dev]" graphviz`)
+**Second critical rule**: pre-install scripts deps (`uv pip install --system -q -e "./scripts[dev]" graphviz`)
 **before** `cmake -S all -B build`.  The `scripts-install-deps` CTest fixture runs
 during `ctest` and installs packages using whichever Python cmake found at configure
 time.  Pre-installing ensures cmake picks the same Python and the fixture only needs
