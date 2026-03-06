@@ -27,5 +27,6 @@
 using namespace gtopt;
 
 #include "test_battery.hpp"
+#include "test_battery_expand.hpp"
 #include "test_converter.hpp"
 #include "test_state_variable.hpp"
