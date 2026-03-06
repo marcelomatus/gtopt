@@ -299,4 +299,12 @@ class TestMain:
             [str(json_path), "--diagram-type", "planning", "--format", "mermaid"]
         )
         assert rc == 0
-        assert len(capsys.readouterr().out) > 0
+        out = capsys.readouterr().out
+        assert len(out) > 0
+        # Relationship labels must not contain parentheses — GitHub's Mermaid
+        # classDiagram parser rejects them (conflicts with method call syntax).
+        for line in out.splitlines():
+            if " : " in line and "--" in line:
+                assert "(" not in line, (
+                    f"Relationship label contains parentheses (invalid Mermaid): {line!r}"
+                )
