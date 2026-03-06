@@ -308,7 +308,7 @@ add_test(
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
-    -n auto
+    -n 0
     -q --tb=short
     --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -318,7 +318,7 @@ add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-    -n auto
+    -n 0
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
