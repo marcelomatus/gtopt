@@ -292,7 +292,6 @@ add_test(
   COMMAND ${CMAKE_COMMAND}
     -DSCRIPTS_DIR:PATH=${SCRIPTS_DIR}
     -DPYTHON_EXECUTABLE:FILEPATH=${PYTHON_EXECUTABLE}
-    -DSTAGE_DIR:PATH=${CMAKE_BINARY_DIR}/pip_stage
     -P ${SCRIPTS_DIR}/cmake/scripts_install_deps.cmake
 )
 set_tests_properties(scripts-install-deps PROPERTIES

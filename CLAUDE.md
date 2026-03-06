@@ -155,7 +155,7 @@ done
 # 4. Pre-install Python scripts dependencies (speeds up scripts-install-deps CTest
 #    fixture from ~35 s to ~3–5 s).  Must run BEFORE cmake configure so that
 #    cmake's find_program(PYTHON_EXECUTABLE) picks the same Python.
-pip install -q -e "./scripts[dev]" graphviz
+uv pip install --system -q -e "./scripts[dev]" graphviz
 
 # 5. Configure – use clang-21 + conda Arrow prefix
 #    Use `all/` super-project (builds library + binary + tests in one step)
@@ -182,13 +182,13 @@ cd build && ctest --output-on-failure
 > Always delete the build directory and reconfigure if ccache was missing.
 
 > **Why pre-install Python scripts deps before cmake configure?**
-> The `scripts-install-deps` CTest fixture calls `pip install -e ./scripts[dev]`
+> The `scripts-install-deps` CTest fixture calls `uv pip install -e ./scripts[dev]`
 > which downloads and installs pandapower and dozens of transitive dependencies
 > from scratch (~35 s) unless they are already present.  Pre-installing via
-> `pip install -q -e "./scripts[dev]" graphviz` before configure means cmake
-> finds the same Python that already has all packages, so the CTest fixture
-> just verifies the install (~3–5 s).  Always run pip install before cmake
-> configure so `find_program(PYTHON_EXECUTABLE)` picks the right interpreter.
+> `uv pip install --system -q -e "./scripts[dev]" graphviz` before configure means
+> cmake finds the same Python that already has all packages, so the CTest fixture
+> just verifies the install (~3–5 s).  Always run this before cmake configure so
+> `find_program(PYTHON_EXECUTABLE)` picks the right interpreter.
 
 ### GCC 14 fallback (when Clang 21 is unavailable)
 
