@@ -52,7 +52,6 @@ jobs:
             -n auto \
             -v \
             --cov=cvs2parquet \
-            --cov=gtopt_diagram \
             --cov=igtopt \
             --cov=plp2gtopt \
             --cov=pp2gtopt \
@@ -311,4 +310,4 @@ jobs:
 
       - name: mypy
         working-directory: scripts
-        run: mypy cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports
+        run: mypy cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports

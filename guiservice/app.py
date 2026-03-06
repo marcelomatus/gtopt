@@ -46,9 +46,9 @@ try:
 
     _DIAGRAM_AVAILABLE = True
 except ImportError:
-    _FilterOptions = None  # type: ignore[assignment,misc]
-    _TopologyBuilder = None  # type: ignore[assignment,misc]
-    _model_to_visjs = None  # type: ignore[assignment,misc]
+    _FilterOptions = None
+    _TopologyBuilder = None
+    _model_to_visjs = None
     _DIAGRAM_AVAILABLE = False
 
 app = Flask(__name__)
