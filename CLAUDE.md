@@ -99,15 +99,15 @@ GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
 | `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
 | Clang not found / wrong version | Clang 21 not installed | Follow the LLVM APT install steps in the "How the CI installs Clang 21" section above (see also `.github/actions/install-clang/action.yml`) |
 
-> **Critical rule**: always install `ccache` **before** running `cmake -S test -B build`.
+> **Critical rule**: always install `ccache` **before** running `cmake -S all -B build`.
 > CMake bakes the launcher path at configure time; installing ccache later does not help.
 > Delete the build directory and reconfigure from scratch.
 
 ## Build Commands
 
-> **Important**: The primary build target for development and testing is `cmake -S test -B build`,
-> NOT the root `CMakeLists.txt`.  The root CMakeLists only builds the library; the test
-> sub-project includes the library via CPM and also builds the test binary.
+> **Important**: The primary build target for development and testing is `cmake -S all -B build`.
+> The `all/` super-project builds the library, standalone binary, unit tests, and integration
+> tests in one go.  The binary is at `build/standalone/gtopt` and tests run via `ctest`.
 
 ### Complete bootstrap from scratch (sandboxed / CI agents)
 
@@ -153,7 +153,8 @@ for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
 done
 
 # 4. Configure – use clang-21 + conda Arrow prefix
-cmake -S test -B build \
+#    Use `all/` super-project (builds library + binary + tests in one step)
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -179,7 +180,7 @@ cd build && ctest --output-on-failure
 
 ```bash
 # Steps 1-2 same as above (system packages + conda Arrow), then:
-cmake -S test -B build \
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
@@ -193,15 +194,15 @@ cd build && ctest --output-on-failure
 ### Run a single test
 
 ```bash
-./build/gtoptTests -tc="test name pattern"
+./build/test/gtoptTests -tc="test name pattern"
 # or using doctest bracket syntax:
-./build/gtoptTests "[test name]"
+./build/test/gtoptTests "[test name]"
 ```
 
 ### Unit + integration tests (e2e)
 
 ```bash
-cmake -S test -B build -DENABLE_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
@@ -212,18 +213,19 @@ cd build && ctest --output-on-failure
 ### Standalone binary
 
 ```bash
-cmake -S standalone -B build-standalone -DCMAKE_BUILD_TYPE=Release \
+# The all/ build puts the binary at build/standalone/gtopt
+cmake -S all -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
-cmake --build build-standalone -j$(nproc)
-./build-standalone/gtopt --version
+cmake --build build -j$(nproc)
+./build/standalone/gtopt --version
 ```
 
 ### Test coverage
 
 ```bash
-cmake -S test -B build -DENABLE_TEST_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -DENABLE_TEST_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
@@ -243,7 +245,7 @@ cmake --build build --target format        # apply
 cmake --build build --target check-format  # check only
 
 # clang-tidy (slow – same as CI static analysis job)
-cmake -S test -B build \
+cmake -S all -B build \
   -DCMAKE_CXX_CLANG_TIDY="clang-tidy;--warnings-as-errors=*" \
   -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j$(nproc)
@@ -318,6 +320,26 @@ It is **independent** of the root `pyproject.toml`.
 - **Tests**: `pytest` with `pytest-cov`
 - **Coverage threshold**: 83% (`fail_under = 83` in `scripts/pyproject.toml`)
 
+> **⚠️ Mandatory pre-commit checklist for Python code**:
+> Before committing **any** Python changes to `scripts/` or `guiservice/`,
+> always run **all four** of the following — CI will fail if any of them fail:
+>
+> ```bash
+> # --- scripts/ ---
+> cd scripts
+> ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> ruff check  compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+> mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+>   --ignore-missing-imports
+>
+> # --- guiservice/ ---
+> ruff format guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> ruff check  guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> pylint --jobs=0 --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py --ignore-missing-imports
+> ```
+
 ```bash
 # Install (from repo root)
 pip install -e "./scripts[dev]"    # editable + dev tools
@@ -326,22 +348,25 @@ pip install -r scripts/requirements.txt          # runtime only
 # All commands below run from scripts/ directory
 cd scripts
 
-# Format
-python -m ruff format cvs2parquet igtopt plp2gtopt
-python -m ruff format --check cvs2parquet igtopt plp2gtopt   # CI check
+# Format (apply in-place)
+ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
-# Lint
-python -m pylint cvs2parquet igtopt plp2gtopt
+# Lint (ruff)
+ruff check compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+
+# Lint (pylint — must pass at 10.00/10)
+pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Type check
-python -m mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
+mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+  --ignore-missing-imports
 
 # Run all tests (fast, < 2 s)
 python -m pytest -q
 
 # Run with coverage + missing-lines report
 python -m pytest \
-  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt --cov=pp2gtopt --cov=ts2gtopt \
   --cov-report=term-missing -q
 
 # Run a single test
@@ -350,14 +375,6 @@ python -m pytest -k "test_parse_single_bess" -q
 # Integration tests only
 python -m pytest -m integration -q
 ```
-
-> **Important**: Always run `pylint` after modifying or adding Python code in
-> `scripts/`.  The CI `Scripts` workflow (`scripts.yml`) runs
-> `pylint cvs2parquet igtopt plp2gtopt` and **fails on any warning or
-> convention violation** (exit code ≠ 0).  Run it locally before pushing:
-> ```bash
-> cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
-> ```
 
 Via CMake (from repo root after `cmake -S scripts -B build-scripts`):
 
