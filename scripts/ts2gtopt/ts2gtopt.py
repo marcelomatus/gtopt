@@ -400,9 +400,7 @@ def make_horizon(
     if preset is not None:
         pcfg = get_preset(preset)
         if block_hours is None and pcfg.get("block_hours"):
-            block_hours = [
-                (bname, bhours) for bname, bhours in pcfg["block_hours"]
-            ]
+            block_hours = list(pcfg["block_hours"])
         n_stages = pcfg.get("n_stages", n_stages)
         if phases is None and "phases" in pcfg:
             phases = pcfg["phases"]

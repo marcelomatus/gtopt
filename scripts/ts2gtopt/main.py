@@ -20,7 +20,6 @@ from ts2gtopt.ts2gtopt import (
     _sequential_month_range,
     convert_timeseries,
     energy_conservation_check,
-    get_preset,
     list_presets,
     load_horizon,
     load_timeseries,
@@ -230,7 +229,7 @@ def main() -> None:
 
     parser.add_argument(
         "input",
-        nargs="+",
+        nargs="*",
         metavar="FILE",
         help="input time-series file(s) (CSV or Parquet)",
     )
@@ -387,6 +386,9 @@ def main() -> None:
         for pname, pdesc in list_presets().items():
             print(f"  {pname:24s} {pdesc}")
         sys.exit(0)
+
+    if not args.input:
+        parser.error("the following arguments are required: FILE")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
