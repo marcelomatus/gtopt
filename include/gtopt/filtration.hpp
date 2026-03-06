@@ -10,7 +10,8 @@
  * function of the waterway's flow rate:
  *
  * ```
- * seepage [m³/s] = slope [m³/s / (m³/s)] × waterway_flow [m³/s] + constant [m³/s]
+ * seepage [m³/s] = slope [m³/s / (m³/s)] × waterway_flow [m³/s] + constant
+ * [m³/s]
  * ```
  *
  * ### JSON Example
@@ -47,13 +48,14 @@ namespace gtopt
  */
 struct Filtration
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  Name name {};            ///< Human-readable name
-  OptActive active {};     ///< Operational status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Operational status (default: active)
 
-  SingleId waterway {unknown_uid};   ///< ID of the source waterway
+  SingleId waterway {unknown_uid};  ///< ID of the source waterway
   SingleId reservoir {unknown_uid};  ///< ID of the receiving reservoir
-  Real slope {0.0};     ///< Seepage rate proportional to waterway flow [dimensionless; seepage_flow/waterway_flow]
+  Real slope {0.0};  ///< Seepage rate proportional to waterway flow
+                     ///< [dimensionless; seepage_flow/waterway_flow]
   Real constant {0.0};  ///< Constant seepage rate independent of flow [m³/s]
 };
 

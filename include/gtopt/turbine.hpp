@@ -55,17 +55,20 @@ namespace gtopt
  */
 struct Turbine
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  Name name {};            ///< Human-readable name
-  OptActive active {};     ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status (default: active)
 
-  SingleId waterway {unknown_uid};   ///< ID of the connected waterway
-  SingleId generator {unknown_uid};  ///< ID of the connected electrical generator
+  SingleId waterway {unknown_uid};  ///< ID of the connected waterway
+  SingleId generator {
+      unknown_uid};  ///< ID of the connected electrical generator
 
-  OptBool drain {};  ///< If true, turbine can spill water without generating power
+  OptBool
+      drain {};  ///< If true, turbine can spill water without generating power
 
-  OptTRealFieldSched conversion_rate {}; ///< Water-to-power conversion factor [MW·s/m³]
-  OptTRealFieldSched capacity {};        ///< Maximum turbine power output [MW]
+  OptTRealFieldSched
+      conversion_rate {};  ///< Water-to-power conversion factor [MW·s/m³]
+  OptTRealFieldSched capacity {};  ///< Maximum turbine power output [MW]
 };
 
 }  // namespace gtopt

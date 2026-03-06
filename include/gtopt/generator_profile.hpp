@@ -16,7 +16,8 @@
  *   "uid": 1,
  *   "name": "g3_solar",
  *   "generator": "g3",
- *   "profile": [0,0,0,0,0,0.1,0.4,0.7,0.9,1,1,0.95,0.9,0.85,0.8,0.6,0.3,0.1,0,0,0,0,0,0]
+ *   "profile":
+ * [0,0,0,0,0,0.1,0.4,0.7,0.9,1,1,0.95,0.9,0.85,0.8,0.6,0.3,0.1,0,0,0,0,0,0]
  * }
  * ```
  *
@@ -47,12 +48,13 @@ namespace gtopt
 struct GeneratorProfile
 {
   Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};           ///< Human-readable name
-  OptActive active {};    ///< Activation status (default: active)
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status (default: active)
 
   SingleId generator {unknown_uid};  ///< ID of the associated generator
-  STBRealFieldSched profile {};      ///< Capacity-factor profile [p.u. of installed capacity]
-  OptTRealFieldSched scost {};       ///< Short-run generation cost override [$/MWh]
+  STBRealFieldSched
+      profile {};  ///< Capacity-factor profile [p.u. of installed capacity]
+  OptTRealFieldSched scost {};  ///< Short-run generation cost override [$/MWh]
 };
 
 }  // namespace gtopt

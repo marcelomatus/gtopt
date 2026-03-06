@@ -62,22 +62,29 @@ struct Battery
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (default: active)
 
-  OptTRealFieldSched input_efficiency {};   ///< Charging (round-trip in) efficiency [p.u.]
+  OptTRealFieldSched
+      input_efficiency {};  ///< Charging (round-trip in) efficiency [p.u.]
   OptTRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
-  OptTRealFieldSched annual_loss {};        ///< Annual self-discharge rate [p.u./year]
+  OptTRealFieldSched
+      annual_loss {};  ///< Annual self-discharge rate [p.u./year]
 
-  OptTRealFieldSched emin {};    ///< Minimum state of charge [MWh]
-  OptTRealFieldSched emax {};    ///< Maximum state of charge (usable capacity) [MWh]
-  OptTRealFieldSched vcost {};   ///< Storage usage cost (penalty for SoC) [$/MWh]
-  OptReal eini {};               ///< Initial state of charge [MWh]
-  OptReal efin {};               ///< Terminal state of charge (end condition) [MWh]
+  OptTRealFieldSched emin {};  ///< Minimum state of charge [MWh]
+  OptTRealFieldSched
+      emax {};  ///< Maximum state of charge (usable capacity) [MWh]
+  OptTRealFieldSched
+      vcost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
+  OptReal eini {};  ///< Initial state of charge [MWh]
+  OptReal efin {};  ///< Terminal state of charge (end condition) [MWh]
 
-  OptTRealFieldSched capacity {};       ///< Installed energy capacity [MWh]
-  OptTRealFieldSched expcap {};         ///< Energy capacity per expansion module [MWh]
-  OptTRealFieldSched expmod {};         ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};         ///< Absolute maximum energy capacity [MWh]
-  OptTRealFieldSched annual_capcost {}; ///< Annualized investment cost [$/MWh-year]
-  OptTRealFieldSched annual_derating {};///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched capacity {};  ///< Installed energy capacity [MWh]
+  OptTRealFieldSched expcap {};  ///< Energy capacity per expansion module [MWh]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched capmax {};  ///< Absolute maximum energy capacity [MWh]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MWh-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 };
 
 }  // namespace gtopt

@@ -46,11 +46,13 @@ namespace gtopt
  */
 struct Simulation
 {
-  Array<Block> block_array {};       ///< Ordered list of time blocks
-  Array<Stage> stage_array {};       ///< Ordered list of planning stages
-  Array<Scenario> scenario_array {}; ///< List of stochastic scenarios
-  Array<Phase> phase_array {Phase {}};  ///< List of planning phases (default: one phase)
-  Array<Scene> scene_array {Scene {}};  ///< List of scene combinations (default: one scene)
+  Array<Block> block_array {};  ///< Ordered list of time blocks
+  Array<Stage> stage_array {};  ///< Ordered list of planning stages
+  Array<Scenario> scenario_array {};  ///< List of stochastic scenarios
+  Array<Phase> phase_array {
+      Phase {}};  ///< List of planning phases (default: one phase)
+  Array<Scene> scene_array {
+      Scene {}};  ///< List of scene combinations (default: one scene)
 
   constexpr Simulation& merge(Simulation&& sim)  // NOLINT
   {

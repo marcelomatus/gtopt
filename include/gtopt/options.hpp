@@ -43,7 +43,8 @@ struct Options
   // ── Input settings ─────────────────────────────────────────────────────────
   /** @brief Root directory for external input data files (CSV/Parquet) */
   OptName input_directory {};
-  /** @brief Preferred format for reading external files: `"parquet"` or `"csv"` */
+  /** @brief Preferred format for reading external files: `"parquet"` or `"csv"`
+   */
   OptName input_format {};
 
   // ── Model parameters ───────────────────────────────────────────────────────
@@ -53,17 +54,22 @@ struct Options
   OptReal reserve_fail_cost {};
   /** @brief Whether to model resistive line losses (default: true) */
   OptBool use_line_losses {};
-  /** @brief Whether to apply DC Kirchhoff voltage-law constraints (default: false) */
+  /** @brief Whether to apply DC Kirchhoff voltage-law constraints (default:
+   * false) */
   OptBool use_kirchhoff {};
-  /** @brief Whether to collapse the network to a single bus (copper-plate model) */
+  /** @brief Whether to collapse the network to a single bus (copper-plate
+   * model) */
   OptBool use_single_bus {};
-  /** @brief Minimum bus voltage [kV] below which Kirchhoff is not applied [kV] */
+  /** @brief Minimum bus voltage [kV] below which Kirchhoff is not applied [kV]
+   */
   OptReal kirchhoff_threshold {};
-  /** @brief Divisor applied to all objective coefficients for numerical stability [dimensionless] */
+  /** @brief Divisor applied to all objective coefficients for numerical
+   * stability [dimensionless] */
   OptReal scale_objective {};
   /** @brief Scaling factor for voltage-angle variables [dimensionless] */
   OptReal scale_theta {};
-  /** @brief Annual discount rate for multi-stage CAPEX calculations [p.u./year] */
+  /** @brief Annual discount rate for multi-stage CAPEX calculations [p.u./year]
+   */
   OptReal annual_discount_rate {};
 
   // ── Output settings ────────────────────────────────────────────────────────
@@ -71,7 +77,8 @@ struct Options
   OptName output_directory {};
   /** @brief Format for output files: `"parquet"` (default) or `"csv"` */
   OptName output_format {};
-  /** @brief Compression codec for Parquet output: `"gzip"` (default), `"zstd"`, `"uncompressed"` */
+  /** @brief Compression codec for Parquet output: `"gzip"` (default), `"zstd"`,
+   * `"uncompressed"` */
   OptName output_compression {};
   /** @brief Use descriptive variable names in the LP model (aids debugging) */
   OptBool use_lp_names {};
@@ -79,7 +86,8 @@ struct Options
   OptBool use_uid_fname {};
 
   // ── Solver algorithm settings ──────────────────────────────────────────────
-  /** @brief LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier */
+  /** @brief LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier
+   */
   OptInt lp_algorithm {};
   /** @brief Number of solver threads (0=automatic) [dimensionless] */
   OptInt lp_threads {};

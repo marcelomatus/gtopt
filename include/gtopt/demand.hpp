@@ -52,15 +52,20 @@ struct DemandAttrs
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
-  OptTRealFieldSched emin {};  ///< Minimum energy that must be served per stage [MWh]
+  OptTRealFieldSched
+      emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
 
   OptTRealFieldSched capacity {};  ///< Installed demand capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
-  OptTRealFieldSched expmod {};  ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity after expansion [MW]
-  OptTRealFieldSched annual_capcost {};  ///< Annualized investment cost [$/MW-year]
-  OptTRealFieldSched annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched
+      capmax {};  ///< Absolute maximum capacity after expansion [MW]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MW-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 };
 
 /**
@@ -85,15 +90,20 @@ struct Demand
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
-  OptTRealFieldSched emin {};  ///< Minimum energy that must be served per stage [MWh]
+  OptTRealFieldSched
+      emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
 
   OptTRealFieldSched capacity {};  ///< Installed demand capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
-  OptTRealFieldSched expmod {};  ///< Maximum number of expansion modules [dimensionless]
-  OptTRealFieldSched capmax {};  ///< Absolute maximum capacity after expansion [MW]
-  OptTRealFieldSched annual_capcost {};  ///< Annualized investment cost [$/MW-year]
-  OptTRealFieldSched annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptTRealFieldSched
+      expmod {};  ///< Maximum number of expansion modules [dimensionless]
+  OptTRealFieldSched
+      capmax {};  ///< Absolute maximum capacity after expansion [MW]
+  OptTRealFieldSched
+      annual_capcost {};  ///< Annualized investment cost [$/MW-year]
+  OptTRealFieldSched
+      annual_derating {};  ///< Annual capacity derating factor [p.u./year]
 
   /**
    * @brief Sets the demand attributes from a DemandAttrs object

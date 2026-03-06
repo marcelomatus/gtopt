@@ -40,11 +40,12 @@ namespace gtopt
  */
 struct Junction
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  Name name {};            ///< Human-readable junction name
-  OptActive active {};     ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable junction name
+  OptActive active {};  ///< Activation status (default: active)
 
-  OptBool drain {};  ///< If true, excess water at this junction can leave the system freely
+  OptBool drain {};  ///< If true, excess water at this junction can leave the
+                     ///< system freely
 };
 
 }  // namespace gtopt

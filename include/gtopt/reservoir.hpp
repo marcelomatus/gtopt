@@ -62,27 +62,35 @@ namespace gtopt
 struct Reservoir
 {
   Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};           ///< Human-readable name
-  OptActive active {};    ///< Activation status (default: active)
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status (default: active)
 
   SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 
-  OptReal spillway_capacity {+6'000.0};  ///< Maximum uncontrolled spill capacity [m³/s]
-  OptReal spillway_cost {};              ///< Penalty cost per unit of spilled water [$/dam³]
+  OptReal spillway_capacity {
+      +6'000.0};  ///< Maximum uncontrolled spill capacity [m³/s]
+  OptReal
+      spillway_cost {};  ///< Penalty cost per unit of spilled water [$/dam³]
 
-  OptTRealFieldSched capacity {};    ///< Total usable storage capacity [dam³]
-  OptTRealFieldSched annual_loss {}; ///< Annual fractional evaporation/seepage loss [p.u./year]
-  OptTRealFieldSched emin {};        ///< Minimum allowed stored volume [dam³]
-  OptTRealFieldSched emax {};        ///< Maximum allowed stored volume [dam³]
-  OptTRealFieldSched vcost {};       ///< Shadow cost of stored water (water value) [$/dam³]
-  OptReal eini {};                   ///< Initial stored volume at start of horizon [dam³]
-  OptReal efin {};                   ///< Target stored volume at end of horizon [dam³]
+  OptTRealFieldSched capacity {};  ///< Total usable storage capacity [dam³]
+  OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
+                                      ///< loss [p.u./year]
+  OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [dam³]
+  OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [dam³]
+  OptTRealFieldSched
+      vcost {};  ///< Shadow cost of stored water (water value) [$/dam³]
+  OptReal eini {};  ///< Initial stored volume at start of horizon [dam³]
+  OptReal efin {};  ///< Target stored volume at end of horizon [dam³]
 
-  OptReal fmin {-10'000.0};  ///< Minimum net flow into the reservoir junction [m³/s]
-  OptReal fmax {+10'000.0};  ///< Maximum net flow into the reservoir junction [m³/s]
+  OptReal fmin {
+      -10'000.0};  ///< Minimum net flow into the reservoir junction [m³/s]
+  OptReal fmax {
+      +10'000.0};  ///< Maximum net flow into the reservoir junction [m³/s]
 
-  OptReal vol_scale {1.0};              ///< Multiplicative scaling factor for volume units [dimensionless]
-  OptReal flow_conversion_rate {0.0036}; ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
+  OptReal vol_scale {
+      1.0};  ///< Multiplicative scaling factor for volume units [dimensionless]
+  OptReal flow_conversion_rate {
+      0.0036};  ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
 };
 
 }  // namespace gtopt

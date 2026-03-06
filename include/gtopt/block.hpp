@@ -37,10 +37,10 @@ namespace gtopt
  */
 struct Block
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  OptName name {};         ///< Optional human-readable label
+  Uid uid {unknown_uid};  ///< Unique identifier
+  OptName name {};  ///< Optional human-readable label
 
-  Real duration {0.0};     ///< Duration of this time block [h]
+  Real duration {0.0};  ///< Duration of this time block [h]
 
   static constexpr std::string_view class_name = "block";
 };

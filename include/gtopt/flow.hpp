@@ -46,14 +46,15 @@ namespace gtopt
  */
 struct Flow
 {
-  Uid uid {unknown_uid};   ///< Unique identifier
-  Name name {};            ///< Human-readable name
-  OptActive active {};     ///< Activation status (default: active)
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status (default: active)
 
-  OptInt direction {1};  ///< Flow direction: +1 = inflow, −1 = outflow [dimensionless]
+  OptInt direction {
+      1};  ///< Flow direction: +1 = inflow, −1 = outflow [dimensionless]
 
-  SingleId junction {unknown_uid};   ///< ID of the connected junction
-  STBRealFieldSched discharge {};    ///< Water discharge schedule [m³/s]
+  SingleId junction {unknown_uid};  ///< ID of the connected junction
+  STBRealFieldSched discharge {};  ///< Water discharge schedule [m³/s]
 
   /// @return true if flow is directed into the junction (inflow)
   [[nodiscard]] constexpr bool is_input() const noexcept
