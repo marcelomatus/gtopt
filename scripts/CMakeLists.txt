@@ -281,6 +281,13 @@ ProcessorCount(NPROC)
 if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
+# Leave at least one CPU free for other tests running alongside the expensive
+# integration suite.  Clamped to 1 to ensure single-core machines can still
+# run tests (NPROC_M1 must never be 0).
+math(EXPR NPROC_M1 "${NPROC} - 1")
+if(NPROC_M1 LESS 1)
+  set(NPROC_M1 1)
+endif()
 list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
 
 # Setup fixture: install dev dependencies before running any tests.
@@ -308,7 +315,7 @@ add_test(
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
-    -n 0
+    -n auto
     -q --tb=short
     --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -318,7 +325,7 @@ add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-    -n 0
+    -n ${NPROC_M1}
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -397,6 +404,22 @@ set_tests_properties(
   scripts-check-format
   scripts-ruff
   PROPERTIES FIXTURES_REQUIRED scripts-deps
+)
+
+# Integration tests are long-running: schedule them first so other tests can
+# overlap with them, and declare that they use NPROC-1 processor slots so
+# CTest's scheduler avoids oversubscribing the CPU when the test runs
+# internally with -n ${NPROC_M1} (NPROC-1) pytest-xdist workers.
+set_tests_properties(scripts-integration-tests PROPERTIES
+  COST 100.0
+  PROCESSORS ${NPROC_M1}
+)
+
+# Unit tests run internally with -n auto (all CPUs via pytest-xdist).
+# Declaring PROCESSORS ${NPROC} prevents CTest from scheduling another
+# CPU-saturating test alongside them.
+set_tests_properties(scripts-unit-tests PROPERTIES
+  PROCESSORS ${NPROC}
 )
 
 # ---- Install ----
