@@ -8,8 +8,18 @@ energy of the original time-series.
 
 Public API
 ----------
-make_horizon(year, n_stages, n_blocks, interval_hours)
+PRESETS
+    Dict of built-in horizon presets (e.g. ``"seasonal-3block"``).
+
+list_presets()
+    Return a mapping of preset name → human-readable description.
+
+get_preset(name)
+    Look up a preset by name; raises ``ValueError`` if unknown.
+
+make_horizon(year, n_stages, n_blocks, interval_hours, block_hours, phases, preset)
     Auto-generate a conservation-correct annual planning horizon dict.
+    Supports custom block hour ranges, phase groupings, and built-in presets.
 
 load_horizon(path)
     Load a planning horizon definition from a JSON file.
@@ -45,9 +55,12 @@ write_output_hours(case_json_path, ...)
 """
 
 from .ts2gtopt import (
+    PRESETS,
     build_hour_block_map,
     convert_timeseries,
     energy_conservation_check,
+    get_preset,
+    list_presets,
     load_horizon,
     load_timeseries,
     make_horizon,
@@ -60,9 +73,12 @@ from .ts2gtopt import (
 from .main import main
 
 __all__ = [
+    "PRESETS",
     "build_hour_block_map",
     "convert_timeseries",
     "energy_conservation_check",
+    "get_preset",
+    "list_presets",
     "load_horizon",
     "load_timeseries",
     "make_horizon",

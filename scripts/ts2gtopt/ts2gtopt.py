@@ -61,6 +61,99 @@ _META_COLS = {"_month", "_hour", "_year", "_dt", "_duration"}
 
 
 # ---------------------------------------------------------------------------
+# Preset horizon definitions
+# ---------------------------------------------------------------------------
+
+#: Mapping of preset name → configuration dict with keys:
+#: ``description``, ``n_stages``, ``block_hours`` (list of ``(name, hours)``
+#: tuples defining each block's hour-of-day range), and optionally ``phases``
+#: (list of dicts grouping stages into higher-level periods).
+PRESETS: dict[str, dict[str, Any]] = {
+    "seasonal-3block": {
+        "description": (
+            "4 seasons (phases) × 3 months (stages) × 3 blocks "
+            "(night 0-6, solar 7-18, evening 19-23)"
+        ),
+        "n_stages": 12,
+        "block_hours": [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ],
+        "phases": [
+            {"name": "summer", "months": [1, 2, 3]},
+            {"name": "autumn", "months": [4, 5, 6]},
+            {"name": "winter", "months": [7, 8, 9]},
+            {"name": "spring", "months": [10, 11, 12]},
+        ],
+    },
+    "monthly-3block": {
+        "description": (
+            "12 months (stages) × 3 blocks (night 0-6, solar 7-18, evening 19-23)"
+        ),
+        "n_stages": 12,
+        "block_hours": [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ],
+    },
+    "seasonal-hourly": {
+        "description": "4 seasons (phases) × 3 months (stages) × 24 hourly blocks",
+        "n_stages": 12,
+        "block_hours": None,  # default sequential hourly
+        "phases": [
+            {"name": "summer", "months": [1, 2, 3]},
+            {"name": "autumn", "months": [4, 5, 6]},
+            {"name": "winter", "months": [7, 8, 9]},
+            {"name": "spring", "months": [10, 11, 12]},
+        ],
+    },
+    "annual-3block": {
+        "description": (
+            "1 annual stage × 3 blocks (night 0-6, solar 7-18, evening 19-23)"
+        ),
+        "n_stages": 1,
+        "block_hours": [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ],
+    },
+}
+
+
+def list_presets() -> dict[str, str]:
+    """Return a mapping of preset name → description."""
+    return {name: cfg["description"] for name, cfg in PRESETS.items()}
+
+
+def get_preset(name: str) -> dict[str, Any]:
+    """Look up a preset by name.
+
+    Parameters
+    ----------
+    name:
+        One of the keys in :data:`PRESETS`.
+
+    Returns
+    -------
+    dict
+        Preset configuration dict with keys ``n_stages``, ``block_hours``,
+        and optionally ``phases``.
+
+    Raises
+    ------
+    ValueError
+        If *name* is not a recognised preset.
+    """
+    if name not in PRESETS:
+        available = ", ".join(sorted(PRESETS))
+        raise ValueError(f"Unknown preset '{name}'. Available presets: {available}")
+    return PRESETS[name]
+
+
+# ---------------------------------------------------------------------------
 # Horizon helpers
 # ---------------------------------------------------------------------------
 
@@ -222,6 +315,9 @@ def make_horizon(
     n_blocks: int = 24,
     probability_factor: float = 1.0,
     interval_hours: float = 1.0,
+    block_hours: list[tuple[str, list[int]]] | None = None,
+    phases: list[dict[str, Any]] | None = None,
+    preset: str | None = None,
 ) -> dict[str, Any]:
     """Generate a conservation-correct annual planning horizon.
 
@@ -258,20 +354,72 @@ def make_horizon(
 
         - ``24`` → one block per hour of the day  *(default)*
         - ``1``  → single block per stage (daily average)
+
+        Ignored when *block_hours* is provided (the number of blocks is
+        inferred from the length of *block_hours*).
     probability_factor:
         Probability weight for the single generated scenario.
     interval_hours:
         Duration of each observation in the input time-series, in hours.
         Use ``1.0`` for hourly data *(default)*, ``0.25`` for 15-minute data,
         ``24.0`` for daily data, etc.
+    block_hours:
+        Optional list of ``(name, hours)`` tuples defining each block's
+        hour-of-day range.  For example::
+
+            [("night", [0,1,2,3,4,5,6]),
+             ("solar", [7,8,...,18]),
+             ("evening", [19,20,21,22,23])]
+
+        When provided, *n_blocks* is ignored.  The hours across all blocks
+        must cover exactly 0–23 (every hour of the day assigned once).
+    phases:
+        Optional list of phase dicts.  Each dict must contain ``"name"``
+        and ``"months"`` (list of 1-based month numbers).  Phases group
+        consecutive stages into higher-level periods.  For example::
+
+            [{"name": "summer", "months": [1,2,3]},
+             {"name": "winter", "months": [7,8,9]}]
+    preset:
+        Name of a built-in preset (see :data:`PRESETS`).  When given,
+        *n_stages*, *block_hours*, and *phases* are taken from the preset
+        (explicit arguments still override).
 
     Returns
     -------
     dict
         Horizon dict suitable for :func:`project_timeseries`.  Contains
         ``stages``, ``blocks``, ``scenarios``, ``year``, and
-        ``interval_hours``.
+        ``interval_hours``.  When *phases* are provided, includes a
+        ``phases`` key as well.
     """
+    # --- Apply preset if given ------------------------------------------------
+    if preset is not None:
+        pcfg = get_preset(preset)
+        if block_hours is None and pcfg.get("block_hours"):
+            block_hours = list(pcfg["block_hours"])
+        n_stages = pcfg.get("n_stages", n_stages)
+        if phases is None and "phases" in pcfg:
+            phases = pcfg["phases"]
+
+    # --- Determine effective block definitions --------------------------------
+    if block_hours is not None:
+        effective_n_blocks = len(block_hours)
+        # Validate coverage: all 24 hours must be covered exactly once
+        all_hours: set[int] = set()
+        for _, bhours in block_hours:
+            for hh in bhours:
+                if hh in all_hours:
+                    raise ValueError(
+                        f"Hour {hh} assigned to multiple blocks in block_hours"
+                    )
+                all_hours.add(hh)
+        if all_hours != set(range(24)):
+            missing = sorted(set(range(24)) - all_hours)
+            raise ValueError(f"block_hours must cover all 24 hours; missing: {missing}")
+    else:
+        effective_n_blocks = n_blocks
+
     # --- Stage month ranges ---------------------------------------------------
     stage_months_list: list[list[int]] = []
     for i in range(n_stages):
@@ -286,17 +434,22 @@ def make_horizon(
         n_days = sum(calendar.monthrange(year, m)[1] for m in months)
         stage_first_block = block_uid - 1  # 0-indexed position in blocks_list
 
-        for bl_idx in range(n_blocks):
-            hours = _sequential_hour_range(bl_idx, n_blocks)
+        for bl_idx in range(effective_n_blocks):
+            if block_hours is not None:
+                bname, hours = block_hours[bl_idx]
+            else:
+                bname = None
+                hours = _sequential_hour_range(bl_idx, effective_n_blocks)
             # duration = total time this block represents in the planning period
             duration = float(n_days * len(hours) * interval_hours)
-            blocks_list.append(
-                {
-                    "uid": block_uid,
-                    "hours": hours,
-                    "duration": duration,
-                }
-            )
+            blk: dict[str, Any] = {
+                "uid": block_uid,
+                "hours": hours,
+                "duration": duration,
+            }
+            if bname is not None:
+                blk["name"] = bname
+            blocks_list.append(blk)
             block_uid += 1
 
         stages_list.append(
@@ -304,17 +457,42 @@ def make_horizon(
                 "uid": st_idx + 1,
                 "months": months,
                 "first_block": stage_first_block,
-                "count_block": n_blocks,
+                "count_block": effective_n_blocks,
             }
         )
 
-    return {
+    result: dict[str, Any] = {
         "year": year,
         "scenarios": [{"uid": 1, "probability_factor": probability_factor}],
         "stages": stages_list,
         "blocks": blocks_list,
         "interval_hours": interval_hours,
     }
+
+    # --- Phases ---------------------------------------------------------------
+    if phases is not None:
+        phases_list: list[dict[str, Any]] = []
+        for ph_idx, ph in enumerate(phases):
+            ph_months = ph["months"]
+            # Find first and count of stages whose months overlap this phase
+            first_stage: int | None = None
+            stage_count = 0
+            for si, sm in enumerate(stage_months_list):
+                if any(m in ph_months for m in sm):
+                    if first_stage is None:
+                        first_stage = si
+                    stage_count += 1
+            phases_list.append(
+                {
+                    "uid": ph_idx + 1,
+                    "name": ph.get("name", f"phase_{ph_idx + 1}"),
+                    "first_stage": first_stage if first_stage is not None else 0,
+                    "count_stage": stage_count,
+                }
+            )
+        result["phases"] = phases_list
+
+    return result
 
 
 def load_horizon(path: Path) -> dict[str, Any]:
