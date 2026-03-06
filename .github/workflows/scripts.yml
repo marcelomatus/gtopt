@@ -38,11 +38,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
-        run: pip install -e "./scripts[dev]" graphviz
+        run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Run unit tests with coverage
         working-directory: scripts
@@ -50,7 +54,7 @@ jobs:
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
             -n auto \
-            -v \
+            -q --tb=short \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -103,18 +107,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
-        run: pip install -e "./scripts[dev]"
+        run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Run integration tests
         working-directory: scripts
         run: |
           pytest plp2gtopt/tests/test_integration.py \
             -n auto \
-            -v -m integration \
+            -q --tb=short \
+            -m integration \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -141,8 +150,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
+
+      # Pre-install runtime deps before cmake configure so that cmake's
+      # find_program(PYTHON_EXECUTABLE) picks the same Python whose packages
+      # are already cached, and the cmake --install pip step is faster.
+      - name: Pre-install scripts runtime dependencies
+        run: uv pip install --system -e "./scripts"
 
       - name: Configure scripts with CMake
         run: cmake -S scripts -B build-scripts
@@ -279,30 +298,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install dev dependencies
-        run: pip install -e "./scripts[dev]"
+        run: uv pip install --system -e "./scripts[dev]"
 
       - name: ruff (lint)
         working-directory: scripts
         run: ruff check .
-
-      - name: ruff (format check)
-        working-directory: scripts
-        run: |
-          set +e
-          RUFF_OUT=$(ruff format --check . 2>&1)
-          EXIT_CODE=$?
-          set -e
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "$RUFF_OUT"
-            N=$(echo "$RUFF_OUT" | grep -c '^Would reformat' || true)
-            echo "::warning title=ruff-format::$N Python file(s) need formatting. The Auto-format workflow will push a fix. To fix locally run: ruff format scripts/"
-          fi
-          # Always exit 0 — the Auto-format workflow applies fixes automatically
-          exit 0
 
       - name: pylint
         working-directory: scripts

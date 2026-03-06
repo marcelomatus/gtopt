@@ -2172,7 +2172,7 @@ def _build_planning_mermaid(_planning: dict) -> str:  # noqa: ARG001
         "    Planning  *--  System     : contains",
         "    Simulation *-- Scenario   : has many",
         "    Simulation *-- Stage      : has many",
-        "    Simulation *-- Phase      : has many (optional)",
+        "    Simulation *-- Phase      : has many optional",
         "    Simulation *-- Block      : has many",
         "    Phase      o-- Stage      : groups",
         "    Stage      o-- Block      : references by first_block+count_block",

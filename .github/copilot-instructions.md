@@ -29,7 +29,7 @@ The canonical procedure for installing Clang 21 is defined in
 1. **Set up ccache** (before any compilation, including cmake feature tests)
 2. **Install APT dependencies** (`install-apt-deps` action — Arrow, COIN-OR, Boost, etc.)
 3. **Install Clang 21** (`install-clang` action — adds LLVM APT repo, installs packages, registers alternatives)
-4. **Configure** (`cmake -Stest -Bbuild …`)
+4. **Configure** (`cmake -S all -B build …`)
 5. **Build and test**
 
 > **Note**: clang-22 packages are not yet available on `apt.llvm.org`.
@@ -81,8 +81,14 @@ for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
 done
 
-# 4. Configure — clang-21 + conda Arrow prefix
-cmake -S test -B build \
+# 4. Pre-install Python scripts dependencies (speeds up scripts-install-deps CTest
+#    fixture from ~35 s to ~3–5 s).  Must run BEFORE cmake configure so that
+#    cmake's find_program(PYTHON_EXECUTABLE) picks the same Python.
+uv pip install --system -q -e "./scripts[dev]" graphviz
+
+# 5. Configure — clang-21 + conda Arrow prefix
+#    Use `all/` super-project (builds library + binary + tests in one step)
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -90,7 +96,7 @@ cmake -S test -B build \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 
-# 5. Build and test
+# 6. Build and test
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
@@ -106,11 +112,19 @@ cd build && ctest --output-on-failure
 > causes every `cmake --build` invocation to fail even though ccache is now
 > present.  Delete the build directory and reconfigure if this happens.
 
+> **Why pre-install Python scripts deps before cmake configure?**
+> The `scripts-install-deps` CTest fixture calls `uv pip install -e ./scripts[dev]`
+> which downloads and installs pandapower and dozens of transitive dependencies
+> from scratch (~35 s) unless they are already present.  Pre-installing via
+> `uv pip install --system -q -e "./scripts[dev]" graphviz` before configure means
+> cmake's `find_program(PYTHON_EXECUTABLE)` finds the same Python that already has
+> all packages, so the CTest fixture only needs to verify the install (~3–5 s).
+
 ### GCC 14 fallback (when Clang 21 unavailable)
 
 ```bash
 # Steps 1-2 same as above (system packages + conda Arrow), then:
-cmake -S test -B build \
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
@@ -136,11 +150,11 @@ GCC 14 is also supported as an alternative compiler (`CC=gcc-14 CXX=g++-14`).
 
 ## Build Commands
 
-### Unit tests (primary development target)
+### Primary build target (library + binary + tests)
 
 ```bash
-# Configure – build from the test/ sub-project, NOT the root CMakeLists.txt
-cmake -S test -B build \
+# Configure – use `all/` super-project (same as CI)
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -155,14 +169,14 @@ cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 
 # Run a single test by name (doctest filter syntax)
-./build/gtoptTests "[test name]"
+./build/test/gtoptTests "[test name]"
 ```
 
 ### Unit tests + integration tests (e2e)
 
 ```bash
-cmake -S test -B build \
-  -DENABLE_INTEGRATION_TESTS=ON \
+cmake -S all -B build \
+  -DGTOPT_BUILD_INTEGRATION_TESTS=ON \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -176,21 +190,22 @@ cd build && ctest --output-on-failure
 ### Standalone binary
 
 ```bash
-cmake -S standalone -B build-standalone \
+# The `all/` build places the binary at build/standalone/gtopt
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
-cmake --build build-standalone -j$(nproc)
-./build-standalone/gtopt --version
+cmake --build build -j$(nproc)
+./build/standalone/gtopt --version
 ```
 
 ### Coverage
 
 ```bash
-cmake -S test -B build \
+cmake -S all -B build \
   -DENABLE_TEST_COVERAGE=ON \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
@@ -221,13 +236,15 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 | COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake auto-selects CLP; CBC works too |
 | spdlog | 1.12.0 | `libspdlog-dev` from Ubuntu repos |
 | LAPACK/BLAS | 3.12.0 | `liblapack-dev libblas-dev` (required by COIN-OR) |
-| ccache | any | Must be installed **before** `cmake -S test -B build` |
+| ccache | any | Must be installed **before** `cmake -S all -B build` |
 | conda | 26.1.0 | Base prefix at `/usr/share/miniconda` |
 
 **Verified configure command (Clang 21 + conda Arrow):**
 
 ```bash
-cmake -S test -B build \
+# Pre-install scripts deps first (speeds up scripts-install-deps CTest fixture)
+uv pip install --system -q -e "./scripts[dev]" graphviz
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
@@ -250,11 +267,18 @@ cd build && ctest --output-on-failure
 | `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
 | `undefined reference to OsiClpSolverInterface` | Linker missing CLP | Delete build dir, reconfigure after reinstalling `coinor-libcbc-dev` |
 | `clang: command not found` or wrong version | Clang 21 not installed | Follow the LLVM APT install steps in the "Complete bootstrap" section above (see `.github/actions/install-clang/action.yml`) |
+| `scripts-install-deps` CTest fixture slow (~35 s) | Python scripts deps not pre-installed | Run `uv pip install --system -q -e "./scripts[dev]" graphviz` **before** `cmake -S all -B build` |
 
-**Critical rule**: install `ccache` **before** `cmake -S test -B build`.
+**Critical rule**: install `ccache` **before** `cmake -S all -B build`.
 CMake bakes the launcher path into the build system at configure time; if ccache
 is missing when you configure, every subsequent `cmake --build` invocation fails
 even after installing ccache later.
+
+**Second critical rule**: pre-install scripts deps (`uv pip install --system -q -e "./scripts[dev]" graphviz`)
+**before** `cmake -S all -B build`.  The `scripts-install-deps` CTest fixture runs
+during `ctest` and installs packages using whichever Python cmake found at configure
+time.  Pre-installing ensures cmake picks the same Python and the fixture only needs
+to verify the install (~3–5 s) instead of downloading everything from scratch (~35 s).
 
 ---
 
@@ -273,7 +297,7 @@ cmake --build build --target format       # apply
 cmake --build build --target check-format # check only
 
 # clang-tidy (slow; triggered manually in CI via workflow_dispatch)
-cmake -S test -B build \
+cmake -S all -B build \
   -DCMAKE_CXX_CLANG_TIDY="clang-tidy;--warnings-as-errors=*" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
@@ -468,9 +492,30 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 | Dependencies | `guiservice/requirements.txt`: flask, pandas, pyarrow, requests |
 | Scripts deps | `scripts/requirements.txt` (runtime), `scripts/requirements-dev.txt` (dev+test) |
 
+> **⚠️ Mandatory pre-commit checklist for Python code**:
+> Before committing **any** Python changes, always run **all four** checks
+> for the affected sub-package.  CI will fail on any violation.
+>
+> ```bash
+> # --- scripts/ (run from scripts/ directory) ---
+> cd scripts
+> ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> ruff check  compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+> mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+>   --ignore-missing-imports
+>
+> # --- guiservice/ (run from repo root) ---
+> ruff format guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> ruff check  guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> pylint --jobs=0 --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py --ignore-missing-imports
+> ```
+
 ```bash
 # ---- guiservice ----
-pip install -e ".[dev]"      # from root pyproject.toml (guiservice only)
+pip install ruff pylint mypy types-requests
+pip install -r guiservice/requirements.txt
 
 # ---- scripts sub-package (self-contained) ----
 pip install -e scripts/      # production install (editable)
@@ -478,41 +523,36 @@ pip install -e "scripts/[dev]"  # with dev/test tools
 pip install -r scripts/requirements.txt       # runtime deps only
 pip install -r scripts/requirements-dev.txt   # dev+test deps
 
-# Format (scripts/)
-python -m ruff format scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+# Format scripts/ (in-place)
+cd scripts
+ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
-# Check format without modifying
-python -m ruff format --check scripts/cvs2parquet scripts/igtopt scripts/plp2gtopt
+# Lint scripts/ with ruff
+ruff check compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
-# Lint (run from scripts/ directory)
-cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
+# Lint scripts/ with pylint (must score 10.00/10)
+pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
 
-# Type check
-cd scripts && python -m mypy cvs2parquet igtopt plp2gtopt --ignore-missing-imports
+# Type-check scripts/
+mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+  --ignore-missing-imports
 
 # Run all script tests (from scripts/ directory)
-cd scripts && python -m pytest
+python -m pytest
 
 # Run with coverage
-cd scripts && python -m pytest \
-  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+python -m pytest \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt --cov=pp2gtopt --cov=ts2gtopt \
   --cov-report=term-missing
 ```
-
-> **Important**: Always run `pylint` after modifying or adding Python code in
-> `scripts/`.  The CI `Scripts` workflow (`scripts.yml`) runs
-> `pylint cvs2parquet igtopt plp2gtopt` and **fails on any warning or
-> convention violation** (exit code ≠ 0).  Run it locally before pushing:
-> ```bash
-> cd scripts && python -m pylint cvs2parquet igtopt plp2gtopt
-> ```
 
 ---
 
 ## Python Scripts Sub-Package (`scripts/`)
 
-The three command-line programs (`cvs2parquet`, `igtopt`, `plp2gtopt`) live under
-`scripts/` as a **self-contained Python package** with its own `pyproject.toml`,
+The command-line programs (`compare_pandapower`, `cvs2parquet`, `gtopt_diagram`,
+`igtopt`, `plp2gtopt`, `pp2gtopt`, `ts2gtopt`) live under `scripts/` as a
+**self-contained Python package** with its own `pyproject.toml`,
 `requirements.txt`, and `requirements-dev.txt`.  They are **independent of the
 repository root** `pyproject.toml`.
 
@@ -521,13 +561,15 @@ repository root** `pyproject.toml`.
 ```
 scripts/
 ├── pyproject.toml          ← package declaration + tool config (ruff/pylint/mypy/pytest)
-├── requirements.txt        ← runtime: numpy, pandas, pyarrow, openpyxl
+├── requirements.txt        ← runtime: numpy, pandas, pyarrow, openpyxl, pandapower, …
 ├── requirements-dev.txt    ← dev+test: -r requirements.txt + pytest, pylint, ruff, …
 ├── CMakeLists.txt          ← CMake targets (see below)
+├── compare_pandapower/     ← pandapower ↔ gtopt comparison tool
 ├── cvs2parquet/            ← CSV → Parquet converter
 │   ├── __init__.py
 │   ├── cvs2parquet.py      ← main() entry point
 │   └── tests/
+├── gtopt_diagram.py        ← single-file diagram generator
 ├── igtopt/                 ← Excel → gtopt JSON converter
 │   ├── __init__.py
 │   ├── igtopt.py           ← main() entry point
@@ -540,6 +582,10 @@ scripts/
 │   ├── *_parser.py         ← individual file parsers
 │   ├── *_writer.py         ← individual JSON/Parquet writers
 │   └── tests/
+├── pp2gtopt/               ← pandapower → gtopt JSON converter
+│   └── tests/
+├── ts2gtopt/               ← time-series → gtopt horizon converter
+│   └── tests/
 └── cases/                  ← sample input cases for integration tests
     ├── plp_dat_ex/         ← full PLP example (all .dat files)
     ├── plp_min_1bus/       ← minimal 1-bus PLP case
@@ -551,7 +597,7 @@ scripts/
 ### Install from repo root
 
 ```bash
-# Production (registers cvs2parquet, igtopt, plp2gtopt on PATH)
+# Production (registers all scripts on PATH)
 pip install ./scripts
 
 # Editable (changes to source take effect immediately)
@@ -572,7 +618,7 @@ pip install -r scripts/requirements.txt
 | `scripts-install` | `pip install -e scripts/[dev]` | — |
 | `scripts-format` | `ruff format` in-place | — |
 | `scripts-check-format` | `ruff format --check` | ✓ |
-| `scripts-lint` | `pylint cvs2parquet igtopt plp2gtopt` | ✓ |
+| `scripts-lint` | `pylint` all packages | ✓ |
 | `scripts-ruff` | `ruff check` | ✓ |
 | `scripts-mypy` | `mypy … --ignore-missing-imports` | ✓ |
 | `scripts-test` | `pytest` (unit tests only) | ✓ |
@@ -584,7 +630,7 @@ System-wide install alongside the `gtopt` binary:
 ```bash
 cmake -S scripts -B build-scripts
 cmake --install build-scripts --prefix /usr/local
-# → installs cvs2parquet, igtopt, plp2gtopt into /usr/local/bin/
+# → installs all scripts into /usr/local/bin/
 ```
 
 ### Running tests quickly (no CMake needed)
@@ -592,7 +638,7 @@ cmake --install build-scripts --prefix /usr/local
 ```bash
 cd scripts
 
-# All unit tests (< 2 s)
+# All unit tests (fast)
 python -m pytest -q
 
 # Single package
@@ -605,7 +651,7 @@ python -m pytest -m integration -q
 
 # With coverage + missing-line report
 python -m pytest \
-  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt \
+  --cov=cvs2parquet --cov=igtopt --cov=plp2gtopt --cov=pp2gtopt --cov=ts2gtopt \
   --cov-report=term-missing -q
 
 # Run a single test by name
@@ -759,10 +805,11 @@ gtopt/
 |----------|---------|--------------|
 | `ubuntu.yml` | push/PR to main | Build (Clang 21), unit + e2e tests, optional coverage |
 | `ubuntu.yml` (clang-tidy job) | `workflow_dispatch` with `run_clang_tidy=true` | Full clang-tidy static analysis |
-| `style.yml` | every push/PR | clang-format check (non-blocking, warning only) |
-| `autoformat.yml` | push to non-main branches | Auto-applies clang-format, commits fixup |
+| `style.yml` | every push/PR | clang-format + ruff format checks (non-blocking, warning only) |
+| `autoformat.yml` | push to non-main branches | Auto-applies clang-format + ruff format, commits fixup |
+| `scripts.yml` | push/PR when `scripts/**` changes | Python lint (ruff+pylint+mypy), unit tests, integration tests, cmake install |
+| `guiservice.yml` | push/PR when `guiservice/**` changes | Python lint (ruff+pylint+mypy), unit tests, cmake install |
 | `webservice.yml` | push/PR to main | Next.js build + integration + e2e tests |
-| `guiservice.yml` | push/PR to main | Python GUI service tests |
 
 ---
 
@@ -779,7 +826,7 @@ gtopt/
 - **Arrow install path**: Set `CMAKE_PREFIX_PATH` if Arrow is installed outside
   the standard system paths (e.g., via conda or a custom prefix).
 - **Test binary name**: `gtoptTests` (not `gtopt`). Run with doctest filter:
-  `./build/gtoptTests -tc="test name pattern"`.
+  `./build/test/gtoptTests -tc="test name pattern"`.
 - **No `spdlog` format strings in hot paths**: `spdlog` is configured with
   `SPDLOG_USE_STD_FORMAT=1`, so it uses `std::format` syntax.
 - **`gtopt_main()` takes a single `MainOptions` struct** (not 15 positional

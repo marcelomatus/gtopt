@@ -292,7 +292,6 @@ add_test(
   COMMAND ${CMAKE_COMMAND}
     -DSCRIPTS_DIR:PATH=${SCRIPTS_DIR}
     -DPYTHON_EXECUTABLE:FILEPATH=${PYTHON_EXECUTABLE}
-    -DSTAGE_DIR:PATH=${CMAKE_BINARY_DIR}/pip_stage
     -P ${SCRIPTS_DIR}/cmake/scripts_install_deps.cmake
 )
 set_tests_properties(scripts-install-deps PROPERTIES
@@ -309,8 +308,9 @@ add_test(
     "${SCRIPTS_DIR}/plp2gtopt/tests"
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
-    -n auto
-    -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    -n 0
+    -q --tb=short
+    --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 
@@ -318,7 +318,7 @@ add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-    -n auto
+    -n 0
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -408,8 +408,7 @@ install(CODE "
   # here, so it is immune to the PATH-stripping that sudo applies by default.
   # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
   # same Python, producing a predictable installation target.
-  set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
-  message(STATUS \"Using pip: ${PYTHON_EXECUTABLE} -m pip\")
+  message(STATUS \"Using Python: ${PYTHON_EXECUTABLE}\")
 
   # Copy the source tree into a temporary staging directory inside the cmake
   # binary directory, excluding any pre-existing *.egg-info directory.  A
@@ -425,13 +424,31 @@ install(CODE "
     PATTERN \"*.egg-info\" EXCLUDE
     PATTERN \"__pycache__\" EXCLUDE
   )
-  execute_process(
-    COMMAND \${_pip_cmd} install
-      --prefix \"\${CMAKE_INSTALL_PREFIX}\"
-      --ignore-installed
-      \"\${_stage}\"
-    RESULT_VARIABLE _pip_rc
-  )
+
+  # Prefer uv when available: it is 10-100x faster than pip on cold installs
+  # (Rust-based resolver + parallel downloads) and is pre-installed on
+  # ubuntu-latest GitHub Actions runners.
+  find_program(_UV_EXEC uv)
+  if(_UV_EXEC)
+    message(STATUS \"Using uv for install: \${_UV_EXEC}\")
+    execute_process(
+      COMMAND \${_UV_EXEC} pip install
+        --python \"${PYTHON_EXECUTABLE}\"
+        --system
+        --prefix \"\${CMAKE_INSTALL_PREFIX}\"
+        \"\${_stage}\"
+      RESULT_VARIABLE _pip_rc
+    )
+  else()
+    execute_process(
+      COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
+        --prefix \"\${CMAKE_INSTALL_PREFIX}\"
+        --ignore-installed
+        \"\${_stage}\"
+      RESULT_VARIABLE _pip_rc
+    )
+  endif()
+
   file(REMOVE_RECURSE \"\${_stage}\")
   if(NOT _pip_rc EQUAL 0)
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
