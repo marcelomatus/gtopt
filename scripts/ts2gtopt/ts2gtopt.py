@@ -977,9 +977,7 @@ def build_hour_block_map(
                 bl_uid = int(block.get("uid", bl_idx + 1))
                 bl_hours = _block_hours(block, bl_idx, n_blk)
                 for _h in bl_hours:
-                    entries.append(
-                        {"hour": hour_idx, "stage": st_uid, "block": bl_uid}
-                    )
+                    entries.append({"hour": hour_idx, "stage": st_uid, "block": bl_uid})
                     hour_idx += 1
 
     return entries
@@ -1111,7 +1109,9 @@ def reconstruct_output_hours(
             if df is None:
                 continue
 
-            uid_cols = [c for c in df.columns if c not in {"scenario", "stage", "block"}]
+            uid_cols = [
+                c for c in df.columns if c not in {"scenario", "stage", "block"}
+            ]
             if not uid_cols:
                 continue
 
@@ -1132,9 +1132,7 @@ def reconstruct_output_hours(
             _write_hourly_result(result, out_path, output_format)
 
             written[str(rel)] = out_path
-            logger.info(
-                "Reconstructed %d hourly rows -> %s", len(result), out_path
-            )
+            logger.info("Reconstructed %d hourly rows -> %s", len(result), out_path)
 
     return written
 
