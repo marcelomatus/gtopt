@@ -56,12 +56,12 @@ TEST_CASE("Options - Construction with values")
       .kirchhoff_threshold = 0.01,
       .scale_objective = 1.0,
       .scale_theta = 10.0,
+      .annual_discount_rate = 0.05,
       .output_directory = "output_dir",
       .output_format = "csv",
       .output_compression = "zip",
       .use_lp_names = true,
       .use_uid_fname = false,
-      .annual_discount_rate = 0.05,
   };
 
   // Check that all fields have the expected values
@@ -412,12 +412,12 @@ TEST_CASE("OptionsLP - Test all accessor methods")
       .kirchhoff_threshold = 0.05,
       .scale_objective = 500.0,
       .scale_theta = 20.0,
+      .annual_discount_rate = 0.07,
       .output_directory = "test_output",
       .output_format = "json",
       .output_compression = "bzip2",
       .use_lp_names = true,
       .use_uid_fname = true,
-      .annual_discount_rate = 0.07,
   };
 
   // Create OptionsLP with all values set

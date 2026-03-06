@@ -8,6 +8,20 @@
  * This module defines the Options structure that contains configuration
  * parameters for power system optimization. Options include input/output
  * settings, solver parameters, modeling choices, and cost factors.
+ *
+ * ### JSON Example
+ * ```json
+ * {
+ *   "options": {
+ *     "demand_fail_cost": 1000,
+ *     "use_kirchhoff": true,
+ *     "scale_objective": 1000,
+ *     "annual_discount_rate": 0.1,
+ *     "output_format": "parquet",
+ *     "input_directory": "input"
+ *   }
+ * }
+ * ```
  */
 
 #pragma once
@@ -18,62 +32,66 @@ namespace gtopt
 {
 
 /**
- * @brief Configuration options for power system optimization
+ * @brief Global configuration parameters for the optimization model
  *
- * The Options structure contains all the configuration parameters that control
- * how the optimization model is constructed, solved, and output. All fields are
- * optional, allowing for partial specification and merging of different option
- * sets.
+ * All fields are optional, allowing partial specification and merging across
+ * multiple JSON files.  When a field is absent, the solver applies a built-in
+ * default (see `OptionsLP` for the resolved defaults).
  */
 struct Options
 {
-  // Input settings
-  /** @brief Directory path for input data files */
+  // ── Input settings ─────────────────────────────────────────────────────────
+  /** @brief Root directory for external input data files (CSV/Parquet) */
   OptName input_directory {};
-  /** @brief Format of input files (e.g., "json", "parquet") */
+  /** @brief Preferred format for reading external files: `"parquet"` or `"csv"`
+   */
   OptName input_format {};
 
-  // Optimization parameters
-  /** @brief Cost penalty for demand curtailment ($/MWh) */
+  // ── Model parameters ───────────────────────────────────────────────────────
+  /** @brief Penalty cost for unserved demand (load shedding) [$/MWh] */
   OptReal demand_fail_cost {};
-  /** @brief Cost penalty for reserve shortfall ($/MWh) */
+  /** @brief Penalty cost for unserved spinning-reserve requirement [$/MWh] */
   OptReal reserve_fail_cost {};
-  /** @brief Whether to include transmission line losses in the model */
+  /** @brief Whether to model resistive line losses (default: true) */
   OptBool use_line_losses {};
-  /** @brief Whether to apply Kirchhoff's voltage law constraints */
+  /** @brief Whether to apply DC Kirchhoff voltage-law constraints (default:
+   * false) */
   OptBool use_kirchhoff {};
-  /** @brief Whether to model the system as a single-bus (copper plate) */
+  /** @brief Whether to collapse the network to a single bus (copper-plate
+   * model) */
   OptBool use_single_bus {};
-  /** @brief Threshold for enforcing Kirchhoff constraints (minimum impedance)
+  /** @brief Minimum bus voltage [kV] below which Kirchhoff is not applied [kV]
    */
   OptReal kirchhoff_threshold {};
-  /** @brief Scaling factor for the objective function (for numerical stability)
-   */
+  /** @brief Divisor applied to all objective coefficients for numerical
+   * stability [dimensionless] */
   OptReal scale_objective {};
-  /** @brief Scaling factor for voltage angle variables (for numerical
-   * stability) */
+  /** @brief Scaling factor for voltage-angle variables [dimensionless] */
   OptReal scale_theta {};
-
-  // Output settings
-  /** @brief Directory path for output results */
-  OptName output_directory {};
-  /** @brief Format of output files (e.g., "csv", "parquet") */
-  OptName output_format {};
-  /** @brief Compression codec for output files (e.g., "gzip") */
-  OptName output_compression {};
-  /** @brief Whether to use descriptive names in LP model for debugging */
-  OptBool use_lp_names {};
-  /** @brief Whether to use UIDs in filenames instead of names */
-  OptBool use_uid_fname {};
-  /** @brief Annual discount rate for multi-year planning (per unit) */
+  /** @brief Annual discount rate for multi-stage CAPEX calculations [p.u./year]
+   */
   OptReal annual_discount_rate {};
 
-  // Solver algorithm settings
-  /** @brief LP solution algorithm (0=default, 1=primal, 2=dual, 3=barrier) */
+  // ── Output settings ────────────────────────────────────────────────────────
+  /** @brief Root directory for output result files */
+  OptName output_directory {};
+  /** @brief Format for output files: `"parquet"` (default) or `"csv"` */
+  OptName output_format {};
+  /** @brief Compression codec for Parquet output: `"gzip"` (default), `"zstd"`,
+   * `"uncompressed"` */
+  OptName output_compression {};
+  /** @brief Use descriptive variable names in the LP model (aids debugging) */
+  OptBool use_lp_names {};
+  /** @brief Use element UIDs instead of names in output filenames */
+  OptBool use_uid_fname {};
+
+  // ── Solver algorithm settings ──────────────────────────────────────────────
+  /** @brief LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier
+   */
   OptInt lp_algorithm {};
-  /** @brief Number of solver threads (0=automatic) */
+  /** @brief Number of solver threads (0=automatic) [dimensionless] */
   OptInt lp_threads {};
-  /** @brief Whether to apply presolve optimizations */
+  /** @brief Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
 
   void merge(Options&& opts)  // NOLINT
