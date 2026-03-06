@@ -1,11 +1,12 @@
 # gtopt Python Scripts
 
-The `scripts/` directory contains five Python command-line utilities for
-preparing, converting, and post-processing data for use with gtopt.
+The `scripts/` directory contains Python command-line utilities for
+preparing, converting, visualising, and post-processing data for use with gtopt.
 
 ## Table of Contents
 
 - [Installation](#installation)
+- [gtopt-diagram](#gtopt-diagram)
 - [plp2gtopt](#plp2gtopt)
 - [pp2gtopt](#pp2gtopt)
 - [igtopt](#igtopt)
@@ -17,18 +18,25 @@ preparing, converting, and post-processing data for use with gtopt.
 
 ## Installation
 
-Install all five tools with a single `pip` command from the repository root:
+Install all tools with a single `pip` command from the repository root:
 
 ```bash
 pip install ./scripts
 ```
 
-This registers the `plp2gtopt`, `pp2gtopt`, `igtopt`, `cvs2parquet`, and
-`ts2gtopt` commands on your `PATH`.  An editable install is useful during
+This registers the `gtopt-diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
+`cvs2parquet`, and `ts2gtopt commands on your `PATH`.  An editable install is useful during
 development:
 
 ```bash
 pip install -e "./scripts[dev]"
+```
+
+Optional extras unlock additional output formats:
+
+```bash
+pip install -e "./scripts[dev,diagram]"
+# adds: graphviz, pyvis, cairosvg
 ```
 
 ### Dependencies
@@ -40,6 +48,102 @@ pip install -e "./scripts[dev]"
 | `pyarrow` | Parquet read/write |
 | `openpyxl` | Excel file support (`igtopt`) |
 | `pandapower` | Power system network data (`pp2gtopt`) |
+| `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt-diagram`) |
+| `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt-diagram`) |
+| `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt-diagram`) |
+
+---
+
+## gtopt-diagram
+
+Generates **network topology and planning-structure diagrams** from a gtopt
+JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
+Mermaid, interactive HTML) and automatic simplification of large cases via
+aggregation modes.
+
+### Basic usage
+
+```bash
+# Auto mode (default) – picks the best aggregation for your case size
+gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+
+# Interactive HTML with physics simulation
+gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
+
+# Mermaid Markdown snippet (no extra dependencies)
+gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
+
+# Network-only: no generator nodes (clean topology view)
+gtopt-diagram large_case.json --no-generators -o topo.svg
+
+# Planning time-structure diagram
+gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
+```
+
+### Output formats (`--format`)
+
+| Format | Description | Requires |
+|--------|-------------|----------|
+| `svg` | Scalable vector graphic (default) | `graphviz` |
+| `png` | Raster image | `graphviz` + `cairosvg` |
+| `pdf` | PDF document | `graphviz` + `cairosvg` |
+| `dot` | Graphviz DOT source | — (no extra deps) |
+| `mermaid` | Mermaid flowchart source | — (no extra deps) |
+| `html` | Interactive vis.js browser diagram | `pyvis` |
+
+### Aggregation modes (`--aggregate`)
+
+| Mode | When auto selects it | Description |
+|------|---------------------|-------------|
+| `auto` | (default) | Chooses based on element count |
+| `none` | < 100 elements | Every generator shown individually |
+| `bus` | 100–999 elements | One summary node per bus |
+| `type` | ≥ 1000 elements | One node per (bus, generator-type) pair |
+| `global` | — (manual only) | One node per generator type, system-wide |
+
+### Reducing large diagrams
+
+```bash
+# Keep only buses ≥ 220 kV (lump low-voltage buses into HV neighbours)
+gtopt-diagram large_case.json --voltage-threshold 220 -o hv_topo.svg
+
+# Show only hydro generators within 3 hops of a specific bus
+gtopt-diagram large_case.json --filter-type hydro --focus-bus Chapo220 --focus-hops 3
+
+# Hard node-count cap: escalate aggregation until ≤ 50 nodes remain
+gtopt-diagram large_case.json --max-nodes 50 -o compact.svg
+
+# Keep only the top-2 generators per bus by pmax
+gtopt-diagram large_case.json --top-gens 2 -o top2.svg
+```
+
+### All options
+
+```
+positional arguments:
+  json_file             gtopt JSON planning file
+
+options:
+  -t, --diagram-type    topology (default) or planning
+  -f, --format          dot | png | svg | pdf | mermaid | html  (default: svg)
+  -o, --output          output file path
+  -s, --subsystem       full | electrical | hydro  (default: full)
+  -l, --layout          dot | neato | fdp | sfdp | circo | twopi
+  -d, --direction       LR | TD | BT | RL  (Mermaid direction, default: LR)
+  --clusters            Group in Graphviz sub-clusters
+
+reduction options:
+  -a, --aggregate       auto | none | bus | type | global  (default: auto)
+  --no-generators       Omit all generator nodes
+  -g, --top-gens N      Keep only top-N generators per bus by pmax
+  --filter-type TYPE    Show only: hydro solar wind thermal battery
+  --focus-bus BUS       Show only elements within N hops of BUS (repeatable)
+  --focus-hops N        Hops for --focus-bus (default: 2)
+  --max-nodes N         Hard cap; escalate aggregation until ≤ N nodes
+  -V, --voltage-threshold KV  Lump buses below KV into HV neighbours
+  --hide-isolated       Remove unconnected nodes
+  --compact             Omit detail labels (names/counts only)
+```
 
 ---
 

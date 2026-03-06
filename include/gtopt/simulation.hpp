@@ -5,8 +5,19 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module defines the Simulation class, which contains all the simulation
- * elements.
+ * This module defines the Simulation class which contains all time-structure
+ * elements: blocks, stages, scenarios, phases, and scenes. Together these
+ * define the multi-stage, multi-scenario optimization horizon.
+ *
+ * ### Time-structure hierarchy
+ * ```
+ * Scenario  (probability_factor)
+ *   └─ Phase
+ *        └─ Stage  (discount_factor, first_block, count_block)
+ *             └─ Block  (duration [h])
+ * ```
+ *
+ * @see Block, Stage, Scenario, Phase, Scene for element definitions
  */
 
 #pragma once
@@ -23,15 +34,25 @@ namespace gtopt
 {
 
 /**
- * @brief Represents a complete power simulation model
+ * @brief Complete time-structure of a planning simulation
+ *
+ * A Simulation bundles all temporal elements.  When a field is absent from
+ * the input JSON, gtopt uses a default single scenario, single stage/block
+ * configuration so that simple single-snapshot cases require minimal input.
+ *
+ * Multiple JSON files can be merged with `Planning::merge()`, allowing the
+ * time structure to be split across files (e.g. blocks in one file, stages
+ * in another).
  */
 struct Simulation
 {
-  Array<Block> block_array {};
-  Array<Stage> stage_array {};
-  Array<Scenario> scenario_array {};
-  Array<Phase> phase_array {Phase {}};
-  Array<Scene> scene_array {Scene {}};
+  Array<Block> block_array {};  ///< Ordered list of time blocks
+  Array<Stage> stage_array {};  ///< Ordered list of planning stages
+  Array<Scenario> scenario_array {};  ///< List of stochastic scenarios
+  Array<Phase> phase_array {
+      Phase {}};  ///< List of planning phases (default: one phase)
+  Array<Scene> scene_array {
+      Scene {}};  ///< List of scene combinations (default: one scene)
 
   constexpr Simulation& merge(Simulation&& sim)  // NOLINT
   {

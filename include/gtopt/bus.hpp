@@ -5,8 +5,19 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines the Bus class representing an electrical busbar in power system
- * modeling.
+ * Defines the Bus struct representing an electrical busbar (node) in a
+ * power system network. Buses serve as connection points for generators,
+ * demands, and transmission lines.
+ *
+ * ### JSON Example
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "b1",
+ *   "voltage": 220.0,
+ *   "use_kirchhoff": true
+ * }
+ * ```
  */
 
 #pragma once
@@ -17,19 +28,23 @@ namespace gtopt
 {
 
 /**
- * @brief Electrical busbar model
+ * @brief Electrical busbar (node) in the power network
  *
  * Represents a busbar in power system analysis with electrical properties
- * and operational status.
+ * and operational status. In DC power flow (Kirchhoff) mode a voltage-angle
+ * variable θ is created for every bus; the reference bus is fixed at θ = 0.
+ *
+ * @see Line for branch connections between buses
+ * @see Generator, Demand for injections at a bus
  */
 struct Bus
 {
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
-  OptActive active {};  ///< Operational status
-  OptReal voltage {};  ///< Voltage magnitude (KV)
-  OptReal reference_theta {};  ///< Voltage angle reference (radians)
-  OptBool use_kirchhoff {};  ///< Flag for Kirchhoff's law application
+  OptActive active {};  ///< Operational status (default: active)
+  OptReal voltage {};  ///< Nominal voltage level [kV]
+  OptReal reference_theta {};  ///< Fixed voltage angle for reference bus [rad]
+  OptBool use_kirchhoff {};  ///< Override global Kirchhoff setting for this bus
 
   /**
    * @brief Determines if Kirchhoff's law should be applied

@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion and utility scripts (compare_pandapower, cvs2parquet, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -28,11 +28,13 @@ dependencies = [
 
 [project.scripts]
 compare_pandapower = "compare_pandapower.main:main"
-cvs2parquet = "cvs2parquet.cvs2parquet:main"
-igtopt      = "igtopt.igtopt:main"
-plp2gtopt   = "plp2gtopt.main:main"
-pp2gtopt    = "pp2gtopt.main:main"
-ts2gtopt    = "ts2gtopt.main:main"
+cvs2parquet        = "cvs2parquet.cvs2parquet:main"
+gtopt-diagram      = "gtopt_diagram:main"
+igtopt             = "igtopt.igtopt:main"
+plp2gtopt          = "plp2gtopt.main:main"
+pp2gtopt           = "pp2gtopt.main:main"
+ts2gtopt           = "ts2gtopt.main:main"
+
 
 [project.optional-dependencies]
 dev = [
@@ -44,10 +46,19 @@ dev = [
     "pytest-xdist>=3.0",
     "ruff>=0.15",
 ]
+diagram = [
+    "graphviz>=0.20",
+    "pyvis>=0.3",
+    "cairosvg>=2.7",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
+
+[tool.setuptools]
+py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
+
 
 # ---------------------------------------------------------------------------
 # Tool configuration (mirrors root pyproject.toml, scoped to scripts/)
@@ -58,6 +69,7 @@ python_files = "test_*.py"
 testpaths = [
     "compare_pandapower/tests",
     "cvs2parquet/tests",
+    "gtopt_diagram_tests",
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
@@ -71,7 +83,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
-omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -87,7 +99,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
+known_first_party = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88
@@ -132,6 +144,23 @@ disable = [
     "duplicate-code",
     # protected-access is intentional in test helpers that set up internal state
     "protected-access",
+    # optional-dependency imports (graphviz, pyvis, cairosvg) are intentionally
+    # deferred to the functions that need them so the package works without them
+    "import-outside-toplevel",
+    # complex rendering/conversion functions in gtopt_diagram.py and plp2gtopt:
+    # these match the thresholds already disabled in the root .pylintrc
+    "too-many-statements",
+    "too-many-locals",
+    "too-many-branches",
+    "too-many-return-statements",
+    "too-many-nested-blocks",
+    "invalid-name",
+    "too-many-lines",
+    "too-many-instance-attributes",
+    "too-many-public-methods",
+    # tol_lmp is part of a uniform comparison-function API; some implementations
+    # don't need it (e.g. 1-bus or battery cases without bus LMPs)
+    "unused-argument",
 ]
 
 [tool.mypy]
