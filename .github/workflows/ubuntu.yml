@@ -110,24 +110,28 @@ jobs:
           version: 21
           install-coverage-runtime: ${{ env.ACTIVE_COMPILER == 'clang' && env.ENABLE_COVERAGE == 'true' }}
 
-      # Set up Python with pip caching before cmake configure so that:
+      # Set up Python with uv caching before cmake configure so that:
       #  1. cmake's find_program(PYTHON_EXECUTABLE) picks the same Python that
       #     has the pre-installed packages.
-      #  2. The pip download cache is warm for the scripts-install-deps CTest
+      #  2. The uv package cache is warm for the scripts-install-deps CTest
       #     fixture, reducing it from ~35 s to ~3–5 s on cache hits.
       - name: Set up Python (for scripts ctest tests)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       # Pre-install all scripts dev dependencies so that the scripts-install-deps
       # CTest fixture finds every package already present and only needs to verify
       # the editable install link (~3–5 s) instead of downloading and installing
       # the full dependency tree from scratch (~35 s).
       - name: Pre-install scripts dependencies
-        run: pip install -q -e "./scripts[dev]" graphviz
+        run: uv pip install --system -q -e "./scripts[dev]" graphviz
 
       - name: configure
         run: |

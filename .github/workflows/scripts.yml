@@ -38,8 +38,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -103,8 +107,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -142,8 +150,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       # Pre-install runtime deps before cmake configure so that cmake's
       # find_program(PYTHON_EXECUTABLE) picks the same Python whose packages
@@ -286,8 +298,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "scripts/pyproject.toml"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/pyproject.toml"
 
       - name: Install dev dependencies
         run: uv pip install --system -e "./scripts[dev]"

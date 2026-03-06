@@ -37,8 +37,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "guiservice/requirements.txt"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "guiservice/requirements.txt"
 
       - name: Install lint dependencies
         run: |
@@ -66,8 +70,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "guiservice/requirements.txt"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "guiservice/requirements.txt"
 
       - name: Install dependencies
         run: |
@@ -114,8 +122,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: "guiservice/requirements.txt"
+
+      - name: Set up uv cache
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "guiservice/requirements.txt"
 
       - name: Configure guiservice with CMake
         run: |
