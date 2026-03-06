@@ -64,9 +64,10 @@ _META_COLS = {"_month", "_hour", "_year", "_dt", "_duration"}
 # Preset horizon definitions
 # ---------------------------------------------------------------------------
 
-#: Mapping of preset name → ``(n_stages, block_hours, phase_months)`` where
-#: *block_hours* is a list of ``(name, hours)`` tuples defining each block's
-#: hour-of-day range, and *phase_months* (optional) groups stages into phases.
+#: Mapping of preset name → configuration dict with keys:
+#: ``description``, ``n_stages``, ``block_hours`` (list of ``(name, hours)``
+#: tuples defining each block's hour-of-day range), and optionally ``phases``
+#: (list of dicts grouping stages into higher-level periods).
 PRESETS: dict[str, dict[str, Any]] = {
     "seasonal-3block": {
         "description": (
