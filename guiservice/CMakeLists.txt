@@ -226,37 +226,63 @@ install(CODE "
 
 # Post-install: install Python dependencies via pip
 install(CODE "
-  message(STATUS \"Installing gtopt guiservice Python dependencies via pip...\")
+  message(STATUS \"Installing gtopt guiservice Python dependencies...\")
 
   # Use the Python found at configure time.  Its absolute path is baked in
   # here, so it is immune to the PATH-stripping that sudo applies by default.
   # Both plain 'cmake --install' and 'sudo cmake --install' therefore use the
   # same Python, producing a predictable installation target.
-  set(_pip_cmd \"${PYTHON_EXECUTABLE}\" -m pip)
-  message(STATUS \"Using pip: ${PYTHON_EXECUTABLE} -m pip\")
+  message(STATUS \"Using Python: ${PYTHON_EXECUTABLE}\")
 
-  # Use --user for non-root users on Unix so packages land in ~/.local, which
-  # Python always includes on sys.path.  Root installations (and Windows)
-  # install directly into the active environment's site-packages.
-  set(_pip_user_flag \"\")
-  if(UNIX)
+  # Prefer uv when available: it is 10-100x faster than pip on cold installs
+  # (Rust-based resolver + parallel downloads) and is pre-installed on
+  # ubuntu-latest GitHub Actions runners.
+  find_program(_UV_EXEC uv)
+  if(_UV_EXEC)
+    message(STATUS \"Using uv for install: \${_UV_EXEC}\")
+    # Detect whether we are inside a venv; uv requires --system for non-venv.
     execute_process(
-      COMMAND id -u
-      OUTPUT_VARIABLE _uid
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET
+      COMMAND \"${PYTHON_EXECUTABLE}\" -c
+        \"import sys; sys.exit(0 if (hasattr(sys,'real_prefix') or getattr(sys,'base_prefix',sys.prefix)!=sys.prefix) else 1)\"
+      RESULT_VARIABLE _in_venv
+      OUTPUT_QUIET ERROR_QUIET
     )
-    if(_uid MATCHES \"^[0-9]+\$\" AND NOT _uid EQUAL 0)
-      set(_pip_user_flag \"--user\")
+    if(_in_venv EQUAL 0)
+      set(_uv_system_flag \"\")
+    else()
+      set(_uv_system_flag \"--system\")
     endif()
+    execute_process(
+      COMMAND \${_UV_EXEC} pip install
+        --python \"${PYTHON_EXECUTABLE}\"
+        \${_uv_system_flag}
+        -r \"${GUISERVICE_DIR}/requirements.txt\"
+      RESULT_VARIABLE _pip_rc
+    )
+  else()
+    # Fall back to pip.  Use --user for non-root users on Unix so packages
+    # land in ~/.local, which Python always includes on sys.path.  Root
+    # installations (and Windows) install directly into site-packages.
+    set(_pip_user_flag \"\")
+    if(UNIX)
+      execute_process(
+        COMMAND id -u
+        OUTPUT_VARIABLE _uid
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+      )
+      if(_uid MATCHES \"^[0-9]+\$\" AND NOT _uid EQUAL 0)
+        set(_pip_user_flag \"--user\")
+      endif()
+    endif()
+    execute_process(
+      COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
+        \${_pip_user_flag}
+        -r \"${GUISERVICE_DIR}/requirements.txt\"
+      RESULT_VARIABLE _pip_rc
+    )
   endif()
 
-  execute_process(
-    COMMAND \${_pip_cmd} install
-      \${_pip_user_flag}
-      -r \"${GUISERVICE_DIR}/requirements.txt\"
-    RESULT_VARIABLE _pip_rc
-  )
   if(NOT _pip_rc EQUAL 0)
     message(WARNING \"pip install failed (exit code \${_pip_rc}). \"
       \"Please run manually: ${PYTHON_EXECUTABLE} -m pip install --user -r ${GUISERVICE_DIR}/requirements.txt\")

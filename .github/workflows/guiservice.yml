@@ -42,8 +42,8 @@ jobs:
 
       - name: Install lint dependencies
         run: |
-          pip install ruff pylint mypy types-requests
-          pip install -r guiservice/requirements.txt
+          uv pip install --system ruff pylint mypy types-requests
+          uv pip install --system -r guiservice/requirements.txt
 
       - name: ruff (lint)
         run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
@@ -71,14 +71,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest pytest-cov pytest-xdist
-          pip install -r guiservice/requirements.txt
+          uv pip install --system pytest pytest-cov pytest-xdist
+          uv pip install --system -r guiservice/requirements.txt
 
       - name: Run tests with coverage
         run: |
           python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
             guiservice/tests/test_gtopt_guisrv.py \
-            -n auto -v --cov=guiservice --cov-report=term-missing \
+            -n auto -q --tb=short --cov=guiservice --cov-report=term-missing \
             --cov-report=html:coverage-guiservice \
             --cov-report=xml:coverage-guiservice.xml \
             | tee "${{ runner.temp }}/pytest-guiservice.log"
