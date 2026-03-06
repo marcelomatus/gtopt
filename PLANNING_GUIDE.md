@@ -1072,11 +1072,35 @@ Time-varying load scaling factor for a demand.
 
 Energy storage system with charge/discharge efficiencies and SoC bounds.
 
+**Unified definition (recommended):** When the optional `bus` field is
+set, the system auto-generates a discharge Generator (`name_gen`), a charge
+Demand (`name_dem`), and a linking Converter (`name_conv`). Only a single
+Battery element is needed — no separate Converter, Generator, or Demand
+definitions are required. This follows conventions used by
+[PyPSA StorageUnit](https://pypsa.readthedocs.io/en/latest/components.html#storage-unit)
+and [pandapower storage](https://pandapower.readthedocs.io/en/latest/elements/storage.html).
+
+```json
+{
+  "uid": 1, "name": "bess1",
+  "bus": 3,
+  "input_efficiency": 0.95, "output_efficiency": 0.95,
+  "emin": 0, "emax": 200,
+  "pmax_charge": 60, "pmax_discharge": 60,
+  "gcost": 0,
+  "capacity": 200
+}
+```
+
+**Traditional definition:** Without the `bus` field, a separate Converter,
+Generator, and Demand must be defined manually (see Converter below).
+
 | Field | JSON type | Units | Required | Description |
 |-------|-----------|-------|----------|-------------|
 | `uid` | integer | — | **Yes** | Unique identifier |
 | `name` | string | — | **Yes** | Battery name |
 | `active` | boolean | — | No | Activation status (default: `true`) |
+| `bus` | integer\|string | — | No | Bus connection (enables unified definition) |
 | `input_efficiency` | number\|array\|string | p.u. | No | Charging efficiency `[stage]` (0.0–1.0) |
 | `output_efficiency` | number\|array\|string | p.u. | No | Discharging efficiency `[stage]` (0.0–1.0) |
 | `annual_loss` | number\|array\|string | p.u./year | No | Self-discharge rate `[stage]` |
@@ -1085,6 +1109,9 @@ Energy storage system with charge/discharge efficiencies and SoC bounds.
 | `vcost` | number\|array\|string | $/MWh | No | Storage usage cost `[stage]` |
 | `eini` | number | MWh | No | Initial state of charge |
 | `efin` | number | MWh | No | Terminal state of charge |
+| `pmax_charge` | number\|array\|string | MW | No | Max charging power `[stage]` (unified) |
+| `pmax_discharge` | number\|array\|string | MW | No | Max discharging power `[stage]` (unified) |
+| `gcost` | number\|array\|string | $/MWh | No | Discharge generation cost `[stage]` (unified) |
 | `capacity` | number\|array\|string | MWh | No | Energy storage capacity `[stage]` |
 | `expcap` | number\|array\|string | MWh | No | Expansion unit `[stage]` |
 | `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |

@@ -237,11 +237,38 @@ A transmission line connecting two buses.
 
 A battery energy storage system (BESS).
 
+#### Unified definition (recommended)
+
+When the optional `bus` field is set, the system auto-generates a discharge
+Generator, a charge Demand, and a linking Converter during preprocessing.
+Only a single Battery element is needed — no separate Converter, Generator,
+or Demand definitions required. This follows conventions used by
+[PyPSA StorageUnit](https://pypsa.readthedocs.io/en/latest/components.html#storage-unit)
+and [pandapower storage](https://pandapower.readthedocs.io/en/latest/elements/storage.html).
+
+```json
+{
+  "uid": 1, "name": "bess1",
+  "bus": 3,
+  "input_efficiency": 0.95, "output_efficiency": 0.95,
+  "emin": 0, "emax": 200,
+  "pmax_charge": 60, "pmax_discharge": 60,
+  "gcost": 0,
+  "capacity": 200
+}
+```
+
+#### Traditional definition
+
+Without the `bus` field, a separate Converter, Generator, and Demand must
+be defined manually (see §3.6 Converter).
+
 | Field               | Type                | Units        | Required | Description |
 |---------------------|---------------------|--------------|----------|-------------|
 | `uid`               | integer             | —            | Yes      | Unique identifier |
 | `name`              | string              | —            | Yes      | Battery name |
 | `active`            | boolean             | —            | No       | Whether the battery is active |
+| `bus`               | integer\|string     | —            | No       | Bus connection (enables unified definition) |
 | `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
 | `output_efficiency` | number\|array\|string| p.u.        | No       | Discharging efficiency |
 | `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate |
@@ -250,6 +277,9 @@ A battery energy storage system (BESS).
 | `vcost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
 | `eini`              | number              | MWh          | No       | Initial state of charge |
 | `efin`              | number              | MWh          | No       | Terminal state of charge |
+| `pmax_charge`       | number\|array\|string| MW          | No       | Max charging power (unified definition) |
+| `pmax_discharge`    | number\|array\|string| MW          | No       | Max discharging power (unified definition) |
+| `gcost`             | number\|array\|string| $/MWh       | No       | Discharge generation cost (unified definition) |
 | `capacity`          | number\|array\|string| MWh         | No       | Installed energy capacity |
 | `expcap`            | number\|array\|string| MWh         | No       | Energy capacity per expansion module |
 | `expmod`            | number\|array\|string| —           | No       | Maximum number of expansion modules |
