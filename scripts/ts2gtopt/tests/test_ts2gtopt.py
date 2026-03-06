@@ -22,6 +22,8 @@ from ts2gtopt.ts2gtopt import (
     build_hour_block_map,
     convert_timeseries,
     energy_conservation_check,
+    get_preset,
+    list_presets,
     load_horizon,
     load_timeseries,
     make_horizon,
@@ -204,6 +206,194 @@ class TestMakeHorizon:
     def test_interval_hours_stored(self):
         h = make_horizon(2023, interval_hours=0.5)
         assert h["interval_hours"] == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Presets and custom block_hours / phases
+# ---------------------------------------------------------------------------
+
+
+class TestPresets:
+    """Tests for the PRESETS dict and get_preset / list_presets helpers."""
+
+    def test_list_presets_returns_all(self):
+        result = list_presets()
+        assert "seasonal-3block" in result
+        assert "monthly-3block" in result
+        assert "seasonal-hourly" in result
+        assert "annual-3block" in result
+
+    def test_get_preset_valid(self):
+        cfg = get_preset("seasonal-3block")
+        assert cfg["n_stages"] == 12
+        assert len(cfg["block_hours"]) == 3
+        assert len(cfg["phases"]) == 4
+
+    def test_get_preset_invalid(self):
+        with pytest.raises(ValueError, match="Unknown preset"):
+            get_preset("nonexistent-preset")
+
+
+class TestMakeHorizonBlockHours:
+    """Tests for make_horizon with custom block_hours."""
+
+    def test_custom_3_blocks(self):
+        bh = [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ]
+        h = make_horizon(2023, block_hours=bh)
+        # 12 stages × 3 blocks = 36 blocks total
+        assert len(_get_blocks(h)) == 12 * 3
+        assert len(_get_stages(h)) == 12
+        for st in _get_stages(h):
+            assert st["count_block"] == 3
+
+    def test_custom_3_blocks_period_conservation(self):
+        """Night + Solar + Evening blocks still sum to 8760 h."""
+        bh = [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ]
+        h = make_horizon(2023, block_hours=bh, interval_hours=1.0)
+        total = sum(bl["duration"] for bl in _get_blocks(h))
+        assert total == pytest.approx(8760.0)
+
+    def test_block_names_preserved(self):
+        bh = [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ]
+        h = make_horizon(2023, block_hours=bh)
+        blocks = _get_blocks(h)
+        # First 3 blocks should cycle: night, solar, evening
+        assert blocks[0]["name"] == "night"
+        assert blocks[1]["name"] == "solar"
+        assert blocks[2]["name"] == "evening"
+
+    def test_january_night_block_duration(self):
+        """January night block: 31 days × 7 hours = 217 h."""
+        bh = [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 19))),
+            ("evening", list(range(19, 24))),
+        ]
+        h = make_horizon(2023, block_hours=bh, interval_hours=1.0)
+        jan_blocks = _get_stage_blocks(_get_stages(h)[0], _get_blocks(h))
+        assert len(jan_blocks) == 3
+        assert jan_blocks[0]["name"] == "night"
+        assert jan_blocks[0]["duration"] == pytest.approx(31.0 * 7)
+        assert jan_blocks[1]["name"] == "solar"
+        assert jan_blocks[1]["duration"] == pytest.approx(31.0 * 12)
+        assert jan_blocks[2]["name"] == "evening"
+        assert jan_blocks[2]["duration"] == pytest.approx(31.0 * 5)
+
+    def test_duplicate_hour_raises(self):
+        """Hours assigned to multiple blocks should raise ValueError."""
+        bh = [
+            ("night", list(range(0, 8))),
+            ("solar", list(range(7, 19))),  # hour 7 is duplicated
+            ("evening", list(range(19, 24))),
+        ]
+        with pytest.raises(ValueError, match="assigned to multiple blocks"):
+            make_horizon(2023, block_hours=bh)
+
+    def test_missing_hours_raises(self):
+        """If not all 24 hours are covered, should raise ValueError."""
+        bh = [
+            ("night", list(range(0, 7))),
+            ("solar", list(range(7, 18))),
+            # Missing hours 18-23
+        ]
+        with pytest.raises(ValueError, match="must cover all 24 hours"):
+            make_horizon(2023, block_hours=bh)
+
+
+class TestMakeHorizonPhases:
+    """Tests for make_horizon with phase groupings."""
+
+    def test_four_seasonal_phases(self):
+        phases = [
+            {"name": "summer", "months": [1, 2, 3]},
+            {"name": "autumn", "months": [4, 5, 6]},
+            {"name": "winter", "months": [7, 8, 9]},
+            {"name": "spring", "months": [10, 11, 12]},
+        ]
+        h = make_horizon(2023, phases=phases)
+        assert "phases" in h
+        assert len(h["phases"]) == 4
+        assert h["phases"][0]["name"] == "summer"
+        assert h["phases"][0]["first_stage"] == 0
+        assert h["phases"][0]["count_stage"] == 3
+        assert h["phases"][3]["name"] == "spring"
+        assert h["phases"][3]["first_stage"] == 9
+        assert h["phases"][3]["count_stage"] == 3
+
+    def test_no_phases_by_default(self):
+        h = make_horizon(2023)
+        assert "phases" not in h
+
+
+class TestMakeHorizonPresets:
+    """Tests for make_horizon with presets."""
+
+    def test_seasonal_3block_preset(self):
+        h = make_horizon(2023, preset="seasonal-3block")
+        # 12 stages × 3 blocks = 36 blocks
+        assert len(_get_stages(h)) == 12
+        assert len(_get_blocks(h)) == 36
+        # Should have 4 phases
+        assert "phases" in h
+        assert len(h["phases"]) == 4
+
+    def test_seasonal_3block_period_conservation(self):
+        h = make_horizon(2023, preset="seasonal-3block", interval_hours=1.0)
+        total = sum(bl["duration"] for bl in _get_blocks(h))
+        assert total == pytest.approx(8760.0)
+
+    def test_monthly_3block_preset(self):
+        h = make_horizon(2023, preset="monthly-3block")
+        assert len(_get_stages(h)) == 12
+        assert len(_get_blocks(h)) == 36
+        assert "phases" not in h
+
+    def test_annual_3block_preset(self):
+        h = make_horizon(2023, preset="annual-3block")
+        assert len(_get_stages(h)) == 1
+        assert len(_get_blocks(h)) == 3
+
+    def test_annual_3block_period_conservation(self):
+        h = make_horizon(2023, preset="annual-3block", interval_hours=1.0)
+        total = sum(bl["duration"] for bl in _get_blocks(h))
+        assert total == pytest.approx(8760.0)
+
+    def test_seasonal_hourly_preset(self):
+        h = make_horizon(2023, preset="seasonal-hourly")
+        assert len(_get_stages(h)) == 12
+        assert len(_get_blocks(h)) == 288  # 12 × 24
+        assert "phases" in h
+        assert len(h["phases"]) == 4
+
+    def test_unknown_preset_raises(self):
+        with pytest.raises(ValueError, match="Unknown preset"):
+            make_horizon(2023, preset="does-not-exist")
+
+    def test_preset_with_energy_conservation(self):
+        """Projection with a preset horizon should conserve energy."""
+        df = _make_hourly_df(2023)
+        h = make_horizon(2023, preset="seasonal-3block", interval_hours=1.0)
+        sched = project_timeseries(
+            df, h, time_column="datetime", agg_func="mean",
+            year=2023, interval_hours=1.0,
+        )
+        ratios = energy_conservation_check(df, sched, interval_hours=1.0)
+        for col, ratio in ratios.items():
+            assert ratio == pytest.approx(1.0, abs=1e-6), (
+                f"Energy not conserved for {col}: ratio={ratio}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -955,6 +1145,47 @@ class TestMainCLI:
         assert code == 0
         captured = capsys.readouterr()
         assert "conservation" in captured.out.lower() or "ratio" in captured.out.lower()
+
+    def test_list_presets_flag(self, capsys):
+        code = self._run_cli(["ts2gtopt", "--list-presets"])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "seasonal-3block" in captured.out
+        assert "monthly-3block" in captured.out
+
+    def test_preset_flag(self, tmp_path):
+        ts = self._write_ts(tmp_path / "in" / "ts.csv")
+        out = tmp_path / "out"
+        code = self._run_cli(
+            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "seasonal-3block",
+             "-o", str(out)]
+        )
+        assert code == 0
+        df = pd.read_parquet(out / "ts.parquet")
+        # 12 stages × 3 blocks = 36 rows
+        assert len(df) == 36
+
+    def test_preset_monthly_3block(self, tmp_path):
+        ts = self._write_ts(tmp_path / "in" / "ts.csv")
+        out = tmp_path / "out"
+        code = self._run_cli(
+            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "monthly-3block",
+             "-o", str(out)]
+        )
+        assert code == 0
+        df = pd.read_parquet(out / "ts.parquet")
+        assert len(df) == 36
+
+    def test_preset_annual_3block(self, tmp_path):
+        ts = self._write_ts(tmp_path / "in" / "ts.csv")
+        out = tmp_path / "out"
+        code = self._run_cli(
+            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "annual-3block",
+             "-o", str(out)]
+        )
+        assert code == 0
+        df = pd.read_parquet(out / "ts.parquet")
+        assert len(df) == 3
 
 
 # ---------------------------------------------------------------------------
