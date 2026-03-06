@@ -424,8 +424,7 @@ def main() -> None:
         )
         preset_msg = f" preset={args.preset}" if args.preset else ""
         logging.info(
-            "Auto-generated horizon: year=%d stages=%d blocks=%d "
-            "interval_hours=%.4g%s",
+            "Auto-generated horizon: year=%d stages=%d blocks=%d interval_hours=%.4g%s",
             args.year,
             args.stages,
             len(horizon.get("blocks", [])) // max(len(horizon.get("stages", [1])), 1),

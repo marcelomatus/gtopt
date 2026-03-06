@@ -88,8 +88,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "monthly-3block": {
         "description": (
-            "12 months (stages) × 3 blocks "
-            "(night 0-6, solar 7-18, evening 19-23)"
+            "12 months (stages) × 3 blocks (night 0-6, solar 7-18, evening 19-23)"
         ),
         "n_stages": 12,
         "block_hours": [
@@ -111,8 +110,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "annual-3block": {
         "description": (
-            "1 annual stage × 3 blocks "
-            "(night 0-6, solar 7-18, evening 19-23)"
+            "1 annual stage × 3 blocks (night 0-6, solar 7-18, evening 19-23)"
         ),
         "n_stages": 1,
         "block_hours": [
@@ -150,9 +148,7 @@ def get_preset(name: str) -> dict[str, Any]:
     """
     if name not in PRESETS:
         available = ", ".join(sorted(PRESETS))
-        raise ValueError(
-            f"Unknown preset '{name}'. Available presets: {available}"
-        )
+        raise ValueError(f"Unknown preset '{name}'. Available presets: {available}")
     return PRESETS[name]
 
 
@@ -419,9 +415,7 @@ def make_horizon(
                 all_hours.add(hh)
         if all_hours != set(range(24)):
             missing = sorted(set(range(24)) - all_hours)
-            raise ValueError(
-                f"block_hours must cover all 24 hours; missing: {missing}"
-            )
+            raise ValueError(f"block_hours must cover all 24 hours; missing: {missing}")
     else:
         effective_n_blocks = n_blocks
 

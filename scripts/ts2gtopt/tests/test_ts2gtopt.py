@@ -386,8 +386,12 @@ class TestMakeHorizonPresets:
         df = _make_hourly_df(2023)
         h = make_horizon(2023, preset="seasonal-3block", interval_hours=1.0)
         sched = project_timeseries(
-            df, h, time_column="datetime", agg_func="mean",
-            year=2023, interval_hours=1.0,
+            df,
+            h,
+            time_column="datetime",
+            agg_func="mean",
+            year=2023,
+            interval_hours=1.0,
         )
         ratios = energy_conservation_check(df, sched, interval_hours=1.0)
         for col, ratio in ratios.items():
@@ -1157,8 +1161,16 @@ class TestMainCLI:
         ts = self._write_ts(tmp_path / "in" / "ts.csv")
         out = tmp_path / "out"
         code = self._run_cli(
-            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "seasonal-3block",
-             "-o", str(out)]
+            [
+                "ts2gtopt",
+                str(ts),
+                "-y",
+                "2023",
+                "--preset",
+                "seasonal-3block",
+                "-o",
+                str(out),
+            ]
         )
         assert code == 0
         df = pd.read_parquet(out / "ts.parquet")
@@ -1169,8 +1181,16 @@ class TestMainCLI:
         ts = self._write_ts(tmp_path / "in" / "ts.csv")
         out = tmp_path / "out"
         code = self._run_cli(
-            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "monthly-3block",
-             "-o", str(out)]
+            [
+                "ts2gtopt",
+                str(ts),
+                "-y",
+                "2023",
+                "--preset",
+                "monthly-3block",
+                "-o",
+                str(out),
+            ]
         )
         assert code == 0
         df = pd.read_parquet(out / "ts.parquet")
@@ -1180,8 +1200,16 @@ class TestMainCLI:
         ts = self._write_ts(tmp_path / "in" / "ts.csv")
         out = tmp_path / "out"
         code = self._run_cli(
-            ["ts2gtopt", str(ts), "-y", "2023", "--preset", "annual-3block",
-             "-o", str(out)]
+            [
+                "ts2gtopt",
+                str(ts),
+                "-y",
+                "2023",
+                "--preset",
+                "annual-3block",
+                "-o",
+                str(out),
+            ]
         )
         assert code == 0
         df = pd.read_parquet(out / "ts.parquet")
