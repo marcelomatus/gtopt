@@ -49,6 +49,7 @@ private:
                                        const FlatOptions& flat_opts)
       -> scene_phase_systems_t
   {
+    system.expand_batteries();
     system.setup_reference_bus(options);
     auto&& scenes = simulation.scenes();
 

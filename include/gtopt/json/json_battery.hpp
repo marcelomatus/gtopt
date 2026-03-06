@@ -21,6 +21,7 @@
 #include <gtopt/battery.hpp>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_field_sched.hpp>
+#include <gtopt/json/json_single_id.hpp>
 
 namespace daw::json
 {
@@ -35,6 +36,9 @@ struct json_data_contract<Battery>
       json_string<"name", Name>,  ///< Battery name
       json_variant_null<"active", OptActive, jvtl_Active>,  ///< Activation
                                                             ///< status
+      json_variant_null<"bus",
+                        OptSingleId,
+                        jvtl_SingleId>,  ///< Bus (unified definition)
       json_variant_null<"input_efficiency",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Input efficiency schedule
@@ -55,6 +59,15 @@ struct json_data_contract<Battery>
                         jvtl_TRealFieldSched>,  ///< Voltage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
       json_number_null<"efin", OptReal>,  ///< Final energy (optional)
+      json_variant_null<"pmax_charge",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,  ///< Max charging power
+      json_variant_null<"pmax_discharge",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,  ///< Max discharging power
+      json_variant_null<"gcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,  ///< Discharge cost
       json_variant_null<"capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Capacity
@@ -87,6 +100,7 @@ struct json_data_contract<Battery>
     return std::forward_as_tuple(battery.uid,
                                  battery.name,
                                  battery.active,
+                                 battery.bus,
                                  battery.input_efficiency,
                                  battery.output_efficiency,
                                  battery.annual_loss,
@@ -95,6 +109,9 @@ struct json_data_contract<Battery>
                                  battery.vcost,
                                  battery.eini,
                                  battery.efin,
+                                 battery.pmax_charge,
+                                 battery.pmax_discharge,
+                                 battery.gcost,
                                  battery.capacity,
                                  battery.expcap,
                                  battery.expmod,

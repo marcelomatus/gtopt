@@ -101,6 +101,23 @@ struct System
 
   void merge(System&& sys);
 
+  /**
+   * @brief Expands unified battery definitions into separate elements
+   *
+   * For each Battery that has the optional `bus` field set, this method
+   * auto-generates:
+   * - A Generator for the discharge path (name = battery.name + "_gen")
+   * - A Demand for the charge path (name = battery.name + "_dem")
+   * - A Converter linking battery, generator, and demand
+   *   (name = battery.name + "_conv")
+   *
+   * After expansion, the `bus` field on the battery is cleared so that
+   * re-expansion is idempotent.
+   *
+   * This is called automatically by PlanningLP before LP construction.
+   */
+  void expand_batteries();
+
   void setup_reference_bus(const class OptionsLP& options);
 };
 

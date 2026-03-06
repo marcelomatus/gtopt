@@ -12,7 +12,33 @@
  * @ref Converter that links it to a discharge @ref Generator and a charge
  * @ref Demand.
  *
- * ### JSON Example
+ * ### Unified battery definition (recommended)
+ *
+ * When the optional `bus` field is set, the system automatically generates
+ * the associated Generator (discharge path), Demand (charge path), and
+ * Converter during preprocessing — no separate elements are needed:
+ *
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "bess1",
+ *   "bus": 3,
+ *   "input_efficiency": 0.95,
+ *   "output_efficiency": 0.95,
+ *   "emin": 0,
+ *   "emax": 100,
+ *   "capacity": 100,
+ *   "pmax_charge": 60,
+ *   "pmax_discharge": 60,
+ *   "gcost": 0
+ * }
+ * ```
+ *
+ * ### Traditional multi-element definition
+ *
+ * Without the `bus` field, a separate Converter, Generator, and Demand must
+ * be defined manually to couple the battery to the electrical network:
+ *
  * ```json
  * {
  *   "uid": 1,
@@ -53,6 +79,11 @@ namespace gtopt
  *            − discharge / output_efficiency
  * ```
  *
+ * When the `bus` field is set, `System::expand_batteries()` auto-generates
+ * the corresponding Generator, Demand, and Converter elements so the user
+ * only needs to define a single Battery object.  This approach follows the
+ * convention used by PyPSA `StorageUnit` and pandapower `storage`.
+ *
  * @see Converter for the generator/demand coupling
  * @see BatteryLP for the LP formulation
  */
@@ -61,6 +92,11 @@ struct Battery
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (default: active)
+
+  /// Bus connection for the unified battery definition.
+  /// When set, System::expand_batteries() auto-generates a discharge
+  /// Generator, a charge Demand, and a linking Converter for this bus.
+  OptSingleId bus {};
 
   OptTRealFieldSched
       input_efficiency {};  ///< Charging (round-trip in) efficiency [p.u.]
@@ -75,6 +111,13 @@ struct Battery
       vcost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
   OptReal eini {};  ///< Initial state of charge [MWh]
   OptReal efin {};  ///< Terminal state of charge (end condition) [MWh]
+
+  OptTRealFieldSched
+      pmax_charge {};  ///< Max charging power [MW] (unified definition)
+  OptTRealFieldSched
+      pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
+  OptTRealFieldSched
+      gcost {};  ///< Discharge generation cost [$/MWh] (unified definition)
 
   OptTRealFieldSched capacity {};  ///< Installed energy capacity [MWh]
   OptTRealFieldSched expcap {};  ///< Energy capacity per expansion module [MWh]
