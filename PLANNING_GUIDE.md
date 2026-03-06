@@ -23,8 +23,16 @@ external time-series data.
    - [External CSV files](#72-external-csv-files)
    - [External Parquet files](#73-external-parquet-files)
    - [Directory layout and file-field naming convention](#74-directory-layout-and-file-field-naming-convention)
-8. [Field reference and auto-generated docs](#8-field-reference-and-auto-generated-docs)
-9. [Output files](#9-output-files)
+8. [Complete JSON element reference](#8-complete-json-element-reference)
+   - [Options](#81-options)
+   - [Simulation (time structure)](#82-simulation-time-structure)
+   - [System – Electrical network](#83-system--electrical-network)
+   - [System – Profiles](#84-system--profiles)
+   - [System – Energy storage](#85-system--energy-storage)
+   - [System – Reserves](#86-system--reserves)
+   - [System – Hydro cascade](#87-system--hydro-cascade)
+9. [Field reference and auto-generated docs](#9-field-reference-and-auto-generated-docs)
+10. [Output files](#10-output-files)
 
 ---
 
@@ -51,6 +59,7 @@ classDiagram
         +Stage[]    stage_array
         +Phase[]    phase_array
         +Block[]    block_array
+        +Scene[]    scene_array
     }
     class Scenario {
         +Uid  uid
@@ -63,6 +72,7 @@ classDiagram
         +Name name
         +Size first_stage
         +Size count_stage
+        +Bool active
     }
     class Stage {
         +Uid  uid
@@ -78,32 +88,42 @@ classDiagram
         +Real duration [h]
     }
     class Scene {
-        +Scenario scenario
-        +Phase    phase
-        <<internal>>
+        +Uid  uid
+        +Name name
+        +Size first_scenario
+        +Size count_scenario
+        +Bool active
     }
     class System {
-        +Bus[]       bus_array
-        +Generator[] generator_array
-        +Demand[]    demand_array
-        +Line[]      line_array
-        +Battery[]   battery_array
-        +Converter[] converter_array
-        +Junction[]  junction_array
-        +Reservoir[] reservoir_array
-        +Turbine[]   turbine_array
+        +Bus[]              bus_array
+        +Generator[]        generator_array
+        +Demand[]           demand_array
+        +Line[]             line_array
+        +Battery[]          battery_array
+        +Converter[]        converter_array
+        +GeneratorProfile[] generator_profile_array
+        +DemandProfile[]    demand_profile_array
+        +ReserveZone[]      reserve_zone_array
+        +ReserveProvision[] reserve_provision_array
+        +Junction[]         junction_array
+        +Waterway[]         waterway_array
+        +Flow[]             flow_array
+        +Reservoir[]        reservoir_array
+        +Filtration[]       filtration_array
+        +Turbine[]          turbine_array
     }
 
     Planning  *--  Simulation : contains
     Planning  *--  System     : contains
     Simulation *-- Scenario   : has many
     Simulation *-- Stage      : has many
-    Simulation *-- Phase      : has many (optional)
+    Simulation *-- Phase      : has many (default: 1)
     Simulation *-- Block      : has many
-    Phase      o-- Stage      : groups
-    Stage      o-- Block      : references by first_block+count_block
-    Scene      --> Scenario   : cross-product
-    Scene      --> Phase      : cross-product
+    Simulation *-- Scene      : has many (default: 1)
+    Phase      o-- Stage      : groups (first_stage + count_stage)
+    Stage      o-- Block      : references (first_block + count_block)
+    Scene      --> Scenario   : indexes (first_scenario + count_scenario)
+    Scene      ..> Phase      : paired with (via LP formulation)
 ```
 
 > 💾 **Auto-generated SVG**: `docs/diagrams/planning_structure.svg`
@@ -114,6 +134,8 @@ classDiagram
 | **Block** | Smallest time unit. `energy [MWh] = power [MW] × duration [h]`. |
 | **Stage** | Investment period. Capacity built in a stage is available in all later stages. Costs are multiplied by `discount_factor` for present-value accounting. |
 | **Scenario** | One realisation of uncertain inputs (e.g. dry/wet hydrology). All scenarios are solved simultaneously; their costs are weighted by `probability_factor`. |
+| **Phase** | Groups consecutive stages into a higher-level period (e.g. seasons, construction vs. operation). Default: single phase covering all stages. See [Section 1.2](#12-phases-and-scenes). |
+| **Scene** | Combines a subset of scenarios for LP solving. Default: single scene covering all scenarios. See [Section 1.2](#12-phases-and-scenes). |
 
 A single-snapshot operational study uses **one block, one stage, one scenario**
 (the defaults if you omit `simulation` entirely):
@@ -175,11 +197,119 @@ more blocks per stage for seasonal detail):
 
 ### 1.2 Phases and Scenes
 
-A **Phase** groups stages into a higher-level period (e.g., construction phase
-vs. operational phase). Most cases use the default single phase.
+#### Phase – Grouping stages into higher-level periods
 
-A **Scene** cross-products a scenario with a phase (used internally by the LP
-formulation). For most users the default single scene is sufficient.
+A **Phase** groups consecutive **stages** into a higher-level planning period.
+Common use cases:
+
+| Use case | Phases | Stages per phase |
+|----------|--------|-----------------|
+| **Seasonal analysis** | 4 phases (summer, autumn, winter, spring) | 3 monthly stages each |
+| **Construction vs. operation** | 2 phases (build, operate) | Variable |
+| **Single-period study** | 1 phase (default) | All stages |
+
+When no `phase_array` is provided in the JSON, gtopt automatically creates a
+single default phase that covers all stages.
+
+**JSON example – 4 seasonal phases (12 monthly stages)**:
+
+```json
+{
+  "simulation": {
+    "phase_array": [
+      {"uid": 1, "name": "summer",  "first_stage": 0, "count_stage": 3},
+      {"uid": 2, "name": "autumn",  "first_stage": 3, "count_stage": 3},
+      {"uid": 3, "name": "winter",  "first_stage": 6, "count_stage": 3},
+      {"uid": 4, "name": "spring",  "first_stage": 9, "count_stage": 3}
+    ],
+    "stage_array": [
+      {"uid": 1,  "first_block": 0,  "count_block": 3},
+      {"uid": 2,  "first_block": 3,  "count_block": 3},
+      {"uid": 3,  "first_block": 6,  "count_block": 3},
+      {"uid": 4,  "first_block": 9,  "count_block": 3},
+      {"uid": 5,  "first_block": 12, "count_block": 3},
+      {"uid": 6,  "first_block": 15, "count_block": 3},
+      {"uid": 7,  "first_block": 18, "count_block": 3},
+      {"uid": 8,  "first_block": 21, "count_block": 3},
+      {"uid": 9,  "first_block": 24, "count_block": 3},
+      {"uid": 10, "first_block": 27, "count_block": 3},
+      {"uid": 11, "first_block": 30, "count_block": 3},
+      {"uid": 12, "first_block": 33, "count_block": 3}
+    ],
+    "block_array": [
+      {"uid": 1,  "duration": 217, "name": "night"},
+      {"uid": 2,  "duration": 372, "name": "solar"},
+      {"uid": 3,  "duration": 155, "name": "evening"}
+    ]
+  }
+}
+```
+
+**Phase fields**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `uid` | integer | **Yes** | Unique identifier |
+| `name` | string | No | Human-readable label (e.g. `"summer"`) |
+| `active` | boolean | No | Activation status (default: `true`) |
+| `first_stage` | integer | No | 0-based index of the first stage (default: `0`) |
+| `count_stage` | integer | No | Number of stages (default: all remaining) |
+
+#### Scene – Cross-product of scenarios and phases
+
+A **Scene** combines a set of **scenarios** with a **phase**.  In the LP
+formulation, each scene defines which scenarios are solved together within
+which phase.  This is an advanced feature used for complex multi-scenario,
+multi-phase studies.
+
+For most cases the default single scene (covering all scenarios across one
+phase) is sufficient.  You only need explicit `scene_array` when combining
+multiple scenarios with multiple phases to control which scenario groups
+apply to which phase.
+
+**JSON example – default (implicit)**:
+
+```json
+{
+  "simulation": {
+    "scene_array": [{"uid": 1, "first_scenario": 0, "count_scenario": 1}]
+  }
+}
+```
+
+**Scene fields**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `uid` | integer | **Yes** | Unique identifier |
+| `name` | string | No | Human-readable label |
+| `active` | boolean | No | Activation status (default: `true`) |
+| `first_scenario` | integer | No | 0-based index of the first scenario (default: `0`) |
+| `count_scenario` | integer | No | Number of scenarios (default: all remaining) |
+
+#### Time hierarchy diagram
+
+The complete time hierarchy in gtopt is:
+
+```
+Planning
+ └─ Scene (cross-product of scenarios × phases)
+     ├─ Scenario (probability-weighted future realization)
+     └─ Phase (higher-level grouping)
+         └─ Stage (investment period, discount factor)
+             └─ Block (smallest time unit, duration in hours)
+```
+
+For a typical seasonal study with 2 scenarios (dry/wet hydrology):
+
+```
+Scene 1 ─── Scenario: "dry year" (prob=0.3)
+         └─ Phase: "summer" → Stages 1-3 (Jan, Feb, Mar)
+                              Each stage: 3 blocks (night, solar, evening)
+Scene 2 ─── Scenario: "wet year" (prob=0.7)
+         └─ Phase: "summer" → Stages 1-3 (Jan, Feb, Mar)
+                              Each stage: 3 blocks (night, solar, evening)
+```
 
 ### 1.3 System elements
 
@@ -723,7 +853,401 @@ This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 ---
 
-## 8. Field reference and auto-generated docs
+## 8. Complete JSON element reference
+
+This section documents **every element and class** in the gtopt JSON input file.
+Values can be specified as:
+
+| JSON representation | C++ type pattern | Description |
+|---------------------|-----------------|-------------|
+| `100` (number) | scalar | Constant in every block/stage |
+| `[80, 90]` | `[stage]` | Per-stage values |
+| `[[80, 90], [70, 85]]` | `[stage][block]` | Per-stage, per-block |
+| `[[[1.0, 0.8]]]` | `[scenario][stage][block]` | Full 3-D indexing |
+| `"filename"` (string) | `FileSched` | External Parquet/CSV file in `input_directory/<Class>/` |
+
+### 8.1 Options
+
+Global solver and model configuration.  All fields are optional.
+
+| Field | JSON type | Units | Default | Description |
+|-------|-----------|-------|---------|-------------|
+| `demand_fail_cost` | number | $/MWh | — | Penalty for unserved load (value of lost load) |
+| `reserve_fail_cost` | number | $/MWh | — | Penalty for unserved spinning reserve |
+| `use_kirchhoff` | boolean | — | `true` | Enable DC power-flow (Kirchhoff's voltage law) constraints |
+| `use_single_bus` | boolean | — | `false` | Collapse all buses to a single copper-plate node |
+| `use_line_losses` | boolean | — | `true` | Model resistive transmission losses |
+| `kirchhoff_threshold` | number | kV | — | Minimum voltage level for Kirchhoff constraints |
+| `scale_objective` | number | — | `1000` | Divide all objective coefficients by this value (improves solver numerics) |
+| `scale_theta` | number | — | `1000` | Scale voltage angle variables |
+| `annual_discount_rate` | number | p.u./year | — | Yearly rate for automatic stage discount factor computation |
+| `input_directory` | string | — | `"input"` | Root directory for external schedule files |
+| `input_format` | string | — | `"parquet"` | Preferred input format (`"parquet"` or `"csv"`); falls back to the other |
+| `output_directory` | string | — | `"output"` | Root directory for result files |
+| `output_format` | string | — | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
+| `output_compression` | string | — | `"gzip"` | Parquet compression codec (`"gzip"`, `"zstd"`, `"lzo"`, `"uncompressed"`) |
+| `use_lp_names` | boolean | — | — | Use descriptive names for LP variables/constraints (debugging) |
+| `use_uid_fname` | boolean | — | — | Use UIDs in output filenames |
+| `lp_algorithm` | integer | — | `0` | LP algorithm: 0=auto, 1=primal simplex, 2=dual simplex, 3=barrier |
+| `lp_threads` | integer | — | `0` | Number of solver threads (0 = automatic) |
+| `lp_presolve` | boolean | — | `true` | Enable LP presolve |
+
+### 8.2 Simulation (time structure)
+
+#### Block
+
+The smallest time unit.  `energy [MWh] = power [MW] × duration [h]`.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | No | Optional label (e.g. `"night"`, `"peak"`) |
+| `duration` | number | h | **Yes** | Time duration of this block in hours |
+
+#### Stage
+
+Investment period grouping consecutive blocks.  Capacity decisions made in a
+stage persist into all subsequent stages.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | No | Optional label (e.g. `"January"`, `"Year 1"`) |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `first_block` | integer | — | No | 0-based index of the first block (default: `0`) |
+| `count_block` | integer | — | No | Number of consecutive blocks (default: all remaining) |
+| `discount_factor` | number | p.u. | No | Present-value cost multiplier (default: `1.0`; auto-computed if `annual_discount_rate` is set in options) |
+
+#### Scenario
+
+One realisation of uncertain inputs (e.g. dry/wet hydrology, high/low demand).
+All scenarios are solved simultaneously; costs are weighted by `probability_factor`.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | No | Optional label (e.g. `"dry year"`) |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `probability_factor` | number | p.u. | No | Probability weight (default: `1.0`; normalised internally) |
+
+#### Phase
+
+Groups consecutive stages into a higher-level period (see [Section 1.2](#12-phases-and-scenes)).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | No | Optional label (e.g. `"summer"`, `"construction"`) |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `first_stage` | integer | — | No | 0-based index of the first stage (default: `0`) |
+| `count_stage` | integer | — | No | Number of stages (default: all remaining) |
+
+#### Scene
+
+Cross-products scenarios with phases (see [Section 1.2](#12-phases-and-scenes)).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | No | Optional label |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `first_scenario` | integer | — | No | 0-based index of the first scenario (default: `0`) |
+| `count_scenario` | integer | — | No | Number of scenarios (default: all remaining) |
+
+### 8.3 System – Electrical network
+
+#### Bus
+
+Electrical node in the network.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Bus name (used for cross-references) |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `voltage` | number | kV | No | Nominal voltage level |
+| `reference_theta` | number | rad | No | Fixed voltage angle (reference bus) |
+| `use_kirchhoff` | boolean | — | No | Override the global `use_kirchhoff` setting for this bus |
+
+#### Generator
+
+Thermal, renewable, or hydro generation unit.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Generator name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `bus` | integer\|string | — | **Yes** | Connected bus (UID or name) |
+| `pmin` | number\|array\|string | MW | No | Minimum power output `[stage][block]` |
+| `pmax` | number\|array\|string | MW | No | Maximum power output `[stage][block]` |
+| `gcost` | number\|array\|string | $/MWh | No | Variable generation cost `[stage]` |
+| `lossfactor` | number\|array\|string | p.u. | No | Network loss factor `[stage]` |
+| `capacity` | number\|array\|string | MW | No | Installed generation capacity `[stage]` |
+| `expcap` | number\|array\|string | MW | No | Capacity per expansion module `[stage]` |
+| `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |
+| `capmax` | number\|array\|string | MW | No | Absolute maximum capacity `[stage]` |
+| `annual_capcost` | number\|array\|string | $/MW-year | No | Annualised investment cost `[stage]` |
+| `annual_derating` | number\|array\|string | p.u./year | No | Annual capacity derating `[stage]` |
+
+#### Demand
+
+Electrical load (fixed or flexible).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Demand name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `bus` | integer\|string | — | **Yes** | Connected bus (UID or name) |
+| `lmax` | number\|array\|string | MW | No | Maximum served load `[stage][block]` |
+| `lossfactor` | number\|array\|string | p.u. | No | Network loss factor `[stage]` |
+| `fcost` | number\|array\|string | $/MWh | No | Curtailment cost override `[stage]` |
+| `emin` | number\|array\|string | MWh | No | Minimum energy served per stage `[stage]` |
+| `ecost` | number\|array\|string | $/MWh | No | Energy shortage cost `[stage]` |
+| `capacity` | number\|array\|string | MW | No | Installed demand capacity `[stage]` |
+| `expcap` | number\|array\|string | MW | No | Expansion unit `[stage]` |
+| `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |
+| `capmax` | number\|array\|string | MW | No | Absolute maximum capacity `[stage]` |
+| `annual_capcost` | number\|array\|string | $/MW-year | No | Annualised investment cost `[stage]` |
+| `annual_derating` | number\|array\|string | p.u./year | No | Annual capacity derating `[stage]` |
+
+#### Line
+
+Transmission branch connecting two buses.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Line name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `bus_a` | integer\|string | — | **Yes** | "From" bus (UID or name) |
+| `bus_b` | integer\|string | — | **Yes** | "To" bus (UID or name) |
+| `voltage` | number\|array\|string | kV | No | Nominal voltage `[stage]` |
+| `resistance` | number\|array\|string | p.u. | No | Series resistance (for loss modelling) `[stage]` |
+| `reactance` | number\|array\|string | p.u. | No | Series reactance (for DC power flow) `[stage]` |
+| `lossfactor` | number\|array\|string | p.u. | No | Loss factor `[stage]` |
+| `tmax_ab` | number\|array\|string | MW | No | Maximum flow A→B `[stage][block]` |
+| `tmax_ba` | number\|array\|string | MW | No | Maximum flow B→A `[stage][block]` |
+| `tcost` | number\|array\|string | $/MWh | No | Variable transfer cost `[stage]` |
+| `capacity` | number\|array\|string | MW | No | Installed line capacity `[stage]` |
+| `expcap` | number\|array\|string | MW | No | Expansion unit `[stage]` |
+| `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |
+| `capmax` | number\|array\|string | MW | No | Absolute maximum capacity `[stage]` |
+| `annual_capcost` | number\|array\|string | $/MW-year | No | Annualised investment cost `[stage]` |
+| `annual_derating` | number\|array\|string | p.u./year | No | Annual capacity derating `[stage]` |
+
+### 8.4 System – Profiles
+
+#### GeneratorProfile
+
+Time-varying capacity factor for a generator (e.g. solar irradiance curve,
+wind profile).  Multiplies the generator's `capacity` to yield available power.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Profile name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `generator` | integer\|string | — | **Yes** | Associated generator (UID or name) |
+| `profile` | number\|array\|string | p.u. | **Yes** | Capacity factor `[scenario][stage][block]` (0.0–1.0) |
+| `scost` | number\|array\|string | $/MWh | No | Override generation cost `[stage]` |
+
+#### DemandProfile
+
+Time-varying load scaling factor for a demand.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Profile name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `demand` | integer\|string | — | **Yes** | Associated demand (UID or name) |
+| `profile` | number\|array\|string | p.u. | **Yes** | Load scaling factor `[scenario][stage][block]` (0.0–1.0) |
+| `scost` | number\|array\|string | $/MWh | No | Override curtailment cost `[stage]` |
+
+### 8.5 System – Energy storage
+
+#### Battery
+
+Energy storage system with charge/discharge efficiencies and SoC bounds.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Battery name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `input_efficiency` | number\|array\|string | p.u. | No | Charging efficiency `[stage]` (0.0–1.0) |
+| `output_efficiency` | number\|array\|string | p.u. | No | Discharging efficiency `[stage]` (0.0–1.0) |
+| `annual_loss` | number\|array\|string | p.u./year | No | Self-discharge rate `[stage]` |
+| `emin` | number\|array\|string | MWh | No | Minimum state of charge `[stage]` |
+| `emax` | number\|array\|string | MWh | No | Maximum state of charge `[stage]` |
+| `vcost` | number\|array\|string | $/MWh | No | Storage usage cost `[stage]` |
+| `eini` | number | MWh | No | Initial state of charge |
+| `efin` | number | MWh | No | Terminal state of charge |
+| `capacity` | number\|array\|string | MWh | No | Energy storage capacity `[stage]` |
+| `expcap` | number\|array\|string | MWh | No | Expansion unit `[stage]` |
+| `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |
+| `capmax` | number\|array\|string | MWh | No | Absolute maximum capacity `[stage]` |
+| `annual_capcost` | number\|array\|string | $/MWh-year | No | Annualised investment cost `[stage]` |
+| `annual_derating` | number\|array\|string | p.u./year | No | Annual capacity derating `[stage]` |
+
+#### Converter
+
+Couples a Battery to an electrical Generator (discharge path) and Demand
+(charge path).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Converter name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `battery` | integer\|string | — | **Yes** | Battery (UID or name) |
+| `generator` | integer\|string | — | **Yes** | Discharge generator (UID or name) |
+| `demand` | integer\|string | — | **Yes** | Charge demand (UID or name) |
+| `conversion_rate` | number\|array\|string | MW/(MWh/h) | No | Power-to-energy rate `[stage]` |
+| `capacity` | number\|array\|string | MW | No | Power capacity `[stage]` |
+| `expcap` | number\|array\|string | MW | No | Expansion unit `[stage]` |
+| `expmod` | number\|array\|string | — | No | Maximum expansion modules `[stage]` |
+| `capmax` | number\|array\|string | MW | No | Absolute maximum capacity `[stage]` |
+| `annual_capcost` | number\|array\|string | $/MW-year | No | Annualised investment cost `[stage]` |
+| `annual_derating` | number\|array\|string | p.u./year | No | Annual capacity derating `[stage]` |
+
+### 8.6 System – Reserves
+
+#### ReserveZone
+
+Spinning-reserve requirement for a group of generators.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Zone name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `urreq` | number\|array\|string | MW | No | Up-reserve requirement `[stage][block]` |
+| `drreq` | number\|array\|string | MW | No | Down-reserve requirement `[stage][block]` |
+| `urcost` | number\|array\|string | $/MW | No | Up-reserve shortage cost `[stage]` |
+| `drcost` | number\|array\|string | $/MW | No | Down-reserve shortage cost `[stage]` |
+
+#### ReserveProvision
+
+Links a generator to one or more reserve zones.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Provision name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `generator` | integer\|string | — | **Yes** | Provider generator (UID or name) |
+| `reserve_zones` | string | — | **Yes** | Comma-separated zone UIDs or names |
+| `urmax` | number\|array\|string | MW | No | Maximum up-reserve contribution `[stage][block]` |
+| `drmax` | number\|array\|string | MW | No | Maximum down-reserve contribution `[stage][block]` |
+| `ur_capacity_factor` | number\|array\|string | p.u. | No | Up-reserve capacity factor `[stage]` |
+| `dr_capacity_factor` | number\|array\|string | p.u. | No | Down-reserve capacity factor `[stage]` |
+| `ur_provision_factor` | number\|array\|string | p.u. | No | Up-reserve provision factor `[stage]` |
+| `dr_provision_factor` | number\|array\|string | p.u. | No | Down-reserve provision factor `[stage]` |
+| `urcost` | number\|array\|string | $/MW | No | Up-reserve bid cost `[stage]` |
+| `drcost` | number\|array\|string | $/MW | No | Down-reserve bid cost `[stage]` |
+
+### 8.7 System – Hydro cascade
+
+#### Junction
+
+Hydraulic node where waterways and reservoirs meet.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Junction name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `drain` | boolean | — | No | Allow excess water to leave system freely |
+
+#### Waterway
+
+Water channel connecting two junctions.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Waterway name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `junction_a` | integer\|string | — | **Yes** | Upstream junction (UID or name) |
+| `junction_b` | integer\|string | — | **Yes** | Downstream junction (UID or name) |
+| `capacity` | number\|array\|string | m³/s | No | Maximum flow capacity `[stage]` |
+| `lossfactor` | number\|array\|string | p.u. | No | Transit water loss coefficient `[stage]` (default: `0.0`) |
+| `fmin` | number\|array\|string | m³/s | No | Minimum flow `[stage][block]` (default: `0.0`) |
+| `fmax` | number\|array\|string | m³/s | No | Maximum flow `[stage][block]` (default: `300000.0`) |
+
+#### Flow
+
+Exogenous inflow or outflow at a junction (e.g. river inflow, evaporation).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Flow name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `direction` | integer | — | No | `+1` = inflow, `-1` = outflow (default: `+1`) |
+| `junction` | integer\|string | — | **Yes** | Connected junction (UID or name) |
+| `discharge` | number\|array\|string | m³/s | **Yes** | Discharge schedule `[scenario][stage][block]` |
+
+#### Reservoir
+
+Water storage (lake, dam).  Volume balance is maintained across blocks.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Reservoir name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `junction` | integer\|string | — | **Yes** | Connected junction (UID or name) |
+| `spillway_capacity` | number | m³/s | No | Uncontrolled spill capacity (default: `6000.0`) |
+| `spillway_cost` | number | $/dam³ | No | Cost of spilling water |
+| `capacity` | number\|array\|string | dam³ | No | Usable storage capacity `[stage]` |
+| `annual_loss` | number\|array\|string | p.u./year | No | Evaporation/seepage loss rate `[stage]` |
+| `emin` | number\|array\|string | dam³ | No | Minimum volume `[stage]` |
+| `emax` | number\|array\|string | dam³ | No | Maximum volume `[stage]` |
+| `vcost` | number\|array\|string | $/dam³ | No | Water value cost `[stage]` |
+| `eini` | number | dam³ | No | Initial volume |
+| `efin` | number | dam³ | No | Terminal volume |
+| `fmin` | number | m³/s | No | Minimum net inflow (default: `-10000.0`) |
+| `fmax` | number | m³/s | No | Maximum net inflow (default: `+10000.0`) |
+| `vol_scale` | number | — | No | Volume unit scaling factor (default: `1.0`) |
+| `flow_conversion_rate` | number | dam³/(m³/s·h) | No | Flow-to-volume conversion (default: `0.0036`) |
+
+#### Filtration
+
+Water seepage from a waterway into a reservoir (linear model:
+`seepage = slope × flow + constant`).
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Filtration name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `waterway` | integer\|string | — | **Yes** | Source waterway (UID or name) |
+| `reservoir` | integer\|string | — | **Yes** | Destination reservoir (UID or name) |
+| `slope` | number | — | No | Seepage rate coefficient (default: `0.0`) |
+| `constant` | number | m³/s | No | Constant seepage rate (default: `0.0`) |
+
+#### Turbine
+
+Hydro turbine: converts water flow into electrical power via a generator.
+
+| Field | JSON type | Units | Required | Description |
+|-------|-----------|-------|----------|-------------|
+| `uid` | integer | — | **Yes** | Unique identifier |
+| `name` | string | — | **Yes** | Turbine name |
+| `active` | boolean | — | No | Activation status (default: `true`) |
+| `waterway` | integer\|string | — | **Yes** | Source waterway (UID or name) |
+| `generator` | integer\|string | — | **Yes** | Discharge generator (UID or name) |
+| `drain` | boolean | — | No | Allow spill without power generation |
+| `conversion_rate` | number\|array\|string | MW·s/m³ | No | Water-to-power conversion rate `[stage]` |
+| `capacity` | number\|array\|string | MW | No | Maximum turbine output `[stage]` |
+
+---
+
+## 9. Field reference and auto-generated docs
 
 The `scripts/gtopt_field_extractor.py` utility parses the C++ header files and
 generates documentation tables directly from the source code. This ensures the
@@ -770,7 +1294,7 @@ The generated HTML includes:
 
 ---
 
-## 9. Output files
+## 10. Output files
 
 After a successful run, gtopt writes result files in `output_directory`
 (default: `output/`) using the same tabular format as input files.
