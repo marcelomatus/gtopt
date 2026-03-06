@@ -310,7 +310,8 @@ add_test(
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
-    -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    -q --tb=short
+    --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
 

@@ -152,7 +152,12 @@ for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
   sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
 done
 
-# 4. Configure – use clang-21 + conda Arrow prefix
+# 4. Pre-install Python scripts dependencies (speeds up scripts-install-deps CTest
+#    fixture from ~35 s to ~3–5 s).  Must run BEFORE cmake configure so that
+#    cmake's find_program(PYTHON_EXECUTABLE) picks the same Python.
+pip install -q -e "./scripts[dev]" graphviz
+
+# 5. Configure – use clang-21 + conda Arrow prefix
 #    Use `all/` super-project (builds library + binary + tests in one step)
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
@@ -162,7 +167,7 @@ cmake -S all -B build \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 
-# 5. Build and test
+# 6. Build and test
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
@@ -175,6 +180,15 @@ cd build && ctest --output-on-failure
 > build system at configure time.  Installing ccache *after* configure causes
 > every subsequent `cmake --build` to fail even though ccache is now present.
 > Always delete the build directory and reconfigure if ccache was missing.
+
+> **Why pre-install Python scripts deps before cmake configure?**
+> The `scripts-install-deps` CTest fixture calls `pip install -e ./scripts[dev]`
+> which downloads and installs pandapower and dozens of transitive dependencies
+> from scratch (~35 s) unless they are already present.  Pre-installing via
+> `pip install -q -e "./scripts[dev]" graphviz` before configure means cmake
+> finds the same Python that already has all packages, so the CTest fixture
+> just verifies the install (~3–5 s).  Always run pip install before cmake
+> configure so `find_program(PYTHON_EXECUTABLE)` picks the right interpreter.
 
 ### GCC 14 fallback (when Clang 21 is unavailable)
 
