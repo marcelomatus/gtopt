@@ -200,6 +200,9 @@ add_e2e_case(bat_4b bat_4b.json)
 add_e2e_case(ieee30b ieee30b.json)
 add_e2e_case(ieee_57b ieee_57b.json)
 add_e2e_case(bat_4b_24 bat_4b_24.json)
+add_e2e_case(exp_gen_4b exp_gen_4b.json)
+add_e2e_case(exp_bat_4b exp_bat_4b.json)
+add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 
 # ---- Pandapower comparison tests ----
 add_pandapower_comparison(s1b)
