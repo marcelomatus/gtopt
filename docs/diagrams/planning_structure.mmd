@@ -14,6 +14,7 @@ classDiagram
         +Stage[]    stage_array
         +Phase[]    phase_array
         +Block[]    block_array
+        +Scene[]    scene_array
     }
     class Scenario {
         +Uid  uid
@@ -26,6 +27,7 @@ classDiagram
         +Name name
         +Size first_stage
         +Size count_stage
+        +Bool active
     }
     class Stage {
         +Uid  uid
@@ -41,30 +43,40 @@ classDiagram
         +Real duration [h]
     }
     class Scene {
-        +Scenario scenario
-        +Phase    phase
-        <<internal>>
+        +Uid  uid
+        +Name name
+        +Size first_scenario
+        +Size count_scenario
+        +Bool active
     }
     class System {
-        +Bus[]       bus_array
-        +Generator[] generator_array
-        +Demand[]    demand_array
-        +Line[]      line_array
-        +Battery[]   battery_array
-        +Converter[] converter_array
-        +Junction[]  junction_array
-        +Reservoir[] reservoir_array
-        +Turbine[]   turbine_array
+        +Bus[]              bus_array
+        +Generator[]        generator_array
+        +Demand[]           demand_array
+        +Line[]             line_array
+        +Battery[]          battery_array
+        +Converter[]        converter_array
+        +GeneratorProfile[] generator_profile_array
+        +DemandProfile[]    demand_profile_array
+        +ReserveZone[]      reserve_zone_array
+        +ReserveProvision[] reserve_provision_array
+        +Junction[]         junction_array
+        +Waterway[]         waterway_array
+        +Flow[]             flow_array
+        +Reservoir[]        reservoir_array
+        +Filtration[]       filtration_array
+        +Turbine[]          turbine_array
     }
 
     Planning  *--  Simulation : contains
     Planning  *--  System     : contains
     Simulation *-- Scenario   : has many
     Simulation *-- Stage      : has many
-    Simulation *-- Phase      : has many (optional)
+    Simulation *-- Phase      : has many (default: 1)
     Simulation *-- Block      : has many
-    Phase      o-- Stage      : groups
-    Stage      o-- Block      : references by first_block+count_block
-    Scene      --> Scenario   : cross-product
-    Scene      --> Phase      : cross-product
+    Simulation *-- Scene      : has many (default: 1)
+    Phase      o-- Stage      : groups (first_stage + count_stage)
+    Stage      o-- Block      : references (first_block + count_block)
+    Scene      --> Scenario   : indexes (first_scenario + count_scenario)
+    Scene      ..> Phase      : paired with (via LP formulation)
 ```

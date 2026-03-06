@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from ts2gtopt.ts2gtopt import (
+    PRESETS,
     _sequential_hour_range,
     _sequential_month_range,
     convert_timeseries,
     energy_conservation_check,
+    list_presets,
     load_horizon,
     load_timeseries,
     make_horizon,
@@ -104,6 +106,18 @@ examples:
 
   # Seasonal × hourly  (4 stages × 24 blocks → 96 rows)
   ts2gtopt demand.parquet -y 2023 --stages 4 -o Demand/
+
+  # Seasonal preset: 4 phases × 12 monthly stages × 3 blocks (night/solar/evening)
+  ts2gtopt demand.csv -y 2023 --preset seasonal-3block -o Demand/
+
+  # Monthly × 3 blocks (night 0-6, solar 7-18, evening 19-23)
+  ts2gtopt demand.csv -y 2023 --preset monthly-3block -o Demand/
+
+  # Annual × 3 blocks (simplest preset)
+  ts2gtopt demand.csv -y 2023 --preset annual-3block -o Demand/
+
+  # List all available presets
+  ts2gtopt --list-presets
 
   # From an explicit horizon JSON
   ts2gtopt demand.csv pmax.csv -H horizon.json -o schedules/
@@ -215,7 +229,7 @@ def main() -> None:
 
     parser.add_argument(
         "input",
-        nargs="+",
+        nargs="*",
         metavar="FILE",
         help="input time-series file(s) (CSV or Parquet)",
     )
@@ -271,6 +285,21 @@ def main() -> None:
         default=24,
         metavar="M",
         help="number of blocks per stage for auto-horizon (default: 24)",
+    )
+    parser.add_argument(
+        "--preset",
+        metavar="NAME",
+        default=None,
+        help=(
+            "use a built-in horizon preset (overrides --stages/--blocks). "
+            "Available: " + ", ".join(sorted(PRESETS))
+        ),
+    )
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        default=False,
+        help="list available horizon presets and exit",
     )
     parser.add_argument(
         "-i",
@@ -351,6 +380,16 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # --- Handle --list-presets early ------------------------------------------
+    if args.list_presets:
+        print("Available horizon presets:\n")
+        for pname, pdesc in list_presets().items():
+            print(f"  {pname:24s} {pdesc}")
+        sys.exit(0)
+
+    if not args.input:
+        parser.error("the following arguments are required: FILE")
+
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(message)s",
@@ -381,13 +420,16 @@ def main() -> None:
             n_stages=args.stages,
             n_blocks=args.blocks,
             interval_hours=ih,
+            preset=args.preset,
         )
+        preset_msg = f" preset={args.preset}" if args.preset else ""
         logging.info(
-            "Auto-generated horizon: year=%d stages=%d blocks=%d interval_hours=%.4g",
+            "Auto-generated horizon: year=%d stages=%d blocks=%d interval_hours=%.4g%s",
             args.year,
             args.stages,
-            args.blocks,
+            len(horizon.get("blocks", [])) // max(len(horizon.get("stages", [1])), 1),
             ih,
+            preset_msg,
         )
 
     # Year from horizon if not overridden on CLI
