@@ -1,7 +1,7 @@
 # gtopt Python Scripts
 
-The `scripts/` directory contains four Python command-line utilities for
-preparing and converting data for use with gtopt.
+The `scripts/` directory contains five Python command-line utilities for
+preparing, converting, and post-processing data for use with gtopt.
 
 ## Table of Contents
 
@@ -10,20 +10,22 @@ preparing and converting data for use with gtopt.
 - [pp2gtopt](#pp2gtopt)
 - [igtopt](#igtopt)
 - [cvs2parquet](#cvs2parquet)
+- [ts2gtopt](#ts2gtopt)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
 
 ## Installation
 
-Install all four tools with a single `pip` command from the repository root:
+Install all five tools with a single `pip` command from the repository root:
 
 ```bash
 pip install ./scripts
 ```
 
-This registers the `plp2gtopt`, `pp2gtopt`, `igtopt`, and `cvs2parquet` commands on your
-`PATH`.  An editable install is useful during development:
+This registers the `plp2gtopt`, `pp2gtopt`, `igtopt`, `cvs2parquet`, and
+`ts2gtopt` commands on your `PATH`.  An editable install is useful during
+development:
 
 ```bash
 pip install -e "./scripts[dev]"
@@ -278,6 +280,94 @@ cvs2parquet --schema input.csv output.parquet
 
 Columns named `stage`, `block`, or `scenario` are cast to `int32`; all other
 columns are cast to `float64`.
+
+---
+
+## ts2gtopt
+
+Projects **hourly (or finer) time-series data** onto a gtopt planning horizon
+and produces block-aggregated schedule files (Parquet or CSV) ready for use as
+gtopt input schedules.  It also embeds an `hour_block_map` in the output
+planning JSON so that block-level solver results can be reconstructed back into
+a full hourly time-series.
+
+### Concepts
+
+| Term | Meaning |
+|------|---------|
+| **Horizon** | A JSON definition of scenarios, stages (investment periods), and blocks (representative operating hours) |
+| **Block schedule** | A Parquet/CSV file with `scenario, stage, block, uid:X` columns consumed directly by gtopt as an input schedule (e.g. `Generator/pmax.parquet`) |
+| **`hour_block_map`** | An array of `{"hour": i, "stage": s, "block": b}` entries embedded in the planning JSON that maps each processed calendar hour back to the `(stage, block)` it was projected into |
+| **`output_hour/`** | Post-processing output directory with `scenario, hour, uid:X` files reconstructed from block-level solver output |
+
+### Basic usage
+
+```bash
+# Project a single hourly CSV onto an auto-generated 12-stage × 24-block horizon
+ts2gtopt demand.csv -y 2023 -o input/
+
+# Write 4 seasonal stages × 6 blocks each
+ts2gtopt solar.csv -y 2023 --stages 4 --blocks 6 -o input/
+
+# Use a custom horizon JSON and export updated block durations
+ts2gtopt pmax.csv -y 2023 -H my_horizon.json --output-horizon updated_horizon.json -o input/
+
+# Use the horizon embedded in an existing planning JSON (reads simulation.stage_array / block_array)
+ts2gtopt load.csv -y 2023 -P case.json -o input/
+```
+
+### Reconstructing hourly output
+
+After running the `gtopt` solver (which produces `output/Generator/generation_sol.csv` etc.),
+use the `hour_block_map` embedded in the planning JSON to expand block-level
+results back into a full hourly time-series:
+
+```python
+from ts2gtopt import write_output_hours
+
+# Reads hour_block_map from case.json, writes output_hour/ next to output/
+written = write_output_hours("bat_4b_2023.json")
+# → output_hour/Generator/generation_sol.csv
+#    scenario  hour   uid:1   uid:2
+#    1          0    127.5    0.0
+#    1          1    124.9    0.0
+#    ...  (8760 rows for a full-year case)
+```
+
+Or from the public API:
+
+```python
+from ts2gtopt import build_hour_block_map, reconstruct_output_hours, load_horizon
+
+h = load_horizon("my_horizon.json")
+hour_map = build_hour_block_map(h, year=2023)
+reconstruct_output_hours("output/", hour_map, output_hour_dir="output_hour/")
+```
+
+### CLI reference
+
+```
+ts2gtopt [options] INPUT [INPUT ...]
+
+Positional arguments:
+  INPUT                  Input time-series file(s) (CSV or Parquet)
+
+Options:
+  -y, --year YEAR        Calendar year for the projection (required unless -H/-P is given with explicit dates)
+  -o, --output DIR       Output directory for block schedule files (default: current directory)
+  -f, --format {parquet,csv}
+                         Output file format (default: parquet)
+  -s, --stages N         Number of planning stages (default: 12, one per calendar month)
+  -b, --blocks N         Number of representative blocks per stage (default: 24, one per hour of day)
+  -H, --horizon FILE     Load planning horizon from a JSON file
+  -P, --planning FILE    Load horizon from an existing gtopt planning JSON
+  --output-horizon FILE  Write the duration-updated horizon to FILE after projecting
+  --agg {mean,median,min,max,sum}
+                         Aggregation function (default: mean)
+  --interval-hours H     Duration of each input observation in hours (auto-detected by default)
+  --verify               Print energy-conservation ratios after projection
+  -v, --verbose          Enable verbose logging
+```
 
 ---
 
