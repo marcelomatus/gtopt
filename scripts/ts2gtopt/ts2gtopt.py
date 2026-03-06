@@ -410,7 +410,7 @@ def make_horizon(
         effective_n_blocks = len(block_hours)
         # Validate coverage: all 24 hours must be covered exactly once
         all_hours: set[int] = set()
-        for _bname, bhours in block_hours:
+        for _, bhours in block_hours:
             for hh in bhours:
                 if hh in all_hours:
                     raise ValueError(
