@@ -1,6 +1,8 @@
 """Tests for ts2gtopt – time-series to gtopt schedule projection tool."""
 
+# pylint: disable=too-many-lines
 import json
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,13 +19,16 @@ from ts2gtopt.ts2gtopt import (
     _get_stages,
     _infer_interval_hours,
     _stage_months,
+    build_hour_block_map,
     convert_timeseries,
     energy_conservation_check,
     load_horizon,
     load_timeseries,
     make_horizon,
     project_timeseries,
+    reconstruct_output_hours,
     update_horizon_durations,
+    write_output_hours,
     write_schedule,
 )
 
@@ -950,3 +955,303 @@ class TestMainCLI:
         assert code == 0
         captured = capsys.readouterr()
         assert "conservation" in captured.out.lower() or "ratio" in captured.out.lower()
+
+
+# ---------------------------------------------------------------------------
+# build_hour_block_map
+# ---------------------------------------------------------------------------
+
+
+def _make_small_horizon() -> dict:
+    """Horizon: 2 stages (Jan, Feb) × 2 blocks (hours 0–11, 12–23)."""
+    return {
+        "year": 2023,
+        "scenarios": [{"uid": 1}],
+        "stages": [
+            {"uid": 1, "months": [1], "first_block": 0, "count_block": 2},
+            {"uid": 2, "months": [2], "first_block": 2, "count_block": 2},
+        ],
+        "blocks": [
+            {"uid": 1, "hours": list(range(12))},
+            {"uid": 2, "hours": list(range(12, 24))},
+            {"uid": 3, "hours": list(range(12))},
+            {"uid": 4, "hours": list(range(12, 24))},
+        ],
+        "interval_hours": 1.0,
+    }
+
+
+class TestBuildHourBlockMap:
+    def test_returns_list_of_dicts(self):
+        h = make_horizon(2023, n_stages=2, n_blocks=2)
+        m = build_hour_block_map(h, year=2023)
+        assert isinstance(m, list)
+        assert all(isinstance(e, dict) for e in m)
+
+    def test_keys_present(self):
+        h = make_horizon(2023, n_stages=2, n_blocks=2)
+        m = build_hour_block_map(h, year=2023)
+        assert {"hour", "stage", "block"} <= set(m[0].keys())
+
+    def test_consecutive_hours(self):
+        """hour indices must be 0, 1, 2, …, N-1."""
+        h = make_horizon(2023, n_stages=12, n_blocks=24)
+        m = build_hour_block_map(h, year=2023)
+        hours = [e["hour"] for e in m]
+        assert hours == list(range(len(hours)))
+
+    def test_full_year_length(self):
+        """12 stages × 24 blocks × 365 days → 8760 entries for 2023."""
+        h = make_horizon(2023, n_stages=12, n_blocks=24)
+        m = build_hour_block_map(h, year=2023)
+        assert len(m) == 8760
+
+    def test_leap_year_length(self):
+        h = make_horizon(2024, n_stages=12, n_blocks=24)
+        m = build_hour_block_map(h, year=2024)
+        assert len(m) == 8784  # 366 days
+
+    def test_small_horizon_length(self):
+        """Jan (31 d × 24 h) + Feb (28 d × 24 h) = 1416 entries."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        jan_days, feb_days, hours_per_day = 31, 28, 24  # 2023 non-leap
+        assert len(m) == (jan_days + feb_days) * hours_per_day
+
+    def test_january_entries_use_stage_1(self):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        jan = [e for e in m if e["stage"] == 1]
+        # Jan: 31 days × 24 hours/day = 744 entries
+        assert len(jan) == 31 * 24
+
+    def test_each_block_covered_once_per_day(self):
+        """Every block should appear exactly n_days times in a stage."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        jan = [e for e in m if e["stage"] == 1]
+        blk_counts = Counter(e["block"] for e in jan)
+        # Jan has 31 days; each block has 12 hours → 31×12 occurrences per block
+        assert blk_counts[1] == 31 * 12
+        assert blk_counts[2] == 31 * 12
+
+    def test_year_from_horizon(self):
+        """When year is None, fall back to horizon['year']."""
+        h = make_horizon(2023, n_stages=12, n_blocks=24)
+        m_explicit = build_hour_block_map(h, year=2023)
+        m_implicit = build_hour_block_map(h, year=None)
+        assert len(m_explicit) == len(m_implicit)
+
+    def test_no_year_approximate(self):
+        """Without year and no horizon year, approximate 365-day fallback."""
+        h = {
+            "scenarios": [{"uid": 1}],
+            "stages": [{"uid": 1, "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}],
+            "blocks": [{"uid": 1, "hours": list(range(24))}],
+        }
+        m = build_hour_block_map(h, year=None)
+        # Approximate: 1 stage gets ~365 days → 365×24 entries
+        assert len(m) == 365 * 24
+
+
+# ---------------------------------------------------------------------------
+# reconstruct_output_hours
+# ---------------------------------------------------------------------------
+
+
+def _make_block_output(output_dir: Path, stages_blocks: list[tuple[int, int]]) -> None:
+    """Write a mock generation_sol.csv in output/Generator/."""
+    gen_dir = output_dir / "Generator"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"scenario": 1, "stage": s, "block": b, "uid:1": float(s * 100 + b)}
+        for (s, b) in stages_blocks
+    ]
+    pd.DataFrame(rows).to_csv(gen_dir / "generation_sol.csv", index=False)
+
+
+class TestReconstructOutputHours:
+    def test_produces_output_hour_dir(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        # Provide rows for all 4 blocks (2 stages × 2 blocks)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        assert len(written) == 1
+        out_path = tmp_path / "output_hour" / "Generator" / "generation_sol.csv"
+        assert out_path.exists()
+
+    def test_hour_column_present(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        df = pd.read_csv(list(written.values())[0])
+        assert "hour" in df.columns
+        assert "stage" not in df.columns
+        assert "block" not in df.columns
+
+    def test_row_count_equals_map_length(self, tmp_path):
+        """One row per hour-map entry per scenario."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        df = pd.read_csv(list(written.values())[0])
+        assert len(df) == len(m)
+
+    def test_hours_consecutive(self, tmp_path):
+        """Output hour column must cover all hours in the map."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        df = pd.read_csv(list(written.values())[0])
+        assert set(df["hour"].tolist()) == set(range(len(m)))
+
+    def test_values_repeated_for_block(self, tmp_path):
+        """All hours within a block get the same value from that block's row."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        df = pd.read_csv(list(written.values())[0])
+        # Stage 1, block 1 value = 1*100+1 = 101; its hours = those in block 1
+        block1_hours = {e["hour"] for e in m if e["stage"] == 1 and e["block"] == 1}
+        block1_vals = df[df["hour"].isin(block1_hours)]["uid:1"].unique()
+        assert len(block1_vals) == 1
+        assert block1_vals[0] == pytest.approx(101.0)
+
+    def test_custom_output_dir(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        custom_out = tmp_path / "my_hours"
+        written = reconstruct_output_hours(tmp_path / "output", m, custom_out)
+        for path in written.values():
+            assert str(path).startswith(str(custom_out))
+
+    def test_parquet_output_format(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(
+            tmp_path / "output", m, output_format="parquet"
+        )
+        for path in written.values():
+            assert path.suffix == ".parquet"
+            df = pd.read_parquet(path)
+            assert "hour" in df.columns
+
+    def test_invalid_output_format_raises(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        with pytest.raises(ValueError, match="output_format"):
+            reconstruct_output_hours(tmp_path / "output", m, output_format="xlsx")
+
+    def test_preserves_subdirectory_structure(self, tmp_path):
+        """Subdirectory layout mirrors the source output directory."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        # Create files in two different subdirs
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        demand_dir = tmp_path / "output" / "Demand"
+        demand_dir.mkdir()
+        rows = [
+            {"scenario": 1, "stage": s, "block": b, "uid:2": float(s + b)}
+            for (s, b) in [(1, 1), (1, 2), (2, 3), (2, 4)]
+        ]
+        pd.DataFrame(rows).to_csv(demand_dir / "load_sol.csv", index=False)
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        assert "Generator/generation_sol.csv" in written
+        assert "Demand/load_sol.csv" in written
+
+    def test_files_without_stage_block_are_skipped(self, tmp_path):
+        """Files like solution.csv (no stage/block columns) are silently ignored."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        (tmp_path / "output").mkdir()
+        pd.DataFrame({"key": ["status"], "value": [0]}).to_csv(
+            tmp_path / "output" / "solution.csv", index=False
+        )
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        # Only generation_sol.csv should appear; solution.csv skipped
+        assert all("generation_sol" in k for k in written)
+
+    def test_full_year_12x24_horizon(self, tmp_path):
+        """Full 12-stage × 24-block round-trip: 8760 output rows."""
+        h = make_horizon(2023, n_stages=12, n_blocks=24)
+        m = build_hour_block_map(h, year=2023)
+        # Provide one row per (stage, block) pair
+        rows = []
+        for stage in _get_stages(h):
+            for block in _get_stage_blocks(stage, _get_blocks(h)):
+                rows.append(
+                    {
+                        "scenario": 1,
+                        "stage": stage["uid"],
+                        "block": block["uid"],
+                        "uid:1": float(stage["uid"]),
+                    }
+                )
+        gen_dir = tmp_path / "output" / "Generator"
+        gen_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_csv(gen_dir / "generation_sol.csv", index=False)
+        written = reconstruct_output_hours(tmp_path / "output", m)
+        df = pd.read_csv(list(written.values())[0])
+        assert len(df) == 8760
+
+
+# ---------------------------------------------------------------------------
+# write_output_hours
+# ---------------------------------------------------------------------------
+
+
+class TestWriteOutputHours:
+    def test_missing_hour_block_map_key_raises(self, tmp_path):
+        case = {"simulation": {}, "system": {}}
+        case_path = tmp_path / "case.json"
+        case_path.write_text(json.dumps(case), encoding="utf-8")
+        with pytest.raises(KeyError, match="hour_block_map"):
+            write_output_hours(case_path)
+
+    def test_reads_map_and_reconstructs(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        case = {"simulation": {}, "hour_block_map": m}
+        case_path = tmp_path / "case.json"
+        case_path.write_text(json.dumps(case), encoding="utf-8")
+        # Write mock output
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = write_output_hours(case_path)
+        assert len(written) == 1
+        df = pd.read_csv(list(written.values())[0])
+        assert "hour" in df.columns
+        assert len(df) == len(m)
+
+    def test_default_output_dir_sibling(self, tmp_path):
+        """Default output_dir = case_json_path.parent / 'output'."""
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        case = {"hour_block_map": m}
+        case_path = tmp_path / "case.json"
+        case_path.write_text(json.dumps(case), encoding="utf-8")
+        _make_block_output(tmp_path / "output", [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = write_output_hours(case_path)
+        assert len(written) == 1
+
+    def test_custom_output_dirs(self, tmp_path):
+        h = _make_small_horizon()
+        m = build_hour_block_map(h, year=2023)
+        case = {"hour_block_map": m}
+        case_path = tmp_path / "case.json"
+        case_path.write_text(json.dumps(case), encoding="utf-8")
+        solver_out = tmp_path / "my_output"
+        hour_out = tmp_path / "my_hours"
+        _make_block_output(solver_out, [(1, 1), (1, 2), (2, 3), (2, 4)])
+        written = write_output_hours(
+            case_path, output_dir=solver_out, output_hour_dir=hour_out
+        )
+        for path in written.values():
+            assert str(path).startswith(str(hour_out))

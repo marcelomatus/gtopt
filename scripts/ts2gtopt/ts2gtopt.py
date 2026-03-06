@@ -40,6 +40,7 @@ hours – planning metadata, **not** written to schedule files), and one
 ``float64`` data column per element.
 """
 
+# pylint: disable=too-many-lines
 from __future__ import annotations
 
 import calendar
@@ -902,3 +903,298 @@ def convert_timeseries(
         logger.info("Written updated horizon: %s", output_horizon_path)
 
     return output_paths
+
+
+# ---------------------------------------------------------------------------
+# Hour-block map construction
+# ---------------------------------------------------------------------------
+
+
+def build_hour_block_map(
+    horizon: dict[str, Any],
+    year: int | None = None,
+) -> list[dict[str, Any]]:
+    """Build a sequential hour-to-(stage, block) mapping from a planning horizon.
+
+    The map lists one entry per processed observation in the order they would
+    appear when stepping through the calendar: for each stage (in order), for
+    each day that stage covers, for each hour-of-day that each block covers.
+    Entry ``i`` has a 0-based ``"hour"`` index that equals ``i``.
+
+    This map is stored in the planning JSON under the key
+    ``"hour_block_map"`` so that hourly block-level solver outputs can be
+    expanded back into a full hourly time-series.
+
+    Parameters
+    ----------
+    horizon:
+        Planning horizon dict from :func:`load_horizon` or
+        :func:`make_horizon`.  Must contain ``stages``/``stage_array`` and
+        ``blocks``/``block_array``.  The ``year`` key is used when *year* is
+        ``None`` to compute calendar-accurate day counts.
+    year:
+        Calendar year used to compute the number of days per stage.  When
+        ``None``, falls back to ``horizon["year"]`` if present, otherwise
+        assumes 365 days per stage (for approximate maps).
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        Ordered list of entries ``{"hour": i, "stage": stage_uid,
+        "block": block_uid}`` with consecutive 0-based ``hour`` values.
+
+    Examples
+    --------
+    >>> h = make_horizon(2023, n_stages=2, n_blocks=2)
+    >>> m = build_hour_block_map(h, year=2023)
+    >>> m[0]
+    {'hour': 0, 'stage': 1, 'block': 1}
+    """
+    resolved_year: int | None = year if year is not None else horizon.get("year")
+
+    stages = _get_stages(horizon)
+    all_blocks = _get_blocks(horizon)
+    n_stages = len(stages)
+
+    entries: list[dict[str, Any]] = []
+    hour_idx = 0
+
+    for st_idx, stage in enumerate(stages):
+        st_uid = int(stage.get("uid", st_idx + 1))
+        st_months = _stage_months(stage, st_idx, n_stages)
+
+        if resolved_year is not None:
+            n_days = sum(calendar.monthrange(resolved_year, m)[1] for m in st_months)
+        else:
+            # Approximate: distribute 365 days evenly over stages
+            n_days = max(round(365 / n_stages), 1)
+
+        stage_blocks = _get_stage_blocks(stage, all_blocks)
+        n_blk = len(stage_blocks)
+
+        for _ in range(n_days):
+            for bl_idx, block in enumerate(stage_blocks):
+                bl_uid = int(block.get("uid", bl_idx + 1))
+                bl_hours = _block_hours(block, bl_idx, n_blk)
+                for _h in bl_hours:
+                    entries.append(
+                        {"hour": hour_idx, "stage": st_uid, "block": bl_uid}
+                    )
+                    hour_idx += 1
+
+    return entries
+
+
+# ---------------------------------------------------------------------------
+# Output-hour reconstruction
+# ---------------------------------------------------------------------------
+
+
+def _read_output_table(path: Path) -> pd.DataFrame | None:
+    """Read a CSV or Parquet output file.
+
+    Returns ``None`` if the file is unreadable or does not contain the
+    required ``scenario``, ``stage``, and ``block`` columns.
+    """
+    try:
+        if path.suffix.lower() == ".parquet":
+            df = pd.read_parquet(path)
+        else:
+            df = pd.read_csv(path)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.debug("Failed to read %s: %s", path, exc)
+        return None
+
+    # Must have at least scenario, stage, block columns
+    if not {"scenario", "stage", "block"}.issubset(df.columns):
+        return None
+    return df
+
+
+def _expand_block_rows(
+    df: pd.DataFrame,
+    uid_cols: list[str],
+    hour_map_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Expand a (scenario, stage, block) DataFrame into per-hour rows.
+
+    Merges *df* with *hour_map_df* on ``(stage, block)`` so that each
+    original row produces one output row per mapped hour.  Returns a
+    DataFrame with columns ``scenario``, ``hour``, and all *uid_cols*.
+    """
+    keep = ["scenario", "stage", "block"] + uid_cols
+    merged = df[keep].merge(hour_map_df, on=["stage", "block"], how="inner")
+    return merged.drop(columns=["stage", "block"])
+
+
+def _write_hourly_result(
+    result: pd.DataFrame,
+    out_path: Path,
+    output_format: str,
+) -> None:
+    """Write a reconstructed hourly DataFrame to CSV or Parquet."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_format == "parquet":
+        result.to_parquet(out_path, index=False)
+    else:
+        result.to_csv(out_path, index=False)
+
+
+def reconstruct_output_hours(
+    output_dir: Path,
+    hour_block_map: list[dict[str, Any]],
+    output_hour_dir: Path | None = None,
+    output_format: str = "csv",
+) -> dict[str, Path]:
+    """Expand block-level gtopt output files into hourly time-series.
+
+    Reads every CSV/Parquet file under *output_dir* that contains
+    ``scenario``, ``stage``, and ``block`` columns, then replaces the
+    ``(stage, block)`` dimensions with a sequential ``hour`` index (0-based)
+    using *hour_block_map*.  The resulting files are written to
+    *output_hour_dir* preserving the subdirectory structure of *output_dir*.
+
+    The output format is ``scenario, hour, uid:1, uid:2, …`` — one row per
+    *(scenario, hour)* pair.
+
+    Parameters
+    ----------
+    output_dir:
+        Directory containing gtopt solution files (e.g. ``output/Generator/``
+        subdirectories with ``generation_sol.csv``).
+    hour_block_map:
+        Ordered list of ``{"hour": i, "stage": s, "block": b}`` dicts as
+        returned by :func:`build_hour_block_map`.  Length equals the total
+        number of processed hours; each entry's ``"hour"`` field is the
+        0-based sequential hour index assigned to that observation.
+    output_hour_dir:
+        Destination directory.  Defaults to a sibling of *output_dir* named
+        ``output_hour``.
+    output_format:
+        ``"csv"`` *(default)* or ``"parquet"``.
+
+    Returns
+    -------
+    dict[str, Path]
+        Mapping from relative file path string to written :class:`~pathlib.Path`.
+
+    Raises
+    ------
+    ValueError
+        If *output_format* is not ``"csv"`` or ``"parquet"``.
+    """
+    if output_format not in ("csv", "parquet"):
+        raise ValueError(
+            f"output_format must be 'csv' or 'parquet', got '{output_format}'"
+        )
+
+    output_dir = Path(output_dir)
+    if output_hour_dir is None:
+        output_hour_dir = output_dir.parent / "output_hour"
+    output_hour_dir = Path(output_hour_dir)
+
+    # Build a lookup DataFrame for vectorized merge: columns stage, block, hour
+    hour_map_df = pd.DataFrame(hour_block_map, columns=["hour", "stage", "block"])
+    hour_map_df["stage"] = hour_map_df["stage"].astype("int32")
+    hour_map_df["block"] = hour_map_df["block"].astype("int32")
+
+    written: dict[str, Path] = {}
+    glob_patterns = ["**/*.csv", "**/*.parquet"]
+    seen: set[Path] = set()
+
+    for pattern in glob_patterns:
+        for src_path in sorted(output_dir.glob(pattern)):
+            if src_path in seen:
+                continue
+            seen.add(src_path)
+            df = _read_output_table(src_path)
+            if df is None:
+                continue
+
+            uid_cols = [c for c in df.columns if c not in {"scenario", "stage", "block"}]
+            if not uid_cols:
+                continue
+
+            result = _expand_block_rows(df, uid_cols, hour_map_df)
+
+            if result.empty:
+                logger.debug("No matching hour entries for %s - skipping", src_path)
+                continue
+
+            result["scenario"] = result["scenario"].astype("int32")
+            result["hour"] = result["hour"].astype("int32")
+            result = result.sort_values(["scenario", "hour"]).reset_index(drop=True)
+
+            # Mirror subdirectory structure
+            rel = src_path.relative_to(output_dir)
+            suffix = ".parquet" if output_format == "parquet" else ".csv"
+            out_path = output_hour_dir / rel.with_suffix(suffix)
+            _write_hourly_result(result, out_path, output_format)
+
+            written[str(rel)] = out_path
+            logger.info(
+                "Reconstructed %d hourly rows -> %s", len(result), out_path
+            )
+
+    return written
+
+
+def write_output_hours(
+    case_json_path: Path,
+    output_dir: Path | None = None,
+    output_hour_dir: Path | None = None,
+    output_format: str = "csv",
+) -> dict[str, Path]:
+    """Reconstruct hourly time-series from a gtopt case output directory.
+
+    Reads the ``hour_block_map`` embedded in *case_json_path* (added by
+    :func:`build_hour_block_map` when the case was created), then calls
+    :func:`reconstruct_output_hours` on the ``output/`` directory next to
+    the JSON file.
+
+    Parameters
+    ----------
+    case_json_path:
+        Path to the gtopt planning JSON file (e.g. ``bat_4b_2023.json``).
+        Must contain a top-level ``"hour_block_map"`` array.
+    output_dir:
+        Path to the directory containing solver output files.  Defaults to a
+        sub-directory named ``output`` next to *case_json_path*.
+    output_hour_dir:
+        Destination directory for the hourly reconstructions.  Defaults to a
+        sibling of *output_dir* named ``output_hour``.
+    output_format:
+        ``"csv"`` *(default)* or ``"parquet"``.
+
+    Returns
+    -------
+    dict[str, Path]
+        Mapping from relative file path string to written :class:`~pathlib.Path`.
+
+    Raises
+    ------
+    KeyError
+        If the JSON file does not contain a ``"hour_block_map"`` key.
+    """
+    case_json_path = Path(case_json_path)
+    with open(case_json_path, encoding="utf-8") as f:
+        case_json: dict[str, Any] = json.load(f)
+
+    if "hour_block_map" not in case_json:
+        raise KeyError(
+            f"'hour_block_map' not found in '{case_json_path}'.  "
+            "Re-generate the case with build_hour_block_map() to add it."
+        )
+
+    hour_block_map: list[dict[str, Any]] = case_json["hour_block_map"]
+
+    if output_dir is None:
+        output_dir = case_json_path.parent / "output"
+    output_dir = Path(output_dir)
+
+    return reconstruct_output_hours(
+        output_dir,
+        hour_block_map,
+        output_hour_dir=output_hour_dir,
+        output_format=output_format,
+    )
