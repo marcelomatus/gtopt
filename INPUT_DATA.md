@@ -532,3 +532,14 @@ See `cases/c0/system_c0.json` for a minimal working example with:
 - 1 bus, 1 generator, 1 demand
 - 5 time blocks, 5 stages, 1 scenario
 - Demand expansion planning
+
+---
+
+## See also
+
+- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+  — Full LP/MIP optimization formulation with academic references
+- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
+  with worked examples
+- **[USAGE.md](USAGE.md)** — Command-line options and advanced usage
+- **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities
