@@ -123,6 +123,9 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
+      - name: Install gtopt runtime libraries
+        run: python tools/get_gtopt_binary.py --install-libs
+
       - name: Configure scripts with CMake
         run: cmake -S scripts -B build-scripts
 

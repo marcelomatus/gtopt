@@ -550,6 +550,217 @@ def install_arrow_conda() -> Optional[str]:
     return _conda_prefix()
 
 
+def _missing_shared_libs(bin_path: pathlib.Path) -> list:
+    """Return a list of shared libraries reported as ``not found`` by ``ldd``.
+
+    Uses ``ldd`` to inspect *bin_path* and collects every line that ends with
+    ``=> not found``.  The check respects the current ``LD_LIBRARY_PATH``
+    environment variable.  Returns an empty list when all libraries are
+    resolved or when ``ldd`` is not available (non-Linux platforms).
+
+    Parameters
+    ----------
+    bin_path:
+        Path to the ELF binary to inspect.
+
+    Returns
+    -------
+    list[str]
+        Library names that are missing, e.g. ``["libparquet.so.2300",
+        "libarrow.so.2300", "libboost_container.so.1.83.0"]``.
+    """
+    ldd = shutil.which("ldd")
+    if not ldd:
+        return []
+    try:
+        result = subprocess.run(
+            [ldd, str(bin_path)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            env=os.environ.copy(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return []
+
+    missing = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if "=> not found" in line:
+            # "libfoo.so.1 => not found"
+            lib = line.split("=>")[0].strip()
+            if lib:
+                missing.append(lib)
+    return missing
+
+
+def _setup_arrow_apt_source() -> bool:
+    """Add the official Apache Arrow APT repository when not already present.
+
+    Mirrors the steps from ``.github/actions/install-apt-deps/action.yml``:
+
+    1. Download the ``apache-arrow-apt-source-latest-<codename>.deb``
+       from ``packages.apache.org/artifactory/arrow/ubuntu/``.
+    2. Install the ``.deb`` (adds the GPG key and APT source).
+    3. Run a targeted ``apt-get update`` for the Arrow source only.
+
+    Returns ``True`` when the source is ready (or already present),
+    ``False`` when the APT source setup failed (network issues, etc.).
+    """
+    # Check if already present
+    arrow_sources = list(pathlib.Path("/etc/apt/sources.list.d").glob("apache-arrow*"))
+    if arrow_sources:
+        log.info("Apache Arrow APT source already configured.")
+        return True
+
+    wget = shutil.which("wget")
+    if not wget:
+        log.warning("wget not found – cannot add Apache Arrow APT source")
+        return False
+
+    lsb = shutil.which("lsb_release")
+    if not lsb:
+        log.warning("lsb_release not found – cannot determine Ubuntu codename")
+        return False
+
+    try:
+        codename = subprocess.run(
+            [lsb, "--codename", "--short"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+        distro = subprocess.run(
+            [lsb, "--id", "--short"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip().lower()
+    except subprocess.CalledProcessError:
+        log.warning("lsb_release failed – cannot set up Apache Arrow APT source")
+        return False
+
+    deb_url = (
+        f"https://packages.apache.org/artifactory/arrow/{distro}/"
+        f"apache-arrow-apt-source-latest-{codename}.deb"
+    )
+    deb_path = pathlib.Path("/tmp/apache-arrow-apt-source.deb")
+
+    log.info("Downloading Apache Arrow APT source package from %s…", deb_url)
+    try:
+        _run_cmd(
+            [wget, "-q", "--timeout=30", deb_url, "-O", str(deb_path)],
+            "download Apache Arrow APT source .deb",
+        )
+    except RuntimeError:
+        log.warning(
+            "Failed to download Apache Arrow APT source (network may be blocked). "
+            "Arrow runtime libraries cannot be installed via APT."
+        )
+        return False
+
+    _apt_install(
+        [str(deb_path)],
+        "install Apache Arrow APT source package",
+    )
+
+    # Targeted apt-get update for the Arrow source only
+    apt = shutil.which("apt-get")
+    sudo = shutil.which("sudo")
+    if apt:
+        arrow_src = next(
+            iter(pathlib.Path("/etc/apt/sources.list.d").glob("apache-arrow*")), None
+        )
+        prefix = [sudo] if sudo else []
+        if arrow_src:
+            _run_cmd(
+                prefix
+                + [
+                    apt,
+                    "update",
+                    "-q",
+                    "--fix-missing",
+                    f"-o Dir::Etc::sourcelist={str(arrow_src)}",
+                    "-o Dir::Etc::sourcelistdir=/dev/null",
+                ],
+                "apt-get update (Apache Arrow source only)",
+            )
+        else:
+            _run_cmd(prefix + [apt, "update", "-q"], "apt-get update")
+
+    return True
+
+
+def install_runtime_deps() -> None:
+    """Install the shared-library runtime dependencies needed to run ``gtopt``.
+
+    This is a lightweight alternative to :func:`install_build_deps` for
+    environments where the ``gtopt`` binary has been downloaded (e.g. from a
+    CI artifact) rather than compiled locally.  It installs only the libraries
+    required at run-time, not the compiler toolchain or build headers.
+
+    The ``gtopt`` CI binary is built against the **official Apache Arrow APT
+    packages** (from ``packages.apache.org/artifactory``), not the
+    conda-forge packages.  The runtime dependencies are therefore all
+    installable via ``apt-get``:
+
+    **COIN-OR solver runtime** (always via apt):
+
+    * ``coinor-libclp1``       – provides ``libOsiClp.so.1``, ``libClp.so.1``
+    * ``coinor-libosi1v5``     – provides ``libOsi.so.1``
+    * ``coinor-libcoinutils3v5`` – provides ``libCoinUtils.so.3``
+
+    **LAPACK/BLAS** (always via apt):
+
+    * ``liblapack3``, ``libblas3``
+
+    **Arrow/Parquet runtime** (via Apache Arrow APT source):
+
+    * ``libarrow2300``  – provides ``libarrow.so.2300``
+    * ``libparquet2300`` – provides ``libparquet.so.2300``
+
+    **Boost.Container runtime** (via Ubuntu standard apt):
+
+    * ``libboost-container-dev`` – pulls in ``libboost-container1.83.0``
+      which provides ``libboost_container.so.1.83.0``
+    """
+    log.info("Installing gtopt runtime dependencies…")
+
+    # ---- apt: COIN-OR runtime + LAPACK/BLAS --------------------------------
+    _apt_install(
+        [
+            "coinor-libclp1",
+            "coinor-libosi1v5",
+            "coinor-libcoinutils3v5",
+            "liblapack3",
+            "libblas3",
+        ],
+        "install COIN-OR runtime libs",
+    )
+
+    # ---- apt: Boost.Container runtime --------------------------------------
+    _apt_install(
+        ["libboost-container-dev"],
+        "install Boost.Container runtime",
+    )
+
+    # ---- apt: Arrow / Parquet runtime (via Apache Arrow APT source) --------
+    if _setup_arrow_apt_source():
+        _apt_install(
+            ["libarrow2300", "libparquet2300"],
+            "install Apache Arrow runtime libs (libarrow2300, libparquet2300)",
+        )
+    else:
+        log.warning(
+            "Apache Arrow APT source unavailable – Arrow runtime libs not installed. "
+            "The gtopt binary may fail to start.  Install libarrow2300 and "
+            "libparquet2300 manually or set LD_LIBRARY_PATH."
+        )
+
+
 def install_clang21() -> bool:
     """Install Clang 21 from the LLVM APT repository on Ubuntu/Debian.
 
@@ -929,6 +1140,7 @@ def get_gtopt_binary(
     allow_download: bool = True,
     allow_build: bool = False,
     force_download: bool = False,
+    ensure_libs: bool = True,
     install_clang: bool = True,
     install_arrow: bool = True,
 ) -> str:
@@ -946,6 +1158,14 @@ def get_gtopt_binary(
     force_download:
         If ``True``, skip the local-search phase and go straight to CI
         artifact download.
+    ensure_libs:
+        If ``True`` (default), check whether the binary can load all its
+        shared libraries (via ``ldd``).  When missing libraries are detected,
+        :func:`install_runtime_deps` is called automatically to install the
+        COIN-OR, Arrow/Parquet and Boost runtime packages (all via ``apt``)
+        before returning the binary path.  Set to ``False`` to skip this
+        check entirely (e.g. in environments where apt is unavailable and
+        the required libs are already installed).
     install_clang:
         Passed to :func:`build_gtopt_from_source` – whether to attempt Clang 21
         installation when building from source.  Default: ``True``.
@@ -967,6 +1187,8 @@ def get_gtopt_binary(
         binary = find_gtopt_binary()
         if binary:
             log.info("Found gtopt binary: %s", binary)
+            if ensure_libs:
+                _ensure_binary_libs(pathlib.Path(binary))
             return binary
 
     if allow_download:
@@ -975,6 +1197,8 @@ def get_gtopt_binary(
         if gh or token:
             try:
                 bin_path = download_gtopt_from_ci()
+                if ensure_libs:
+                    _ensure_binary_libs(bin_path)
                 return str(bin_path)
             except RuntimeError as exc:
                 log.warning("CI artifact download failed: %s", exc)
@@ -1003,6 +1227,48 @@ def get_gtopt_binary(
         "     cmake -S all -B build && cmake --build build -j$(nproc)\n"
         "     ./build/standalone/gtopt --version"
     )
+
+
+def _ensure_binary_libs(bin_path: pathlib.Path) -> None:
+    """Check *bin_path* for missing shared libs; install them when needed.
+
+    Calls :func:`_missing_shared_libs` to detect unresolved ``.so`` files.
+    When any are found, :func:`install_runtime_deps` is invoked.  After
+    installation the check is repeated; a warning (not an error) is emitted
+    if libraries are still missing (e.g. because apt/conda are unavailable).
+
+    Parameters
+    ----------
+    bin_path:
+        Path to the ``gtopt`` binary to inspect.
+    """
+    missing = _missing_shared_libs(bin_path)
+    if not missing:
+        log.debug("All shared libraries for %s are present.", bin_path)
+        return
+
+    log.warning(
+        "gtopt binary at %s is missing %d shared librar%s: %s",
+        bin_path,
+        len(missing),
+        "y" if len(missing) == 1 else "ies",
+        ", ".join(missing),
+    )
+    log.info("Installing runtime dependencies to fix missing libraries…")
+    install_runtime_deps()
+
+    # Re-check after installation
+    still_missing = _missing_shared_libs(bin_path)
+    if still_missing:
+        log.warning(
+            "After installing runtime deps, %d librar%s still not found: %s\n"
+            "You may need to set LD_LIBRARY_PATH manually.",
+            len(still_missing),
+            "y is" if len(still_missing) == 1 else "ies are",
+            ", ".join(still_missing),
+        )
+    else:
+        log.info("All shared libraries are now available.")
 
 
 # ---------------------------------------------------------------------------
@@ -1049,8 +1315,11 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  # Find existing binary or download from CI
+  # Find existing binary or download from CI (auto-installs missing runtime libs)
   python tools/get_gtopt_binary.py
+
+  # Install only the runtime libraries (no binary download/build)
+  python tools/get_gtopt_binary.py --install-libs
 
   # Install all build deps + compile from source (full bootstrap)
   python tools/get_gtopt_binary.py --build
@@ -1080,6 +1349,28 @@ examples:
         help=(
             "Install build dependencies (ccache, COIN-OR, Arrow, Clang 21) "
             "and build gtopt from source when CI artifact is unavailable."
+        ),
+    )
+    parser.add_argument(
+        "--install-libs",
+        action="store_true",
+        help=(
+            "Install the runtime libraries needed to run gtopt "
+            "(COIN-OR apt packages + Arrow/Parquet/Boost via conda) without "
+            "downloading or building the binary.  Useful as a setup step "
+            "before running integration tests in a fresh environment."
+        ),
+    )
+    parser.add_argument(
+        "--no-ensure-libs",
+        dest="ensure_libs",
+        action="store_false",
+        default=True,
+        help=(
+            "Skip the automatic shared-library check and runtime-dep install "
+            "that runs after obtaining the binary.  Use this when the required "
+            "libraries are already available and you want to avoid the "
+            "apt/conda install overhead."
         ),
     )
     parser.add_argument(
@@ -1121,11 +1412,21 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
+    # --install-libs: just install runtime deps and exit (no binary needed)
+    if args.install_libs:
+        try:
+            install_runtime_deps()
+            return 0
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+
     try:
         binary = get_gtopt_binary(
             allow_download=True,
             allow_build=args.build,
             force_download=args.force_download,
+            ensure_libs=args.ensure_libs,
             install_clang=args.install_clang,
             install_arrow=args.install_arrow,
         )
