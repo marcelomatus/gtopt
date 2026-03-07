@@ -1,5 +1,4 @@
 # Archivo de configuracion de lineas (plpcnfli.dat)
-# 5 lines: l1_2, l1_3, l2_3, l2_4, l3_4 (X in pu to match gtopt reactance values)
 # Num.Lineas   Modela Perdidas  Perd.en.ERM   Ang. de Ref.
          5          F             'M'         1000.d0
 # Nombre                             F.Max.A-B  F.Max.B-A  Barra A  Barra B  Tension  R(Ohm)  X(ohm)  Mod.Perd.  Num.Tramos  Operativa
