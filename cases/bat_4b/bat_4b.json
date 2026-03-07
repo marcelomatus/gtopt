@@ -11,25 +11,57 @@
   },
   "simulation": {
     "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 1},
-      {"uid": 3, "duration": 1},
-      {"uid": 4, "duration": 1}
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      }
     ],
     "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 4, "active": 1}
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 4,
+        "active": 1
+      }
     ],
     "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
     ]
   },
   "system": {
     "name": "bat_4b",
     "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"},
-      {"uid": 3, "name": "b3"},
-      {"uid": 4, "name": "b4"}
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      }
     ],
     "generator_array": [
       {
@@ -58,15 +90,6 @@
         "pmax": 90,
         "gcost": 0,
         "capacity": 90
-      },
-      {
-        "uid": 4,
-        "name": "g_bat_out",
-        "bus": "b3",
-        "pmin": 0,
-        "pmax": 60,
-        "gcost": 0,
-        "capacity": 60
       }
     ],
     "demand_array": [
@@ -74,19 +97,27 @@
         "uid": 1,
         "name": "d3",
         "bus": "b3",
-        "lmax": [[120.0, 60.0, 30.0, 200.0]]
+        "lmax": [
+          [
+            120.0,
+            60.0,
+            30.0,
+            200.0
+          ]
+        ]
       },
       {
         "uid": 2,
         "name": "d4",
         "bus": "b4",
-        "lmax": [[80.0, 40.0, 20.0, 130.0]]
-      },
-      {
-        "uid": 3,
-        "name": "d_bat_in",
-        "bus": "b3",
-        "lmax": [[60.0, 60.0, 60.0, 60.0]]
+        "lmax": [
+          [
+            80.0,
+            40.0,
+            20.0,
+            130.0
+          ]
+        ]
       }
     ],
     "line_array": [
@@ -140,22 +171,16 @@
       {
         "uid": 1,
         "name": "bat1",
+        "bus": "b3",
         "input_efficiency": 0.95,
         "output_efficiency": 0.95,
         "emin": 0,
         "emax": 200,
         "eini": 0,
+        "pmax_charge": 60,
+        "pmax_discharge": 60,
+        "gcost": 0,
         "capacity": 200
-      }
-    ],
-    "converter_array": [
-      {
-        "uid": 1,
-        "name": "conv1",
-        "battery": 1,
-        "generator": 4,
-        "demand": 3,
-        "capacity": 60
       }
     ],
     "generator_profile_array": [
@@ -163,7 +188,16 @@
         "uid": 1,
         "name": "gp_solar",
         "generator": "g_solar",
-        "profile": [[[0.0, 0.667, 1.0, 0.222]]]
+        "profile": [
+          [
+            [
+              0.0,
+              0.667,
+              1.0,
+              0.222
+            ]
+          ]
+        ]
       }
     ]
   }

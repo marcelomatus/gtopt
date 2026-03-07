@@ -627,15 +627,6 @@ def make_bat4b_case_json(
                     "gcost": 0,
                     "capacity": SOLAR_PMAX_MW,
                 },
-                {
-                    "uid": 4,
-                    "name": "g_bat_out",
-                    "bus": "b3",
-                    "pmin": 0,
-                    "pmax": 60,
-                    "gcost": 0,
-                    "capacity": 60,
-                },
             ],
             "demand_array": [
                 {
@@ -650,29 +641,22 @@ def make_bat4b_case_json(
                     "bus": "b4",
                     "lmax": f"{sched}/demand_lmax.{ext}",
                 },
-                {"uid": 3, "name": "d_bat_in", "bus": "b3", "lmax": 60},
             ],
             "line_array": _LINE_ARRAY,
             "battery_array": [
                 {
                     "uid": 1,
                     "name": "bat1",
+                    "bus": "b3",
                     "input_efficiency": 0.95,
                     "output_efficiency": 0.95,
                     "emin": 0,
                     "emax": 200,
                     "eini": 0,
+                    "pmax_charge": 60,
+                    "pmax_discharge": 60,
+                    "gcost": 0,
                     "capacity": 200,
-                }
-            ],
-            "converter_array": [
-                {
-                    "uid": 1,
-                    "name": "conv1",
-                    "battery": 1,
-                    "generator": 4,
-                    "demand": 3,
-                    "capacity": 60,
                 }
             ],
         },
@@ -742,42 +726,26 @@ def _make_gtopt_system(year: int, g1_pmax: float, g2_pmax: float) -> dict[str, A
                 "gcost": 0,
                 "capacity": SOLAR_PMAX_MW,
             },
-            {
-                "uid": 4,
-                "name": "g_bat_out",
-                "bus": "b3",
-                "pmin": 0,
-                "pmax": 60,
-                "gcost": 0,
-                "capacity": 60,
-            },
         ],
         "demand_array": [
             {"uid": 1, "name": "d3", "bus": "b3", "lmax": "lmax"},
             {"uid": 2, "name": "d4", "bus": "b4", "lmax": "lmax"},
-            {"uid": 3, "name": "d_bat_in", "bus": "b3", "lmax": 60},
         ],
         "line_array": _LINE_ARRAY,
         "battery_array": [
             {
                 "uid": 1,
                 "name": "bat1",
+                "bus": "b3",
                 "input_efficiency": 0.95,
                 "output_efficiency": 0.95,
                 "emin": 0,
                 "emax": 200,
                 "eini": 0,
+                "pmax_charge": 60,
+                "pmax_discharge": 60,
+                "gcost": 0,
                 "capacity": 200,
-            }
-        ],
-        "converter_array": [
-            {
-                "uid": 1,
-                "name": "conv1",
-                "battery": 1,
-                "generator": 4,
-                "demand": 3,
-                "capacity": 60,
             }
         ],
         "generator_profile_array": [

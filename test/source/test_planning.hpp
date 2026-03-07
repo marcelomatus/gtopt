@@ -525,17 +525,14 @@ static constexpr std::string_view planning_json = R"({
     "battery_array": [
       {
         "uid": 1, "name": "bat1",
+        "bus": 1,
         "input_efficiency": 0.9,
         "output_efficiency": 0.9,
         "emin": 0, "emax": 50,
+        "pmax_charge": 100,
+        "pmax_discharge": 100,
+        "gcost": 0,
         "capacity": 50
-      }
-    ],
-    "converter_array": [
-      {
-        "uid": 1, "name": "conv1",
-        "battery": 1, "generator": 1, "demand": 1,
-        "capacity": 100
       }
     ]
   }
@@ -551,7 +548,7 @@ TEST_CASE("Planning JSON parse and solve")
   CHECK(planning.system.demand_array.size() == 1);
   CHECK(planning.system.line_array.size() == 1);
   CHECK(planning.system.battery_array.size() == 1);
-  CHECK(planning.system.converter_array.size() == 1);
+  CHECK(planning.system.converter_array.empty());
 
   PlanningLP planning_lp(planning);
   auto result = planning_lp.resolve();

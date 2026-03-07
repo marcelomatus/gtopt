@@ -11,45 +11,137 @@
   },
   "simulation": {
     "block_array": [
-      {"uid": 1,  "duration": 1},
-      {"uid": 2,  "duration": 1},
-      {"uid": 3,  "duration": 1},
-      {"uid": 4,  "duration": 1},
-      {"uid": 5,  "duration": 1},
-      {"uid": 6,  "duration": 1},
-      {"uid": 7,  "duration": 1},
-      {"uid": 8,  "duration": 1},
-      {"uid": 9,  "duration": 1},
-      {"uid": 10, "duration": 1},
-      {"uid": 11, "duration": 1},
-      {"uid": 12, "duration": 1},
-      {"uid": 13, "duration": 1},
-      {"uid": 14, "duration": 1},
-      {"uid": 15, "duration": 1},
-      {"uid": 16, "duration": 1},
-      {"uid": 17, "duration": 1},
-      {"uid": 18, "duration": 1},
-      {"uid": 19, "duration": 1},
-      {"uid": 20, "duration": 1},
-      {"uid": 21, "duration": 1},
-      {"uid": 22, "duration": 1},
-      {"uid": 23, "duration": 1},
-      {"uid": 24, "duration": 1}
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      },
+      {
+        "uid": 7,
+        "duration": 1
+      },
+      {
+        "uid": 8,
+        "duration": 1
+      },
+      {
+        "uid": 9,
+        "duration": 1
+      },
+      {
+        "uid": 10,
+        "duration": 1
+      },
+      {
+        "uid": 11,
+        "duration": 1
+      },
+      {
+        "uid": 12,
+        "duration": 1
+      },
+      {
+        "uid": 13,
+        "duration": 1
+      },
+      {
+        "uid": 14,
+        "duration": 1
+      },
+      {
+        "uid": 15,
+        "duration": 1
+      },
+      {
+        "uid": 16,
+        "duration": 1
+      },
+      {
+        "uid": 17,
+        "duration": 1
+      },
+      {
+        "uid": 18,
+        "duration": 1
+      },
+      {
+        "uid": 19,
+        "duration": 1
+      },
+      {
+        "uid": 20,
+        "duration": 1
+      },
+      {
+        "uid": 21,
+        "duration": 1
+      },
+      {
+        "uid": 22,
+        "duration": 1
+      },
+      {
+        "uid": 23,
+        "duration": 1
+      },
+      {
+        "uid": 24,
+        "duration": 1
+      }
     ],
     "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 24, "active": 1}
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 24,
+        "active": 1
+      }
     ],
     "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
     ]
   },
   "system": {
     "name": "exp_bat_4b_24",
     "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"},
-      {"uid": 3, "name": "b3"},
-      {"uid": 4, "name": "b4"}
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      }
     ],
     "generator_array": [
       {
@@ -87,18 +179,6 @@
         "expcap": 180,
         "expmod": 1,
         "annual_capcost": 23468
-      },
-      {
-        "uid": 4,
-        "name": "g_bat_out",
-        "bus": "b3",
-        "pmin": 0,
-        "pmax": 120,
-        "gcost": 0,
-        "capacity": 0,
-        "expcap": 120,
-        "expmod": 1,
-        "annual_capcost": 3911
       }
     ],
     "demand_array": [
@@ -106,51 +186,133 @@
         "uid": 1,
         "name": "d3",
         "bus": "b3",
-        "lmax": [[30.0,28.0,27.0,27.0,28.0,32.0,40.0,55.0,70.0,80.0,85.0,88.0,90.0,88.0,84.0,80.0,82.0,88.0,100.0,110.0,105.0,95.0,75.0,50.0]]
+        "lmax": [
+          [
+            30.0,
+            28.0,
+            27.0,
+            27.0,
+            28.0,
+            32.0,
+            40.0,
+            55.0,
+            70.0,
+            80.0,
+            85.0,
+            88.0,
+            90.0,
+            88.0,
+            84.0,
+            80.0,
+            82.0,
+            88.0,
+            100.0,
+            110.0,
+            105.0,
+            95.0,
+            75.0,
+            50.0
+          ]
+        ]
       },
       {
         "uid": 2,
         "name": "d4",
         "bus": "b4",
-        "lmax": [[20.0,18.0,17.0,17.0,18.0,22.0,28.0,38.0,48.0,55.0,58.0,60.0,62.0,60.0,57.0,55.0,56.0,60.0,68.0,75.0,72.0,65.0,50.0,32.0]]
-      },
-      {
-        "uid": 3,
-        "name": "d_bat_in",
-        "bus": "b3",
-        "lmax": [[60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0,60.0]]
+        "lmax": [
+          [
+            20.0,
+            18.0,
+            17.0,
+            17.0,
+            18.0,
+            22.0,
+            28.0,
+            38.0,
+            48.0,
+            55.0,
+            58.0,
+            60.0,
+            62.0,
+            60.0,
+            57.0,
+            55.0,
+            56.0,
+            60.0,
+            68.0,
+            75.0,
+            72.0,
+            65.0,
+            50.0,
+            32.0
+          ]
+        ]
       }
     ],
     "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300},
-      {"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300},
-      {"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.03, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 4, "name": "l2_4", "bus_a": "b2", "bus_b": "b4", "reactance": 0.02, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 5, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.03, "tmax_ab": 150, "tmax_ba": 150}
+      {
+        "uid": 1,
+        "name": "l1_2",
+        "bus_a": "b1",
+        "bus_b": "b2",
+        "reactance": 0.02,
+        "tmax_ab": 300,
+        "tmax_ba": 300
+      },
+      {
+        "uid": 2,
+        "name": "l1_3",
+        "bus_a": "b1",
+        "bus_b": "b3",
+        "reactance": 0.02,
+        "tmax_ab": 300,
+        "tmax_ba": 300
+      },
+      {
+        "uid": 3,
+        "name": "l2_3",
+        "bus_a": "b2",
+        "bus_b": "b3",
+        "reactance": 0.03,
+        "tmax_ab": 200,
+        "tmax_ba": 200
+      },
+      {
+        "uid": 4,
+        "name": "l2_4",
+        "bus_a": "b2",
+        "bus_b": "b4",
+        "reactance": 0.02,
+        "tmax_ab": 200,
+        "tmax_ba": 200
+      },
+      {
+        "uid": 5,
+        "name": "l3_4",
+        "bus_a": "b3",
+        "bus_b": "b4",
+        "reactance": 0.03,
+        "tmax_ab": 150,
+        "tmax_ba": 150
+      }
     ],
     "battery_array": [
       {
         "uid": 1,
         "name": "bat1",
+        "bus": "b3",
         "input_efficiency": 0.95,
         "output_efficiency": 0.95,
         "emin": 0,
         "emax": 400,
         "eini": 0,
+        "pmax_charge": 60,
+        "pmax_discharge": 60,
+        "gcost": 0,
         "capacity": 0,
         "expcap": 400,
         "expmod": 1,
         "annual_capcost": 7823
-      }
-    ],
-    "converter_array": [
-      {
-        "uid": 1,
-        "name": "conv1",
-        "battery": 1,
-        "generator": 4,
-        "demand": 3,
-        "capacity": 60
       }
     ],
     "generator_profile_array": [
@@ -158,7 +320,36 @@
         "uid": 1,
         "name": "gp_solar",
         "generator": "g_solar",
-        "profile": [[[0.0,0.0,0.0,0.0,0.0,0.0,0.05,0.15,0.35,0.55,0.75,0.9,1.0,0.95,0.85,0.7,0.5,0.3,0.1,0.02,0.0,0.0,0.0,0.0]]]
+        "profile": [
+          [
+            [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.05,
+              0.15,
+              0.35,
+              0.55,
+              0.75,
+              0.9,
+              1.0,
+              0.95,
+              0.85,
+              0.7,
+              0.5,
+              0.3,
+              0.1,
+              0.02,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          ]
+        ]
       }
     ]
   }
