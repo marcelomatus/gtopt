@@ -4,7 +4,6 @@ import argparse
 import json
 import logging
 import pathlib
-import re
 import sys
 import time
 import warnings
@@ -27,32 +26,46 @@ try:
 except ImportError:
     __version__ = "dev"
 
-expected_sheets = [
-    "options",
-    "scenario_array",
-    "stage_array",
-    "block_array",
-    "bus_array",
-    "demand_array",
-    "generator_array",
-    "line_array",
-    "generator_profile_array",
-    "demand_profile_array",
-    "batterie_array",
-    "converter_array",
-    "reserve_zone_array",
-    "reserve_provision_array",
-    "junction_array",
-    "waterway_array",
-    "flow_array",
-    "outflow_array",
-    "reservoir_array",
-    "filtration_array",
-    "turbine_array",
-    "emission_zone_array",
-    "generator_emission_array",
-    "demand_emissions",
-]
+# Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
+# These must match the fields declared in ``json_simulation.hpp``.
+_SIMULATION_SHEETS = frozenset(
+    {
+        "block_array",
+        "stage_array",
+        "scenario_array",
+        "phase_array",
+        "scene_array",
+    }
+)
+
+# Sheets that belong to the ``system`` section of the gtopt JSON schema.
+# These must match the fields declared in ``json_system.hpp``.
+_SYSTEM_SHEETS = frozenset(
+    {
+        "bus_array",
+        "demand_array",
+        "generator_array",
+        "line_array",
+        "generator_profile_array",
+        "demand_profile_array",
+        "battery_array",
+        "converter_array",
+        "reserve_zone_array",
+        "reserve_provision_array",
+        "junction_array",
+        "waterway_array",
+        "flow_array",
+        "outflow_array",
+        "reservoir_array",
+        "filtration_array",
+        "turbine_array",
+        "emission_zone_array",
+        "generator_emission_array",
+        "demand_emissions",
+    }
+)
+
+expected_sheets = ["options"] + sorted(_SIMULATION_SHEETS) + sorted(_SYSTEM_SHEETS)
 
 _COMPACT_INDENT = 0
 _COMPACT_SEPARATORS = (",", ":")
@@ -157,6 +170,29 @@ def df_to_opts(df, options):
     sys.exit(1)
 
 
+def _try_parse_json(value):
+    """Try to parse a string as JSON; return the parsed value or the original string.
+
+    This handles Excel cells whose content is a JSON-encoded scalar, list, or
+    object (e.g. ``[[55.0]]``, ``[1, 2, 3]``, ``true``).  Plain strings that
+    are not valid JSON are returned unchanged.
+    """
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    # Only attempt parsing if the string looks like a JSON literal
+    if (
+        not stripped
+        or stripped[0] not in ("{", "[", "t", "f", "n", "-")
+        and not (stripped[0].isdigit())
+    ):
+        return value
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return value
+
+
 def df_to_str(
     df, skip_nulls=True, indent=_COMPACT_INDENT, separators=_COMPACT_SEPARATORS
 ):
@@ -176,11 +212,13 @@ def df_to_str(
     df = df.astype(types)
 
     if skip_nulls:
-        return json.dumps(
-            list(df.agg(lambda x: x.dropna().to_dict(), axis=1)),
-            indent=indent,
-            separators=separators,
-        )
+        records = []
+        for _, row in df.iterrows():
+            rec = {}
+            for col, val in row.dropna().items():
+                rec[col] = _try_parse_json(val)
+            records.append(rec)
+        return json.dumps(records, indent=indent, separators=separators)
     return df.to_json(
         lines=False,
         orient="records",
@@ -263,15 +301,12 @@ def _run(args) -> int:
     options["input_directory"] = str(args.input_directory)
     options["input_format"] = args.input_format
 
-    prelude = {}
-    prelude["name"] = args.name
-
-    pstr = json.dumps(prelude, separators=_separators)
-    match = re.search(r"{(.*?)}$", pstr)
-    pstr = match.group(1) if match is not None else pstr
+    # Collect simulation and system arrays as ordered dicts so we can write
+    # the nested {options, simulation, system} structure that gtopt expects.
+    simulation: dict[str, Any] = {}
+    system: dict[str, Any] = {"name": args.name}
 
     json_path = args.json_file.with_suffix(".json")
-    json_file = None
     filenames = args.filenames
     # Pre-initialise with zeros so log_conversion_stats always has every key.
     counts: dict[str, int] = {s: 0 for s in expected_sheets if s != "options"}
@@ -316,30 +351,33 @@ def _run(args) -> int:
                 options = df_to_opts(df, options)
                 continue
 
-            df_str = df_to_str(
-                df, args.skip_nulls, indent=_indent, separators=_separators
+            df_parsed = json.loads(
+                df_to_str(df, args.skip_nulls, indent=_indent, separators=_separators)
             )
-            counts[sheet_name] = len(df)
+            counts[sheet_name] = len(df_parsed)
 
-            if df_str is not None:
-                if not json_file:
-                    # lazy open the json_file
-                    json_file = json_path.open("w")
-                    json_file.write("{\n")
-                    json_file.write(f"{pstr}\n")
+            if sheet_name in _SIMULATION_SHEETS:
+                simulation[sheet_name] = df_parsed
+            else:
+                system[sheet_name] = df_parsed
 
-                json_file.write(f',"{sheet_name}":')
-                json_file.write(df_str)
-                json_file.write("\n")
+    has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
+    if has_data:
+        planning: dict[str, Any] = {}
+        planning["options"] = options
+        if simulation:
+            planning["simulation"] = simulation
+        planning["system"] = system
 
-    if json_file:
-        # close the json_file
-        if options:
-            opts_str = json.dumps(options, indent=_indent, separators=_separators)
-            json_file.write(f',"options":{opts_str}\n')
+        with json_path.open("w") as json_file:
+            json.dump(
+                planning,
+                json_file,
+                indent=_indent if pretty else None,
+                separators=None if pretty else _separators,
+            )
+            json_file.write("\n")
 
-        json_file.write("}\n")
-        json_file.close()
         logging.info("gtopt input file %s was successfully generated", str(json_path))
 
         elapsed = time.monotonic() - t_start

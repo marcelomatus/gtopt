@@ -1,9 +1,12 @@
 """Tests for igtopt.py – Excel → gtopt JSON conversion."""
 
 import argparse
+import csv
 import json
 import logging
 import pathlib
+import subprocess
+import sys
 import zipfile
 
 import pandas as pd
@@ -135,7 +138,7 @@ def test_log_conversion_stats_runs_without_error(caplog):
         "generator_array": 3,
         "demand_array": 2,
         "line_array": 5,
-        "batterie_array": 1,
+        "battery_array": 1,
         "block_array": 24,
         "stage_array": 1,
         "scenario_array": 1,
@@ -253,10 +256,14 @@ def test_igtopt_pretty_compact_independent(tmp_path):
     # Both must produce valid JSON with identical bus/generator/demand arrays
     data_pretty = json.loads(json_pretty.read_text())
     data_compact = json.loads(json_compact.read_text())
-    for key in ("bus_array", "generator_array", "demand_array", "block_array"):
-        assert data_pretty.get(key) == data_compact.get(key), (
+    for key in ("bus_array", "generator_array", "demand_array"):
+        assert data_pretty["system"].get(key) == data_compact["system"].get(key), (
             f"Mismatch in '{key}' between pretty and compact output"
         )
+    for key in ("block_array",):
+        assert data_pretty["simulation"].get(key) == data_compact["simulation"].get(
+            key
+        ), f"Mismatch in '{key}' between pretty and compact output"
 
 
 # ---------------------------------------------------------------------------
@@ -357,10 +364,11 @@ def test_igtopt_ieee57b_produces_valid_json(tmp_path):
     """igtopt must convert the IEEE 57-bus workbook to valid JSON."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
     assert isinstance(data, dict)
-    assert "bus_array" in data
-    assert "generator_array" in data
-    assert "demand_array" in data
-    assert "line_array" in data
+    assert "system" in data
+    assert "bus_array" in data["system"]
+    assert "generator_array" in data["system"]
+    assert "demand_array" in data["system"]
+    assert "line_array" in data["system"]
     assert "options" in data
 
 
@@ -369,10 +377,11 @@ def test_igtopt_ieee57b_produces_valid_json(tmp_path):
 def test_igtopt_ieee57b_element_counts(tmp_path):
     """IEEE 57-bus case must have exactly 57 buses, 7 generators, 42 demands, 80 lines."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
-    assert len(data["bus_array"]) == 57
-    assert len(data["generator_array"]) == 7
-    assert len(data["demand_array"]) == 42
-    assert len(data["line_array"]) == 80
+    sys = data["system"]
+    assert len(sys["bus_array"]) == 57
+    assert len(sys["generator_array"]) == 7
+    assert len(sys["demand_array"]) == 42
+    assert len(sys["line_array"]) == 80
 
 
 @pytest.mark.integration
@@ -380,7 +389,7 @@ def test_igtopt_ieee57b_element_counts(tmp_path):
 def test_igtopt_ieee57b_simulation_structure(tmp_path):
     """IEEE 57-bus case must have 1 block, 1 stage, 1 scenario (single-snapshot OPF)."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
-    sim = data.get("simulation", data)
+    sim = data["simulation"]
     assert len(sim["block_array"]) == 1
     assert len(sim["stage_array"]) == 1
     assert len(sim["scenario_array"]) == 1
@@ -402,7 +411,7 @@ def test_igtopt_ieee57b_options(tmp_path):
 def test_igtopt_ieee57b_generator_fields(tmp_path):
     """All generators must have uid, name, bus, gcost, pmax, capacity fields."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
-    for gen in data["generator_array"]:
+    for gen in data["system"]["generator_array"]:
         for field in ("uid", "name", "bus", "gcost", "pmax", "capacity"):
             assert field in gen, f"Generator {gen.get('name', '?')} missing '{field}'"
 
@@ -412,7 +421,7 @@ def test_igtopt_ieee57b_generator_fields(tmp_path):
 def test_igtopt_ieee57b_line_fields(tmp_path):
     """All lines must have uid, name, bus_a, bus_b, reactance fields."""
     data = _run_igtopt(_IEEE57B_XLSX, tmp_path)
-    for line in data["line_array"]:
+    for line in data["system"]["line_array"]:
         for field in ("uid", "name", "bus_a", "bus_b", "reactance"):
             assert field in line, f"Line {line.get('name', '?')} missing '{field}'"
 
@@ -428,10 +437,12 @@ def test_igtopt_bat4b24_produces_valid_json(tmp_path):
     """igtopt must convert the bat_4b_24 workbook to valid JSON."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
     assert isinstance(data, dict)
-    assert "bus_array" in data
-    assert "generator_array" in data
-    assert "batterie_array" in data
-    assert "generator_profile_array" in data
+    assert "system" in data
+    sys = data["system"]
+    assert "bus_array" in sys
+    assert "generator_array" in sys
+    assert "battery_array" in sys
+    assert "generator_profile_array" in sys
     assert "options" in data
 
 
@@ -440,14 +451,13 @@ def test_igtopt_bat4b24_produces_valid_json(tmp_path):
 def test_igtopt_bat4b24_element_counts(tmp_path):
     """bat_4b_24 case must have 4 buses, 3 generators, 2 demands, 5 lines, 1 battery."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
-    assert len(data["bus_array"]) == 4
-    assert len(data["generator_array"]) == 3
-    assert len(data["demand_array"]) == 2
-    assert len(data["line_array"]) == 5
-    assert (
-        len(data["batterie_array"]) == 1
-    )  # igtopt uses 'batterie_array' (legacy spelling)
-    assert len(data["generator_profile_array"]) == 1
+    sys = data["system"]
+    assert len(sys["bus_array"]) == 4
+    assert len(sys["generator_array"]) == 3
+    assert len(sys["demand_array"]) == 2
+    assert len(sys["line_array"]) == 5
+    assert len(sys["battery_array"]) == 1
+    assert len(sys["generator_profile_array"]) == 1
 
 
 @pytest.mark.integration
@@ -455,7 +465,7 @@ def test_igtopt_bat4b24_element_counts(tmp_path):
 def test_igtopt_bat4b24_24_block_simulation(tmp_path):
     """bat_4b_24 simulation must have 24 blocks in 1 stage."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
-    sim = data.get("simulation", data)
+    sim = data["simulation"]
     assert len(sim["block_array"]) == 24
     assert len(sim["stage_array"]) == 1
     assert len(sim["scenario_array"]) == 1
@@ -466,7 +476,7 @@ def test_igtopt_bat4b24_24_block_simulation(tmp_path):
 def test_igtopt_bat4b24_battery_unified_definition(tmp_path):
     """The battery must use the unified definition (bus, pmax_charge, pmax_discharge)."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
-    bat = data["batterie_array"][0]
+    bat = data["system"]["battery_array"][0]
     assert bat["name"] == "bat1"
     assert bat["bus"] == "b3"
     assert bat["pmax_charge"] == pytest.approx(60)
@@ -628,7 +638,7 @@ def test_igtopt_bat4b24_solar_profile_values(tmp_path):
 def test_igtopt_bat4b24_demand_references_parquet_file(tmp_path):
     """Demand lmax field in the JSON must be a string (file reference), not inline values."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
-    for dem in data["demand_array"]:
+    for dem in data["system"]["demand_array"]:
         assert isinstance(dem["lmax"], str), (
             f"Demand '{dem['name']}' lmax should be a file reference string, "
             f"got {type(dem['lmax'])}"
@@ -640,7 +650,7 @@ def test_igtopt_bat4b24_demand_references_parquet_file(tmp_path):
 def test_igtopt_bat4b24_generator_profile_references_parquet_file(tmp_path):
     """GeneratorProfile profile field must be a string (file reference)."""
     data = _run_igtopt(_BAT4B24_XLSX, tmp_path)
-    for gp in data["generator_profile_array"]:
+    for gp in data["system"]["generator_profile_array"]:
         assert isinstance(gp["profile"], str), (
             f"GeneratorProfile '{gp['name']}' profile should be a file reference, "
             f"got {type(gp['profile'])}"
@@ -660,3 +670,229 @@ def test_igtopt_bat4b24_zip_bundles_parquet_files(tmp_path):
     assert "bat4b24.json" in names
     assert any("Demand/lmax.parquet" in n for n in names)
     assert any("GeneratorProfile/profile.parquet" in n for n in names)
+
+
+# ---------------------------------------------------------------------------
+# E2E solver tests – igtopt → gtopt → verify results
+# ---------------------------------------------------------------------------
+# These tests require the gtopt binary.  They are automatically skipped when
+# the binary is not found.  See conftest.py for binary discovery and CI
+# artifact download logic.
+# ---------------------------------------------------------------------------
+
+_GTOPT_TIMEOUT = 60  # seconds
+
+
+def _run_gtopt(
+    gtopt_bin: str,
+    case_dir: pathlib.Path,
+    json_stem: str,
+    timeout: int = _GTOPT_TIMEOUT,
+) -> tuple[int, str]:
+    """Run gtopt on *json_stem*.json inside *case_dir*.
+
+    Returns (returncode, stderr).
+    """
+    result = subprocess.run(
+        [gtopt_bin, json_stem],
+        cwd=str(case_dir),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return result.returncode, result.stderr
+
+
+def _solution_status(output_dir: pathlib.Path) -> int:
+    """Read the solver status from output/solution.csv (0 = optimal)."""
+    sol = output_dir / "solution.csv"
+    if not sol.exists():
+        return -1
+    for line in sol.read_text().splitlines():
+        key, _, val = line.partition(",")
+        if key.strip() == "status":
+            return int(val.strip())
+    return -1
+
+
+def _obj_value(output_dir: pathlib.Path, scale: float = 1000.0) -> float:
+    """Read the objective value from output/solution.csv × scale."""
+    sol = output_dir / "solution.csv"
+    if not sol.exists():
+        return float("nan")
+    for line in sol.read_text().splitlines():
+        key, _, val = line.partition(",")
+        if key.strip() == "obj_value":
+            return float(val.strip()) * scale
+    return float("nan")
+
+
+def _prepare_case(xlsx: pathlib.Path, case_dir: pathlib.Path) -> pathlib.Path:
+    """Convert xlsx → JSON in case_dir and return the JSON path."""
+    json_path = case_dir / (xlsx.stem + ".json")
+    input_dir = case_dir / xlsx.stem
+    args = argparse.Namespace(
+        filenames=[str(xlsx)],
+        json_file=json_path,
+        input_directory=input_dir,
+        input_format="parquet",
+        name=xlsx.stem,
+        compression="gzip",
+        skip_nulls=True,
+        parse_unexpected_sheets=False,
+        pretty=False,
+        zip=False,
+    )
+    rc = _igtopt_run(args)
+    assert rc == 0, "igtopt conversion failed"
+    return json_path
+
+
+# Reference objective values (gtopt on the original JSON, scale_objective=1000)
+_IEEE57B_OBJ_REF = 25016.0  # $/h  (25.016 × 1000)
+_BAT4B24_OBJ_REF = 44862.0  # $/h  (44.862 × 1000)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _IEEE57B_XLSX.exists(), reason="ieee57b.xlsx not present")
+def test_igtopt_ieee57b_gtopt_exits_zero(gtopt_bin, tmp_path):
+    """gtopt must exit 0 (no crash) on the igtopt-generated ieee57b JSON."""
+    case_dir = tmp_path / "ieee57b"
+    case_dir.mkdir()
+    _prepare_case(_IEEE57B_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "ieee57b")
+    assert rc == 0, f"gtopt exited {rc}:\n{stderr}"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _IEEE57B_XLSX.exists(), reason="ieee57b.xlsx not present")
+def test_igtopt_ieee57b_gtopt_status_optimal(gtopt_bin, tmp_path):
+    """gtopt must find an optimal solution for the igtopt-generated ieee57b case."""
+    case_dir = tmp_path / "ieee57b"
+    case_dir.mkdir()
+    _prepare_case(_IEEE57B_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "ieee57b")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+    status = _solution_status(case_dir / "output")
+    assert status == 0, f"solver status = {status} (expected 0 = optimal)"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _IEEE57B_XLSX.exists(), reason="ieee57b.xlsx not present")
+def test_igtopt_ieee57b_gtopt_obj_matches_reference(gtopt_bin, tmp_path):
+    """Objective value must be within 0.1% of the reference case ieee_57b."""
+    case_dir = tmp_path / "ieee57b"
+    case_dir.mkdir()
+    _prepare_case(_IEEE57B_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "ieee57b")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+    obj = _obj_value(case_dir / "output")
+    assert abs(obj - _IEEE57B_OBJ_REF) / max(1.0, abs(_IEEE57B_OBJ_REF)) < 1e-3, (
+        f"Objective {obj:.2f} differs from reference {_IEEE57B_OBJ_REF:.2f} by more than 0.1%"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _IEEE57B_XLSX.exists(), reason="ieee57b.xlsx not present")
+def test_igtopt_ieee57b_gtopt_matches_pandapower(gtopt_bin, tmp_path):
+    """Generation totals and LMPs must match the pandapower DC OPF reference."""
+    pytest.importorskip("pandapower")
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+    from compare_pandapower.main import (  # pylint: disable=import-outside-toplevel
+        _compare_ieee_57b as compare_fn,
+    )
+
+    case_dir = tmp_path / "ieee57b"
+    case_dir.mkdir()
+    _prepare_case(_IEEE57B_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "ieee57b")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+
+    passed = compare_fn(case_dir / "output", tol_mw=1.0, tol_lmp=0.5)
+    assert passed, "ieee57b: pandapower comparison FAILED (see printed table above)"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_exits_zero(gtopt_bin, tmp_path):
+    """gtopt must exit 0 (no crash) on the igtopt-generated bat4b24 JSON."""
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt exited {rc}:\n{stderr}"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_status_optimal(gtopt_bin, tmp_path):
+    """gtopt must find an optimal solution for the igtopt-generated bat4b24 case."""
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+    status = _solution_status(case_dir / "output")
+    assert status == 0, f"solver status = {status} (expected 0 = optimal)"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_obj_matches_reference(gtopt_bin, tmp_path):
+    """Objective value must be within 0.1% of the reference case bat_4b_24."""
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+    obj = _obj_value(case_dir / "output")
+    assert abs(obj - _BAT4B24_OBJ_REF) / max(1.0, abs(_BAT4B24_OBJ_REF)) < 1e-3, (
+        f"Objective {obj:.2f} differs from reference {_BAT4B24_OBJ_REF:.2f} by more than 0.1%"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_no_load_shedding(gtopt_bin, tmp_path):
+    """gtopt must serve all demand (fail_sol ≡ 0) for the bat4b24 case."""
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+
+    fail_path = case_dir / "output" / "Demand" / "fail_sol.csv"
+    if not fail_path.exists():
+        pytest.skip("fail_sol.csv not found in output")
+
+    with open(fail_path, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
+        for row in reader:
+            for i in range(uid_start, len(row)):
+                val = float(row[i])
+                assert val < 1e-6, (
+                    f"Load shedding detected: fail_sol[{i}] = {val:.4f} MW"
+                )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_igtopt_bat4b24_gtopt_matches_pandapower(gtopt_bin, tmp_path):
+    """Per-block generation must match the pandapower DC OPF reference (bat_4b_24)."""
+    pytest.importorskip("pandapower")
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+    from compare_pandapower.main import (  # pylint: disable=import-outside-toplevel
+        _compare_bat_4b_24 as compare_fn,
+    )
+
+    case_dir = tmp_path / "bat4b24"
+    case_dir.mkdir()
+    _prepare_case(_BAT4B24_XLSX, case_dir)
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, "bat4b24")
+    assert rc == 0, f"gtopt crashed: {stderr}"
+
+    passed = compare_fn(case_dir / "output", tol_mw=1.0, tol_lmp=0.5)
+    assert passed, "bat4b24: pandapower comparison FAILED (see printed table above)"

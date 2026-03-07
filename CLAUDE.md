@@ -246,6 +246,79 @@ cmake -S all -B build -DENABLE_TEST_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build -j$(nproc)
 ```
 
+## Obtaining the gtopt Binary Without Building From Scratch
+
+GitHub Actions uploads the compiled `gtopt` binary as the **`gtopt-binary-debug`**
+artifact on every successful `ubuntu.yml` run.  In Copilot / codespace agent
+environments where a full build takes 5–10 minutes, this is the preferred way to
+get the binary quickly.
+
+### Option 1 – Automatic discovery via GTOPT_BIN (fastest)
+
+If the binary is already present (from a previous download or build), point the
+integration tests at it directly:
+
+```bash
+export GTOPT_BIN=/tmp/gtopt-ci-bin/gtopt
+pytest scripts/igtopt/tests/ -m integration -v
+```
+
+### Option 2 – Download from the latest CI artifact via `gh` CLI
+
+```bash
+# 1. Find the latest non-expired artifact ID
+ART_ID=$(gh api "repos/marcelomatus/gtopt/actions/artifacts?name=gtopt-binary-debug" \
+    --jq '.artifacts | map(select(.expired|not)) | .[0].id')
+echo "Artifact ID: $ART_ID"
+
+# 2. Download and unzip to /tmp/gtopt-ci-bin/
+mkdir -p /tmp/gtopt-ci-bin
+gh api repos/marcelomatus/gtopt/actions/artifacts/${ART_ID}/zip \
+    --header "Accept: application/vnd.github+json" > /tmp/gtopt.zip
+unzip -o /tmp/gtopt.zip -d /tmp/gtopt-ci-bin
+chmod +x /tmp/gtopt-ci-bin/gtopt
+
+# 3. Verify
+/tmp/gtopt-ci-bin/gtopt --version
+
+# 4. Run integration tests
+export GTOPT_BIN=/tmp/gtopt-ci-bin/gtopt
+pytest scripts/igtopt/tests/ -m integration -v
+```
+
+### Option 3 – Automatic download via the `gtopt_bin` pytest fixture
+
+The `gtopt_bin` pytest fixture in `scripts/igtopt/tests/conftest.py`
+automatically downloads the binary when `GITHUB_TOKEN` or the `gh` CLI is
+available and no local binary is found.  Just run the integration tests:
+
+```bash
+pytest scripts/igtopt/tests/ -m integration -v
+# The fixture will:
+#   1. Check GTOPT_BIN env var
+#   2. Check shutil.which("gtopt")
+#   3. Check build/standalone/gtopt and sibling build dirs
+#   4. Check /tmp/gtopt-ci-bin/gtopt (previously downloaded)
+#   5. Download the latest CI artifact automatically
+```
+
+### Key notes
+
+* The artifact is a **Debug build** from Ubuntu 24.04 (clang-21, with conda
+  Arrow/Parquet and COIN-OR).  It runs on any Ubuntu 24.04 environment with
+  the same shared libraries.
+* Artifacts expire **7 days** after the CI run that uploaded them.
+* The artifact name is `gtopt-binary-debug`; the artifact retention is
+  configured in `.github/workflows/ubuntu.yml` (`retention-days: 7`).
+* Inside GitHub Actions runners `GITHUB_TOKEN` is always present, so the
+  automatic download works without any extra configuration.
+* To use programmatically in Python:
+
+  ```python
+  from igtopt.tests.conftest import download_gtopt_from_ci
+  bin_path = download_gtopt_from_ci()   # → pathlib.Path("/tmp/gtopt-ci-bin/gtopt")
+  ```
+
 ## Formatting and Linting
 
 ```bash
