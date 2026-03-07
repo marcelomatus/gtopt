@@ -25,6 +25,7 @@ binary before running tests:
 
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 
@@ -42,8 +43,6 @@ def _find_gtopt_binary() -> str | None:
 
     Returns the path as a string, or ``None`` when not found.
     """
-    import os  # pylint: disable=import-outside-toplevel
-
     env_bin = os.environ.get("GTOPT_BIN")
     if env_bin and pathlib.Path(env_bin).exists():
         return env_bin

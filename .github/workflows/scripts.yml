@@ -123,10 +123,13 @@ jobs:
           # Download the binary from the latest CI artifact and install any
           # missing runtime libraries (skipped automatically if already present,
           # e.g. when the ubuntu.yml build job runs first on this runner).
-          # Exit with a clear error if the binary cannot be obtained.
-          if ! GTOPT_BIN=$(python tools/get_gtopt_binary.py); then
-            echo "ERROR: failed to obtain gtopt binary – check GITHUB_TOKEN and CI artifacts" >&2
-            exit 1
+          # Log messages go to stderr; the binary path is printed to stdout.
+          GTOPT_BIN=$(python tools/get_gtopt_binary.py 2>/tmp/gtopt_dl.log)
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "ERROR: failed to obtain gtopt binary – full output:" >&2
+            cat /tmp/gtopt_dl.log >&2
+            exit $RC
           fi
           echo "GTOPT_BIN=$GTOPT_BIN" >> "$GITHUB_ENV"
         env:

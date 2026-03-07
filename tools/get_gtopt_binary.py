@@ -442,6 +442,10 @@ def _pick_cxx_compiler() -> str:
     return shutil.which("clang++") or shutil.which("g++") or "c++"
 
 
+_DPKG_QUERY: str | None = shutil.which("dpkg-query")
+"""Cached path to ``dpkg-query``, or ``None`` on non-Debian systems."""
+
+
 def _is_dpkg_installed(package: str) -> bool:
     """Return ``True`` if *package* is installed according to ``dpkg-query``.
 
@@ -449,13 +453,16 @@ def _is_dpkg_installed(package: str) -> bool:
     ``install ok installed`` for correctly installed packages.  Returns
     ``False`` when ``dpkg-query`` is not available (non-Debian systems) or
     when the package is absent / only partially installed.
+
+    ``dpkg-query`` is looked up once at module import time and cached in
+    :data:`_DPKG_QUERY` to avoid repeated filesystem searches when checking
+    multiple packages.
     """
-    dpkg_query = shutil.which("dpkg-query")
-    if not dpkg_query:
+    if not _DPKG_QUERY:
         return False
     try:
         result = subprocess.run(
-            [dpkg_query, "-W", "-f=${Status}", package],
+            [_DPKG_QUERY, "-W", "-f=${Status}", package],
             capture_output=True,
             text=True,
             timeout=5,
