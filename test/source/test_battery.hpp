@@ -9,7 +9,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("Battery construction and default values")
 {

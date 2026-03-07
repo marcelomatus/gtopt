@@ -17,10 +17,10 @@
 #include <gtopt/app_options.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // ---- Helper to parse command-line args into a variables_map ----
-namespace
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 po::variables_map parse_args(const std::vector<std::string>& args,
                              const po::options_description& desc)

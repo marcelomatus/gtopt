@@ -329,6 +329,7 @@ Format violations are warnings only, not CI failures.
 | Pointers | Left-aligned: `T*` not `T *` |
 | Braces | `BreakBeforeBraces: Custom` – opening brace on new line for functions, classes, namespaces; same line for control flow unless multi-line body |
 | Initializer lists | Designated initializers (`SparseCol{.name="x", .cost=1}`) preferred |
+| Trailing commas | Always add a trailing comma to the **last element** of every brace-initializer list (member initializers, aggregate initializers, `std::initializer_list` arguments). Prevents `readability-trailing-comma` and makes diffs cleaner: `Array<Phase> phase_array {Phase {},};` |
 | Concepts | Use `requires` constraints for template type safety |
 | Error handling | Return values and `std::optional` over exceptions |
 | `noexcept` | Add `noexcept` (or conditional `noexcept`) on non-throwing functions |
@@ -340,12 +341,22 @@ Format violations are warnings only, not CI failures.
 
 ### clang-tidy suppressions in test code
 
-Only `bugprone-use-after-move` / `hicpp-invalid-access-moved` (intentional
-after `std::move`) still needs an inline `// NOLINT`:
+Three inline `// NOLINT` patterns are accepted in test code:
 
 ```cpp
-// After std::move – use-after-move is intentional in tests
+// 1. After std::move – use-after-move is intentional in tests
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+
+// 2. using namespace at file scope in .hpp test files – clang-tidy applies
+//    header rules to all .hpp files, but test helpers use .hpp only for
+//    #include-based aggregation (included by *_all.cpp), not as API headers.
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+// 3. Anonymous namespace in .hpp test files – same rationale as above.
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+// ... helper functions ...
+}  // namespace
 ```
 
 **Never use `// NOLINT(bugprone-unchecked-optional-access)`.**
@@ -366,6 +377,8 @@ CHECK((opt && (*opt)->member == expected));
 // (use a sentinel that is the same variant alternative as expected)
 CHECK(std::get<double>(opt.value_or(0.0)) == doctest::Approx(5000.0));
 CHECK(std::get<IntBool>(active_opt.value_or(Active{False})) == True);
+// For RealFieldSched (std::variant<Real,Vector,FileSched>) use RealFieldSched sentinel:
+CHECK(std::get<Real>(opt.value_or(RealFieldSched{0.0})) == 60.0);
 
 // Pattern D – intermediate variable when binding const& to a vector inside
 // a variant-inside-optional (avoids dangling reference from temporary)
@@ -374,6 +387,41 @@ const auto val = opt.value_or(Active{std::vector<IntBool>{}});
 const auto& vec = std::get<std::vector<IntBool>>(val);
 CHECK(vec.size() == 4);
 ```
+
+---
+
+## .clang-tidy Configuration Rationale
+
+The project enables all clang-tidy checks (`"*"`) and selectively disables a
+curated list. Every disabled check has a documented reason in `.clang-tidy`.
+Key principles for the disabled list:
+
+| Group | Reason for disabling |
+|-------|---------------------|
+| `altera-*`, `llvmlibc-*` | Domain-specific (FPGA / LLVM libc); not relevant |
+| `fuchsia-*` | Fuchsia OS style; conflicts with project conventions |
+| `llvm-header-guard`, `portability-avoid-pragma-once` | Project uses `#pragma once` |
+| `llvm-include-order` | clang-format handles include ordering |
+| `google-build-using-namespace` | `using namespace` in `.cpp` TU scope is accepted |
+| `modernize-use-trailing-return-type` | Both styles used; not uniformly enforced |
+| `modernize-macro-to-enum`, `cppcoreguidelines-macro-*` | COIN-OR and deps use C macros |
+| `misc-non-private-member-variables-in-classes`, `misc-multiple-inheritance` | Structs with public members and MI are idiomatic in this codebase |
+| `readability-magic-numbers`, `cppcoreguidelines-avoid-magic-numbers` | LP coefficients (0.0, 1.0, 0.5) are self-documenting |
+| `readability-identifier-length`, `readability-identifier-naming` | Single-char vars idiomatic in LP/math code; custom naming rules not enforced |
+| `readability-redundant-member-init` | Explicit `{}` initialization is intentional |
+| `cppcoreguidelines-pro-bounds-avoid-unchecked-container-access` | `[]` preferred over `.at()` in hot LP-assembly paths |
+| `bugprone-easily-swappable-parameters` | Too noisy for LP/math API functions |
+| `clang-analyzer-{security.ArrayBound,cplusplus.NewDeleteLeaks,…}` | False positives with COIN-OR internal code |
+| `llvm-prefer-static-over-anonymous-namespace` | `misc-use-anonymous-namespace` (enabled) takes the opposite, preferred stance |
+| `misc-include-cleaner` | Too aggressive; third-party transitive includes are common |
+
+**`modernize-type-traits` is intentionally ENABLED** (not in disabled list).
+The project targets C++26 and uses modern `_v`/`_t` type-trait aliases
+(`std::is_same_v`, `std::decay_t`, etc.). Any code using old `::value` / `::type`
+style should be updated.
+
+**To add a new disabled check**, always add its rationale as a comment in the
+`Checks:` block in `.clang-tidy`. Never disable a check silently.
 
 ---
 
@@ -389,7 +437,7 @@ Tests live in `test/source/test_<topic>.cpp`. The framework is
 #include <doctest/doctest.h>
 #include <gtopt/<header>.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 {
@@ -410,7 +458,9 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 ### Rules for test files
 
 1. **Include order**: `<doctest/doctest.h>` first, then project headers.
-2. **`using namespace gtopt;`** at file scope is fine in test files.
+2. **`using namespace gtopt;  // NOLINT(google-global-names-in-headers)`** at file scope.
+   The NOLINT is required because test helpers use `.hpp` extension (for `#include`-based
+   aggregation by `*_all.cpp`) but clang-tidy applies header rules to all `.hpp` files.
 3. One `TEST_CASE` per logical concept; use `SUBCASE` for variants.
 4. Floating-point comparisons: use `doctest::Approx(value)` – never `==` on doubles.
 5. `REQUIRE` to stop the test case on first failure; `CHECK` for non-fatal checks.
@@ -420,8 +470,13 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
    `(opt && *opt == val)`. See the "clang-tidy suppressions" section above.
 8. `REQUIRE(opt.has_value())` before any logic that branches on the optional
    — but still use `value_or` / `&&` in the CHECK expressions themselves.
-9. Add `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)` after
-   intentional post-`std::move` checks (this is the only accepted NOLINT).
+9. Accepted NOLINTs:
+   - `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)` after intentional
+     post-`std::move` checks.
+   - `// NOLINT(google-global-names-in-headers)` on `using namespace` in `.hpp` test
+     files.
+   - `// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)`
+     on anonymous `namespace` blocks in `.hpp` test files.
 10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
 11. Name the test file `test_<snake_case_topic>.cpp` and add it to the glob in
     `test/CMakeLists.txt` automatically via `CONFIGURE_DEPENDS`.
@@ -429,10 +484,17 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
     `test/source/main.cpp`.
 13. Use C++23/26 features freely: `std::format`, `std::ranges`, structured
     bindings, designated initializers, `std::expected`, `std::mdspan`, etc.
-14. **Testing the LP solver via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))` to
+14. **Always add a trailing comma** to the last element of every brace-initializer list
+    (member initializers, aggregate initializers, initializer-list arguments):
+    ```cpp
+    // ✓ correct
+    Array<Phase> phase_array {Phase {},};
+    system.bus_array = {{.uid = Uid {1}, .name = "b1",},};
+    ```
+15. **Testing the LP solver via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))` to
     parse. Direct `from_json` overwrites `scene_array` with `{}`, so
     `resolve()` returns 0 results without solving. See "Useful Tips" for details.
-15. **Testing `gtopt_main()`**: use `MainOptions` with designated initializers.
+16. **Testing `gtopt_main()`**: use `MainOptions` with designated initializers.
     Write temporary JSON to `std::filesystem::temp_directory_path()` and pass
     the stem (without `.json`) as `planning_files`:
     ```cpp
@@ -453,7 +515,7 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 #include <doctest/doctest.h>
 #include <gtopt/utils.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("merge utility")  // NOLINT
 {

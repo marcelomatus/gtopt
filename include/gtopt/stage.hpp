@@ -49,7 +49,7 @@ struct Stage
   OptBool active {};  ///< Activation status (default: active)
 
   Size first_block {
-      0};  ///< 0-based index of the first block in this stage [dimensionless]
+      0,};  ///< 0-based index of the first block in this stage [dimensionless]
   Size count_block {std::dynamic_extent};  ///< Number of consecutive blocks in
                                            ///< this stage [dimensionless]
   OptReal discount_factor {
