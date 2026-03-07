@@ -6,10 +6,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/phase_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("PhaseLP construction")
 {
+  using namespace gtopt;
   SUBCASE("Default construction")
   {
     const PhaseLP phase;

@@ -11,10 +11,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_parser.hpp>
 
-using namespace gtopt;
-
 TEST_SUITE("LinearParser")
 {
+  using namespace gtopt;
   TEST_CASE("Parse simple less-equal constraint")
   {
     auto result = LinearParser::parse("3*x - 2*y <= 20");

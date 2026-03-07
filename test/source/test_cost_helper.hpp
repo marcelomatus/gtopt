@@ -5,10 +5,9 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("CostHelper construction and basic properties")
 {
+  using namespace gtopt;
   const OptionsLP options;
   const std::vector<ScenarioLP> scenarios;
   const std::vector<StageLP> stages;

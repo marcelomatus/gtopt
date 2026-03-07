@@ -203,16 +203,19 @@ TEST_CASE(
       .bus_array = {{.uid = Uid {1}, .name = "b1"}},
       .demand_array =
           {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0}},
-      .generator_array = {{
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 50.0,
-          .capacity = 100.0,
-      }},
+      .generator_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "g1",
+                  .bus = Uid {1},
+                  .gcost = 50.0,
+                  .capacity = 100.0,
+              },
+          },
   };
 
-  Planning planning {.simulation = simulation, .system = system};
+  const Planning planning {.simulation = simulation, .system = system};
   PlanningLP planning_lp(planning);
 
   const auto result = planning_lp.resolve();
@@ -246,7 +249,7 @@ TEST_CASE(
 {  // NOLINT
   // Verifies that a JSON file explicitly containing empty phase_array and
   // scene_array does not break the solver; the fallback defaults are used.
-  Planning planning =
+  const Planning planning =
       daw::json::from_json<Planning>(planning_empty_phase_scene_json);
 
   CHECK(planning.simulation.phase_array.empty());

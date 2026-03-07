@@ -14,9 +14,9 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
 TEST_CASE("SystemLP 1")
 {
+  using namespace gtopt;
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {

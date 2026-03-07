@@ -4,10 +4,9 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Converter construction and default values")
 {
+  using namespace gtopt;
   const Converter converter;
 
   CHECK(converter.uid == Uid {unknown_uid});

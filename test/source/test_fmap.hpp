@@ -16,10 +16,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/fmap.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("flat_map - Basic operations")
 {
+  using namespace gtopt;
   flat_map<int, std::string> map;
 
   SUBCASE("Empty map")

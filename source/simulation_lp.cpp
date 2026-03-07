@@ -105,7 +105,10 @@ auto create_scene_array(const Simulation& simulation)
                                           {
                                             auto&& [index, scene] = si;
                                             return SceneLP {
-                                                scene, simulation, index};
+                                                scene,
+                                                simulation,
+                                                index,
+                                            };
                                           }));
 }
 

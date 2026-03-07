@@ -23,8 +23,6 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;
-
 // clang-format off
 static constexpr std::string_view ieee4b_ori_json = R"({
   "options": {
@@ -69,6 +67,7 @@ static constexpr std::string_view ieee4b_ori_json = R"({
 
 TEST_CASE("IEEE 4-bus original - JSON parse and structure check")
 {
+  using namespace gtopt;
   auto planning = daw::json::from_json<Planning>(ieee4b_ori_json);
 
   CHECK(planning.system.name == "ieee_4b_ori");

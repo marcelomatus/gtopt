@@ -1,10 +1,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/sparse_col.hpp>
 
-using namespace gtopt;
-
 TEST_SUITE("SparseCol")
 {
+  using namespace gtopt;
   TEST_CASE("Default Construction")
   {
     const SparseCol col;

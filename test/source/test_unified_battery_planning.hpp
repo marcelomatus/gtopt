@@ -24,8 +24,6 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;
-
 // clang-format off
 static constexpr std::string_view unified_battery_json = R"({
   "options": {
@@ -78,6 +76,7 @@ static constexpr std::string_view unified_battery_json = R"({
 
 TEST_CASE("Unified battery JSON parse")  // NOLINT
 {
+  using namespace gtopt;
   auto planning = daw::json::from_json<Planning>(unified_battery_json);
 
   CHECK(planning.system.name == "unified_battery_test");
@@ -86,7 +85,7 @@ TEST_CASE("Unified battery JSON parse")  // NOLINT
   REQUIRE(planning.system.battery_array.size() == 1);
   const auto& bat = planning.system.battery_array[0];
   REQUIRE(bat.bus.has_value());
-  CHECK(std::get<Uid>(*bat.bus) == Uid {1});
+  CHECK(std::get<Uid>(*bat.bus) == Uid {1});  // NOLINT
 
   // No converter_array in JSON — will be auto-generated
   CHECK(planning.system.converter_array.empty());

@@ -9,15 +9,11 @@
  */
 
 #include <algorithm>
-#include <ranges>
-#include <type_traits>
 
 #include <doctest/doctest.h>
 #include <gtopt/element_index.hpp>
 
-using namespace gtopt;
-
-namespace
+namespace  // NOLINT
 {
 // Test element types for strong typing
 struct TestElement1
@@ -33,6 +29,7 @@ struct TestElement2
 
 TEST_CASE("ElementIndex - Default construction")
 {
+  using namespace gtopt;
   const ElementIndex<TestElement1> idx1;
   CHECK(idx1 == ElementIndex<TestElement1>::Unknown);
   CHECK(idx1 == unknown_index);

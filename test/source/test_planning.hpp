@@ -89,10 +89,9 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   CHECK(deserialized.system.bus_array[0].name == "b1");
 }
 
-using namespace gtopt;
-
 TEST_CASE("PlanningLP - Default construction base")
 {
+  using namespace gtopt;
   // Create minimal components
   const Options options {};
   const Simulation simulation {};

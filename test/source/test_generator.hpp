@@ -4,10 +4,9 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Generator set_attrs functionality")
 {
+  using namespace gtopt;
   Generator gen;
   GeneratorAttrs attrs;
 

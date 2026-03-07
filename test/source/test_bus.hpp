@@ -135,10 +135,9 @@ TEST_CASE("Bus serialization")
   }
 }
 
-using namespace gtopt;
-
 TEST_CASE("BusLP construction and basic properties")
 {
+  using namespace gtopt;
   SUBCASE("Default construction")
   {
     const Bus bus;

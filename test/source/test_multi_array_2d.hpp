@@ -3,10 +3,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/multi_array_2d.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("MultiArray2D default construction")
 {
+  using namespace gtopt;
   const MultiArray2D<double> arr;
   CHECK(arr.empty());
   CHECK(arr.size() == 0);

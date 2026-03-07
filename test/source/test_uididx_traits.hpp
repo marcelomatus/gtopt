@@ -7,10 +7,9 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/uididx_traits.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Basic functionality 1")
 {
+  using namespace gtopt;
   using TestTraits = UidMapTraits<int, std::string, int>;
 
   // SUBCASE("Type aliases")

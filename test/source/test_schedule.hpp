@@ -4,10 +4,9 @@
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("schedule test vector")
 {
+  using namespace gtopt;
   const Id id;
   const System sys;
 

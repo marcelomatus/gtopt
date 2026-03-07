@@ -13,9 +13,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/single_id.hpp>
 
-using namespace gtopt;
-
-namespace
+namespace  // NOLINT
 {
 // Test object types
 struct TestObject1
@@ -45,6 +43,7 @@ struct TestObject2
 
 TEST_CASE("get_uid and get_name - With objects")
 {
+  using namespace gtopt;
   const TestObject1 obj {.object_uid = Uid {42}, .object_name = "test_obj"};
 
   CHECK(get_uid(obj) == Uid {42});
@@ -53,6 +52,7 @@ TEST_CASE("get_uid and get_name - With objects")
 
 TEST_CASE("get_uid and get_name - With Id")
 {
+  using namespace gtopt;
   const Id id {Uid {100}, "test_id"};
 
   CHECK(get_uid(id) == Uid {100});
@@ -61,6 +61,7 @@ TEST_CASE("get_uid and get_name - With Id")
 
 TEST_CASE("ObjectId - Construction and access")
 {
+  using namespace gtopt;
   const Id base_id {Uid {5}, "base"};
   const ObjectId<TestObject1> obj_id {base_id};
 
@@ -70,6 +71,7 @@ TEST_CASE("ObjectId - Construction and access")
 
 TEST_CASE("SingleId - Basic variant functionality")
 {
+  using namespace gtopt;
   SUBCASE("Construct with Uid")
   {
     SingleId sid = Uid {42};
@@ -87,6 +89,7 @@ TEST_CASE("SingleId - Basic variant functionality")
 
 TEST_CASE("OptSingleId - Optional variant")
 {
+  using namespace gtopt;
   SUBCASE("Empty optional")
   {
     const OptSingleId opt;
@@ -112,6 +115,7 @@ TEST_CASE("OptSingleId - Optional variant")
 
 TEST_CASE("ObjectSingleId - Construction")
 {
+  using namespace gtopt;
   SUBCASE("Default construction")
   {
     const ObjectSingleId<TestObject1> obj_sid;
@@ -152,6 +156,7 @@ TEST_CASE("ObjectSingleId - Construction")
 
 TEST_CASE("ObjectSingleId - Copy and move semantics")
 {
+  using namespace gtopt;
   SUBCASE("Copy construction")
   {
     const ObjectSingleId<TestObject1> obj_sid1 {Uid {50}};
@@ -186,6 +191,7 @@ TEST_CASE("ObjectSingleId - Copy and move semantics")
 
 TEST_CASE("ObjectSingleId - Accessors")
 {
+  using namespace gtopt;
   SUBCASE("uid() accessor")
   {
     const ObjectSingleId<TestObject1> obj_sid {Uid {200}};
@@ -201,6 +207,7 @@ TEST_CASE("ObjectSingleId - Accessors")
 
 TEST_CASE("ObjectSingleId - Type safety")
 {
+  using namespace gtopt;
   // Different object types should have different ObjectSingleId types
   using ObjSid1 = ObjectSingleId<TestObject1>;
   using ObjSid2 = ObjectSingleId<TestObject2>;
@@ -217,6 +224,7 @@ TEST_CASE("ObjectSingleId - Type safety")
 
 TEST_CASE("ObjectSingleId - Variant visitation")
 {
+  using namespace gtopt;
   ObjectSingleId<TestObject1> obj_sid_uid {Uid {77}};
   ObjectSingleId<TestObject1> obj_sid_name {Name {"visit_test"}};
 
@@ -257,6 +265,7 @@ TEST_CASE("ObjectSingleId - Variant visitation")
 
 TEST_CASE("ObjectSingleId - Use in containers")
 {
+  using namespace gtopt;
   std::vector<ObjectSingleId<TestObject1>> vec;
   vec.emplace_back(Uid {1});
   vec.emplace_back(Name {"second"});
