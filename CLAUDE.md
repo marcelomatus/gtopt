@@ -486,9 +486,11 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 12. **Always add a trailing comma** to the last element of every brace-initializer list
     (member initializers, aggregate initializers, initializer-list arguments) to satisfy
     `readability-trailing-comma`.
-13. **Testing LP via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))`.
-    Direct `from_json` overwrites `scene_array` with `{}`, so `resolve()` never runs.
-    See `.github/copilot-instructions.md` → "Useful Tips" for full explanation.
+13. **Testing LP via JSON**: you can use direct `from_json<Planning>(json_str)` or the
+    merge pattern `Planning base; base.merge(from_json<Planning>(json_str))`.
+    Both work now: `SimulationLP` automatically falls back to a single default
+    `Phase{}`/`Scene{}` when `phase_array`/`scene_array` are empty.
+    The merge pattern is still preferred when loading from multiple JSON files.
 14. **Testing `gtopt_main()`**: use `MainOptions{.planning_files=..., .use_single_bus=true}`.
     Only set the fields you need — all others default to `std::nullopt`.
 
