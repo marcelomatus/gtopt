@@ -8,10 +8,9 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Line construction and default values")
 {
+  using namespace gtopt;
   const Line line;
 
   // Check default values

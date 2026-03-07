@@ -6,12 +6,12 @@
 #include <gtopt/cpu_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 
-using namespace std::chrono_literals;
-
-using namespace gtopt;
-
 TEST_CASE("WorkPool basic functionality")
 {
+  using namespace std::chrono_literals;
+
+  using namespace gtopt;
+
   AdaptiveWorkPool pool;
   pool.start();
 
@@ -139,6 +139,8 @@ TEST_CASE("WorkPool basic functionality")
 
 TEST_CASE("WorkPool stress testing")
 {
+  using namespace std::chrono_literals;
+
   constexpr int max_threads = 16;
   WorkPoolConfig config;
   config.max_threads = max_threads;

@@ -4,9 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/strong_index_vector.hpp>
 
-using namespace gtopt;
-
-namespace
+namespace  // NOLINT
 {
 struct TestIndex
 {
@@ -21,6 +19,7 @@ struct TestIndex
 
 TEST_CASE("StrongIndexVector indexing")
 {
+  using namespace gtopt;
   StrongIndexVector<TestIndex, int> values(3, 0);
 
   values[TestIndex {1}] = 42;

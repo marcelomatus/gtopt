@@ -5,8 +5,6 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;
-
 /**
  * @test Verify active element accessor functionality
  *
@@ -17,6 +15,7 @@ using namespace gtopt;
  */
 TEST_CASE("Active Elements Accessors")
 {
+  using namespace gtopt;
   const OptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},

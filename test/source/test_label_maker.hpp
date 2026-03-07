@@ -5,10 +5,9 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("LabelMaker basic functionality")
 {
+  using namespace gtopt;
   Options options;
   options.use_lp_names = true;
   const OptionsLP options_lp(options);

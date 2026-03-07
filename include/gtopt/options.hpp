@@ -94,7 +94,7 @@ struct Options
   /** @brief Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
 
-  void merge(Options&& opts)  // NOLINT
+  void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
     merge_opt(input_directory, std::move(opts.input_directory));
@@ -124,6 +124,8 @@ struct Options
     merge_opt(lp_algorithm, opts.lp_algorithm);
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
+
+    auto _ = std::move(opts);
   }
 };
 

@@ -7,10 +7,9 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("ReserveZone construction and default values")
 {
+  using namespace gtopt;
   const ReserveZone reserve_zone;
 
   // Check default values

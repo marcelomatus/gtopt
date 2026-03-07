@@ -7,10 +7,9 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("BlockLP default construction")
 {
+  using namespace gtopt;
   constexpr BlockLP block;
 
   SUBCASE("Default constructed BlockLP has unknown index")

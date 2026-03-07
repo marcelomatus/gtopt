@@ -1,14 +1,11 @@
 #include <cstdio>  // Para std::remove
 #include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include <doctest/doctest.h>
 
-namespace
+namespace  // NOLINT
 {
 struct TestData
 {

@@ -39,11 +39,13 @@ struct Planning
    * an rvalue)
    * @return Reference to this planning object
    */
-  constexpr void merge(Planning&& plan)  // NOLINT
+  constexpr void merge(Planning&& plan)
   {
     options.merge(std::move(plan.options));
     simulation.merge(std::move(plan.simulation));
     system.merge(std::move(plan.system));
+
+    auto _ = std::move(plan);
   }
 };
 

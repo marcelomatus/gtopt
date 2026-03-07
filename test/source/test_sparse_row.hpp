@@ -1,10 +1,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;
-
 TEST_SUITE("SparseRow")
 {
+  using namespace gtopt;
   TEST_CASE("SparseRow - Default Construction")
   {
     const SparseRow row;

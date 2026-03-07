@@ -4,10 +4,9 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/stage.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("ReserveProvision construction and default values")
 {
+  using namespace gtopt;
   const ReserveProvision reserve_provision;
 
   // Check default values for identification

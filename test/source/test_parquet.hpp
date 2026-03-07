@@ -15,10 +15,9 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
 
-using namespace gtopt;
-
 TEST_CASE("Parquet file write and read test")
 {
+  using namespace gtopt;
   const std::string iname = "input";
   const std::string cname = "test_data";
   const std::string dirname = iname + "/" + cname + "/";

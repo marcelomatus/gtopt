@@ -15,10 +15,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/overload.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Overload - Basic functionality")
 {
+  using namespace gtopt;
   std::variant<int, double, std::string> v;
 
   SUBCASE("Integer overload")

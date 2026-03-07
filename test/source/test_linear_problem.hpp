@@ -2,10 +2,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("Linear problem test 0")
 {
+  using namespace gtopt;
   const SparseCol col({.name = "hola", .cost = 1});
   REQUIRE(col.name == "hola");
   REQUIRE(col.cost == doctest::Approx(1));

@@ -264,7 +264,7 @@ template<typename... Args>
         ((result +=
           std::format("{}", args) + (++count < sizeof...(Args) ? ", " : "")),
          ...);
-        result += ")";
+        result += ')';
         return result;
       },
       t);

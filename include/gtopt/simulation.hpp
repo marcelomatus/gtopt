@@ -54,14 +54,10 @@ struct Simulation
   Array<Block> block_array {};  ///< Ordered list of time blocks
   Array<Stage> stage_array {};  ///< Ordered list of planning stages
   Array<Scenario> scenario_array {};  ///< List of stochastic scenarios
-  Array<Phase>
-      phase_array {};  ///< List of planning phases (default: empty;
-                       ///< SimulationLP adds one default Phase when empty)
-  Array<Scene>
-      scene_array {};  ///< List of scene combinations (default: empty;
-                       ///< SimulationLP adds one default Scene when empty)
+  Array<Phase> phase_array {};  ///< List of planning phases
+  Array<Scene> scene_array {};  ///< List of scene combinations
 
-  constexpr Simulation& merge(Simulation&& sim)  // NOLINT
+  constexpr void merge(Simulation&& sim)
   {
     gtopt::merge(block_array, std::move(sim.block_array));
     gtopt::merge(stage_array, std::move(sim.stage_array));
@@ -69,7 +65,7 @@ struct Simulation
     gtopt::merge(phase_array, std::move(sim.phase_array));
     gtopt::merge(scene_array, std::move(sim.scene_array));
 
-    return *this;
+    auto _ = std::move(sim);  // move/clear sim
   }
 };
 

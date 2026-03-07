@@ -28,9 +28,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;
-
-namespace
+namespace  // NOLINT
 {
 // Minimal planning JSON usable by gtopt_main (no input-directory needed).
 constexpr auto minimal_json = R"({
@@ -69,6 +67,7 @@ std::filesystem::path write_tmp_json(const std::string& name,
 
 TEST_CASE("gtopt_main - returns error for nonexistent file")
 {
+  using namespace gtopt;
   auto result = gtopt_main(MainOptions {
       .planning_files = {"nonexistent_planning_file_xyz"},
   });

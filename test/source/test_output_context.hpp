@@ -18,9 +18,7 @@
 #include <gtopt/system_lp.hpp>
 #include <zlib.h>
 
-using namespace gtopt;
-
-namespace
+namespace  // NOLINT
 {
 auto make_basic_system()
 {
@@ -59,6 +57,7 @@ auto make_basic_system()
 
 TEST_CASE("OutputContext - write output after solve (parquet)")
 {
+  using namespace gtopt;
   auto [system, simulation] = make_basic_system();
 
   // Use a temp directory for output
@@ -404,7 +403,7 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
 // CSV compression behaviour tests
 // ---------------------------------------------------------------------------
 
-namespace
+namespace  // NOLINT
 {
 // Decompress a gzip file into a string. Returns empty string on failure.
 std::string gunzip_to_string(const std::filesystem::path& gz_path)
@@ -749,7 +748,7 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------------------
 // Tests for output failure paths and solution.csv failure path
 // ---------------------------------------------------------------------------
-namespace
+namespace  // NOLINT
 {
 // Helper: create all expected output subdirectories inside @p outdir with
 // read+exec but no write permission.  The component subdirs written by

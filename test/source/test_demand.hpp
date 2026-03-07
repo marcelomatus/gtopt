@@ -29,10 +29,9 @@ TEST_CASE("Demand with capacity")
   CHECK(std::get<double>(demand.capacity.value()) == 100.0);
 }
 
-using namespace gtopt;
-
 TEST_CASE("DemandLP - basic demand with capacity")
 {
+  using namespace gtopt;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
   const Array<Generator> generator_array = {

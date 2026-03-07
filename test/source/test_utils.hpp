@@ -8,10 +8,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/utils.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("merge vectors")
 {
+  using namespace gtopt;
   SUBCASE("basic merge")
   {
     std::vector<int> a {1, 2};

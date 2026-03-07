@@ -2,10 +2,9 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/state_variable.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("StateVariable::Key functionality")
 {
+  using namespace gtopt;
   SUBCASE("Basic key creation")
   {
     const auto key = StateVariable::key(

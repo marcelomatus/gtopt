@@ -7,10 +7,9 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
-
 TEST_CASE("GeneratorProfile default construction")  // NOLINT
 {
+  using namespace gtopt;
   const GeneratorProfile gp;
 
   CHECK(gp.uid == Uid {unknown_uid});

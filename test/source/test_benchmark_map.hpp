@@ -45,7 +45,7 @@ void map_reserve(  // NOLINT
 }  // namespace gtopt
 #endif
 
-namespace
+namespace  // NOLINT
 {
 
 using int64_t = std::int64_t;
@@ -566,7 +566,7 @@ TEST_CASE("Benchmark - map_reserve for boost::flat_map")
 
 using StdFlatMap = std::flat_map<int, int>;
 
-namespace
+namespace  // NOLINT
 {
 void report_boost_vs_std(std::string_view label, double boost_ns, double std_ns)
 {

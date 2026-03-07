@@ -22,13 +22,11 @@
 #include <gtopt/array_index_traits.hpp>
 #include <parquet/arrow/writer.h>
 
-using namespace gtopt;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-namespace
+namespace  // NOLINT
 {
 
 /// Write a minimal single-column CSV to @p path (no extension).
@@ -128,6 +126,7 @@ std::filesystem::path tmp_path(const std::string& name)
 
 TEST_CASE("build_table_path - normal cname/fname")
 {
+  using namespace gtopt;
   const auto p = build_table_path("/input", "Generator", "capacity");
   CHECK(p == std::filesystem::path("/input/Generator/capacity"));
 }

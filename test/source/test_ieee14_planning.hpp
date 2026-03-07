@@ -22,8 +22,6 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;
-
 // clang-format off
 static constexpr std::string_view ieee14_json = R"({
   "options": {
@@ -193,6 +191,7 @@ static constexpr std::string_view ieee14_json = R"({
 
 TEST_CASE("IEEE 14-bus - JSON parse and structure check")
 {
+  using namespace gtopt;
   auto planning = daw::json::from_json<Planning>(ieee14_json);
 
   CHECK(planning.system.name == "ieee_14");

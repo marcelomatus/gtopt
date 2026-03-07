@@ -6,8 +6,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/collection.hpp>
 
-using namespace gtopt;
-namespace
+namespace  // NOLINT
 {
 
 struct test_object
@@ -27,6 +26,7 @@ struct test_object
 
 TEST_CASE("Collection test 1")
 {
+  using namespace gtopt;
   std::vector<test_object> vec1 = {
       {.uid = 1, .name = "n1", .value = 1},
       {.uid = 2, .name = "n2", .value = 2},
@@ -89,7 +89,7 @@ TEST_CASE("Collection test 1")
 }
 
 // Helper class to test with
-namespace
+namespace  // NOLINT
 {
 
 class MyCollection
