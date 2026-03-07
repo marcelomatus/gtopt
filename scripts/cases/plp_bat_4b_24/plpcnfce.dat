@@ -1,6 +1,4 @@
 # Archivo de configuracion de las centrales (plpcnfce.dat)
-# Generators: g1 (250MW,$20,bus1), g2 (150MW,$40,bus2), g_solar (90MW,$0,bus1)
-# Battery: BESS1 (60MW,bus3), Failure: Falla1 (bus1)
 # Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT
      5            0           0         1          0            1
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
