@@ -79,6 +79,11 @@ def test_battery_array_from_cenbat(tmp_path):
     assert b["emax"] == pytest.approx(200.0)  # absolute emax value
     assert "eini" not in b  # eini not read from PLP files
     assert b["capacity"] == pytest.approx(200.0)  # emax directly
+    # Unified fields (no maintenance → bus/pmax present)
+    assert b["bus"] == 1
+    assert b["pmax_discharge"] == pytest.approx(0.0)  # no central_parser → 0
+    assert b["pmax_charge"] == pytest.approx(0.0)
+    assert b["gcost"] == pytest.approx(0.0)
 
 
 def test_battery_array_emin_from_emin_emax(tmp_path):
@@ -192,13 +197,13 @@ def test_process_no_battery(tmp_path):
     existing_dem = [{"uid": 1, "name": "Dem1"}]
     result = writer.process(existing_gen, existing_dem, tmp_path)
     assert not result["battery_array"]
-    assert not result["converter_array"]
+    assert "converter_array" not in result
     assert result["generator_array"] == existing_gen
     assert result["demand_array"] == existing_dem
 
 
 def test_process_with_battery(tmp_path):
-    """process() with one battery produces correct combined arrays."""
+    """process() with one battery uses unified definition (no separate gen/dem/conv)."""
     bp = _make_battery_parser(
         tmp_path,
         " 1     1\n"
@@ -215,9 +220,16 @@ def test_process_with_battery(tmp_path):
     )
 
     assert len(result["battery_array"]) == 1
-    assert len(result["converter_array"]) == 1
-    assert len(result["generator_array"]) == 2  # 1 thermal + 1 battery discharge
-    assert len(result["demand_array"]) == 2  # 1 demand + 1 battery charge
+    bat = result["battery_array"][0]
+    # Unified fields present
+    assert "bus" in bat
+    assert "pmax_discharge" in bat
+    assert "pmax_charge" in bat
+    assert "gcost" in bat
+    # No separate converter/generator/demand for battery
+    assert "converter_array" not in result
+    assert len(result["generator_array"]) == 1  # only thermal
+    assert len(result["demand_array"]) == 1  # only demand
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +255,11 @@ def test_battery_array_from_ess(tmp_path):
     assert b["emin"] == pytest.approx(0.0)  # no emin in ESS
     assert b["emax"] == pytest.approx(200.0)  # absolute emax from plpess.dat
     assert "eini" not in b  # eini not read from PLP files
+    # Unified fields (no maintenance)
+    assert b["bus"] == 1  # default bus
+    assert b["pmax_discharge"] == pytest.approx(100.0)
+    assert b["pmax_charge"] == pytest.approx(100.0)
+    assert b["gcost"] == pytest.approx(0.0)
 
 
 def test_ess_generator_array(tmp_path):
@@ -314,7 +331,7 @@ def test_ess_annual_loss(tmp_path):
 
 
 def test_process_with_ess(tmp_path):
-    """process() with one ESS entry produces correct combined arrays."""
+    """process() with one ESS entry uses unified definition (no separate gen/dem/conv)."""
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
@@ -327,9 +344,16 @@ def test_process_with_ess(tmp_path):
     )
 
     assert len(result["battery_array"]) == 1
-    assert len(result["converter_array"]) == 1
-    assert len(result["generator_array"]) == 2  # 1 thermal + 1 ESS discharge
-    assert len(result["demand_array"]) == 2  # 1 demand + 1 ESS charge
+    bat = result["battery_array"][0]
+    # Unified fields present
+    assert "bus" in bat
+    assert "pmax_discharge" in bat
+    assert "pmax_charge" in bat
+    assert "gcost" in bat
+    # No separate converter/generator/demand for battery
+    assert "converter_array" not in result
+    assert len(result["generator_array"]) == 1  # only thermal
+    assert len(result["demand_array"]) == 1  # only demand
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +365,8 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
     """When manbat provides maintenance, battery emin/emax are file refs.
 
     plpmanbat.dat modifies Emin/Emax (energy bounds) in Fortran, which map
-    to Battery emin/emax schedules in gtopt.
+    to Battery emin/emax schedules in gtopt.  Since manbat does NOT modify
+    DC power bounds, the unified battery fields (bus, pmax_*) are still set.
     """
     bp = _make_battery_parser(
         tmp_path,
@@ -363,6 +388,11 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
     # With maintenance, emin/emax are file references
     assert b["emin"] == "emin"
     assert b["emax"] == "emax"
+    # manbat does NOT affect DC bounds → unified fields present
+    assert "bus" in b
+    assert "pmax_discharge" in b
+    assert "pmax_charge" in b
+    assert "gcost" in b
 
 
 def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
@@ -418,7 +448,11 @@ def test_battery_maintenance_dem_lmax_is_scalar(tmp_path):
 
 
 def test_ess_maintenance_sets_pmax_reference(tmp_path):
-    """When maness provides maintenance with DCMax, gen pmax is file ref."""
+    """When maness provides maintenance with DCMax, gen pmax is file ref.
+
+    DC-maintenance entries use the legacy multi-element approach, so the
+    battery does NOT have unified fields (bus, pmax_*, gcost).
+    """
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0\n",
@@ -433,6 +467,12 @@ def test_ess_maintenance_sets_pmax_reference(tmp_path):
     assert len(gens) == 1
     g = gens[0]
     assert g["pmax"] == "pmax"
+
+    # Battery should NOT have unified fields (DC maintenance → legacy)
+    bats = writer.to_battery_array()
+    assert len(bats) == 1
+    assert "bus" not in bats[0]
+    assert "pmax_discharge" not in bats[0]
 
 
 def test_ess_maintenance_sets_lmax_reference(tmp_path):
