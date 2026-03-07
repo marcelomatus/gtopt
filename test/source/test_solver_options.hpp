@@ -16,7 +16,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("SolverOptions - Default construction")
 {
