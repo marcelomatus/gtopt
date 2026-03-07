@@ -491,9 +491,15 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
     Array<Phase> phase_array {Phase {},};
     system.bus_array = {{.uid = Uid {1}, .name = "b1",},};
     ```
-15. **Testing the LP solver via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))` to
-    parse. Direct `from_json` overwrites `scene_array` with `{}`, so
-    `resolve()` returns 0 results without solving. See "Useful Tips" for details.
+15. **Testing the LP solver via JSON**: direct `from_json<Planning>(json_str)` now
+    works safely — `SimulationLP` falls back to default `Phase{}`/`Scene{}` when
+    `phase_array`/`scene_array` are empty.  The merge pattern is still preferred
+    when accumulating multiple JSON files:
+    ```cpp
+    Planning base;
+    base.merge(from_json<Planning>(json_str));
+    PlanningLP plp(base, ...);
+    ```
 16. **Testing `gtopt_main()`**: use `MainOptions` with designated initializers.
     Write temporary JSON to `std::filesystem::temp_directory_path()` and pass
     the stem (without `.json`) as `planning_files`:
@@ -908,18 +914,21 @@ gtopt/
 - **`--stats` / `-S` CLI flag**: when passed to the `gtopt` binary it logs
   pre-solve system statistics (bus/gen/line counts, key option values) and
   post-solve results (unscaled objective, LP dimensions, solve time).
-- **`Planning::merge()` is required when testing the LP solver from JSON**.
-  `daw::json` leaves `scene_array={}` (empty) when the field is absent from
-  the input; `Simulation::scene_array` has C++ default `{Scene{}}`, but this
-  is overwritten by direct `from_json<Planning>()`. Always use the merge
-  pattern so the default scene is preserved:
+- **`Planning::merge()` when loading from multiple JSON files**.
+  When loading from a single JSON file, direct `from_json<Planning>()` now
+  works correctly because `SimulationLP` falls back to a single default
+  `Phase{}`/`Scene{}` when `phase_array`/`scene_array` are empty.
+  Use the merge pattern only when accumulating content from multiple JSON files:
   ```cpp
   Planning base;
   base.merge(daw::json::from_json<Planning>(json_str));
-  PlanningLP plp(base, ...);   // scene_array = {Scene{}} ✓
+  PlanningLP plp(base, ...);   // works whether or not JSON has phase_array/scene_array
   ```
-  Direct assignment (`Planning p = from_json<Planning>(...)`) gives an empty
-  `scene_array` and `PlanningLP::resolve()` returns 0 results without solving.
+  Direct `from_json<Planning>(json_str)` also works for single-file loads:
+  ```cpp
+  Planning p = daw::json::from_json<Planning>(json_str);
+  PlanningLP plp(p, ...);  // SimulationLP adds default Phase{}/Scene{} if needed
+  ```
 - **Diagnostics on failure**: `gtopt_main` logs the full `SolverOptions` used
   (algorithm, threads, tolerances) when the solver does not find an optimal
   solution, and includes filename + position for JSON parse errors.

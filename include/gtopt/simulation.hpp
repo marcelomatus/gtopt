@@ -40,6 +40,11 @@ namespace gtopt
  * the input JSON, gtopt uses a default single scenario, single stage/block
  * configuration so that simple single-snapshot cases require minimal input.
  *
+ * @note `phase_array` and `scene_array` default to empty.  When they are
+ * empty, `SimulationLP` automatically falls back to a single default `Phase{}`
+ * / `Scene{}` so the LP can always be assembled.  Provide explicit entries in
+ * these arrays only when you need multiple phases or scenes.
+ *
  * Multiple JSON files can be merged with `Planning::merge()`, allowing the
  * time structure to be split across files (e.g. blocks in one file, stages
  * in another).
@@ -49,12 +54,12 @@ struct Simulation
   Array<Block> block_array {};  ///< Ordered list of time blocks
   Array<Stage> stage_array {};  ///< Ordered list of planning stages
   Array<Scenario> scenario_array {};  ///< List of stochastic scenarios
-  Array<Phase> phase_array {
-      Phase {},
-  };  ///< List of planning phases (default: one phase)
-  Array<Scene> scene_array {
-      Scene {},
-  };  ///< List of scene combinations (default: one scene)
+  Array<Phase>
+      phase_array {};  ///< List of planning phases (default: empty;
+                       ///< SimulationLP adds one default Phase when empty)
+  Array<Scene>
+      scene_array {};  ///< List of scene combinations (default: empty;
+                       ///< SimulationLP adds one default Scene when empty)
 
   constexpr Simulation& merge(Simulation&& sim)  // NOLINT
   {
