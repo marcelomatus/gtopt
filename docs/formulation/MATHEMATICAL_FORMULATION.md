@@ -340,9 +340,9 @@ The effective bounds at each block depend on stage-specific and
 block-specific parameters:
 
 $$
-\overline{P}_{g,t,b} = \min\!\big(\overline{P}_{g,t}(b),\; \bar{C}_{g,t}\big)
+\overline{P}_{g,t,b} = \min\bigl(\overline{P}_{g,t}(b),\; \bar{C}_{g,t}\bigr)
 \qquad
-\underline{P}_{g,t,b} = \max\!\big(\underline{P}_{g,t}(b),\; 0\big)
+\underline{P}_{g,t,b} = \max\bigl(\underline{P}_{g,t}(b),\; 0\bigr)
 $$
 
 where $\overline{P}_{g,t}(b)$ and $\underline{P}_{g,t}(b)$ are the
@@ -1151,6 +1151,21 @@ Working Paper.
 > Both GenX and gtopt use LP/MIP with modular capacity additions,
 > storage SoC tracking, and representative time periods, though gtopt
 > uses a C++ sparse-matrix assembly for performance.
+
+<a id="ref17"></a>
+**[17]** Thurner, L., Scheidler, A., Schäfer, F., Menke, J-H., Dollichon,
+J., Meier, F., Meinecke, S., and Braun, M. (2018). "pandapower — An
+Open-Source Python Tool for Convenient Modeling, Analysis, and
+Optimization of Electric Power Systems." *IEEE Transactions on Power
+Systems*, 33(6), pp. 6510–6521.
+DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
+
+> pandapower is a Python-based power system analysis tool supporting AC and
+> DC power flow, optimal power flow (OPF), and short-circuit analysis. It
+> is used by gtopt's `pp2gtopt` converter to import pandapower network
+> models into gtopt format, and by the `gtopt-compare` validation script to
+> provide a reference DC OPF solution for benchmarking gtopt results on
+> standard IEEE test cases (4-bus, 9-bus, 14-bus, 30-bus, 57-bus).
 
 ### Solvers
 
