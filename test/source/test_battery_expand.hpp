@@ -51,11 +51,13 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
 
   // A single generator already exists (for non-battery use)
   system.generator_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 20.0,
-       .capacity = 200.0,},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 20.0,
+          .capacity = 200.0,
+      },
   };
 
   // A single demand already exists
