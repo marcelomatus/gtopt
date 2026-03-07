@@ -346,6 +346,41 @@ def _download_artifact_zip(
 # ---------------------------------------------------------------------------
 
 
+def _pick_c_compiler() -> str:
+    """Return the best available C compiler meeting the project's minimum.
+
+    Preference order:
+      1. clang-21 (or newer versioned clang-N for N >= 21)
+      2. gcc-14 (or newer versioned gcc-N for N >= 14)
+      3. unversioned clang / gcc as last resort
+    """
+    # Try versioned clang >= 21
+    for ver in range(30, 20, -1):
+        candidate = shutil.which(f"clang-{ver}")
+        if candidate:
+            return candidate
+    # Try versioned gcc >= 14
+    for ver in range(20, 13, -1):
+        candidate = shutil.which(f"gcc-{ver}")
+        if candidate:
+            return candidate
+    # Fall back to unversioned
+    return shutil.which("clang") or shutil.which("gcc") or "cc"
+
+
+def _pick_cxx_compiler() -> str:
+    """Return the best available C++ compiler meeting the project's minimum."""
+    for ver in range(30, 20, -1):
+        candidate = shutil.which(f"clang++-{ver}")
+        if candidate:
+            return candidate
+    for ver in range(20, 13, -1):
+        candidate = shutil.which(f"g++-{ver}")
+        if candidate:
+            return candidate
+    return shutil.which("clang++") or shutil.which("g++") or "c++"
+
+
 def build_gtopt_from_source(
     repo_root: Optional[pathlib.Path] = None,
     build_dir: Optional[pathlib.Path] = None,
@@ -405,9 +440,10 @@ def build_gtopt_from_source(
         log.info("Using existing build at %s", bin_path)
         return bin_path
 
-    # Detect compilers
-    c_compiler = shutil.which("clang") or shutil.which("gcc") or "cc"
-    cxx_compiler = shutil.which("clang++") or shutil.which("g++") or "c++"
+    # Detect compilers – prefer versioned compilers that meet minimum requirements.
+    # The project requires GCC >= 14 or Clang >= 21.
+    c_compiler = _pick_c_compiler()
+    cxx_compiler = _pick_cxx_compiler()
 
     # Try to determine conda prefix for Arrow/Parquet
     conda_prefix = _conda_prefix()
@@ -435,10 +471,28 @@ def build_gtopt_from_source(
         configure_cmd, capture_output=False, cwd=str(repo_root), check=False
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"cmake configure failed (returncode={result.returncode}).  "
-            "Check that all build dependencies are installed."
-        )
+        # Stale CMakeCache.txt may cause failures after a compiler change.
+        # Delete the cache and retry once.
+        cache_file = build_dir / "CMakeCache.txt"
+        if cache_file.exists():
+            log.warning(
+                "cmake configure failed; removing stale CMakeCache.txt and retrying…"
+            )
+            import shutil as _shutil  # pylint: disable=import-outside-toplevel,redefined-outer-name
+
+            _shutil.rmtree(build_dir)
+            build_dir.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                configure_cmd,
+                capture_output=False,
+                cwd=str(repo_root),
+                check=False,
+            )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"cmake configure failed (returncode={result.returncode}).  "
+                "Check that all build dependencies are installed."
+            )
 
     log.info("Building gtopt with %d jobs…", jobs)
     build_result = subprocess.run(
