@@ -21,3 +21,4 @@ using namespace gtopt;
 #include "test_ieee14b_ori_planning.hpp"
 #include "test_ieee4b_ori_planning.hpp"
 #include "test_ieee9b_ori_planning.hpp"
+#include "test_unified_battery_planning.hpp"

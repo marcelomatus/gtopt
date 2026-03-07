@@ -38,3 +38,4 @@ webservice/coverage/
 output/
 LastTest.log
 node_modules/
+error_*.lp

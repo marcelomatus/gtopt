@@ -238,7 +238,17 @@ class BatteryWriter(BaseWriter):
     def to_battery_array(
         self, entries: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Build battery_array JSON list."""
+        """Build battery_array JSON list.
+
+        When an entry has no DC-maintenance schedule, the unified battery
+        fields (``bus``, ``pmax_charge``, ``pmax_discharge``, ``gcost``)
+        are included so that ``System::expand_batteries()`` auto-generates
+        the discharge Generator, charge Demand, and linking Converter.
+
+        Entries with DC-maintenance (``man_data`` containing ``dcmax``)
+        omit the ``bus`` field; the caller must create separate Generator,
+        Demand, and Converter elements for those batteries.
+        """
         if entries is None:
             entries = self._all_entries()
 
@@ -247,6 +257,8 @@ class BatteryWriter(BaseWriter):
             emax = entry["emax"]
             emin = entry["emin"]
             has_man = entry.get("has_maintenance")
+            man = entry.get("man_data")
+            has_dc_man = man is not None and "dcmax" in man
             bat: Dict[str, Any] = {
                 "uid": entry["number"],
                 "name": entry["name"],
@@ -256,6 +268,12 @@ class BatteryWriter(BaseWriter):
                 "emax": "emax" if has_man else emax,
                 "capacity": emax,
             }
+            # Unified fields: only when no DC maintenance
+            if not has_dc_man:
+                bat["bus"] = entry["bus"]
+                bat["pmax_charge"] = entry["pmax_charge"]
+                bat["pmax_discharge"] = entry["pmax_discharge"]
+                bat["gcost"] = 0.0
             batteries.append(bat)
         return batteries
 
@@ -418,20 +436,31 @@ class BatteryWriter(BaseWriter):
     ) -> Dict[str, Any]:
         """Produce all battery output arrays.
 
+        For entries **without** DC-maintenance schedules the unified battery
+        definition is used (``bus``, ``pmax_charge``, ``pmax_discharge``,
+        ``gcost`` set on the battery itself).
+        ``System::expand_batteries()`` will auto-generate the discharge
+        Generator, charge Demand, and linking Converter at LP-construction
+        time.
+
+        Entries **with** DC-maintenance (``plpmaness.dat`` providing per-block
+        ``DCMax`` overrides) fall back to the legacy multi-element approach
+        because the Generator/pmax and Demand/lmax parquet files must
+        reference the generator/demand UIDs that match the parquet columns.
+
         Args:
             existing_gen: Generator array from CentralWriter to append to.
             existing_dem: Demand array from DemandWriter to append to.
             output_dir: Base output directory (Demand/ sub-dir for parquet).
 
         Returns:
-            Dict with battery_array, converter_array, updated generator_array
-            and demand_array.
+            Dict with battery_array, updated generator_array and
+            demand_array, and optionally converter_array.
         """
         entries = self._all_entries()
         if not entries:
             return {
                 "battery_array": [],
-                "converter_array": [],
                 "generator_array": existing_gen,
                 "demand_array": existing_dem,
             }
@@ -439,9 +468,25 @@ class BatteryWriter(BaseWriter):
         # Write maintenance schedule parquet files if needed
         self._write_maintenance_parquet(entries, output_dir)
 
-        return {
+        # Split entries: DC-maintenance needs legacy multi-element approach
+        dc_entries = [
+            e
+            for e in entries
+            if e.get("man_data") is not None and "dcmax" in e.get("man_data", {})
+        ]
+
+        result: Dict[str, Any] = {
             "battery_array": self.to_battery_array(entries),
-            "converter_array": self.to_converter_array(entries),
-            "generator_array": existing_gen + self.to_generator_array(entries),
-            "demand_array": existing_dem + self.to_demand_array(entries),
+            "generator_array": existing_gen,
+            "demand_array": existing_dem,
         }
+
+        # Legacy fallback for DC-maintenance entries
+        if dc_entries:
+            result["converter_array"] = self.to_converter_array(dc_entries)
+            result["generator_array"] = existing_gen + self.to_generator_array(
+                dc_entries
+            )
+            result["demand_array"] = existing_dem + self.to_demand_array(dc_entries)
+
+        return result

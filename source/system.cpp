@@ -9,6 +9,12 @@
  * core data.
  */
 
+#include <algorithm>
+#include <format>
+
+#include <gtopt/converter.hpp>
+#include <gtopt/demand.hpp>
+#include <gtopt/generator.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/utils.hpp>
@@ -60,6 +66,23 @@ constexpr bool needs_ref_theta(const BusContainer& buses,
       { return bus.needs_kirchhoff(kirchhoff_threshold); });
 }
 
+/**
+ * @brief Returns the next available UID for an element array
+ * @tparam T Element type (must have .uid member)
+ * @param arr Array of elements
+ * @return One past the maximum existing UID, or 1 if array is empty
+ */
+template<typename T>
+[[nodiscard]] auto next_uid(const gtopt::Array<T>& arr) -> gtopt::Uid
+{
+  if (arr.empty()) {
+    return 1;
+  }
+  auto max_it = std::ranges::max_element(
+      arr, {}, [](const auto& elem) { return elem.uid; });
+  return max_it->uid + 1;
+}
+
 }  // namespace
 
 namespace gtopt
@@ -72,6 +95,61 @@ void System::setup_reference_bus(const OptionsLP& options)
     bus.reference_theta = 0.0;
     SPDLOG_TRACE(std::format(
         "Setting bus '{}' as reference bus (reference_theta=0)", bus.name));
+  }
+}
+
+void System::expand_batteries()
+{
+  // Compute starting UIDs for auto-generated elements.
+  // These must be computed before appending to avoid shifting during iteration.
+  auto gen_uid = next_uid(generator_array);
+  auto dem_uid = next_uid(demand_array);
+  auto conv_uid = next_uid(converter_array);
+
+  for (auto& battery : battery_array) {
+    if (!battery.bus.has_value()) {
+      continue;  // traditional multi-element definition — skip
+    }
+
+    const auto gen_name = battery.name + "_gen";
+    const auto dem_name = battery.name + "_dem";
+    const auto conv_name = battery.name + "_conv";
+
+    // Discharge generator: power injected into the bus
+    generator_array.push_back(Generator {
+        .uid = gen_uid++,
+        .name = gen_name,
+        .bus = *battery.bus,
+        .gcost = battery.gcost,
+        .capacity = battery.pmax_discharge,
+    });
+
+    // Charge demand: power absorbed from the bus
+    demand_array.push_back(Demand {
+        .uid = dem_uid++,
+        .name = dem_name,
+        .bus = *battery.bus,
+        .capacity = battery.pmax_charge,
+    });
+
+    // Converter linking battery, generator, and demand
+    converter_array.push_back(Converter {
+        .uid = conv_uid++,
+        .name = conv_name,
+        .battery = Name {battery.name},
+        .generator = Name {gen_name},
+        .demand = Name {dem_name},
+    });
+
+    SPDLOG_TRACE(
+        std::format("Expanded battery '{}': gen='{}' dem='{}' conv='{}'",
+                    battery.name,
+                    gen_name,
+                    dem_name,
+                    conv_name));
+
+    // Clear bus so re-expansion is idempotent
+    battery.bus.reset();
   }
 }
 
