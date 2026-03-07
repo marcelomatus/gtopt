@@ -1,0 +1,5 @@
+# Archivo de indices de simulaciones (plpidsim.dat)
+# Numero de simulaciones y etapas con caudales
+      1     1
+# Mes   Etapa  SimulInd(1,...,NSimul)
+   001   001   1

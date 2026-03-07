@@ -39,3 +39,7 @@ output/
 LastTest.log
 node_modules/
 error_*.lp
+fecha-corrida
+plpfact.log
+plpwarn.log
+userstop

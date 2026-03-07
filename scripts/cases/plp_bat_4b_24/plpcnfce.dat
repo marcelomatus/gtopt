@@ -3,16 +3,17 @@
      5            0           0         1          0            1
 # Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase
   F      F        F            F          00
+# Caracteristicas Centrales
 # Centrales de Embalse
-# Centrales Pasada Serie
-# Centrales Pasada Pura
-# Centrales Termicas y de Falla
+# Centrales Serie Hidraulica
+# Centrales Pasada Puras
+# Centrales Termicas o Embalses Equivalentes,FV, EO, CS
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
     1 'g1'                                             1    F       F       F       F
           PotMin PotMax VertMin VertMax
              0.0  250.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0
+             0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
             20.0  1.000      1      0      0    0.0  0000.0
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
@@ -20,7 +21,7 @@
           PotMin PotMax VertMin VertMax
              0.0  150.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0
+             0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
             40.0  1.000      2      0      0    0.0  0000.0
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
@@ -28,24 +29,23 @@
           PotMin PotMax VertMin VertMax
              0.0   90.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0
+             0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  1.000      1      0      0    0.0  0000.0
-# Baterias
+# Baterias y Fallas
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
     4 'BESS1'                                         1    F       F       F       F
           PotMin PotMax VertMin VertMax
              0.0   60.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0
+             0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
              0.0  1.000      3      0      0    0.0  0000.0
-# Fallas
                                                   IPot MinTec  Inter   FCAD    Cen_MTTdHrz
     5 'Falla1'                                        1    F       F       F       F
           PotMin PotMax VertMin VertMax
              0.0 9999.0   000.0   000.0
            Start   Stop ON(t<0) NEta_OnOff
-             0.0    0.0 F       0
+             0.0    0.0 F       0               Pot.
           CosVar  Rendi  Barra SerHid SerVer    t<0  Afluen
           1000.0  1.000      1      0      0    0.0  0000.0
