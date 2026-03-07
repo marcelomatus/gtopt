@@ -282,6 +282,97 @@ to verify the install (~3–5 s) instead of downloading everything from scratch 
 
 ---
 
+## Obtaining the gtopt Binary Without Building From Scratch
+
+The **`tools/get_gtopt_binary.py`** script is a standalone Copilot / Claude
+agent tool.  It is **not installed** via `pip install ./scripts` or
+`cmake install`.  Use it to obtain a `gtopt` binary with minimal effort.
+
+### Strategy (tried in order)
+
+1. `GTOPT_BIN` environment variable → path to an existing binary.
+2. `shutil.which("gtopt")` → binary on `PATH`.
+3. Standard build-directory paths relative to the repository root:
+   `build/standalone/gtopt`, `build/gtopt`, `build-standalone/gtopt`,
+   `all/build/gtopt`.
+4. `/tmp/gtopt-ci-bin/gtopt` → previously downloaded CI artifact.
+5. Download `gtopt-binary-debug` artifact from the latest successful CI run
+   (requires `GITHUB_TOKEN` or `gh` CLI).
+6. Build from source via `cmake` (`--build` flag; slowest option).
+
+### Fastest: run the helper script
+
+```bash
+# From repo root – prints the binary path and exports it
+export GTOPT_BIN=$(python tools/get_gtopt_binary.py)
+pytest scripts/igtopt/tests/ -m integration -v
+
+# Force a fresh CI download
+python tools/get_gtopt_binary.py --force-download
+
+# Also try building from source if CI artifact unavailable
+python tools/get_gtopt_binary.py --build
+```
+
+### Manual CI artifact download via `gh` CLI
+
+```bash
+# 1. Find the latest non-expired artifact ID
+ART_ID=$(gh api "repos/marcelomatus/gtopt/actions/artifacts?name=gtopt-binary-debug" \
+    --jq '.artifacts | map(select(.expired|not)) | .[0].id')
+
+# 2. Download and unzip
+mkdir -p /tmp/gtopt-ci-bin
+gh api repos/marcelomatus/gtopt/actions/artifacts/${ART_ID}/zip \
+    --header "Accept: application/vnd.github+json" > /tmp/gtopt.zip
+unzip -o /tmp/gtopt.zip -d /tmp/gtopt-ci-bin
+chmod +x /tmp/gtopt-ci-bin/gtopt
+/tmp/gtopt-ci-bin/gtopt --version
+
+# 3. Run integration tests
+export GTOPT_BIN=/tmp/gtopt-ci-bin/gtopt
+pytest scripts/igtopt/tests/ -m integration -v
+```
+
+### Programmatic use in Python
+
+```python
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+
+from get_gtopt_binary import get_gtopt_binary, download_gtopt_from_ci
+
+# Auto-discover or download (raises RuntimeError if not found)
+bin_path = get_gtopt_binary()
+
+# Also try cmake build as last resort
+bin_path = get_gtopt_binary(allow_build=True)
+
+# Force CI download to a custom directory
+bin_path = download_gtopt_from_ci(pathlib.Path("/tmp/my-dir"))
+```
+
+The `gtopt_bin` fixture in `scripts/igtopt/tests/conftest.py` calls
+`get_gtopt_binary()` automatically as a last resort, so running
+`pytest scripts/igtopt/tests/ -m integration` inside a GitHub Actions runner
+(where `GITHUB_TOKEN` is always present) will find and download the binary
+without any manual setup.
+
+### Key notes
+
+* The artifact is a **Debug build** from Ubuntu 24.04 (Clang 21 + conda Arrow/Parquet
+  + COIN-OR).  It runs on any Ubuntu 24.04 environment with the same shared libraries.
+* Artifacts expire **7 days** after the CI run that created them.
+* The artifact name is `gtopt-binary-debug`; configured in
+  `.github/workflows/ubuntu.yml` under `upload gtopt binary` step.
+* `GITHUB_TOKEN` is automatically injected by GitHub Actions runners and is
+  sufficient for downloading artifacts via `gh api` or `urllib.request`.
+* `tools/get_gtopt_binary.py` lives in the `tools/` directory (not `scripts/`).
+  It is an **agent-only tool** and must **not** be installed via `pip install`
+  or `cmake install`.
+
+---
+
 ## Formatting and Linting
 
 ```bash
@@ -871,7 +962,7 @@ gtopt/
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `ubuntu.yml` | push/PR to main | Build (Clang 21), unit + e2e tests, optional coverage |
+| `ubuntu.yml` | push/PR to main | Build (Clang 21), unit + e2e tests, optional coverage; uploads **`gtopt-binary-debug`** artifact (7-day retention) |
 | `ubuntu.yml` (clang-tidy job) | `workflow_dispatch` with `run_clang_tidy=true` | Full clang-tidy static analysis |
 | `style.yml` | every push/PR | clang-format + ruff format checks (non-blocking, warning only) |
 | `autoformat.yml` | push to non-main branches | Auto-applies clang-format + ruff format, commits fixup |
