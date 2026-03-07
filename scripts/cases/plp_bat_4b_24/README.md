@@ -15,7 +15,7 @@ storage unit and a solar generator.
 | Generators | 3 | g1 (250 MW, $20/MWh, b1), g2 (150 MW, $40/MWh, b2), g_solar (90 MW, $0, b1) |
 | Demands | 2 | d3 at b3 (peak 110 MW), d4 at b4 (peak 75 MW) — 24-hour profiles |
 | Lines | 5 | l1_2, l1_3, l2_3, l2_4, l3_4 |
-| Battery | 1 | BESS1 at b3: 240 MWh, 60 MW charge/discharge, η=0.95 |
+| Battery | 1 | BESS1 at b3: 200 MWh, 60 MW charge/discharge, η=0.95 |
 | Blocks | 24 | Hourly (1 h each), 1 stage, 1 scenario |
 
 ## Storage Mechanism: ESS (plpess.dat)
