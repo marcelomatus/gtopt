@@ -3,15 +3,20 @@
 The `scripts/` directory contains Python command-line utilities for
 preparing, converting, visualising, and post-processing data for use with gtopt.
 
+> **Detailed documentation** for each script is available in the
+> [`docs/scripts/`](docs/scripts/) directory. This page provides a summary
+> with links to the full documentation.
+
 ## Table of Contents
 
 - [Installation](#installation)
-- [gtopt-diagram](#gtopt-diagram)
-- [plp2gtopt](#plp2gtopt)
-- [pp2gtopt](#pp2gtopt)
-- [igtopt](#igtopt)
-- [cvs2parquet](#cvs2parquet)
-- [ts2gtopt](#ts2gtopt)
+- [gtopt-diagram](#gtopt-diagram) · [full docs](docs/scripts/gtopt-diagram.md)
+- [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
+- [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
+- [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx)
+- [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
+- [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
+- [compare-pandapower](#compare-pandapower) · [full docs](docs/scripts/compare-pandapower.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
@@ -55,6 +60,8 @@ pip install -e "./scripts[dev,diagram]"
 ---
 
 ## gtopt-diagram
+
+> **[→ Full documentation](docs/scripts/gtopt-diagram.md)**
 
 Generates **network topology and planning-structure diagrams** from a gtopt
 JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
@@ -148,6 +155,8 @@ reduction options:
 ---
 
 ## plp2gtopt
+
+> **[→ Full documentation](docs/scripts/plp2gtopt.md)**
 
 Converts a **PLP (PLPMAX/PLPOPT)** case directory to the gtopt JSON + Parquet
 format.  Reads the standard PLP data files (`plpblo.dat`, `plpbar.dat`,
@@ -282,6 +291,8 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 
 ## pp2gtopt
 
+> **[→ Full documentation](docs/scripts/pp2gtopt.md)**
+
 Converts a **pandapower** network to gtopt JSON format.  Accepts either a
 built-in IEEE test network (via `-n`) or any pandapower network file saved to
 disk (via `-f`).  Writes a self-contained gtopt JSON file ready to be solved
@@ -350,6 +361,9 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 ---
 
 ## igtopt
+
+> **[→ Full documentation](docs/scripts/igtopt.md)** ·
+> **[Excel template](docs/templates/gtopt_template.xlsx)**
 
 Converts an **Excel workbook** to a gtopt JSON case.  Reads all named sheets
 from the workbook and writes:
@@ -521,6 +535,8 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 
 ## cvs2parquet
 
+> **[→ Full documentation](docs/scripts/cvs2parquet.md)**
+
 Converts **CSV time-series files** to Parquet format.
 
 ```bash
@@ -537,6 +553,8 @@ columns are cast to `float64`.
 ---
 
 ## ts2gtopt
+
+> **[→ Full documentation](docs/scripts/ts2gtopt.md)**
 
 Projects **hourly (or finer) time-series data** onto a gtopt planning horizon
 and produces block-aggregated schedule files (Parquet or CSV) ready for use as
