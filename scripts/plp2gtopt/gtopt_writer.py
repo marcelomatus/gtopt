@@ -270,9 +270,10 @@ class GTOptWriter:
         result = writer.process(existing_gen, existing_dem, output_dir)
 
         self.planning["system"]["battery_array"] = result["battery_array"]
-        self.planning["system"]["converter_array"] = result["converter_array"]
         self.planning["system"]["generator_array"] = result["generator_array"]
         self.planning["system"]["demand_array"] = result["demand_array"]
+        if "converter_array" in result:
+            self.planning["system"]["converter_array"] = result["converter_array"]
 
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""

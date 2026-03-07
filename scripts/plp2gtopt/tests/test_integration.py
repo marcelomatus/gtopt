@@ -299,7 +299,7 @@ def test_min_bess_parse():
 
 @pytest.mark.integration
 def test_min_bess_conversion(tmp_path):
-    """plp_min_bess: convert_plp_case produces battery, converter, gen and demand arrays."""
+    """plp_min_bess: convert_plp_case produces unified battery (no separate conv/gen/dem)."""
     opts = _make_opts(_PLPMinBess, tmp_path, "plp_min_bess")
     convert_plp_case(opts)
 
@@ -315,35 +315,23 @@ def test_min_bess_conversion(tmp_path):
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
     assert "eini" not in bat  # eini not read from PLP files
+    # Unified fields – expand_batteries() will auto-generate gen/dem/conv
+    assert bat["bus"] == 1
+    assert bat["pmax_discharge"] == pytest.approx(50.0)
+    assert bat["pmax_charge"] == pytest.approx(50.0)
+    assert bat["gcost"] == pytest.approx(0.0)
 
-    # 1 converter
-    assert len(sys.get("converter_array", [])) == 1
-    conv = sys["converter_array"][0]
-    assert conv["battery"] == 2
-    assert conv["capacity"] == pytest.approx(50.0)
+    # No converter – auto-generated at LP construction time
+    assert "converter_array" not in sys
 
-    # 2 generators: 1 thermal + 1 BESS discharge
+    # 1 generator: only thermal (battery gen auto-generated)
     gens = sys.get("generator_array", [])
-    assert len(gens) == 2
-    gen_names = {g["name"] for g in gens}
-    assert "Thermal1" in gen_names
-    assert "BESS1_disch" in gen_names
+    assert len(gens) == 1
+    assert gens[0]["name"] == "Thermal1"
 
-    bess_gen = next(g for g in gens if g["name"] == "BESS1_disch")
-    assert bess_gen["pmax"] == pytest.approx(50.0)
-    assert bess_gen["gcost"] == pytest.approx(0.0)
-    assert bess_gen["bus"] == 1
-
-    # 2 demands: 1 thermal + 1 BESS charge
+    # 1 demand: only thermal (battery dem auto-generated)
     dems = sys.get("demand_array", [])
-    assert len(dems) == 2
-    dem_names = {d["name"] for d in dems}
-    assert "BESS1_chrg" in dem_names
-
-    bess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
-    assert bess_dem["bus"] == 1
-    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
-    assert bess_dem["lmax"] == pytest.approx(50.0)
+    assert len(dems) == 1
 
 
 @pytest.mark.integration
@@ -390,7 +378,7 @@ def test_min_battery_parse():
 
 @pytest.mark.integration
 def test_min_battery_conversion(tmp_path):
-    """plp_min_battery: convert_plp_case produces battery, converter, gen and demand arrays."""
+    """plp_min_battery: convert_plp_case produces unified battery (no separate conv/gen/dem)."""
     opts = _make_opts(_PLPMinBattery, tmp_path, "plp_min_battery")
     convert_plp_case(opts)
 
@@ -406,35 +394,23 @@ def test_min_battery_conversion(tmp_path):
     assert bat["output_efficiency"] == pytest.approx(0.95)
     assert bat["capacity"] == pytest.approx(200.0)  # emax from plpcenbat.dat
     assert "eini" not in bat  # eini not read from PLP files
+    # Unified fields – expand_batteries() will auto-generate gen/dem/conv
+    assert bat["bus"] == 1
+    assert bat["pmax_discharge"] == pytest.approx(50.0)
+    assert bat["pmax_charge"] == pytest.approx(50.0)
+    assert bat["gcost"] == pytest.approx(0.0)
 
-    # 1 converter
-    assert len(sys.get("converter_array", [])) == 1
-    conv = sys["converter_array"][0]
-    assert conv["battery"] == 2
-    assert conv["capacity"] == pytest.approx(50.0)
+    # No converter – auto-generated at LP construction time
+    assert "converter_array" not in sys
 
-    # 2 generators: 1 thermal + 1 battery discharge
+    # 1 generator: only thermal (battery gen auto-generated)
     gens = sys.get("generator_array", [])
-    assert len(gens) == 2
-    gen_names = {g["name"] for g in gens}
-    assert "Thermal1" in gen_names
-    assert "BESS1_disch" in gen_names
+    assert len(gens) == 1
+    assert gens[0]["name"] == "Thermal1"
 
-    bat_gen = next(g for g in gens if g["name"] == "BESS1_disch")
-    assert bat_gen["pmax"] == pytest.approx(50.0)
-    assert bat_gen["gcost"] == pytest.approx(0.0)
-    assert bat_gen["bus"] == 1
-
-    # 2 demands: 1 thermal + 1 battery charge
+    # 1 demand: only thermal (battery dem auto-generated)
     dems = sys.get("demand_array", [])
-    assert len(dems) == 2
-    dem_names = {d["name"] for d in dems}
-    assert "BESS1_chrg" in dem_names
-
-    bat_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
-    assert bat_dem["bus"] == 1
-    # Without maintenance, lmax is a scalar (pmax_charge = pmax_discharge)
-    assert bat_dem["lmax"] == pytest.approx(50.0)
+    assert len(dems) == 1
 
 
 @pytest.mark.integration
@@ -479,7 +455,7 @@ def test_min_ess_parse():
 
 @pytest.mark.integration
 def test_min_ess_conversion(tmp_path):
-    """plp_min_ess: convert_plp_case produces battery, converter, gen and demand arrays."""
+    """plp_min_ess: convert_plp_case produces unified battery (no separate conv/gen/dem)."""
     opts = _make_opts(_PLPMinEss, tmp_path, "plp_min_ess")
     convert_plp_case(opts)
 
@@ -498,30 +474,23 @@ def test_min_ess_conversion(tmp_path):
     assert "eini" not in bat  # eini not read from PLP files
     # ESS has no active restriction
     assert "active" not in bat
+    # Unified fields – expand_batteries() will auto-generate gen/dem/conv
+    assert bat["bus"] == 1
+    assert bat["pmax_discharge"] == pytest.approx(50.0)  # dcmax from plpess.dat
+    assert bat["pmax_charge"] == pytest.approx(50.0)
+    assert bat["gcost"] == pytest.approx(0.0)
 
-    # 1 converter
-    assert len(sys.get("converter_array", [])) == 1
+    # No converter – auto-generated at LP construction time
+    assert "converter_array" not in sys
 
-    # 2 generators: 1 thermal + 1 ESS discharge
+    # 1 generator: only thermal (ESS gen auto-generated)
     gens = sys.get("generator_array", [])
-    assert len(gens) == 2
-    gen_names = {g["name"] for g in gens}
-    assert "Thermal1" in gen_names
-    assert "BESS1_disch" in gen_names
+    assert len(gens) == 1
+    assert gens[0]["name"] == "Thermal1"
 
-    ess_gen = next(g for g in gens if g["name"] == "BESS1_disch")
-    assert ess_gen["pmax"] == pytest.approx(50.0)  # dcmax from plpess.dat
-    assert ess_gen["gcost"] == pytest.approx(0.0)
-
-    # 2 demands: 1 thermal + 1 ESS charge
+    # 1 demand: only thermal (ESS dem auto-generated)
     dems = sys.get("demand_array", [])
-    assert len(dems) == 2
-    dem_names = {d["name"] for d in dems}
-    assert "BESS1_chrg" in dem_names
-
-    ess_dem = next(d for d in dems if d["name"] == "BESS1_chrg")
-    # Without maintenance, lmax is a scalar (pmax_charge = dcmax)
-    assert ess_dem["lmax"] == pytest.approx(50.0)
+    assert len(dems) == 1
 
 
 @pytest.mark.integration

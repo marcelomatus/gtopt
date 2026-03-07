@@ -227,8 +227,12 @@ jobs:
           d = json.load(open("/tmp/out_min_bess/gtopt_case.json"))
           assert len(d["system"].get("battery_array", [])) == 1, \
               "Expected 1 battery"
-          assert d["system"]["battery_array"][0]["name"] == "BESS1"
-          assert len(d["system"].get("converter_array", [])) == 1
+          bat = d["system"]["battery_array"][0]
+          assert bat["name"] == "BESS1"
+          # Unified battery definition: bus field set, no separate converter
+          assert "bus" in bat, "Expected unified battery with 'bus' field"
+          assert "converter_array" not in d["system"], \
+              "Unified battery should not produce converter_array"
           print("✓ plp_min_bess JSON validated")
           EOF
 
