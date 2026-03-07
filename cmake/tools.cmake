@@ -70,7 +70,26 @@ if(USE_SANITIZER OR USE_STATIC_ANALYZER)
 endif()
 
 # enables CCACHE support through the USE_CCACHE flag possible values are: YES, NO or
-# equivalent
+# equivalent.  Uses the native CMake compiler-launcher mechanism so that no CPM
+# download is required and externally supplied CMAKE_<LANG>_COMPILER_LAUNCHER
+# values (e.g. from the CI command line) are always honoured.
 if(USE_CCACHE)
-  CPMAddPackage("gh:TheLartians/Ccache.cmake@1.2.5")
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    if(NOT CMAKE_C_COMPILER_LAUNCHER)
+      set(CMAKE_C_COMPILER_LAUNCHER
+          "${CCACHE_PROGRAM}"
+          CACHE STRING "C compiler launcher" FORCE
+      )
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_LAUNCHER)
+      set(CMAKE_CXX_COMPILER_LAUNCHER
+          "${CCACHE_PROGRAM}"
+          CACHE STRING "CXX compiler launcher" FORCE
+      )
+    endif()
+    message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
+  else()
+    message(STATUS "USE_CCACHE=YES but ccache not found in PATH — building without cache")
+  endif()
 endif()
