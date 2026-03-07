@@ -5,11 +5,34 @@ This script lives in ``tools/`` (not ``scripts/``) because it is a
 **developer/agent tool**, NOT an end-user utility.  It must **not** be
 installed via ``pip install ./scripts`` or ``cmake install``.
 
+**Do NOT import or call this tool from pytest test code** (conftest.py,
+test fixtures, or test modules).  Tests must locate the binary only through
+the ``GTOPT_BIN`` environment variable or standard build paths and call
+``pytest.skip()`` when not found.  This tool is exclusively for:
+
+* **Copilot / Claude agent sessions** that need a binary from scratch.
+* **CI setup steps** (e.g. the ``scripts.yml`` "Download gtopt binary" step)
+  that run *before* tests to fetch and place the binary.
+
 Purpose
 -------
 Obtain a working ``gtopt`` binary with the minimum possible effort inside a
 Copilot / codespace / CI agent session where building from scratch would take
 5-10 minutes.
+
+Workflow vs. agent context
+--------------------------
+When ``GITHUB_ACTIONS=true`` and the binary is already found at a local path
+(``GTOPT_BIN`` / standard build directories), the function returns it
+immediately without any library check or installation.  The workflow step
+that compiled or downloaded the binary is responsible for the library
+environment.
+
+When running outside GitHub Actions (agent / developer workspace), the
+function checks for missing shared libraries via ``ldd`` and installs any
+absent runtime packages via ``apt`` before returning the path.  Each
+install group (COIN-OR, Boost, Arrow) is skipped individually when its
+packages are already present (idempotent).
 
 Strategy (tried in order):
   1. ``GTOPT_BIN`` environment variable.
@@ -39,7 +62,7 @@ Quick-start for agents
     export GTOPT_BIN=$(python tools/get_gtopt_binary.py --build)
     pytest scripts/igtopt/tests/ -m integration -v
 
-**Option B – import programmatically:**
+**Option B – import programmatically (agents only):**
 
 .. code-block:: python
 
@@ -164,7 +187,8 @@ def find_gtopt_binary() -> Optional[str]:
 
     Search order:
 
-    1. ``GTOPT_BIN`` environment variable.
+    1. ``GTOPT_BIN`` environment variable – set by CTest (``ubuntu.yml``
+       build workflow) or by the ``scripts.yml`` pre-download step.
     2. ``shutil.which("gtopt")`` (binary on ``PATH``).
     3. Standard build-directory paths relative to the repository root:
 
@@ -174,6 +198,10 @@ def find_gtopt_binary() -> Optional[str]:
        - ``all/build/gtopt``
 
     4. ``/tmp/gtopt-ci-bin/gtopt`` – previously downloaded CI artifact.
+
+    Paths 1–3 indicate the binary was compiled locally (all runtime libraries
+    are already installed as part of the build step).  Path 4 may be a
+    freshly downloaded binary that still needs its runtime libraries installed.
 
     Returns ``None`` when the binary cannot be found.
     """
@@ -412,6 +440,30 @@ def _pick_cxx_compiler() -> str:
         if candidate:
             return candidate
     return shutil.which("clang++") or shutil.which("g++") or "c++"
+
+
+def _is_dpkg_installed(package: str) -> bool:
+    """Return ``True`` if *package* is installed according to ``dpkg-query``.
+
+    Uses ``dpkg-query -W -f='${Status}' <package>`` which exits 0 and prints
+    ``install ok installed`` for correctly installed packages.  Returns
+    ``False`` when ``dpkg-query`` is not available (non-Debian systems) or
+    when the package is absent / only partially installed.
+    """
+    dpkg_query = shutil.which("dpkg-query")
+    if not dpkg_query:
+        return False
+    try:
+        result = subprocess.run(
+            [dpkg_query, "-W", "-f=${Status}", package],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return result.returncode == 0 and "install ok installed" in result.stdout
 
 
 def _run_cmd(cmd: list, description: str, check: bool = True) -> int:
@@ -730,27 +782,32 @@ def install_runtime_deps() -> None:
     log.info("Installing gtopt runtime dependencies…")
 
     # ---- apt: COIN-OR runtime + LAPACK/BLAS --------------------------------
-    _apt_install(
-        [
-            "coinor-libclp1",
-            "coinor-libosi1v5",
-            "coinor-libcoinutils3v5",
-            "liblapack3",
-            "libblas3",
-        ],
-        "install COIN-OR runtime libs",
-    )
+    _coinor_pkgs = [
+        "coinor-libclp1",
+        "coinor-libosi1v5",
+        "coinor-libcoinutils3v5",
+        "liblapack3",
+        "libblas3",
+    ]
+    if all(_is_dpkg_installed(p) for p in _coinor_pkgs):
+        log.info("COIN-OR/LAPACK runtime already installed, skipping.")
+    else:
+        _apt_install(_coinor_pkgs, "install COIN-OR runtime libs")
 
     # ---- apt: Boost.Container runtime --------------------------------------
-    _apt_install(
-        ["libboost-container-dev"],
-        "install Boost.Container runtime",
-    )
+    _boost_pkgs = ["libboost-container-dev"]
+    if all(_is_dpkg_installed(p) for p in _boost_pkgs):
+        log.info("Boost.Container runtime already installed, skipping.")
+    else:
+        _apt_install(_boost_pkgs, "install Boost.Container runtime")
 
     # ---- apt: Arrow / Parquet runtime (via Apache Arrow APT source) --------
-    if _setup_arrow_apt_source():
+    _arrow_pkgs = ["libarrow2300", "libparquet2300"]
+    if all(_is_dpkg_installed(p) for p in _arrow_pkgs):
+        log.info("Apache Arrow runtime already installed, skipping.")
+    elif _setup_arrow_apt_source():
         _apt_install(
-            ["libarrow2300", "libparquet2300"],
+            _arrow_pkgs,
             "install Apache Arrow runtime libs (libarrow2300, libparquet2300)",
         )
     else:
@@ -1146,6 +1203,33 @@ def get_gtopt_binary(
 ) -> str:
     """Return the path to a working ``gtopt`` binary.
 
+    **Workflow vs. agent context**
+
+    When called from a **GitHub Actions workflow** (``GITHUB_ACTIONS=true``):
+
+    * ``ubuntu.yml`` – the binary was compiled in the current run and
+      ``GTOPT_BIN`` is set by CMakeLists CTest environment properties to
+      ``build/standalone/gtopt``.  All shared libraries are already installed
+      from the ``install-apt-deps`` build step.  The function finds the binary
+      immediately and returns it **without any library check or installation**.
+
+    * ``scripts.yml`` – the integration job's pre-download step calls this
+      function once to fetch the ``gtopt-binary-debug`` CI artifact and install
+      any missing runtime libraries, then writes ``GTOPT_BIN`` to
+      ``$GITHUB_ENV``.  Subsequent calls (e.g. from pytest fixtures) find the
+      binary via ``GTOPT_BIN`` and return immediately without repeating the
+      library installation.
+
+    When called from a **Copilot / developer agent workspace** (no
+    ``GITHUB_ACTIONS`` env var, no local binary):
+
+    * The function downloads the ``gtopt-binary-debug`` artifact from the
+      latest successful CI run (requires ``GITHUB_TOKEN`` or ``gh`` CLI).
+    * After download it checks for missing shared libraries via ``ldd`` and
+      calls :func:`install_runtime_deps` to install only the absent groups
+      (COIN-OR, Boost, Arrow/Parquet via apt).  Each group is skipped if all
+      its packages are already installed (idempotent).
+
     Parameters
     ----------
     allow_download:
@@ -1160,12 +1244,12 @@ def get_gtopt_binary(
         artifact download.
     ensure_libs:
         If ``True`` (default), check whether the binary can load all its
-        shared libraries (via ``ldd``).  When missing libraries are detected,
-        :func:`install_runtime_deps` is called automatically to install the
-        COIN-OR, Arrow/Parquet and Boost runtime packages (all via ``apt``)
-        before returning the binary path.  Set to ``False`` to skip this
-        check entirely (e.g. in environments where apt is unavailable and
-        the required libs are already installed).
+        shared libraries (via ``ldd``) when running outside GitHub Actions.
+        When missing libraries are detected, :func:`install_runtime_deps` is
+        called automatically.  Set to ``False`` to skip this check entirely
+        (e.g. in environments where apt is unavailable and the required libs
+        are already installed).  Ignored in GitHub Actions context (libraries
+        are always assumed to be present there).
     install_clang:
         Passed to :func:`build_gtopt_from_source` – whether to attempt Clang 21
         installation when building from source.  Default: ``True``.
@@ -1187,6 +1271,17 @@ def get_gtopt_binary(
         binary = find_gtopt_binary()
         if binary:
             log.info("Found gtopt binary: %s", binary)
+            # In a GitHub Actions workflow the binary was either compiled in
+            # the current run (ubuntu.yml sets GTOPT_BIN via CMakeLists) or
+            # explicitly downloaded and its runtime libraries installed by an
+            # earlier workflow step (scripts.yml pre-download step).  In both
+            # cases the workflow owns the library environment; skip the ldd
+            # check and return immediately without any installation attempt.
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                return binary
+            # Outside of GitHub Actions (Copilot / developer workspace):
+            # verify that all shared libraries can be resolved and install
+            # any that are absent before returning the binary path.
             if ensure_libs:
                 _ensure_binary_libs(pathlib.Path(binary))
             return binary
@@ -1269,35 +1364,6 @@ def _ensure_binary_libs(bin_path: pathlib.Path) -> None:
         )
     else:
         log.info("All shared libraries are now available.")
-
-
-# ---------------------------------------------------------------------------
-# pytest fixture helper  (imported by conftest.py)
-# ---------------------------------------------------------------------------
-
-
-def make_gtopt_bin_fixture(allow_build: bool = False):
-    """Return a pytest fixture function that yields the gtopt binary path.
-
-    Usage in a ``conftest.py``::
-
-        from get_gtopt_binary import make_gtopt_bin_fixture
-        gtopt_bin = make_gtopt_bin_fixture()
-
-    The fixture skips (not fails) when the binary cannot be obtained.
-    """
-    import pytest  # pylint: disable=import-outside-toplevel
-
-    @pytest.fixture(scope="module")
-    def gtopt_bin() -> str:  # pylint: disable=redefined-outer-name
-        """Pytest fixture providing the ``gtopt`` binary path."""
-        try:
-            return get_gtopt_binary(allow_build=allow_build)
-        except RuntimeError as exc:
-            pytest.skip(str(exc))
-        return ""  # pragma: no cover
-
-    return gtopt_bin
 
 
 # ---------------------------------------------------------------------------
@@ -1412,9 +1478,30 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
-    # --install-libs: just install runtime deps and exit (no binary needed)
+    # --install-libs: install runtime deps (skip if binary already works).
+    #
+    # When running inside a GitHub Actions build workflow (GITHUB_ACTIONS=true)
+    # and the gtopt binary is already present at a standard build path (e.g.
+    # build/standalone/gtopt set via GTOPT_BIN), all shared libraries were
+    # already installed as part of the compilation step.  In that case we can
+    # skip the apt-get calls entirely.  The individual install_runtime_deps()
+    # group checks (_is_dpkg_installed) provide a second layer of protection.
     if args.install_libs:
         try:
+            # In a workflow context where the binary was just compiled, the
+            # binary is accessible and all its libraries are present.  Detect
+            # this early to avoid redundant apt-get calls.
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                existing = find_gtopt_binary()
+                if existing:
+                    missing = _missing_shared_libs(pathlib.Path(existing))
+                    if not missing:
+                        log.info(
+                            "Binary at %s has all runtime libs present "
+                            "(workflow context) – skipping install.",
+                            existing,
+                        )
+                        return 0
             install_runtime_deps()
             return 0
         except RuntimeError as exc:
