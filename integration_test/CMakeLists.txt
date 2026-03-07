@@ -129,7 +129,15 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 #    interpreter path baked in, so it is immune to pyenv/virtualenv shim issues.
 #    Install with: pip install -e scripts/   (from the repo root)
 #
-# 3. Fallback: find Python3 that has pandapower installed and use the per-case
+# 3. Source-tree module: the compare_pandapower package is found inside the
+#    scripts/ source directory (no installation required).  Python3 with
+#    pandapower must be available.  The test is run as:
+#      python -m compare_pandapower --case <name> --gtopt-output <dir>
+#    with PYTHONPATH pointing at the scripts/ directory.
+#    Override the auto-detected interpreter with
+#    -DCOMPARE_PANDAPOWER_PYTHON=/path/to/python3.
+#
+# 4. Fallback: find Python3 that has pandapower installed and use the per-case
 #    compare_pandapower.py script.  Override the auto-detected interpreter with
 #    -DPANDAPOWER_PYTHON=/path/to/python3 when auto-detection fails.
 #    The real interpreter path is resolved via sys.executable to avoid pyenv shims.
@@ -145,7 +153,63 @@ if(NOT COMPARE_PANDAPOWER_PROGRAM)
   endif()
 endif()
 
+# Source-tree module detection (priority 3): run compare_pandapower as a Python
+# module directly from the scripts/ source directory without installation.
+set(COMPARE_PANDAPOWER_PYTHON "" CACHE FILEPATH
+  "Python interpreter used to run compare_pandapower from the source tree \
+(set automatically when scripts/compare_pandapower is found; \
+override with -DCOMPARE_PANDAPOWER_PYTHON=/path/to/python3)")
+set(COMPARE_PANDAPOWER_SCRIPTS_DIR "" CACHE PATH
+  "Path to the scripts/ source directory containing the compare_pandapower \
+package (set automatically; override with \
+-DCOMPARE_PANDAPOWER_SCRIPTS_DIR=/path/to/scripts)")
+
 if(NOT COMPARE_PANDAPOWER_PROGRAM)
+  cmake_path(GET CMAKE_CURRENT_LIST_DIR PARENT_PATH _parent_dir)
+  cmake_path(APPEND _parent_dir scripts OUTPUT_VARIABLE _scripts_src_dir)
+
+  if(EXISTS "${_scripts_src_dir}/compare_pandapower/__init__.py")
+    if(NOT COMPARE_PANDAPOWER_PYTHON)
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_FOUND)
+        execute_process(
+          COMMAND "${Python3_EXECUTABLE}" -c "import pandapower"
+          RESULT_VARIABLE _pandapower_import_result
+          OUTPUT_QUIET
+          ERROR_QUIET
+        )
+        if(_pandapower_import_result EQUAL 0)
+          # Resolve the real interpreter path to avoid pyenv/shim issues.
+          execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -c
+              "import sys; print(sys.executable, end='')"
+            OUTPUT_VARIABLE _real_python_exec
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+          )
+          set(COMPARE_PANDAPOWER_PYTHON "${_real_python_exec}")
+          set(COMPARE_PANDAPOWER_SCRIPTS_DIR "${_scripts_src_dir}")
+          message(STATUS
+            "Found compare_pandapower in source tree: ${_scripts_src_dir}")
+        else()
+          message(STATUS
+            "compare_pandapower source found but pandapower not installed — "
+            "install pandapower or use 'pip install -e scripts/' to enable "
+            "pandapower comparison tests.")
+        endif()
+      endif()
+    else()
+      # User supplied COMPARE_PANDAPOWER_PYTHON; auto-set the scripts dir.
+      if(NOT COMPARE_PANDAPOWER_SCRIPTS_DIR)
+        set(COMPARE_PANDAPOWER_SCRIPTS_DIR "${_scripts_src_dir}")
+      endif()
+      message(STATUS
+        "Using compare_pandapower from source tree: "
+        "${COMPARE_PANDAPOWER_SCRIPTS_DIR}")
+    endif()
+  endif()
+endif()
+
+if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
   # Fallback: find Python3 with pandapower
   set(PANDAPOWER_PYTHON "" CACHE FILEPATH
     "Python interpreter with pandapower (used when compare_pandapower is not installed)")
@@ -213,16 +277,26 @@ add_pandapower_comparison(bat_4b_24)
 
 # ---- Target: generate pandapower network JSON files ----
 # Run 'cmake --build . --target generate-pandapower-nets' (requires compare_pandapower
-# and pandapower to be installed) to save a pandapower_net.json file into each
-# case directory.  The saved files are then used automatically by the
-# add_pandapower_comparison() tests via --pandapower-file.
-if(COMPARE_PANDAPOWER_PROGRAM)
+# and pandapower to be installed or available in the source tree) to save a
+# pandapower_net.json file into each case directory.  The saved files are then
+# used automatically by the add_pandapower_comparison() tests via --pandapower-file.
+if(COMPARE_PANDAPOWER_PROGRAM OR (COMPARE_PANDAPOWER_PYTHON AND COMPARE_PANDAPOWER_SCRIPTS_DIR))
   foreach(_pp_case s1b ieee_4b_ori ieee30b ieee_57b)
-    list(APPEND _generate_pandapower_commands
-      COMMAND "${COMPARE_PANDAPOWER_PROGRAM}"
-        --case "${_pp_case}"
-        --save-pandapower-file "${CASES_DIR}/${_pp_case}/pandapower_net.json"
-    )
+    if(COMPARE_PANDAPOWER_PROGRAM)
+      list(APPEND _generate_pandapower_commands
+        COMMAND "${COMPARE_PANDAPOWER_PROGRAM}"
+          --case "${_pp_case}"
+          --save-pandapower-file "${CASES_DIR}/${_pp_case}/pandapower_net.json"
+      )
+    else()
+      list(APPEND _generate_pandapower_commands
+        COMMAND ${CMAKE_COMMAND} -E env
+          "PYTHONPATH=${COMPARE_PANDAPOWER_SCRIPTS_DIR}"
+          "${COMPARE_PANDAPOWER_PYTHON}" -m compare_pandapower
+            --case "${_pp_case}"
+            --save-pandapower-file "${CASES_DIR}/${_pp_case}/pandapower_net.json"
+      )
+    endif()
   endforeach()
 
   add_custom_target(generate-pandapower-nets

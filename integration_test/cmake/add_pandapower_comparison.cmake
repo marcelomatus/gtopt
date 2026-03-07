@@ -16,7 +16,18 @@ Detection priority (set by the including CMakeLists.txt):
    This is the preferred route because the entry-point script has the real
    Python interpreter baked in, avoiding pyenv / virtualenv shim issues.
 
-2. ``PANDAPOWER_PYTHON`` — fallback Python interpreter that has pandapower
+2. ``COMPARE_PANDAPOWER_PYTHON`` + ``COMPARE_PANDAPOWER_SCRIPTS_DIR`` — Python
+   interpreter and path to the ``scripts/`` source directory.  The test is run
+   as a module (no installation required)::
+
+     PYTHONPATH=<COMPARE_PANDAPOWER_SCRIPTS_DIR> \
+       <COMPARE_PANDAPOWER_PYTHON> -m compare_pandapower \
+         --case <name> --gtopt-output <dir>
+
+   This allows the tests to run straight from the source tree before
+   ``pip install -e scripts/`` has been executed.
+
+3. ``PANDAPOWER_PYTHON`` — fallback Python interpreter that has pandapower
    installed.  Used together with the per-case ``compare_pandapower.py``
    script found in ``${CASES_DIR}/<case>/compare_pandapower.py``.
 
@@ -74,6 +85,21 @@ function(add_pandapower_comparison case_name)
     set_tests_properties(e2e_${case_name}_compare_pandapower
       PROPERTIES DEPENDS e2e_${case_name}_solve
     )
+  elseif(COMPARE_PANDAPOWER_PYTHON AND COMPARE_PANDAPOWER_SCRIPTS_DIR)
+    # Source-tree fallback: run the compare_pandapower package as a Python
+    # module directly from the scripts/ directory (no installation required).
+    add_test(
+      NAME e2e_${case_name}_compare_pandapower
+      COMMAND ${CMAKE_COMMAND} -E env
+        "PYTHONPATH=${COMPARE_PANDAPOWER_SCRIPTS_DIR}"
+        "${COMPARE_PANDAPOWER_PYTHON}" -m compare_pandapower
+          --case "${case_name}"
+          --gtopt-output "${gtopt_output}"
+          ${_pp_file_args}
+    )
+    set_tests_properties(e2e_${case_name}_compare_pandapower
+      PROPERTIES DEPENDS e2e_${case_name}_solve
+    )
   elseif(PANDAPOWER_PYTHON)
     # Fallback: run the per-case compare_pandapower.py with the found Python.
     set(script "${CASES_DIR}/${case_name}/compare_pandapower.py")
@@ -98,7 +124,9 @@ function(add_pandapower_comparison case_name)
     message(STATUS
       "No compare_pandapower command or Python with pandapower found — "
       "skipping comparison for '${case_name}'. "
-      "Install with 'pip install -e scripts/' (preferred) or "
-      "set -DPANDAPOWER_PYTHON=/path/to/python3 to enable.")
+      "Install with 'pip install -e scripts/' (preferred), run from the "
+      "source tree (scripts/compare_pandapower must exist and pandapower "
+      "must be installed), or set -DPANDAPOWER_PYTHON=/path/to/python3 "
+      "to enable.")
   endif()
 endfunction()
