@@ -76,7 +76,7 @@ testpaths = [
     "pp2gtopt/tests",
     "ts2gtopt/tests",
 ]
-addopts = "-v --import-mode=importlib -n auto"
+addopts = "-v --import-mode=importlib -n 0"
 pythonpath = ["."]
 markers = [
     "integration: end-to-end tests that use sample PLP case files",

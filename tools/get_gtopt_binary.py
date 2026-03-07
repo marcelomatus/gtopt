@@ -474,10 +474,17 @@ def _is_dpkg_installed(package: str) -> bool:
 
 
 def _run_cmd(cmd: list, description: str, check: bool = True) -> int:
-    """Run *cmd*, log *description*, and return the exit code."""
+    """Run *cmd*, log *description*, and return the exit code.
+
+    subprocess stdout is redirected to ``sys.stderr`` so that install-step
+    output (e.g. apt-get "Building dependency tree…") never reaches the
+    caller's stdout.  This matters when the tool is invoked via shell command
+    substitution (``GTOPT_BIN=$(python tools/get_gtopt_binary.py)``): only
+    the final ``print(binary)`` line must appear on stdout.
+    """
     log.info("%s", description)
     log.debug("  $ %s", " ".join(str(c) for c in cmd))
-    result = subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, stdout=sys.stderr)
     if check and result.returncode != 0:
         raise RuntimeError(
             f"{description} failed (exit {result.returncode})."
