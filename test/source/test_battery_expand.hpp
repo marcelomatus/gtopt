@@ -6,7 +6,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/system.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("Battery new fields default to nullopt")  // NOLINT
 {
@@ -55,7 +55,7 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
        .name = "g1",
        .bus = Uid {1},
        .gcost = 20.0,
-       .capacity = 200.0},
+       .capacity = 200.0,},
   };
 
   // A single demand already exists
@@ -94,9 +94,9 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(gen.uid == Uid {2});
   CHECK(std::get<Uid>(gen.bus) == Uid {1});
   REQUIRE(gen.capacity.has_value());
-  CHECK(std::get<Real>(*gen.capacity) == 60.0);
+  CHECK(std::get<Real>(gen.capacity.value_or(RealFieldSched {0.0})) == 60.0);
   REQUIRE(gen.gcost.has_value());
-  CHECK(std::get<Real>(*gen.gcost) == 0.0);
+  CHECK(std::get<Real>(gen.gcost.value_or(RealFieldSched {-1.0})) == 0.0);
 
   // Demand was appended
   CHECK(system.demand_array.size() == 2);
@@ -105,7 +105,7 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(dem.uid == Uid {2});
   CHECK(std::get<Uid>(dem.bus) == Uid {1});
   REQUIRE(dem.capacity.has_value());
-  CHECK(std::get<Real>(*dem.capacity) == 60.0);
+  CHECK(std::get<Real>(dem.capacity.value_or(RealFieldSched {0.0})) == 60.0);
 
   // Converter was created
   CHECK(system.converter_array.size() == 1);
@@ -229,7 +229,11 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
 
   // Verify different power ratings
   REQUIRE(system.generator_array[1].capacity.has_value());
-  CHECK(std::get<Real>(*system.generator_array[1].capacity) == 40.0);
+  CHECK(std::get<Real>(
+            system.generator_array[1].capacity.value_or(RealFieldSched {0.0}))
+        == 40.0);
   REQUIRE(system.demand_array[1].capacity.has_value());
-  CHECK(std::get<Real>(*system.demand_array[1].capacity) == 30.0);
+  CHECK(std::get<Real>(
+            system.demand_array[1].capacity.value_or(RealFieldSched {0.0}))
+        == 30.0);
 }

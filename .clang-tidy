@@ -1,5 +1,46 @@
 ---
 # Only apply to C++ files (exclude Python and CMake files)
+#
+# Disabled-check rationale (groups):
+#   altera-*, llvmlibc-*        – domain-specific (FPGA / LLVM libc); not relevant
+#   fuchsia-*                   – Fuchsia OS style; conflicts with project conventions
+#   llvm-header-guard,          – project uses #pragma once
+#   portability-avoid-pragma-once
+#   llvm-include-order          – project clang-format handles include ordering
+#   llvm-namespace-comment,     – project already writes }  // namespace gtopt comments
+#   google-readability-namespace-comments,
+#   llvm-namespace-comment
+#   google-build-using-namespace – 'using namespace' in .cpp TU scope is accepted
+#   google-readability-casting  – project uses C++ casts; extra verbosity not required
+#   modernize-use-trailing-return-type – project uses both styles; not enforced
+#   modernize-macro-to-enum,    – COIN-OR and other deps rely on C macros
+#   cppcoreguidelines-macro-*
+#   misc-multiple-inheritance,  – deliberately used in the codebase
+#   misc-non-private-member-variables-in-classes – structs with public members are idiomatic
+#   misc-include-cleaner        – too aggressive; third-party transitive includes common
+#   misc-confusable-identifiers – false-positive-prone; math code uses i/j/l variables
+#   readability-magic-numbers,  – LP coefficients (0.0, 1.0, 0.5) are self-documenting
+#   cppcoreguidelines-avoid-magic-numbers
+#   readability-identifier-length  – single-char vars are idiomatic in LP/math code
+#   readability-identifier-naming  – project has its own naming conventions
+#   readability-function-cognitive-complexity – subjective; not enforced
+#   readability-redundant-member-init – project uses explicit {} init for clarity
+#   bugprone-easily-swappable-parameters – too noisy in LP/math API functions
+#   bugprone-derived-method-shadowing-base-method – false positives in templates
+#   bugprone-lambda-function-name – __func__ in lambdas; harmless pattern
+#   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access – []  preferred
+#                                  over .at() in hot LP-assembly paths
+#   clang-analyzer-{cplusplus.NewDeleteLeaks, – false positives with COIN-OR
+#     security.ArrayBound,
+#     core.uninitialized.UndefReturn,
+#     unix.Stream}
+#   clang-diagnostic-{c2y-extensions,          – compiler-version noise; not actionable
+#     constexpr-local-var-non-literal-type,
+#     deprecated-declarations,
+#     template-param-default-arg-redefinition}
+#   llvm-prefer-static-over-anonymous-namespace – misc-use-anonymous-namespace
+#                                  (enabled) takes the opposite, preferred stance
+#   illegal-initializer-type    – Clang-specific; no violations in codebase
 Checks: "*,\
   -altera-*,\
   -boost-use-ranges,\
@@ -38,7 +79,6 @@ Checks: "*,\
   -misc-multiple-inheritance,\
   -misc-non-private-member-variables-in-classes,\
   -modernize-macro-to-enum,\
-  -modernize-type-traits,\
   -modernize-use-trailing-return-type,\
   -portability-avoid-pragma-once,\
   -readability-function-cognitive-complexity,\
