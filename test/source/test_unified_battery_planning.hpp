@@ -195,7 +195,8 @@ static constexpr std::string_view traditional_battery_json = R"({
 })";
 // clang-format on
 
-TEST_CASE("Battery definitions equivalence – both solve successfully")  // NOLINT
+TEST_CASE(
+    "Battery definitions equivalence – both solve successfully")  // NOLINT
 {
   // Parse and solve the traditional definition
   Planning trad_base;
@@ -220,23 +221,25 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
   Planning trad_base;
   trad_base.merge(daw::json::from_json<Planning>(traditional_battery_json));
   PlanningLP trad_lp(std::move(trad_base));
-  trad_lp.resolve();
+  auto trad_result = trad_lp.resolve();
+  REQUIRE(trad_result.has_value());
   auto&& trad_sys = trad_lp.systems();
   REQUIRE(!trad_sys.empty());
   REQUIRE(!trad_sys.front().empty());
-  const auto trad_obj
-      = trad_sys.front().front().linear_interface().get_obj_value();
+  const auto trad_obj =
+      trad_sys.front().front().linear_interface().get_obj_value();
 
   // Unified
   Planning uni_base;
   uni_base.merge(daw::json::from_json<Planning>(unified_battery_json));
   PlanningLP uni_lp(std::move(uni_base));
-  uni_lp.resolve();
+  auto uni_result = uni_lp.resolve();
+  REQUIRE(uni_result.has_value());
   auto&& uni_sys = uni_lp.systems();
   REQUIRE(!uni_sys.empty());
   REQUIRE(!uni_sys.front().empty());
-  const auto uni_obj
-      = uni_sys.front().front().linear_interface().get_obj_value();
+  const auto uni_obj =
+      uni_sys.front().front().linear_interface().get_obj_value();
 
   // Both definitions must produce the same optimal objective value
   CHECK(trad_obj == doctest::Approx(uni_obj));

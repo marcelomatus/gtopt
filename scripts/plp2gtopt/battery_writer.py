@@ -484,8 +484,8 @@ class BatteryWriter(BaseWriter):
         # Legacy fallback for DC-maintenance entries
         if dc_entries:
             result["converter_array"] = self.to_converter_array(dc_entries)
-            result["generator_array"] = (
-                existing_gen + self.to_generator_array(dc_entries)
+            result["generator_array"] = existing_gen + self.to_generator_array(
+                dc_entries
             )
             result["demand_array"] = existing_dem + self.to_demand_array(dc_entries)
 
