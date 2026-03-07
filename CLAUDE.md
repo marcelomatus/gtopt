@@ -449,10 +449,10 @@ It is **independent** of the root `pyproject.toml`.
 > ```bash
 > # --- scripts/ ---
 > cd scripts
-> ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> ruff check  compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
-> mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+> ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> ruff check  gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+> mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
 >   --ignore-missing-imports
 >
 > # --- guiservice/ ---
@@ -471,16 +471,16 @@ pip install -r scripts/requirements.txt          # runtime only
 cd scripts
 
 # Format (apply in-place)
-ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Lint (ruff)
-ruff check compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff check gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Lint (pylint — must pass at 10.00/10)
-pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Type check
-mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
   --ignore-missing-imports
 
 # Run all tests (fast, < 2 s)

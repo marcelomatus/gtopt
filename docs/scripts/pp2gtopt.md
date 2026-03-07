@@ -230,9 +230,9 @@ cat output/Generator/generation_sol.csv
 cat output/Bus/balance_dual.csv
 
 # Step 6 (optional): Cross-validate against pandapower DC OPF
-# Note: the compare-pandapower case name 'ieee_57b' differs from the
+# Note: the gtopt-compare case name 'ieee_57b' differs from the
 # pp2gtopt built-in network name 'case57' — they refer to the same network
-compare-pandapower --case ieee_57b --gtopt-output output/
+gtopt-compare --case ieee_57b --gtopt-output output/
 ```
 
 ---
@@ -240,7 +240,7 @@ compare-pandapower --case ieee_57b --gtopt-output output/
 ## See Also
 
 - [SCRIPTS.md](../../SCRIPTS.md) — Overview of all gtopt Python scripts
-- [compare-pandapower](compare-pandapower.md) — Validate gtopt results against
+- [gtopt-compare](gtopt-compare.md) — Validate gtopt results against
   pandapower DC OPF
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases to gtopt
 - [PLANNING\_GUIDE.md](../../PLANNING_GUIDE.md) — Guide to gtopt planning concepts

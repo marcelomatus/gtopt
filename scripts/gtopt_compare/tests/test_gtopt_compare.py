@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Unit tests for compare_pandapower."""
+"""Unit tests for gtopt_compare."""
 
 import csv
 import sys
@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from compare_pandapower.main import (
+from gtopt_compare.main import (
     _CASES,
     _NET_BUILDERS,
     _SCALE_OBJECTIVE,
@@ -175,14 +175,14 @@ class TestMainArgParsing:
     def test_missing_case_exits(self):
         with pytest.raises(SystemExit):
             with patch.object(
-                sys, "argv", ["compare_pandapower", "--gtopt-output", "/tmp"]
+                sys, "argv", ["gtopt-compare", "--gtopt-output", "/tmp"]
             ):
                 main()
 
     def test_missing_output_exits(self):
         """--gtopt-output is required when not using --save-pandapower-file alone."""
         with pytest.raises(SystemExit):
-            with patch.object(sys, "argv", ["compare_pandapower", "--case", "s1b"]):
+            with patch.object(sys, "argv", ["gtopt-compare", "--case", "s1b"]):
                 main()
 
     def test_invalid_case_exits(self):
@@ -191,7 +191,7 @@ class TestMainArgParsing:
                 sys,
                 "argv",
                 [
-                    "compare_pandapower",
+                    "gtopt_compare",
                     "--case",
                     "nonexistent",
                     "--gtopt-output",
@@ -208,7 +208,7 @@ class TestMainArgParsing:
                 sys,
                 "argv",
                 [
-                    "compare_pandapower",
+                    "gtopt_compare",
                     "--case",
                     "s1b",
                     "--gtopt-output",
@@ -226,7 +226,7 @@ class TestMainArgParsing:
                 sys,
                 "argv",
                 [
-                    "compare_pandapower",
+                    "gtopt_compare",
                     "--case",
                     "bat_4b_24",
                     "--save-pandapower-file",
@@ -246,7 +246,7 @@ class TestMainArgParsing:
                 sys,
                 "argv",
                 [
-                    "compare_pandapower",
+                    "gtopt_compare",
                     "--case",
                     "s1b",
                     "--gtopt-output",
@@ -268,32 +268,32 @@ pytest.importorskip("pandapower", reason="pandapower not installed")
 
 class TestBuildNetS1b:
     def test_one_bus(self):
-        from compare_pandapower.main import build_net_s1b
+        from gtopt_compare.main import build_net_s1b
 
         net = build_net_s1b()
         assert len(net.bus) == 1
 
     def test_two_generators(self):
-        from compare_pandapower.main import build_net_s1b
+        from gtopt_compare.main import build_net_s1b
 
         net = build_net_s1b()
         assert len(net.gen) == 2
 
     def test_one_load(self):
-        from compare_pandapower.main import build_net_s1b
+        from gtopt_compare.main import build_net_s1b
 
         net = build_net_s1b()
         assert len(net.load) == 1
         assert net.load["p_mw"].sum() == pytest.approx(250.0)
 
     def test_g1_capacity_200(self):
-        from compare_pandapower.main import build_net_s1b
+        from gtopt_compare.main import build_net_s1b
 
         net = build_net_s1b()
         assert net.gen.loc[0, "max_p_mw"] == pytest.approx(200.0)
 
     def test_g2_capacity_300(self):
-        from compare_pandapower.main import build_net_s1b
+        from gtopt_compare.main import build_net_s1b
 
         net = build_net_s1b()
         assert net.gen.loc[1, "max_p_mw"] == pytest.approx(300.0)
@@ -301,25 +301,25 @@ class TestBuildNetS1b:
 
 class TestBuildNetIeee4bOri:
     def test_four_buses(self):
-        from compare_pandapower.main import build_net_ieee_4b_ori
+        from gtopt_compare.main import build_net_ieee_4b_ori
 
         net = build_net_ieee_4b_ori()
         assert len(net.bus) == 4
 
     def test_two_generators(self):
-        from compare_pandapower.main import build_net_ieee_4b_ori
+        from gtopt_compare.main import build_net_ieee_4b_ori
 
         net = build_net_ieee_4b_ori()
         assert len(net.gen) == 2
 
     def test_five_lines(self):
-        from compare_pandapower.main import build_net_ieee_4b_ori
+        from gtopt_compare.main import build_net_ieee_4b_ori
 
         net = build_net_ieee_4b_ori()
         assert len(net.line) == 5
 
     def test_total_load_250(self):
-        from compare_pandapower.main import build_net_ieee_4b_ori
+        from gtopt_compare.main import build_net_ieee_4b_ori
 
         net = build_net_ieee_4b_ori()
         assert net.load["p_mw"].sum() == pytest.approx(250.0)
@@ -327,13 +327,13 @@ class TestBuildNetIeee4bOri:
 
 class TestBuildNetIeee30b:
     def test_thirty_buses(self):
-        from compare_pandapower.main import build_net_ieee30b
+        from gtopt_compare.main import build_net_ieee30b
 
         net = build_net_ieee30b()
         assert len(net.bus) == 30
 
     def test_quadratic_cost_zeroed(self):
-        from compare_pandapower.main import build_net_ieee30b
+        from gtopt_compare.main import build_net_ieee30b
 
         net = build_net_ieee30b()
         assert (net.poly_cost["cp2_eur_per_mw2"] == 0.0).all()

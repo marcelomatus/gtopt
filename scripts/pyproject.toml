@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (gtopt-compare, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-compare_pandapower = "compare_pandapower.main:main"
+gtopt-compare      = "gtopt_compare.main:main"
 cvs2parquet        = "cvs2parquet.cvs2parquet:main"
 gtopt-diagram      = "gtopt_diagram:main"
 igtopt             = "igtopt.igtopt:main"
@@ -54,7 +54,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["compare_pandapower*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
 
 [tool.setuptools]
 py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
@@ -67,7 +67,7 @@ py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
 [tool.pytest.ini_options]
 python_files = "test_*.py"
 testpaths = [
-    "compare_pandapower/tests",
+    "gtopt_compare/tests",
     "cvs2parquet/tests",
     "gtopt_diagram_tests",
     "igtopt/tests",
@@ -82,7 +82,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["compare_pandapower", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
+source = ["gtopt_compare", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py"]
 
 [tool.coverage.report]
@@ -99,7 +99,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["compare_pandapower", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
+known_first_party = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88
