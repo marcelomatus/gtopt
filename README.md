@@ -12,12 +12,16 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 This project includes comprehensive documentation for different use cases:
 
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
+- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
+- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[BUILDING.md](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
+- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt-diagram](docs/scripts/gtopt-diagram.md))
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
 - **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
-- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities (`plp2gtopt`, `igtopt`, `cvs2parquet`)
+- **[DIAGRAM_TOOL.md](DIAGRAM_TOOL.md)** - Network and planning diagram tool with aggregation and large-case support
 
 ## Table of Contents
 
