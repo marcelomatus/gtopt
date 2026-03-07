@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
-"""Compare gtopt solver output against pandapower DC OPF reference.
+"""Compare gtopt solver output against pandapower DC OPF or PLP reference.
 
 Usage:
     gtopt-compare --case <name> --gtopt-output <dir> [options]
@@ -11,11 +11,16 @@ Usage:
     gtopt-compare --case <name> --save-pandapower-file <net.json>
 
 Supported cases:
-    s1b          1-bus dispatch (g1=$20/MWh 200 MW, g2=$40/MWh 300 MW, d1=250 MW)
-    ieee_4b_ori  Grainger & Stevenson 4-bus OPF (g1=$20, g2=$35, 5 lines)
-    ieee30b      IEEE 30-bus standard network with linear costs
-    ieee_57b     IEEE 57-bus standard network with linear costs (large case, 1 block)
-    bat_4b_24    Grainger & Stevenson 4-bus + solar + battery, 24 hourly blocks
+    s1b            1-bus dispatch (g1=$20/MWh 200 MW, g2=$40/MWh 300 MW, d1=250 MW)
+    ieee_4b_ori    Grainger & Stevenson 4-bus OPF (g1=$20, g2=$35, 5 lines)
+    ieee30b        IEEE 30-bus standard network with linear costs
+    ieee_57b       IEEE 57-bus standard network with linear costs (large case, 1 block)
+    bat_4b_24      Grainger & Stevenson 4-bus + solar + battery, 24 hourly blocks
+    plp_bat_4b_24  Same 4-bus network converted from PLP format; compared against
+                   native PLP CEN65 output (plpcen.csv, plpbar.csv, plpess.csv)
+    plp            Generic PLP case: compare gtopt output against any PLP CEN65
+                   output directory specified via --plp-output.  Central names,
+                   bus names, and block count are auto-detected.
 
 For each case, reconstructs the equivalent pandapower network, runs DC OPF,
 reads gtopt CSV results, and compares generation dispatch, cost, and (where
@@ -52,9 +57,20 @@ import argparse
 import csv
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _SCALE_OBJECTIVE = 1000.0  # gtopt scale_objective used in all supported cases
+
+# Default PLP reference output path for the plp_bat_4b_24 integration case.
+# Used by tests and as the default when --plp-output is not provided.
+_PLP_BAT_4B_24_OUTPUT = (
+    Path(__file__).parent.parent / "cases" / "plp_bat_4b_24" / "plp_output"
+)
+
+# CenTip values that indicate non-conventional sources (excluded from the
+# per-central generation comparison with gtopt generator UIDs).
+_PLP_NONTHERMAL_TIPS = {"BAT", "FAL", "Fal"}  # battery, failure/curtailment
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +192,249 @@ def read_gtopt_battery_dispatch(output_dir: Path) -> tuple:
     fout = _read_battery_csv(bat_dir / "fout_sol.csv")
     finp = _read_battery_csv(bat_dir / "finp_sol.csv")
     return fout, finp
+
+
+# ---------------------------------------------------------------------------
+# PLP native-output readers  (generalized — works for any PLP case)
+# ---------------------------------------------------------------------------
+
+
+def read_plp_central_names(plp_output_dir: Path) -> list:
+    """Return ordered (name, tip) pairs for every central in ``plpcen.csv``.
+
+    Reads the native CEN65 output to determine which centrals were present and
+    what type each one is (``CenTip``).  Only ``"Sim"`` rows are scanned; the
+    first occurrence of each ``CenNum`` wins.  The result is sorted by
+    ``CenNum`` so the order matches the plp2gtopt generator-UID assignment.
+
+    Parameters
+    ----------
+    plp_output_dir:
+        Directory containing ``plpcen.csv``.
+
+    Returns
+    -------
+    list of ``(name, tip)`` tuples sorted by ``CenNum``, e.g.::
+
+        [("g1", "Ter"), ("g2", "Ter"), ("g_solar", "Ter"), ("BESS1", "BAT")]
+
+    Raises
+    ------
+    FileNotFoundError if ``plpcen.csv`` is absent.
+    """
+    plpcen = plp_output_dir / "plpcen.csv"
+    if not plpcen.exists():
+        raise FileNotFoundError(f"Not found: {plpcen}")
+
+    cennum_to_info: dict = {}  # CenNum -> (name, tip)
+    with open(plpcen, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = [h.strip() for h in next(reader)]
+        idx_num = header.index("CenNum")
+        idx_nom = header.index("CenNom")
+        idx_tip = header.index("CenTip")
+        for row in reader:
+            if not row[0].strip().startswith("Sim"):
+                continue
+            num = int(row[idx_num].strip())
+            if num not in cennum_to_info:
+                cennum_to_info[num] = (row[idx_nom].strip(), row[idx_tip].strip())
+    return [cennum_to_info[k] for k in sorted(cennum_to_info.keys())]
+
+
+def read_plp_bus_names(plp_output_dir: Path) -> list:
+    """Return ordered bus names from ``plpbar.csv``.
+
+    Only ``"Sim"`` rows are scanned; the first occurrence of each ``BarNum``
+    wins.  The result is sorted by ``BarNum``.
+
+    Parameters
+    ----------
+    plp_output_dir:
+        Directory containing ``plpbar.csv``.
+
+    Returns
+    -------
+    list of bus-name strings sorted by ``BarNum``, e.g.
+    ``["b1", "b2", "b3", "b4"]``.
+
+    Raises
+    ------
+    FileNotFoundError if ``plpbar.csv`` is absent.
+    """
+    plpbar = plp_output_dir / "plpbar.csv"
+    if not plpbar.exists():
+        raise FileNotFoundError(f"Not found: {plpbar}")
+
+    barnum_to_name: dict = {}  # BarNum -> name
+    with open(plpbar, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = [h.strip() for h in next(reader)]
+        idx_num = header.index("BarNum")
+        idx_nom = header.index("BarNom")
+        for row in reader:
+            if not row[0].strip().startswith("Sim"):
+                continue
+            num = int(row[idx_num].strip())
+            if num not in barnum_to_name:
+                barnum_to_name[num] = row[idx_nom].strip()
+    return [barnum_to_name[k] for k in sorted(barnum_to_name.keys())]
+
+
+def read_plp_generation(plp_output_dir: Path) -> dict:
+    """Read per-central dispatch (MW) per block from PLP ``plpcen.csv``.
+
+    Parses the native CEN65 output file produced by the PLP solver.
+    Only rows whose ``Hidro`` field starts with ``"Sim"`` (i.e. individual
+    simulation results, not the ``MEDIA`` average rows) are included.
+
+    Parameters
+    ----------
+    plp_output_dir:
+        Directory containing ``plpcen.csv``.
+
+    Returns
+    -------
+    dict mapping 1-based block index → ``{central_name: mw}`` for all
+    centrals found in that block.
+
+    Raises
+    ------
+    FileNotFoundError if ``plpcen.csv`` is absent.
+    """
+    plpcen = plp_output_dir / "plpcen.csv"
+    if not plpcen.exists():
+        raise FileNotFoundError(f"Not found: {plpcen}")
+
+    result: dict = {}
+    with open(plpcen, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = [h.strip() for h in next(reader)]
+        idx_blk = header.index("Bloque")
+        idx_cen = header.index("CenNom")
+        idx_pgen = header.index("CenPgen")
+        for row in reader:
+            if not row[0].strip().startswith("Sim"):
+                continue
+            block = int(row[idx_blk].strip())
+            cen = row[idx_cen].strip()
+            pgen = float(row[idx_pgen].strip())
+            result.setdefault(block, {})[cen] = pgen
+    return result
+
+
+# Backward-compatible alias.
+read_plp_bat_4b_24_generation = read_plp_generation
+
+
+def read_plp_ess(plp_output_dir: Path) -> dict:
+    """Read ESS charge/discharge dispatch (MW) per block from PLP ``plpess.csv``.
+
+    Parses the native CEN65 ESS output.  Only ``"Sim"`` rows are included.
+    Multiple ESS units are supported; each is identified by its ``EssNom``
+    (name) field.
+
+    Parameters
+    ----------
+    plp_output_dir:
+        Directory containing ``plpess.csv``.
+
+    Returns
+    -------
+    dict mapping 1-based block index → ``{ess_name: {"charge": float,
+    "discharge": float}}``.  ``"charge"`` is the ``DCar`` column (MW drawn
+    from the grid) and ``"discharge"`` is the ``GDes`` column (MW injected).
+
+    Raises
+    ------
+    FileNotFoundError if ``plpess.csv`` is absent.
+    """
+    plpess = plp_output_dir / "plpess.csv"
+    if not plpess.exists():
+        raise FileNotFoundError(f"Not found: {plpess}")
+
+    result: dict = {}
+    with open(plpess, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = [h.strip() for h in next(reader)]
+        idx_blk = header.index("Bloque")
+        idx_nom = header.index("EssNom")
+        idx_dcar = header.index("DCar")
+        idx_gdes = header.index("GDes")
+        for row in reader:
+            if not row[0].strip().startswith("Sim"):
+                continue
+            block = int(row[idx_blk].strip())
+            name = row[idx_nom].strip()
+            charge = float(row[idx_dcar].strip())
+            discharge = float(row[idx_gdes].strip())
+            result.setdefault(block, {})[name] = {
+                "charge": charge,
+                "discharge": discharge,
+            }
+    return result
+
+
+# Backward-compatible alias (the old function returned a single-ESS flat dict;
+# the new one is keyed by ESS name.  For single-ESS cases the alias
+# preserves the old flat structure by aggregating over all ESS per block).
+def read_plp_bat_4b_24_ess(plp_output_dir: Path) -> dict:
+    """Backward-compatible alias for single-ESS cases.
+
+    Aggregates charge and discharge across all ESS units per block and returns
+    ``{block: {"charge": total_mw, "discharge": total_mw}}``.
+    """
+    raw = read_plp_ess(plp_output_dir)
+    return {
+        block: {
+            "charge": sum(v["charge"] for v in ess_map.values()),
+            "discharge": sum(v["discharge"] for v in ess_map.values()),
+        }
+        for block, ess_map in raw.items()
+    }
+
+
+def read_plp_cmg(plp_output_dir: Path) -> dict:
+    """Read CMg ($/MWh) per bus per block from PLP ``plpbar.csv``.
+
+    Parses the native CEN65 bus output.  Only ``"Sim"`` rows are included.
+
+    Parameters
+    ----------
+    plp_output_dir:
+        Directory containing ``plpbar.csv``.
+
+    Returns
+    -------
+    dict mapping 1-based block index → ``{bus_name: cmg_dollar_per_mwh}``.
+
+    Raises
+    ------
+    FileNotFoundError if ``plpbar.csv`` is absent.
+    """
+    plpbar = plp_output_dir / "plpbar.csv"
+    if not plpbar.exists():
+        raise FileNotFoundError(f"Not found: {plpbar}")
+
+    result: dict = {}
+    with open(plpbar, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = [h.strip() for h in next(reader)]
+        idx_blk = header.index("Bloque")
+        idx_bus = header.index("BarNom")
+        idx_cmg = header.index("CMgBar")
+        for row in reader:
+            if not row[0].strip().startswith("Sim"):
+                continue
+            block = int(row[idx_blk].strip())
+            bus = row[idx_bus].strip()
+            cmg = float(row[idx_cmg].strip())
+            result.setdefault(block, {})[bus] = cmg
+    return result
+
+
+# Backward-compatible alias.
+read_plp_bat_4b_24_cmg = read_plp_cmg
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +706,7 @@ def _compare_s1b(
     tol_mw: float,
     tol_lmp: float,
     pandapower_file: Path | None = None,
+    **_kwargs: object,
 ) -> bool:
     """Compare s1b generation and cost; no bus LMPs for this 1-bus case."""
     import pandapower as pp  # pylint: disable=import-outside-toplevel
@@ -495,6 +755,7 @@ def _compare_ieee_4b_ori(
     tol_mw: float,
     tol_lmp: float,
     pandapower_file: Path | None = None,
+    **_kwargs: object,
 ) -> bool:
     """Compare ieee_4b_ori generation, cost, and bus LMPs."""
     import pandapower as pp  # pylint: disable=import-outside-toplevel
@@ -557,6 +818,7 @@ def _compare_ieee30b(
     tol_mw: float,
     tol_lmp: float,
     pandapower_file: Path | None = None,
+    **_kwargs: object,
 ) -> bool:
     """Compare ieee30b total generation, cost, and bus LMPs.
 
@@ -624,6 +886,7 @@ def _compare_ieee_57b(
     tol_mw: float,
     tol_lmp: float,
     pandapower_file: Path | None = None,
+    **_kwargs: object,
 ) -> bool:
     """Compare ieee_57b total generation, cost, and bus LMPs.
 
@@ -693,6 +956,7 @@ def _compare_bat_4b_24(
     tol_mw: float,
     tol_lmp: float,
     pandapower_file: Path | None = None,
+    **_kwargs: object,
 ) -> bool:
     """Compare bat_4b_24 conventional-generator dispatch across 24 hourly blocks.
 
@@ -774,19 +1038,280 @@ def _compare_bat_4b_24(
     return passed
 
 
+def _compare_plp(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+    plp_output: Path | None = None,
+    **_kwargs: object,
+) -> bool:
+    """Compare gtopt output against native PLP CEN65 reference output.
+
+    Works with **any** PLP case.  Central names, bus names, and the number of
+    blocks are auto-detected from the PLP output files; no case-specific
+    hard-coding is required.
+
+    Reference files read from *plp_output*:
+
+    * ``plpcen.csv`` – generator dispatch (``CenPgen`` in MW) per block.
+    * ``plpess.csv`` – ESS charge (``DCar``) and discharge (``GDes``) per block
+      (optional; skipped when the file is absent).
+    * ``plpbar.csv`` – marginal cost (``CMgBar`` in $/MWh) per bus per block.
+
+    Central–to–gtopt-UID mapping
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Centrals are read from ``plpcen.csv`` in ``CenNum`` order.  Non-thermal
+    types (``BAT``, ``FAL``, and related) are excluded from the conventional-
+    generator comparison and handled separately:
+
+    * ``CenTip == "BAT"`` entries map to the battery discharge generator output
+      (``Battery/fout_sol.csv``).
+    * ``CenTip`` in ``_PLP_NONTHERMAL_TIPS`` (e.g. ``"FAL"`` failure demand)
+      are skipped entirely.
+
+    Remaining (conventional) centrals map to gtopt ``uid:1``, ``uid:2``, …
+    in ``CenNum`` order — the same order that ``plp2gtopt`` assigns UIDs.
+
+    Bus–to–gtopt-UID mapping
+    ~~~~~~~~~~~~~~~~~~~~~~~~
+    Buses are read from ``plpbar.csv`` in ``BarNum`` order, matched to gtopt
+    ``uid:1``, ``uid:2``, … in ``Bus/balance_dual.csv``.
+
+    Parameters
+    ----------
+    output_dir:
+        Directory containing gtopt CSV output (``Generator/``, ``Bus/``,
+        ``Battery/`` subdirectories).
+    tol_mw:
+        Generation / battery-power tolerance in MW.
+    tol_lmp:
+        CMg / LMP tolerance in $/MWh.
+    pandapower_file:
+        Accepted but silently ignored — this case compares against PLP output.
+    plp_output:
+        Path to the directory containing the PLP CEN65 output files
+        (``plpcen.csv``, ``plpbar.csv``, optionally ``plpess.csv``).
+        **Required** — pass via ``--plp-output`` on the CLI.
+
+    Returns
+    -------
+    ``True`` if all comparisons pass within tolerance, ``False`` otherwise.
+
+    Raises
+    ------
+    ValueError if *plp_output* is ``None``.
+    FileNotFoundError if required PLP or gtopt output files are missing.
+    """
+    if plp_output is None:
+        raise ValueError(
+            "--plp-output is required for the 'plp' case; "
+            "specify the directory containing plpcen.csv / plpbar.csv."
+        )
+    plp_output = Path(plp_output)
+
+    if pandapower_file is not None:
+        print(
+            "Note: --pandapower-file is ignored for the 'plp' case "
+            "(comparison uses PLP reference CSV files)."
+        )
+
+    # --- Auto-detect central/bus names from PLP output ---
+    all_centrals = read_plp_central_names(plp_output)
+    bus_names = read_plp_bus_names(plp_output)
+
+    # Conventional generators: exclude BAT, FAL types → map to gtopt uid:1, 2, …
+    conv_centrals = [
+        name for name, tip in all_centrals if tip not in _PLP_NONTHERMAL_TIPS
+    ]
+    # Battery/BAT discharge centrals (from plpcen.csv BAT rows)
+    bat_centrals = [name for name, tip in all_centrals if tip == "BAT"]
+
+    # --- Read PLP reference ---
+    plp_gen = read_plp_generation(plp_output)
+    plp_cmg = read_plp_cmg(plp_output)
+
+    plpess_path = plp_output / "plpess.csv"
+    has_ess = plpess_path.exists()
+    plp_ess = read_plp_ess(plp_output) if has_ess else {}
+
+    n_blocks = len(plp_gen)
+
+    # --- Read gtopt generation (all blocks) ---
+    gen_file = output_dir / "Generator" / "generation_sol.csv"
+    if not gen_file.exists():
+        raise FileNotFoundError(f"Not found: {gen_file}")
+    gtopt_gen_all: list = []
+    with open(gen_file, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
+        for row in reader:
+            gtopt_gen_all.append([float(row[i]) for i in range(uid_start, len(row))])
+
+    # --- Read gtopt battery dispatch when PLP has ESS data ---
+    gt_fout: list = []
+    gt_finp: list = []
+    if has_ess:
+        bat_dir = output_dir / "Battery"
+        if bat_dir.exists():
+            try:
+                gt_fout, gt_finp = read_gtopt_battery_dispatch(output_dir)
+            except FileNotFoundError:
+                pass  # battery files absent → treat as all-zero
+
+    # --- Read gtopt LMPs (all blocks) ---
+    lmp_file = output_dir / "Bus" / "balance_dual.csv"
+    if not lmp_file.exists():
+        raise FileNotFoundError(f"Not found: {lmp_file}")
+    gtopt_lmp_all: list = []
+    with open(lmp_file, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        uid_start_lmp = next(i for i, h in enumerate(header) if h.startswith("uid:"))
+        for row in reader:
+            gtopt_lmp_all.append(
+                [float(row[i]) for i in range(uid_start_lmp, len(row))]
+            )
+
+    passed = True
+
+    # --- Generation comparison: conventional centrals vs gtopt uids ---
+    print(
+        f"plp: comparing {n_blocks} blocks — generation (MW) vs PLP"
+        f" ({len(conv_centrals)} conventional central(s): {', '.join(conv_centrals)})"
+    )
+    for b in range(1, n_blocks + 1):
+        plp_row = plp_gen.get(b, {})
+        gt_row = gtopt_gen_all[b - 1] if b - 1 < len(gtopt_gen_all) else []
+        for gi, name in enumerate(conv_centrals):
+            plp_val = plp_row.get(name, 0.0)
+            gt_val = gt_row[gi] if gi < len(gt_row) else 0.0
+            diff = abs(plp_val - gt_val)
+            status = "PASS" if diff <= tol_mw else "FAIL"
+            if diff > tol_mw:
+                passed = False
+            print(
+                f"  block {b:2d} {name}:"
+                f" plp={plp_val:.3f}  gtopt={gt_val:.3f}"
+                f"  diff={diff:.3f}  [{status}]"
+            )
+
+    # --- Battery ESS comparison: charge and discharge per ESS unit ---
+    if has_ess and plp_ess:
+        ess_names = sorted({n for blk in plp_ess.values() for n in blk})
+        print(
+            f"plp: comparing {n_blocks} blocks — battery ESS dispatch (MW)"
+            f" ({len(ess_names)} ESS unit(s): {', '.join(ess_names)})"
+        )
+        for ei, ess_name in enumerate(ess_names):
+            for b in range(1, n_blocks + 1):
+                plp_row = plp_ess.get(b, {}).get(
+                    ess_name, {"charge": 0.0, "discharge": 0.0}
+                )
+                gt_charge = gt_finp[b - 1] if b - 1 < len(gt_finp) else 0.0
+                gt_discharge = gt_fout[b - 1] if b - 1 < len(gt_fout) else 0.0
+                # When multiple ESS exist, shift index by ei (uid:ei+1)
+                if ei > 0 and b - 1 < len(gt_finp):
+                    gt_charge = gt_finp[ei] if ei < len(gt_finp) else 0.0
+                    gt_discharge = gt_fout[ei] if ei < len(gt_fout) else 0.0
+                for label, plp_val, gt_val in [
+                    ("charge", plp_row["charge"], gt_charge),
+                    ("discharge", plp_row["discharge"], gt_discharge),
+                ]:
+                    diff = abs(plp_val - gt_val)
+                    status = "PASS" if diff <= tol_mw else "FAIL"
+                    if diff > tol_mw:
+                        passed = False
+                    print(
+                        f"  block {b:2d} {ess_name} {label}:"
+                        f" plp={plp_val:.3f}  gtopt={gt_val:.3f}"
+                        f"  diff={diff:.3f}  [{status}]"
+                    )
+
+    # --- BAT centrals in plpcen.csv vs battery fout ---
+    if bat_centrals and gt_fout:
+        print(
+            f"plp: comparing {n_blocks} blocks — BAT central dispatch (MW)"
+            f" ({', '.join(bat_centrals)})"
+        )
+        for b in range(1, n_blocks + 1):
+            plp_row = plp_gen.get(b, {})
+            gt_val = gt_fout[b - 1] if b - 1 < len(gt_fout) else 0.0
+            plp_bat_total = sum(plp_row.get(n, 0.0) for n in bat_centrals)
+            diff = abs(plp_bat_total - gt_val)
+            status = "PASS" if diff <= tol_mw else "FAIL"
+            if diff > tol_mw:
+                passed = False
+            print(
+                f"  block {b:2d} BAT discharge:"
+                f" plp={plp_bat_total:.3f}  gtopt={gt_val:.3f}"
+                f"  diff={diff:.3f}  [{status}]"
+            )
+
+    # --- CMg / LMP comparison ---
+    print(
+        f"plp: comparing {n_blocks} blocks — CMg ($/MWh) vs gtopt LMPs"
+        f" ({len(bus_names)} bus(es): {', '.join(bus_names)})"
+    )
+    for b in range(1, n_blocks + 1):
+        plp_row = plp_cmg.get(b, {})
+        gt_row = gtopt_lmp_all[b - 1] if b - 1 < len(gtopt_lmp_all) else []
+        for bi, name in enumerate(bus_names):
+            plp_val = plp_row.get(name, 0.0)
+            gt_val = gt_row[bi] if bi < len(gt_row) else 0.0
+            diff = abs(plp_val - gt_val)
+            status = "PASS" if diff <= tol_lmp else "FAIL"
+            if diff > tol_lmp:
+                passed = False
+            print(
+                f"  block {b:2d} {name}:"
+                f" plp={plp_val:.4f}  gtopt={gt_val:.4f}"
+                f"  diff={diff:.4f}  [{status}]"
+            )
+
+    return passed
+
+
+# Backward-compatible alias – kept so that any existing scripts using
+# ``--case plp_bat_4b_24`` continue to work.  Internally it uses the
+# generalized ``_compare_plp`` with the committed reference data path.
+def _compare_plp_bat_4b_24(
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    pandapower_file: Path | None = None,
+    **_kwargs: object,
+) -> bool:
+    """Backward-compatible alias: compare against the committed plp_bat_4b_24 data."""
+    return _compare_plp(
+        output_dir,
+        tol_mw,
+        tol_lmp,
+        pandapower_file=pandapower_file,
+        plp_output=_PLP_BAT_4B_24_OUTPUT,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
-# Maps case name → (build_net_fn, compare_fn).
-# build_net_fn must accept no arguments and return a pandapower network.
-# It is None for bat_4b_24 because that case builds the network per-block.
-_CASES = {
+# Maps case name → compare function.
+# All compare functions accept (output_dir, tol_mw, tol_lmp, pandapower_file,
+# plp_output, **_kwargs) so the dispatcher can pass all named arguments
+# uniformly.  Functions that do not need a particular argument silently ignore
+# it via ``**_kwargs``.
+_CaseFn = Callable[..., bool]
+_CASES: dict[str, _CaseFn] = {
     "s1b": _compare_s1b,
     "ieee_4b_ori": _compare_ieee_4b_ori,
     "ieee30b": _compare_ieee30b,
     "ieee_57b": _compare_ieee_57b,
     "bat_4b_24": _compare_bat_4b_24,
+    "plp": _compare_plp,
+    # Backward-compatible alias for the committed plp_bat_4b_24 reference data.
+    "plp_bat_4b_24": _compare_plp_bat_4b_24,
 }
 
 # Maps case name → network builder (for --save-pandapower-file).
@@ -836,7 +1361,19 @@ def main() -> None:
             "rebuilding it with the built-in network builder.  "
             "The file must have been saved with pandapower.to_json() (or "
             "--save-pandapower-file).  "
-            "Ignored for bat_4b_24 (network is rebuilt per-block)."
+            "Ignored for bat_4b_24 (network is rebuilt per-block) and "
+            "plp / plp_bat_4b_24 (comparison uses PLP reference CSV files)."
+        ),
+    )
+    parser.add_argument(
+        "--plp-output",
+        type=Path,
+        metavar="DIR",
+        default=None,
+        help=(
+            "Directory containing native PLP CEN65 output files "
+            "(plpcen.csv, plpbar.csv, plpess.csv).  "
+            "Required when --case plp is used."
         ),
     )
     parser.add_argument(
@@ -847,7 +1384,7 @@ def main() -> None:
         help=(
             "Save the built pandapower network to this JSON file and exit "
             "(no gtopt comparison is performed).  "
-            "Not supported for bat_4b_24."
+            "Not supported for bat_4b_24, plp, or plp_bat_4b_24."
         ),
     )
     parser.add_argument(
@@ -897,6 +1434,7 @@ def main() -> None:
             tol_mw=args.tol,
             tol_lmp=args.tol_lmp,
             pandapower_file=args.pandapower_file,
+            plp_output=args.plp_output,
         )
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -906,7 +1444,7 @@ def main() -> None:
         sys.exit(2)
 
     if ok:
-        print("RESULT: PASS — pandapower and gtopt agree")
+        print("RESULT: PASS — reference and gtopt agree")
         sys.exit(0)
     else:
         print("RESULT: FAIL — mismatch detected")
