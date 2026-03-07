@@ -799,7 +799,7 @@ def test_igtopt_ieee57b_gtopt_matches_pandapower(gtopt_bin, tmp_path):
     """Generation totals and LMPs must match the pandapower DC OPF reference."""
     pytest.importorskip("pandapower")
     sys.path.insert(0, str(_SCRIPTS_DIR))
-    from compare_pandapower.main import (  # pylint: disable=import-outside-toplevel
+    from gtopt_compare.main import (  # pylint: disable=import-outside-toplevel
         _compare_ieee_57b as compare_fn,
     )
 
@@ -884,7 +884,7 @@ def test_igtopt_bat4b24_gtopt_matches_pandapower(gtopt_bin, tmp_path):
     """Per-block generation must match the pandapower DC OPF reference (bat_4b_24)."""
     pytest.importorskip("pandapower")
     sys.path.insert(0, str(_SCRIPTS_DIR))
-    from compare_pandapower.main import (  # pylint: disable=import-outside-toplevel
+    from gtopt_compare.main import (  # pylint: disable=import-outside-toplevel
         _compare_bat_4b_24 as compare_fn,
     )
 

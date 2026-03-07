@@ -117,17 +117,17 @@ set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 
-# ---- Python / compare_pandapower for pandapower comparison tests ----
+# ---- Python / gtopt_compare for pandapower comparison tests ----
 #
 # Detection priority (first match wins):
 #
-# 1. User explicitly sets -DCOMPARE_PANDAPOWER_PROGRAM=/path/to/compare_pandapower
+# 1. User explicitly sets -DCOMPARE_PANDAPOWER_PROGRAM=/path/to/gtopt_compare
 #    (a pre-installed entry-point from 'pip install -e scripts/').
 #
-# 2. Source-tree module: the compare_pandapower package is found inside the
+# 2. Source-tree module: the gtopt_compare package is found inside the
 #    scripts/ source directory (no installation required).  Python3 with
 #    pandapower must be available.  The test is run as:
-#      python -m compare_pandapower --case <name> --gtopt-output <dir>
+#      python -m gtopt_compare --case <name> --gtopt-output <dir>
 #    with PYTHONPATH pointing at the scripts/ directory.
 #    Override the auto-detected interpreter with
 #    -DCOMPARE_PANDAPOWER_PYTHON=/path/to/python3.
@@ -135,30 +135,30 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 #    development checkout regardless of whether `pip install` has been run,
 #    and so that `cmake --build build --target uninstall` does not break tests.
 #
-# 3. The installed 'compare_pandapower' command is found via find_program.
+# 3. The installed 'gtopt_compare' command is found via find_program.
 #    Used as a fallback when the scripts/ source directory is not present
 #    (e.g. when only the installed package is available).
 #    The real interpreter path is resolved via sys.executable to avoid pyenv shims.
 #
 # 4. Fallback: find Python3 that has pandapower installed and use the per-case
-#    compare_pandapower.py script.  Override the auto-detected interpreter with
+#    gtopt_compare.py script.  Override the auto-detected interpreter with
 #    -DPANDAPOWER_PYTHON=/path/to/python3 when auto-detection fails.
 #    The real interpreter path is resolved via sys.executable to avoid pyenv shims.
 
 set(COMPARE_PANDAPOWER_PROGRAM "" CACHE FILEPATH
-  "Path to the compare_pandapower command (from 'pip install -e scripts/')")
+  "Path to the gtopt_compare command (from 'pip install -e scripts/')")
 
-# Source-tree module detection (priority 2): run compare_pandapower as a Python
+# Source-tree module detection (priority 2): run gtopt_compare as a Python
 # module directly from the scripts/ source directory without installation.
 # This takes priority over the installed binary so that tests work regardless
 # of whether `pip install` has been run, and so that
 # `cmake --build build --target uninstall` does not break the tests.
 set(COMPARE_PANDAPOWER_PYTHON "" CACHE FILEPATH
-  "Python interpreter used to run compare_pandapower from the source tree \
-(set automatically when scripts/compare_pandapower is found; \
+  "Python interpreter used to run gtopt_compare from the source tree \
+(set automatically when scripts/gtopt_compare is found; \
 override with -DCOMPARE_PANDAPOWER_PYTHON=/path/to/python3)")
 set(COMPARE_PANDAPOWER_SCRIPTS_DIR "" CACHE PATH
-  "Path to the scripts/ source directory containing the compare_pandapower \
+  "Path to the scripts/ source directory containing the gtopt_compare \
 package (set automatically; override with \
 -DCOMPARE_PANDAPOWER_SCRIPTS_DIR=/path/to/scripts)")
 
@@ -166,7 +166,7 @@ cmake_path(GET CMAKE_CURRENT_LIST_DIR PARENT_PATH _parent_dir)
 cmake_path(APPEND _parent_dir scripts OUTPUT_VARIABLE _scripts_src_dir)
 
 if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
-  if(EXISTS "${_scripts_src_dir}/compare_pandapower/__init__.py")
+  if(EXISTS "${_scripts_src_dir}/gtopt_compare/__init__.py")
     if(NOT COMPARE_PANDAPOWER_PYTHON)
       find_package(Python3 COMPONENTS Interpreter QUIET)
       if(Python3_FOUND)
@@ -187,10 +187,10 @@ if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
           set(COMPARE_PANDAPOWER_PYTHON "${_real_python_exec}")
           set(COMPARE_PANDAPOWER_SCRIPTS_DIR "${_scripts_src_dir}")
           message(STATUS
-            "Found compare_pandapower in source tree: ${_scripts_src_dir}")
+            "Found gtopt_compare in source tree: ${_scripts_src_dir}")
         else()
           message(STATUS
-            "compare_pandapower source found but pandapower not installed — "
+            "gtopt_compare source found but pandapower not installed — "
             "install pandapower or use 'pip install -e scripts/' to enable "
             "pandapower comparison tests.")
         endif()
@@ -201,7 +201,7 @@ if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
         set(COMPARE_PANDAPOWER_SCRIPTS_DIR "${_scripts_src_dir}")
       endif()
       message(STATUS
-        "Using compare_pandapower from source tree: "
+        "Using gtopt_compare from source tree: "
         "${COMPARE_PANDAPOWER_SCRIPTS_DIR}")
     endif()
   endif()
@@ -210,17 +210,17 @@ endif()
 # Installed binary detection (priority 3): try find_program only when the
 # source tree is not available (e.g. running from an installed package tree).
 if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
-  find_program(_found_compare_pandapower compare_pandapower)
-  if(_found_compare_pandapower)
-    set(COMPARE_PANDAPOWER_PROGRAM "${_found_compare_pandapower}")
-    message(STATUS "Found compare_pandapower command: ${COMPARE_PANDAPOWER_PROGRAM}")
+  find_program(_found_gtopt_compare gtopt-compare)
+  if(_found_gtopt_compare)
+    set(COMPARE_PANDAPOWER_PROGRAM "${_found_gtopt_compare}")
+    message(STATUS "Found gtopt-compare command: ${COMPARE_PANDAPOWER_PROGRAM}")
   endif()
 endif()
 
 if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
   # Fallback: find Python3 with pandapower
   set(PANDAPOWER_PYTHON "" CACHE FILEPATH
-    "Python interpreter with pandapower (used when compare_pandapower is not installed)")
+    "Python interpreter with pandapower (used when gtopt_compare is not installed)")
   if(NOT PANDAPOWER_PYTHON)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
@@ -258,7 +258,7 @@ include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
 # an output/ directory containing the expected CSV results, then add a line:
 #   add_e2e_case(<name> <system_json>)
 # To also compare against pandapower, add:
-#   add_pandapower_comparison(<name>)   (requires compare_pandapower.py in the case dir)
+#   add_pandapower_comparison(<name>)   (requires gtopt_compare.py in the case dir)
 
 add_e2e_case(c0 system_c0.json)
 add_e2e_case(c1 system_c1.json)
@@ -284,7 +284,7 @@ add_pandapower_comparison(ieee_57b)
 add_pandapower_comparison(bat_4b_24)
 
 # ---- Target: generate pandapower network JSON files ----
-# Run 'cmake --build . --target generate-pandapower-nets' (requires compare_pandapower
+# Run 'cmake --build . --target generate-pandapower-nets' (requires gtopt_compare
 # and pandapower to be installed or available in the source tree) to save a
 # pandapower_net.json file into each case directory.  The saved files are then
 # used automatically by the add_pandapower_comparison() tests via --pandapower-file.
@@ -300,7 +300,7 @@ if(COMPARE_PANDAPOWER_PROGRAM OR (COMPARE_PANDAPOWER_PYTHON AND COMPARE_PANDAPOW
       list(APPEND _generate_pandapower_commands
         COMMAND ${CMAKE_COMMAND} -E env
           "PYTHONPATH=${COMPARE_PANDAPOWER_SCRIPTS_DIR}"
-          "${COMPARE_PANDAPOWER_PYTHON}" -m compare_pandapower
+          "${COMPARE_PANDAPOWER_PYTHON}" -m gtopt_compare
             --case "${_pp_case}"
             --save-pandapower-file "${CASES_DIR}/${_pp_case}/pandapower_net.json"
       )

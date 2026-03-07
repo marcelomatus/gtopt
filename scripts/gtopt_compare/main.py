@@ -3,12 +3,12 @@
 """Compare gtopt solver output against pandapower DC OPF reference.
 
 Usage:
-    compare_pandapower --case <name> --gtopt-output <dir> [options]
+    gtopt-compare --case <name> --gtopt-output <dir> [options]
 
-    compare_pandapower --case <name> --gtopt-output <dir> \\
+    gtopt-compare --case <name> --gtopt-output <dir> \\
         --pandapower-file <net.json>
 
-    compare_pandapower --case <name> --save-pandapower-file <net.json>
+    gtopt-compare --case <name> --save-pandapower-file <net.json>
 
 Supported cases:
     s1b          1-bus dispatch (g1=$20/MWh 200 MW, g2=$40/MWh 300 MW, d1=250 MW)
@@ -40,7 +40,7 @@ External pandapower files:
     Use --save-pandapower-file to write the built network to a JSON file for
     later reuse.  Combine with --case to select which network to save:
 
-        compare_pandapower --case s1b --save-pandapower-file cases/s1b/pandapower_net.json
+        gtopt-compare --case s1b --save-pandapower-file cases/s1b/pandapower_net.json
 
 Exit codes:
     0  PASS — pandapower and gtopt agree within tolerance
@@ -807,7 +807,7 @@ _NET_BUILDERS = {
 def main() -> None:
     """Parse CLI arguments and run the selected case comparison."""
     parser = argparse.ArgumentParser(
-        prog="compare_pandapower",
+        prog="gtopt-compare",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

@@ -658,10 +658,10 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 > ```bash
 > # --- scripts/ (run from scripts/ directory) ---
 > cd scripts
-> ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> ruff check  compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
-> mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+> ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> ruff check  gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+> mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
 >   --ignore-missing-imports
 >
 > # --- guiservice/ (run from repo root) ---
@@ -684,16 +684,16 @@ pip install -r scripts/requirements-dev.txt   # dev+test deps
 
 # Format scripts/ (in-place)
 cd scripts
-ruff format compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Lint scripts/ with ruff
-ruff check compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff check gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Lint scripts/ with pylint (must score 10.00/10)
-pylint --jobs=0 compare_pandapower cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
 
 # Type-check scripts/
-mypy compare_pandapower cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
   --ignore-missing-imports
 
 # Run all script tests (from scripts/ directory)
@@ -709,7 +709,7 @@ python -m pytest \
 
 ## Python Scripts Sub-Package (`scripts/`)
 
-The command-line programs (`compare_pandapower`, `cvs2parquet`, `gtopt_diagram`,
+The command-line programs (`gtopt_compare`, `cvs2parquet`, `gtopt_diagram`,
 `igtopt`, `plp2gtopt`, `pp2gtopt`, `ts2gtopt`) live under `scripts/` as a
 **self-contained Python package** with its own `pyproject.toml`,
 `requirements.txt`, and `requirements-dev.txt`.  They are **independent of the
@@ -723,7 +723,7 @@ scripts/
 ├── requirements.txt        ← runtime: numpy, pandas, pyarrow, openpyxl, pandapower, …
 ├── requirements-dev.txt    ← dev+test: -r requirements.txt + pytest, pylint, ruff, …
 ├── CMakeLists.txt          ← CMake targets (see below)
-├── compare_pandapower/     ← pandapower ↔ gtopt comparison tool
+├── gtopt_compare/     ← pandapower ↔ gtopt comparison tool
 ├── cvs2parquet/            ← CSV → Parquet converter
 │   ├── __init__.py
 │   ├── cvs2parquet.py      ← main() entry point
