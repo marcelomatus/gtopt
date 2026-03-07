@@ -174,9 +174,7 @@ class TestCasesDispatchTable:
 class TestMainArgParsing:
     def test_missing_case_exits(self):
         with pytest.raises(SystemExit):
-            with patch.object(
-                sys, "argv", ["gtopt-compare", "--gtopt-output", "/tmp"]
-            ):
+            with patch.object(sys, "argv", ["gtopt-compare", "--gtopt-output", "/tmp"]):
                 main()
 
     def test_missing_output_exits(self):
