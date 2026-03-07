@@ -124,18 +124,21 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 # 1. User explicitly sets -DCOMPARE_PANDAPOWER_PROGRAM=/path/to/compare_pandapower
 #    (a pre-installed entry-point from 'pip install -e scripts/').
 #
-# 2. The installed 'compare_pandapower' command is found via find_program.
-#    This is the preferred route: the entry-point script has the real Python
-#    interpreter path baked in, so it is immune to pyenv/virtualenv shim issues.
-#    Install with: pip install -e scripts/   (from the repo root)
-#
-# 3. Source-tree module: the compare_pandapower package is found inside the
+# 2. Source-tree module: the compare_pandapower package is found inside the
 #    scripts/ source directory (no installation required).  Python3 with
 #    pandapower must be available.  The test is run as:
 #      python -m compare_pandapower --case <name> --gtopt-output <dir>
 #    with PYTHONPATH pointing at the scripts/ directory.
 #    Override the auto-detected interpreter with
 #    -DCOMPARE_PANDAPOWER_PYTHON=/path/to/python3.
+#    This takes priority over the installed binary so that tests work in a
+#    development checkout regardless of whether `pip install` has been run,
+#    and so that `cmake --build build --target uninstall` does not break tests.
+#
+# 3. The installed 'compare_pandapower' command is found via find_program.
+#    Used as a fallback when the scripts/ source directory is not present
+#    (e.g. when only the installed package is available).
+#    The real interpreter path is resolved via sys.executable to avoid pyenv shims.
 #
 # 4. Fallback: find Python3 that has pandapower installed and use the per-case
 #    compare_pandapower.py script.  Override the auto-detected interpreter with
@@ -145,16 +148,11 @@ include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 set(COMPARE_PANDAPOWER_PROGRAM "" CACHE FILEPATH
   "Path to the compare_pandapower command (from 'pip install -e scripts/')")
 
-if(NOT COMPARE_PANDAPOWER_PROGRAM)
-  find_program(_found_compare_pandapower compare_pandapower)
-  if(_found_compare_pandapower)
-    set(COMPARE_PANDAPOWER_PROGRAM "${_found_compare_pandapower}")
-    message(STATUS "Found compare_pandapower command: ${COMPARE_PANDAPOWER_PROGRAM}")
-  endif()
-endif()
-
-# Source-tree module detection (priority 3): run compare_pandapower as a Python
+# Source-tree module detection (priority 2): run compare_pandapower as a Python
 # module directly from the scripts/ source directory without installation.
+# This takes priority over the installed binary so that tests work regardless
+# of whether `pip install` has been run, and so that
+# `cmake --build build --target uninstall` does not break the tests.
 set(COMPARE_PANDAPOWER_PYTHON "" CACHE FILEPATH
   "Python interpreter used to run compare_pandapower from the source tree \
 (set automatically when scripts/compare_pandapower is found; \
@@ -164,10 +162,10 @@ set(COMPARE_PANDAPOWER_SCRIPTS_DIR "" CACHE PATH
 package (set automatically; override with \
 -DCOMPARE_PANDAPOWER_SCRIPTS_DIR=/path/to/scripts)")
 
-if(NOT COMPARE_PANDAPOWER_PROGRAM)
-  cmake_path(GET CMAKE_CURRENT_LIST_DIR PARENT_PATH _parent_dir)
-  cmake_path(APPEND _parent_dir scripts OUTPUT_VARIABLE _scripts_src_dir)
+cmake_path(GET CMAKE_CURRENT_LIST_DIR PARENT_PATH _parent_dir)
+cmake_path(APPEND _parent_dir scripts OUTPUT_VARIABLE _scripts_src_dir)
 
+if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
   if(EXISTS "${_scripts_src_dir}/compare_pandapower/__init__.py")
     if(NOT COMPARE_PANDAPOWER_PYTHON)
       find_package(Python3 COMPONENTS Interpreter QUIET)
@@ -206,6 +204,16 @@ if(NOT COMPARE_PANDAPOWER_PROGRAM)
         "Using compare_pandapower from source tree: "
         "${COMPARE_PANDAPOWER_SCRIPTS_DIR}")
     endif()
+  endif()
+endif()
+
+# Installed binary detection (priority 3): try find_program only when the
+# source tree is not available (e.g. running from an installed package tree).
+if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
+  find_program(_found_compare_pandapower compare_pandapower)
+  if(_found_compare_pandapower)
+    set(COMPARE_PANDAPOWER_PROGRAM "${_found_compare_pandapower}")
+    message(STATUS "Found compare_pandapower command: ${COMPARE_PANDAPOWER_PROGRAM}")
   endif()
 endif()
 
