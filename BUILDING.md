@@ -381,12 +381,20 @@ cmake --install build
 To uninstall:
 
 ```bash
+# Using the uninstall CMake target (recommended — works for all install types):
+cmake --build build --target uninstall
+
+# Or manually for a standalone binary-only install:
 # System-wide install
 sudo rm /usr/local/bin/gtopt
 
 # User install
 rm ~/.local/bin/gtopt
 ```
+
+The `uninstall` target reads `build/install_manifest.txt` that was written by
+the last `cmake --install` run and removes every file it contains.  Run
+`cmake --install` first if the manifest does not exist yet.
 
 ## Building and Running Tests
 
