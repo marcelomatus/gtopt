@@ -393,8 +393,34 @@ rm ~/.local/bin/gtopt
 ```
 
 The `uninstall` target reads `build/install_manifest.txt` that was written by
-the last `cmake --install` run and removes every file it contains.  Run
-`cmake --install` first if the manifest does not exist yet.
+the last `cmake --install` run and removes every file it contains.  It also
+reads `build/scripts/scripts_install_manifest.txt` (written by the scripts
+`install(CODE ...)` step) to remove pip-installed entry-point scripts such as
+`compare_pandapower`, `cvs2parquet`, etc., which are not tracked in the main
+cmake manifest.  Run `cmake --install` first if the manifests do not exist yet.
+
+To verify that end-to-end tests work *without* installing the scripts (the
+recommended development workflow):
+
+```bash
+# 1. Build
+cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j$(nproc)
+
+# 2. Install (records install_manifest.txt and scripts_install_manifest.txt)
+cmake --install build
+
+# 3. Uninstall — removes the gtopt binary and the pip-installed scripts
+cmake --build build --target uninstall
+
+# 4. Run e2e tests — must still pass using the source-tree compare_pandapower
+cd build && ctest --output-on-failure -R compare_pandapower
+```
+
+The e2e pandapower comparison tests automatically fall back to running
+`compare_pandapower` directly from the `scripts/` source tree (using
+`PYTHONPATH=scripts/ python -m compare_pandapower`) when the installed
+entry-point is not present.
 
 ## Building and Running Tests
 

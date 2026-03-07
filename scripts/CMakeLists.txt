@@ -478,4 +478,28 @@ install(CODE "
   endif()
   message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
     \"compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
+
+  # Record the installed entry-point paths in a manifest file so that
+  # `cmake --build build --target uninstall` can remove them.  pip installs
+  # entry-points to \${CMAKE_INSTALL_PREFIX}/bin/ but does not write to
+  # cmake's install_manifest.txt.  The cmake_uninstall.cmake script reads
+  # this auxiliary manifest to fill that gap.
+  set(_scripts_manifest \"${CMAKE_CURRENT_BINARY_DIR}/scripts_install_manifest.txt\")
+  set(_entry_points
+    compare_pandapower
+    cvs2parquet
+    gtopt-diagram
+    igtopt
+    plp2gtopt
+    pp2gtopt
+    ts2gtopt
+  )
+  file(WRITE \"\${_scripts_manifest}\" \"\")
+  foreach(_ep \${_entry_points})
+    set(_ep_path \"\${CMAKE_INSTALL_PREFIX}/bin/\${_ep}\")
+    if(EXISTS \"\${_ep_path}\")
+      file(APPEND \"\${_scripts_manifest}\" \"\${_ep_path}\\n\")
+    endif()
+  endforeach()
+  message(STATUS \"Recorded installed script paths in \${_scripts_manifest}\")
 ")

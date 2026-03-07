@@ -36,3 +36,32 @@ foreach(_file ${_files})
     message(STATUS "Already removed (skipping): ${_full}")
   endif()
 endforeach()
+
+# Also remove Python entry-point scripts that were installed via pip.
+# pip does not write to cmake's install_manifest.txt, so the standard loop
+# above does not cover them.  scripts/CMakeLists.txt writes the installed
+# entry-point paths to scripts_install_manifest.txt at `cmake --install` time.
+set(_scripts_manifest
+  "@CMAKE_CURRENT_BINARY_DIR@/scripts/scripts_install_manifest.txt")
+if(EXISTS "${_scripts_manifest}")
+  file(READ "${_scripts_manifest}" _script_files)
+  string(REGEX REPLACE "\n" ";" _script_files "${_script_files}")
+  foreach(_file ${_script_files})
+    if(_file STREQUAL "")
+      continue()
+    endif()
+    set(_full "$ENV{DESTDIR}${_file}")
+    if(IS_SYMLINK "${_full}" OR EXISTS "${_full}")
+      message(STATUS "Uninstalling script: ${_full}")
+      execute_process(
+        COMMAND "@CMAKE_COMMAND@" -E rm -f "${_full}"
+        RESULT_VARIABLE _rm_result
+      )
+      if(NOT _rm_result EQUAL 0)
+        message(SEND_ERROR "Failed to remove: ${_full}")
+      endif()
+    else()
+      message(STATUS "Already removed (skipping): ${_full}")
+    endif()
+  endforeach()
+endif()
