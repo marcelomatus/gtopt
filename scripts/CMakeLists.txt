@@ -60,15 +60,26 @@ CTest / ``cmake --build <dir> --target test``
 
 Running ``cmake --build <dir> --target test`` (or ``ctest`` inside the build
 directory) invokes all registered tests.  A ``scripts-install-deps`` fixture
-runs first and performs the equivalent of ``pip install -e scripts/[dev]`` from
-an internal staging copy (excluding ``*.egg-info``) so pytest, ruff, pylint, and
-mypy are available even in a fresh environment.  All other tests declare
-``FIXTURES_REQUIRED scripts-deps`` so they will be skipped if the setup fixture
-fails.
+runs first and performs the equivalent of ``pip install -e scripts/[dev]`` so
+pytest, ruff, pylint, and mypy are available even in a fresh environment.  All
+other tests declare ``FIXTURES_REQUIRED scripts-deps`` so they will be skipped
+if the setup fixture fails.
 
-Integration tests are registered as **individual CTest entries** — one per
-case group — so they can run in parallel and be reported separately.  Every
-integration test carries the ``integration`` label:
+Unit tests are registered as **individual per-package CTest entries** — one per
+Python package — so they can run in parallel and be reported separately.  Every
+unit test carries the ``unit`` label:
+
+* ``scripts-<package>-unit`` — one test per package directory
+  (gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt,
+  ts2gtopt).
+
+Run all unit tests in parallel with::
+
+  ctest -L unit --parallel
+
+Integration tests are registered as **individual per-case CTest entries** — one
+per case group — so they can also run in parallel.  Every integration test
+carries the ``integration`` label:
 
 * ``scripts-plp2gtopt-<case>`` — one test per plp2gtopt case
   (dat_ex, min_1bus, min_2bus, min_bess, min_battery, min_ess, min_hydro,
@@ -82,9 +93,10 @@ Run all integration tests in parallel with::
 
   ctest -L integration --parallel
 
-Run a single integration test::
+Run a single test::
 
   ctest -R scripts-plp2gtopt-min_1bus
+  ctest -R scripts-gtopt_compare-unit
 
 ``scripts-coverage``
   Run unit + integration tests and generate an HTML coverage report under
