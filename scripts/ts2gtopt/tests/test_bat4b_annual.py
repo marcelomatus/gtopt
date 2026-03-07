@@ -373,13 +373,17 @@ class TestHelpers:
         solar = next(g for g in gen_array if g["name"] == "g_solar")
         assert "solar_pmax" in str(solar["pmax"])
 
-    def test_bat4b_case_json_d_bat_in_lmax_is_scalar(self):
-        """d_bat_in lmax must be the scalar 60 (not a broken list)."""
+    def test_bat4b_case_json_battery_uses_unified_definition(self):
+        """Battery uses the unified definition (bus set, no converter_array)."""
         case = make_bat4b_case_json(Path("sched"), _YEAR)
-        d_bat_in = next(
-            d for d in case["system"]["demand_array"] if d["name"] == "d_bat_in"
-        )
-        assert d_bat_in["lmax"] == 60
+        bat_array = case["system"]["battery_array"]
+        assert len(bat_array) == 1
+        bat = bat_array[0]
+        assert bat["bus"] == "b3"
+        assert bat["pmax_charge"] == 60
+        assert bat["pmax_discharge"] == 60
+        assert bat["gcost"] == 0
+        assert "converter_array" not in case["system"]
 
 
 # ---------------------------------------------------------------------------
