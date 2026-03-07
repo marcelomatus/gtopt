@@ -90,6 +90,43 @@ option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3
 option(GTOPT_BUILD_DOCS        "Build Doxygen documentation (needs internet)"        OFF)
 option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e tests)"  OFF)
 
+# ---- ccache ----
+# Must be configured before tools.cmake and before CPMAddPackage(gtopt) so
+# that the compiler launcher is in effect for every compilation unit —
+# including CMake feature-test compilations during configure.
+#
+# When the caller already supplies CMAKE_<LANG>_COMPILER_LAUNCHER (e.g. CI
+# passes -DCMAKE_CXX_COMPILER_LAUNCHER=ccache), those values are preserved
+# as-is.  The guard (NOT CMAKE_<LANG>_COMPILER_LAUNCHER) ensures we never
+# clobber an explicitly provided launcher.
+#
+# Note: cmake/tools.cmake also handles USE_CCACHE when the *library* root
+# CMakeLists.txt is used as the top-level project.  That path is NOT active
+# here because PROJECT_SOURCE_DIR != CMAKE_SOURCE_DIR once CPMAddPackage runs
+# the library subproject, so the guard in tools.cmake returns early.  Setting
+# the launchers here in all/CMakeLists.txt is therefore required.
+option(USE_CCACHE "Enable ccache compiler caching" YES)
+if(USE_CCACHE)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    if(NOT CMAKE_C_COMPILER_LAUNCHER)
+      set(CMAKE_C_COMPILER_LAUNCHER
+          "${CCACHE_PROGRAM}"
+          CACHE STRING "C compiler launcher" FORCE
+      )
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_LAUNCHER)
+      set(CMAKE_CXX_COMPILER_LAUNCHER
+          "${CCACHE_PROGRAM}"
+          CACHE STRING "CXX compiler launcher" FORCE
+      )
+    endif()
+    message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
+  else()
+    message(STATUS "USE_CCACHE=YES but ccache not found in PATH — building without cache")
+  endif()
+endif()
+
 # ---- Tools ----
 
 include(../cmake/tools.cmake)
