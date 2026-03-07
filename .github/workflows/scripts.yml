@@ -48,13 +48,19 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
-      - name: Run unit tests with coverage
+      - name: Configure scripts with CMake
+        run: cmake -S scripts -B build-scripts
+
+      - name: Run unit tests with ctest (parallel)
+        run: ctest --test-dir build-scripts -L unit --parallel $(nproc) --output-on-failure
+
+      - name: Collect coverage (direct pytest)
         working-directory: scripts
         run: |
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
             -n auto \
-            -q --tb=short \
+            -q --tb=short -m "not integration" \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -117,26 +123,11 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
-      - name: Run integration tests
-        working-directory: scripts
-        run: |
-          pytest plp2gtopt/tests/test_integration.py \
-            -n auto \
-            -q --tb=short \
-            -m integration \
-            --cov=cvs2parquet \
-            --cov=igtopt \
-            --cov=plp2gtopt \
-            --cov-report=xml:coverage-integration.xml \
-            --cov-report=term-missing \
-            --cov-fail-under=0
+      - name: Configure scripts with CMake
+        run: cmake -S scripts -B build-scripts
 
-      - name: Upload integration coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-coverage-integration-xml
-          path: scripts/coverage-integration.xml
-          retention-days: 30
+      - name: Run integration tests with ctest (parallel)
+        run: ctest --test-dir build-scripts -L integration --parallel $(nproc) --output-on-failure
 
   cmake-install:
     runs-on: ubuntu-latest

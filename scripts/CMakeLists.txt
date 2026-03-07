@@ -329,23 +329,42 @@ set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
 )
 
-# ---- Unit tests (one CTest entry for all packages) ----
+# ---- Unit tests (one CTest entry per package) ----
+# Tests are independent and run in parallel via CTest (``ctest -L unit``).
 
-add_test(
-  NAME scripts-unit-tests
-  COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    ${_SCRIPT_TEST_DIRS}
-    -n auto
-    -q --tb=short -m "not integration"
-    --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# Packages with no integration-marked tests: straightforward directory scan.
+foreach(_pkg IN ITEMS gtopt_compare cvs2parquet pp2gtopt)
+  add_pytest_unit_test(
+    scripts-${_pkg}-unit
+    DIR      "${SCRIPTS_DIR}/${_pkg}/tests"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# igtopt and ts2gtopt contain @integration-marked tests; the function always
+# passes -m "not integration" so they are filtered out automatically.
+foreach(_pkg IN ITEMS igtopt ts2gtopt)
+  add_pytest_unit_test(
+    scripts-${_pkg}-unit
+    DIR      "${SCRIPTS_DIR}/${_pkg}/tests"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# plp2gtopt: ignore the dedicated integration test file (separate from the
+# @pytest.mark.integration marks used by igtopt/ts2gtopt).
+add_pytest_unit_test(
+  scripts-plp2gtopt-unit
+  DIR      "${SCRIPTS_DIR}/plp2gtopt/tests"
+  IGNORE   "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+  FIXTURE_REQUIRED scripts-deps
 )
-set_tests_properties(scripts-unit-tests PROPERTIES
-  FIXTURES_REQUIRED scripts-deps
-  LABELS unit
-  # pytest-xdist uses all CPUs internally; tell CTest so it avoids
-  # scheduling another CPU-saturating test alongside.
-  PROCESSORS ${NPROC}
+
+# gtopt_diagram: standalone test directory (lives outside the package dir).
+add_pytest_unit_test(
+  scripts-gtopt_diagram-unit
+  DIR      "${SCRIPTS_DIR}/gtopt_diagram_tests"
+  FIXTURE_REQUIRED scripts-deps
 )
 
 # ---- plp2gtopt integration tests (one CTest test per case group) ----
