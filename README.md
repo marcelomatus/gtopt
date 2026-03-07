@@ -32,6 +32,7 @@ This project includes comprehensive documentation for different use cases:
 - [Python Scripts](#python-scripts)
 - [GUI Service](#gui-service)
 - [Web Service](#web-service)
+- [Related Tools](#related-tools)
 - [License](#license)
 
 ## Features
@@ -251,6 +252,42 @@ gtopt_websrv --gtopt-bin /path/to/gtopt
 ```
 
 For detailed installation and deployment instructions, see [webservice/INSTALL.md](webservice/INSTALL.md).
+
+## Related Tools
+
+gtopt integrates with and compares against several established power system
+tools. The Python scripts in `scripts/` provide converters and validators
+for interoperability:
+
+| Tool | Language | Role with gtopt |
+|------|----------|-----------------|
+| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt-compare` validates gtopt results against pandapower on standard IEEE test cases |
+| **[PLP (PLPMAX/PLPOPT)](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
+| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)) |
+| **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to gtopt |
+
+### pandapower
+
+[pandapower](https://www.pandapower.org/) is an open-source Python tool for
+power system analysis, including AC/DC power flow and DC optimal power flow.
+
+- **`pp2gtopt`**: converts a pandapower network (JSON) to a gtopt case,
+  enabling direct use of any pandapower network in gtopt.
+- **`gtopt-compare`**: validates gtopt dispatch results against pandapower
+  DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
+  `bat_4b_24`).
+
+### PLP
+
+[PLP](https://github.com/marcelomatus/plp_storage) (PLPMAX/PLPOPT) is a
+Fortran-based hydrothermal unit commitment and economic dispatch tool used in
+several Latin American power systems.
+
+- **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
+  self-contained gtopt JSON + Parquet case, preserving multi-scenario
+  hydrology, block/stage structure, battery storage, and maintenance schedules.
+- Sample PLP cases are in `scripts/cases/` (e.g., `plp_dat_ex`, `plp_min_bess`,
+  `plp_bat_4b_24`).
 
 ## License
 
