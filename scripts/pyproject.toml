@@ -6,8 +6,9 @@
 #   pip install -e ./scripts       # editable install from repo root
 #   pip install -e .               # editable install from inside scripts/
 #
-# The four console-script entry-points (cvs2parquet, igtopt, plp2gtopt,
-# pp2gtopt, ts2gtopt) are registered here so they land on PATH alongside the gtopt binary.
+# The console-script entry-points (gtopt-compare, cvs2parquet, gtopt-diagram,
+# igtopt, plp2gtopt, pp2gtopt, ts2gtopt) are registered here so they land on
+# PATH alongside the gtopt binary.
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
