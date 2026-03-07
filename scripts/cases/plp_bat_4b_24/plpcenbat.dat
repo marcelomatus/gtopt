@@ -1,0 +1,12 @@
+# Archivo de caracteristicas de baterias (plpcenbat.dat)
+# Battery BESS1 at bus 3, efficiency 0.95, energy capacity 0-200 MWh
+# Numero de baterias total, Numero maximo de inyecciones
+     1          1
+# Baterias
+     1     BESS1
+     # Numero de centrales que inyectan
+          1
+     # Central que inyecta, Factor de perdida de carga
+     BESS1     0.95
+# Barra, Factor de perdida de carga, Capacidad minima, Capacidad maxima
+     3     0.95     0.0     200.0
