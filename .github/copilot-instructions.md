@@ -284,12 +284,11 @@ to verify the install (~3–5 s) instead of downloading everything from scratch 
 
 ## Obtaining the gtopt Binary Without Building From Scratch
 
-GitHub Actions uploads the compiled `gtopt` binary as the **`gtopt-binary-debug`**
-artifact on every successful `ubuntu.yml` run (retention: 7 days).  In Copilot /
-codespace agent environments a full build from source takes 5–10 minutes; using the
-cached CI artifact is much faster.
+The **`tools/get_gtopt_binary.py`** script is a standalone Copilot / Claude
+agent tool.  It is **not installed** via `pip install ./scripts` or
+`cmake install`.  Use it to obtain a `gtopt` binary with minimal effort.
 
-### Binary discovery order (used by the `gtopt_bin` pytest fixture)
+### Strategy (tried in order)
 
 1. `GTOPT_BIN` environment variable → path to an existing binary.
 2. `shutil.which("gtopt")` → binary on `PATH`.
@@ -297,10 +296,25 @@ cached CI artifact is much faster.
    `build/standalone/gtopt`, `build/gtopt`, `build-standalone/gtopt`,
    `all/build/gtopt`.
 4. `/tmp/gtopt-ci-bin/gtopt` → previously downloaded CI artifact.
-5. Automatic download from the latest GitHub Actions artifact when `GITHUB_TOKEN`
-   or the `gh` CLI is available.
+5. Download `gtopt-binary-debug` artifact from the latest successful CI run
+   (requires `GITHUB_TOKEN` or `gh` CLI).
+6. Build from source via `cmake` (`--build` flag; slowest option).
 
-### Manual download using `gh` CLI
+### Fastest: run the helper script
+
+```bash
+# From repo root – prints the binary path and exports it
+export GTOPT_BIN=$(python tools/get_gtopt_binary.py)
+pytest scripts/igtopt/tests/ -m integration -v
+
+# Force a fresh CI download
+python tools/get_gtopt_binary.py --force-download
+
+# Also try building from source if CI artifact unavailable
+python tools/get_gtopt_binary.py --build
+```
+
+### Manual CI artifact download via `gh` CLI
 
 ```bash
 # 1. Find the latest non-expired artifact ID
@@ -320,16 +334,26 @@ export GTOPT_BIN=/tmp/gtopt-ci-bin/gtopt
 pytest scripts/igtopt/tests/ -m integration -v
 ```
 
-### Programmatic download in Python
+### Programmatic use in Python
 
 ```python
-from igtopt.tests.conftest import download_gtopt_from_ci
-bin_path = download_gtopt_from_ci()
-# → /tmp/gtopt-ci-bin/gtopt  (executable, ready to use)
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+
+from get_gtopt_binary import get_gtopt_binary, download_gtopt_from_ci
+
+# Auto-discover or download (raises RuntimeError if not found)
+bin_path = get_gtopt_binary()
+
+# Also try cmake build as last resort
+bin_path = get_gtopt_binary(allow_build=True)
+
+# Force CI download to a custom directory
+bin_path = download_gtopt_from_ci(pathlib.Path("/tmp/my-dir"))
 ```
 
 The `gtopt_bin` fixture in `scripts/igtopt/tests/conftest.py` calls
-`download_gtopt_from_ci()` automatically as a last resort, so running
+`get_gtopt_binary()` automatically as a last resort, so running
 `pytest scripts/igtopt/tests/ -m integration` inside a GitHub Actions runner
 (where `GITHUB_TOKEN` is always present) will find and download the binary
 without any manual setup.
@@ -343,6 +367,9 @@ without any manual setup.
   `.github/workflows/ubuntu.yml` under `upload gtopt binary` step.
 * `GITHUB_TOKEN` is automatically injected by GitHub Actions runners and is
   sufficient for downloading artifacts via `gh api` or `urllib.request`.
+* `tools/get_gtopt_binary.py` lives in the `tools/` directory (not `scripts/`).
+  It is an **agent-only tool** and must **not** be installed via `pip install`
+  or `cmake install`.
 
 ---
 
