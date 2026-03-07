@@ -2,4 +2,4 @@
 # Numero de ESS
  1
 # CenNom    nd    nc    mloss[%]   Emax     DCMax  [DCMod CenPC]
-  BESS1     0.95  0.95   0.0       240.0    60.0    0
+  BESS1     0.95  0.95   0.0       200.0    60.0    0
