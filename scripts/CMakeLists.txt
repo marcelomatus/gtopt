@@ -51,20 +51,52 @@ Build targets
   ts2gtopt) with pytest.
 
 ``scripts-test-integration``
-  Run the integration tests (marked ``integration``) using the sample PLP
-  cases in ``scripts/cases/`` and the igtopt Excel-based integration tests
-  (requires a ``gtopt`` binary; tests are skipped when the binary is not found).
+  Run the integration tests (marked ``integration``) from plp2gtopt, igtopt,
+  and ts2gtopt in one shot via ``pytest -n auto``.  For fine-grained,
+  per-case control use the individual CTest tests (see below).
 
 CTest / ``cmake --build <dir> --target test``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Running ``cmake --build <dir> --target test`` (or ``ctest`` inside the build
 directory) invokes all registered tests.  A ``scripts-install-deps`` fixture
-runs first and performs the equivalent of ``pip install -e scripts/[dev]`` from
-an internal staging copy (excluding ``*.egg-info``) so pytest, ruff, pylint, and
-mypy are available even in a fresh environment. All other tests declare
-``FIXTURES_REQUIRED scripts-deps`` so they will be skipped if the setup fixture
-fails.
+runs first and performs the equivalent of ``pip install -e scripts/[dev]`` so
+pytest, ruff, pylint, and mypy are available even in a fresh environment.  All
+other tests declare ``FIXTURES_REQUIRED scripts-deps`` so they will be skipped
+if the setup fixture fails.
+
+Unit tests are registered as **individual per-package CTest entries** — one per
+Python package — so they can run in parallel and be reported separately.  Every
+unit test carries the ``unit`` label:
+
+* ``scripts-<package>-unit`` — one test per package directory
+  (gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt,
+  ts2gtopt).
+
+Run all unit tests in parallel with::
+
+  ctest -L unit --parallel
+
+Integration tests are registered as **individual per-case CTest entries** — one
+per case group — so they can also run in parallel.  Every integration test
+carries the ``integration`` label:
+
+* ``scripts-plp2gtopt-<case>`` — one test per plp2gtopt case
+  (dat_ex, min_1bus, min_2bus, min_bess, min_battery, min_ess, min_hydro,
+  min_mance, min_manli, min_reservoir).
+* ``scripts-igtopt-<case>`` — one test per igtopt xlsx case
+  (igtopt_ieee57b, igtopt_bat4b24).
+* ``scripts-ts2gtopt-<class>`` — one test per ts2gtopt integration class
+  (demand_projection, solar_projection, generator_pmax, write_files).
+
+Run all integration tests in parallel with::
+
+  ctest -L integration --parallel
+
+Run a single test::
+
+  ctest -R scripts-plp2gtopt-min_1bus
+  ctest -R scripts-gtopt_compare-unit
 
 ``scripts-coverage``
   Run unit + integration tests and generate an HTML coverage report under
@@ -117,6 +149,39 @@ endif()
 # scripts/ is the self-contained package root (has its own pyproject.toml)
 set(SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# ---- Module lists (avoids repeating the same paths in every target) ----
+#
+# _SCRIPT_MODULES   – directory-based package names (no path prefix, no .py).
+#                     Used verbatim for pylint and mypy invocations.
+# _SCRIPT_SOURCES   – full paths for ruff format/check (directories + the
+#                     single-file gtopt_diagram.py module).
+# _SCRIPT_TEST_DIRS – full paths to each package's tests/ subdirectory,
+#                     used for pytest unit-test and coverage invocations.
+# _SCRIPT_COV_ARGS  – --cov=<path> arguments for the pytest-cov plugin.
+
+set(_SCRIPT_MODULES
+  gtopt_compare
+  cvs2parquet
+  igtopt
+  plp2gtopt
+  pp2gtopt
+  ts2gtopt
+)
+
+set(_SCRIPT_SOURCES)
+set(_SCRIPT_TEST_DIRS)
+set(_SCRIPT_COV_ARGS)
+foreach(_mod IN LISTS _SCRIPT_MODULES)
+  list(APPEND _SCRIPT_SOURCES   "${SCRIPTS_DIR}/${_mod}")
+  list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/${_mod}/tests")
+  list(APPEND _SCRIPT_COV_ARGS  "--cov=${SCRIPTS_DIR}/${_mod}")
+endforeach()
+# gtopt_diagram.py is a single-file module; handled separately.
+list(APPEND _SCRIPT_SOURCES  "${SCRIPTS_DIR}/gtopt_diagram.py")
+list(APPEND _SCRIPT_COV_ARGS "--cov=${SCRIPTS_DIR}/gtopt_diagram.py")
+# gtopt_diagram_tests lives outside the package directory.
+list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/gtopt_diagram_tests")
+
 # ---- Install runtime deps from requirements.txt ----
 
 add_custom_target(scripts-pip-requirements
@@ -137,14 +202,7 @@ add_custom_target(scripts-install
 # ---- Format (ruff format) ----
 
 add_custom_target(scripts-format
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff format
-    "${SCRIPTS_DIR}/gtopt_compare"
-    "${SCRIPTS_DIR}/cvs2parquet"
-    "${SCRIPTS_DIR}/gtopt_diagram.py"
-    "${SCRIPTS_DIR}/igtopt"
-    "${SCRIPTS_DIR}/plp2gtopt"
-    "${SCRIPTS_DIR}/pp2gtopt"
-    "${SCRIPTS_DIR}/ts2gtopt"
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format ${_SCRIPT_SOURCES}
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Auto-formatting Python source files with ruff format"
   DEPENDS scripts-install
@@ -153,14 +211,7 @@ add_custom_target(scripts-format
 # ---- Check format (ruff format --check) ----
 
 add_custom_target(scripts-check-format
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
-    "${SCRIPTS_DIR}/gtopt_compare"
-    "${SCRIPTS_DIR}/cvs2parquet"
-    "${SCRIPTS_DIR}/gtopt_diagram.py"
-    "${SCRIPTS_DIR}/igtopt"
-    "${SCRIPTS_DIR}/plp2gtopt"
-    "${SCRIPTS_DIR}/pp2gtopt"
-    "${SCRIPTS_DIR}/ts2gtopt"
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check ${_SCRIPT_SOURCES}
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Checking Python source formatting with ruff format (no files modified)"
   DEPENDS scripts-install
@@ -169,15 +220,11 @@ add_custom_target(scripts-check-format
 # ---- Lint (pylint) ----
 
 add_custom_target(scripts-lint
+  # pylint takes the module name without the .py extension for single-file modules.
   COMMAND ${PYTHON_EXECUTABLE} -m pylint
     --jobs=0
-    gtopt_compare
-    cvs2parquet
+    ${_SCRIPT_MODULES}
     gtopt_diagram
-    igtopt
-    plp2gtopt
-    pp2gtopt
-    ts2gtopt
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running pylint static analysis"
   DEPENDS scripts-install
@@ -186,14 +233,7 @@ add_custom_target(scripts-lint
 # ---- Lint (ruff) ----
 
 add_custom_target(scripts-ruff
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff check
-    "${SCRIPTS_DIR}/gtopt_compare"
-    "${SCRIPTS_DIR}/cvs2parquet"
-    "${SCRIPTS_DIR}/gtopt_diagram.py"
-    "${SCRIPTS_DIR}/igtopt"
-    "${SCRIPTS_DIR}/plp2gtopt"
-    "${SCRIPTS_DIR}/pp2gtopt"
-    "${SCRIPTS_DIR}/ts2gtopt"
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running ruff static analysis"
   DEPENDS scripts-install
@@ -202,14 +242,10 @@ add_custom_target(scripts-ruff
 # ---- Type check (mypy) ----
 
 add_custom_target(scripts-mypy
+  # mypy requires the .py extension for single-file modules (unlike pylint).
   COMMAND ${PYTHON_EXECUTABLE} -m mypy
-    gtopt_compare
-    cvs2parquet
+    ${_SCRIPT_MODULES}
     gtopt_diagram.py
-    igtopt
-    plp2gtopt
-    pp2gtopt
-    ts2gtopt
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running mypy static type checking"
@@ -220,13 +256,7 @@ add_custom_target(scripts-mypy
 
 add_custom_target(scripts-test
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/gtopt_compare/tests"
-    "${SCRIPTS_DIR}/cvs2parquet/tests"
-    "${SCRIPTS_DIR}/gtopt_diagram_tests"
-    "${SCRIPTS_DIR}/igtopt/tests"
-    "${SCRIPTS_DIR}/plp2gtopt/tests"
-    "${SCRIPTS_DIR}/pp2gtopt/tests"
-    "${SCRIPTS_DIR}/ts2gtopt/tests"
+    ${_SCRIPT_TEST_DIRS}
     -n auto
     -v -m "not integration"
     --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
@@ -235,16 +265,20 @@ add_custom_target(scripts-test
   DEPENDS scripts-install
 )
 
-# ---- Integration tests ----
+# ---- Integration tests (cmake build target) ----
+# Runs all integration tests from plp2gtopt, igtopt, and ts2gtopt in one
+# shot via pytest -n auto.  For fine-grained, parallelisable per-case
+# control use the CTest targets registered below (``ctest -L integration``).
 
 add_custom_target(scripts-test-integration
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
     "${SCRIPTS_DIR}/igtopt/tests"
+    "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
-  COMMENT "Running plp2gtopt and igtopt integration tests"
+  COMMENT "Running plp2gtopt, igtopt, and ts2gtopt integration tests"
   DEPENDS scripts-install
 )
 
@@ -252,22 +286,10 @@ add_custom_target(scripts-test-integration
 
 add_custom_target(scripts-coverage
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/gtopt_compare/tests"
-    "${SCRIPTS_DIR}/cvs2parquet/tests"
-    "${SCRIPTS_DIR}/gtopt_diagram_tests"
-    "${SCRIPTS_DIR}/igtopt/tests"
-    "${SCRIPTS_DIR}/plp2gtopt/tests"
-    "${SCRIPTS_DIR}/pp2gtopt/tests"
-    "${SCRIPTS_DIR}/ts2gtopt/tests"
+    ${_SCRIPT_TEST_DIRS}
     -n auto
     -v
-    --cov="${SCRIPTS_DIR}/gtopt_compare"
-    --cov="${SCRIPTS_DIR}/cvs2parquet"
-    --cov="${SCRIPTS_DIR}/gtopt_diagram.py"
-    --cov="${SCRIPTS_DIR}/igtopt"
-    --cov="${SCRIPTS_DIR}/plp2gtopt"
-    --cov="${SCRIPTS_DIR}/pp2gtopt"
-    --cov="${SCRIPTS_DIR}/ts2gtopt"
+    ${_SCRIPT_COV_ARGS}
     --cov-report=html:${CMAKE_BINARY_DIR}/scripts-coverage-report
     --cov-report=term-missing
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -284,16 +306,15 @@ ProcessorCount(NPROC)
 if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
-# Leave at least one CPU free for other tests running alongside the expensive
-# integration suite.  Clamped to 1 to ensure single-core machines can still
-# run tests (NPROC_M1 must never be 0).
-math(EXPR NPROC_M1 "${NPROC} - 1")
-if(NPROC_M1 LESS 1)
-  set(NPROC_M1 1)
-endif()
 list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
 
-# Setup fixture: install dev dependencies before running any tests.
+# ---- Helper: add_pytest_integration_test ----
+# Registers a pytest integration-test group as an individual CTest entry.
+# Analogous to add_e2e_case() in integration_test/cmake/add_e2e_case.cmake.
+include(${SCRIPTS_DIR}/cmake/add_pytest_integration_test.cmake)
+
+# ---- Setup fixture ----
+# Install dev dependencies before running any tests.
 # This mirrors the DEPENDS scripts-install that the custom targets use,
 # so that 'cmake --build <dir> --target test' works out of the box without
 # requiring a prior manual 'pip install'.
@@ -308,44 +329,158 @@ set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
 )
 
-add_test(
-  NAME scripts-unit-tests
-  COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/gtopt_compare/tests"
-    "${SCRIPTS_DIR}/cvs2parquet/tests"
-    "${SCRIPTS_DIR}/gtopt_diagram_tests"
-    "${SCRIPTS_DIR}/igtopt/tests"
-    "${SCRIPTS_DIR}/plp2gtopt/tests"
-    "${SCRIPTS_DIR}/pp2gtopt/tests"
-    "${SCRIPTS_DIR}/ts2gtopt/tests"
-    -n auto
-    -q --tb=short -m "not integration"
-    --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# ---- Unit tests (one CTest entry per package) ----
+# Tests are independent and run in parallel via CTest (``ctest -L unit``).
+
+# Packages with no integration-marked tests: straightforward directory scan.
+foreach(_pkg IN ITEMS gtopt_compare cvs2parquet pp2gtopt)
+  add_pytest_unit_test(
+    scripts-${_pkg}-unit
+    DIR      "${SCRIPTS_DIR}/${_pkg}/tests"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# igtopt and ts2gtopt contain @integration-marked tests; the function always
+# passes -m "not integration" so they are filtered out automatically.
+foreach(_pkg IN ITEMS igtopt ts2gtopt)
+  add_pytest_unit_test(
+    scripts-${_pkg}-unit
+    DIR      "${SCRIPTS_DIR}/${_pkg}/tests"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# plp2gtopt: ignore the dedicated integration test file (separate from the
+# @pytest.mark.integration marks used by igtopt/ts2gtopt).
+add_pytest_unit_test(
+  scripts-plp2gtopt-unit
+  DIR      "${SCRIPTS_DIR}/plp2gtopt/tests"
+  IGNORE   "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+  FIXTURE_REQUIRED scripts-deps
 )
 
-add_test(
-  NAME scripts-integration-tests
-  COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
-    "${SCRIPTS_DIR}/igtopt/tests"
-    -n ${NPROC_M1}
-    -v -m integration
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# gtopt_diagram: standalone test directory (lives outside the package dir).
+add_pytest_unit_test(
+  scripts-gtopt_diagram-unit
+  DIR      "${SCRIPTS_DIR}/gtopt_diagram_tests"
+  FIXTURE_REQUIRED scripts-deps
 )
+
+# ---- plp2gtopt integration tests (one CTest test per case group) ----
+# Each test runs the subset of @pytest.mark.integration tests matching the
+# given -k keyword.  Tests are independent and run in parallel via CTest.
+
+set(_plp2gtopt_test_file
+  "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+)
+
+foreach(_case IN ITEMS
+    dat_ex
+    min_1bus
+    min_2bus
+    min_bess
+    min_battery
+    min_ess
+    min_hydro
+    min_mance
+    min_manli
+    min_reservoir
+)
+  add_pytest_integration_test(
+    scripts-plp2gtopt-${_case}
+    FILE     "${_plp2gtopt_test_file}"
+    KEYWORD  "${_case}"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# ---- igtopt integration tests (one CTest test per xlsx case) ----
+
+set(_igtopt_test_file "${SCRIPTS_DIR}/igtopt/tests/test_igtopt.py")
+
+foreach(_case IN ITEMS igtopt_ieee57b igtopt_bat4b24)
+  # igtopt tests parse an Excel workbook and optionally invoke the gtopt
+  # solver; they take longer than plp2gtopt tests, so a higher COST
+  # schedules them earlier so other tests can overlap.
+  add_pytest_integration_test(
+    scripts-igtopt-${_case}
+    FILE     "${_igtopt_test_file}"
+    KEYWORD  "${_case}"
+    FIXTURE_REQUIRED scripts-deps
+    COST 50
+  )
+endforeach()
+
+# Pass the gtopt binary path to the igtopt integration tests so they can
+# run the solver without relying on the standard build-directory heuristics.
+set(_igtopt_int_tests
+  scripts-igtopt-igtopt_ieee57b
+  scripts-igtopt-igtopt_bat4b24
+)
+if(TARGET gtoptStandalone)
+  set_tests_properties(${_igtopt_int_tests} PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=$<TARGET_FILE:gtoptStandalone>"
+  )
+elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
+  set_tests_properties(${_igtopt_int_tests} PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
+  )
+endif()
+
+# ---- ts2gtopt integration tests (one CTest test per test class) ----
+
+set(_ts2gtopt_test_file "${SCRIPTS_DIR}/ts2gtopt/tests/test_bat4b_annual.py")
+
+add_pytest_integration_test(
+  scripts-ts2gtopt-demand_projection
+  FILE     "${_ts2gtopt_test_file}"
+  KEYWORD  "TestDemandProjectionIntegration"
+  FIXTURE_REQUIRED scripts-deps
+)
+
+add_pytest_integration_test(
+  scripts-ts2gtopt-solar_projection
+  FILE     "${_ts2gtopt_test_file}"
+  KEYWORD  "TestSolarProjectionIntegration"
+  FIXTURE_REQUIRED scripts-deps
+)
+
+add_pytest_integration_test(
+  scripts-ts2gtopt-generator_pmax
+  FILE     "${_ts2gtopt_test_file}"
+  KEYWORD  "TestGeneratorPmaxProjectionIntegration"
+  FIXTURE_REQUIRED scripts-deps
+)
+
+add_pytest_integration_test(
+  scripts-ts2gtopt-write_files
+  FILE     "${_ts2gtopt_test_file}"
+  KEYWORD  "TestWriteFiles"
+  FIXTURE_REQUIRED scripts-deps
+)
+
+# ---- Check-format and ruff CTest tests ----
 
 add_test(
   NAME scripts-check-format
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
-    "${SCRIPTS_DIR}/gtopt_compare"
-    "${SCRIPTS_DIR}/cvs2parquet"
-    "${SCRIPTS_DIR}/gtopt_diagram.py"
-    "${SCRIPTS_DIR}/igtopt"
-    "${SCRIPTS_DIR}/plp2gtopt"
-    "${SCRIPTS_DIR}/pp2gtopt"
-    "${SCRIPTS_DIR}/ts2gtopt"
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check ${_SCRIPT_SOURCES}
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
+
+add_test(
+  NAME scripts-ruff
+  COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+
+set_tests_properties(
+  scripts-check-format
+  scripts-ruff
+  PROPERTIES FIXTURES_REQUIRED scripts-deps
+)
+
+# ---- Optional static-analysis CTest tests ----
 
 option(
   ENABLE_SCRIPTS_STATIC_ANALYSIS
@@ -354,30 +489,22 @@ option(
 )
 
 if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
+  # pylint takes module names without the .py extension for single-file modules.
   add_test(
     NAME scripts-lint
     COMMAND ${PYTHON_EXECUTABLE} -m pylint
       --jobs=0
-      gtopt_compare
-      cvs2parquet
+      ${_SCRIPT_MODULES}
       gtopt_diagram
-      igtopt
-      plp2gtopt
-      pp2gtopt
-      ts2gtopt
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
 
+  # mypy requires the .py extension for single-file modules.
   add_test(
     NAME scripts-mypy
     COMMAND ${PYTHON_EXECUTABLE} -m mypy
-      gtopt_compare
-      cvs2parquet
+      ${_SCRIPT_MODULES}
       gtopt_diagram.py
-      igtopt
-      plp2gtopt
-      pp2gtopt
-      ts2gtopt
       --ignore-missing-imports
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
@@ -388,57 +515,6 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     PROPERTIES FIXTURES_REQUIRED scripts-deps
   )
 endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
-
-add_test(
-  NAME scripts-ruff
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff check
-    "${SCRIPTS_DIR}/gtopt_compare"
-    "${SCRIPTS_DIR}/cvs2parquet"
-    "${SCRIPTS_DIR}/gtopt_diagram.py"
-    "${SCRIPTS_DIR}/igtopt"
-    "${SCRIPTS_DIR}/plp2gtopt"
-    "${SCRIPTS_DIR}/pp2gtopt"
-    "${SCRIPTS_DIR}/ts2gtopt"
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
-
-set_tests_properties(
-  scripts-unit-tests
-  scripts-integration-tests
-  scripts-check-format
-  scripts-ruff
-  PROPERTIES FIXTURES_REQUIRED scripts-deps
-)
-
-# Integration tests are long-running: schedule them first so other tests can
-# overlap with them, and declare that they use NPROC-1 processor slots so
-# CTest's scheduler avoids oversubscribing the CPU when the test runs
-# internally with -n ${NPROC_M1} (NPROC-1) pytest-xdist workers.
-set_tests_properties(scripts-integration-tests PROPERTIES
-  COST 100.0
-  PROCESSORS ${NPROC_M1}
-)
-
-# When the gtopt standalone binary is being built in the same cmake invocation
-# (e.g. cmake -S all -B build), pass its path to the igtopt integration tests
-# via the GTOPT_BIN environment variable so they can find the binary without
-# relying on the standard build-directory search heuristics.
-if(TARGET gtoptStandalone)
-  set_tests_properties(scripts-integration-tests PROPERTIES
-    ENVIRONMENT "GTOPT_BIN=$<TARGET_FILE:gtoptStandalone>"
-  )
-elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
-  set_tests_properties(scripts-integration-tests PROPERTIES
-    ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
-  )
-endif()
-
-# Unit tests run internally with -n auto (all CPUs via pytest-xdist).
-# Declaring PROCESSORS ${NPROC} prevents CTest from scheduling another
-# CPU-saturating test alongside them.
-set_tests_properties(scripts-unit-tests PROPERTIES
-  PROCESSORS ${NPROC}
-)
 
 # ---- Install ----
 
