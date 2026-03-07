@@ -52,7 +52,8 @@ Build targets
 
 ``scripts-test-integration``
   Run the integration tests (marked ``integration``) using the sample PLP
-  cases in ``scripts/cases/``.
+  cases in ``scripts/cases/`` and the igtopt Excel-based integration tests
+  (requires a ``gtopt`` binary; tests are skipped when the binary is not found).
 
 CTest / ``cmake --build <dir> --target test``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -227,7 +228,8 @@ add_custom_target(scripts-test
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
-    -v --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    -v -m "not integration"
+    --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running gtopt script unit tests"
   DEPENDS scripts-install
@@ -238,10 +240,11 @@ add_custom_target(scripts-test
 add_custom_target(scripts-test-integration
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    "${SCRIPTS_DIR}/igtopt/tests"
     -n auto
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
-  COMMENT "Running plp2gtopt integration tests"
+  COMMENT "Running plp2gtopt and igtopt integration tests"
   DEPENDS scripts-install
 )
 
@@ -316,7 +319,7 @@ add_test(
     "${SCRIPTS_DIR}/pp2gtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
-    -q --tb=short
+    -q --tb=short -m "not integration"
     --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 )
@@ -325,6 +328,7 @@ add_test(
   NAME scripts-integration-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
+    "${SCRIPTS_DIR}/igtopt/tests"
     -n ${NPROC_M1}
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -414,6 +418,20 @@ set_tests_properties(scripts-integration-tests PROPERTIES
   COST 100.0
   PROCESSORS ${NPROC_M1}
 )
+
+# When the gtopt standalone binary is being built in the same cmake invocation
+# (e.g. cmake -S all -B build), pass its path to the igtopt integration tests
+# via the GTOPT_BIN environment variable so they can find the binary without
+# relying on the standard build-directory search heuristics.
+if(TARGET gtoptStandalone)
+  set_tests_properties(scripts-integration-tests PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=$<TARGET_FILE:gtoptStandalone>"
+  )
+elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
+  set_tests_properties(scripts-integration-tests PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
+  )
+endif()
 
 # Unit tests run internally with -n auto (all CPUs via pytest-xdist).
 # Declaring PROCESSORS ${NPROC} prevents CTest from scheduling another
