@@ -173,3 +173,21 @@ if(GTOPT_BUILD_DOCS)
   )
 endif()
 
+# ---- Uninstall target ----
+# `cmake --build build --target uninstall` removes every file that was
+# recorded in build/install_manifest.txt by the last `cmake --install` run.
+# The guard prevents a duplicate target if this file is ever included as a
+# sub-project or if two components both add the same target.
+if(NOT TARGET uninstall)
+  configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/../cmake/cmake_uninstall.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+    @ONLY
+  )
+  add_custom_target(uninstall
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+    COMMENT "Uninstalling files listed in ${CMAKE_CURRENT_BINARY_DIR}/install_manifest.txt"
+    VERBATIM
+  )
+endif()
+
