@@ -86,7 +86,7 @@ TEST_CASE("IEEE 4-bus original - JSON parse and structure check")
 
 TEST_CASE("IEEE 4-bus original - LP solve")
 {
-  // Use Planning::merge so scene_array keeps its default {Scene{}} –
+  // Use Planning::merge so arrays accumulate across multiple JSON files –
   // the same pattern gtopt_main uses when reading JSON files.
   Planning base;
   base.merge(daw::json::from_json<Planning>(ieee4b_ori_json));

@@ -7,13 +7,15 @@
  */
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/options_lp.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("Simulation - Constructor initialization")
 {
@@ -118,145 +120,140 @@ TEST_CASE("Simulation - Basic LP run without solving")
   // simulation_lp.create_lp(system_lp);
 }
 
-#ifdef NONE
+TEST_CASE("SimulationLP - empty phase_array falls back to default Phase")
+{  // NOLINT
+  // Regression test: when JSON provides "phase_array": [] the Simulation
+  // member is empty, overriding the struct default {Phase{}}.
+  // SimulationLP must still produce exactly one active phase.
 
-TEST_CASE("Simulation - Full LP run with solving")
-{
-  using namespace gtopt;
-  using Uid = gtopt::Uid;
+  const OptionsLP options_lp({});
 
-  // Create arrays for system components
-  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
-
-  // Create minimal system
-  System system {
-      .name = "TestSys",
-      .options = {},
+  const Simulation simulation {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = {}};
+      .phase_array =
+          {},  // explicitly empty – simulates "phase_array": [] in JSON
+  };
 
-  // Test creating and solving the LP
-  auto result = Simulation::resolve(system,
-                                    std::nullopt,  // no LP file
-                                    1,  // use names
-                                    0.0,  // no matrix filtering
-                                    false);  // solve the problem
+  const SimulationLP simulation_lp(simulation, options_lp);
 
-  // Check result is successful
-  REQUIRE(result.has_value());
-  REQUIRE(result.value() == 0);
+  CHECK(simulation_lp.phases().size() == 1);
+  CHECK(simulation_lp.scenes().size() == 1);
 }
 
-TEST_CASE("Simulation - Run with LP file output")
-{
-  using namespace gtopt;
-  using Uid = gtopt::Uid;
+TEST_CASE("SimulationLP - empty scene_array falls back to default Scene")
+{  // NOLINT
+  // Regression test: when JSON provides "scene_array": [] the Simulation
+  // member is empty, overriding the struct default {Scene{}}.
+  // SimulationLP must still produce exactly one active scene.
 
-  // Create arrays for system components
-  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
+  const OptionsLP options_lp({});
 
-  // Create minimal system
-  System system {
-      .name = "TestSys",
-      .options = {},
+  const Simulation simulation {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
       .scenario_array = {{.uid = Uid {0}}},
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = {}};
+      .scene_array =
+          {},  // explicitly empty – simulates "scene_array": [] in JSON
+  };
 
-  // Generate a temporary file path
-  std::string temp_file = "test_lp_output";
+  const SimulationLP simulation_lp(simulation, options_lp);
 
-  // Test creating LP model and writing to file
-  auto result = Simulation::resolve(system,
-                                    temp_file,  // write LP to this file
-                                    2,  // use names with maps
-                                    0.0,  // no matrix filtering
-                                    true);  // just create, don't solve
+  CHECK(simulation_lp.scenes().size() == 1);
+  CHECK(simulation_lp.phases().size() == 1);
+}
 
-  // Check result is successful
+TEST_CASE(
+    "SimulationLP - both phase_array and scene_array empty fall back to "
+    "defaults")
+{  // NOLINT
+  const OptionsLP options_lp({});
+
+  const Simulation simulation {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+      .phase_array = {},
+      .scene_array = {},
+  };
+
+  const SimulationLP simulation_lp(simulation, options_lp);
+
+  CHECK(simulation_lp.phases().size() == 1);
+  CHECK(simulation_lp.scenes().size() == 1);
+}
+
+TEST_CASE(
+    "PlanningLP - resolves correctly with empty phase_array and scene_array")
+{  // NOLINT
+  // Verifies the full solve pipeline works when phase_array/scene_array are
+  // empty (as can happen via direct JSON deserialization without merge).
+
+  const Simulation simulation {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+      .phase_array = {},
+      .scene_array = {},
+  };
+
+  const System system {
+      .name = "empty_arrays_test",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0}},
+      .generator_array = {{
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      }},
+  };
+
+  Planning planning {.simulation = simulation, .system = system};
+  PlanningLP planning_lp(planning);
+
+  const auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
-  REQUIRE(result.value() == 0);
+  CHECK(*result == 1);  // 1 scene resolved
+}
 
-  // Check if the file was created
-  // Note: we don't check file contents as that's implementation-dependent
-  // and might change, but we can at least verify file creation
-  // (optionally cleanup after test if desired)
-  std::string lp_file = temp_file + ".lp";
-  bool file_exists = std::filesystem::exists(lp_file);
-  if (file_exists) {
-    std::filesystem::remove(lp_file);
+static constexpr std::string_view planning_empty_phase_scene_json = R"({
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}],
+    "phase_array": [],
+    "scene_array": []
+  },
+  "system": {
+    "name": "json_empty_arrays",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": 1, "gcost": 50, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": 1, "capacity": 80}
+    ]
   }
-  REQUIRE(file_exists);
+})";
+
+TEST_CASE(
+    "PlanningLP - JSON with empty phase_array and scene_array resolves "
+    "correctly")
+{  // NOLINT
+  // Verifies that a JSON file explicitly containing empty phase_array and
+  // scene_array does not break the solver; the fallback defaults are used.
+  Planning planning =
+      daw::json::from_json<Planning>(planning_empty_phase_scene_json);
+
+  CHECK(planning.simulation.phase_array.empty());
+  CHECK(planning.simulation.scene_array.empty());
+
+  PlanningLP planning_lp(planning);
+  const auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);  // 1 scene resolved
 }
-
-TEST_CASE("Simulation - create_lp method")
-{
-  using namespace gtopt;
-  using Uid = gtopt::Uid;
-
-  // Create arrays for system components
-  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
-  const Array<Generator> generator_array = {{.uid = Uid {1},
-                                             .name = "g1",
-                                             .bus = Uid {1},
-                                             .gcost = 50.0,
-                                             .capacity = 100.0}};
-
-  // Create phase and scene arrays with proper structure
-  const Array<Phase> phase_array = {
-      {.uid = Uid {1}, .first_stage = 0, .count_stage = 1},
-      {.uid = Uid {2}, .first_stage = 0, .count_stage = 1}};
-
-  const Array<Scene> scene_array = {
-      {.uid = Uid {1}, .first_scenario = 0, .count_scenario = 2}};
-
-  // Create test system with multiple stages/scenarios
-  System system {
-      .name = "MultiStageTest",
-      .options = {},
-      .block_array = {{.uid = Uid {1}, .duration = 1},
-                      {.uid = Uid {2}, .duration = 2}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1},
-                      {.uid = Uid {2}, .first_block = 1, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {1}}, {.uid = Uid {2}}},
-      .phase_array = phase_array,
-      .scene_array = scene_array,
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = {}};
-
-  // Create simulation instance
-  Simulation simulation(system);
-
-  // Call the create_lp method - should create matrix
-  // This mainly tests that no exceptions are thrown
-  simulation.create_lp();
-}
-
-#endif
