@@ -1,6 +1,6 @@
 # Documentation Structure Review and Recommendations
 
-> **Status as of 2026-02**: Items marked ✅ have been implemented. Items marked
+> **Status as of 2026-03**: Items marked ✅ have been implemented. Items marked
 > ⬜ remain as future recommendations.
 
 This document provides a comprehensive review of the gtopt documentation
@@ -17,15 +17,22 @@ maintainability.
 - **CONTRIBUTING.md** – ✅ Contribution guidelines including code style, CI, testing
 - **CLAUDE.md** – ✅ Developer guidance for Claude Code (AI assistant)
 - **.github/copilot-instructions.md** – ✅ Comprehensive GitHub Copilot agent guide
+- **SCRIPTS.md** – ✅ Python conversion utilities overview
+- **DIAGRAM_TOOL.md** – ✅ Network and planning diagram tool documentation
+
+### Technical Documentation
+- **docs/formulation/MATHEMATICAL_FORMULATION.md** – ✅ Full LP/MIP formulation
+  with LaTeX notation, JSON field mapping, and academic references
+- **docs/scripts/*.md** – ✅ Per-script detailed documentation (7 files)
+- **docs/diagrams/*.mmd** – ✅ Mermaid diagrams for system topology and planning
+- **docs/templates/gtopt_template.xlsx** – ✅ Excel template for igtopt
+- **test/BENCHMARK_RESULTS.md** – Performance benchmarks (`flat_map` vs `std::map`)
 
 ### Service-Specific Documentation
 - **webservice/README.md** – Web service overview
 - **webservice/INSTALL.md** – Detailed installation and deployment guide
 - **guiservice/README.md** – GUI service overview
 - **guiservice/INSTALL.md** – Detailed installation and deployment guide
-
-### Technical Documentation
-- **test/BENCHMARK_RESULTS.md** – Performance benchmarks (`flat_map` vs `std::map`)
 
 ## Issues and Recommendations
 
@@ -52,7 +59,7 @@ reference for agents.
 - Correct Python line length (88, not 120)
 - Correct naming conventions (`snake_case` functions, `m_<name>_` private members)
 - Clang 21 as preferred compiler
-- Correct primary build target (`cmake -S test -B build`)
+- Correct primary build target (`cmake -S all -B build`)
 - Domain context section
 - Full testing guidelines
 
@@ -65,23 +72,36 @@ reference for agents.
 - LP formulation summary
 - Comparable tools section (PyPSA, pandapower, GenX, QuESt Planning)
 - Domain glossary
+- Documentation style guide for future updates
 
-### 6. Missing API Documentation ⬜
+### 6. Academic References in Mathematical Formulation ✅
+**Status**: `docs/formulation/MATHEMATICAL_FORMULATION.md` updated with:
+- 16 academic references organized by category (FESOP/Matus publications,
+  TEP classics, DC OPF, similar tools, solvers, surveys)
+- Inline citation markers throughout all formulation sections
+- Cross-references validated against C++ implementation
+- Formulation verified consistent with established literature:
+  - DC power flow: standard $f = B(\theta_a - \theta_b)$ with angle scaling
+  - Battery SoC: standard linear storage model with round-trip efficiency
+  - Bus balance: KCL with injection/withdrawal loss factors
+  - Capacity expansion: modular LP/MIP with derating and inter-stage linking
+
+### 7. Missing API Documentation ⬜
 **Issue**: No consolidated API reference; each service has its own inline docs.
 **Recommendation**: Consider OpenAPI/Swagger specs for the webservice REST API
 and the guiservice Flask endpoints.
 
-### 7. CHANGELOG.md ⬜
+### 8. CHANGELOG.md ⬜
 **Issue**: No version history document.
 **Recommendation**: Add `CHANGELOG.md` to track breaking changes and migrations.
 
-### 8. ARCHITECTURE.md ⬜
+### 9. ARCHITECTURE.md ⬜
 **Issue**: No architecture overview document.
 **Recommendation**: Document the LP assembly pipeline:
 `Planning → PlanningLP → SimulationLP → SystemLP → LinearProblem → FlatLinearProblem → CBC/HiGHS`
 and the hydro cascade model.
 
-### 9. Tutorials ⬜
+### 10. Tutorials ⬜
 **Issue**: No step-by-step tutorials for common workflows.
 **Recommendation**: Add `docs/tutorials/` with:
 - `basic-thermal.md` — single-bus dispatch
@@ -100,11 +120,11 @@ and the hydro cascade model.
 5. ⬜ Simplify README.md usage section to reduce redundancy with USAGE.md
 
 ### Medium Priority (Near Term)
-1. ⬜ Add CHANGELOG.md
-2. ⬜ Add ARCHITECTURE.md
-3. ⬜ OpenAPI spec for webservice REST API
+1. ✅ Academic references in mathematical formulation
+2. ⬜ Add CHANGELOG.md
+3. ⬜ Add ARCHITECTURE.md
+4. ⬜ OpenAPI spec for webservice REST API
 
 ### Low Priority (Long Term)
 1. ⬜ Create tutorial documentation
 2. ⬜ Doxygen HTML generation and hosting
-

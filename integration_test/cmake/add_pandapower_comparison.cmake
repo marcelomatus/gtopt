@@ -11,27 +11,27 @@ Detection priority (set by the including CMakeLists.txt):
 1. ``COMPARE_PANDAPOWER_PROGRAM`` — path explicitly set by the user.
    Invoked as::
 
-     compare_pandapower --case <name> --gtopt-output <dir>
+     gtopt-compare --case <name> --gtopt-output <dir>
 
 2. ``COMPARE_PANDAPOWER_PYTHON`` + ``COMPARE_PANDAPOWER_SCRIPTS_DIR`` — Python
    interpreter and path to the ``scripts/`` source directory.  The test is run
    as a module (no installation required)::
 
      PYTHONPATH=<COMPARE_PANDAPOWER_SCRIPTS_DIR> \
-       <COMPARE_PANDAPOWER_PYTHON> -m compare_pandapower \
+       <COMPARE_PANDAPOWER_PYTHON> -m gtopt_compare \
          --case <name> --gtopt-output <dir>
 
    This is the preferred route in a development checkout: it works before
    ``pip install -e scripts/`` has been executed, and is not affected by
    ``cmake --build build --target uninstall``.
 
-3. ``COMPARE_PANDAPOWER_PROGRAM`` auto-detected — installed ``compare_pandapower``
+3. ``COMPARE_PANDAPOWER_PROGRAM`` auto-detected — installed ``gtopt_compare``
    entry-point found via ``find_program``.  Used as a fallback when no
    ``scripts/`` source directory is available.
 
 4. ``PANDAPOWER_PYTHON`` — fallback Python interpreter that has pandapower
-   installed.  Used together with the per-case ``compare_pandapower.py``
-   script found in ``${CASES_DIR}/<case>/compare_pandapower.py``.
+   installed.  Used together with the per-case ``gtopt_compare.py``
+   script found in ``${CASES_DIR}/<case>/gtopt_compare.py``.
 
 External pandapower network files:
    When ``${CASES_DIR}/<case>/pandapower_net.json`` exists the test
@@ -43,7 +43,7 @@ External pandapower network files:
 
    Save a network file with::
 
-     compare_pandapower --case <name> --save-pandapower-file \\
+     gtopt-compare --case <name> --save-pandapower-file \\
          ${CASES_DIR}/<case>/pandapower_net.json
 
 Required variables (set before including this file):
@@ -74,37 +74,37 @@ function(add_pandapower_comparison case_name)
   endif()
 
   if(COMPARE_PANDAPOWER_PROGRAM)
-    # Preferred: use the installed compare_pandapower entry-point.
+    # Preferred: use the installed gtopt_compare entry-point.
     # The entry-point has the real Python path baked in, so it works
     # correctly across pyenv, conda, and system Python installations.
     add_test(
-      NAME e2e_${case_name}_compare_pandapower
+      NAME e2e_${case_name}_gtopt_compare
       COMMAND "${COMPARE_PANDAPOWER_PROGRAM}"
         --case "${case_name}"
         --gtopt-output "${gtopt_output}"
         ${_pp_file_args}
     )
-    set_tests_properties(e2e_${case_name}_compare_pandapower
+    set_tests_properties(e2e_${case_name}_gtopt_compare
       PROPERTIES DEPENDS e2e_${case_name}_solve
     )
   elseif(COMPARE_PANDAPOWER_PYTHON AND COMPARE_PANDAPOWER_SCRIPTS_DIR)
-    # Source-tree fallback: run the compare_pandapower package as a Python
+    # Source-tree fallback: run the gtopt_compare package as a Python
     # module directly from the scripts/ directory (no installation required).
     add_test(
-      NAME e2e_${case_name}_compare_pandapower
+      NAME e2e_${case_name}_gtopt_compare
       COMMAND ${CMAKE_COMMAND} -E env
         "PYTHONPATH=${COMPARE_PANDAPOWER_SCRIPTS_DIR}"
-        "${COMPARE_PANDAPOWER_PYTHON}" -m compare_pandapower
+        "${COMPARE_PANDAPOWER_PYTHON}" -m gtopt_compare
           --case "${case_name}"
           --gtopt-output "${gtopt_output}"
           ${_pp_file_args}
     )
-    set_tests_properties(e2e_${case_name}_compare_pandapower
+    set_tests_properties(e2e_${case_name}_gtopt_compare
       PROPERTIES DEPENDS e2e_${case_name}_solve
     )
   elseif(PANDAPOWER_PYTHON)
-    # Fallback: run the per-case compare_pandapower.py with the found Python.
-    set(script "${CASES_DIR}/${case_name}/compare_pandapower.py")
+    # Fallback: run the per-case gtopt_compare.py with the found Python.
+    set(script "${CASES_DIR}/${case_name}/gtopt_compare.py")
     if(NOT EXISTS "${script}")
       message(WARNING
         "Skipping pandapower comparison for '${case_name}': "
@@ -113,21 +113,21 @@ function(add_pandapower_comparison case_name)
     endif()
 
     add_test(
-      NAME e2e_${case_name}_compare_pandapower
+      NAME e2e_${case_name}_gtopt_compare
       COMMAND "${PANDAPOWER_PYTHON}" "${script}"
         --gtopt-output "${gtopt_output}"
         ${_pp_file_args}
       WORKING_DIRECTORY "${CASES_DIR}/${case_name}"
     )
-    set_tests_properties(e2e_${case_name}_compare_pandapower
+    set_tests_properties(e2e_${case_name}_gtopt_compare
       PROPERTIES DEPENDS e2e_${case_name}_solve
     )
   else()
     message(STATUS
-      "No compare_pandapower command or Python with pandapower found — "
+      "No gtopt_compare command or Python with pandapower found — "
       "skipping comparison for '${case_name}'. "
       "Install with 'pip install -e scripts/' (preferred), run from the "
-      "source tree (scripts/compare_pandapower must exist and pandapower "
+      "source tree (scripts/gtopt_compare must exist and pandapower "
       "must be installed), or set -DPANDAPOWER_PYTHON=/path/to/python3 "
       "to enable.")
   endif()
