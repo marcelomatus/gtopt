@@ -25,6 +25,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read  # needed to download the gtopt-binary-debug CI artifact
 
 jobs:
   test:
@@ -48,18 +49,11 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
-      - name: Configure scripts with CMake
-        run: cmake -S scripts -B build-scripts
-
-      - name: Run unit tests with ctest (parallel)
-        run: ctest --test-dir build-scripts -L unit --parallel $(nproc) --output-on-failure
-
-      - name: Collect coverage (direct pytest)
+      - name: Run unit tests with coverage
         working-directory: scripts
         run: |
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
-            -n auto \
             -q --tb=short -m "not integration" \
             --cov=cvs2parquet \
             --cov=igtopt \
@@ -123,14 +117,34 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
-      - name: Install gtopt runtime libraries
-        run: python tools/get_gtopt_binary.py --install-libs
+      - name: Download gtopt binary and install runtime libraries
+        run: |
+          # Download the binary from the latest CI artifact and install any
+          # missing runtime libraries (skipped automatically if already present,
+          # e.g. when the ubuntu.yml build job runs first on this runner).
+          # Log messages go to stderr; the binary path is printed to stdout.
+          GTOPT_BIN=$(python tools/get_gtopt_binary.py 2>/tmp/gtopt_dl.log)
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "ERROR: failed to obtain gtopt binary – full output:" >&2
+            cat /tmp/gtopt_dl.log >&2
+            exit $RC
+          fi
+          echo "GTOPT_BIN=$GTOPT_BIN" >> "$GITHUB_ENV"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure scripts with CMake
-        run: cmake -S scripts -B build-scripts
-
-      - name: Run integration tests with ctest (parallel)
-        run: ctest --test-dir build-scripts -L integration --parallel $(nproc) --output-on-failure
+      - name: Run integration tests
+        working-directory: scripts
+        run: |
+          pytest \
+            plp2gtopt/tests/test_integration.py \
+            igtopt/tests \
+            ts2gtopt/tests \
+            -v -m integration \
+            --tb=short
+        env:
+          GTOPT_BIN: ${{ env.GTOPT_BIN }}
 
   cmake-install:
     runs-on: ubuntu-latest

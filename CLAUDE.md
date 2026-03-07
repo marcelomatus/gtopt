@@ -308,11 +308,14 @@ bin_path = get_gtopt_binary(allow_build=True)   # also tries cmake build
 bin_path = download_gtopt_from_ci(pathlib.Path("/tmp/my-dir"))
 ```
 
-The `gtopt_bin` pytest fixture in `scripts/igtopt/tests/conftest.py` calls
-`get_gtopt_binary()` automatically, so running
-`pytest scripts/igtopt/tests/ -m integration` inside a GitHub Actions runner
-(where `GITHUB_TOKEN` is always present) finds and downloads the binary without
-any manual setup.
+The `gtopt_bin` pytest fixture in `scripts/igtopt/tests/conftest.py` checks
+`GTOPT_BIN`, `PATH`, and standard build paths, then **skips** the test if not
+found — it never downloads or installs anything automatically.
+
+* **ubuntu.yml / ctest**: `GTOPT_BIN` is set by CTest environment properties.
+* **scripts.yml**: the "Download gtopt binary" step runs the tool **before**
+  tests to set `GTOPT_BIN`.
+* **Agent / local**: `export GTOPT_BIN=$(python tools/get_gtopt_binary.py)`.
 
 ### Key notes
 

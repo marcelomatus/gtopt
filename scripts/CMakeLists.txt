@@ -52,8 +52,9 @@ Build targets
 
 ``scripts-test-integration``
   Run the integration tests (marked ``integration``) from plp2gtopt, igtopt,
-  and ts2gtopt in one shot via ``pytest -n auto``.  For fine-grained,
-  per-case control use the individual CTest tests (see below).
+  and ts2gtopt in one shot via pytest (serial; CTest handles parallelism when
+  using the individual per-case CTest entries).  For fine-grained, per-case
+  control use the individual CTest tests (see below).
 
 CTest / ``cmake --build <dir> --target test``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -257,7 +258,6 @@ add_custom_target(scripts-mypy
 add_custom_target(scripts-test
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     ${_SCRIPT_TEST_DIRS}
-    -n auto
     -v -m "not integration"
     --ignore="${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
@@ -267,15 +267,15 @@ add_custom_target(scripts-test
 
 # ---- Integration tests (cmake build target) ----
 # Runs all integration tests from plp2gtopt, igtopt, and ts2gtopt in one
-# shot via pytest -n auto.  For fine-grained, parallelisable per-case
-# control use the CTest targets registered below (``ctest -L integration``).
+# shot via pytest (serial; CTest handles parallelism via individual per-case
+# targets).  For fine-grained, parallelisable per-case control use the CTest
+# targets registered below (``ctest -L integration``).
 
 add_custom_target(scripts-test-integration
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py"
     "${SCRIPTS_DIR}/igtopt/tests"
     "${SCRIPTS_DIR}/ts2gtopt/tests"
-    -n auto
     -v -m integration
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running plp2gtopt, igtopt, and ts2gtopt integration tests"
@@ -287,7 +287,6 @@ add_custom_target(scripts-test-integration
 add_custom_target(scripts-coverage
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
     ${_SCRIPT_TEST_DIRS}
-    -n auto
     -v
     ${_SCRIPT_COV_ARGS}
     --cov-report=html:${CMAKE_BINARY_DIR}/scripts-coverage-report
