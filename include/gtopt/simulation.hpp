@@ -50,9 +50,11 @@ struct Simulation
   Array<Stage> stage_array {};  ///< Ordered list of planning stages
   Array<Scenario> scenario_array {};  ///< List of stochastic scenarios
   Array<Phase> phase_array {
-      Phase {}};  ///< List of planning phases (default: one phase)
+      Phase {},
+  };  ///< List of planning phases (default: one phase)
   Array<Scene> scene_array {
-      Scene {}};  ///< List of scene combinations (default: one scene)
+      Scene {},
+  };  ///< List of scene combinations (default: one scene)
 
   constexpr Simulation& merge(Simulation&& sim)  // NOLINT
   {

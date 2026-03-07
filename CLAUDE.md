@@ -285,6 +285,18 @@ cmake --build build -j$(nproc)
 - **Includes**: Three groups — `<std>`, external `<pkg/header>`, project `<gtopt/...>`
 - **Pointers**: Left-aligned: `T*` not `T *`
 - **Initializers**: Designated initializers (`SparseCol{.name="x", .cost=1}`) preferred
+- **Trailing commas**: Always add a trailing comma to the **last element** of every
+  brace-initializer list (in-class member initializers, aggregate initializers,
+  `std::initializer_list` arguments). This prevents `readability-trailing-comma`
+  warnings from clang-tidy and makes future diffs cleaner.
+  ```cpp
+  // ✓ correct – trailing comma on last element
+  Size first_block {0,};
+  Array<Phase> phase_array {Phase {},};
+  system.bus_array = {{.uid = Uid {1}, .name = "b1",},};
+  // ✗ wrong – no trailing comma
+  Size first_block {0};
+  ```
 - **Templates**: Use `requires` concepts for type constraints
 - **Error handling**: `std::optional` / return values over exceptions
 - **`noexcept`**: Add to non-throwing functions (with conditional `noexcept` where appropriate)
@@ -293,10 +305,20 @@ cmake --build build -j$(nproc)
 
 ### clang-tidy suppressions in tests
 
-Only `bugprone-use-after-move` still needs an inline `// NOLINT`:
+Three inline `// NOLINT` patterns are accepted in test code:
 
 ```cpp
+// 1. After std::move – use-after-move is intentional in tests
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
+
+// 2. using namespace at file scope in .hpp test helpers
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+// 3. Anonymous namespace in .hpp test helpers
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+// ... helper functions ...
+}  // namespace
 ```
 
 **Never use `NOLINT(bugprone-unchecked-optional-access)`.**
@@ -312,14 +334,21 @@ CHECK(opt.value_or(false) == true);
 CHECK((opt && *opt == 2.0));
 CHECK((opt && (*opt)->member == expected));
 
-// value_or for variant-inside-optional
+// value_or for variant-inside-optional (RealFieldSched, Active, etc.)
 CHECK(std::get<double>(opt.value_or(0.0)) == doctest::Approx(5000.0));
 CHECK(std::get<IntBool>(active_opt.value_or(Active{False})) == True);
+CHECK(std::get<Real>(gen.capacity.value_or(RealFieldSched{0.0})) == 60.0);
 
 // intermediate variable to avoid dangling ref when binding const& to vector
 const auto val = opt.value_or(Active{std::vector<IntBool>{}});
 const auto& vec = std::get<std::vector<IntBool>>(val);
 ```
+
+**`.clang-tidy` is the source of truth** for which checks are enabled. The file
+includes a rationale comment for every disabled check. `modernize-type-traits`
+is intentionally **enabled** — always use `_v`/`_t` type-trait aliases
+(`std::is_same_v<T,U>`, `std::decay_t<T>`) in new code. To add a new disabled
+check, always add its rationale as a comment in `.clang-tidy`.
 
 ### Python
 
@@ -417,7 +446,7 @@ glob in `test/CMakeLists.txt` picks them up automatically.
 #include <doctest/doctest.h>
 #include <gtopt/<header>.hpp>
 
-using namespace gtopt;
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 {
@@ -436,7 +465,9 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 
 **Key rules:**
 1. `<doctest/doctest.h>` first, then project headers.
-2. `using namespace gtopt;` at file scope is fine in test files.
+2. `using namespace gtopt;  // NOLINT(google-global-names-in-headers)` at file
+   scope — the NOLINT is required because test files use `.hpp` extension and
+   clang-tidy applies header rules to all `.hpp` files.
 3. Floating-point: use `doctest::Approx(value)`, never `==` on doubles.
 4. `REQUIRE` for fatal assertions (stop test on failure); `CHECK` for non-fatal.
 5. Prefer `CHECK_FALSE(x)` over `CHECK(x == false)`.
@@ -444,15 +475,21 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
    `opt.value_or(sentinel)` or `(opt && *opt == val)` instead (see above).
 7. `REQUIRE(opt.has_value())` before branches that depend on the optional,
    but still use `value_or` / `&&` in the CHECK expressions themselves.
-8. Only accepted NOLINT: `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)`
-   after intentional post-`std::move` checks.
+8. Accepted NOLINTs: `// NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)`
+   after intentional post-`std::move` checks; `// NOLINT(google-global-names-in-headers)`
+   on `using namespace` at file scope in `.hpp` test files;
+   `// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)`
+   on anonymous `namespace` blocks in `.hpp` test files.
 9. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
 10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
 11. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
-12. **Testing LP via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))`.
+12. **Always add a trailing comma** to the last element of every brace-initializer list
+    (member initializers, aggregate initializers, initializer-list arguments) to satisfy
+    `readability-trailing-comma`.
+13. **Testing LP via JSON**: always use `Planning base; base.merge(from_json<Planning>(json_str))`.
     Direct `from_json` overwrites `scene_array` with `{}`, so `resolve()` never runs.
     See `.github/copilot-instructions.md` → "Useful Tips" for full explanation.
-13. **Testing `gtopt_main()`**: use `MainOptions{.planning_files=..., .use_single_bus=true}`.
+14. **Testing `gtopt_main()`**: use `MainOptions{.planning_files=..., .use_single_bus=true}`.
     Only set the fields you need — all others default to `std::nullopt`.
 
 ## Domain Quick-Reference
