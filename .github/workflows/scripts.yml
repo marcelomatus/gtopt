@@ -54,7 +54,6 @@ jobs:
         run: |
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
-            -n auto \
             -q --tb=short -m "not integration" \
             --cov=cvs2parquet \
             --cov=igtopt \
@@ -142,7 +141,6 @@ jobs:
             plp2gtopt/tests/test_integration.py \
             igtopt/tests \
             ts2gtopt/tests \
-            -n auto \
             -v -m integration \
             --tb=short
         env:
