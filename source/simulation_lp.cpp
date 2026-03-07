@@ -75,31 +75,38 @@ auto create_scenario_array(const Simulation& simulation)
 
 auto create_phase_array(const Simulation& simulation, const OptionsLP& options)
 {
-  return std::ranges::to<std::vector>(
-      enumerate_active<PhaseIndex>(simulation.phase_array)
-      | std::ranges::views::transform(
-          [&](auto&& is)
-          {
-            const auto& [index, phase] = is;
-            return PhaseLP {
-                phase,
-                options,
-                simulation,
-                index,
-            };
-          }));
+  static const Array<Phase> default_phases {Phase {}};
+  const auto& phases =
+      simulation.phase_array.empty() ? default_phases : simulation.phase_array;
+
+  return std::ranges::to<std::vector>(enumerate_active<PhaseIndex>(phases)
+                                      | std::ranges::views::transform(
+                                          [&](auto&& is)
+                                          {
+                                            const auto& [index, phase] = is;
+                                            return PhaseLP {
+                                                phase,
+                                                options,
+                                                simulation,
+                                                index,
+                                            };
+                                          }));
 }
 
 auto create_scene_array(const Simulation& simulation)
 {
-  return std::ranges::to<std::vector>(
-      enumerate_active<SceneIndex>(simulation.scene_array)
-      | std::ranges::views::transform(
-          [&](const auto& si)
-          {
-            auto&& [index, scene] = si;
-            return SceneLP {scene, simulation, index};
-          }));
+  static const Array<Scene> default_scenes {Scene {}};
+  const auto& scenes =
+      simulation.scene_array.empty() ? default_scenes : simulation.scene_array;
+
+  return std::ranges::to<std::vector>(enumerate_active<SceneIndex>(scenes)
+                                      | std::ranges::views::transform(
+                                          [&](const auto& si)
+                                          {
+                                            auto&& [index, scene] = si;
+                                            return SceneLP {
+                                                scene, simulation, index};
+                                          }));
 }
 
 }  // namespace
