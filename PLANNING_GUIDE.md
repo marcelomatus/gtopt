@@ -1385,6 +1385,9 @@ grep -v "^scenario" output/Demand/fail_sol.csv | awk -F, '{print $NF}' | sort -n
 
 ## See also
 
+- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+  — Full LP/MIP optimization formulation with LaTeX notation, JSON-to-symbol
+  mapping, and academic references
 - **[INPUT_DATA.md](INPUT_DATA.md)** — Complete field reference for all JSON
   elements
 - **[USAGE.md](USAGE.md)** — Command-line options and advanced usage

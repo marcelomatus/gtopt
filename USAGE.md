@@ -463,3 +463,15 @@ def run_all_cases(cases_dir):
 if __name__ == "__main__":
     run_all_cases("cases/")
 ```
+
+---
+
+## See also
+
+- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)**
+  — Full LP/MIP optimization formulation with academic references
+- **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** — Step-by-step planning guide
+  with worked examples
+- **[INPUT_DATA.md](INPUT_DATA.md)** — Input data structure and file format
+  reference
+- **[SCRIPTS.md](SCRIPTS.md)** — Python conversion utilities

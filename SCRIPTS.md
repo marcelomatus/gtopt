@@ -16,7 +16,7 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 - [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx)
 - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
 - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
-- [compare-pandapower](#compare-pandapower) · [full docs](docs/scripts/compare-pandapower.md)
+- [gtopt-compare](#gtopt-compare) · [full docs](docs/scripts/gtopt-compare.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---

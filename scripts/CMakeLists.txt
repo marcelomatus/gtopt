@@ -3,7 +3,7 @@ Scripts
 -------
 
 CMake configuration for installing and testing the gtopt Python scripts:
-compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
+gtopt-compare, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
 
 The scripts/ directory is a self-contained Python package with its own
 ``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
@@ -33,12 +33,12 @@ Build targets
   would be reformatted.
 
 ``scripts-lint``
-  Run pylint over compare_pandapower, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  Run pylint over gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
   exit non-zero on any error/warning.  Registered as a CTest test only when
   ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set (default: OFF).
 
 ``scripts-ruff``
-  Run ruff check over compare_pandapower, cvs2parquet, gtopt_diagram.py, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  Run ruff check over gtopt_compare, cvs2parquet, gtopt_diagram.py, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
   exit non-zero on any lint violation.
 
 ``scripts-mypy``
@@ -47,7 +47,7 @@ Build targets
   (default: OFF).
 
 ``scripts-test``
-  Run the full unit-test suite (compare_pandapower, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt,
+  Run the full unit-test suite (gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt,
   ts2gtopt) with pytest.
 
 ``scripts-test-integration``
@@ -138,7 +138,7 @@ add_custom_target(scripts-install
 
 add_custom_target(scripts-format
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format
-    "${SCRIPTS_DIR}/compare_pandapower"
+    "${SCRIPTS_DIR}/gtopt_compare"
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
@@ -154,7 +154,7 @@ add_custom_target(scripts-format
 
 add_custom_target(scripts-check-format
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
-    "${SCRIPTS_DIR}/compare_pandapower"
+    "${SCRIPTS_DIR}/gtopt_compare"
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
@@ -171,7 +171,7 @@ add_custom_target(scripts-check-format
 add_custom_target(scripts-lint
   COMMAND ${PYTHON_EXECUTABLE} -m pylint
     --jobs=0
-    compare_pandapower
+    gtopt_compare
     cvs2parquet
     gtopt_diagram
     igtopt
@@ -187,7 +187,7 @@ add_custom_target(scripts-lint
 
 add_custom_target(scripts-ruff
   COMMAND ${PYTHON_EXECUTABLE} -m ruff check
-    "${SCRIPTS_DIR}/compare_pandapower"
+    "${SCRIPTS_DIR}/gtopt_compare"
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
@@ -203,7 +203,7 @@ add_custom_target(scripts-ruff
 
 add_custom_target(scripts-mypy
   COMMAND ${PYTHON_EXECUTABLE} -m mypy
-    compare_pandapower
+    gtopt_compare
     cvs2parquet
     gtopt_diagram.py
     igtopt
@@ -220,7 +220,7 @@ add_custom_target(scripts-mypy
 
 add_custom_target(scripts-test
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/compare_pandapower/tests"
+    "${SCRIPTS_DIR}/gtopt_compare/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
@@ -252,7 +252,7 @@ add_custom_target(scripts-test-integration
 
 add_custom_target(scripts-coverage
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/compare_pandapower/tests"
+    "${SCRIPTS_DIR}/gtopt_compare/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
@@ -261,7 +261,7 @@ add_custom_target(scripts-coverage
     "${SCRIPTS_DIR}/ts2gtopt/tests"
     -n auto
     -v
-    --cov="${SCRIPTS_DIR}/compare_pandapower"
+    --cov="${SCRIPTS_DIR}/gtopt_compare"
     --cov="${SCRIPTS_DIR}/cvs2parquet"
     --cov="${SCRIPTS_DIR}/gtopt_diagram.py"
     --cov="${SCRIPTS_DIR}/igtopt"
@@ -311,7 +311,7 @@ set_tests_properties(scripts-install-deps PROPERTIES
 add_test(
   NAME scripts-unit-tests
   COMMAND ${PYTHON_EXECUTABLE} -m pytest
-    "${SCRIPTS_DIR}/compare_pandapower/tests"
+    "${SCRIPTS_DIR}/gtopt_compare/tests"
     "${SCRIPTS_DIR}/cvs2parquet/tests"
     "${SCRIPTS_DIR}/gtopt_diagram_tests"
     "${SCRIPTS_DIR}/igtopt/tests"
@@ -337,7 +337,7 @@ add_test(
 add_test(
   NAME scripts-check-format
   COMMAND ${PYTHON_EXECUTABLE} -m ruff format --check
-    "${SCRIPTS_DIR}/compare_pandapower"
+    "${SCRIPTS_DIR}/gtopt_compare"
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
@@ -358,7 +358,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     NAME scripts-lint
     COMMAND ${PYTHON_EXECUTABLE} -m pylint
       --jobs=0
-      compare_pandapower
+      gtopt_compare
       cvs2parquet
       gtopt_diagram
       igtopt
@@ -371,7 +371,7 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
   add_test(
     NAME scripts-mypy
     COMMAND ${PYTHON_EXECUTABLE} -m mypy
-      compare_pandapower
+      gtopt_compare
       cvs2parquet
       gtopt_diagram.py
       igtopt
@@ -392,7 +392,7 @@ endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
 add_test(
   NAME scripts-ruff
   COMMAND ${PYTHON_EXECUTABLE} -m ruff check
-    "${SCRIPTS_DIR}/compare_pandapower"
+    "${SCRIPTS_DIR}/gtopt_compare"
     "${SCRIPTS_DIR}/cvs2parquet"
     "${SCRIPTS_DIR}/gtopt_diagram.py"
     "${SCRIPTS_DIR}/igtopt"
@@ -495,7 +495,7 @@ install(CODE "
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
   message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
-    \"compare_pandapower, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
+    \"gtopt-compare, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
 
   # Record the installed entry-point paths in a manifest file so that
   # `cmake --build build --target uninstall` can remove them.  pip installs
@@ -504,7 +504,7 @@ install(CODE "
   # this auxiliary manifest to fill that gap.
   set(_scripts_manifest \"${CMAKE_CURRENT_BINARY_DIR}/scripts_install_manifest.txt\")
   set(_entry_points
-    compare_pandapower
+    gtopt-compare
     cvs2parquet
     gtopt-diagram
     igtopt

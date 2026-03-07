@@ -26,6 +26,7 @@
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
 7. [Mapping: JSON Fields → Mathematical Symbols](#7-mapping-json-fields--mathematical-symbols)
 8. [Cross-References](#8-cross-references)
+9. [References](#9-references)
 
 ---
 
@@ -39,6 +40,15 @@ The GTEP problem finds the minimum-cost combination of:
 - **Investment decisions (CAPEX)** — how many capacity expansion modules to
   build for generators, demands, lines, and batteries across multi-year
   planning stages.
+
+This is a classical problem in power system planning, extensively studied in
+the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3). The gtopt formulation
+builds on the FESOP (Fabulous Energy System Optimizer) framework
+[[4]](#ref4), which extended traditional long-term operational planning
+(as implemented in PLP-type hydrothermal coordination tools [[5]](#ref5)
+[[6]](#ref6)) to include capacity expansion, variable renewable energy
+representation, and modern flexibility mechanisms such as battery storage
+and spinning reserve constraints.
 
 The problem is formulated as a **sparse linear program** (LP) over a
 three-level time hierarchy:
@@ -161,6 +171,10 @@ scenarios, stages, and blocks.
 ---
 
 ## 3. Compact Formulation
+
+The following compact formulation follows the standard GTEP LP structure
+[[1]](#ref1) [[3]](#ref3) [[10]](#ref10), extended with the FESOP
+enhancements for renewable integration and storage [[4]](#ref4):
 
 $$
 \boxed{
@@ -293,7 +307,7 @@ $$
 ### 5.1 Bus Power Balance
 
 The power balance at each bus $n$ ensures that total injection equals total
-withdrawal (Kirchhoff's Current Law):
+withdrawal (Kirchhoff's Current Law) [[11]](#ref11):
 
 $$
 \sum_{g \in \mathcal{G}_n} (1 - \lambda_g) \; p_{g,s,t,b}
@@ -475,7 +489,8 @@ $$
 
 When `use_kirchhoff = true` and `use_single_bus = false`, voltage angle
 variables $\theta_n$ are introduced and DC power flow constraints enforce
-Kirchhoff's Voltage Law on each line $l$ connecting bus $a$ to bus $b$:
+Kirchhoff's Voltage Law on each line $l$ connecting bus $a$ to bus $b$
+[[11]](#ref11) [[12]](#ref12):
 
 $$
 \frac{\theta_{a,s,t,b} - \theta_{b,s,t,b}}{X_l / V^2} = f_{l,s,t,b}^{+} - f_{l,s,t,b}^{-}
@@ -526,7 +541,9 @@ Kirchhoff constraints are added when **all** of:
 ### 5.7 Battery / Energy Storage Constraints
 
 Batteries model energy storage with charge/discharge efficiencies and
-self-discharge losses.
+self-discharge losses. The formulation follows the standard linear storage
+model used in capacity expansion tools [[4]](#ref4) [[13]](#ref13)
+[[14]](#ref14).
 
 #### State-of-Charge (SoC) Balance
 
@@ -656,7 +673,9 @@ $$
 ### 5.10 Hydro Cascade Constraints
 
 The hydro cascade models a network of junctions (hydraulic nodes) connected
-by waterways, with reservoirs for water storage.
+by waterways, with reservoirs for water storage. This formulation extends
+classical hydrothermal coordination models [[5]](#ref5) [[6]](#ref6)
+[[7]](#ref7) to support multi-scenario expansion planning.
 
 #### Junction Water Balance
 
@@ -743,7 +762,9 @@ unit volume).
 ### 5.11 Capacity Expansion Constraints
 
 Capacity expansion applies uniformly to generators, demands, lines,
-batteries, and converters. For each expandable component $g$ at stage $t$:
+batteries, and converters. The modular expansion structure follows the
+standard GTEP approach [[1]](#ref1) [[2]](#ref2) [[3]](#ref3) [[10]](#ref10).
+For each expandable component $g$ at stage $t$:
 
 #### Installation Balance
 
@@ -837,6 +858,9 @@ well-conditioned range.
 | Output compression | `output_compression` | `"gzip"` | Parquet compression codec |
 
 ### 6.4 Modeling Modes Summary
+
+The three network modeling modes correspond to standard formulations in the
+power systems literature [[11]](#ref11) [[12]](#ref12):
 
 | Mode | Conditions | Variables | Constraints |
 |------|-----------|-----------|-------------|
@@ -957,6 +981,199 @@ mathematical symbols used in this formulation.
   JSON and Parquet input file formats with all supported fields.
 - **[Usage Guide](../../USAGE.md)** — How to run the `gtopt` solver, CLI
   flags, and output interpretation.
+- **[Contributing Guide](../../CONTRIBUTING.md)** — Code style, testing, and
+  contribution guidelines.
+- **[Building Guide](../../BUILDING.md)** — Detailed build instructions,
+  dependencies, and troubleshooting.
+- **[Scripts Guide](../../SCRIPTS.md)** — Python conversion utilities
+  (plp2gtopt, igtopt, pp2gtopt, ts2gtopt, cvs2parquet).
+
+---
+
+## 9. References
+
+### FESOP and gtopt Publications
+
+<a id="ref4"></a>
+**[4]** Buitrago Villada, M.P., García Bujanda, C.E., Baeza, E., and
+Matus, A.M. (2022). "Optimal Expansion and Reliable Renewable Energy
+Integration in Long-Term Planning Using FESOP." *2022 IEEE Kansas Power
+and Energy Conference (KPEC)*, pp. 1–6.
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
+
+> The foundational paper for the FESOP framework on which gtopt is based.
+> Presents results of applying FESOP to analyze optimal expansion of the
+> Aysén electric system over a 30-year horizon with four demand growth
+> scenarios, demonstrating renewable energy integration with spinning
+> reserve requirements and battery storage systems.
+
+<a id="ref5"></a>
+**[5]** Pereira-Bonvallet, E., Puschel-Lovengreen, S., Matus, M., and
+Moreno, R. (2016). "Optimizing Hydrothermal Scheduling with Non-Convex
+Irrigation Constraints: Case on the Chilean Electricity System." *Energy
+Procedia*, 87, pp. 132–138.
+DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342).
+
+> Presents the hydrothermal coordination approach that forms the
+> operational planning core of the PLP/FESOP lineage. Demonstrates SDDP-
+> based scheduling with non-convex irrigation constraints in the Chilean
+> Central Interconnected System (SIC).
+
+<a id="ref6"></a>
+**[6]** Benavides, C., Matus, M., Sierra, E., Sepúlveda, R., Ruz, A.M.,
+and Gallardo, F. (2019). "Value contribution of solar plants to the
+Chilean electric system." *AIP Conference Proceedings* 2126, 120008
+(SolarPACES 2018).
+DOI: [10.1063/1.5117671](https://doi.org/10.1063/1.5117671).
+
+> Quantifies the value of solar energy in the Chilean National Electric
+> System using long-term planning, hydrothermal coordination, and short-
+> term operation models — demonstrating the multi-model planning workflow
+> that motivated gtopt's unified approach.
+
+<a id="ref7"></a>
+**[7]** Benavides, C., Alvarez, R., Torres, R., Moreno, R., Matus, M.,
+Muñoz, D., Gonzalez, J.M., Jiménez-Estévez, G., and Palma-Behnke, R.
+(2019). "Capacity payment allocation in hydrothermal power systems with
+high shares of renewable energies." *E3S Web of Conferences*, 140, 11008.
+DOI: [10.1051/e3sconf/201914011008](https://doi.org/10.1051/e3sconf/201914011008).
+
+> Proposes a capacity valuation framework for variable renewable generation
+> in hydrothermal systems, relevant to gtopt's reserve and capacity
+> expansion modeling.
+
+<a id="ref8"></a>
+**[8]** Matus, M., Cáceres, N., Puschel-Lovengreen, S., and Moreno, R.
+(2015). "Chebyshev based continuous time power system operation approach."
+*2015 IEEE Power & Energy Society General Meeting*, pp. 1–5.
+DOI: [10.1109/PESGM.2015.7286570](https://doi.org/10.1109/PESGM.2015.7286570).
+
+> Introduces a continuous-time representation for power system operations
+> using Chebyshev polynomials, addressing the time-discretization
+> challenges that gtopt handles via its block/stage/scenario hierarchy.
+
+<a id="ref9"></a>
+**[9]** Matus, M., Sáez, D., Favley, M., Suazo-Martinez, C., Moya, J.,
+Jiménez-Estévez, G., Palma-Behnke, R., Olguín, G., and Jorquera, P.
+(2012). "Identification of Critical Spans for Monitoring Systems in
+Dynamic Thermal Rating." *IEEE Transactions on Power Delivery*, 27(2),
+pp. 1002–1009.
+DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254).
+
+> Addresses dynamic thermal rating of transmission lines — the real-time
+> capacity assessment problem complementary to the long-term transmission
+> expansion planning solved by gtopt.
+
+### Transmission Expansion Planning
+
+<a id="ref1"></a>
+**[1]** Romero, R., Monticelli, A., Garcia, A.V., and Haffner, S. (2002).
+"Test systems and mathematical models for transmission network expansion
+planning." *IEE Proceedings – Generation, Transmission and Distribution*,
+149(1), pp. 27–36.
+DOI: [10.1049/ip-gtd:20020026](https://doi.org/10.1049/ip-gtd:20020026).
+
+> Defines the standard test systems and LP/MIP mathematical models for
+> transmission expansion planning. The DC power flow and transport models
+> in gtopt follow the formulations described in this seminal reference.
+
+<a id="ref2"></a>
+**[2]** Romero, R. and Monticelli, A. (1994). "A hierarchical
+decomposition approach for transmission network expansion planning."
+*IEEE Transactions on Power Systems*, 9(1), pp. 373–380.
+DOI: [10.1109/59.317588](https://doi.org/10.1109/59.317588).
+
+> Introduces hierarchical decomposition for large-scale transmission
+> expansion, which influenced the multi-stage structure used in gtopt.
+
+<a id="ref3"></a>
+**[3]** Lumbreras, S. and Ramos, A. (2016). "The new challenges to
+transmission expansion planning. Survey of recent practice and literature
+review." *Electric Power Systems Research*, 134, pp. 19–29.
+DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013).
+
+> Comprehensive survey of TEP methods covering DC models, transport models,
+> multi-stage formulations, and uncertainty representation — all approaches
+> implemented in gtopt.
+
+<a id="ref10"></a>
+**[10]** Gonzalez-Romero, I.C., Wogrin, S., and Román, T. (2020).
+"Review on generation and transmission expansion co-planning models under
+a market environment." *IET Generation, Transmission & Distribution*,
+14(6), pp. 931–944.
+DOI: [10.1049/iet-gtd.2019.0123](https://doi.org/10.1049/iet-gtd.2019.0123).
+
+> Reviews co-optimization of generation and transmission expansion (the
+> core GTEP problem solved by gtopt), covering LP/MIP formulations,
+> decomposition methods, and renewable integration.
+
+### DC Optimal Power Flow
+
+<a id="ref11"></a>
+**[11]** Stott, B., Jardim, J., and Alsaç, O. (2009). "DC Power Flow
+Revisited." *IEEE Transactions on Power Systems*, 24(3), pp. 1290–1300.
+DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235).
+
+> The definitive reference on the DC power flow approximation. The
+> linearized power flow equations in gtopt's Kirchhoff constraints
+> (§5.6) follow the standard DC model: $f_l = B_l (\theta_a - \theta_b)$
+> where $B_l = V^2 / X_l$ is the line susceptance.
+
+<a id="ref12"></a>
+**[12]** Anderson, P.M. and Fouad, A.A. (2002). *Power Systems Control
+and Stability*. 2nd ed. Wiley-IEEE Press. ISBN: 978-0471238621.
+
+> Standard textbook for power system dynamics and stability. The IEEE
+> 9-bus and 14-bus test systems used in gtopt's benchmark cases originate
+> from this reference.
+
+### Similar Tools and Comparable Formulations
+
+<a id="ref13"></a>
+**[13]** Brown, T., Hörsch, J., and Schlachtberger, D. (2018). "PyPSA:
+Python for Power System Analysis." *Journal of Open Research Software*,
+6(1), p. 4.
+DOI: [10.5334/jors.188](https://doi.org/10.5334/jors.188).
+
+> PyPSA implements a similar LOPF (linear optimal power flow) formulation
+> with multi-period investment planning. gtopt's bus balance, Kirchhoff,
+> and storage constraints follow the same mathematical structure, with
+> gtopt additionally supporting hydro cascades and multi-scenario
+> stochastic optimization.
+
+<a id="ref14"></a>
+**[14]** Jenkins, J.D. and Sepulveda, N.A. (2017). "Enhanced Decision
+Support for a Changing Electricity Landscape: The GenX Configurable
+Electricity Resource Capacity Expansion Model." MIT Energy Initiative
+Working Paper.
+
+> GenX implements a similar capacity expansion formulation in Julia/JuMP.
+> Both GenX and gtopt use LP/MIP with modular capacity additions,
+> storage SoC tracking, and representative time periods, though gtopt
+> uses a C++ sparse-matrix assembly for performance.
+
+### Solvers
+
+<a id="ref15"></a>
+**[15]** Forrest, J.J. and Lougee-Heimer, R. (2005). "CBC User Guide."
+In *Emerging Theory, Methods, and Applications*, INFORMS, pp. 257–277.
+DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020).
+
+> Documents the COIN-OR CBC (Coin-or Branch and Cut) solver used as
+> gtopt's default MIP solver. CLP (COIN-OR Linear Programming) is used
+> for pure LP problems.
+
+### Classification and Surveys
+
+<a id="ref16"></a>
+**[16]** Mahdavi, M., Antunez, C.S., Ajalli, M., and Romero, R. (2019).
+"Transmission Expansion Planning: Literature Review and Classification."
+*IEEE Systems Journal*, 13(3), pp. 3129–3140.
+DOI: [10.1109/JSYST.2018.2871793](https://doi.org/10.1109/JSYST.2018.2871793).
+
+> Systematic classification of TEP literature covering mathematical
+> models, solution methods, and uncertainty handling — provides context
+> for gtopt's position in the GTEP landscape.
 
 ---
 
@@ -981,4 +1198,4 @@ The LP is assembled in compressed sparse column (CSC) format via the
 
 *Document generated from the gtopt source code. See the C++ implementation
 in `source/*_lp.cpp` and `include/gtopt/*_lp.hpp` for the canonical
-formulation.*
+formulation. For the theoretical background, see [Section 9: References](#9-references).*
