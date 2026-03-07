@@ -646,3 +646,90 @@ cat output/Bus/balance_dual.csv
 # Check no load shedding
 cat output/Demand/fail_sol.csv   # should be all zeros
 ```
+
+---
+
+## Documentation Style Guide
+
+When updating documentation files in this repository, follow these guidelines:
+
+### General Principles
+
+- All documentation is written in **GitHub-Flavored Markdown** (GFM).
+- Use ATX-style headers (`#`, `##`, `###`) with a blank line before and after.
+- Keep lines under 80 characters where practical (tables and URLs may exceed).
+- Use `code backticks` for file names, command-line flags, JSON fields, C++
+  identifiers, and function names.
+- Use **bold** for emphasis on key terms; *italics* for introducing new terms
+  or referencing titles.
+
+### Mathematical Notation
+
+- Use LaTeX math blocks (`$$...$$`) for display equations in
+  `docs/formulation/MATHEMATICAL_FORMULATION.md`.
+- Use inline math (`$...$`) for symbols referenced in text.
+- Map every mathematical symbol to its corresponding JSON field name in the
+  "Mapping" section (§7) and Parameters table (§2).
+- When adding new constraints or variables, add them to the Compact
+  Formulation summary table (§3), the detailed section (§5), and the
+  JSON mapping table (§7).
+
+### Academic References
+
+- References are numbered `[N]` and collected in Section 9 of
+  `docs/formulation/MATHEMATICAL_FORMULATION.md`.
+- Use HTML anchor tags: `<a id="refN"></a>` before each reference entry.
+- Inline citations use `[[N]](#refN)` markdown syntax.
+- Always include DOI links when available: `DOI: [10.xxxx/...](https://doi.org/10.xxxx/...)`.
+- Group references by category: FESOP/gtopt publications, TEP classics,
+  DC OPF, similar tools, solvers, surveys.
+- When adding a new formulation feature, cite the relevant academic source.
+
+### Cross-References Between Documents
+
+- Every major documentation file should have a "See also" section at the
+  bottom linking to related documents.
+- Use relative paths: `[PLANNING_GUIDE.md](PLANNING_GUIDE.md)` from root,
+  `[Planning Guide](../../PLANNING_GUIDE.md)` from `docs/formulation/`.
+- The mathematical formulation is the authoritative reference for the LP/MIP
+  model; other documents should link to it for formulation details.
+- The current cross-reference graph:
+  - `README.md` → all documents
+  - `PLANNING_GUIDE.md` → `INPUT_DATA.md`, `USAGE.md`, `SCRIPTS.md`,
+    `BUILDING.md`, `DIAGRAM_TOOL.md`, `MATHEMATICAL_FORMULATION.md`
+  - `MATHEMATICAL_FORMULATION.md` → `PLANNING_GUIDE.md`, `INPUT_DATA.md`,
+    `USAGE.md`, `CONTRIBUTING.md`, `BUILDING.md`, `SCRIPTS.md`
+  - `USAGE.md` → `MATHEMATICAL_FORMULATION.md`, `PLANNING_GUIDE.md`,
+    `INPUT_DATA.md`, `SCRIPTS.md`
+  - `INPUT_DATA.md` → `MATHEMATICAL_FORMULATION.md`, `PLANNING_GUIDE.md`,
+    `USAGE.md`, `SCRIPTS.md`
+
+### Formulation Validation
+
+- The mathematical formulation in `MATHEMATICAL_FORMULATION.md` has been
+  validated against the C++ implementation (`source/*_lp.cpp`,
+  `include/gtopt/*_lp.hpp`). Key verified components:
+  - DC power flow: `f = B(θ_a − θ_b)` with `B = V²/X`, angle scaling by
+    `scale_theta` (default 1000)
+  - Battery SoC: `e[b] = e[b-1]·(1−μ·Δb) + p_in·η_in·Δb − p_out·Δb/η_out`
+  - Bus balance: `Σ(1−λ_g)·p_g − Σ(1+λ_d)·ℓ_d + net_flows = 0`
+  - Discount factor: `δ_t = (1+r)^(−τ_t/8760)`
+  - Capacity expansion: `C_t = C_{t-1}·(1−ξ) + expcap·m_t + ΔC_t`
+- When modifying the C++ LP assembly code, update the corresponding section
+  in the formulation document to maintain consistency.
+
+### Documentation File Purposes
+
+| File | Purpose | Audience |
+|------|---------|----------|
+| `README.md` | Quick start, feature overview | New users |
+| `BUILDING.md` | Build instructions, dependencies | Developers |
+| `USAGE.md` | CLI reference, output interpretation | Users |
+| `INPUT_DATA.md` | JSON/Parquet input format spec | Case builders |
+| `PLANNING_GUIDE.md` | Worked examples, concepts | Planners |
+| `SCRIPTS.md` | Python tool overview | Script users |
+| `CONTRIBUTING.md` | Code style, testing, CI | Contributors |
+| `MATHEMATICAL_FORMULATION.md` | LP/MIP formulation, references | Researchers |
+| `DIAGRAM_TOOL.md` | Network diagram tool | Visualization |
+| `CLAUDE.md` | AI agent guidance | Claude Code |
+| `.github/copilot-instructions.md` | AI agent guidance | GitHub Copilot |

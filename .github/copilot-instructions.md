@@ -1370,3 +1370,96 @@ Understanding the ecosystem helps when designing features and writing tests.
 - Multi-stage, multi-scenario expansion with per-stage discount factors
 - Adaptive thread pool (`work_pool.hpp`) with CPU-load–aware scheduling
 - Lightweight custom CLI parser (no boost::program_options dependency)
+
+---
+
+## Documentation Style Guide
+
+When creating or updating documentation files, follow these conventions to
+maintain consistency across the project.
+
+### General Principles
+
+- All documentation is **GitHub-Flavored Markdown** (GFM).
+- Use ATX-style headers (`#`, `##`, `###`) with a blank line before and after.
+- Keep lines under 80 characters where practical (tables and URLs may exceed).
+- Use `code backticks` for file names, CLI flags, JSON fields, C++ identifiers.
+- Use **bold** for emphasis on key terms; *italics* for new-term introductions.
+
+### Mathematical Formulation Document
+
+The canonical formulation is `docs/formulation/MATHEMATICAL_FORMULATION.md`.
+
+- Use LaTeX display math (`$$...$$`) for equations and inline math (`$...$`)
+  for symbols in text.
+- Map every mathematical symbol to its JSON field name in the Parameters table
+  (§2) and JSON Mapping table (§7).
+- When adding new constraints or variables, update the Compact Formulation
+  summary (§3), the detailed component section (§5), and the JSON mapping (§7).
+- Academic references use numbered anchors: `<a id="refN"></a>` with inline
+  citations as `[[N]](#refN)`. Always include DOI links.
+- Group references by category (FESOP/gtopt, TEP, DC OPF, tools, solvers).
+
+### Cross-References Between Documents
+
+Every major doc should have a "See also" section at the bottom linking to
+related documents. The current cross-reference structure:
+
+| Document | Links to |
+|----------|----------|
+| `README.md` | All documents (hub) |
+| `PLANNING_GUIDE.md` | INPUT_DATA, USAGE, SCRIPTS, BUILDING, DIAGRAM_TOOL, MATH_FORMULATION |
+| `MATHEMATICAL_FORMULATION.md` | PLANNING_GUIDE, INPUT_DATA, USAGE, CONTRIBUTING, BUILDING, SCRIPTS |
+| `USAGE.md` | MATH_FORMULATION, PLANNING_GUIDE, INPUT_DATA, SCRIPTS |
+| `INPUT_DATA.md` | MATH_FORMULATION, PLANNING_GUIDE, USAGE, SCRIPTS |
+
+Use relative paths: `[PLANNING_GUIDE.md](PLANNING_GUIDE.md)` from root,
+`[Planning Guide](../../PLANNING_GUIDE.md)` from `docs/formulation/`.
+
+### Formulation Validation (verified 2026-03)
+
+The mathematical formulation has been validated against the C++ implementation
+(`source/*_lp.cpp`, `include/gtopt/*_lp.hpp`). Key verified components:
+
+| Component | File | Formula |
+|-----------|------|---------|
+| DC power flow | `line_lp.cpp` | $f = (V^2/X)(\theta_a - \theta_b)$ with `scale_theta` scaling |
+| Battery SoC | `storage_lp.hpp` | $e[b] = e[b{-}1](1{-}\mu\Delta) + p_{in}\eta_{in}\Delta - p_{out}\Delta/\eta_{out}$ |
+| Bus balance | `generator_lp.cpp`, `demand_lp.cpp` | $(1{-}\lambda_g)p_g - (1{+}\lambda_d)\ell_d + \text{flows} = 0$ |
+| Discount factor | `utils.hpp` | $\delta_t = (1+r)^{-\tau_t/8760}$ |
+| Capacity expansion | `capacity_object_lp.cpp` | $C_t = C_{t-1}(1{-}\xi) + M \cdot m_t + \Delta C$ |
+
+When modifying the C++ LP assembly code, update the corresponding section
+in `MATHEMATICAL_FORMULATION.md` to maintain consistency.
+
+### Documentation File Purposes
+
+| File | Purpose | Audience |
+|------|---------|----------|
+| `README.md` | Quick start, feature overview | New users |
+| `BUILDING.md` | Build instructions, dependencies | Developers |
+| `USAGE.md` | CLI reference, output interpretation | Users |
+| `INPUT_DATA.md` | JSON/Parquet input format spec | Case builders |
+| `PLANNING_GUIDE.md` | Worked examples, concepts | Planners |
+| `SCRIPTS.md` | Python tool overview | Script users |
+| `CONTRIBUTING.md` | Code style, testing, CI | Contributors |
+| `MATHEMATICAL_FORMULATION.md` | LP/MIP formulation, references | Researchers |
+| `DIAGRAM_TOOL.md` | Network diagram tool | Visualization |
+| `CLAUDE.md` | AI agent guidance | Claude Code |
+| `.github/copilot-instructions.md` | AI agent guidance | GitHub Copilot |
+
+### Key Academic References
+
+The following references are cited in the mathematical formulation and should
+be consulted when validating or extending the formulation:
+
+- **FESOP**: Buitrago Villada et al. (2022), IEEE KPEC — foundational FESOP paper
+- **Hydrothermal**: Pereira-Bonvallet, Matus et al. (2016), Energy Procedia
+- **TEP models**: Romero & Monticelli (2002), IEE Proc.; Lumbreras & Ramos (2016)
+- **DC OPF**: Stott, Jardim & Alsaç (2009), IEEE Trans. Power Systems
+- **IEEE test cases**: Anderson & Fouad (2002), *Power Systems Control and Stability*
+- **Similar tools**: PyPSA — Brown et al. (2018); GenX — Jenkins & Sepulveda (2017)
+- **Solver**: COIN-OR CBC — Forrest & Lougee-Heimer (2005)
+
+Full citations with DOIs are in
+`docs/formulation/MATHEMATICAL_FORMULATION.md` §9.
