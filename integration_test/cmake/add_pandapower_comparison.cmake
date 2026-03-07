@@ -8,13 +8,10 @@ compares gtopt output against a pandapower DC OPF reference after
 
 Detection priority (set by the including CMakeLists.txt):
 
-1. ``COMPARE_PANDAPOWER_PROGRAM`` — path to the installed ``compare_pandapower``
-   entry-point (from ``pip install -e scripts/``).  Invoked as::
+1. ``COMPARE_PANDAPOWER_PROGRAM`` — path explicitly set by the user.
+   Invoked as::
 
      compare_pandapower --case <name> --gtopt-output <dir>
-
-   This is the preferred route because the entry-point script has the real
-   Python interpreter baked in, avoiding pyenv / virtualenv shim issues.
 
 2. ``COMPARE_PANDAPOWER_PYTHON`` + ``COMPARE_PANDAPOWER_SCRIPTS_DIR`` — Python
    interpreter and path to the ``scripts/`` source directory.  The test is run
@@ -24,10 +21,15 @@ Detection priority (set by the including CMakeLists.txt):
        <COMPARE_PANDAPOWER_PYTHON> -m compare_pandapower \
          --case <name> --gtopt-output <dir>
 
-   This allows the tests to run straight from the source tree before
-   ``pip install -e scripts/`` has been executed.
+   This is the preferred route in a development checkout: it works before
+   ``pip install -e scripts/`` has been executed, and is not affected by
+   ``cmake --build build --target uninstall``.
 
-3. ``PANDAPOWER_PYTHON`` — fallback Python interpreter that has pandapower
+3. ``COMPARE_PANDAPOWER_PROGRAM`` auto-detected — installed ``compare_pandapower``
+   entry-point found via ``find_program``.  Used as a fallback when no
+   ``scripts/`` source directory is available.
+
+4. ``PANDAPOWER_PYTHON`` — fallback Python interpreter that has pandapower
    installed.  Used together with the per-case ``compare_pandapower.py``
    script found in ``${CASES_DIR}/<case>/compare_pandapower.py``.
 
