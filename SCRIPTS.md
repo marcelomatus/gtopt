@@ -351,22 +351,171 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 
 ## igtopt
 
-Converts an **Excel workbook** to a gtopt JSON case.
+Converts an **Excel workbook** to a gtopt JSON case.  Reads all named sheets
+from the workbook and writes:
+
+- A **gtopt JSON file** with the complete system, simulation, and options
+  configuration.
+- **Parquet (or CSV) time-series files** written to the `input_directory` for
+  any sheet whose name contains `@` (e.g. `Demand@lmax` →
+  `<input_dir>/Demand/lmax.parquet`).
+
+### Basic usage
 
 ```bash
-# Basic usage
-igtopt case.xlsx
+# Basic conversion – output JSON and input directory derived from workbook name
+igtopt system.xlsx
 
-# Write output to a specific JSON file
-igtopt case.xlsx -j output/case.json
+# Write output to an explicit JSON file
+igtopt system.xlsx -j output/system.json
 
-# Pretty-print JSON
-igtopt case.xlsx --pretty
+# Pretty-printed JSON (4-space indented), skip null/NaN values
+igtopt system.xlsx --pretty --skip-nulls
+
+# CSV time-series files instead of Parquet
+igtopt system.xlsx -f csv
+
+# Bundle JSON + data files into a ZIP archive (ready for gtopt_guisrv/websrv)
+igtopt system.xlsx --zip
+
+# Convert multiple workbooks in one run (merges into a single JSON)
+igtopt case_a.xlsx case_b.xlsx -d /data/input
+
+# Show debug log messages
+igtopt system.xlsx -l DEBUG
 ```
 
-Sheets whose names start with `@` (e.g. `Demand@lmax`) are written as
-Parquet time-series files to the `input_directory` specified in the workbook's
-`options` sheet.
+### ZIP output (`-z` / `--zip`)
+
+The `-z` flag creates a single **ZIP archive** that bundles the JSON
+configuration file and all Parquet/CSV data files together, preserving the
+full directory structure.  This archive is directly compatible with
+**gtopt\_guisrv** (upload via the GUI) and **gtopt\_websrv** (submit via the
+REST API):
+
+```bash
+igtopt system.xlsx --zip
+# Produces: system.zip
+#   system.zip
+#   ├── system.json
+#   └── system/
+#       ├── Demand/
+#       │   └── lmax.parquet
+#       └── GeneratorProfile/
+#           └── profile.parquet
+```
+
+### Conversion statistics
+
+After a successful conversion, `igtopt` logs statistics (at INFO level)
+similar to those printed by `plp2gtopt`:
+
+```
+=== System statistics ===
+  Buses           : 57
+  Generators      : 7
+  Demands         : 42
+  Lines           : 80
+=== Simulation statistics ===
+  Blocks          : 1
+  Stages          : 1
+  Scenarios       : 1
+=== Key options ===
+  use_single_bus  : False
+  scale_objective : 1000
+  demand_fail_cost: 1000
+  input_directory : system
+=== Conversion time ===
+  Elapsed         : 0.123s
+```
+
+### Excel workbook format
+
+The workbook can contain any of the following named sheets.  Sheets whose name
+starts with `.` (e.g. `.notes`) are silently skipped.
+
+#### System and simulation sheets
+
+| Sheet name | Description |
+|------------|-------------|
+| `options` | Key/value pairs written to the JSON `options` block (two columns: `option`, `value`) |
+| `bus_array` | Electrical buses (`uid`, `name`, optional `reference_theta`, `kv`) |
+| `generator_array` | Generators (`uid`, `name`, `bus`, `gcost`, `pmax`, `capacity`, …) |
+| `demand_array` | Demands (`uid`, `name`, `bus`, `lmax`, …) |
+| `line_array` | Transmission lines (`uid`, `name`, `bus_a`, `bus_b`, `reactance`, `tmax_ab`, `tmax_ba`, …) |
+| `batterie_array` | Batteries – scalar definition or unified (`bus`, `pmax_charge`, `pmax_discharge`, …) |
+| `converter_array` | Generator–demand converters for battery charge/discharge paths |
+| `generator_profile_array` | Generator capacity factors (`uid`, `name`, `generator`, `profile`) |
+| `demand_profile_array` | Demand scaling profiles |
+| `reserve_zone_array` | Spinning-reserve zones |
+| `reserve_provision_array` | Generator–zone reserve provision links |
+| `block_array` | Time blocks (`uid`, `duration`) |
+| `stage_array` | Investment stages (`uid`, `first_block`, `count_block`, `active`) |
+| `scenario_array` | Scenarios (`uid`, `probability_factor`) |
+| `junction_array` | Hydraulic junctions |
+| `waterway_array` | Water channels between junctions |
+| `reservoir_array` | Storage lakes |
+| `turbine_array` | Hydro turbines |
+| `flow_array` | External inflows at junctions |
+| `outflow_array` | Minimum required outflow at junctions |
+| `filtration_array` | Water seepage from waterways |
+
+#### Time-series sheets (`@` convention)
+
+Any sheet whose name contains `@` encodes a time-series table that is written
+as a Parquet (or CSV) file to the `input_directory`.  The naming convention is:
+
+```
+<component_type>@<field_name>
+```
+
+The sheet must contain `scenario`, `stage`, `block` index columns followed by
+one column per element (named after the element's `name` field).
+
+| Sheet name example | Produces | Description |
+|--------------------|----------|-------------|
+| `Demand@lmax` | `<input_dir>/Demand/lmax.parquet` | Per-block demand limits |
+| `GeneratorProfile@profile` | `<input_dir>/GeneratorProfile/profile.parquet` | Solar/wind capacity factors |
+| `Generator@pmax` | `<input_dir>/Generator/pmax.parquet` | Per-block generator max output |
+| `Battery@emax` | `<input_dir>/Battery/emax.parquet` | Per-block battery energy upper bound |
+
+When a time-series sheet is present, the corresponding field in the system
+array sheet (e.g. `lmax` in `demand_array`) should contain the string
+`"lmax"` (the file stem without extension) as a file reference.
+
+#### Example: demand with a 24-hour lmax time-series
+
+`demand_array` sheet:
+
+| uid | name | bus | lmax  |
+|-----|------|-----|-------|
+| 1   | d3   | b3  | lmax  |
+| 2   | d4   | b4  | lmax  |
+
+`Demand@lmax` sheet:
+
+| scenario | stage | block | d3  | d4  |
+|----------|-------|-------|-----|-----|
+| 1        | 1     | 1     | 30  | 20  |
+| 1        | 1     | 2     | 28  | 18  |
+| …        | …     | …     | …   | …   |
+
+### All options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `XLSX` (positional) | — | Excel workbook(s) to convert (one or more) |
+| `-j, --json-file FILE` | `<first stem>.json` | Output JSON file path |
+| `-d, --input-directory DIR` | `<first stem>/` | Directory for time-series data files |
+| `-f, --input-format {parquet,csv}` | `parquet` | Format for time-series output files |
+| `-n, --name NAME` | `<first stem>` | System name written to JSON `name` field |
+| `-c, --compression ALG` | `gzip` | Parquet compression (`gzip`, `snappy`, `brotli`, `''` for none) |
+| `-p, --pretty` | off | Write indented (4-space) JSON instead of compact |
+| `-N, --skip-nulls` | off | Omit keys with null/NaN values from JSON output |
+| `-U, --parse-unexpected-sheets` | off | Also process sheets not in the expected list |
+| `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
+| `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `-V, --version` | — | Print version and exit |
 
 ---
 

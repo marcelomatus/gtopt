@@ -4,9 +4,10 @@ import argparse
 import json
 import logging
 import pathlib
-import re
 import sys
+import time
 import warnings
+import zipfile
 from typing import Any
 from itertools import zip_longest
 
@@ -25,32 +26,46 @@ try:
 except ImportError:
     __version__ = "dev"
 
-expected_sheets = [
-    "options",
-    "scenario_array",
-    "stage_array",
-    "block_array",
-    "bus_array",
-    "demand_array",
-    "generator_array",
-    "line_array",
-    "generator_profile_array",
-    "demand_profile_array",
-    "batterie_array",
-    "converter_array",
-    "reserve_zone_array",
-    "reserve_provision_array",
-    "junction_array",
-    "waterway_array",
-    "flow_array",
-    "outflow_array",
-    "reservoir_array",
-    "filtration_array",
-    "turbine_array",
-    "emission_zone_array",
-    "generator_emission_array",
-    "demand_emissions",
-]
+# Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
+# These must match the fields declared in ``json_simulation.hpp``.
+_SIMULATION_SHEETS = frozenset(
+    {
+        "block_array",
+        "stage_array",
+        "scenario_array",
+        "phase_array",
+        "scene_array",
+    }
+)
+
+# Sheets that belong to the ``system`` section of the gtopt JSON schema.
+# These must match the fields declared in ``json_system.hpp``.
+_SYSTEM_SHEETS = frozenset(
+    {
+        "bus_array",
+        "demand_array",
+        "generator_array",
+        "line_array",
+        "generator_profile_array",
+        "demand_profile_array",
+        "battery_array",
+        "converter_array",
+        "reserve_zone_array",
+        "reserve_provision_array",
+        "junction_array",
+        "waterway_array",
+        "flow_array",
+        "outflow_array",
+        "reservoir_array",
+        "filtration_array",
+        "turbine_array",
+        "emission_zone_array",
+        "generator_emission_array",
+        "demand_emissions",
+    }
+)
+
+expected_sheets = ["options"] + sorted(_SIMULATION_SHEETS) + sorted(_SYSTEM_SHEETS)
 
 _COMPACT_INDENT = 0
 _COMPACT_SEPARATORS = (",", ":")
@@ -58,6 +73,11 @@ _COMPACT_SEPARATORS = (",", ":")
 _PRETTY_INDENT = 4
 _PRETTY_SEPARATORS = (", ", ": ")
 
+# Module-level defaults kept for backwards-compatibility with external code that
+# may read ``json_indent`` / ``json_separators`` directly.  New code should
+# use the ``indent`` / ``separators`` parameters of :func:`df_to_str` instead,
+# or rely on :func:`_run` which uses its own local copies derived from
+# ``args.pretty`` so that multiple calls are fully independent.
 json_indent = _COMPACT_INDENT  # pylint: disable=invalid-name
 json_separators = _COMPACT_SEPARATORS  # pylint: disable=invalid-name
 
@@ -97,6 +117,9 @@ examples:
 
   # Pretty-printed JSON, skip null values, parquet output
   igtopt system.xlsx --pretty --skip-nulls -f parquet
+
+  # Bundle JSON + data files into a ZIP archive (ready for gtopt_guisrv/websrv)
+  igtopt system.xlsx --zip
 
   # Convert multiple workbooks in one run
   igtopt case_a.xlsx case_b.xlsx -d /data/input
@@ -147,7 +170,32 @@ def df_to_opts(df, options):
     sys.exit(1)
 
 
-def df_to_str(df, skip_nulls=True):
+def _try_parse_json(value):
+    """Try to parse a string as JSON; return the parsed value or the original string.
+
+    This handles Excel cells whose content is a JSON-encoded scalar, list, or
+    object (e.g. ``[[55.0]]``, ``[1, 2, 3]``, ``true``).  Plain strings that
+    are not valid JSON are returned unchanged.
+    """
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    # Only attempt parsing if the string looks like a JSON literal
+    if (
+        not stripped
+        or stripped[0] not in ("{", "[", "t", "f", "n", "-")
+        and not (stripped[0].isdigit())
+    ):
+        return value
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return value
+
+
+def df_to_str(
+    df, skip_nulls=True, indent=_COMPACT_INDENT, separators=_COMPACT_SEPARATORS
+):
     """Convert a DataFrame to a JSON string representation."""
     dropc = []
     for c in df.columns:
@@ -164,11 +212,13 @@ def df_to_str(df, skip_nulls=True):
     df = df.astype(types)
 
     if skip_nulls:
-        return json.dumps(
-            list(df.agg(lambda x: x.dropna().to_dict(), axis=1)),
-            indent=json_indent,
-            separators=json_separators,
-        )
+        records = []
+        for _, row in df.iterrows():
+            rec = {}
+            for col, val in row.dropna().items():
+                rec[col] = _try_parse_json(val)
+            records.append(rec)
+        return json.dumps(records, indent=indent, separators=separators)
     return df.to_json(
         lines=False,
         orient="records",
@@ -177,25 +227,89 @@ def df_to_str(df, skip_nulls=True):
         force_ascii=True,
         date_unit="ms",
         default_handler=None,
-        indent=json_indent,
+        indent=indent,
     )
 
 
+def create_zip_output(json_path: pathlib.Path, input_dir: pathlib.Path) -> pathlib.Path:
+    """Create a ZIP archive containing the JSON file and all data files.
+
+    The archive layout mirrors what gtopt_guisrv / gtopt_websrv expect:
+    ``{case_name}.json`` at the root plus all files under the input directory.
+    """
+    zip_path = json_path.with_suffix(".zip")
+    case_name = json_path.stem
+    input_dir_name = input_dir.name
+
+    logging.info("Creating ZIP archive: %s", zip_path)
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(json_path, arcname=f"{case_name}.json")
+        if input_dir.exists():
+            for data_file in sorted(input_dir.rglob("*")):
+                if data_file.is_file():
+                    arcname = f"{input_dir_name}/{data_file.relative_to(input_dir)}"
+                    zf.write(data_file, arcname=arcname)
+
+    logging.info(
+        "ZIP archive written: %s (%d bytes)",
+        zip_path,
+        zip_path.stat().st_size,
+    )
+    return zip_path
+
+
+def log_conversion_stats(
+    counts: dict[str, int],
+    options: dict[str, Any],
+    elapsed: float,
+) -> None:
+    """Log conversion statistics similar to plp2gtopt."""
+    logging.info("=== System statistics ===")
+    logging.info("  Buses           : %d", counts.get("bus_array", 0))
+    logging.info("  Generators      : %d", counts.get("generator_array", 0))
+    logging.info("  Generator profs : %d", counts.get("generator_profile_array", 0))
+    logging.info("  Demands         : %d", counts.get("demand_array", 0))
+    logging.info("  Lines           : %d", counts.get("line_array", 0))
+    logging.info("  Batteries       : %d", counts.get("batterie_array", 0))
+    logging.info("  Converters      : %d", counts.get("converter_array", 0))
+    logging.info("  Junctions       : %d", counts.get("junction_array", 0))
+    logging.info("  Reservoirs      : %d", counts.get("reservoir_array", 0))
+    logging.info("  Turbines        : %d", counts.get("turbine_array", 0))
+    logging.info("=== Simulation statistics ===")
+    logging.info("  Blocks          : %d", counts.get("block_array", 0))
+    logging.info("  Stages          : %d", counts.get("stage_array", 0))
+    logging.info("  Scenarios       : %d", counts.get("scenario_array", 0))
+    logging.info("=== Key options ===")
+    logging.info("  use_single_bus  : %s", options.get("use_single_bus", False))
+    logging.info("  scale_objective : %s", options.get("scale_objective", 1000))
+    logging.info("  demand_fail_cost: %s", options.get("demand_fail_cost", 1000))
+    logging.info("  input_directory : %s", options.get("input_directory", ""))
+    logging.info("=== Conversion time ===")
+    logging.info("  Elapsed         : %.3fs", elapsed)
+
+
 def _run(args) -> int:
-    options = {}
+    t_start = time.monotonic()
+
+    # Use local formatting variables so multiple calls are independent.
+    pretty = getattr(args, "pretty", False)
+    _indent = _PRETTY_INDENT if pretty else _COMPACT_INDENT
+    _separators = _PRETTY_SEPARATORS if pretty else _COMPACT_SEPARATORS
+
+    options: dict[str, Any] = {}
     options["input_directory"] = str(args.input_directory)
     options["input_format"] = args.input_format
 
-    prelude = {}
-    prelude["name"] = args.name
-
-    pstr = json.dumps(prelude, separators=json_separators)
-    match = re.search(r"{(.*?)}$", pstr)
-    pstr = match.group(1) if match is not None else pstr
+    # Collect simulation and system arrays as ordered dicts so we can write
+    # the nested {options, simulation, system} structure that gtopt expects.
+    simulation: dict[str, Any] = {}
+    system: dict[str, Any] = {"name": args.name}
 
     json_path = args.json_file.with_suffix(".json")
-    json_file = None
     filenames = args.filenames
+    # Pre-initialise with zeros so log_conversion_stats always has every key.
+    counts: dict[str, int] = {s: 0 for s in expected_sheets if s != "options"}
     for filename in filenames:
         filepath = pathlib.Path(filename)
         if filepath.is_dir() or not filepath.exists():
@@ -237,30 +351,41 @@ def _run(args) -> int:
                 options = df_to_opts(df, options)
                 continue
 
-            df_str = df_to_str(df, args.skip_nulls)
-
-            if df_str is not None:
-                if not json_file:
-                    # lazy open the json_file
-                    json_file = json_path.open("w")
-                    json_file.write("{\n")
-                    json_file.write(f"{pstr}\n")
-
-                json_file.write(f',"{sheet_name}":')
-                json_file.write(df_str)
-                json_file.write("\n")
-
-    if json_file:
-        # close the json_file
-        if options:
-            opts_str = json.dumps(
-                options, indent=json_indent, separators=json_separators
+            df_parsed = json.loads(
+                df_to_str(df, args.skip_nulls, indent=_indent, separators=_separators)
             )
-            json_file.write(f',"options":{opts_str}\n')
+            counts[sheet_name] = len(df_parsed)
 
-        json_file.write("}\n")
-        json_file.close()
+            if sheet_name in _SIMULATION_SHEETS:
+                simulation[sheet_name] = df_parsed
+            else:
+                system[sheet_name] = df_parsed
+
+    has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
+    if has_data:
+        planning: dict[str, Any] = {}
+        planning["options"] = options
+        if simulation:
+            planning["simulation"] = simulation
+        planning["system"] = system
+
+        with json_path.open("w") as json_file:
+            json.dump(
+                planning,
+                json_file,
+                indent=_indent if pretty else None,
+                separators=None if pretty else _separators,
+            )
+            json_file.write("\n")
+
         logging.info("gtopt input file %s was successfully generated", str(json_path))
+
+        elapsed = time.monotonic() - t_start
+        log_conversion_stats(counts, options, elapsed)
+
+        if getattr(args, "zip", False):
+            zip_path = create_zip_output(json_path, pathlib.Path(args.input_directory))
+            print(f"ZIP archive created: {zip_path}")
     else:
         logging.warning(
             "no valid data was found, the file %s was not generated", str(json_path)
@@ -355,6 +480,16 @@ def main() -> None:
             ),
         )
         parser.add_argument(
+            "-z",
+            "--zip",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "bundle the JSON file and all data files into a single ZIP archive "
+                "(compatible with gtopt_guisrv and gtopt_websrv)"
+            ),
+        )
+        parser.add_argument(
             "-l",
             "--log-level",
             default="INFO",
@@ -378,11 +513,6 @@ def main() -> None:
             level=getattr(logging, args.log_level),
             format="%(asctime)s %(levelname)s %(message)s",
         )
-
-        if args.pretty:
-            global json_indent, json_separators  # noqa: PLW0603
-            json_indent = _PRETTY_INDENT
-            json_separators = _PRETTY_SEPARATORS
 
         if not args.json_file:
             args.json_file = pathlib.Path(args.filenames[0]).with_suffix(".json")
