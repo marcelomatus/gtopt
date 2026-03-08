@@ -11,7 +11,6 @@
 #pragma once
 
 #include <limits>
-#include <map>
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
@@ -314,38 +313,12 @@ public:
 
     out.add_col_sol(cname, "volumen", pid, volumen_cols);
     out.add_col_cost(cname, "volumen", pid, volumen_cols);
-
-    // Back-scale volume balance duals when daily-cycle was active.
-    // Build a per-RowIndex lookup: row → 24/stage_dur (only for stages
-    // where daily_cycle was actually applied).
-    if (volumen_dc_scale.empty()) {
-      out.add_row_dual(cname, "volumen", pid, volumen_rows);
-    } else {
-      // Map each RowIndex to its stage's 24/stage_dur correction factor.
-      std::map<RowIndex, double> row_dc;
-      for (auto& [st_key, bmap] : volumen_rows) {
-        if (const auto sit = volumen_dc_scale.find(st_key);
-            sit != volumen_dc_scale.end())
-        {
-          const double s = sit->second;
-          for (auto& [buid, ridx] : bmap) {
-            row_dc.emplace(ridx, s);
-          }
-        }
-      }
-      out.add_row_dual(cname,
-                       "volumen",
-                       pid,
-                       volumen_rows,
-                       [&row_dc](RowIndex ri, double val) -> double
-                       {
-                         if (const auto it = row_dc.find(ri);
-                             it != row_dc.end()) {
-                           return val * it->second;
-                         }
-                         return val;
-                       });
-    }
+    // Back-scale volume balance duals: when daily_cycle was active for a stage
+    // the LP duals are scaled by stage_dur/24, so we multiply by 24/stage_dur
+    // (stored in volumen_dc_scale).  When volumen_dc_scale is empty (no stage
+    // used daily_cycle), the st_scale overload defaults every entry to 1.0 and
+    // the result is identical to the plain add_row_dual call.
+    out.add_row_dual(cname, "volumen", pid, volumen_rows, volumen_dc_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
 

@@ -200,16 +200,17 @@ public:
                      block_cost_factors);
   }
 
-  /// add_row_dual with an indexed operation op(RowIndex, double) -> double.
-  /// Allows per-row back-scaling (e.g. daily-cycle dual correction in
-  /// StorageLP::add_to_output) without modifying flat_helper.hpp.
-  template<typename IndexedOperation>
-    requires std::invocable<IndexedOperation, RowIndex, double>
+  /// add_row_dual with an additional per-(scenario,stage) back-scale factor.
+  /// Used by StorageLP::add_to_output for daily-cycle dual correction:
+  /// when daily_cycle is active for a stage, the LP dual is stage_dur/24
+  /// times larger than the physical dual, so we multiply by 24/stage_dur.
+  template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder,
-                              IndexedOperation idx_op)
+                              const STIndexHolder<double>& st_scale,
+                              Operation op = {})
   {
     if (holder.empty() || row_dual_span.empty()) {
       return;
@@ -217,8 +218,9 @@ public:
 
     auto&& [values, valid] = sc.get().flat(
         holder,
-        [&](auto i) { return idx_op(i, row_dual_span[i]); },
-        block_cost_factors);
+        [&](auto i) { return op(row_dual_span[i]); },
+        block_cost_factors,
+        st_scale);
 
     if (values.empty()) {
       return;

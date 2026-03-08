@@ -88,54 +88,23 @@ sudo apt-get install -y --no-install-recommends \
 ok "ccache and base packages installed"
 
 # ── Step 2: Arrow / Parquet ───────────────────────────────────────────────────
-# Primary: Apache Arrow APT repository (mirrors what CI does in
-# .github/actions/install-apt-deps/action.yml).
-# Fallback: conda-forge (reliable when packages.apache.org is unreachable,
-# which is common in network-restricted sandboxes).
-log "Installing Arrow/Parquet..."
+# Always use conda-forge.  The APT Arrow packages (packages.apache.org) are
+# NOT used in sandbox/agent environments because the APT libarrow version can
+# conflict with the conda libarrow at link time (versioned curl symbols),
+# causing undefined-reference errors even when cmake finds the right headers.
+# Conda gives a self-consistent Arrow+Parquet+Boost set that always matches.
+log "Installing Arrow/Parquet via conda-forge..."
 
-DISTRO=$(lsb_release --id --short | tr 'A-Z' 'a-z')
-CODENAME=$(lsb_release --codename --short)
-ARROW_DEB="apache-arrow-apt-source-latest-${CODENAME}.deb"
-ARROW_URL="https://packages.apache.org/artifactory/arrow/${DISTRO}/${ARROW_DEB}"
-ARROW_INSTALLED_VIA=""
-
-# Check if Arrow is already installed via APT
-if dpkg -l libarrow-dev &>/dev/null; then
-  ok "Arrow/Parquet already installed via APT"
-  ARROW_INSTALLED_VIA="apt"
+ARROW_INSTALLED_VIA="conda"
+if conda list arrow-cpp 2>/dev/null | grep -q "^arrow-cpp"; then
+  ok "Arrow/Parquet already installed via conda"
 else
-  # Try APT first (3 attempts, 15 s between retries – matches CI action)
-  log "Trying Apache Arrow APT repository..."
-  ARROW_APT_OK=false
-  for attempt in 1 2 3; do
-    if wget -q --timeout=30 "${ARROW_URL}" \
-       && sudo apt-get install -y -q --no-install-recommends "./${ARROW_DEB}" \
-       && sudo apt-get update -q \
-       && sudo apt-get install -y --no-install-recommends \
-            libarrow-dev libparquet-dev; then
-      ARROW_APT_OK=true
-      break
-    fi
-    warn "APT Arrow attempt ${attempt}/3 failed; retrying in 15 s..."
-    sleep 15
-  done
-
-  if $ARROW_APT_OK; then
-    ok "Arrow/Parquet installed via APT"
-    ARROW_INSTALLED_VIA="apt"
-  else
-    # Fallback to conda-forge
-    warn "Apache Arrow APT repository unreachable – falling back to conda"
-    if ! command -v conda &>/dev/null; then
-      echo "ERROR: conda not found.  Install Miniconda/Anaconda first," >&2
-      echo "       or fix network access to packages.apache.org." >&2
-      exit 1
-    fi
-    conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
-    ok "Arrow/Parquet installed via conda-forge"
-    ARROW_INSTALLED_VIA="conda"
+  if ! command -v conda &>/dev/null; then
+    echo "ERROR: conda not found.  Install Miniconda/Anaconda first." >&2
+    exit 1
   fi
+  conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+  ok "Arrow/Parquet installed via conda-forge"
 fi
 
 # ── Step 3: Clang 21 from LLVM APT ────────────────────────────────────────────
@@ -207,13 +176,8 @@ fi
 
 # ── Steps 5–6: Configure and build (optional) ─────────────────────────────────
 if $DO_CONFIGURE; then
-  # Determine the cmake prefix path:
-  #   APT Arrow  → no extra -DCMAKE_PREFIX_PATH needed (system paths)
-  #   conda Arrow → must point cmake at the conda base prefix
-  CMAKE_PREFIX_ARG=""
-  if [[ "$ARROW_INSTALLED_VIA" == "conda" ]]; then
-    CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
-  fi
+  # Determine the cmake prefix path – always conda for Arrow in sandboxes
+  CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
 
   log "Configuring cmake (${BUILD_TYPE}, ${CC}/${CXX})..."
   CMAKE_ARGS=(
