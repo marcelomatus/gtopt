@@ -6,12 +6,13 @@
  * @copyright BSD-3-Clause
  *
  * Implements the forward/backward iterative decomposition.  See
- * sddp_solver.hpp for the algorithm description.
+ * sddp_solver.hpp for the algorithm description and the free-function
+ * building blocks declared there.
  */
 
-#include <algorithm>
 #include <cmath>
 #include <format>
+#include <span>
 
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
@@ -20,71 +21,153 @@
 namespace gtopt
 {
 
-// ─── Constructor ─────────────────────────────────────────────────────────────
+// ─── Free-function building blocks ──────────────────────────────────────────
+
+void propagate_trial_values(std::span<StateVarLink> links,
+                            std::span<const double> source_solution,
+                            LinearInterface& target_li) noexcept
+{
+  for (auto& link : links) {
+    link.trial_value = source_solution[link.source_col];
+    target_li.set_col_low(link.dependent_col, link.trial_value);
+    target_li.set_col_upp(link.dependent_col, link.trial_value);
+  }
+}
+
+auto build_benders_cut(ColIndex alpha_col,
+                       std::span<const StateVarLink> links,
+                       std::span<const double> reduced_costs,
+                       double objective_value,
+                       const std::string& name) -> SparseRow
+{
+  SparseRow row;
+  row.name = name;
+  row[alpha_col] = 1.0;
+
+  double rhs = objective_value;
+  for (const auto& link : links) {
+    const auto rc = reduced_costs[link.dependent_col];
+    row[link.source_col] = -rc;
+    rhs -= rc * link.trial_value;
+  }
+
+  row.lowb = rhs;
+  row.uppb = LinearProblem::DblMax;
+  return row;
+}
+
+bool relax_fixed_state_variable(LinearInterface& li,
+                                const StateVarLink& link,
+                                PhaseIndex phase,
+                                double penalty)
+{
+  const auto dep = link.dependent_col;
+  const auto lo = li.get_col_low()[dep];
+  const auto hi = li.get_col_upp()[dep];
+
+  if (std::abs(lo - hi) >= 1e-10) {
+    return false;
+  }
+
+  // Relax to the physical bounds captured from the source column
+  li.set_col_low(dep, link.source_low);
+  li.set_col_upp(dep, link.source_upp);
+
+  const auto pi = static_cast<Index>(phase);
+  const auto ci = static_cast<Index>(dep);
+
+  // Penalised slack variables: up (overshoot) and dn (undershoot)
+  const auto sup = li.add_col(
+      std::format("elastic_up_ph{}_c{}", pi, ci), 0.0, LinearProblem::DblMax);
+  li.set_obj_coeff(sup, penalty);
+
+  const auto sdn = li.add_col(
+      std::format("elastic_dn_ph{}_c{}", pi, ci), 0.0, LinearProblem::DblMax);
+  li.set_obj_coeff(sdn, penalty);
+
+  // dep + sup − sdn = trial_value
+  SparseRow elastic;
+  elastic.name = std::format("elastic_ph{}_c{}", pi, ci);
+  elastic[dep] = 1.0;
+  elastic[sup] = 1.0;
+  elastic[sdn] = -1.0;
+  elastic.lowb = link.trial_value;
+  elastic.uppb = link.trial_value;
+
+  li.add_row(elastic);
+
+  SPDLOG_DEBUG(
+      "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
+      "(source bounds from phase {})",
+      pi,
+      ci,
+      link.source_low,
+      link.source_upp,
+      static_cast<Index>(link.source_phase));
+  return true;
+}
+
+// ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
     : m_planning_lp_(planning_lp)
-    , m_options_(std::move(opts))
+    , m_options_(opts)
 {
 }
 
-// ─── Initialisation helpers ──────────────────────────────────────────────────
+// ── Initialisation ──────────────────────────────────────────────────────────
 
-void SDDPSolver::initialize_alpha_variables(SceneIndex scene_index)
+void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
 {
-  const auto& phases = m_planning_lp_.simulation().phases();
-  const auto num_phases = static_cast<Index>(phases.size());
-
+  const auto num_phases =
+      static_cast<Index>(m_planning_lp_.simulation().phases().size());
   m_phase_states_.resize(num_phases);
 
   // Add α (future-cost) variable to every phase except the last
   for (Index pi = 0; pi < num_phases - 1; ++pi) {
     auto& state = m_phase_states_[PhaseIndex {pi}];
-    auto& sys = m_planning_lp_.system(scene_index, PhaseIndex {pi});
+    auto& li = m_planning_lp_.system(scene, PhaseIndex {pi}).linear_interface();
 
-    const auto alpha_name = std::format("sddp_alpha_phase_{}", pi);
-    state.alpha_col = sys.linear_interface().add_col(
-        alpha_name, m_options_.alpha_min, m_options_.alpha_max);
-
-    // α enters the objective with coefficient 1.0
-    sys.linear_interface().set_obj_coeff(state.alpha_col, 1.0);
+    state.alpha_col = li.add_col(std::format("sddp_alpha_phase_{}", pi),
+                                 m_options_.alpha_min,
+                                 m_options_.alpha_max);
+    li.set_obj_coeff(state.alpha_col, 1.0);
   }
 
-  // Last phase has no future-cost variable
+  // Last phase: no future cost
   m_phase_states_[PhaseIndex {num_phases - 1}].alpha_col =
       ColIndex {unknown_index};
 }
 
-void SDDPSolver::collect_state_variable_links(SceneIndex scene_index)
+void SDDPSolver::collect_state_variable_links(SceneIndex scene)
 {
-  // Walk the SimulationLP state variable map for this scene.
-  // For each state variable in phase p that has dependents in phase p+1,
-  // record a StateVarLink.
   const auto& sim = m_planning_lp_.simulation();
-  const auto& phases = sim.phases();
-  const auto num_phases = static_cast<Index>(phases.size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
 
   for (Index pi = 0; pi < num_phases; ++pi) {
-    const auto phase_index = PhaseIndex {pi};
-    auto& state = m_phase_states_[phase_index];
+    const auto phase = PhaseIndex {pi};
+    auto& state = m_phase_states_[phase];
 
-    const auto& svar_map = sim.state_variables(scene_index, phase_index);
+    // Read column bounds from the source phase LP
+    const auto& src_li = m_planning_lp_.system(scene, phase).linear_interface();
+    const auto col_lo = src_li.get_col_low();
+    const auto col_hi = src_li.get_col_upp();
 
-    for (const auto& [key, svar] : svar_map) {
+    for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
       for (const auto& dep : svar.dependent_variables()) {
-        // Only consider dependents in the immediately next phase
-        if (dep.phase_index() != PhaseIndex {pi + 1}) {
-          continue;
-        }
-        if (dep.scene_index() != scene_index) {
+        if (dep.phase_index() != PhaseIndex {pi + 1}
+            || dep.scene_index() != scene)
+        {
           continue;
         }
 
         state.outgoing_links.push_back(StateVarLink {
             .source_col = svar.col(),
             .dependent_col = dep.col(),
-            .source_phase = phase_index,
+            .source_phase = phase,
             .target_phase = dep.phase_index(),
+            .source_low = col_lo[svar.col()],
+            .source_upp = col_hi[svar.col()],
         });
       }
     }
@@ -95,45 +178,34 @@ void SDDPSolver::collect_state_variable_links(SceneIndex scene_index)
   }
 }
 
-// ─── Forward pass ────────────────────────────────────────────────────────────
+// ── Forward pass ────────────────────────────────────────────────────────────
 
-auto SDDPSolver::forward_pass(SceneIndex scene_index,
-                              const SolverOptions& lp_opts)
+auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
     -> std::expected<double, Error>
 {
-  const auto& phases = m_planning_lp_.simulation().phases();
-  const auto num_phases = static_cast<Index>(phases.size());
-  double total_operating_cost = 0.0;
+  const auto num_phases =
+      static_cast<Index>(m_planning_lp_.simulation().phases().size());
+  double total_opex = 0.0;
 
   for (Index pi = 0; pi < num_phases; ++pi) {
-    const auto phase_index = PhaseIndex {pi};
-    auto& sys = m_planning_lp_.system(scene_index, phase_index);
-    auto& li = sys.linear_interface();
-    auto& state = m_phase_states_[phase_index];
+    const auto phase = PhaseIndex {pi};
+    auto& li = m_planning_lp_.system(scene, phase).linear_interface();
+    auto& state = m_phase_states_[phase];
 
-    // Fix dependent state variables from previous phase's solution
+    // Propagate state variables from previous phase
     if (pi > 0) {
-      auto& prev_state = m_phase_states_[PhaseIndex {pi - 1}];
-      const auto& prev_sys =
-          m_planning_lp_.system(scene_index, PhaseIndex {pi - 1});
-      const auto& prev_sol = prev_sys.linear_interface().get_col_sol();
-
-      for (auto& link : prev_state.outgoing_links) {
-        const auto value = prev_sol[link.source_col];
-        link.trial_value = value;
-
-        // Fix the dependent column: lb = ub = value
-        li.set_col_low(link.dependent_col, value);
-        li.set_col_upp(link.dependent_col, value);
-      }
+      auto& prev = m_phase_states_[PhaseIndex {pi - 1}];
+      const auto& prev_sol = m_planning_lp_.system(scene, PhaseIndex {pi - 1})
+                                 .linear_interface()
+                                 .get_col_sol();
+      propagate_trial_values(prev.outgoing_links, prev_sol, li);
     }
 
     // Solve this phase
-    auto result = li.resolve(lp_opts);
+    auto result = li.resolve(opts);
     if (!result.has_value() || !li.is_optimal()) {
-      // Try elastic filter for infeasibility
-      if (apply_elastic_filter(scene_index, phase_index, lp_opts)) {
-        result = li.resolve(lp_opts);
+      if (apply_elastic_filter(scene, phase, opts)) {
+        result = li.resolve(opts);
       }
       if (!result.has_value() || !li.is_optimal()) {
         return std::unexpected(Error {
@@ -146,104 +218,59 @@ auto SDDPSolver::forward_pass(SceneIndex scene_index,
       }
     }
 
-    // Record the operating cost (objective minus α contribution)
+    // Operating cost = objective minus α contribution
     const auto obj = li.get_obj_value();
-    double alpha_value = 0.0;
-    if (state.alpha_col != ColIndex {unknown_index}) {
-      alpha_value = li.get_col_sol()[state.alpha_col];
-    }
-    state.forward_objective = obj - alpha_value;
-    total_operating_cost += state.forward_objective;
+    const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
+        ? li.get_col_sol()[state.alpha_col]
+        : 0.0;
+    state.forward_objective = obj - alpha_val;
+    total_opex += state.forward_objective;
 
     SPDLOG_DEBUG("SDDP forward: phase {} obj={:.4f} alpha={:.4f} opex={:.4f}",
                  pi,
                  obj,
-                 alpha_value,
+                 alpha_val,
                  state.forward_objective);
   }
 
-  return total_operating_cost;
+  return total_opex;
 }
 
-// ─── Backward pass ───────────────────────────────────────────────────────────
+// ── Backward pass ───────────────────────────────────────────────────────────
 
-auto SDDPSolver::backward_pass(SceneIndex scene_index,
-                               const SolverOptions& lp_opts)
+auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
-  const auto& phases = m_planning_lp_.simulation().phases();
-  const auto num_phases = static_cast<Index>(phases.size());
+  const auto num_phases =
+      static_cast<Index>(m_planning_lp_.simulation().phases().size());
   int total_cuts = 0;
 
-  // Iterate backward: for each phase t (from T-1 down to 1), use the
-  // dual information from phase t to build a Benders cut for phase t-1.
   for (Index pi = num_phases - 1; pi >= 1; --pi) {
-    const auto target_phase_index = PhaseIndex {pi};
-    auto& target_sys = m_planning_lp_.system(scene_index, target_phase_index);
-    auto& target_li = target_sys.linear_interface();
+    auto& target_li =
+        m_planning_lp_.system(scene, PhaseIndex {pi}).linear_interface();
 
-    // The LP of this phase was solved in the forward pass.
-    const auto z = target_li.get_obj_value();
-    const auto reduced_costs = target_li.get_col_cost();
+    const auto src_phase = PhaseIndex {pi - 1};
+    auto& src_li = m_planning_lp_.system(scene, src_phase).linear_interface();
+    const auto& src_state = m_phase_states_[src_phase];
 
-    // Build the Benders cut for the previous phase (pi - 1)
-    const auto source_phase_index = PhaseIndex {pi - 1};
-    auto& source_sys = m_planning_lp_.system(scene_index, source_phase_index);
-    auto& source_li = source_sys.linear_interface();
-    const auto& source_state = m_phase_states_[source_phase_index];
+    // Build and add Benders cut
+    auto cut =
+        build_benders_cut(src_state.alpha_col,
+                          src_state.outgoing_links,
+                          target_li.get_col_cost(),
+                          target_li.get_obj_value(),
+                          std::format("sddp_cut_ph{}_{}", pi, total_cuts));
 
-    // The Benders cut approximates the future cost function:
-    //
-    //   α_{t-1} ≥ z_t + Σ_i rc_i · (x_{t-1,i} - v̂_i)
-    //
-    // In row form (added to phase t-1's LP):
-    //
-    //   α_{t-1} - Σ_i rc_i · x_{t-1,i} ≥ z_t - Σ_i rc_i · v̂_i
-    //
-    // where:
-    //   rc_i      = reduced cost of the dependent column in phase t
-    //   x_{t-1,i} = source column in phase t-1 (e.g. efin or capainst)
-    //   v̂_i       = trial value from the forward pass
-
-    SparseRow cut_row;
-    cut_row.name = std::format("sddp_cut_ph{}_{}", pi, total_cuts);
-
-    // α coefficient
-    cut_row[source_state.alpha_col] = 1.0;
-
-    // RHS starts with the objective value z
-    double rhs = z;
-
-    for (const auto& link : source_state.outgoing_links) {
-      const auto rc = reduced_costs[link.dependent_col];
-
-      // Coefficient of the source column in the cut: -rc
-      cut_row[link.source_col] = -rc;
-
-      // RHS adjustment: -rc * v̂
-      rhs -= rc * link.trial_value;
-
-      SPDLOG_DEBUG("  cut term: src_col={} dep_col={} rc={:.6f} trial={:.2f}",
-                   static_cast<Index>(link.source_col),
-                   static_cast<Index>(link.dependent_col),
-                   rc,
-                   link.trial_value);
-    }
-
-    cut_row.lowb = rhs;
-    cut_row.uppb = LinearProblem::DblMax;
-
-    // Add the cut to the source phase's LP
-    source_li.add_row(cut_row);
+    src_li.add_row(cut);
     ++total_cuts;
 
-    SPDLOG_DEBUG("SDDP backward: cut for phase {} rhs={:.4f}", pi - 1, rhs);
+    SPDLOG_DEBUG(
+        "SDDP backward: cut for phase {} rhs={:.4f}", pi - 1, cut.lowb);
 
-    // Re-solve the source phase with the new cut so that further backward
-    // iterations (going to phase pi-2) see updated dual information.
+    // Re-solve source so upstream cuts see updated duals
     if (pi > 1) {
-      auto result = source_li.resolve(lp_opts);
-      if (!result.has_value() || !source_li.is_optimal()) {
+      if (auto r = src_li.resolve(opts); !r.has_value() || !src_li.is_optimal())
+      {
         SPDLOG_WARN("SDDP backward: phase {} re-solve issue", pi - 1);
       }
     }
@@ -252,115 +279,63 @@ auto SDDPSolver::backward_pass(SceneIndex scene_index,
   return total_cuts;
 }
 
-// ─── Elastic filter ──────────────────────────────────────────────────────────
+// ── Elastic filter ──────────────────────────────────────────────────────────
 
 bool SDDPSolver::apply_elastic_filter(
-    SceneIndex scene_index,
-    PhaseIndex phase_index,
-    [[maybe_unused]] const SolverOptions& lp_opts)
+    SceneIndex scene,
+    PhaseIndex phase,
+    [[maybe_unused]] const SolverOptions& opts)
 {
-  if (phase_index == PhaseIndex {0}) {
-    return false;  // Phase 0 has no incoming state variables to relax
+  if (phase == PhaseIndex {0}) {
+    return false;
   }
 
-  auto& sys = m_planning_lp_.system(scene_index, phase_index);
-  auto& li = sys.linear_interface();
-
-  // Relax the dependent state-variable columns from the previous phase.
-  const auto prev_phase_index =
-      PhaseIndex {static_cast<Index>(phase_index) - 1};
-  const auto& prev_state = m_phase_states_[prev_phase_index];
+  auto& li = m_planning_lp_.system(scene, phase).linear_interface();
+  const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
+  const auto& prev_state = m_phase_states_[prev];
 
   bool modified = false;
   for (const auto& link : prev_state.outgoing_links) {
-    const auto dep_col = link.dependent_col;
-    const auto current_low = li.get_col_low()[dep_col];
-    const auto current_upp = li.get_col_upp()[dep_col];
-
-    if (std::abs(current_low - current_upp) < 1e-10) {
-      // Variable is fixed; relax the bounds
-      const auto margin = std::max(
-          1.0, std::abs(current_low) * m_options_.elastic_margin_factor);
-      li.set_col_low(dep_col, current_low - margin);
-      li.set_col_upp(dep_col, current_upp + margin);
-
-      // Add penalty slack variables
-      const auto slack_up_col =
-          li.add_col(std::format("elastic_up_ph{}_c{}",
-                                 static_cast<Index>(phase_index),
-                                 static_cast<Index>(dep_col)),
-                     0.0,
-                     LinearProblem::DblMax);
-      li.set_obj_coeff(slack_up_col, m_options_.elastic_penalty);
-
-      const auto slack_dn_col =
-          li.add_col(std::format("elastic_dn_ph{}_c{}",
-                                 static_cast<Index>(phase_index),
-                                 static_cast<Index>(dep_col)),
-                     0.0,
-                     LinearProblem::DblMax);
-      li.set_obj_coeff(slack_dn_col, m_options_.elastic_penalty);
-
-      // Constraint: dep_col + slack_up - slack_dn = trial_value
-      SparseRow elastic_row;
-      elastic_row.name = std::format("elastic_ph{}_c{}",
-                                     static_cast<Index>(phase_index),
-                                     static_cast<Index>(dep_col));
-      elastic_row[dep_col] = 1.0;
-      elastic_row[slack_up_col] = 1.0;
-      elastic_row[slack_dn_col] = -1.0;
-      elastic_row.lowb = link.trial_value;
-      elastic_row.uppb = link.trial_value;
-
-      li.add_row(elastic_row);
-      modified = true;
-    }
+    modified |=
+        relax_fixed_state_variable(li, link, phase, m_options_.elastic_penalty);
   }
-
   return modified;
 }
 
-// ─── Main solve loop ─────────────────────────────────────────────────────────
+// ── Main solve loop ─────────────────────────────────────────────────────────
 
 auto SDDPSolver::solve(const SolverOptions& lp_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
 {
-  const auto& scenes = m_planning_lp_.simulation().scenes();
-  if (scenes.empty()) {
+  const auto& sim = m_planning_lp_.simulation();
+
+  if (sim.scenes().empty()) {
     return std::unexpected(Error {
         .code = ErrorCode::InvalidInput,
         .message = "No scenes in simulation",
     });
   }
-
-  const auto& phases = m_planning_lp_.simulation().phases();
-  if (phases.size() < 2) {
+  if (sim.phases().size() < 2) {
     return std::unexpected(Error {
         .code = ErrorCode::InvalidInput,
         .message = "SDDP requires at least 2 phases",
     });
   }
 
-  // Use scene 0 for deterministic SDDP (single scene)
-  const auto scene_index = SceneIndex {0};
+  const auto scene = SceneIndex {0};
 
-  // Initial solve: establish a baseline solution for all phases
-  // (this also triggers the state-variable linking in PlanningLP)
-  {
-    auto result = m_planning_lp_.resolve();
-    if (!result.has_value()) {
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = std::format("Initial PlanningLP solve failed: {}",
-                                 result.error().message),
-      });
-    }
+  // Bootstrap: solve all phases to establish baseline and state links
+  if (auto r = m_planning_lp_.resolve(); !r.has_value()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message = std::format("Initial PlanningLP solve failed: {}",
+                               r.error().message),
+    });
   }
 
-  // Initialize: add α variables and discover state-variable links
   if (!m_initialized_) {
-    initialize_alpha_variables(scene_index);
-    collect_state_variable_links(scene_index);
+    initialize_alpha_variables(scene);
+    collect_state_variable_links(scene);
     m_initialized_ = true;
   }
 
@@ -368,48 +343,45 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   results.reserve(m_options_.max_iterations);
 
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
-    SDDPIterationResult iter_result {
+    SDDPIterationResult ir {
         .iteration = iter,
     };
 
-    // ── Forward pass ─────────────────────────────────────────────────
-    auto forward_result = forward_pass(scene_index, lp_opts);
-    if (!forward_result.has_value()) {
-      return std::unexpected(std::move(forward_result.error()));
+    // Forward pass → upper bound
+    auto fwd = forward_pass(scene, lp_opts);
+    if (!fwd.has_value()) {
+      return std::unexpected(std::move(fwd.error()));
     }
-    iter_result.upper_bound = *forward_result;
+    ir.upper_bound = *fwd;
 
-    // Lower bound = phase 0 objective (includes α estimate of future)
-    {
-      const auto& sys0 = m_planning_lp_.system(scene_index, PhaseIndex {0});
-      iter_result.lower_bound = sys0.linear_interface().get_obj_value();
+    // Lower bound = phase 0 objective (includes α)
+    ir.lower_bound = m_planning_lp_.system(scene, PhaseIndex {0})
+                         .linear_interface()
+                         .get_obj_value();
+
+    // Backward pass → Benders cuts
+    auto bwd = backward_pass(scene, lp_opts);
+    if (!bwd.has_value()) {
+      return std::unexpected(std::move(bwd.error()));
     }
+    ir.cuts_added = *bwd;
 
-    // ── Backward pass ────────────────────────────────────────────────
-    auto backward_result = backward_pass(scene_index, lp_opts);
-    if (!backward_result.has_value()) {
-      return std::unexpected(std::move(backward_result.error()));
-    }
-    iter_result.cuts_added = *backward_result;
-
-    // ── Convergence check ────────────────────────────────────────────
-    const auto denom = std::max(1.0, std::abs(iter_result.upper_bound));
-    iter_result.gap =
-        (iter_result.upper_bound - iter_result.lower_bound) / denom;
-
-    iter_result.converged = (iter_result.gap < m_options_.convergence_tol);
+    // Convergence check
+    const auto denom = std::max(1.0, std::abs(ir.upper_bound));
+    ir.gap = (ir.upper_bound - ir.lower_bound) / denom;
+    ir.converged = (ir.gap < m_options_.convergence_tol);
 
     SPDLOG_INFO("SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={}{}",
                 iter,
-                iter_result.lower_bound,
-                iter_result.upper_bound,
-                iter_result.gap,
-                iter_result.cuts_added,
-                iter_result.converged ? " [CONVERGED]" : "");
+                ir.lower_bound,
+                ir.upper_bound,
+                ir.gap,
+                ir.cuts_added,
+                ir.converged ? " [CONVERGED]" : "");
 
-    results.push_back(iter_result);
+    results.push_back(ir);
 
-    if (iter_result.converged) {
+    if (ir.converged) {
       break;
     }
   }

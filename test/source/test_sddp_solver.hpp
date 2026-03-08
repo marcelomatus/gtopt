@@ -5,9 +5,9 @@
  * @copyright BSD-3-Clause
  *
  * Tests:
- *  1. Basic 3-phase hydro+thermal case (24 blocks per phase) – validates
- *     convergence after a few iterations.
- *  2. Verifies that the SDDP solver rejects single-phase problems.
+ *  1. Free-function building blocks (propagate, cut, elastic relaxation)
+ *  2. Basic 3-phase hydro+thermal case – validates convergence
+ *  3. Verifies that the SDDP solver rejects single-phase problems
  */
 
 #include <cmath>
@@ -31,13 +31,9 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 /// - Natural inflow: 10 dam³/h
 /// - Hydro topology: 2 junctions, 1 waterway, 1 reservoir, 1 turbine
 /// - 3 phases, each with 1 stage of 24 blocks (1 hour each)
-///
-/// The reservoir can store enough water to generate hydro for about 6 hours.
-/// The SDDP iteration should learn the water value and optimise reservoir
-/// management across the 3 phases.
 auto make_3phase_hydro_planning() -> Planning
 {
-  // ── Blocks: 72 blocks total (24 per phase × 3 phases) ──
+  // ── Blocks: 72 total (24 per phase × 3 phases) ──
   Array<Block> block_array;
   for (int i = 0; i < 72; ++i) {
     block_array.push_back(Block {
@@ -109,7 +105,6 @@ auto make_3phase_hydro_planning() -> Planning
       },
   };
 
-  // Demand: 100 MW constant across all blocks
   const Array<Demand> demand_array = {
       {
           .uid = Uid {1},
@@ -143,7 +138,6 @@ auto make_3phase_hydro_planning() -> Planning
       },
   };
 
-  // Reservoir: 150 dam³ capacity, starts at 100 dam³
   const Array<Reservoir> reservoir_array = {
       {
           .uid = Uid {1},
@@ -159,7 +153,6 @@ auto make_3phase_hydro_planning() -> Planning
       },
   };
 
-  // Natural inflow: 10 dam³/h
   const Array<Flow> flow_array = {
       {
           .uid = Uid {1},
@@ -170,7 +163,6 @@ auto make_3phase_hydro_planning() -> Planning
       },
   };
 
-  // Turbine links waterway to hydro generator
   const Array<Turbine> turbine_array = {
       {
           .uid = Uid {1},
@@ -217,26 +209,100 @@ auto make_3phase_hydro_planning() -> Planning
 
   return Planning {
       .options = std::move(options),
-      .simulation = std::move(simulation),
+      .simulation = simulation,
       .system = std::move(system),
   };
 }
 
 }  // namespace
 
+// ─── Free-function unit tests ───────────────────────────────────────────────
+
+TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
+{
+  const auto alpha = ColIndex {0};
+  const auto src = ColIndex {1};
+  const auto dep = ColIndex {2};
+
+  std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = src,
+          .dependent_col = dep,
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+
+  // reduced costs: dep column has rc = -10.0
+  const std::vector<double> rc = {0.0, 0.0, -10.0};
+  const double obj = 5000.0;
+
+  auto row = build_benders_cut(alpha, links, rc, obj, "test_cut");
+
+  CHECK(row.name == "test_cut");
+  // α coefficient = 1.0
+  CHECK(row.get_coeff(alpha) == doctest::Approx(1.0));
+  // source coefficient = -rc = -(-10) = 10
+  CHECK(row.get_coeff(src) == doctest::Approx(10.0));
+  // rhs = obj - Σ rc_i * trial_i = 5000 - (-10)*50 = 5500
+  CHECK(row.lowb == doctest::Approx(5500.0));
+  CHECK(row.uppb > 1e20);
+}
+
+TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
+{
+  LinearInterface li;
+
+  // Create a column and fix it at 80.0
+  const auto col = li.add_col("dep", 80.0, 80.0);
+
+  const StateVarLink link {
+      .dependent_col = col,
+      .source_phase = PhaseIndex {0},
+      .trial_value = 80.0,
+      .source_low = 0.0,
+      .source_upp = 150.0,
+  };
+
+  const auto relaxed =
+      relax_fixed_state_variable(li, link, PhaseIndex {1}, 1e6);
+  CHECK(relaxed);
+
+  // After relaxation, bounds should match source bounds
+  CHECK(li.get_col_low()[col] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp()[col] == doctest::Approx(150.0));
+}
+
+TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
+{
+  LinearInterface li;
+  const auto col = li.add_col("dep", 0.0, 100.0);
+
+  const StateVarLink link {
+      .dependent_col = col,
+      .trial_value = 50.0,
+      .source_low = 0.0,
+      .source_upp = 100.0,
+  };
+
+  CHECK_FALSE(relax_fixed_state_variable(li, link, PhaseIndex {1}, 1e6));
+}
+
+// ─── Integration tests ─────────────────────────────────────────────────────
+
 TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  // First verify the monolithic solve works
+  // Verify the monolithic solve works first
   {
     auto result = planning_lp.resolve();
     REQUIRE(result.has_value());
-    CHECK(*result == 1);  // 1 scene resolved
+    CHECK(*result == 1);
   }
 
-  // Run SDDP with 5 iterations to test convergence behaviour
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-3;
@@ -246,22 +312,16 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
 
-  // The iterations should show monotonically non-decreasing lower bound
   const auto& first = results->front();
   const auto& last = results->back();
   CHECK(first.iteration == 1);
-
-  // After iterations, bounds should be reasonable (positive costs)
   CHECK(last.upper_bound > 0.0);
   CHECK(last.lower_bound > 0.0);
-
-  // Gap should be non-negative
   CHECK(last.gap >= 0.0);
 }
 
 TEST_CASE("SDDPSolver - requires at least 2 phases")  // NOLINT
 {
-  // Create a single-phase planning (should fail SDDP validation)
   const Simulation simulation = {
       .block_array =
           {
@@ -328,5 +388,5 @@ TEST_CASE("SDDPSolver - requires at least 2 phases")  // NOLINT
   PlanningLP planning_lp(std::move(planning));
   SDDPSolver sddp(planning_lp);
   auto results = sddp.solve();
-  CHECK_FALSE(results.has_value());  // Should fail: < 2 phases
+  CHECK_FALSE(results.has_value());
 }

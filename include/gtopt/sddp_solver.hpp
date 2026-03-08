@@ -37,11 +37,12 @@
 #pragma once
 
 #include <expected>
-#include <string>
+#include <span>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
@@ -49,56 +50,41 @@
 namespace gtopt
 {
 
-/**
- * @brief Configuration options for the SDDP iterative solver
- */
+// ─── Configuration ──────────────────────────────────────────────────────────
+
+/// Configuration options for the SDDP iterative solver
 struct SDDPOptions
 {
-  /// Maximum number of forward/backward iterations
-  int max_iterations {100};
-
-  /// Convergence tolerance (relative gap between upper and lower bounds)
-  double convergence_tol {1e-4};
-
-  /// Penalty cost for elastic slack variables used in the feasibility filter
-  double elastic_penalty {1e6};
-
-  /// Initial lower bound for the future cost variable α.
-  /// Represents the minimum expected future cost (default: 0, i.e. non-negative
-  /// future costs).  Units match the objective function units (e.g. $).
-  double alpha_min {0.0};
-
-  /// Initial upper bound for the future cost variable α.
-  /// Should be set large enough to not constrain the true future cost.
-  /// Units match the objective function units (e.g. $).
-  double alpha_max {1e12};
-
-  /// Relative margin for relaxing fixed state-variable bounds in the elastic
-  /// filter (fraction of the absolute fixed value, default 10%).
-  double elastic_margin_factor {0.1};
+  int max_iterations {100};  ///< Maximum forward/backward iterations
+  double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
+  double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
+  double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
+  double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
 };
 
-/**
- * @brief Result of a single SDDP iteration (forward + backward pass)
- */
+// ─── Iteration result ───────────────────────────────────────────────────────
+
+/// Result of a single SDDP iteration (forward + backward pass)
 struct SDDPIterationResult
 {
   int iteration {};  ///< Iteration number (1-based)
-  double lower_bound {};  ///< Lower bound (sum of phase objectives with α)
+  double lower_bound {};  ///< Lower bound (phase 0 objective including α)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
-  double gap {};  ///< Relative gap: (UB - LB) / max(1, |UB|)
+  double gap {};  ///< Relative gap: (UB − LB) / max(1, |UB|)
   bool converged {};  ///< True if gap < convergence tolerance
-  int cuts_added {};  ///< Number of Benders cuts added in this iteration
+  int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
 };
 
+// ─── State variable linkage ─────────────────────────────────────────────────
+
 /**
- * @brief Describes one state-variable linkage between two consecutive phases
+ * @brief Describes one state-variable linkage between consecutive phases
  *
- * A state variable has a *source* column in phase t (the value chosen by
- * the optimiser, e.g. efin of a reservoir, capainst of a generator) and
- * a *dependent* column in phase t+1 (fixed to the source value in the
- * forward pass, e.g. eini of a reservoir, capainst_ini of a generator).
+ * A state variable has a *source* column in phase t (e.g. efin, capainst)
+ * and a *dependent* column in phase t+1 (e.g. eini, capainst_ini).  The
+ * source column's physical bounds are captured at initialisation time so
+ * the elastic filter can relax to the correct domain.
  */
 struct StateVarLink
 {
@@ -107,114 +93,97 @@ struct StateVarLink
   PhaseIndex source_phase {};  ///< Phase where the source column lives
   PhaseIndex target_phase {};  ///< Phase where the dependent column lives
   double trial_value {0.0};  ///< Trial value from the last forward pass
+  double source_low {0.0};  ///< Physical lower bound of source column
+  double source_upp {0.0};  ///< Physical upper bound of source column
 };
 
-/**
- * @brief Per-phase tracking for the SDDP iteration
- */
+// ─── Per-phase tracking ─────────────────────────────────────────────────────
+
+/// Per-phase SDDP state: α variable, outgoing links, forward-pass cost
 struct PhaseStateInfo
 {
-  /// Column index of the future cost variable α in this phase's LP
-  /// (ColIndex{unknown_index} for the last phase, which has no future cost)
-  ColIndex alpha_col {unknown_index};
-
-  /// State variable linkages FROM this phase TO the next phase.
-  /// Each entry describes one source→dependent pair.
-  std::vector<StateVarLink> outgoing_links {};
-
-  /// Objective value of this phase (excluding α) from the last forward pass
-  double forward_objective {0.0};
+  ColIndex alpha_col {unknown_index};  ///< α column (unknown for last)
+  std::vector<StateVarLink> outgoing_links {};  ///< Links TO the next phase
+  double forward_objective {0.0};  ///< Opex from last forward pass
 };
+
+// ─── Free-function building blocks ──────────────────────────────────────────
+// These are the modular algorithmic primitives used by SDDPSolver.
+
+/// Propagate trial values: fix dependent columns to source-column solution
+void propagate_trial_values(std::span<StateVarLink> links,
+                            std::span<const double> source_solution,
+                            LinearInterface& target_li) noexcept;
+
+/// Build a Benders optimality cut from reduced costs of dependent columns.
+///
+///   α_{t-1} ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
+///
+/// Returns the cut as a SparseRow ready to add to the source phase.
+[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
+                                     std::span<const StateVarLink> links,
+                                     std::span<const double> reduced_costs,
+                                     double objective_value,
+                                     const std::string& name) -> SparseRow;
+
+/// Relax a single fixed state-variable column to its physical source bounds,
+/// adding penalised slack variables.  Returns true if the column was relaxed.
+[[nodiscard]] bool relax_fixed_state_variable(LinearInterface& li,
+                                              const StateVarLink& link,
+                                              PhaseIndex phase,
+                                              double penalty);
+
+// ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 /**
  * @class SDDPSolver
  * @brief Iterative SDDP solver for multi-phase power system planning
  *
- * Wraps a `PlanningLP` instance and adds Benders decomposition on top of
- * the per-phase LP subproblems.  The solver uses the generic state-variable
- * infrastructure to handle reservoir volumes, capacity expansion variables,
- * and any future state variable types (e.g. irrigation rights).
+ * Wraps a `PlanningLP` and adds Benders decomposition on top of the
+ * per-phase LP subproblems.  Handles reservoir volumes, capacity
+ * expansion variables, and future state-variable types generically.
  *
- * ### Usage
- * ```cpp
+ * @code
  * PlanningLP planning_lp(planning);
- * SDDPSolver sddp(planning_lp);
+ * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 10});
  * auto results = sddp.solve();
- * ```
+ * @endcode
  */
 class SDDPSolver
 {
 public:
-  /**
-   * @brief Construct from an existing PlanningLP
-   * @param planning_lp  Reference to the planning LP (must outlive solver)
-   * @param opts         SDDP-specific configuration options
-   */
   explicit SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts = {}) noexcept;
 
-  /**
-   * @brief Run the SDDP iterative solve
-   * @param lp_opts  LP solver options forwarded to each phase solve
-   * @return Vector of per-iteration results, or an error
-   */
+  /// Run the SDDP iterative solve
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
-  /// Access per-phase state information (after at least one iteration)
-  [[nodiscard]] constexpr const auto& phase_states() const noexcept
+  /// Per-phase state information (valid after at least one iteration)
+  [[nodiscard]] constexpr auto& phase_states() const noexcept
   {
     return m_phase_states_;
   }
 
-  /// Access SDDP options
-  [[nodiscard]] constexpr const SDDPOptions& options() const noexcept
-  {
-    return m_options_;
-  }
+  /// SDDP options
+  [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 
 private:
-  /// Add α (future cost) variables to all phases except the last
-  void initialize_alpha_variables(SceneIndex scene_index);
+  void initialize_alpha_variables(SceneIndex scene);
+  void collect_state_variable_links(SceneIndex scene);
 
-  /// Discover all state-variable linkages between consecutive phases
-  void collect_state_variable_links(SceneIndex scene_index);
-
-  /**
-   * @brief Execute one forward pass (solve phases in order)
-   * @return Upper bound (sum of actual operating costs, excluding α)
-   */
-  [[nodiscard]] auto forward_pass(SceneIndex scene_index,
-                                  const SolverOptions& lp_opts)
+  [[nodiscard]] auto forward_pass(SceneIndex scene, const SolverOptions& opts)
       -> std::expected<double, Error>;
 
-  /**
-   * @brief Execute one backward pass (compute duals, add Benders cuts)
-   * @return Number of cuts added, or an error
-   */
-  [[nodiscard]] auto backward_pass(SceneIndex scene_index,
-                                   const SolverOptions& lp_opts)
+  [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
       -> std::expected<int, Error>;
 
-  /**
-   * @brief Apply elastic filter when a phase LP is infeasible
-   *
-   * Temporarily relaxes the dependent state-variable bounds with penalised
-   * slack variables, re-solves, and uses the dual information to generate
-   * a feasibility cut for the previous phase.
-   *
-   * @return true if the elastic solve succeeded, false otherwise
-   */
-  [[nodiscard]] bool apply_elastic_filter(SceneIndex scene_index,
-                                          PhaseIndex phase_index,
-                                          const SolverOptions& lp_opts);
+  [[nodiscard]] bool apply_elastic_filter(SceneIndex scene,
+                                          PhaseIndex phase,
+                                          const SolverOptions& opts);
 
   PlanningLP& m_planning_lp_;
   SDDPOptions m_options_;
-
-  /// Per-phase state tracking (indexed by PhaseIndex)
   StrongIndexVector<PhaseIndex, PhaseStateInfo> m_phase_states_;
-
-  /// Whether α variables have been initialised
   bool m_initialized_ {false};
 };
 
