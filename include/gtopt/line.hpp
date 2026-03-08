@@ -63,6 +63,8 @@ struct Line
   OptTRealFieldSched
       reactance {};  ///< Series reactance used in DC power flow [p.u.]
   OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+  OptInt loss_segments {};  ///< Number of piecewise-linear segments for
+                            ///< quadratic losses (default: from Options)
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
   OptTRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]

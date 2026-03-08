@@ -38,6 +38,9 @@ public:
   // Default values for optimization parameters
   /** @brief Default setting for line loss modeling */
   static constexpr Bool default_use_line_losses = true;
+  /** @brief Default number of flow segments per line (1 = linear model,
+   * &gt;1 = piecewise-linear quadratic approximation of P_loss = R·f²/V²) */
+  static constexpr Int default_loss_segments = 1;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;
   /** @brief Default setting for single-bus modeling */
@@ -115,6 +118,16 @@ public:
   [[nodiscard]] constexpr auto use_line_losses() const
   {
     return m_options_.use_line_losses.value_or(default_use_line_losses);
+  }
+
+  /**
+   * @brief Gets the default number of piecewise-linear loss segments
+   * @return Number of segments (1 = linear model, >1 = quadratic
+   * approximation)
+   */
+  [[nodiscard]] constexpr auto loss_segments() const
+  {
+    return m_options_.loss_segments.value_or(default_loss_segments);
   }
 
   /**
