@@ -63,6 +63,8 @@ struct Line
   OptTRealFieldSched
       reactance {};  ///< Series reactance used in DC power flow [p.u.]
   OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+  OptBool use_line_losses {};  ///< Whether to model resistive line losses
+                               ///< (default: from Options)
   OptInt loss_segments {};  ///< Number of piecewise-linear segments for
                             ///< quadratic losses (default: from Options)
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
