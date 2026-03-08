@@ -39,9 +39,12 @@ LineLP::LossParams LineLP::compute_loss_params(const SystemContext& sc,
       std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
 
   // Quadratic model: resistance > 0, voltage > 0, nseg > 1,
-  // use_line_losses enabled, and no explicit lossfactor.
-  const bool has_quad = !has_lin && sc.options().use_line_losses() && R > 0.0
-      && V > 0.0 && nseg > 1;
+  // use_line_losses enabled (per-line override or global), and no explicit
+  // lossfactor.
+  const bool use_losses =
+      line().use_line_losses.value_or(sc.options().use_line_losses());
+  const bool has_quad =
+      !has_lin && use_losses && R > 0.0 && V > 0.0 && nseg > 1;
 
   return {
       .lossfactor = lf,
