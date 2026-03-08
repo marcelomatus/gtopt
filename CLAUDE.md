@@ -28,8 +28,10 @@ and Python utility scripts.
 > ```
 >
 > The script is idempotent — safe to run again if something was missed.
-> **Do not** attempt to install Arrow via APT (`libarrow-dev`); the APT v2300
-> package conflicts with conda Arrow at link time.
+> **Clang 21 is always installed** — there is no fallback to GCC and no
+> `--no-clang` option.  Do not attempt to install Arrow via APT
+> (`libarrow-dev`); the APT v2300 package conflicts with conda Arrow at link
+> time.
 
 ### How the CI installs Clang 21
 
@@ -115,7 +117,7 @@ for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
 done
 ```
 
-GCC 14 is the alternative compiler (`CC=gcc-14 CXX=g++-14`).
+GCC 14 is **not** used as a build compiler in sandbox/agent environments.
 
 ### Common build failures and fixes
 
@@ -244,22 +246,6 @@ cd build && ctest --output-on-failure
 > cmake finds the same Python that already has all packages, so the CTest fixture
 > just verifies the install (~3–5 s).  Always run this before cmake configure so
 > `find_program(PYTHON_EXECUTABLE)` picks the right interpreter.
-
-### GCC 14 fallback (when Clang 21 is unavailable)
-
-```bash
-# Steps 1-2 same as above (system packages + conda Arrow), then:
-# Always add -DCMAKE_PREFIX_PATH (conda Arrow is always used):
-cmake -S all -B build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_COMPILER=gcc-14 \
-  -DCMAKE_CXX_COMPILER=g++-14 \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
-cmake --build build -j$(nproc)
-cd build && ctest --output-on-failure
-```
 
 ### Run a single test
 
@@ -408,7 +394,7 @@ cmake --build build -j$(nproc)
 ### C++
 
 - **Standard**: C++26 (`CMAKE_CXX_STANDARD 26`). C++23 features are used throughout;
-  C++26 features added as compiler support matures (Clang 21 / GCC 14).
+  C++26 features added as compiler support matures (Clang 21).
 - **Compiler flags**: `-Wall -Wpedantic -Wextra -Werror` on all platforms.
 - **Indentation**: 2 spaces (`.clang-format`, `IndentWidth: 2`)
 - **Column limit**: 80 characters

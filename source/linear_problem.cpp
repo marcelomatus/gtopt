@@ -11,8 +11,6 @@
  * efficient solver integration.
  */
 
-#include <gtopt/basic_types.hpp>
-#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <spdlog/spdlog.h>
 
