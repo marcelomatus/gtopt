@@ -17,6 +17,8 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
+#include <gtopt/state_variable.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -63,7 +65,7 @@ public:
 
   template<typename SystemContextT>
   bool add_to_lp(std::string_view cname,
-                 const SystemContextT& sc,
+                 SystemContextT& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp,
@@ -97,13 +99,47 @@ public:
     const auto [stage_emax, stage_emin] =
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
 
-    const auto vicol = prev_stage
-        ? efin_col_at(scenario, *prev_stage)
-        : lp.add_col({
-              .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
-              .lowb = storage().eini.value_or(stage_emin),
-              .uppb = storage().eini.value_or(stage_emax),
-          });
+    // Determine the initial-volume column (vicol / eini):
+    //   • No previous stage (first stage of phase 0): create a fresh eini col.
+    //   • Previous stage in the SAME phase: reuse its efin col (shared LP).
+    //   • Previous stage in a DIFFERENT phase (SDDP boundary): create a new
+    //     eini col and register it as a dependent of the previous phase's
+    //     efin StateVariable so that PlanningLP::resolve_scene_phases() and
+    //     the SDDP forward pass can propagate the trial value.
+    ColIndex vicol;
+    if (prev_stage == nullptr) {
+      // First stage of the first phase – create the initial volume column.
+      vicol = lp.add_col({
+          .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
+          .lowb = storage().eini.value_or(stage_emin),
+          .uppb = storage().eini.value_or(stage_emax),
+      });
+    } else if (prev_phase == nullptr) {
+      // Same phase – the previous stage's efin column serves as eini here
+      // (both stages live in the same LP, so the column is shared).
+      vicol = efin_col_at(scenario, *prev_stage);
+    } else {
+      // Cross-phase boundary (gtopt-phase = PLP-stage for SDDP).
+      // Create a new eini column for this phase's LP and link it as a
+      // DependentVariable of the previous phase's efin StateVariable.
+      vicol = lp.add_col({
+          .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
+          .lowb = stage_emin,
+          .uppb = stage_emax,
+      });
+      const auto efin_key =
+          StateVariable::key(scenario, *prev_stage, cname, uid(), "efin");
+      if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
+        prev_efin->get().add_dependent_variable(scenario, stage, vicol);
+      } else {
+        SPDLOG_WARN(
+            "StorageLP: no efin StateVariable found for cross-phase eini "
+            "linking (class='{}' uid={} phase boundary). "
+            "Reservoir/battery state will NOT be coupled across this phase.",
+            cname,
+            static_cast<int>(uid()));
+      }
+    }
 
     const auto& blocks = stage.blocks();
 
@@ -181,6 +217,13 @@ public:
 
       prev_vc = vc;
     }
+
+    // Register efin (the last block's volume column) as a StateVariable so
+    // that PlanningLP::resolve_scene_phases() and the SDDP solver can
+    // discover and propagate the reservoir/battery state across phase
+    // boundaries (gtopt-phase = PLP-stage).
+    sc.add_state_variable(
+        StateVariable::key(scenario, stage, cname, uid(), "efin"), prev_vc);
 
     // storing the indices for this scenario and stage
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
