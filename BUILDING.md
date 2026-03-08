@@ -244,6 +244,13 @@ cmake --build build-all -j$(nproc)
 cmake --install build-all
 ```
 
+> **ccache**: Install `ccache` before running cmake to enable compilation
+> caching. The `all/` build auto-detects ccache and enables it by default
+> (`USE_CCACHE=YES`). Pass `-DUSE_CCACHE=NO` to disable. **Important**: ccache
+> must be installed *before* `cmake -S all -B build-all`; CMake bakes the
+> launcher path at configure time. If ccache was missing at configure time,
+> delete the build directory and reconfigure.
+
 ### Component options
 
 All components are enabled by default except documentation (which requires a

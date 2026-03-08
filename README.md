@@ -13,7 +13,7 @@ This project includes comprehensive documentation for different use cases:
 
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
 - **[PLANNING_GUIDE.md](PLANNING_GUIDE.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
-- **[Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)** - Full LP/MIP optimization formulation with LaTeX notation
+- **[MATHEMATICAL_FORMULATION.md](docs/formulation/MATHEMATICAL_FORMULATION.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[BUILDING.md](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
@@ -118,7 +118,7 @@ converting data for use with gtopt:
 
 | Command | Purpose |
 |---------|---------|
-| `plp2gtopt` | Convert a PLP (PLPMAX/PLPOPT) case to gtopt JSON + Parquet |
+| `plp2gtopt` | Convert a PLP case to gtopt JSON + Parquet |
 | `igtopt` | Convert an Excel workbook to a gtopt JSON case |
 | `cvs2parquet` | Convert CSV time-series files to Parquet format |
 
@@ -262,7 +262,7 @@ for interoperability:
 | Tool | Language | Role with gtopt |
 |------|----------|-----------------|
 | **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt-compare` validates gtopt results against pandapower on standard IEEE test cases |
-| **[PLP (PLPMAX/PLPOPT)](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
+| **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
 | **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)) |
 | **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to gtopt |
 
@@ -279,7 +279,7 @@ power system analysis, including AC/DC power flow and DC optimal power flow.
 
 ### PLP
 
-[PLP](https://github.com/marcelomatus/plp_storage) (PLPMAX/PLPOPT) is a
+[PLP](https://github.com/marcelomatus/plp_storage) (*Programación de Largo Plazo*) is a
 Fortran-based hydrothermal unit commitment and economic dispatch tool used in
 several Latin American power systems.
 
