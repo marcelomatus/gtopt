@@ -38,8 +38,8 @@ public:
   // Default values for optimization parameters
   /** @brief Default setting for line loss modeling */
   static constexpr Bool default_use_line_losses = true;
-  /** @brief Default number of piecewise-linear segments for quadratic line
-   * losses */
+  /** @brief Default number of flow segments per line (1 = linear model,
+   * &gt;1 = piecewise-linear quadratic approximation of P_loss = R·f²/V²) */
   static constexpr Int default_loss_segments = 1;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;

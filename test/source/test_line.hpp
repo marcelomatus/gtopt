@@ -537,11 +537,12 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // The generation cost should reflect the quadratic loss:
-  // demand = 100 MW, so gen must produce 100 + loss(100).
-  // loss(100) = R·100²/V² = 0.01·10000/10000 = 0.01 MW
-  // Total gen ≈ 100.01 MW, cost ≈ 100.01 · 10 = 1000.1
-  // The objective is 1000.1 / scale_objective(1000) ≈ 1.0001
+  // Units: R [Ω], f [MW], V [kV] → P_loss [MW].
+  // The generation cost reflects the piecewise-linear approximation of
+  // quadratic loss. Exact: loss(100) = R·100²/V² = 0.01·10000/10000 =
+  // 0.01 MW.  The 3-segment approximation slightly overestimates this.
+  // Total gen ≈ 100.01 MW, cost ≈ 1000.1, obj ≈ 1.0001 (scaled by 1000).
+  // Bounds are loose to accommodate piecewise approximation error.
   const auto obj = lp.get_obj_value();
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);

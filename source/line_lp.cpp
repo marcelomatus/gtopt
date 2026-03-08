@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <string>
+
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -56,15 +59,20 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
   const auto has_linear_loss = stage_lossfactor > 0.0;
 
-  // Quadratic loss model: activated when resistance > 0, no explicit
-  // lossfactor, and loss_segments > 1.  Uses a piecewise-linear
+  // Quadratic loss model: activated when resistance > 0, voltage > 0,
+  // no explicit lossfactor, and loss_segments > 1.  Uses a piecewise-linear
   // approximation of P_loss = R · f² / V² following the PLP/FESOP
-  // methodology.
+  // methodology (genpdlin.f).
+  //
+  // Units: R [Ω], f [MW], V [kV].  The formula yields P_loss in MW
+  // because (Ω · MW²) / kV² = MW by dimensional analysis.
   const auto stage_resistance = resistance.at(stage.uid()).value_or(0.0);
-  const auto stage_voltage = voltage.at(stage.uid()).value_or(1.0);
-  const int nseg = line().loss_segments.value_or(sc.options().loss_segments());
+  const auto stage_voltage = voltage.at(stage.uid()).value_or(0.0);
+  const int nseg =
+      std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
   const bool has_quadratic_loss = !has_linear_loss
-      && sc.options().use_line_losses() && stage_resistance > 0.0 && nseg > 1;
+      && sc.options().use_line_losses() && stage_resistance > 0.0
+      && stage_voltage > 0.0 && nseg > 1;
 
   const auto has_loss = has_linear_loss || has_quadratic_loss;
 
@@ -162,8 +170,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
         lossrow_p.reserve(nseg + 1);
         lossrow_p[lpc] = +1.0;
 
-        // Sending bus sees total flow + total loss
-        // balance_a: -(fp_total + loss_p) = -(1)*fp_total - (1)*loss_p
+        // Power leaving bus_a = fp_total + loss_p (both negative in
+        // the balance: generation minus outgoing power = 0).
         brow_a[fpc] = -1.0;
         brow_a[lpc] = -1.0;
 
@@ -182,8 +190,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
           lossrow_p[seg_col] = -loss_k;
         }
 
-        [[maybe_unused]] auto _ = lp.add_row(std::move(linkrow_p));
-        [[maybe_unused]] auto __ = lp.add_row(std::move(lossrow_p));
+        [[maybe_unused]] auto linkp_idx = lp.add_row(std::move(linkrow_p));
+        [[maybe_unused]] auto lossp_idx = lp.add_row(std::move(lossrow_p));
         if (capacity_col) {
           auto cprow =
               SparseRow {
@@ -256,8 +264,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
           lossrow_n[seg_col] = -loss_k;
         }
 
-        [[maybe_unused]] auto ___ = lp.add_row(std::move(linkrow_n));
-        [[maybe_unused]] auto ____ = lp.add_row(std::move(lossrow_n));
+        [[maybe_unused]] auto linkn_idx = lp.add_row(std::move(linkrow_n));
+        [[maybe_unused]] auto lossn_idx = lp.add_row(std::move(lossrow_n));
 
         if (capacity_col) {
           SparseRow cnrow {
