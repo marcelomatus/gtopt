@@ -177,7 +177,7 @@ The following compact formulation follows the standard GTEP LP structure
 enhancements for renewable integration and storage [[4]](#ref4):
 
 $$
-\min_{p,\, \ell,\, q,\, f,\, \theta,\, e,\, \bar{C},\, m,\, \ldots}
+\min_{p, \ell, q, f, \theta, e, \bar{C}, m, \ldots}
 \quad
 \underbrace{
 \sum_{s \in \mathcal{S}} \sum_{t \in \mathcal{T}} \sum_{b \in \mathcal{B}_t}

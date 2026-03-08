@@ -102,9 +102,10 @@ option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e test
 #
 # Note: cmake/tools.cmake also handles USE_CCACHE when the *library* root
 # CMakeLists.txt is used as the top-level project.  That path is NOT active
-# here because PROJECT_SOURCE_DIR != CMAKE_SOURCE_DIR once CPMAddPackage runs
-# the library subproject, so the guard in tools.cmake returns early.  Setting
-# the launchers here in all/CMakeLists.txt is therefore required.
+# here because the option() definition in the root CMakeLists.txt is scoped
+# to that subproject and is not visible in all/CMakeLists.txt when processed
+# via CPMAddPackage.  Setting the launchers here explicitly is therefore
+# required so that every target compiled through this super-project benefits.
 option(USE_CCACHE "Enable ccache compiler caching" YES)
 if(USE_CCACHE)
   find_program(CCACHE_PROGRAM ccache)
