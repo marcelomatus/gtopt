@@ -43,3 +43,4 @@ fecha-corrida
 plpfact.log
 plpwarn.log
 userstop
+*.deb

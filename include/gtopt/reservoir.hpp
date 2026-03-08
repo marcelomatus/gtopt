@@ -91,6 +91,18 @@ struct Reservoir
       1.0};  ///< Multiplicative scaling factor for volume units [dimensionless]
   OptReal flow_conversion_rate {
       0.0036};  ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
+
+  /// Whether to propagate volume state across stage/phase boundaries via
+  /// StateVariables (SDDP-style coupling). When true (the default for
+  /// reservoirs), the final volume of one phase is carried over as the initial
+  /// volume of the next. When false, an efin==eini constraint is added to close
+  /// each phase independently.
+  OptBool use_state_variable {};
+
+  /// Enable PLP-style daily cycle operation (see Battery::daily_cycle).
+  /// Default for reservoirs is false (disabled); can be enabled explicitly
+  /// for small reservoirs that operate on a daily cycle.
+  OptBool daily_cycle {};
 };
 
 }  // namespace gtopt

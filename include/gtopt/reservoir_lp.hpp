@@ -65,7 +65,7 @@ public:
     return reservoir().spillway_capacity.value_or(+6'000.0);
   }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp);

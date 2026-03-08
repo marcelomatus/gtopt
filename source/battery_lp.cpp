@@ -81,6 +81,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     });
   }
   // Add storage-specific constraints (energy balance, SOC limits, etc.)
+  const StorageOptions opts {
+      .use_state_variable = battery().use_state_variable.value_or(false),
+      .daily_cycle = battery().daily_cycle.value_or(true),
+  };
   if (!StorageBase::add_to_lp(cname,
                               sc,
                               scenario,
@@ -92,7 +96,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                               fouts,
                               stage_output_efficiency,
                               stage_capacity,
-                              capacity_col))
+                              capacity_col,
+                              {},
+                              {},
+                              opts))
   {
     SPDLOG_CRITICAL("Failed to add storage constraints for battery {}", uid());
 

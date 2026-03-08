@@ -85,7 +85,9 @@ struct json_data_contract<Battery>
                         jvtl_TRealFieldSched>,  ///< Annual capacity cost
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>  ///< Annual derating factor
+                        jvtl_TRealFieldSched>,  ///< Annual derating factor
+      json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
+      json_bool_null<"daily_cycle", OptBool>  ///< Daily cycle operation
       >;
 
   /**
@@ -117,7 +119,9 @@ struct json_data_contract<Battery>
                                  battery.expmod,
                                  battery.capmax,
                                  battery.annual_capcost,
-                                 battery.annual_derating);
+                                 battery.annual_derating,
+                                 battery.use_state_variable,
+                                 battery.daily_cycle);
   }
 };
 }  // namespace daw::json

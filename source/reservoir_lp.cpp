@@ -40,7 +40,7 @@ ReservoirLP::ReservoirLP(const Reservoir& preservoir, const InputContext& ic)
  * - Storage capacity limits
  * - Connection to junction balance equations
  */
-bool ReservoirLP::add_to_lp(const SystemContext& sc,
+bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const ScenarioLP& scenario,
                             const StageLP& stage,
                             LinearProblem& lp)
@@ -86,6 +86,10 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
     brow[rc] = 1;
   }
 
+  const StorageOptions opts {
+      .use_state_variable = reservoir().use_state_variable.value_or(true),
+      .daily_cycle = reservoir().daily_cycle.value_or(false),
+  };
   if (!StorageBase::add_to_lp(cname,
                               sc,
                               scenario,
@@ -99,7 +103,8 @@ bool ReservoirLP::add_to_lp(const SystemContext& sc,
                               stage_capacity,
                               std::nullopt,
                               spillway_cost(),
-                              spillway_capacity()))
+                              spillway_capacity(),
+                              opts))
   {
     SPDLOG_CRITICAL("Failed to add storage constraints for reservoir {}",
                     uid());

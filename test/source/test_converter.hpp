@@ -113,6 +113,9 @@ TEST_CASE("SystemLP with battery and converter")
           .emin = 0.0,
           .emax = 100.0,
           .capacity = 100.0,
+          .use_state_variable = true,  // enable cross-stage coupling for test
+          .daily_cycle =
+              false,  // disable daily cycle to preserve test behavior
       },
   };
 

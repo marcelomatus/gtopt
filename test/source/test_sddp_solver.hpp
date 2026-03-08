@@ -317,7 +317,12 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
   CHECK(first.iteration == 1);
   CHECK(last.upper_bound > 0.0);
   CHECK(last.lower_bound > 0.0);
-  CHECK(last.gap >= 0.0);
+  // Allow a tiny negative gap from floating-point rounding when LB ≈ UB at
+  // convergence: (UB - LB) / max(1, |UB|) may be a small negative epsilon.
+  static constexpr double kGapFpTol = -1e-10;
+  CHECK(last.gap >= kGapFpTol);
+  // Once reservoir state is properly coupled, SDDP should converge quickly
+  CHECK(last.converged);
 }
 
 TEST_CASE("SDDPSolver - requires at least 2 phases")  // NOLINT
