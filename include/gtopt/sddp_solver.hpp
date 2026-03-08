@@ -63,11 +63,19 @@ struct SDDPOptions
   /// Penalty cost for elastic slack variables used in the feasibility filter
   double elastic_penalty {1e6};
 
-  /// Minimum value for the future cost variable α (initial lower bound)
+  /// Initial lower bound for the future cost variable α.
+  /// Represents the minimum expected future cost (default: 0, i.e. non-negative
+  /// future costs).  Units match the objective function units (e.g. $).
   double alpha_min {0.0};
 
-  /// Maximum value for the future cost variable α (initial upper bound)
+  /// Initial upper bound for the future cost variable α.
+  /// Should be set large enough to not constrain the true future cost.
+  /// Units match the objective function units (e.g. $).
   double alpha_max {1e12};
+
+  /// Relative margin for relaxing fixed state-variable bounds in the elastic
+  /// filter (fraction of the absolute fixed value, default 10%).
+  double elastic_margin_factor {0.1};
 };
 
 /**
