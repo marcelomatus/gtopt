@@ -7,7 +7,6 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
-#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace

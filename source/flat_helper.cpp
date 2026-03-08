@@ -8,7 +8,6 @@
  * This module
  */
 
-#include <gtopt/basic_types.hpp>
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/simulation_lp.hpp>

@@ -10,7 +10,6 @@
  */
 
 #include <algorithm>
-#include <format>
 
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>

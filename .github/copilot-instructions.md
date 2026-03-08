@@ -33,9 +33,11 @@ The repository also contains:
 > ```
 >
 > The script is idempotent — safe to run again if something was missed.
-> **Do not** install Arrow via APT (`libarrow-dev` from `packages.apache.org`);
-> the APT v2300 package has versioned curl symbols that conflict with conda
-> Arrow at link time, producing `undefined reference` linker errors.
+> **Clang 21 is always installed** — there is no fallback to GCC and no
+> `--no-clang` option.  Do not install Arrow via APT (`libarrow-dev` from
+> `packages.apache.org`); the APT v2300 package has versioned curl symbols
+> that conflict with conda Arrow at link time, producing `undefined reference`
+> linker errors.
 
 ### How the CI installs Clang 21
 
@@ -164,24 +166,6 @@ cd build && ctest --output-on-failure
 > cmake's `find_program(PYTHON_EXECUTABLE)` finds the same Python that already has
 > all packages, so the CTest fixture only needs to verify the install (~3–5 s).
 
-### GCC 14 fallback (when Clang 21 unavailable)
-
-```bash
-# Steps 1-2 same as above (system packages + conda Arrow), then:
-# Always add -DCMAKE_PREFIX_PATH (conda Arrow is always used):
-cmake -S all -B build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_COMPILER=gcc-14 \
-  -DCMAKE_CXX_COMPILER=g++-14 \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
-cmake --build build -j$(nproc)
-cd build && ctest --output-on-failure
-```
-
-GCC 14 is also supported as an alternative compiler (`CC=gcc-14 CXX=g++-14`).
-
 ## Build Commands
 
 ### Primary build target (library + binary + tests)
@@ -264,7 +248,7 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 | Component | Version | Notes |
 |-----------|---------|-------|
 | OS | Ubuntu 24.04 (Noble) | GitHub Actions runner |
-| Compiler | Clang 21 (primary) | Installed via LLVM APT repo (`.github/actions/install-clang`); GCC 14.2 also works |
+| Compiler | Clang 21 (required) | Installed via LLVM APT repo (`.github/actions/install-clang`); GCC 14 is NOT used in sandbox/agent environments |
 | CMake | 3.31.6 | Pre-installed on runner |
 | Arrow / Parquet | 12.0.0 | conda `arrow-cpp parquet-cpp` (always use conda — APT Arrow conflicts at link time) |
 | Boost.Container | 1.83.0 | `conda install -c conda-forge boost-cpp` |
@@ -458,7 +442,7 @@ Format violations are warnings only, not CI failures.
 | Aspect | Rule |
 |--------|------|
 | Standard | C++26 (`set(CMAKE_CXX_STANDARD 26)`). C++23 features are actively used now; C++26 features as support arrives. |
-| Compiler | Clang 21 (primary), GCC 14 (secondary) |
+| Compiler | Clang 21 (required) |
 | Indentation | 2 spaces (see `.clang-format`, `IndentWidth: 2`) |
 | Column limit | 80 characters |
 | Namespace | All library code lives in `namespace gtopt` |

@@ -37,6 +37,7 @@
 #pragma once
 
 #include <expected>
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -181,7 +182,17 @@ private:
                                           PhaseIndex phase,
                                           const SolverOptions& opts);
 
-  PlanningLP& m_planning_lp_;
+  // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
+  [[nodiscard]] PlanningLP& planning_lp() noexcept
+  {
+    return m_planning_lp_.get();
+  }
+  [[nodiscard]] const PlanningLP& planning_lp() const noexcept
+  {
+    return m_planning_lp_.get();
+  }
+
+  std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
   StrongIndexVector<PhaseIndex, PhaseStateInfo> m_phase_states_;
   bool m_initialized_ {false};

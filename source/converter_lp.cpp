@@ -9,7 +9,6 @@
  */
 
 #include <gtopt/converter_lp.hpp>
-#include <gtopt/element_context.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>

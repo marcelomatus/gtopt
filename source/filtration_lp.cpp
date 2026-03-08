@@ -13,7 +13,6 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <spdlog/spdlog.h>
 
 namespace gtopt
 {

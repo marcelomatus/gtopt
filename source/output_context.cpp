@@ -13,7 +13,6 @@
 #include <filesystem>
 #include <fstream>
 
-#include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
 #include <arrow/io/compressed.h>
