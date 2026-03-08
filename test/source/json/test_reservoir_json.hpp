@@ -162,3 +162,33 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK_FALSE(res.eini.has_value());
   CHECK_FALSE(res.efin.has_value());
 }
+
+TEST_CASE("Reservoir use_state_variable JSON round-trip")  // NOLINT
+{
+  SUBCASE("null/absent -> nullopt (coupled by default)")
+  {
+    std::string_view json_data = R"({"uid":1,"name":"r1","junction":1})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    CHECK_FALSE(res.use_state_variable.has_value());
+    // Reservoir LP defaults to coupled when not set
+    CHECK(res.use_state_variable.value_or(true) == true);
+  }
+
+  SUBCASE("explicit false -> decoupled")
+  {
+    std::string_view json_data =
+        R"({"uid":1,"name":"r1","junction":1,"use_state_variable":false})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.use_state_variable.has_value());
+    CHECK(res.use_state_variable.value_or(true) == false);
+  }
+
+  SUBCASE("explicit true -> coupled")
+  {
+    std::string_view json_data =
+        R"({"uid":1,"name":"r1","junction":1,"use_state_variable":true})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.use_state_variable.has_value());
+    CHECK(res.use_state_variable.value_or(false) == true);
+  }
+}

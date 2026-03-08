@@ -128,6 +128,12 @@ struct Battery
       annual_capcost {};  ///< Annualized investment cost [$/MWh-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+
+  /// Whether to propagate SoC state across stage/phase boundaries via
+  /// StateVariables (SDDP-style coupling). When false (the default for
+  /// batteries), each phase is solved independently with no state carry-over;
+  /// an efin==eini constraint is added automatically to close each phase.
+  OptBool use_state_variable {};
 };
 
 }  // namespace gtopt
