@@ -1,11 +1,19 @@
 /**
  * @file      line_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for transmission lines with linear and quadratic
+ *            loss models
  * @date      Sat Mar 29 19:02:33 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the LineLP class which formulates transmission line
+ * constraints for the LP model. It supports two loss models:
+ *
+ * 1. **Linear model** (lossfactor): fixed percentage of flow is lost.
+ * 2. **Quadratic model** (resistance + voltage + loss_segments > 1):
+ *    piecewise-linear approximation of P_loss = R · f² / V², where
+ *    the flow range is divided into N equal segments with increasing
+ *    loss factors that approximate the quadratic loss curve.
  */
 
 #pragma once
@@ -71,13 +79,123 @@ private:
   OptTRealSched lossfactor;
   OptTRealSched reactance;
   OptTRealSched voltage;
+  OptTRealSched resistance;
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<ColIndex> lossp_cols;
+  STBIndexHolder<ColIndex> lossn_cols;
   STBIndexHolder<RowIndex> capacityp_rows;
   STBIndexHolder<RowIndex> capacityn_rows;
 
   STBIndexHolder<RowIndex> theta_rows;
+
+  // ── Private helpers for add_to_lp ────────────────────────────────
+
+  /**
+   * @brief Stage-level parameters for the loss model, computed once per
+   *        (scenario, stage) pair and reused across all blocks.
+   */
+  struct LossParams
+  {
+    double lossfactor {};  ///< Linear loss factor [p.u.]
+    double resistance {};  ///< Line resistance [Ω]
+    double V2 {};  ///< Voltage squared [kV²]
+    int nseg {1};  ///< Number of piecewise-linear segments
+    bool has_linear_loss {};
+    bool has_quadratic_loss {};
+    bool has_loss {};  ///< has_linear_loss || has_quadratic_loss
+  };
+
+  /**
+   * @brief Result columns from adding flow variables for one direction.
+   */
+  struct DirectionResult
+  {
+    std::optional<ColIndex> flow_col;
+    std::optional<ColIndex> loss_col;
+    std::optional<RowIndex> capacity_row;
+  };
+
+  /**
+   * @brief LP label suffixes for one flow direction.
+   *
+   * Avoids dynamic string formatting — labels are plain string literals,
+   * consistent with the rest of the codebase (e.g. "fp", "fn", "capp").
+   */
+  struct DirectionLabels
+  {
+    std::string_view flow;  ///< "fp" or "fn"
+    std::string_view seg;  ///< "fps" or "fns"
+    std::string_view loss;  ///< "lsp" or "lsn"
+    std::string_view link;  ///< "lnkp" or "lnkn"
+    std::string_view loss_link;  ///< "lslp" or "lsln"
+    std::string_view cap;  ///< "capp" or "capn"
+  };
+
+  /// Labels for the positive (A→B) flow direction.
+  static constexpr DirectionLabels positive_labels {
+      .flow = "fp",
+      .seg = "fps",
+      .loss = "lsp",
+      .link = "lnkp",
+      .loss_link = "lslp",
+      .cap = "capp",
+  };
+
+  /// Labels for the negative (B→A) flow direction.
+  static constexpr DirectionLabels negative_labels {
+      .flow = "fn",
+      .seg = "fns",
+      .loss = "lsn",
+      .link = "lnkn",
+      .loss_link = "lsln",
+      .cap = "capn",
+  };
+
+  /** @brief Compute the stage-level loss model parameters. */
+  [[nodiscard]] LossParams compute_loss_params(const SystemContext& sc,
+                                               const StageLP& stage) const;
+
+  /**
+   * @brief Add piecewise-linear flow and loss variables for one direction.
+   *
+   * Creates nseg segment variables, one total-flow variable, one loss
+   * variable, and the linking / loss-tracking constraints for one flow
+   * direction of the quadratic loss model.
+   *
+   * @param labels Label suffixes for this direction (positive_labels or
+   *               negative_labels)
+   */
+  DirectionResult add_quadratic_flow_direction(
+      SystemContext& sc,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BlockLP& block,
+      LinearProblem& lp,
+      SparseRow& sending_brow,
+      SparseRow& receiving_brow,
+      double block_tmax,
+      double block_tcost,
+      const LossParams& loss,
+      std::optional<ColIndex> capacity_col,
+      const DirectionLabels& labels);
+
+  /**
+   * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
+   *
+   * Creates a constraint row per block that links the voltage-angle
+   * difference to the total line flow:
+   *   θ_a − θ_b + x·fp − x·fn = 0
+   */
+  void add_kirchhoff_rows(SystemContext& sc,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          LinearProblem& lp,
+                          const BusLP& bus_a_lp,
+                          const BusLP& bus_b_lp,
+                          const BIndexHolder<ColIndex>& fpcols,
+                          const BIndexHolder<ColIndex>& fncols);
 };
 
 }  // namespace gtopt
