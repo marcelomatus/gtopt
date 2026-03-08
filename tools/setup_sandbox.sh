@@ -90,7 +90,8 @@ ok "ccache and base packages installed"
 # ── Step 2: Arrow / Parquet ───────────────────────────────────────────────────
 # Always use conda-forge.  The APT Arrow packages (packages.apache.org) are
 # NOT used in sandbox/agent environments because the APT libarrow version can
-# conflict with the conda libarrow at link time (versioned curl symbols),
+# conflict with the conda libarrow at link time (versioned curl symbols such as
+# curl_global_cleanup@CURL_OPENSSL_4 are undefined in the system libcurl),
 # causing undefined-reference errors even when cmake finds the right headers.
 # Conda gives a self-consistent Arrow+Parquet+Boost set that always matches.
 log "Installing Arrow/Parquet via conda-forge..."

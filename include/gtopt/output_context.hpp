@@ -204,6 +204,8 @@ public:
   /// Used by StorageLP::add_to_output for daily-cycle dual correction:
   /// when daily_cycle is active for a stage, the LP dual is stage_dur/24
   /// times larger than the physical dual, so we multiply by 24/stage_dur.
+  /// When @p st_scale is empty (no stage used daily_cycle), every scale
+  /// defaults to 1.0 and the output is identical to the plain add_row_dual.
   template<typename Operation = std::identity>
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
