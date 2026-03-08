@@ -11,6 +11,7 @@
 #pragma once
 
 #include <limits>
+#include <map>
 
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
@@ -99,8 +100,16 @@ public:
 
     const bool effective_usv =
         opts.daily_cycle ? false : opts.use_state_variable;
+
+    // Daily-cycle scaling is only meaningful when the stage is longer than
+    // 24 h AND the average block duration exceeds 1 h.  Below those thresholds
+    // the stage already represents sub-daily operation and no scaling is
+    // needed.
+    const auto& blocks = stage.blocks();
+    const bool use_daily_cycle = opts.daily_cycle && stage.duration() > 24.0
+        && (stage.duration() / static_cast<double>(blocks.size())) > 1.0;
     const double eff_block_scale =
-        opts.daily_cycle ? (24.0 / stage.duration()) : 1.0;
+        use_daily_cycle ? (24.0 / stage.duration()) : 1.0;
 
     const auto is_last_stage =
         stage.uid() == sc.simulation().stages().back().uid();
@@ -168,8 +177,6 @@ public:
       // If !use_state_variable: eini is free (within emin/emax bounds).
       // An efin==eini close constraint is added after the block loop below.
     }
-
-    const auto& blocks = stage.blocks();
 
     BIndexHolder<ColIndex> vcols;
     BIndexHolder<ColIndex> dcols;
@@ -284,7 +291,7 @@ public:
     if (drain_cost) {
       drain_cols[st_key] = std::move(dcols);
     }
-    if (opts.daily_cycle) {
+    if (use_daily_cycle) {
       volumen_dc_scale[st_key] = 24.0 / stage.duration();
     }
 
@@ -307,7 +314,38 @@ public:
 
     out.add_col_sol(cname, "volumen", pid, volumen_cols);
     out.add_col_cost(cname, "volumen", pid, volumen_cols);
-    out.add_row_dual(cname, "volumen", pid, volumen_rows, volumen_dc_scale);
+
+    // Back-scale volume balance duals when daily-cycle was active.
+    // Build a per-RowIndex lookup: row → 24/stage_dur (only for stages
+    // where daily_cycle was actually applied).
+    if (volumen_dc_scale.empty()) {
+      out.add_row_dual(cname, "volumen", pid, volumen_rows);
+    } else {
+      // Map each RowIndex to its stage's 24/stage_dur correction factor.
+      std::map<RowIndex, double> row_dc;
+      for (auto& [st_key, bmap] : volumen_rows) {
+        if (const auto sit = volumen_dc_scale.find(st_key);
+            sit != volumen_dc_scale.end())
+        {
+          const double s = sit->second;
+          for (auto& [buid, ridx] : bmap) {
+            row_dc.emplace(ridx, s);
+          }
+        }
+      }
+      out.add_row_dual(cname,
+                       "volumen",
+                       pid,
+                       volumen_rows,
+                       [&row_dc](RowIndex ri, double val) -> double
+                       {
+                         if (const auto it = row_dc.find(ri);
+                             it != row_dc.end()) {
+                           return val * it->second;
+                         }
+                         return val;
+                       });
+    }
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
