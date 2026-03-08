@@ -312,6 +312,12 @@ public:
   /// factor on top of the block-level @p factor.  Used by
   /// StorageLP::add_to_output to back-scale volume-balance duals when the
   /// daily-cycle option was active for a stage (scale = 24/stage_dur).
+  ///
+  /// The @p st_scale lookup is performed once per (scenario,stage) pair,
+  /// outside the block loop, so there is no per-block overhead.  When a
+  /// (suid,tuid) key is absent from @p st_scale the scale defaults to 1.0
+  /// (i.e. no scaling is applied for that stage), making this a safe drop-in
+  /// for the plain flat() call when @p st_scale is empty.
   template<typename Projection,
            typename Value = Index,
            typename Factor = block_factor_matrix_t>
