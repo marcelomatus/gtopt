@@ -13,12 +13,12 @@ For focused single-component builds use the individual sub-project
 
 Quick start::
 
-  cmake -S all -B build-all \
+  cmake -S all -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++
-  cmake --build build-all -j$(nproc)
-  cmake --install build-all          # installs to ~/.local for non-root users
+  cmake --build build -j$(nproc)
+  cmake --install build          # installs to ~/.local for non-root users
 
 Component options (all ON by default except docs)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -59,31 +59,32 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(BuildAll LANGUAGES CXX)
 
-# ---- Build type ----
-# Set a default before any subdirectory is processed so that every C++
-# component (library, standalone binary, tests) is compiled in the same mode.
-# Passing -DCMAKE_BUILD_TYPE=Release on the command line overrides this default.
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE
-      Debug
-      CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE
-  )
-  set_property(
-    CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel
-  )
-  message(STATUS "Build type not set — defaulting to Debug")
-endif()
+# ---- Shared cmake module path ----
+# Establish cmake_local/ and cmake/ on the module search path early so that
+# all include() calls below can use module names where convenient.
+list(APPEND CMAKE_MODULE_PATH
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake_local"
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake"
+)
 
-# Default to ~/.local for non-root users (XDG Base Directory).
-# Must be included before add_subdirectory() so the prefix is established
-# before any install() rules are processed.
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake_local/DefaultInstallPrefix.cmake")
+# ---- Build type default ----
+# Sets CMAKE_BUILD_TYPE to Debug when the user has not specified one.
+# Must come before any add_subdirectory() so the default is visible to all
+# sub-projects.
+include(BuildTypeDefault)
+
+# ---- Install prefix default ----
+# Defaults CMAKE_INSTALL_PREFIX to ~/.local for non-root users.
+# Must come before add_subdirectory() so install() rules in sub-projects see
+# the correct prefix.
+include(DefaultInstallPrefix)
 
 # ---- Component options ----
 
 option(GTOPT_BUILD_STANDALONE  "Build and install the gtopt solver binary"          ON)
 option(GTOPT_BUILD_TESTS       "Build the unit + integration test suite"             ON)
-option(GTOPT_BUILD_INTEGRATION_TESTS "Build and run e2e integration tests (requires GTOPT_BUILD_STANDALONE)" ON)
+option(GTOPT_BUILD_INTEGRATION_TESTS
+       "Build and run e2e integration tests (requires GTOPT_BUILD_STANDALONE)"       ON)
 option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"               ON)
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)
@@ -95,137 +96,81 @@ option(ENABLE_TEST_COVERAGE    "Enable coverage instrumentation (unit + e2e test
 # that the compiler launcher is in effect for every compilation unit —
 # including CMake feature-test compilations during configure.
 #
-# When the caller already supplies CMAKE_<LANG>_COMPILER_LAUNCHER (e.g. CI
-# passes -DCMAKE_CXX_COMPILER_LAUNCHER=ccache), those values are preserved
-# as-is.  The guard (NOT CMAKE_<LANG>_COMPILER_LAUNCHER) ensures we never
-# clobber an explicitly provided launcher.
+# Ccache.cmake honours any CMAKE_<LANG>_COMPILER_LAUNCHER value already set
+# by the caller (e.g. CI's -DCMAKE_CXX_COMPILER_LAUNCHER=ccache) and only
+# sets the launchers when they are not yet provided.
 #
-# Note: cmake/tools.cmake also handles USE_CCACHE when the *library* root
-# CMakeLists.txt is used as the top-level project.  That path is NOT active
-# here because the option() definition in the root CMakeLists.txt is scoped
-# to that subproject and is not visible in all/CMakeLists.txt when processed
-# via CPMAddPackage.  Setting the launchers here explicitly is therefore
-# required so that every target compiled through this super-project benefits.
-option(USE_CCACHE "Enable ccache compiler caching" YES)
-if(USE_CCACHE)
-  find_program(CCACHE_PROGRAM ccache)
-  if(CCACHE_PROGRAM)
-    if(NOT CMAKE_C_COMPILER_LAUNCHER)
-      set(CMAKE_C_COMPILER_LAUNCHER
-          "${CCACHE_PROGRAM}"
-          CACHE STRING "C compiler launcher" FORCE
-      )
-    endif()
-    if(NOT CMAKE_CXX_COMPILER_LAUNCHER)
-      set(CMAKE_CXX_COMPILER_LAUNCHER
-          "${CCACHE_PROGRAM}"
-          CACHE STRING "CXX compiler launcher" FORCE
-      )
-    endif()
-    message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
-  else()
-    message(STATUS "USE_CCACHE=YES but ccache not found in PATH — building without cache")
-  endif()
-endif()
+# Note: cmake/tools.cmake also handles USE_CCACHE, but the option() is scoped
+# to the gtopt library subproject (processed later via CPMAddPackage) and is
+# therefore not visible here.  Ccache.cmake is the canonical place for the
+# all/ super-project build.
+include(Ccache)
 
-# ---- Tools ----
-
-include(../cmake/tools.cmake)
+# ---- Sanitizers / static analysis (optional) ----
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
 
 # ---- gtopt library ----
 # Build (or locate) the gtopt library exactly once, before any component
-# subproject is processed.  This guarantees:
-#   • a single compiled copy shared by standalone, tests, and integration tests;
-#   • all C++ targets are compiled with the same build type set above.
+# sub-project is processed.  This guarantees a single compiled copy shared by
+# standalone, tests, and integration tests, all compiled in the same mode set
+# above.
 #
-# With CPM_USE_LOCAL_PACKAGES=ON (the default), CPM calls find_package(gtopt)
-# first.  If a previously installed library is found, it is reused without
-# recompilation.  Otherwise the library is built from source.
-#
-# In-tree sharing (the usual cmake -S all scenario) is achieved via the
-# if(NOT TARGET gtopt::gtopt) guard in each component — no installation is
-# required.  Set -DGTOPT_INSTALL_LIBRARY=ON explicitly when you also want
-# cmake --install to deploy the library binary and CMake package files.
+# With CPM_USE_LOCAL_PACKAGES=ON (the default) CPM calls find_package(gtopt)
+# first; if a previously installed library is found it is reused without
+# recompilation.  In-tree sharing (the usual cmake -S all scenario) is
+# achieved via the if(NOT TARGET gtopt::gtopt) guard — no installation is
+# required for a development build.
 option(CPM_USE_LOCAL_PACKAGES "Try find_package before building from source" ON)
-include(../cmake/CPM.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
 if(NOT TARGET gtopt::gtopt)
-  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+  CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 endif()
 
-# Needed to generate the test target even when only some subprojects define tests.
+# ---- Testing ----
+# enable_testing() must be called in the top-level CMakeLists.txt (or the
+# directory that owns the CTestTestfile) for ctest to discover tests registered
+# by any sub-project.
 enable_testing()
-
-include(ProcessorCount)
-ProcessorCount(NPROC)
-if(NPROC EQUAL 0)
-  set(NPROC 1)
-endif()
-list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
+include(TestParallelism)
 
 # ---- Subprojects ----
 
 if(GTOPT_BUILD_STANDALONE)
-  add_subdirectory(
-    ${CMAKE_CURRENT_LIST_DIR}/../standalone ${CMAKE_BINARY_DIR}/standalone
-  )
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../standalone" standalone)
 endif()
 
 if(GTOPT_BUILD_INTEGRATION_TESTS)
   if(NOT GTOPT_BUILD_STANDALONE)
     message(WARNING
-      "GTOPT_BUILD_INTEGRATION_TESTS requires GTOPT_BUILD_STANDALONE. "
-      "Disabling integration tests.")
-  else()
-    add_subdirectory(
-      ${CMAKE_CURRENT_LIST_DIR}/../integration_test
-      ${CMAKE_BINARY_DIR}/integration_test
+      "GTOPT_BUILD_INTEGRATION_TESTS requires GTOPT_BUILD_STANDALONE — "
+      "disabling integration tests."
     )
+  else()
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../integration_test" integration_test)
   endif()
 endif()
 
 if(GTOPT_BUILD_TESTS)
-  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../test ${CMAKE_BINARY_DIR}/test)
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../test" test)
 endif()
 
 if(GTOPT_BUILD_SCRIPTS)
-  add_subdirectory(
-    ${CMAKE_CURRENT_LIST_DIR}/../scripts ${CMAKE_BINARY_DIR}/scripts
-  )
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../scripts" scripts)
 endif()
 
 if(GTOPT_BUILD_WEBSERVICE)
-  add_subdirectory(
-    ${CMAKE_CURRENT_LIST_DIR}/../webservice ${CMAKE_BINARY_DIR}/webservice
-  )
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../webservice" webservice)
 endif()
 
 if(GTOPT_BUILD_GUISERVICE)
-  add_subdirectory(
-    ${CMAKE_CURRENT_LIST_DIR}/../guiservice ${CMAKE_BINARY_DIR}/guiservice
-  )
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../guiservice" guiservice)
 endif()
 
 if(GTOPT_BUILD_DOCS)
-  add_subdirectory(
-    ${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/documentation
-  )
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../documentation" documentation)
 endif()
 
 # ---- Uninstall target ----
-# `cmake --build build --target uninstall` removes every file that was
-# recorded in build/install_manifest.txt by the last `cmake --install` run.
-# The guard prevents a duplicate target if this file is ever included as a
-# sub-project or if two components both add the same target.
-if(NOT TARGET uninstall)
-  configure_file(
-    "${CMAKE_CURRENT_LIST_DIR}/../cmake/cmake_uninstall.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
-    @ONLY
-  )
-  add_custom_target(uninstall
-    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
-    COMMENT "Uninstalling files listed in ${CMAKE_CURRENT_BINARY_DIR}/install_manifest.txt"
-    VERBATIM
-  )
-endif()
-
+# `cmake --build build --target uninstall` removes every file recorded in
+# build/install_manifest.txt by the last `cmake --install` run.
+include(UninstallTarget)
