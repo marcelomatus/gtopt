@@ -10,13 +10,11 @@
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/simulation.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 namespace gtopt
 {
@@ -113,8 +111,7 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
     for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
     {
       auto result = pool.submit(
-          [&]
-          {
+          [&] {
             return resolve_scene_phases(scene_index, phase_systems, lp_opts);
           });
       futures.push_back(std::move(result.value()));

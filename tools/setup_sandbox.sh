@@ -5,7 +5,6 @@
 #   bash tools/setup_sandbox.sh [OPTIONS]
 #
 # Options:
-#   --no-clang       Skip Clang 21 install (use GCC 14 instead)
 #   --no-python      Skip pre-installing Python scripts dependencies
 #   --configure      Also run cmake configure after deps are installed
 #   --build          Also run cmake --build after configure (implies --configure)
@@ -14,8 +13,7 @@
 #
 # What this script does (in the same order as .github/workflows/ubuntu.yml):
 #   1. Install ccache + base APT packages (COIN-OR, Boost, spdlog, LAPACK, etc.)
-#   2. Install Arrow/Parquet — try the Apache Arrow APT repository first;
-#      fall back to conda (conda-forge) if the APT source is unreachable.
+#   2. Install Arrow/Parquet via conda (conda-forge).
 #   3. Install Clang 21 from the LLVM APT repository with retry logic;
 #      register unversioned alternatives (clang, clang++, clang-format, …).
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
@@ -31,8 +29,9 @@
 #   • Run from the repository root: bash tools/setup_sandbox.sh
 #   • Idempotent: safe to run more than once; already-installed packages are
 #     skipped automatically by apt-get / conda.
-#   • Clang 21 is the primary compiler for gtopt (same as CI).  GCC 14 is the
-#     fallback (pass --no-clang to use it).
+#   • Clang 21 is the REQUIRED compiler for this script (same as CI).  GCC 14
+#     may work for local builds but is not supported by this sandbox script;
+#     only Clang 21 is installed and configured here.
 #   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
 
 set -euo pipefail
@@ -43,7 +42,6 @@ REPO_ROOT="${REPO_ROOT:-$(dirname "$SCRIPT_DIR")}"
 cd "$REPO_ROOT"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-INSTALL_CLANG=true
 INSTALL_PYTHON=true
 DO_CONFIGURE=false
 DO_BUILD=false
@@ -53,7 +51,6 @@ CLANG_VERSION=21
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-clang)     INSTALL_CLANG=false ;;
     --no-python)    INSTALL_PYTHON=false ;;
     --configure)    DO_CONFIGURE=true ;;
     --build)        DO_CONFIGURE=true; DO_BUILD=true ;;
@@ -109,56 +106,52 @@ else
 fi
 
 # ── Step 3: Clang 21 from LLVM APT ────────────────────────────────────────────
-if $INSTALL_CLANG; then
-  VER=$CLANG_VERSION
-  log "Installing Clang ${VER} from LLVM APT repository..."
+# Clang 21 is MANDATORY — it is the only supported compiler for gtopt.
+# GCC is NOT used as a build compiler in sandbox/agent environments.
+VER=$CLANG_VERSION
+log "Installing Clang ${VER} from LLVM APT repository (mandatory)..."
 
-  # Add LLVM APT repository (with retries – apt.llvm.org is intermittently slow)
-  for attempt in 1 2 3; do
-    wget -qO /tmp/llvm-snapshot.gpg.key \
-      https://apt.llvm.org/llvm-snapshot.gpg.key && break
-    warn "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..."
-    sleep 15
-  done
-  sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
-    /tmp/llvm-snapshot.gpg.key
+# Add LLVM APT repository (with retries – apt.llvm.org is intermittently slow)
+for attempt in 1 2 3; do
+  wget -qO /tmp/llvm-snapshot.gpg.key \
+    https://apt.llvm.org/llvm-snapshot.gpg.key && break
+  warn "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..."
+  sleep 15
+done
+sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+  /tmp/llvm-snapshot.gpg.key
 
-  echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
-    https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
-    | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
+echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
+  | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
 
-  for attempt in 1 2 3; do
-    sudo apt-get update -q \
-      -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
-      -o "Dir::Etc::sourceparts=-" && break
-    warn "Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..."
-    sleep 15
-  done
+for attempt in 1 2 3; do
+  sudo apt-get update -q \
+    -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+    -o "Dir::Etc::sourceparts=-" && break
+  warn "Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..."
+  sleep 15
+done
 
-  sudo apt-get install -y --no-install-recommends \
-    clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
-    llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
-    libc++-${VER}-dev libc++abi-${VER}-dev \
-    libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
+sudo apt-get install -y --no-install-recommends \
+  clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
+  llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
+  libc++-${VER}-dev libc++abi-${VER}-dev \
+  libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
 
-  # Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
-  # the installed version without a suffix (matches install-clang/action.yml).
-  for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
-    [ -e "$versioned" ] || continue
-    base=$(basename "$versioned" "-${VER}")
-    sudo update-alternatives --remove-all "$base" 2>/dev/null || true
-    sudo update-alternatives --install /usr/bin/"$base" "$base" \
-      "$versioned" 100
-  done
+# Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
+# the installed version without a suffix (matches install-clang/action.yml).
+for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+  [ -e "$versioned" ] || continue
+  base=$(basename "$versioned" "-${VER}")
+  sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+  sudo update-alternatives --install /usr/bin/"$base" "$base" \
+    "$versioned" 100
+done
 
-  ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
-  CC=clang
-  CXX=clang++
-else
-  log "Skipping Clang ${CLANG_VERSION} install (--no-clang); using GCC 14"
-  CC=gcc-14
-  CXX=g++-14
-fi
+ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
+CC=clang
+CXX=clang++
 
 # ── Step 4: Python scripts dependencies ───────────────────────────────────────
 # Pre-installing these BEFORE cmake configure ensures cmake's
@@ -211,11 +204,7 @@ echo ""
 echo "═══════════════════════════════════════════════════════"
 echo " gtopt sandbox setup complete"
 echo " Arrow source : ${ARROW_INSTALLED_VIA}"
-if $INSTALL_CLANG; then
-  echo " Compiler     : Clang ${CLANG_VERSION} ($(clang --version 2>/dev/null | head -1))"
-else
-  echo " Compiler     : GCC 14 ($(gcc-14 --version 2>/dev/null | head -1))"
-fi
+echo " Compiler     : Clang ${CLANG_VERSION} ($(clang --version 2>/dev/null | head -1))"
 echo " ccache       : $(ccache --version 2>/dev/null | head -1)"
 if $DO_BUILD; then
   echo " Build        : build/"

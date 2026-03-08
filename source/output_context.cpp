@@ -13,7 +13,6 @@
 #include <filesystem>
 #include <fstream>
 
-#include <arrow/api.h>  // Add missing arrow headers
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
 #include <arrow/io/compressed.h>
@@ -220,8 +219,9 @@ auto make_table(FieldVector&& field_vector)
   return codec;
 }
 
-auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
-    -> arrow::Status
+auto parquet_write_table(const auto& fpath,
+                         const auto& table,
+                         const auto& zfmt) -> arrow::Status
 {
   const auto filename = std::format("{}.parquet", fpath.string());
   auto maybe_output = arrow::io::FileOutputStream::Open(filename);
