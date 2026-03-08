@@ -174,7 +174,7 @@ auto make_3phase_hydro_planning() -> Planning
   };
 
   // ── Simulation ──
-  const Simulation simulation = {
+  Simulation simulation = {
       .block_array = std::move(block_array),
       .stage_array = std::move(stage_array),
       .scenario_array =
@@ -209,7 +209,7 @@ auto make_3phase_hydro_planning() -> Planning
 
   return Planning {
       .options = std::move(options),
-      .simulation = simulation,
+      .simulation = std::move(simulation),
       .system = std::move(system),
   };
 }
