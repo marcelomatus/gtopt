@@ -173,6 +173,30 @@ TEST_CASE("Battery use_state_variable defaults and explicit set")  // NOLINT
     REQUIRE(bat.use_state_variable.has_value());
     CHECK(bat.use_state_variable.value_or(true) == false);
   }
+
+  SUBCASE("daily_cycle default is nullopt")
+  {
+    const Battery bat;
+    CHECK_FALSE(bat.daily_cycle.has_value());
+    // Battery LP defaults to daily_cycle=true when not set
+    CHECK(bat.daily_cycle.value_or(true) == true);
+  }
+
+  SUBCASE("daily_cycle can be set to false")
+  {
+    Battery bat;
+    bat.daily_cycle = false;
+    REQUIRE(bat.daily_cycle.has_value());
+    CHECK(bat.daily_cycle.value_or(true) == false);
+  }
+
+  SUBCASE("daily_cycle can be set to true")
+  {
+    Battery bat;
+    bat.daily_cycle = true;
+    REQUIRE(bat.daily_cycle.has_value());
+    CHECK(bat.daily_cycle.value_or(false) == true);
+  }
 }
 
 /// Verify that a decoupled battery (use_state_variable = false, the default)
@@ -316,6 +340,7 @@ TEST_CASE(  // NOLINT
           .emax = 100.0,
           .capacity = 100.0,
           .use_state_variable = true,  // explicit coupled mode
+          .daily_cycle = false,  // disable daily cycle to test coupled mode
       },
   };
 

@@ -200,6 +200,35 @@ public:
                      block_cost_factors);
   }
 
+  /// add_row_dual with an additional per-scenario-stage back-scale factor.
+  /// Used by StorageLP::add_to_output for daily-cycle dual correction.
+  template<typename Operation = std::identity>
+  constexpr void add_row_dual(std::string_view cname,
+                              std::string_view row_name,
+                              const Id& id,
+                              const STBIndexHolder<RowIndex>& holder,
+                              const STIndexHolder<double>& stage_scale,
+                              Operation op = {})
+  {
+    if (holder.empty() || row_dual_span.empty()) {
+      return;
+    }
+
+    auto&& [values, valid] = sc.get().flat(
+        holder,
+        [&](auto i) { return op(row_dual_span[i]); },
+        block_cost_factors,
+        stage_scale);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, as_label(row_name, "dual")}]
+        .emplace_back(
+            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+  }
+
   ///
   template<typename Operation = std::identity>
   constexpr void add_col_sol(std::string_view cname,
