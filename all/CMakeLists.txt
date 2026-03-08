@@ -139,6 +139,10 @@ if(GTOPT_BUILD_STANDALONE)
   add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../standalone" standalone)
 endif()
 
+if(GTOPT_BUILD_TESTS)
+  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../test" test)
+endif()
+
 if(GTOPT_BUILD_INTEGRATION_TESTS)
   if(NOT GTOPT_BUILD_STANDALONE)
     message(WARNING
@@ -148,10 +152,6 @@ if(GTOPT_BUILD_INTEGRATION_TESTS)
   else()
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../integration_test" integration_test)
   endif()
-endif()
-
-if(GTOPT_BUILD_TESTS)
-  add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../test" test)
 endif()
 
 if(GTOPT_BUILD_SCRIPTS)
