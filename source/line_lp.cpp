@@ -95,6 +95,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   }
 
   const int nseg = loss.nseg;
+  const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
 
   // Total flow variable (for Kirchhoff, capacity, and output)
@@ -115,7 +116,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
               sc.lp_label(scenario, stage, block, cname, labels.link, uid()),
       }
           .equal(0);
-  linkrow.reserve(nseg + 1);
+  linkrow.reserve(reserve_sz);
   linkrow[flow_col] = +1.0;
 
   // Loss variable: tracks total power lost
@@ -132,7 +133,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
               scenario, stage, block, cname, labels.loss_link, uid()),
       }
           .equal(0);
-  lossrow.reserve(nseg + 1);
+  lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +1.0;
 
   // Power leaving sending bus = f_total + loss (both negative in the
