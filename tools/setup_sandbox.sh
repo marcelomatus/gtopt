@@ -1,0 +1,281 @@
+#!/usr/bin/env bash
+# setup_sandbox.sh — Bootstrap a fresh Ubuntu 24.04 sandbox for building gtopt
+#
+# Usage:
+#   bash tools/setup_sandbox.sh [OPTIONS]
+#
+# Options:
+#   --no-clang       Skip Clang 21 install (use GCC 14 instead)
+#   --no-python      Skip pre-installing Python scripts dependencies
+#   --configure      Also run cmake configure after deps are installed
+#   --build          Also run cmake --build after configure (implies --configure)
+#   --build-type T   CMake build type: Debug (default) | Release | RelWithDebInfo
+#   --help           Show this help and exit
+#
+# What this script does (in the same order as .github/workflows/ubuntu.yml):
+#   1. Install ccache + base APT packages (COIN-OR, Boost, spdlog, LAPACK, etc.)
+#   2. Install Arrow/Parquet — try the Apache Arrow APT repository first;
+#      fall back to conda (conda-forge) if the APT source is unreachable.
+#   3. Install Clang 21 from the LLVM APT repository with retry logic;
+#      register unversioned alternatives (clang, clang++, clang-format, …).
+#   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
+#   5. (Optional) cmake configure — uses Clang 21 + ccache.
+#   6. (Optional) cmake --build + ctest.
+#
+# Environment:
+#   REPO_ROOT   Path to the repository root (default: directory containing this
+#               script's parent, i.e. the repo root when called as
+#               bash tools/setup_sandbox.sh from the repo root).
+#
+# Notes:
+#   • Run from the repository root: bash tools/setup_sandbox.sh
+#   • Idempotent: safe to run more than once; already-installed packages are
+#     skipped automatically by apt-get / conda.
+#   • Clang 21 is the primary compiler for gtopt (same as CI).  GCC 14 is the
+#     fallback (pass --no-clang to use it).
+#   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
+
+set -euo pipefail
+
+# ── Resolve repo root ──────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(dirname "$SCRIPT_DIR")}"
+cd "$REPO_ROOT"
+
+# ── Defaults ──────────────────────────────────────────────────────────────────
+INSTALL_CLANG=true
+INSTALL_PYTHON=true
+DO_CONFIGURE=false
+DO_BUILD=false
+BUILD_TYPE=Debug
+CLANG_VERSION=21
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-clang)     INSTALL_CLANG=false ;;
+    --no-python)    INSTALL_PYTHON=false ;;
+    --configure)    DO_CONFIGURE=true ;;
+    --build)        DO_CONFIGURE=true; DO_BUILD=true ;;
+    --build-type)   shift; BUILD_TYPE="$1" ;;
+    --help|-h)
+      sed -n '2,/^# Notes:/p' "$0" | sed 's/^# \?//'
+      exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+log()  { echo "▶ $*"; }
+ok()   { echo "✓ $*"; }
+warn() { echo "⚠ $*" >&2; }
+
+# ── Step 1: ccache + base APT packages ────────────────────────────────────────
+# ccache MUST be installed before cmake configure; cmake bakes the launcher
+# path into the build system at configure time.  Installing it later requires
+# deleting the build directory and reconfiguring from scratch.
+log "Installing ccache and base APT packages..."
+sudo apt-get update -q
+sudo apt-get install -y --no-install-recommends \
+  ccache \
+  coinor-libcbc-dev \
+  libboost-container-dev \
+  libspdlog-dev \
+  liblapack-dev libblas-dev \
+  zlib1g-dev \
+  ca-certificates lsb-release wget
+ok "ccache and base packages installed"
+
+# ── Step 2: Arrow / Parquet ───────────────────────────────────────────────────
+# Primary: Apache Arrow APT repository (mirrors what CI does in
+# .github/actions/install-apt-deps/action.yml).
+# Fallback: conda-forge (reliable when packages.apache.org is unreachable,
+# which is common in network-restricted sandboxes).
+log "Installing Arrow/Parquet..."
+
+DISTRO=$(lsb_release --id --short | tr 'A-Z' 'a-z')
+CODENAME=$(lsb_release --codename --short)
+ARROW_DEB="apache-arrow-apt-source-latest-${CODENAME}.deb"
+ARROW_URL="https://packages.apache.org/artifactory/arrow/${DISTRO}/${ARROW_DEB}"
+ARROW_INSTALLED_VIA=""
+
+# Check if Arrow is already installed via APT
+if dpkg -l libarrow-dev &>/dev/null; then
+  ok "Arrow/Parquet already installed via APT"
+  ARROW_INSTALLED_VIA="apt"
+else
+  # Try APT first (3 attempts, 15 s between retries – matches CI action)
+  log "Trying Apache Arrow APT repository..."
+  ARROW_APT_OK=false
+  for attempt in 1 2 3; do
+    if wget -q --timeout=30 "${ARROW_URL}" \
+       && sudo apt-get install -y -q --no-install-recommends "./${ARROW_DEB}" \
+       && sudo apt-get update -q \
+       && sudo apt-get install -y --no-install-recommends \
+            libarrow-dev libparquet-dev; then
+      ARROW_APT_OK=true
+      break
+    fi
+    warn "APT Arrow attempt ${attempt}/3 failed; retrying in 15 s..."
+    sleep 15
+  done
+
+  if $ARROW_APT_OK; then
+    ok "Arrow/Parquet installed via APT"
+    ARROW_INSTALLED_VIA="apt"
+  else
+    # Fallback to conda-forge
+    warn "Apache Arrow APT repository unreachable – falling back to conda"
+    if ! command -v conda &>/dev/null; then
+      echo "ERROR: conda not found.  Install Miniconda/Anaconda first," >&2
+      echo "       or fix network access to packages.apache.org." >&2
+      exit 1
+    fi
+    conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+    ok "Arrow/Parquet installed via conda-forge"
+    ARROW_INSTALLED_VIA="conda"
+  fi
+fi
+
+# ── Step 3: Clang 21 from LLVM APT ────────────────────────────────────────────
+if $INSTALL_CLANG; then
+  VER=$CLANG_VERSION
+  log "Installing Clang ${VER} from LLVM APT repository..."
+
+  # Add LLVM APT repository (with retries – apt.llvm.org is intermittently slow)
+  for attempt in 1 2 3; do
+    wget -qO /tmp/llvm-snapshot.gpg.key \
+      https://apt.llvm.org/llvm-snapshot.gpg.key && break
+    warn "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..."
+    sleep 15
+  done
+  sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+    /tmp/llvm-snapshot.gpg.key
+
+  echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+    https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
+    | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
+
+  for attempt in 1 2 3; do
+    sudo apt-get update -q \
+      -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+      -o "Dir::Etc::sourceparts=-" && break
+    warn "Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..."
+    sleep 15
+  done
+
+  sudo apt-get install -y --no-install-recommends \
+    clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
+    llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
+    libc++-${VER}-dev libc++abi-${VER}-dev \
+    libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
+
+  # Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
+  # the installed version without a suffix (matches install-clang/action.yml).
+  for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+    [ -e "$versioned" ] || continue
+    base=$(basename "$versioned" "-${VER}")
+    sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+    sudo update-alternatives --install /usr/bin/"$base" "$base" \
+      "$versioned" 100
+  done
+
+  ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
+  CC=clang
+  CXX=clang++
+else
+  log "Skipping Clang ${CLANG_VERSION} install (--no-clang); using GCC 14"
+  CC=gcc-14
+  CXX=g++-14
+fi
+
+# ── Step 4: Python scripts dependencies ───────────────────────────────────────
+# Pre-installing these BEFORE cmake configure ensures cmake's
+# find_program(PYTHON_EXECUTABLE) picks the same Python that already has all
+# packages, reducing the scripts-install-deps CTest fixture from ~35 s to ~3 s.
+if $INSTALL_PYTHON; then
+  if command -v uv &>/dev/null; then
+    log "Pre-installing Python scripts dev dependencies..."
+    uv pip install --system -q -e "./scripts[dev]" graphviz
+    ok "Python scripts dev dependencies installed"
+  else
+    warn "uv not found – skipping Python scripts pre-install (CTest fixture" \
+         "will install them on first run, taking ~35 s)"
+  fi
+fi
+
+# ── Steps 5–6: Configure and build (optional) ─────────────────────────────────
+if $DO_CONFIGURE; then
+  # Determine the cmake prefix path:
+  #   APT Arrow  → no extra -DCMAKE_PREFIX_PATH needed (system paths)
+  #   conda Arrow → must point cmake at the conda base prefix
+  CMAKE_PREFIX_ARG=""
+  if [[ "$ARROW_INSTALLED_VIA" == "conda" ]]; then
+    CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
+  fi
+
+  log "Configuring cmake (${BUILD_TYPE}, ${CC}/${CXX})..."
+  CMAKE_ARGS=(
+    -S all -B build
+    "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}"
+    "-DCMAKE_C_COMPILER=${CC}"
+    "-DCMAKE_CXX_COMPILER=${CXX}"
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  )
+  if [[ -n "${CMAKE_PREFIX_ARG}" ]]; then
+    CMAKE_ARGS+=("${CMAKE_PREFIX_ARG}")
+  fi
+  cmake "${CMAKE_ARGS[@]}"
+  ok "cmake configure done"
+fi
+
+if $DO_BUILD; then
+  log "Building..."
+  cmake --build build -j"$(nproc)"
+  ok "Build complete"
+
+  log "Running tests..."
+  (cd build && ctest --output-on-failure -j"$(nproc)")
+  ok "All tests passed"
+fi
+
+# ── Summary ────────────────────────────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════════"
+echo " gtopt sandbox setup complete"
+echo " Arrow source : ${ARROW_INSTALLED_VIA}"
+if $INSTALL_CLANG; then
+  echo " Compiler     : Clang ${CLANG_VERSION} ($(clang --version 2>/dev/null | head -1))"
+else
+  echo " Compiler     : GCC 14 ($(gcc-14 --version 2>/dev/null | head -1))"
+fi
+echo " ccache       : $(ccache --version 2>/dev/null | head -1)"
+if $DO_BUILD; then
+  echo " Build        : build/"
+fi
+echo "═══════════════════════════════════════════════════════"
+echo ""
+echo "Next steps:"
+if ! $DO_CONFIGURE; then
+  if [[ "$ARROW_INSTALLED_VIA" == "conda" ]]; then
+    PREFIX_HINT='  -DCMAKE_PREFIX_PATH="$(conda info --base)"'
+  else
+    PREFIX_HINT=""
+  fi
+  echo "  cmake -S all -B build \\"
+  echo "    -DCMAKE_BUILD_TYPE=Debug \\"
+  echo "    -DCMAKE_C_COMPILER=${CC} \\"
+  echo "    -DCMAKE_CXX_COMPILER=${CXX} \\"
+  if [[ -n "$PREFIX_HINT" ]]; then
+    echo "    -DCMAKE_C_COMPILER_LAUNCHER=ccache \\"
+    echo "    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \\"
+    echo "    ${PREFIX_HINT}"
+  else
+    echo "    -DCMAKE_C_COMPILER_LAUNCHER=ccache \\"
+    echo "    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  fi
+  echo "  cmake --build build -j\$(nproc)"
+  echo "  cd build && ctest --output-on-failure"
+fi

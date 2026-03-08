@@ -41,6 +41,12 @@ version 21 without a version suffix.
 
 ### Complete bootstrap from scratch (sandboxed / CI agents)
 
+> **Quickest option**: run the setup script — it handles all steps below,
+> including APT Arrow with conda fallback and Clang 21 with retry:
+> ```bash
+> bash tools/setup_sandbox.sh --build
+> ```
+
 Run **exactly this sequence** in a fresh Ubuntu 24.04 environment.
 Every step is required; skipping any one causes a build failure.
 This mirrors the step order in `.github/workflows/ubuntu.yml`.
@@ -55,19 +61,45 @@ sudo apt-get install -y --no-install-recommends \
   liblapack-dev libblas-dev \
   lcov zlib1g-dev ca-certificates lsb-release wget
 
-# 2. Arrow / Parquet via conda (reliable in sandboxes; APT source is often blocked)
-conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+# 2. Arrow / Parquet — try APT first (mirrors CI), fall back to conda if blocked
+DISTRO=$(lsb_release --id --short | tr 'A-Z' 'a-z')
+CODENAME=$(lsb_release --codename --short)
+ARROW_DEB="apache-arrow-apt-source-latest-${CODENAME}.deb"
+ARROW_VIA_CONDA=false
+if wget -q --timeout=30 \
+     "https://packages.apache.org/artifactory/arrow/${DISTRO}/${ARROW_DEB}" \
+   && sudo apt-get install -y -q --no-install-recommends "./${ARROW_DEB}" \
+   && sudo apt-get update -q \
+   && sudo apt-get install -y --no-install-recommends libarrow-dev libparquet-dev
+then
+  echo "✓ Arrow/Parquet installed via APT"
+else
+  echo "APT Arrow unavailable – falling back to conda"
+  conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
+  ARROW_VIA_CONDA=true
+fi
 
 # 3. Clang 21 — via LLVM APT repository (matches .github/actions/install-clang/action.yml)
 #    Must be installed BEFORE cmake configure so the compiler path is baked in correctly.
-wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
+#    Note: clang-22 is not yet available on apt.llvm.org; use version 21.
+for attempt in 1 2 3; do
+  wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key \
+    && break
+  echo "Attempt $attempt/3: wget failed, retrying in 15s..."
+  sleep 15
+done
 sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
   /tmp/llvm-snapshot.gpg.key
-CODENAME=$(lsb_release -cs)
 echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
   https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
   | sudo tee /etc/apt/sources.list.d/llvm-21.list
-sudo apt-get update -q
+for attempt in 1 2 3; do
+  sudo apt-get update -q \
+    -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-21.list" \
+    -o "Dir::Etc::sourceparts=-" && break
+  echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
+  sleep 15
+done
 sudo apt-get install -y --no-install-recommends \
   clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
   llvm-21-dev llvm-21-tools libomp-21-dev \
@@ -86,26 +118,29 @@ done
 #    cmake's find_program(PYTHON_EXECUTABLE) picks the same Python.
 uv pip install --system -q -e "./scripts[dev]" graphviz
 
-# 5. Configure — clang-21 + conda Arrow prefix
+# 5. Configure — Clang 21 + ccache; add conda PREFIX_PATH only if Arrow came from conda
 #    Use `all/` super-project (builds library + binary + tests in one step)
+CMAKE_PREFIX_ARG=""
+${ARROW_VIA_CONDA} && CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  ${CMAKE_PREFIX_ARG}
 
 # 6. Build and test
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
 
-> **Why conda for Arrow?** The APT repo at `packages.apache.org/artifactory` is
-> frequently unreachable from network-restricted CI sandboxes.
-> `conda install -c conda-forge arrow-cpp parquet-cpp` is the verified-reliable
-> fallback.  `$(conda info --base)` always returns the base prefix regardless of
-> whether a conda environment is activated (unlike `$CONDA_PREFIX`).
+> **Why try APT Arrow first?**  APT is the same source used by CI
+> (`install-apt-deps` action) and produces a system installation that cmake
+> finds without `-DCMAKE_PREFIX_PATH`.  The conda fallback is provided for
+> network-restricted sandboxes where `packages.apache.org` is unreachable.
+> `$(conda info --base)` always returns the base prefix regardless of whether a
+> conda environment is activated (unlike `$CONDA_PREFIX`).
 
 > **Why ccache before cmake configure?** CMake bakes the compiler-launcher path
 > into the build system at configure time.  Installing ccache *after* configure
@@ -123,27 +158,17 @@ cd build && ctest --output-on-failure
 ### GCC 14 fallback (when Clang 21 unavailable)
 
 ```bash
-# Steps 1-2 same as above (system packages + conda Arrow), then:
+# Steps 1-2 same as above (system packages + Arrow/Parquet), then:
+# If Arrow was installed via APT (no PREFIX_PATH needed):
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=gcc-14 \
   -DCMAKE_CXX_COMPILER=g++-14 \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# If Arrow came from conda fallback, add: -DCMAKE_PREFIX_PATH="$(conda info --base)"
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
-```
-
-### Install Arrow via APT (when network allows)
-
-```bash
-wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
-  | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
-sudo apt-get install -y -V \
-  "./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
-sudo apt-get update
-sudo apt-get install -y -V libarrow-dev libparquet-dev
 ```
 
 GCC 14 is also supported as an alternative compiler (`CC=gcc-14 CXX=g++-14`).
@@ -154,13 +179,15 @@ GCC 14 is also supported as an alternative compiler (`CC=gcc-14 CXX=g++-14`).
 
 ```bash
 # Configure – use `all/` super-project (same as CI)
+# When Arrow was installed via APT (no PREFIX_PATH needed):
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# When Arrow was installed via conda (fallback), add:
+#   -DCMAKE_PREFIX_PATH="$(conda info --base)"
 
 # Build
 cmake --build build -j$(nproc)
@@ -181,8 +208,8 @@ cmake -S all -B build \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# Add -DCMAKE_PREFIX_PATH="$(conda info --base)" if Arrow came from conda
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
@@ -196,8 +223,8 @@ cmake -S all -B build \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# Add -DCMAKE_PREFIX_PATH="$(conda info --base)" if Arrow came from conda
 cmake --build build -j$(nproc)
 ./build/standalone/gtopt --version
 ```
@@ -211,8 +238,8 @@ cmake -S all -B build \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# Add -DCMAKE_PREFIX_PATH="$(conda info --base)" if Arrow came from conda
 cmake --build build -j$(nproc)
 cd build && ctest
 lcov --capture --directory . --output-file coverage.info \
@@ -231,19 +258,34 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 | OS | Ubuntu 24.04 (Noble) | GitHub Actions runner |
 | Compiler | Clang 21 (primary) | Installed via LLVM APT repo (`.github/actions/install-clang`); GCC 14.2 also works |
 | CMake | 3.31.6 | Pre-installed on runner |
-| Arrow / Parquet | 12.0.0 | `conda install -c conda-forge arrow-cpp parquet-cpp` |
+| Arrow / Parquet | 12.0.0 | APT `libarrow-dev libparquet-dev` (primary, same as CI); conda `arrow-cpp parquet-cpp` (fallback) |
 | Boost.Container | 1.83.0 | `conda install -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
 | COIN-OR solver | CLP 1.17 (auto) | `coinor-libcbc-dev`; CMake auto-selects CLP; CBC works too |
 | spdlog | 1.12.0 | `libspdlog-dev` from Ubuntu repos |
 | LAPACK/BLAS | 3.12.0 | `liblapack-dev libblas-dev` (required by COIN-OR) |
 | ccache | any | Must be installed **before** `cmake -S all -B build` |
-| conda | 26.1.0 | Base prefix at `/usr/share/miniconda` |
+| conda | 26.1.0 | Base prefix at `/usr/share/miniconda`; used only as Arrow fallback |
 
-**Verified configure command (Clang 21 + conda Arrow):**
+**Verified configure command (Clang 21 + APT Arrow — primary path):**
 
 ```bash
 # Pre-install scripts deps first (speeds up scripts-install-deps CTest fixture)
 uv pip install --system -q -e "./scripts[dev]" graphviz
+# When Arrow was installed via APT (no PREFIX_PATH needed):
+cmake -S all -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
+# Expected: 100% tests passed, 0 tests failed
+```
+
+**When Arrow was installed via conda (fallback path), add `-DCMAKE_PREFIX_PATH`:**
+
+```bash
 cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
@@ -261,7 +303,7 @@ cd build && ctest --output-on-failure
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `/bin/sh: ccache: not found` during `cmake --build` | `ccache` not installed before CMake configure | `sudo apt-get install -y ccache` **then delete build dir and reconfigure** |
-| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | `conda install -y -c conda-forge arrow-cpp parquet-cpp` then add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
+| `Could not find ArrowConfig.cmake` | Arrow/Parquet not installed | Try APT install first (see bootstrap); if blocked use `conda install -y -c conda-forge arrow-cpp parquet-cpp` and add `-DCMAKE_PREFIX_PATH="$(conda info --base)"` |
 | `Unable to fetch some archives` from apt | Stale package lists | `sudo apt-get update` before `apt-get install` |
 | `COIN solver: none configured` / no solver found | COIN-OR not installed | `sudo apt-get install -y coinor-libcbc-dev`; CLP is auto-selected and sufficient for unit tests |
 | `Could not find BoostConfig.cmake` | Boost not installed | `conda install -y -c conda-forge boost-cpp` (or apt `libboost-container-dev`) |
@@ -366,7 +408,7 @@ downloads or installs anything.  To run igtopt integration tests:
 
 ### Key notes
 
-* The artifact is a **Debug build** from Ubuntu 24.04 (Clang 21 + conda Arrow/Parquet
+* The artifact is a **Debug build** from Ubuntu 24.04 (Clang 21 + APT Arrow/Parquet
   + COIN-OR).  It runs on any Ubuntu 24.04 environment with the same shared libraries.
 * Artifacts expire **7 days** after the CI run that created them.
 * The artifact name is `gtopt-binary-debug`; configured in
@@ -400,8 +442,8 @@ cmake -S all -B build \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_PREFIX_PATH="$(conda info --base)"
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+# Add -DCMAKE_PREFIX_PATH="$(conda info --base)" if Arrow came from conda
 cmake --build build -j$(nproc)
 ```
 
