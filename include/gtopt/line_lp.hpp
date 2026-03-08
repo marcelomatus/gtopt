@@ -89,6 +89,76 @@ private:
   STBIndexHolder<RowIndex> capacityn_rows;
 
   STBIndexHolder<RowIndex> theta_rows;
+
+  // ── Private helpers for add_to_lp ────────────────────────────────
+
+  /**
+   * @brief Stage-level parameters for the loss model, computed once per
+   *        (scenario, stage) pair and reused across all blocks.
+   */
+  struct LossParams
+  {
+    double lossfactor {};  ///< Linear loss factor [p.u.]
+    double resistance {};  ///< Line resistance [Ω]
+    double V2 {};  ///< Voltage squared [kV²]
+    int nseg {1};  ///< Number of piecewise-linear segments
+    bool has_linear_loss {};
+    bool has_quadratic_loss {};
+    bool has_loss {};  ///< has_linear_loss || has_quadratic_loss
+  };
+
+  /**
+   * @brief Result columns from adding flow variables for one direction.
+   */
+  struct DirectionResult
+  {
+    std::optional<ColIndex> flow_col;
+    std::optional<ColIndex> loss_col;
+    std::optional<RowIndex> capacity_row;
+  };
+
+  /** @brief Compute the stage-level loss model parameters. */
+  [[nodiscard]] LossParams compute_loss_params(const SystemContext& sc,
+                                               const StageLP& stage) const;
+
+  /**
+   * @brief Add piecewise-linear flow and loss variables for one direction.
+   *
+   * Creates nseg segment variables, one total-flow variable, one loss
+   * variable, and the linking / loss-tracking constraints for one flow
+   * direction of the quadratic loss model.
+   *
+   * @param dir "p" (A→B) or "n" (B→A) — used for LP variable names
+   */
+  DirectionResult add_quadratic_flow_direction(
+      SystemContext& sc,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BlockLP& block,
+      LinearProblem& lp,
+      SparseRow& sending_brow,
+      SparseRow& receiving_brow,
+      double block_tmax,
+      double block_tcost,
+      const LossParams& loss,
+      std::optional<ColIndex> capacity_col,
+      std::string_view dir);
+
+  /**
+   * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
+   *
+   * Creates a constraint row per block that links the voltage-angle
+   * difference to the total line flow:
+   *   θ_a − θ_b + x·fp − x·fn = 0
+   */
+  void add_kirchhoff_rows(SystemContext& sc,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          LinearProblem& lp,
+                          const BusLP& bus_a_lp,
+                          const BusLP& bus_b_lp,
+                          const BIndexHolder<ColIndex>& fpcols,
+                          const BIndexHolder<ColIndex>& fncols);
 };
 
 }  // namespace gtopt
