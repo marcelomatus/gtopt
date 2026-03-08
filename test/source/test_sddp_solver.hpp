@@ -236,7 +236,7 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
     CHECK(*result == 1);  // 1 scene resolved
   }
 
-  // Run SDDP with 5 iterations (matching the PLP comparison requirement)
+  // Run SDDP with 5 iterations to test convergence behaviour
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-3;

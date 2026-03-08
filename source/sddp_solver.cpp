@@ -192,17 +192,18 @@ auto SDDPSolver::backward_pass(SceneIndex scene_index,
     auto& source_li = source_sys.linear_interface();
     const auto& source_state = m_phase_states_[source_phase_index];
 
-    // The cut is:
+    // The Benders cut approximates the future cost function:
+    //
     //   α_{t-1} ≥ z_t + Σ_i rc_i · (x_{t-1,i} - v̂_i)
     //
-    // In row form:
-    //   α - Σ_i rc_i · x_i ≥ z - Σ_i rc_i · v̂_i
+    // In row form (added to phase t-1's LP):
+    //
+    //   α_{t-1} - Σ_i rc_i · x_{t-1,i} ≥ z_t - Σ_i rc_i · v̂_i
     //
     // where:
-    //   rc_i = reduced cost of the dependent column in phase t
-    //   x_i  = source column in phase t-1 (the variable the optimiser
-    //          controls, e.g. efin or capainst)
-    //   v̂_i  = trial value from the forward pass
+    //   rc_i      = reduced cost of the dependent column in phase t
+    //   x_{t-1,i} = source column in phase t-1 (e.g. efin or capainst)
+    //   v̂_i       = trial value from the forward pass
 
     SparseRow cut_row;
     cut_row.name = std::format("sddp_cut_ph{}_{}", pi, total_cuts);
@@ -278,7 +279,8 @@ bool SDDPSolver::apply_elastic_filter(
 
     if (std::abs(current_low - current_upp) < 1e-10) {
       // Variable is fixed; relax the bounds
-      const auto margin = std::max(1.0, std::abs(current_low) * 0.1);
+      const auto margin = std::max(
+          1.0, std::abs(current_low) * m_options_.elastic_margin_factor);
       li.set_col_low(dep_col, current_low - margin);
       li.set_col_upp(dep_col, current_upp + margin);
 
