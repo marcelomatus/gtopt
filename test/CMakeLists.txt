@@ -2,65 +2,48 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(gtoptTests LANGUAGES CXX)
 
+# ---- Shared cmake module path ----
+list(APPEND CMAKE_MODULE_PATH
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake_local"
+     "${CMAKE_CURRENT_LIST_DIR}/../cmake"
+)
+
+# ---- Build defaults ----
+include(BuildTypeDefault)
+include(CxxStandard)
+include(Ccache)
+
 # ---- Options ----
-
-set(CMAKE_CXX_STANDARD 26)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
-option(CPM_USE_LOCAL_PACKAGES "Try `find_package` first" ON)
-option(USE_CCACHE "use ccache" YES)
 
-cmake_policy(SET CMP0167 NEW)
 set(CPPCHECK_ARGS
     "--check-level=exhaustive;--suppress=returnDanglingLifetime;--suppress=internalAstError"
 )
-#set(USE_STATIC_ANALYZER "clang-tidy;cppcheck")
 
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# --- Import tools ----
-
-include(../cmake/tools.cmake)
+# ---- Compiler checks and tools ----
+include(CompilerCheck)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
 
 # ---- Dependencies ----
-
-include(../cmake/CPM.cmake)
+option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
 
 if(TEST_INSTALLED_VERSION)
   find_package(gtopt REQUIRED)
 elseif(NOT TARGET gtopt::gtopt)
-  CPMAddPackage(NAME gtopt SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+  CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 endif()
 
 CPMAddPackage("gh:doctest/doctest@2.4.12")
 
-include(../cmake/ClangFormat.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/ClangFormat.cmake")
+include(Solver)
 
-set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake_local
-                      ${CMAKE_CURRENT_LIST_DIR}/../cmake
-)
-
-set(COIN_ROOT_DIR
-  "/opt/coinor"
-  CACHE PATH "Coinor root directory"
-)
-set(CPLEX_ROOT_DIR
-  "/opt/cplex"
-  CACHE PATH "CPLEX root directory"
-)
-# Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
-set(COIN_SOLVER "AUTO" CACHE STRING "COIN-OR solver back-end")
-include(../cmake_local/Solver.cmake)
-
-
-# ---- Create binary ----
-
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp
-     ${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp
+# ---- Test executable ----
+file(GLOB sources CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp"
 )
 
 add_executable(${PROJECT_NAME} ${sources})
@@ -68,7 +51,6 @@ add_executable(${PROJECT_NAME} ${sources})
 target_include_directories(
   ${PROJECT_NAME} SYSTEM PUBLIC "${COIN_INCLUDE_DIRS}"
 )
-
 target_link_libraries(
   ${PROJECT_NAME}
   doctest::doctest
@@ -76,9 +58,8 @@ target_link_libraries(
   "${COIN_OSI_LIBRARIES};${SOLVER_LIBRARIES}"
 )
 
-# enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
-  include(../cmake_local/CompilerWarnings.cmake)
+  include(CompilerWarnings)
   target_set_warnings(${PROJECT_NAME})
   target_compile_definitions(
     ${PROJECT_NAME}
@@ -86,40 +67,19 @@ if(NOT TEST_INSTALLED_VERSION)
   )
 endif()
 
-# ---- Add gtoptTests ----
-
+# ---- Test registration ----
 enable_testing()
-
-include(ProcessorCount)
-ProcessorCount(NPROC)
-if(NPROC EQUAL 0)
-  set(NPROC 1)
-endif()
-list(APPEND CMAKE_CTEST_ARGUMENTS "--parallel" "${NPROC}")
-
-# Note: doctest and similar testing frameworks can automatically configure CMake
-# tests. For other testing frameworks add the tests target instead: add_test(NAME
-# ${PROJECT_NAME} COMMAND ${PROJECT_NAME})
-
-include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
+include(TestParallelism)
+include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(${PROJECT_NAME})
 
-# ---- code coverage ----
-
+# ---- Coverage ----
+include(Coverage)
 if(ENABLE_TEST_COVERAGE)
-  target_compile_options(
-    ${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage
-    -fprofile-update=atomic
-  )
-  target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
-
-  # Also instrument the gtopt library itself so that source/*.cpp files
-  # are included in the coverage report (not just the headers).
+  target_enable_coverage(${PROJECT_NAME})
+  # Also instrument the gtopt library itself so that source/*.cpp files are
+  # included in the coverage report (not just the headers).
   if(NOT TEST_INSTALLED_VERSION AND TARGET gtopt)
-    target_compile_options(
-      gtopt PRIVATE -O0 -g -fprofile-arcs -ftest-coverage
-      -fprofile-update=atomic
-    )
-    target_link_options(gtopt PRIVATE -fprofile-arcs -ftest-coverage)
+    target_enable_coverage(gtopt PRIVATE)
   endif()
 endif()

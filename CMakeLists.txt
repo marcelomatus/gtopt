@@ -8,13 +8,13 @@ project(
   LANGUAGES CXX
 )
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-cmake_policy(SET CMP0167 NEW)
-
-set(CMAKE_CXX_STANDARD 26)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+# ---- C++ standard, export compile commands, and cmake policy ----
+# Uses cmake_local/CxxStandard.cmake to centralise standard settings.
+list(APPEND CMAKE_MODULE_PATH
+     "${CMAKE_CURRENT_SOURCE_DIR}/cmake_local"
+     "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+)
+include(CxxStandard)
 
 include(cmake/CompilerCheck.cmake)
 
@@ -24,7 +24,7 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   message(FATAL_ERROR "In-source builds not allowed.")
 endif()
 
-# ---- Add dependencies via CPM ----
+# ---- CPM dependency manager ----
 
 set(CPM_SOURCE_CACHE "$ENV{HOME}/.cache/cpm")
 set(CPM_USE_LOCAL_PACKAGES ON)
@@ -34,9 +34,12 @@ set(CPPCHECK_ARGS "--check-level=exhaustive" "--suppress=returnDanglingLifetime"
                   "--suppress=internalAstError"
 )
 
-option(USE_CCACHE "use ccache" YES)
-
 include(cmake/CPM.cmake)
+
+# ---- ccache ----
+include(Ccache)
+
+# ---- Sanitizers / static analysis (optional) ----
 include(cmake/tools.cmake)
 
 include(cmake/ClangFormat.cmake)
@@ -56,13 +59,13 @@ if(GIT_PROGRAM)
   endif()
 endif()
 
-# External libraries
+# ---- External libraries ----
 
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.0
-  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO" # create an installable
+  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO"
   SYSTEM YES
   EXCLUDE_FROM_ALL YES
 )
@@ -84,18 +87,8 @@ CPMAddPackage(
 )
 
 # ---- Solver configuration ----
-
-set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_local ${PROJECT_SOURCE_DIR}/cmake)
-
-set(COIN_ROOT_DIR
-    "/opt/coinor"
-    CACHE PATH "Coinor root directory"
-)
-# Solver back-end: AUTO (default), CLP, CBC, or CPX (CPLEX)
-set(COIN_SOLVER
-    "AUTO"
-    CACHE STRING "COIN-OR solver back-end"
-)
+# COIN_ROOT_DIR, CPLEX_ROOT_DIR, COIN_SOLVER, and CMAKE_MODULE_PATH are
+# all managed inside cmake_local/Solver.cmake.
 include(cmake_local/Solver.cmake)
 
 # ---- External packages ----

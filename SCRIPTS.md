@@ -158,7 +158,7 @@ reduction options:
 
 > **[→ Full documentation](docs/scripts/plp2gtopt.md)**
 
-Converts a **PLP (PLPMAX/PLPOPT)** case directory to the gtopt JSON + Parquet
+Converts a **PLP** (*Programación de Largo Plazo*) case directory to the gtopt JSON + Parquet
 format.  Reads the standard PLP data files (`plpblo.dat`, `plpbar.dat`,
 `plpcosce.dat`, `plpcnfce.dat`, `plpcnfli.dat`, `plpdem.dat`, `plpeta.dat`,
 and others) and writes:

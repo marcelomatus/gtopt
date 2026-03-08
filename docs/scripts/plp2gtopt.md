@@ -1,6 +1,6 @@
 # plp2gtopt — PLP to gtopt Converter
 
-Converts a **PLP (PLPMAX/PLPOPT)** case directory into the gtopt JSON + Parquet
+Converts a **PLP** (*Programación de Largo Plazo*) case directory into the gtopt JSON + Parquet
 format, enabling legacy PLP hydro-thermal cases to be solved with the gtopt
 solver.
 
@@ -8,7 +8,7 @@ solver.
 
 ## Overview
 
-PLP (also known as PLPMAX or PLPOPT) is a widely used hydro-thermal scheduling
+PLP (*Programación de Largo Plazo*) is a widely used hydro-thermal scheduling
 tool in Latin America.  Its input data is stored as a collection of
 fixed-format `.dat` text files describing the power system topology, generator
 parameters, demand curves, hydrology, and maintenance schedules.
