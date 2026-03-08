@@ -8,7 +8,6 @@
  * This module implements input data access using Arrow and Parquet
  */
 
-#include <cstddef>
 #include <expected>
 #include <filesystem>
 

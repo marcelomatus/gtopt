@@ -10,13 +10,11 @@
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
-#include <gtopt/simulation.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 namespace gtopt
 {

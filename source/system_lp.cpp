@@ -13,8 +13,6 @@
  * extracting results.
  */
 
-#include <algorithm>
-
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>

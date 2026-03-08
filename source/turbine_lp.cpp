@@ -15,7 +15,6 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
-#include <spdlog/spdlog.h>
 
 namespace gtopt
 {

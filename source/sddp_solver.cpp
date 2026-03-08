@@ -120,13 +120,13 @@ SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
 void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
 {
   const auto num_phases =
-      static_cast<Index>(m_planning_lp_.simulation().phases().size());
+      static_cast<Index>(planning_lp().simulation().phases().size());
   m_phase_states_.resize(num_phases);
 
   // Add α (future-cost) variable to every phase except the last
   for (Index pi = 0; pi < num_phases - 1; ++pi) {
     auto& state = m_phase_states_[PhaseIndex {pi}];
-    auto& li = m_planning_lp_.system(scene, PhaseIndex {pi}).linear_interface();
+    auto& li = planning_lp().system(scene, PhaseIndex {pi}).linear_interface();
 
     state.alpha_col = li.add_col(std::format("sddp_alpha_phase_{}", pi),
                                  m_options_.alpha_min,
@@ -141,7 +141,7 @@ void SDDPSolver::initialize_alpha_variables(SceneIndex scene)
 
 void SDDPSolver::collect_state_variable_links(SceneIndex scene)
 {
-  const auto& sim = m_planning_lp_.simulation();
+  const auto& sim = planning_lp().simulation();
   const auto num_phases = static_cast<Index>(sim.phases().size());
 
   for (Index pi = 0; pi < num_phases; ++pi) {
@@ -149,7 +149,7 @@ void SDDPSolver::collect_state_variable_links(SceneIndex scene)
     auto& state = m_phase_states_[phase];
 
     // Read column bounds from the source phase LP
-    const auto& src_li = m_planning_lp_.system(scene, phase).linear_interface();
+    const auto& src_li = planning_lp().system(scene, phase).linear_interface();
     const auto col_lo = src_li.get_col_low();
     const auto col_hi = src_li.get_col_upp();
 
@@ -184,18 +184,19 @@ auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
     -> std::expected<double, Error>
 {
   const auto num_phases =
-      static_cast<Index>(m_planning_lp_.simulation().phases().size());
+      static_cast<Index>(planning_lp().simulation().phases().size());
   double total_opex = 0.0;
 
   for (Index pi = 0; pi < num_phases; ++pi) {
     const auto phase = PhaseIndex {pi};
-    auto& li = m_planning_lp_.system(scene, phase).linear_interface();
+    auto& li = planning_lp().system(scene, phase).linear_interface();
     auto& state = m_phase_states_[phase];
 
     // Propagate state variables from previous phase
     if (pi > 0) {
       auto& prev = m_phase_states_[PhaseIndex {pi - 1}];
-      const auto& prev_sol = m_planning_lp_.system(scene, PhaseIndex {pi - 1})
+      const auto& prev_sol = planning_lp()
+                                 .system(scene, PhaseIndex {pi - 1})
                                  .linear_interface()
                                  .get_col_sol();
       propagate_trial_values(prev.outgoing_links, prev_sol, li);
@@ -242,15 +243,15 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
   const auto num_phases =
-      static_cast<Index>(m_planning_lp_.simulation().phases().size());
+      static_cast<Index>(planning_lp().simulation().phases().size());
   int total_cuts = 0;
 
   for (Index pi = num_phases - 1; pi >= 1; --pi) {
     auto& target_li =
-        m_planning_lp_.system(scene, PhaseIndex {pi}).linear_interface();
+        planning_lp().system(scene, PhaseIndex {pi}).linear_interface();
 
     const auto src_phase = PhaseIndex {pi - 1};
-    auto& src_li = m_planning_lp_.system(scene, src_phase).linear_interface();
+    auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
     const auto& src_state = m_phase_states_[src_phase];
 
     // Build and add Benders cut
@@ -290,7 +291,7 @@ bool SDDPSolver::apply_elastic_filter(
     return false;
   }
 
-  auto& li = m_planning_lp_.system(scene, phase).linear_interface();
+  auto& li = planning_lp().system(scene, phase).linear_interface();
   const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
   const auto& prev_state = m_phase_states_[prev];
 
@@ -307,7 +308,7 @@ bool SDDPSolver::apply_elastic_filter(
 auto SDDPSolver::solve(const SolverOptions& lp_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
 {
-  const auto& sim = m_planning_lp_.simulation();
+  const auto& sim = planning_lp().simulation();
 
   if (sim.scenes().empty()) {
     return std::unexpected(Error {
@@ -325,7 +326,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   const auto scene = SceneIndex {0};
 
   // Bootstrap: solve all phases to establish baseline and state links
-  if (auto r = m_planning_lp_.resolve(); !r.has_value()) {
+  if (auto r = planning_lp().resolve(); !r.has_value()) {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
         .message = std::format("Initial PlanningLP solve failed: {}",
@@ -355,7 +356,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.upper_bound = *fwd;
 
     // Lower bound = phase 0 objective (includes α)
-    ir.lower_bound = m_planning_lp_.system(scene, PhaseIndex {0})
+    ir.lower_bound = planning_lp()
+                         .system(scene, PhaseIndex {0})
                          .linear_interface()
                          .get_obj_value();
 

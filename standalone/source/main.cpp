@@ -12,7 +12,6 @@
 #include <spdlog/cfg/argv.h>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/stopwatch.h>
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
