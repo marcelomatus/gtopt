@@ -117,6 +117,42 @@ private:
     std::optional<RowIndex> capacity_row;
   };
 
+  /**
+   * @brief LP label suffixes for one flow direction.
+   *
+   * Avoids dynamic string formatting — labels are plain string literals,
+   * consistent with the rest of the codebase (e.g. "fp", "fn", "capp").
+   */
+  struct DirectionLabels
+  {
+    std::string_view flow;  ///< "fp" or "fn"
+    std::string_view seg;  ///< "fps" or "fns"
+    std::string_view loss;  ///< "lsp" or "lsn"
+    std::string_view link;  ///< "lnkp" or "lnkn"
+    std::string_view loss_link;  ///< "lslp" or "lsln"
+    std::string_view cap;  ///< "capp" or "capn"
+  };
+
+  /// Labels for the positive (A→B) flow direction.
+  static constexpr DirectionLabels positive_labels {
+      .flow = "fp",
+      .seg = "fps",
+      .loss = "lsp",
+      .link = "lnkp",
+      .loss_link = "lslp",
+      .cap = "capp",
+  };
+
+  /// Labels for the negative (B→A) flow direction.
+  static constexpr DirectionLabels negative_labels {
+      .flow = "fn",
+      .seg = "fns",
+      .loss = "lsn",
+      .link = "lnkn",
+      .loss_link = "lsln",
+      .cap = "capn",
+  };
+
   /** @brief Compute the stage-level loss model parameters. */
   [[nodiscard]] LossParams compute_loss_params(const SystemContext& sc,
                                                const StageLP& stage) const;
@@ -128,7 +164,8 @@ private:
    * variable, and the linking / loss-tracking constraints for one flow
    * direction of the quadratic loss model.
    *
-   * @param dir "p" (A→B) or "n" (B→A) — used for LP variable names
+   * @param labels Label suffixes for this direction (positive_labels or
+   *               negative_labels)
    */
   DirectionResult add_quadratic_flow_direction(
       SystemContext& sc,
@@ -142,7 +179,7 @@ private:
       double block_tcost,
       const LossParams& loss,
       std::optional<ColIndex> capacity_col,
-      std::string_view dir);
+      const DirectionLabels& labels);
 
   /**
    * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
