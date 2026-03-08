@@ -184,7 +184,8 @@
                 "expcap": 200,
                 "expmod": 1,
                 "annual_capcost": 1000,
-                "use_state_variable": true
+                "use_state_variable": true,
+                "daily_cycle": false
             }
         ],
         "generator_profile_array": [

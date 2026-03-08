@@ -134,6 +134,13 @@ struct Battery
   /// batteries), each phase is solved independently with no state carry-over;
   /// an efin==eini constraint is added automatically to close each phase.
   OptBool use_state_variable {};
+
+  /// Enable PLP-style daily cycle operation: block durations in the energy
+  /// balance are scaled by 24/stage_duration so that emin/emax constraints
+  /// represent a daily cycle regardless of the stage length. Implies
+  /// decoupled stage/phase behaviour (use_state_variable forced false).
+  /// Default for batteries is true (enabled); can be disabled explicitly.
+  OptBool daily_cycle {};
 };
 
 }  // namespace gtopt

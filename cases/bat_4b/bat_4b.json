@@ -181,7 +181,8 @@
                 "pmax_discharge": 60,
                 "gcost": 0,
                 "capacity": 200,
-                "use_state_variable": true
+                "use_state_variable": true,
+                "daily_cycle": false
             }
         ],
         "generator_profile_array": [

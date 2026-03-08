@@ -98,6 +98,11 @@ struct Reservoir
   /// volume of the next. When false, an efin==eini constraint is added to close
   /// each phase independently.
   OptBool use_state_variable {};
+
+  /// Enable PLP-style daily cycle operation (see Battery::daily_cycle).
+  /// Default for reservoirs is false (disabled); can be enabled explicitly
+  /// for small reservoirs that operate on a daily cycle.
+  OptBool daily_cycle {};
 };
 
 }  // namespace gtopt

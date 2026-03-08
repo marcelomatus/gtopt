@@ -192,3 +192,41 @@ TEST_CASE("Reservoir use_state_variable JSON round-trip")  // NOLINT
     CHECK(res.use_state_variable.value_or(false) == true);
   }
 }
+
+TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
+{
+  SUBCASE("absent -> nullopt (LP default false)")
+  {
+    std::string_view json_data = R"({"uid":1,"name":"r1","junction":1})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    CHECK_FALSE(res.daily_cycle.has_value());
+    // Reservoir LP defaults to daily_cycle=false when not set
+    CHECK(res.daily_cycle.value_or(false) == false);
+  }
+
+  SUBCASE("explicit true -> enabled")
+  {
+    std::string_view json_data =
+        R"({"uid":1,"name":"r1","junction":1,"daily_cycle":true})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.daily_cycle.has_value());
+    CHECK(res.daily_cycle.value_or(false) == true);
+  }
+
+  SUBCASE("explicit false -> disabled")
+  {
+    std::string_view json_data =
+        R"({"uid":1,"name":"r1","junction":1,"daily_cycle":false})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    REQUIRE(res.daily_cycle.has_value());
+    CHECK(res.daily_cycle.value_or(true) == false);
+  }
+
+  SUBCASE("null -> nullopt")
+  {
+    std::string_view json_data =
+        R"({"uid":1,"name":"r1","junction":1,"daily_cycle":null})";
+    const Reservoir res = daw::json::from_json<Reservoir>(json_data);
+    CHECK_FALSE(res.daily_cycle.has_value());
+  }
+}

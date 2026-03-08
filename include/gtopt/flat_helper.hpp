@@ -308,6 +308,61 @@ public:
                       need_valids ? std::move(valid) : std::vector<bool> {}};
   }
 
+  /// flat() overload with an additional per-scenario-stage scale factor.
+  /// Used for daily-cycle dual back-scaling in StorageLP::add_to_output.
+  template<typename Projection,
+           typename Value = Index,
+           typename Factor = block_factor_matrix_t>
+  [[nodiscard]] constexpr auto flat(
+      const STBIndexHolder<Value>& hstb,
+      Projection proj,
+      const Factor& factor,
+      const STIndexHolder<double>& stage_scale) const
+  {
+    const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
+
+    std::vector<double> values(size);
+    std::vector<bool> valid(size, false);
+
+    bool need_values = false;
+    bool need_valids = false;
+
+    size_t idx = 0;
+    for (size_t count = 0;
+         const auto [sidx, suid] : std::views::enumerate(m_active_scenarios_))
+    {
+      for (const auto [tidx, tuid] : std::views::enumerate(m_active_stages_)) {
+        auto&& stiter = hstb.find({suid, tuid});
+        const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
+
+        // Per-stage scale – defaults to 1.0 when not present.
+        const auto ss_iter = stage_scale.find({suid, tuid});
+        const double ss =
+            (ss_iter != stage_scale.end()) ? ss_iter->second : 1.0;
+
+        for (const auto [bidx, buid] :
+             std::views::enumerate(m_active_stage_blocks_[tidx]))
+        {
+          if (has_stuid) {
+            const auto value = proj(stiter->second.at(buid));
+            values[idx] = factor.empty()
+                ? value * ss
+                : value * ss * factor[sidx][tidx][bidx];
+
+            valid[idx] = true;
+            ++count;
+
+            need_values = true;
+          }
+          need_valids |= count != ++idx;
+        }
+      }
+    }
+
+    return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                      need_valids ? std::move(valid) : std::vector<bool> {}};
+  }
+
   template<typename Projection,
            typename Value = Index,
            typename Factor = scenario_stage_factor_matrix_t>

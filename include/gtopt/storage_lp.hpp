@@ -23,6 +23,19 @@
 namespace gtopt
 {
 
+/// Options controlling storage LP behaviour for a single add_to_lp call.
+struct StorageOptions
+{
+  /// Propagate SoC/volume across phase/stage boundaries via StateVariables.
+  /// Forced to false when daily_cycle is true.
+  bool use_state_variable {true};
+
+  /// PLP daily-cycle mode: scale block durations in the energy balance by
+  /// 24/stage_duration and close each stage with efin==eini. Implies
+  /// use_state_variable=false.
+  bool daily_cycle {false};
+};
+
 template<typename Object>
 class StorageLP : public Object
 {
@@ -78,11 +91,16 @@ public:
                  const std::optional<ColIndex> capacity_col = {},
                  const std::optional<Real> drain_cost = {},
                  const std::optional<Real> drain_capacity = {},
-                 const bool use_state_variable = true)
+                 const StorageOptions opts = {})
   {
     if (!is_active(stage)) {
       return true;
     }
+
+    const bool effective_usv =
+        opts.daily_cycle ? false : opts.use_state_variable;
+    const double eff_block_scale =
+        opts.daily_cycle ? (24.0 / stage.duration()) : 1.0;
 
     const auto is_last_stage =
         stage.uid() == sc.simulation().stages().back().uid();
@@ -130,7 +148,7 @@ public:
           .lowb = stage_emin,
           .uppb = stage_emax,
       });
-      if (use_state_variable) {
+      if (effective_usv) {
         // Link as DependentVariable of the previous phase's efin StateVariable
         // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
         // can propagate the trial value.
@@ -183,18 +201,18 @@ public:
 
       vcols[buid] = vc;
 
-      vrow[prev_vc] = -(1 - (hour_loss * block.duration()));
+      vrow[prev_vc] = -(1 - (hour_loss * block.duration() * eff_block_scale));
       vrow[vc] = 1;
 
       const auto fout_col = fout_cols.at(buid);
       const auto finp_col = finp_cols.at(buid);
-      vrow[fout_col] =
-          +(flow_conversion_rate / fout_efficiency) * block.duration();
+      vrow[fout_col] = +(flow_conversion_rate / fout_efficiency)
+          * block.duration() * eff_block_scale;
 
       // if the input and output are the same, we only need one entry
       if (fout_col != finp_col) {
-        vrow[finp_col] =
-            -(flow_conversion_rate * finp_efficiency) * block.duration();
+        vrow[finp_col] = -(flow_conversion_rate * finp_efficiency)
+            * block.duration() * eff_block_scale;
       }
 
       if (drain_cost) {
@@ -206,7 +224,7 @@ public:
         });
 
         dcols[buid] = dcol;
-        vrow[dcol] = flow_conversion_rate * block.duration();
+        vrow[dcol] = flow_conversion_rate * block.duration() * eff_block_scale;
       }
 
       vrows[buid] = lp.add_row(std::move(vrow));
@@ -232,7 +250,7 @@ public:
     // that PlanningLP::resolve_scene_phases() and the SDDP solver can
     // discover and propagate the reservoir/battery state across phase
     // boundaries (gtopt-phase = PLP-stage).
-    if (use_state_variable) {
+    if (effective_usv) {
       sc.add_state_variable(
           StateVariable::key(scenario, stage, cname, uid(), "efin"), prev_vc);
     } else {
@@ -266,6 +284,9 @@ public:
     if (drain_cost) {
       drain_cols[st_key] = std::move(dcols);
     }
+    if (opts.daily_cycle) {
+      volumen_dc_scale[st_key] = 24.0 / stage.duration();
+    }
 
     if (!crows.empty()) {
       capacity_rows[st_key] = std::move(crows);
@@ -286,7 +307,7 @@ public:
 
     out.add_col_sol(cname, "volumen", pid, volumen_cols);
     out.add_col_cost(cname, "volumen", pid, volumen_cols);
-    out.add_row_dual(cname, "volumen", pid, volumen_rows);
+    out.add_row_dual(cname, "volumen", pid, volumen_rows, volumen_dc_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
@@ -310,6 +331,8 @@ private:
 
   STIndexHolder<ColIndex> eini_cols;
   STIndexHolder<ColIndex> efin_cols;
+
+  STIndexHolder<double> volumen_dc_scale;
 };
 
 }  // namespace gtopt

@@ -86,6 +86,10 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     brow[rc] = 1;
   }
 
+  const StorageOptions opts {
+      .use_state_variable = reservoir().use_state_variable.value_or(true),
+      .daily_cycle = reservoir().daily_cycle.value_or(false),
+  };
   if (!StorageBase::add_to_lp(cname,
                               sc,
                               scenario,
@@ -100,7 +104,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                               std::nullopt,
                               spillway_cost(),
                               spillway_capacity(),
-                              reservoir().use_state_variable.value_or(true)))
+                              opts))
   {
     SPDLOG_CRITICAL("Failed to add storage constraints for reservoir {}",
                     uid());

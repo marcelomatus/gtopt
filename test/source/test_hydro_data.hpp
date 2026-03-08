@@ -348,4 +348,28 @@ TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT
     REQUIRE(rsv.use_state_variable.has_value());
     CHECK(rsv.use_state_variable.value_or(false) == true);
   }
+
+  SUBCASE("daily_cycle default is nullopt")
+  {
+    const Reservoir rsv;
+    CHECK_FALSE(rsv.daily_cycle.has_value());
+    // Reservoir LP defaults to daily_cycle=false when not set
+    CHECK(rsv.daily_cycle.value_or(false) == false);
+  }
+
+  SUBCASE("daily_cycle can be set to true")
+  {
+    Reservoir rsv;
+    rsv.daily_cycle = true;
+    REQUIRE(rsv.daily_cycle.has_value());
+    CHECK(rsv.daily_cycle.value_or(false) == true);
+  }
+
+  SUBCASE("daily_cycle can be set to false")
+  {
+    Reservoir rsv;
+    rsv.daily_cycle = false;
+    REQUIRE(rsv.daily_cycle.has_value());
+    CHECK(rsv.daily_cycle.value_or(true) == false);
+  }
 }

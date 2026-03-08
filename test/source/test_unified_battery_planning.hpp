@@ -68,7 +68,8 @@ static constexpr std::string_view unified_battery_json = R"({
         "pmax_discharge": 60,
         "gcost": 0,
         "capacity": 200,
-        "use_state_variable": true
+        "use_state_variable": true,
+        "daily_cycle": false
       }
     ]
   }
@@ -180,7 +181,8 @@ static constexpr std::string_view traditional_battery_json = R"({
         "output_efficiency": 0.95,
         "emin": 0, "emax": 200,
         "capacity": 200,
-        "use_state_variable": true
+        "use_state_variable": true,
+        "daily_cycle": false
       }
     ],
     "converter_array": [
