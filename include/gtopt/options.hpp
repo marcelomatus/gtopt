@@ -54,6 +54,9 @@ struct Options
   OptReal reserve_fail_cost {};
   /** @brief Whether to model resistive line losses (default: true) */
   OptBool use_line_losses {};
+  /** @brief Default number of piecewise-linear segments for quadratic line
+   * losses (default: 1, meaning linear model only) */
+  OptInt loss_segments {};
   /** @brief Whether to apply DC Kirchhoff voltage-law constraints (default:
    * false) */
   OptBool use_kirchhoff {};
@@ -105,6 +108,7 @@ struct Options
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(use_line_losses, opts.use_line_losses);
+    merge_opt(loss_segments, opts.loss_segments);
     merge_opt(use_kirchhoff, opts.use_kirchhoff);
     merge_opt(use_single_bus, opts.use_single_bus);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);

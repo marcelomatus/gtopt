@@ -1,11 +1,19 @@
 /**
  * @file      line_lp.hpp
- * @brief     Header of
+ * @brief     LP formulation for transmission lines with linear and quadratic
+ *            loss models
  * @date      Sat Mar 29 19:02:33 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * This module
+ * This module defines the LineLP class which formulates transmission line
+ * constraints for the LP model. It supports two loss models:
+ *
+ * 1. **Linear model** (lossfactor): fixed percentage of flow is lost.
+ * 2. **Quadratic model** (resistance + voltage + loss_segments > 1):
+ *    piecewise-linear approximation of P_loss = R · f² / V², where
+ *    the flow range is divided into N equal segments with increasing
+ *    loss factors that approximate the quadratic loss curve.
  */
 
 #pragma once
@@ -71,9 +79,12 @@ private:
   OptTRealSched lossfactor;
   OptTRealSched reactance;
   OptTRealSched voltage;
+  OptTRealSched resistance;
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<ColIndex> lossp_cols;
+  STBIndexHolder<ColIndex> lossn_cols;
   STBIndexHolder<RowIndex> capacityp_rows;
   STBIndexHolder<RowIndex> capacityn_rows;
 
