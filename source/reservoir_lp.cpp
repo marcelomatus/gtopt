@@ -40,7 +40,7 @@ ReservoirLP::ReservoirLP(const Reservoir& preservoir, const InputContext& ic)
  * - Storage capacity limits
  * - Connection to junction balance equations
  */
-bool ReservoirLP::add_to_lp(const SystemContext& sc,
+bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const ScenarioLP& scenario,
                             const StageLP& stage,
                             LinearProblem& lp)
