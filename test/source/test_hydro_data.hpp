@@ -239,6 +239,10 @@ TEST_CASE("Reservoir construction and default values")
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
         == doctest::Approx(0.0036));
+
+  // use_state_variable defaults to nullopt (coupled by value_or(true))
+  CHECK_FALSE(reservoir.use_state_variable.has_value());
+  CHECK(reservoir.use_state_variable.value_or(true) == true);
 }
 
 TEST_CASE("Reservoir attribute assignment")
@@ -317,4 +321,31 @@ TEST_CASE("Reservoir with time-varying volume limits")
   CHECK((*emin_vec_ptr)[3] == doctest::Approx(9000.0));
   CHECK((*emax_vec_ptr)[0] == doctest::Approx(40000.0));
   CHECK((*emax_vec_ptr)[3] == doctest::Approx(42000.0));
+}
+
+TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT
+{
+  SUBCASE("default is nullopt (coupled by convention)")
+  {
+    const Reservoir rsv;
+    CHECK_FALSE(rsv.use_state_variable.has_value());
+    // value_or(true) reflects the reservoir-LP default: coupled
+    CHECK(rsv.use_state_variable.value_or(true) == true);
+  }
+
+  SUBCASE("can be set to false (decoupled)")
+  {
+    Reservoir rsv;
+    rsv.use_state_variable = false;
+    REQUIRE(rsv.use_state_variable.has_value());
+    CHECK(rsv.use_state_variable.value_or(true) == false);
+  }
+
+  SUBCASE("can be set to true (explicitly coupled)")
+  {
+    Reservoir rsv;
+    rsv.use_state_variable = true;
+    REQUIRE(rsv.use_state_variable.has_value());
+    CHECK(rsv.use_state_variable.value_or(false) == true);
+  }
 }

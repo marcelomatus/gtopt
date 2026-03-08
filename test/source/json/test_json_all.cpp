@@ -19,6 +19,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
@@ -44,6 +45,7 @@
 using namespace gtopt;
 
 #include "test_basic_types_json.hpp"
+#include "test_battery_json.hpp"
 #include "test_bus_json.hpp"
 #include "test_demand_json.hpp"
 #include "test_demand_profile_json.hpp"

@@ -31,7 +31,9 @@ struct json_data_contract<Reservoir>
       json_number_null<"fmin", OptReal>,
       json_number_null<"fmax", OptReal>,
       json_number_null<"vol_scale", OptReal>,
-      json_number_null<"flow_conversion_rate", OptReal>>;
+      json_number_null<"flow_conversion_rate", OptReal>,
+      json_bool_null<"use_state_variable", OptBool>  ///< Stage/phase coupling
+      >;
 
   constexpr static auto to_json_data(Reservoir const& reservoir)
   {
@@ -51,7 +53,8 @@ struct json_data_contract<Reservoir>
                                  reservoir.fmin,
                                  reservoir.fmax,
                                  reservoir.vol_scale,
-                                 reservoir.flow_conversion_rate);
+                                 reservoir.flow_conversion_rate,
+                                 reservoir.use_state_variable);
   }
 };
 }  // namespace daw::json

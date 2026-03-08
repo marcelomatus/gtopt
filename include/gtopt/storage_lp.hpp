@@ -77,7 +77,8 @@ public:
                  const double stage_capacity,
                  const std::optional<ColIndex> capacity_col = {},
                  const std::optional<Real> drain_cost = {},
-                 const std::optional<Real> drain_capacity = {})
+                 const std::optional<Real> drain_capacity = {},
+                 const bool use_state_variable = true)
   {
     if (!is_active(stage)) {
       return true;
@@ -102,10 +103,13 @@ public:
     // Determine the initial-volume column (vicol / eini):
     //   • No previous stage (first stage of phase 0): create a fresh eini col.
     //   • Previous stage in the SAME phase: reuse its efin col (shared LP).
-    //   • Previous stage in a DIFFERENT phase (SDDP boundary): create a new
-    //     eini col and register it as a dependent of the previous phase's
-    //     efin StateVariable so that PlanningLP::resolve_scene_phases() and
-    //     the SDDP forward pass can propagate the trial value.
+    //   • Previous stage in a DIFFERENT phase (SDDP boundary):
+    //     - use_state_variable=true:  create a new eini col and register it as
+    //       a DependentVariable of the previous phase's efin StateVariable so
+    //       that PlanningLP::resolve_scene_phases() and the SDDP forward pass
+    //       can propagate the trial value.
+    //     - use_state_variable=false: create a new eini col without linking;
+    //       an efin==eini constraint is added below to close the phase.
     ColIndex vicol;
     if (prev_stage == nullptr) {
       // First stage of the first phase – create the initial volume column.
@@ -120,25 +124,31 @@ public:
       vicol = efin_col_at(scenario, *prev_stage);
     } else {
       // Cross-phase boundary (gtopt-phase = PLP-stage for SDDP).
-      // Create a new eini column for this phase's LP and link it as a
-      // DependentVariable of the previous phase's efin StateVariable.
+      // Create a new eini column for this phase's LP.
       vicol = lp.add_col({
           .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
           .lowb = stage_emin,
           .uppb = stage_emax,
       });
-      const auto efin_key =
-          StateVariable::key(scenario, *prev_stage, cname, uid(), "efin");
-      if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
-        prev_efin->get().add_dependent_variable(scenario, stage, vicol);
-      } else {
-        SPDLOG_WARN(
-            "StorageLP: no efin StateVariable found for cross-phase eini "
-            "linking (class='{}' uid={} phase boundary). "
-            "Reservoir/battery state will NOT be coupled across this phase.",
-            cname,
-            static_cast<int>(uid()));
+      if (use_state_variable) {
+        // Link as DependentVariable of the previous phase's efin StateVariable
+        // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
+        // can propagate the trial value.
+        const auto efin_key =
+            StateVariable::key(scenario, *prev_stage, cname, uid(), "efin");
+        if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
+          prev_efin->get().add_dependent_variable(scenario, stage, vicol);
+        } else {
+          SPDLOG_WARN(
+              "StorageLP: no efin StateVariable found for cross-phase eini "
+              "linking (class='{}' uid={} phase boundary). "
+              "Reservoir/battery state will NOT be coupled across this phase.",
+              cname,
+              static_cast<int>(uid()));
+        }
       }
+      // If !use_state_variable: eini is free (within emin/emax bounds).
+      // An efin==eini close constraint is added after the block loop below.
     }
 
     const auto& blocks = stage.blocks();
@@ -222,8 +232,30 @@ public:
     // that PlanningLP::resolve_scene_phases() and the SDDP solver can
     // discover and propagate the reservoir/battery state across phase
     // boundaries (gtopt-phase = PLP-stage).
-    sc.add_state_variable(
-        StateVariable::key(scenario, stage, cname, uid(), "efin"), prev_vc);
+    if (use_state_variable) {
+      sc.add_state_variable(
+          StateVariable::key(scenario, stage, cname, uid(), "efin"), prev_vc);
+    } else {
+      // No cross-stage/phase state coupling: add efin == eini constraint so
+      // that each independent segment (phase or single-stage horizon) is
+      // "closed" – i.e., the storage ends at the same energy level it started.
+      //
+      // The constraint is added for EVERY stage in the phase (not just the
+      // first or last) because within-phase stages share efin columns:
+      //   Stage N vicol = efin_{N-1}  (column reuse, not a new variable).
+      // Adding efin_N == vicol_N for each N creates the chain:
+      //   efin_1 == eini, efin_2 == efin_1 == eini, …
+      // so the entire phase is closed without needing to detect the last stage.
+      auto close_row =
+          SparseRow {
+              .name = sc.lp_label(scenario, stage, cname, "eclose", uid()),
+          }
+              .equal(0);
+      close_row[prev_vc] = 1;
+      close_row[vicol] = -1;
+      [[maybe_unused]] const auto close_row_idx =
+          lp.add_row(std::move(close_row));
+    }
 
     // storing the indices for this scenario and stage
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
