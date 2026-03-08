@@ -23,6 +23,7 @@ TEST_CASE("Line construction and default values")
   CHECK_FALSE(line.resistance.has_value());
   CHECK_FALSE(line.reactance.has_value());
   CHECK_FALSE(line.lossfactor.has_value());
+  CHECK_FALSE(line.use_line_losses.has_value());
   CHECK_FALSE(line.loss_segments.has_value());
   CHECK_FALSE(line.tmax_ba.has_value());
   CHECK_FALSE(line.tmax_ab.has_value());
@@ -747,4 +748,157 @@ TEST_CASE(
   const auto obj = lp.get_obj_value();
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);
+}
+
+TEST_CASE("LineLP - per-line use_line_losses overrides global option")
+{
+  using namespace gtopt;
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  // Sub-case A: global use_line_losses=false, per-line use_line_losses=true
+  // → line-level setting enables quadratic losses despite global=false
+  {
+    const Array<Line> line_array = {
+        {
+            .uid = Uid {1},
+            .name = "l1",
+            .bus_a = Uid {1},
+            .bus_b = Uid {2},
+            .voltage = 100.0,
+            .resistance = 0.01,
+            .use_line_losses = true,  // per-line override: enable losses
+            .loss_segments = 3,
+            .tmax_ba = 200.0,
+            .tmax_ab = 200.0,
+            .capacity = 200.0,
+        },
+    };
+
+    Options opts;
+    opts.use_single_bus = false;
+    opts.use_kirchhoff = false;
+    opts.use_line_losses = false;  // global: disabled
+
+    const System system = {
+        .name = "PerLineEnableLosses",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array,
+    };
+
+    const OptionsLP options_a(opts);
+    SimulationLP simulation_lp(simulation, options_a);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // Per-line losses enabled: objective > 1.0 (loss overhead)
+    const auto obj = lp.get_obj_value();
+    CHECK(obj > 1.0);
+    CHECK(obj < 1.01);
+  }
+
+  // Sub-case B: global use_line_losses=true, per-line use_line_losses=false
+  // → line-level setting disables quadratic losses despite global=true
+  {
+    const Array<Line> line_array = {
+        {
+            .uid = Uid {1},
+            .name = "l1",
+            .bus_a = Uid {1},
+            .bus_b = Uid {2},
+            .voltage = 100.0,
+            .resistance = 0.01,
+            .use_line_losses = false,  // per-line override: disable losses
+            .loss_segments = 3,
+            .tmax_ba = 200.0,
+            .tmax_ab = 200.0,
+            .capacity = 200.0,
+        },
+    };
+
+    Options opts;
+    opts.use_single_bus = false;
+    opts.use_kirchhoff = false;
+    opts.use_line_losses = true;  // global: enabled
+    opts.loss_segments = 3;
+
+    const System system = {
+        .name = "PerLineDisableLosses",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array,
+    };
+
+    const OptionsLP options_b(opts);
+    SimulationLP simulation_lp(simulation, options_b);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // Per-line losses disabled: objective = exactly 1.0 (no loss overhead)
+    const auto obj = lp.get_obj_value();
+    CHECK(obj == doctest::Approx(1.0));
+  }
 }
