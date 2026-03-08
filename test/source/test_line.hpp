@@ -23,6 +23,7 @@ TEST_CASE("Line construction and default values")
   CHECK_FALSE(line.resistance.has_value());
   CHECK_FALSE(line.reactance.has_value());
   CHECK_FALSE(line.lossfactor.has_value());
+  CHECK_FALSE(line.loss_segments.has_value());
   CHECK_FALSE(line.tmax_ba.has_value());
   CHECK_FALSE(line.tmax_ab.has_value());
   CHECK_FALSE(line.tcost.has_value());
@@ -435,4 +436,314 @@ TEST_CASE("LineLP - line losses (lossfactor > 0)")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
+{
+  // Line with resistance + voltage + loss_segments > 1 exercises the
+  // piecewise-linear quadratic loss model: P_loss ≈ R·f²/V²
+  // This test uses 3 segments on a line with R=0.01, V=100kV, tmax=200MW.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          .loss_segments = 3,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+
+  const System system = {
+      .name = "QuadraticLossTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_ql(opts);
+  SimulationLP simulation_lp(simulation, options_ql);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // The generation cost should reflect the quadratic loss:
+  // demand = 100 MW, so gen must produce 100 + loss(100).
+  // loss(100) = R·100²/V² = 0.01·10000/10000 = 0.01 MW
+  // Total gen ≈ 100.01 MW, cost ≈ 100.01 · 10 = 1000.1
+  // The objective is 1000.1 / scale_objective(1000) ≈ 1.0001
+  const auto obj = lp.get_obj_value();
+  CHECK(obj > 1.0);
+  CHECK(obj < 1.01);
+}
+
+TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
+{
+  // Verify quadratic loss model works together with DC power flow constraints
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          .reactance = 0.05,
+          .loss_segments = 4,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = true;
+  opts.use_line_losses = true;
+
+  const System system = {
+      .name = "QuadLossKirchhoff",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_qk(opts);
+  SimulationLP simulation_lp(simulation, options_qk);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+TEST_CASE(
+    "LineLP - global loss_segments option is used when line has no override")
+{
+  // When the line does not set loss_segments, the global option value is used.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.01,
+          // No loss_segments here → uses global option
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+  opts.loss_segments = 3;  // Global: 3 segments
+
+  const System system = {
+      .name = "GlobalSegTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const OptionsLP options_gs(opts);
+  SimulationLP simulation_lp(simulation, options_gs);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // With quadratic losses, objective should be slightly above 1.0
+  // (100 MW demand + small loss at gcost=10, scaled by 1000)
+  const auto obj = lp.get_obj_value();
+  CHECK(obj > 1.0);
+  CHECK(obj < 1.01);
 }
