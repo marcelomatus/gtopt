@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <format>
 #include <ranges>
 #include <string>
 
@@ -87,7 +86,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
     double block_tcost,
     const LossParams& loss,
     std::optional<ColIndex> capacity_col,
-    std::string_view dir)
+    const DirectionLabels& labels)
 {
   static constexpr std::string_view cname = ClassName.short_name();
 
@@ -100,8 +99,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
 
   // Total flow variable (for Kirchhoff, capacity, and output)
   const auto flow_col = lp.add_col({
-      .name = sc.lp_label(
-          scenario, stage, block, cname, std::format("f{}", dir), uid()),
+      .name = sc.lp_label(scenario, stage, block, cname, labels.flow, uid()),
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
@@ -113,8 +111,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .name = sc.lp_label(
-              scenario, stage, block, cname, std::format("lnk{}", dir), uid()),
+          .name =
+              sc.lp_label(scenario, stage, block, cname, labels.link, uid()),
       }
           .equal(0);
   linkrow.reserve(nseg + 1);
@@ -122,8 +120,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
 
   // Loss variable: tracks total power lost
   const auto loss_col = lp.add_col({
-      .name = sc.lp_label(
-          scenario, stage, block, cname, std::format("ls{}", dir), uid()),
+      .name = sc.lp_label(scenario, stage, block, cname, labels.loss, uid()),
       .lowb = 0,
       .uppb = CoinDblMax,
   });
@@ -132,7 +129,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   auto lossrow =
       SparseRow {
           .name = sc.lp_label(
-              scenario, stage, block, cname, std::format("lsl{}", dir), uid()),
+              scenario, stage, block, cname, labels.loss_link, uid()),
       }
           .equal(0);
   lossrow.reserve(nseg + 1);
@@ -148,9 +145,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
     const double loss_k = seg_width * loss.resistance * (2 * k - 1) / loss.V2;
 
     const auto seg_col = lp.add_col({
-        .name =
-            sc.lp_label(
-                scenario, stage, block, cname, std::format("f{}s", dir), uid())
+        .name = sc.lp_label(scenario, stage, block, cname, labels.seg, uid())
             + std::to_string(k),
         .lowb = 0,
         .uppb = seg_width,
@@ -168,12 +163,8 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
   if (capacity_col) {
     auto cprow =
         SparseRow {
-            .name = sc.lp_label(scenario,
-                                stage,
-                                block,
-                                cname,
-                                std::format("cap{}", dir),
-                                uid()),
+            .name =
+                sc.lp_label(scenario, stage, block, cname, labels.cap, uid()),
         }
             .greater_equal(0);
     cprow[*capacity_col] = 1;
@@ -315,7 +306,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                                            block_tcost,
                                                            loss,
                                                            capacity_col,
-                                                           "p");
+                                                           positive_labels);
 
       if (fp) {
         fpcols[buid] = *fp;
@@ -339,7 +330,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                                            block_tcost,
                                                            loss,
                                                            capacity_col,
-                                                           "n");
+                                                           negative_labels);
 
       if (fn) {
         fncols[buid] = *fn;
