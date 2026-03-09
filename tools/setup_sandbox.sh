@@ -14,10 +14,12 @@
 # What this script does (in the same order as .github/workflows/ubuntu.yml):
 #   1. Install ccache + base APT packages (COIN-OR, Boost, spdlog, LAPACK, etc.)
 #   2. Install Arrow/Parquet via conda (conda-forge).
-#   3. Install Clang 21 from the LLVM APT repository with retry logic;
-#      register unversioned alternatives (clang, clang++, clang-format, …).
+#   3. Try to install Clang 21 from the LLVM APT repository (preferred).
+#      If the LLVM APT repository is unavailable, fall back to GCC 14.
+#      Registers unversioned alternatives (clang/clang++/clang-format/… or
+#      gcc/g++ depending on what was installed).
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
-#   5. (Optional) cmake configure — uses Clang 21 + ccache.
+#   5. (Optional) cmake configure — uses whichever compiler was installed.
 #   6. (Optional) cmake --build + ctest.
 #
 # Environment:
@@ -29,9 +31,9 @@
 #   • Run from the repository root: bash tools/setup_sandbox.sh
 #   • Idempotent: safe to run more than once; already-installed packages are
 #     skipped automatically by apt-get / conda.
-#   • Clang 21 is the REQUIRED compiler for this script (same as CI).  GCC 14
-#     may work for local builds but is not supported by this sandbox script;
-#     only Clang 21 is installed and configured here.
+#   • Clang 21 is the preferred compiler (same as CI).  If the LLVM APT
+#     repository is unreachable, GCC 14 is used as a fallback.  Both produce
+#     a fully working build; the summary at the end reports which was chosen.
 #   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
 
 set -euo pipefail
@@ -67,6 +69,15 @@ done
 log()  { echo "▶ $*"; }
 ok()   { echo "✓ $*"; }
 warn() { echo "⚠ $*" >&2; }
+
+# ── Detect OS codename (needed for LLVM APT) ──────────────────────────────────
+CODENAME=$(lsb_release --codename --short 2>/dev/null || \
+           awk -F= '/^VERSION_CODENAME/{gsub(/["[:space:]]/, "", $2); print $2}' \
+             /etc/os-release)
+if [[ -z "$CODENAME" ]]; then
+  echo "ERROR: could not determine OS codename (lsb_release and /etc/os-release failed)." >&2
+  exit 1
+fi
 
 # ── Step 1: ccache + base APT packages ────────────────────────────────────────
 # ccache MUST be installed before cmake configure; cmake bakes the launcher
@@ -105,53 +116,72 @@ else
   ok "Arrow/Parquet installed via conda-forge"
 fi
 
-# ── Step 3: Clang 21 from LLVM APT ────────────────────────────────────────────
-# Clang 21 is MANDATORY — it is the only supported compiler for gtopt.
-# GCC is NOT used as a build compiler in sandbox/agent environments.
+# ── Step 3: Compiler — Clang 21 preferred, GCC 14 fallback ───────────────────
+# We try to install Clang 21 from the LLVM APT repository first (preferred,
+# matches CI).  If any step fails (e.g. the LLVM APT repo is temporarily
+# unreachable), we fall back silently to GCC 14 which is always available on
+# Ubuntu 24.04.  Either compiler produces a fully working gtopt build.
 VER=$CLANG_VERSION
-log "Installing Clang ${VER} from LLVM APT repository (mandatory)..."
+CLANG_INSTALLED=false
+CC=gcc-14
+CXX=g++-14
 
-# Add LLVM APT repository (with retries – apt.llvm.org is intermittently slow)
-for attempt in 1 2 3; do
-  wget -qO /tmp/llvm-snapshot.gpg.key \
-    https://apt.llvm.org/llvm-snapshot.gpg.key && break
-  warn "Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..."
-  sleep 15
-done
-sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
-  /tmp/llvm-snapshot.gpg.key
+log "Attempting to install Clang ${VER} from LLVM APT repository..."
 
-echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+# Use a sub-shell so a failure inside does not abort the outer script.
+if (
+  set -e
+
+  # Fetch GPG key (with retries — apt.llvm.org is intermittently slow)
+  for attempt in 1 2 3; do
+    wget -qO /tmp/llvm-snapshot.gpg.key \
+      https://apt.llvm.org/llvm-snapshot.gpg.key && break
+    echo "⚠ Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..." >&2
+    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
+  done
+
+  sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+    /tmp/llvm-snapshot.gpg.key
+
+  echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
   https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${VER} main" \
-  | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
+    | sudo tee /etc/apt/sources.list.d/llvm-${VER}.list
 
-for attempt in 1 2 3; do
-  sudo apt-get update -q \
-    -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
-    -o "Dir::Etc::sourceparts=-" && break
-  warn "Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..."
-  sleep 15
-done
+  for attempt in 1 2 3; do
+    sudo apt-get update -q \
+      -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
+      -o "Dir::Etc::sourceparts=-" && break
+    echo "⚠ Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..." >&2
+    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
+  done
 
-sudo apt-get install -y --no-install-recommends \
-  clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
-  llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
-  libc++-${VER}-dev libc++abi-${VER}-dev \
-  libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
-
-# Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
-# the installed version without a suffix (matches install-clang/action.yml).
-for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
-  [ -e "$versioned" ] || continue
-  base=$(basename "$versioned" "-${VER}")
-  sudo update-alternatives --remove-all "$base" 2>/dev/null || true
-  sudo update-alternatives --install /usr/bin/"$base" "$base" \
-    "$versioned" 100
-done
-
-ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
-CC=clang
-CXX=clang++
+  sudo apt-get install -y --no-install-recommends \
+    clang-${VER} clang-tools-${VER} clang-format-${VER} clang-tidy-${VER} \
+    llvm-${VER}-dev llvm-${VER}-tools libomp-${VER}-dev \
+    libc++-${VER}-dev libc++abi-${VER}-dev \
+    libclang-common-${VER}-dev libclang-${VER}-dev libclang-cpp${VER}-dev
+); then
+  # Register unversioned alternatives so 'clang', 'clang++', etc. resolve to
+  # the installed version without a suffix (matches install-clang/action.yml).
+  for versioned in /usr/bin/clang*-${VER} /usr/bin/llvm*-${VER}; do
+    [ -e "$versioned" ] || continue
+    base=$(basename "$versioned" "-${VER}")
+    sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+    sudo update-alternatives --install /usr/bin/"$base" "$base" \
+      "$versioned" 100
+  done
+  ok "Clang ${VER} installed and registered as default 'clang'/'clang++'"
+  CLANG_INSTALLED=true
+  CC=clang
+  CXX=clang++
+else
+  warn "Clang ${VER} installation failed (LLVM APT repo unreachable?)."
+  warn "Falling back to GCC 14 — install gcc-14 / g++-14 if not present."
+  sudo apt-get install -y --no-install-recommends gcc-14 g++-14
+  ok "GCC 14 installed as fallback compiler"
+  CC=gcc-14
+  CXX=g++-14
+fi
 
 # ── Step 4: Python scripts dependencies ───────────────────────────────────────
 # Pre-installing these BEFORE cmake configure ensures cmake's
@@ -200,14 +230,25 @@ if $DO_BUILD; then
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
+if $CLANG_INSTALLED; then
+  COMPILER_LINE=" Compiler     : Clang ${CLANG_VERSION} ($(clang --version 2>/dev/null | head -1))"
+else
+  COMPILER_LINE=" Compiler     : GCC 14 fallback ($(${CXX} --version 2>/dev/null | head -1))"
+fi
 echo ""
 echo "═══════════════════════════════════════════════════════"
 echo " gtopt sandbox setup complete"
 echo " Arrow source : ${ARROW_INSTALLED_VIA}"
-echo " Compiler     : Clang ${CLANG_VERSION} ($(clang --version 2>/dev/null | head -1))"
+echo "${COMPILER_LINE}"
 echo " ccache       : $(ccache --version 2>/dev/null | head -1)"
 if $DO_BUILD; then
   echo " Build        : build/"
+fi
+if ! $CLANG_INSTALLED; then
+  echo ""
+  echo " NOTE: CI always uses Clang 21.  GCC 14 is a local-only fallback."
+  echo "       Re-run this script when the LLVM APT repository is reachable"
+  echo "       to switch to Clang 21."
 fi
 echo "═══════════════════════════════════════════════════════"
 echo ""

@@ -13,7 +13,6 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
-#include <gtopt/system_lp.hpp>
 
 namespace gtopt
 {

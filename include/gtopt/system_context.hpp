@@ -33,6 +33,8 @@
 
 #pragma once
 
+#include <cassert>
+#include <type_traits>
 #include <utility>
 
 #include <gtopt/block_lp.hpp>
@@ -43,6 +45,7 @@
 #include <gtopt/index_holder.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_element_types.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/overload.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -54,7 +57,6 @@
 namespace gtopt
 {
 
-class BusLP;
 class SystemLP;
 class SimulationLP;
 
@@ -195,13 +197,15 @@ public:
   template<typename Element, template<typename> class Id>
   [[nodiscard]] constexpr auto&& element(const Id<Element>& id) const
   {
-    return get_element(*this, id);
+    // Qualify with gtopt:: so the free function is found instead of the
+    // member get_element() overloads that would otherwise shadow it.
+    return gtopt::get_element(*this, id);
   }
 
   template<typename Element, template<typename> class Id>
   constexpr auto element_index(const Id<Element>& id) const
   {
-    return get_element_index(*this, id);
+    return gtopt::get_element_index(*this, id);
   }
 
   template<typename Element>
@@ -219,6 +223,43 @@ public:
   [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
       -> const BusLP&;
 
+  //
+  //  Fully-inline element accessors — use void* dispatch via m_collection_ptrs_
+  //  (populated in the constructor, which includes system_lp.hpp) so that
+  //  *_lp.cpp call sites need neither system_lp.hpp nor explicit
+  //  instantiations.
+  //
+  //  BusLP ObjectSingleId: routes through get_bus() to honour the single-bus
+  //  override.  All other ObjectSingleId and all ElementIndex overloads cast
+  //  m_collection_ptrs_[lp_type_index_v<Element>] to Collection<Element>*.
+  //
+
+  template<typename Element>
+  [[nodiscard]] auto get_element(const ObjectSingleId<Element>& id) const
+      -> const Element&
+  {
+    if constexpr (std::is_same_v<Element, BusLP>) {
+      return get_bus(id);
+    } else {
+      constexpr auto idx = lp_type_index_v<Element>;
+      assert(m_collection_ptrs_[idx] != nullptr  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+             && "Collection pointer not initialized — SystemContext constructed before SystemLP?");
+      return static_cast<const Collection<Element>*>(m_collection_ptrs_[idx])
+          ->element(id);
+    }
+  }
+
+  template<typename Element>
+  [[nodiscard]] auto get_element(const ElementIndex<Element>& id) const
+      -> const Element&
+  {
+    constexpr auto idx = lp_type_index_v<Element>;
+    assert(m_collection_ptrs_[idx] != nullptr  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+           && "Collection pointer not initialized — SystemContext constructed before SystemLP?");
+    return static_cast<const Collection<Element>*>(m_collection_ptrs_[idx])
+        ->element(id);
+  }
+
   // Methods to handle the state_variables
   template<typename Key>
   constexpr auto add_state_variable(Key&& key, ColIndex col)
@@ -235,6 +276,12 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
+
+  // One void* per LP element type; each points to the Collection<T> inside the
+  // owning SystemLP.  Index for type T is lp_type_index_v<T>.
+  // Populated once in the constructor (system_context.cpp includes
+  // system_lp.hpp).
+  lp_collection_ptrs_t m_collection_ptrs_ {};
 };
 
 }  // namespace gtopt
