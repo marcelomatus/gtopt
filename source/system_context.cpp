@@ -86,11 +86,11 @@ auto SystemContext::get_element(const ElementIndex<Element>& id) const
 // ObjectSingleId<BusLP> is handled by the explicit specialisation above;
 // the INSTANTIATE_GET_ELEMENT(BusLP) line still generates the ElementIndex
 // instantiation (the ObjectSingleId one is a no-op redeclaration, harmless).
-#define INSTANTIATE_GET_ELEMENT(T)                                             \
-  template auto SystemContext::get_element(const ObjectSingleId<T>&) const    \
-      ->const T&;                                                              \
-  template auto SystemContext::get_element(const ElementIndex<T>&) const      \
-      ->const T&;
+#define INSTANTIATE_GET_ELEMENT(T) \
+  template auto SystemContext::get_element(const ObjectSingleId<T>&) const \
+      -> const T&; \
+  template auto SystemContext::get_element(const ElementIndex<T>&) const \
+      -> const T&;
 
 INSTANTIATE_GET_ELEMENT(BusLP)
 INSTANTIATE_GET_ELEMENT(BatteryLP)
