@@ -10,8 +10,6 @@
 
 #pragma once
 
-#include <limits>
-
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -107,7 +105,7 @@ public:
     const auto& blocks = stage.blocks();
     const bool use_daily_cycle = opts.daily_cycle && stage.duration() > 24.0
         && (stage.duration() / static_cast<double>(blocks.size())) > 1.0;
-    const double eff_block_scale =
+    const double dc_stage_scale =
         use_daily_cycle ? (24.0 / stage.duration()) : 1.0;
 
     const auto is_last_stage =
@@ -207,18 +205,18 @@ public:
 
       ecols[buid] = ec;
 
-      erow[prev_vc] = -(1 - (hour_loss * block.duration() * eff_block_scale));
+      erow[prev_vc] = -(1 - (hour_loss * block.duration() * dc_stage_scale));
       erow[ec] = 1;
 
       const auto fout_col = fout_cols.at(buid);
       const auto finp_col = finp_cols.at(buid);
       erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-          * block.duration() * eff_block_scale;
+          * block.duration() * dc_stage_scale;
 
       // if the input and output are the same, we only need one entry
       if (fout_col != finp_col) {
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-            * block.duration() * eff_block_scale;
+            * block.duration() * dc_stage_scale;
       }
 
       if (drain_cost) {
@@ -230,7 +228,7 @@ public:
         });
 
         dcols[buid] = dcol;
-        erow[dcol] = flow_conversion_rate * block.duration() * eff_block_scale;
+        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale;
       }
 
       erows[buid] = lp.add_row(std::move(erow));
@@ -291,7 +289,7 @@ public:
       drain_cols[st_key] = std::move(dcols);
     }
     if (use_daily_cycle) {
-      daily_cycle_scale[st_key] = 24.0 / stage.duration();
+      daily_cycle_scale[st_key] = dc_stage_scale;
     }
 
     if (!crows.empty()) {
