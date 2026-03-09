@@ -30,6 +30,16 @@ SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
     , m_simulation_(simulation)
     , m_system_(system)
 {
+  // Populate m_collection_ptrs_: one void* per LP element type.
+  // std::apply decomposes the collections tuple, and the C++20 template
+  // lambda matches each Collection<Ts> by type.  lp_type_index_v<Ts> maps
+  // each element type to its slot in m_collection_ptrs_, so the ordering in
+  // SystemLP::collections_t need not match lp_element_types_t.
+  // The fold `((ptr[i] = &coll), ...)` stores each collection's address into
+  // the compile-time-indexed slot; the parens ensure sequenced evaluation.
+  std::apply([this]<typename... Ts>(const Collection<Ts>&... colls) noexcept
+             { ((m_collection_ptrs_[lp_type_index_v<Ts>] = &colls), ...); },
+             system.collections());
 }
 
 auto SystemContext::get_bus_index(const ObjectSingleId<BusLP>& id) const
@@ -49,69 +59,5 @@ auto SystemContext::get_bus(const ObjectSingleId<BusLP>& id) const
     throw;
   }
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Template definitions for get_element()
-//
-// Kept in this TU (which includes system_lp.hpp) so that *_lp.cpp call sites
-// only need the forward declarations + explicit instantiation references from
-// system_context.hpp, never system_lp.hpp itself.  Explicit instantiation
-// definitions below pull the symbols into the binary for every LP component
-// type that callers might request.
-// ──────────────────────────────────────────────────────────────────────────────
-
-template<typename Element>
-auto SystemContext::get_element(const ObjectSingleId<Element>& id) const
-    -> const Element&
-{
-  return system().element(id);
-}
-
-// BusLP: ObjectSingleId must honour the single-bus override.
-template<>
-auto SystemContext::get_element(const ObjectSingleId<BusLP>& id) const
-    -> const BusLP&
-{
-  return get_bus(id);
-}
-
-template<typename Element>
-auto SystemContext::get_element(const ElementIndex<Element>& id) const
-    -> const Element&
-{
-  return system().element(id);
-}
-
-// Explicit instantiations — one macro call per LP component type.
-// BusLP: ObjectSingleId is handled by the explicit specialisation above,
-// so only ElementIndex<BusLP> is instantiated here via the macro.
-#define INSTANTIATE_GET_ELEMENT(T) \
-  template auto SystemContext::get_element(const ObjectSingleId<T>&) const \
-      -> const T&; \
-  template auto SystemContext::get_element(const ElementIndex<T>&) const \
-      -> const T&;
-
-// BusLP ObjectSingleId is an explicit specialisation — only instantiate
-// the ElementIndex overload for BusLP.
-template auto SystemContext::get_element(const ElementIndex<BusLP>&) const
-    -> const BusLP&;
-
-INSTANTIATE_GET_ELEMENT(BatteryLP)
-INSTANTIATE_GET_ELEMENT(ConverterLP)
-INSTANTIATE_GET_ELEMENT(DemandLP)
-INSTANTIATE_GET_ELEMENT(DemandProfileLP)
-INSTANTIATE_GET_ELEMENT(FiltrationLP)
-INSTANTIATE_GET_ELEMENT(FlowLP)
-INSTANTIATE_GET_ELEMENT(GeneratorLP)
-INSTANTIATE_GET_ELEMENT(GeneratorProfileLP)
-INSTANTIATE_GET_ELEMENT(JunctionLP)
-INSTANTIATE_GET_ELEMENT(LineLP)
-INSTANTIATE_GET_ELEMENT(ReserveProvisionLP)
-INSTANTIATE_GET_ELEMENT(ReserveZoneLP)
-INSTANTIATE_GET_ELEMENT(ReservoirLP)
-INSTANTIATE_GET_ELEMENT(TurbineLP)
-INSTANTIATE_GET_ELEMENT(WaterwayLP)
-
-#undef INSTANTIATE_GET_ELEMENT
 
 }  // namespace gtopt
