@@ -15,8 +15,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <concepts>
+#include <cstddef>
 #include <format>
-#include <iterator>  // for std::back_inserter
+#include <iterator>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -99,23 +101,62 @@ constexpr bool merge(std::vector<T>& dest, std::vector<T>& src) noexcept(
  *   // i is index, val is element
  * }
  */
-template<typename IndexType = size_t, std::ranges::range... Ranges>
-[[nodiscard]] constexpr auto enumerate(Ranges&&... ranges) noexcept
+
+template<typename IndexType = std::size_t>
+struct enumerate_adapter
+    : std::ranges::range_adaptor_closure<enumerate_adapter<IndexType>>
 {
-  return std::ranges::views::zip(
-      std::ranges::views::iota(0)
-          | std::ranges::views::transform(
-              [](auto i) { return static_cast<IndexType>(i); }),
-      std::forward<Ranges>(ranges)...);
+private:
+  static constexpr auto make_index_view()
+  {
+    return std::ranges::views::iota(std::size_t {0}, std::unreachable_sentinel)
+        | std::ranges::views::transform([](std::size_t i)
+                                        { return static_cast<IndexType>(i); });
+  }
+
+public:
+  // Single range: pipeable via range_adaptor_closure
+  template<std::ranges::range R>
+  [[nodiscard]] constexpr auto operator()(R&& range) const
+      noexcept(noexcept(std::ranges::views::zip(make_index_view(),
+                                                std::forward<R>(range))))
+  {
+    return std::ranges::views::zip(make_index_view(), std::forward<R>(range));
+  }
+
+  // Multi-range: direct call only
+  template<std::ranges::range R, std::ranges::range... Rs>
+    requires(sizeof...(Rs) >= 1)
+  [[nodiscard]] constexpr auto operator()(R&& range, Rs&&... ranges) const
+      noexcept(noexcept(std::ranges::views::zip(make_index_view(),
+                                                std::forward<R>(range),
+                                                std::forward<Rs>(ranges)...)))
+  {
+    return std::ranges::views::zip(
+        make_index_view(), std::forward<R>(range), std::forward<Rs>(ranges)...);
+  }
+};
+
+// Function factory — allows enumerate(...) without template args
+template<typename IndexType = std::size_t,
+         std::ranges::range R,
+         std::ranges::range... Rs>
+[[nodiscard]] constexpr auto enumerate(R&& range, Rs&&... ranges) noexcept(
+    noexcept(enumerate_adapter<IndexType> {}(std::forward<R>(range),
+                                             std::forward<Rs>(ranges)...)))
+{
+  return enumerate_adapter<IndexType> {}(std::forward<R>(range),
+                                         std::forward<Rs>(ranges)...);
 }
 
 template<typename IndexType = size_t, std::ranges::range Range, typename Op>
   requires std::invocable<Op, std::ranges::range_value_t<Range>>
-[[nodiscard]] constexpr auto enumerate_if(Range&& range, Op op) noexcept(
+[[nodiscard]] constexpr auto enumerate_if(Range&& range, Op&& op) noexcept(
     noexcept(op(std::declval<std::ranges::range_value_t<Range>>())))
 {
-  return enumerate<IndexType>(std::forward<Range>(range)
-                              | std::ranges::views::filter(op));
+  return enumerate<IndexType>(
+      std::forward<Range>(range)
+      | std::ranges::views::filter(std::forward<Op>(op)));
 }
 
 /// Predicate that checks if element has is_active() member returning true
