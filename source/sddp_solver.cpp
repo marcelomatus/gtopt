@@ -528,7 +528,12 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
       });
     }
 
-    // Write as simple CSV: phase,scene,name,rhs,col1:coeff1,col2:coeff2,...
+    // CSV format: phase,scene,name,rhs[,col_idx:coeff ...]
+    // - phase: 0-based phase index this cut was added to
+    // - scene: 0-based scene that generated the cut (-1 = shared/average)
+    // - name:  human-readable cut identifier
+    // - rhs:   right-hand side (lower bound of the cut row)
+    // - remaining columns: col_idx:coeff pairs for non-zero coefficients
     ofs << "phase,scene,name,rhs,coefficients\n";
     for (const auto& cut : m_stored_cuts_) {
       ofs << cut.phase << "," << cut.scene << "," << cut.name << "," << cut.rhs;
@@ -583,6 +588,9 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       const auto phase_idx = std::stoi(token);
 
       std::getline(iss, token, ',');
+      // scene_idx is parsed but intentionally ignored: loaded cuts are
+      // broadcast to all scenes as warm-start approximations, analogous
+      // to how PLP shares cuts across all its scenarios on restart.
       [[maybe_unused]] const auto scene_idx = std::stoi(token);
 
       std::getline(iss, token, ',');

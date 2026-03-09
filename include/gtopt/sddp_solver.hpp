@@ -241,11 +241,14 @@ public:
     return m_stored_cuts_;
   }
 
-  /// Save accumulated cuts to a JSON file
+  /// Save accumulated cuts to a CSV file for hot-start
   [[nodiscard]] auto save_cuts(const std::string& filepath) const
       -> std::expected<void, Error>;
 
-  /// Load cuts from a JSON file and add to phase LPs
+  /// Load cuts from a CSV file and add to all scenes' phase LPs.
+  /// Cuts are broadcast to all scenes regardless of originating scene,
+  /// since loaded cuts serve as warm-start approximations for the entire
+  /// problem (analogous to PLP's cut sharing across scenarios).
   [[nodiscard]] auto load_cuts(const std::string& filepath)
       -> std::expected<int, Error>;
 
