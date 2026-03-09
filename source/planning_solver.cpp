@@ -1,0 +1,86 @@
+/**
+ * @file      planning_solver.cpp
+ * @brief     Implementation of PlanningSolver interface and MonolithicSolver
+ * @date      2026-03-09
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ */
+
+#include <format>
+
+#include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_solver.hpp>
+#include <gtopt/sddp_solver.hpp>
+#include <gtopt/work_pool.hpp>
+#include <spdlog/spdlog.h>
+
+namespace gtopt
+{
+
+// ─── MonolithicSolver ───────────────────────────────────────────────────────
+
+auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
+    -> std::expected<int, Error>
+{
+  WorkPoolConfig pool_config {};
+
+  const double cpu_factor = 1.25;
+  pool_config.max_threads = static_cast<int>(
+      std::lround((cpu_factor * std::thread::hardware_concurrency())));
+  pool_config.max_cpu_threshold = static_cast<int>(
+      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+
+  AdaptiveWorkPool pool(pool_config);
+  pool.start();
+
+  try {
+    using future_t = std::future<std::expected<void, Error>>;
+
+    std::vector<future_t> futures;
+    futures.reserve(planning_lp.systems().size());
+
+    for (auto&& [scene_index, phase_systems] :
+         enumerate<SceneIndex>(planning_lp.systems()))
+    {
+      auto result = pool.submit(
+          [&]
+          {
+            return planning_lp.resolve_scene_phases(
+                scene_index, phase_systems, opts);
+          });
+      futures.push_back(std::move(result.value()));
+    }
+
+    // Check all futures for errors
+    for (auto& future : futures) {
+      if (auto result = future.get(); !result) {
+        return std::unexpected(std::move(result.error()));
+      }
+    }
+
+    return futures.size();  // Return number of successfully processed scenes
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InternalError,
+        .message = std::format("Unexpected error in resolve: {}", e.what()),
+    });
+  }
+}
+
+// ─── Factory ────────────────────────────────────────────────────────────────
+
+std::unique_ptr<PlanningSolver> make_planning_solver(
+    std::string_view solver_type, std::string_view cut_sharing_mode)
+{
+  if (solver_type == "sddp") {
+    SDDPOptions sddp_opts;
+    sddp_opts.cut_sharing = parse_cut_sharing_mode(cut_sharing_mode);
+    return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
+  }
+
+  // Default: monolithic
+  return std::make_unique<MonolithicSolver>();
+}
+
+}  // namespace gtopt

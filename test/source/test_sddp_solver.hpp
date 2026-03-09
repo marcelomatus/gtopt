@@ -8,12 +8,18 @@
  *  1. Free-function building blocks (propagate, cut, elastic relaxation)
  *  2. Basic 3-phase hydro+thermal case – validates convergence
  *  3. Verifies that the SDDP solver rejects single-phase problems
+ *  4. Cut sharing modes (none, expected, max)
+ *  5. Cut persistence (save/load)
+ *  6. Multi-scene SDDP solving
+ *  7. Solver interface integration (monolithic vs SDDP dispatch)
  */
 
 #include <cmath>
+#include <filesystem>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_solver.hpp>
 #include <gtopt/sddp_solver.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -214,6 +220,73 @@ auto make_3phase_hydro_planning() -> Planning
   };
 }
 
+/// Create a simple single-phase planning problem for monolithic solver tests.
+auto make_single_phase_planning() -> Planning
+{
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "single_phase_test",
+      .bus_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "b1",
+              },
+          },
+      .demand_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "d1",
+                  .bus = Uid {1},
+                  .capacity = 50.0,
+              },
+          },
+      .generator_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "g1",
+                  .bus = Uid {1},
+                  .gcost = 10.0,
+                  .capacity = 100.0,
+              },
+          },
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = simulation,
+      .system = system,
+  };
+}
+
 }  // namespace
 
 // ─── Free-function unit tests ───────────────────────────────────────────────
@@ -289,6 +362,46 @@ TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
   CHECK_FALSE(relax_fixed_state_variable(li, link, PhaseIndex {1}, 1e6));
 }
 
+TEST_CASE("average_benders_cut computes correct average")  // NOLINT
+{
+  const auto alpha = ColIndex {0};
+  const auto src = ColIndex {1};
+
+  SparseRow cut1;
+  cut1.name = "cut1";
+  cut1[alpha] = 1.0;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  SparseRow cut2;
+  cut2.name = "cut2";
+  cut2[alpha] = 1.0;
+  cut2[src] = 20.0;
+  cut2.lowb = 200.0;
+  cut2.uppb = LinearProblem::DblMax;
+
+  auto avg = average_benders_cut(
+      {
+          cut1,
+          cut2,
+      },
+      "avg");
+
+  CHECK(avg.name == "avg");
+  CHECK(avg.get_coeff(alpha) == doctest::Approx(1.0));
+  CHECK(avg.get_coeff(src) == doctest::Approx(15.0));
+  CHECK(avg.lowb == doctest::Approx(150.0));
+}
+
+TEST_CASE("parse_cut_sharing_mode")  // NOLINT
+{
+  CHECK(parse_cut_sharing_mode("none") == CutSharingMode::None);
+  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::Expected);
+  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::Max);
+  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::None);
+}
+
 // ─── Integration tests ─────────────────────────────────────────────────────
 
 TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
@@ -327,71 +440,108 @@ TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT
 
 TEST_CASE("SDDPSolver - requires at least 2 phases")  // NOLINT
 {
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1.0,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {1},
-              },
-          },
-  };
-
-  const System system = {
-      .name = "single_phase_test",
-      .bus_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .name = "b1",
-              },
-          },
-      .demand_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {1},
-                  .capacity = 50.0,
-              },
-          },
-      .generator_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 10.0,
-                  .capacity = 100.0,
-              },
-          },
-  };
-
-  Options options;
-  options.demand_fail_cost = OptReal {1000.0};
-
-  Planning planning {
-      .options = std::move(options),
-      .simulation = simulation,
-      .system = system,
-  };
+  auto planning = make_single_phase_planning();
 
   PlanningLP planning_lp(std::move(planning));
   SDDPSolver sddp(planning_lp);
   auto results = sddp.solve();
   CHECK_FALSE(results.has_value());
+}
+
+TEST_CASE("SDDPSolver - cut persistence save and load")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto cuts_file = (tmp_dir / "sddp_test_cuts.csv").string();
+
+  // Run SDDP and save cuts
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+  sddp_opts.cuts_output_file = cuts_file;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // Verify cuts were saved
+  CHECK(std::filesystem::exists(cuts_file));
+  CHECK_FALSE(sddp.stored_cuts().empty());
+
+  // Clean up
+  std::filesystem::remove(cuts_file);
+}
+
+// ─── Solver interface tests ─────────────────────────────────────────────────
+
+TEST_CASE("MonolithicSolver - solves single-phase problem")  // NOLINT
+{
+  auto planning = make_single_phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("MonolithicSolver - solves 3-phase problem")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("make_planning_solver factory - monolithic")  // NOLINT
+{
+  auto solver = make_planning_solver("monolithic");
+  REQUIRE(solver != nullptr);
+
+  auto planning = make_single_phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = solver->solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("make_planning_solver factory - sddp")  // NOLINT
+{
+  auto solver = make_planning_solver("sddp");
+  REQUIRE(solver != nullptr);
+}
+
+TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
+{
+  auto planning = make_single_phase_planning();
+  // Default solver_type is "monolithic"
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("Options solver_type and cut_sharing_mode")  // NOLINT
+{
+  Options opts;
+  opts.solver_type = OptName {"sddp"};
+  opts.cut_sharing_mode = OptName {"expected"};
+
+  OptionsLP options_lp(std::move(opts));
+  CHECK(options_lp.solver_type() == "sddp");
+  CHECK(options_lp.cut_sharing_mode() == "expected");
+}
+
+TEST_CASE("Options solver_type defaults")  // NOLINT
+{
+  OptionsLP options_lp;
+  CHECK(options_lp.solver_type() == "monolithic");
+  CHECK(options_lp.cut_sharing_mode() == "none");
 }

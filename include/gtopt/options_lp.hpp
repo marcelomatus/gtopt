@@ -258,6 +258,30 @@ public:
     return m_options_.lp_presolve;
   }
 
+  // Default values for solver type settings
+  /** @brief Default solver type */
+  static constexpr auto default_solver_type = "monolithic";
+  /** @brief Default cut sharing mode for SDDP */
+  static constexpr auto default_cut_sharing_mode = "none";
+
+  /**
+   * @brief Gets the solver type, using default if not set
+   * @return The solver type ("monolithic" or "sddp")
+   */
+  [[nodiscard]] constexpr auto solver_type() const
+  {
+    return m_options_.solver_type.value_or(default_solver_type);
+  }
+
+  /**
+   * @brief Gets the SDDP cut sharing mode, using default if not set
+   * @return The cut sharing mode ("none", "expected", or "max")
+   */
+  [[nodiscard]] constexpr auto cut_sharing_mode() const
+  {
+    return m_options_.cut_sharing_mode.value_or(default_cut_sharing_mode);
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;

@@ -10,6 +10,7 @@
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_solver.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -91,48 +92,9 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
-  WorkPoolConfig pool_config {};
-
-  const double cpu_factor = 1.25;
-  pool_config.max_threads = static_cast<int>(
-      std::lround((cpu_factor * std::thread::hardware_concurrency())));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
-
-  AdaptiveWorkPool pool(pool_config);
-  pool.start();
-
-  try {
-    using future_t = std::future<std::expected<void, Error>>;
-
-    std::vector<future_t> futures;
-    futures.reserve(systems().size());
-
-    for (auto&& [scene_index, phase_systems] : enumerate<SceneIndex>(systems()))
-    {
-      auto result = pool.submit(
-          [&]
-          {
-            return resolve_scene_phases(scene_index, phase_systems, lp_opts);
-          });
-      futures.push_back(std::move(result.value()));
-    }
-
-    // Check all futures for errors
-    for (auto& future : futures) {
-      if (auto result = future.get(); !result) {
-        return std::unexpected(std::move(result.error()));
-      }
-    }
-
-    return futures.size();  // Return number of successfully processed scenes
-
-  } catch (const std::exception& e) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message = std::format("Unexpected error in resolve: {}", e.what()),
-    });
-  }
+  auto solver = make_planning_solver(m_options_.solver_type(),
+                                     m_options_.cut_sharing_mode());
+  return solver->solve(*this, lp_opts);
 }
 
 }  // namespace gtopt
