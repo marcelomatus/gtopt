@@ -33,11 +33,12 @@ The repository also contains:
 > ```
 >
 > The script is idempotent — safe to run again if something was missed.
-> **Clang 21 is always installed** — there is no fallback to GCC and no
-> `--no-clang` option.  Do not install Arrow via APT (`libarrow-dev` from
-> `packages.apache.org`); the APT v2300 package has versioned curl symbols
-> that conflict with conda Arrow at link time, producing `undefined reference`
-> linker errors.
+> **The script first attempts Clang 21** (preferred, matches CI); if the LLVM
+> APT repository is unreachable it **falls back automatically to GCC 14**
+> without asking.  A summary at the end reports which compiler was chosen.
+> Do not install Arrow via APT (`libarrow-dev` from `packages.apache.org`);
+> the APT v2300 package has versioned curl symbols that conflict with conda
+> Arrow at link time, producing `undefined reference` linker errors.
 
 ### How the CI installs Clang 21
 
@@ -248,7 +249,7 @@ The following combination produces a **100% passing** build on Ubuntu 24.04 (Nob
 | Component | Version | Notes |
 |-----------|---------|-------|
 | OS | Ubuntu 24.04 (Noble) | GitHub Actions runner |
-| Compiler | Clang 21 (required) | Installed via LLVM APT repo (`.github/actions/install-clang`); GCC 14 is NOT used in sandbox/agent environments |
+| Compiler | Clang 21 (preferred) | Installed via LLVM APT repo (`.github/actions/install-clang`); `setup_sandbox.sh` falls back to GCC 14 if LLVM APT is unreachable |
 | CMake | 3.31.6 | Pre-installed on runner |
 | Arrow / Parquet | 12.0.0 | conda `arrow-cpp parquet-cpp` (always use conda — APT Arrow conflicts at link time) |
 | Boost.Container | 1.83.0 | `conda install -c conda-forge boost-cpp` |
