@@ -78,7 +78,7 @@ struct Reservoir
   OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [dam³]
   OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [dam³]
   OptTRealFieldSched
-      vcost {};  ///< Shadow cost of stored water (water value) [$/dam³]
+      ecost {};  ///< Shadow cost of stored water (water value) [$/dam³]
   OptReal eini {};  ///< Initial stored volume at start of horizon [dam³]
   OptReal efin {};  ///< Target stored volume at end of horizon [dam³]
 

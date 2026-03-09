@@ -17,7 +17,7 @@ TEST_CASE("Reservoir basic fields deserialization")
     "annual_loss":null,
     "emin":null,
     "emax":null,
-    "vcost":null,
+    "ecost":null,
     "eini":null,
     "efin":null
   })";
@@ -33,7 +33,7 @@ TEST_CASE("Reservoir basic fields deserialization")
   CHECK_FALSE(res.annual_loss.has_value());
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
-  CHECK_FALSE(res.vcost.has_value());
+  CHECK_FALSE(res.ecost.has_value());
   CHECK_FALSE(res.eini.has_value());
   CHECK_FALSE(res.efin.has_value());
 }
@@ -48,7 +48,7 @@ TEST_CASE("Reservoir optional fields deserialization")
     "annual_loss":0.05,
     "emin":100.0,
     "emax":1000.0,
-    "vcost":5.0,
+    "ecost":5.0,
     "eini":500.0,
     "efin":600.0
   })";
@@ -59,7 +59,7 @@ TEST_CASE("Reservoir optional fields deserialization")
   CHECK(std::get<double>(res.annual_loss.value_or(-1.0)) == 0.05);
   CHECK(std::get<double>(res.emin.value_or(-1.0)) == 100.0);
   CHECK(std::get<double>(res.emax.value_or(-1.0)) == 1000.0);
-  CHECK(std::get<double>(res.vcost.value_or(-1.0)) == 5.0);
+  CHECK(std::get<double>(res.ecost.value_or(-1.0)) == 5.0);
   CHECK(res.eini.value_or(-1.0) == 500.0);
   CHECK(res.efin.value_or(-1.0) == 600.0);
 }
@@ -104,7 +104,7 @@ TEST_CASE("Reservoir roundtrip serialization")
       .annual_loss = OptTRealFieldSched {0.05},
       .emin = OptTRealFieldSched {100.0},
       .emax = OptTRealFieldSched {1000.0},
-      .vcost = OptTRealFieldSched {5.0},
+      .ecost = OptTRealFieldSched {5.0},
       .eini = OptReal {500.0},
       .efin = OptReal {600.0},
   };
@@ -133,8 +133,8 @@ TEST_CASE("Reservoir roundtrip serialization")
   CHECK(roundtrip.emin.value_or(-1.0) == original.emin.value_or(-2.0));
   CHECK(roundtrip.emax.has_value());
   CHECK(roundtrip.emax.value_or(-1.0) == original.emax.value_or(-2.0));
-  CHECK(roundtrip.vcost.has_value());
-  CHECK(roundtrip.vcost.value_or(-1.0) == original.vcost.value_or(-2.0));
+  CHECK(roundtrip.ecost.has_value());
+  CHECK(roundtrip.ecost.value_or(-1.0) == original.ecost.value_or(-2.0));
   CHECK(roundtrip.eini.has_value());
   CHECK(roundtrip.eini.value_or(-1.0) == original.eini.value_or(-2.0));
   CHECK(roundtrip.efin.has_value());
@@ -158,7 +158,7 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK_FALSE(res.annual_loss.has_value());
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
-  CHECK_FALSE(res.vcost.has_value());
+  CHECK_FALSE(res.ecost.has_value());
   CHECK_FALSE(res.eini.has_value());
   CHECK_FALSE(res.efin.has_value());
 }

@@ -183,7 +183,7 @@ ELEMENT_SCHEMAS = {
             {"name": "annual_loss", "type": "number_or_file", "required": False},
             {"name": "vmin", "type": "number_or_file", "required": False},
             {"name": "vmax", "type": "number_or_file", "required": False},
-            {"name": "vcost", "type": "number_or_file", "required": False},
+            {"name": "ecost", "type": "number_or_file", "required": False},
             {"name": "vini", "type": "number", "required": False},
             {"name": "vfin", "type": "number", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
@@ -201,7 +201,12 @@ ELEMENT_SCHEMAS = {
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
             {"name": "battery", "type": "string", "required": True, "ref": "battery"},
-            {"name": "generator", "type": "string", "required": True, "ref": "generator"},
+            {
+                "name": "generator",
+                "type": "string",
+                "required": True,
+                "ref": "generator",
+            },
             {"name": "demand", "type": "string", "required": True, "ref": "demand"},
             {"name": "conversion_rate", "type": "number_or_file", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
@@ -227,8 +232,18 @@ ELEMENT_SCHEMAS = {
             {"name": "uid", "type": "integer", "required": True},
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
-            {"name": "junction_a", "type": "string", "required": True, "ref": "junction"},
-            {"name": "junction_b", "type": "string", "required": True, "ref": "junction"},
+            {
+                "name": "junction_a",
+                "type": "string",
+                "required": True,
+                "ref": "junction",
+            },
+            {
+                "name": "junction_b",
+                "type": "string",
+                "required": True,
+                "ref": "junction",
+            },
             {"name": "capacity", "type": "number_or_file", "required": False},
             {"name": "lossfactor", "type": "number_or_file", "required": False},
             {"name": "fmin", "type": "number_or_file", "required": False},
@@ -248,7 +263,7 @@ ELEMENT_SCHEMAS = {
             {"name": "annual_loss", "type": "number_or_file", "required": False},
             {"name": "vmin", "type": "number_or_file", "required": False},
             {"name": "vmax", "type": "number_or_file", "required": False},
-            {"name": "vcost", "type": "number_or_file", "required": False},
+            {"name": "ecost", "type": "number_or_file", "required": False},
             {"name": "vini", "type": "number", "required": False},
             {"name": "vfin", "type": "number", "required": False},
             {"name": "fmin", "type": "number", "required": False},
@@ -264,7 +279,12 @@ ELEMENT_SCHEMAS = {
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
             {"name": "waterway", "type": "string", "required": True, "ref": "waterway"},
-            {"name": "generator", "type": "string", "required": True, "ref": "generator"},
+            {
+                "name": "generator",
+                "type": "string",
+                "required": True,
+                "ref": "generator",
+            },
             {"name": "drain", "type": "boolean", "required": False},
             {"name": "conversion_rate", "type": "number_or_file", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
@@ -288,7 +308,12 @@ ELEMENT_SCHEMAS = {
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
             {"name": "waterway", "type": "string", "required": True, "ref": "waterway"},
-            {"name": "reservoir", "type": "string", "required": True, "ref": "reservoir"},
+            {
+                "name": "reservoir",
+                "type": "string",
+                "required": True,
+                "ref": "reservoir",
+            },
             {"name": "slope", "type": "number", "required": False},
             {"name": "constant", "type": "number", "required": False},
         ],
@@ -299,7 +324,12 @@ ELEMENT_SCHEMAS = {
             {"name": "uid", "type": "integer", "required": True},
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
-            {"name": "generator", "type": "string", "required": True, "ref": "generator"},
+            {
+                "name": "generator",
+                "type": "string",
+                "required": True,
+                "ref": "generator",
+            },
             {"name": "profile", "type": "number_or_file", "required": True},
             {"name": "scost", "type": "number_or_file", "required": False},
         ],
@@ -333,14 +363,27 @@ ELEMENT_SCHEMAS = {
             {"name": "uid", "type": "integer", "required": True},
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
-            {"name": "generator", "type": "string", "required": True, "ref": "generator"},
+            {
+                "name": "generator",
+                "type": "string",
+                "required": True,
+                "ref": "generator",
+            },
             {"name": "reserve_zones", "type": "string", "required": True},
             {"name": "urmax", "type": "number_or_file", "required": False},
             {"name": "drmax", "type": "number_or_file", "required": False},
             {"name": "ur_capacity_factor", "type": "number_or_file", "required": False},
             {"name": "dr_capacity_factor", "type": "number_or_file", "required": False},
-            {"name": "ur_provision_factor", "type": "number_or_file", "required": False},
-            {"name": "dr_provision_factor", "type": "number_or_file", "required": False},
+            {
+                "name": "ur_provision_factor",
+                "type": "number_or_file",
+                "required": False,
+            },
+            {
+                "name": "dr_provision_factor",
+                "type": "number_or_file",
+                "required": False,
+            },
             {"name": "urcost", "type": "number_or_file", "required": False},
             {"name": "drcost", "type": "number_or_file", "required": False},
         ],
@@ -397,7 +440,10 @@ def _df_to_rows(df):
     Float ``NaN`` and ``Inf`` values are replaced with ``None`` to
     produce valid JSON (the JSON specification does not allow ``NaN``).
     """
-    return [[_sanitize_value(x) for x in row] for row in df.itertuples(index=False, name=None)]
+    return [
+        [_sanitize_value(x) for x in row]
+        for row in df.itertuples(index=False, name=None)
+    ]
 
 
 def _build_case_json(case_data):
@@ -461,7 +507,9 @@ def _build_zip(case_data):
                         b64decode(raw_b64),
                     )
                 else:
-                    df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
+                    df = pd.DataFrame(
+                        file_content["data"], columns=file_content["columns"]
+                    )
                     parquet_buf = io.BytesIO()
                     df.to_parquet(parquet_buf, index=False)
                     zf.writestr(
@@ -797,11 +845,14 @@ def submit_solve():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on submit: %s", _webservice_url)
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on submit")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -813,7 +864,10 @@ def submit_solve():
             except Exception:
                 body = e.response.text
         app.logger.warning("Webservice HTTP error on submit: %s", body)
-        return jsonify({"error": f"Webservice error ({e.response.status_code}): {body}"}), 502
+        return (
+            jsonify({"error": f"Webservice error ({e.response.status_code}): {body}"}),
+            502,
+        )
     except Exception as e:
         app.logger.exception("Unexpected error on submit")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
@@ -836,17 +890,22 @@ def get_solve_status(token):
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on status token=%s", token)
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on status token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning("Webservice HTTP error on status token=%s status=%s", token, status)
+        app.logger.warning(
+            "Webservice HTTP error on status token=%s status=%s", token, status
+        )
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on status token=%s", token)
@@ -873,17 +932,22 @@ def get_solve_results(token):
         return jsonify(results)
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on results token=%s", token)
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on results token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning("Webservice HTTP error on results token=%s status=%s", token, status)
+        app.logger.warning(
+            "Webservice HTTP error on results token=%s status=%s", token, status
+        )
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on results token=%s", token)
@@ -905,11 +969,14 @@ def list_solve_jobs():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on jobs list")
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on jobs list")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -937,11 +1004,14 @@ def ping_webservice():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on ping")
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on ping")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -971,11 +1041,14 @@ def get_webservice_logs():
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on logs")
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on logs")
         return jsonify({"error": "Webservice request timed out"}), 504
@@ -1003,17 +1076,22 @@ def get_job_logs(token):
         return jsonify(resp.json())
     except http_requests.ConnectionError:
         app.logger.warning("Webservice connection error on job_logs token=%s", token)
-        return jsonify(
-            {
-                "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
-            }
-        ), 502
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
     except http_requests.Timeout:
         app.logger.warning("Webservice timeout on job_logs token=%s", token)
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning("Webservice HTTP error on job_logs token=%s status=%s", token, status)
+        app.logger.warning(
+            "Webservice HTTP error on job_logs token=%s status=%s", token, status
+        )
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on job_logs token=%s", token)
@@ -1061,7 +1139,9 @@ def check_server():
 
     # --- Logs ---
     try:
-        resp = http_requests.get(f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10)
+        resp = http_requests.get(
+            f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10
+        )
         resp.raise_for_status()
         results["logs"] = {"status": "ok", "data": resp.json()}
     except Exception as e:
