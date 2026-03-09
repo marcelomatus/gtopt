@@ -146,7 +146,7 @@ LineLP::DirectionResult LineLP::add_quadratic_flow_direction(
 
   // Add segment variables with increasing loss coefficients
   for (const auto k : std::views::iota(1, nseg + 1)) {
-    const double loss_k = seg_width * loss.resistance * (2 * k - 1) / loss.V2;
+    const double loss_k = seg_width * loss.resistance * ((2 * k) - 1) / loss.V2;
 
     const auto seg_col = lp.add_col({
         .name = sc.lp_label(scenario, stage, block, cname, labels.seg, uid())

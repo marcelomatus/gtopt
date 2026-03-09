@@ -28,7 +28,7 @@ TEST_CASE("Battery construction and default values")
   CHECK_FALSE(battery.annual_loss.has_value());
   CHECK_FALSE(battery.emin.has_value());
   CHECK_FALSE(battery.emax.has_value());
-  CHECK_FALSE(battery.vcost.has_value());
+  CHECK_FALSE(battery.ecost.has_value());
   CHECK_FALSE(battery.eini.has_value());
   CHECK_FALSE(battery.efin.has_value());
   CHECK_FALSE(battery.capacity.has_value());
@@ -52,7 +52,7 @@ TEST_CASE("Battery attribute assignment")
   battery.eini = 50.0;
   battery.efin = 50.0;
   battery.annual_loss = 0.05;
-  battery.vcost = 5.0;
+  battery.ecost = 5.0;
 
   // Capacity-related attributes
   battery.capacity = 200.0;
@@ -77,13 +77,13 @@ TEST_CASE("Battery attribute assignment")
   CHECK(std::get_if<Real>(&battery.emin.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.emax.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.annual_loss.value()) != nullptr);
-  CHECK(std::get_if<Real>(&battery.vcost.value()) != nullptr);
+  CHECK(std::get_if<Real>(&battery.ecost.value()) != nullptr);
 
   // Check actual values using std::get_if
   CHECK(*std::get_if<Real>(&battery.emin.value()) == 10.0);
   CHECK(*std::get_if<Real>(&battery.emax.value()) == 100.0);
   CHECK(*std::get_if<Real>(&battery.annual_loss.value()) == 0.05);
-  CHECK(*std::get_if<Real>(&battery.vcost.value()) == 5.0);
+  CHECK(*std::get_if<Real>(&battery.ecost.value()) == 5.0);
 
   // Capacity-related checks
   CHECK(*std::get_if<Real>(&battery.capacity.value()) == 200.0);

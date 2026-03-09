@@ -274,7 +274,7 @@ be defined manually (see §3.6 Converter).
 | `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate |
 | `emin`              | number\|array\|string| MWh         | No       | Minimum state of charge |
 | `emax`              | number\|array\|string| MWh         | No       | Maximum state of charge |
-| `vcost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
+| `ecost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
 | `eini`              | number              | MWh          | No       | Initial state of charge |
 | `efin`              | number              | MWh          | No       | Terminal state of charge |
 | `pmax_charge`       | number\|array\|string| MW          | No       | Max charging power (unified definition) |
@@ -350,7 +350,7 @@ A water reservoir connected to a junction.  Volume units: **dam³** (1 dam³ = 1
 | `annual_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
 | `emin`                 | number\|array\|string| dam³       | No       | Minimum allowed stored volume |
 | `emax`                 | number\|array\|string| dam³       | No       | Maximum allowed stored volume |
-| `vcost`                | number\|array\|string| $/dam³     | No       | Water value (shadow cost of stored water) |
+| `ecost`                | number\|array\|string| $/dam³     | No       | Water value (shadow cost of stored water) |
 | `eini`                 | number              | dam³        | No       | Initial stored volume |
 | `efin`                 | number              | dam³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |

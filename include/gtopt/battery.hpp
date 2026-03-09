@@ -108,7 +108,7 @@ struct Battery
   OptTRealFieldSched
       emax {};  ///< Maximum state of charge (usable capacity) [MWh]
   OptTRealFieldSched
-      vcost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
+      ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
   OptReal eini {};  ///< Initial state of charge [MWh]
   OptReal efin {};  ///< Terminal state of charge (end condition) [MWh]
 

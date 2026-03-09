@@ -54,7 +54,7 @@ struct json_data_contract<Battery>
       json_variant_null<"emax",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Maximum energy level
-      json_variant_null<"vcost",
+      json_variant_null<"ecost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Voltage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
@@ -108,7 +108,7 @@ struct json_data_contract<Battery>
                                  battery.annual_loss,
                                  battery.emin,
                                  battery.emax,
-                                 battery.vcost,
+                                 battery.ecost,
                                  battery.eini,
                                  battery.efin,
                                  battery.pmax_charge,
