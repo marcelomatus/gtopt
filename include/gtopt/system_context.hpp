@@ -58,6 +58,23 @@ class BusLP;
 class SystemLP;
 class SimulationLP;
 
+// Forward declarations for all LP component types accessed via element()
+class BatteryLP;
+class ConverterLP;
+class DemandLP;
+class DemandProfileLP;
+class FiltrationLP;
+class FlowLP;
+class GeneratorLP;
+class GeneratorProfileLP;
+class JunctionLP;
+class LineLP;
+class ReserveProvisionLP;
+class ReserveZoneLP;
+class ReservoirLP;
+class TurbineLP;
+class WaterwayLP;
+
 class SystemContext
     : public LabelMaker
     , public FlatHelper
@@ -218,6 +235,24 @@ public:
       -> ElementIndex<BusLP>;
   [[nodiscard]] auto get_bus(const ObjectSingleId<BusLP>& id) const
       -> const BusLP&;
+
+  //
+  //  Non-template element accessors — declared here, defined in
+  //  system_context.cpp (which includes system_lp.hpp).  Using template
+  //  declarations with no inline body + explicit instantiations in the
+  //  .cpp keeps *_lp.cpp call sites free of the system_lp.hpp dependency
+  //  while avoiding per-type boilerplate here.
+  //
+  //  BusLP ObjectSingleId: routes through get_bus() (explicit specialisation
+  //  in system_context.cpp); all other types use system().element(id).
+  //
+  template<typename Element>
+  [[nodiscard]] auto get_element(const ObjectSingleId<Element>& id) const
+      -> const Element&;
+
+  template<typename Element>
+  [[nodiscard]] auto get_element(const ElementIndex<Element>& id) const
+      -> const Element&;
 
   // Methods to handle the state_variables
   template<typename Key>

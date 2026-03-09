@@ -11,7 +11,6 @@
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
