@@ -212,13 +212,15 @@ public:
   template<typename Element, template<typename> class Id>
   [[nodiscard]] constexpr auto&& element(const Id<Element>& id) const
   {
-    return get_element(*this, id);
+    // Qualify with gtopt:: so the free function is found instead of the
+    // member get_element() overloads that would otherwise shadow it.
+    return gtopt::get_element(*this, id);
   }
 
   template<typename Element, template<typename> class Id>
   constexpr auto element_index(const Id<Element>& id) const
   {
-    return get_element_index(*this, id);
+    return gtopt::get_element_index(*this, id);
   }
 
   template<typename Element>
