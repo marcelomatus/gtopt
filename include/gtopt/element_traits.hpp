@@ -67,12 +67,16 @@ struct ElementTraits
    * @param sc The system context.
    * @param id The ID of the element.
    * @return A reference to the element.
+   *
+   * Routes through sc.get_element(id) — a fully-inline template in
+   * system_context.hpp using void* dispatch — so that call sites do NOT need
+   * to include system_lp.hpp to instantiate this template.
    */
   template<template<typename> class Id>
   [[nodiscard]] constexpr static auto&& get_element(SystemContext& sc,
                                                     const Id<Element>& id)
   {
-    return sc.system().element(id);
+    return sc.get_element(id);
   }
 
   /**
@@ -143,12 +147,15 @@ struct ElementTraits<SystemContext, BusLP>
    * @param sc The system context.
    * @param id The index of the bus element.
    * @return A reference to the bus element.
+   *
+   * Routes through sc.get_element(id) — a fully-inline template using void*
+   * dispatch — so that callers do not need to include system_lp.hpp.
    */
   template<typename BusType>
   [[nodiscard]] constexpr static auto&& get_element(
       SystemContext& sc, const ElementIndex<BusType>& id)
   {
-    return sc.system().element(id);
+    return sc.get_element(id);
   }
 
   /**
