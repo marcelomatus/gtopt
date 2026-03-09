@@ -27,7 +27,22 @@
  *   cuts are generated from the reduced costs of the dependent state
  *   variables and added to the previous phase's LP.  An elastic filter
  *   ensures feasibility when the trial point from the forward pass would
- *   otherwise make the downstream LP infeasible.
+ *   otherwise make the downstream LP infeasible.  Feasibility issues
+ *   propagate backward iteratively: if adding a cut makes phase k
+ *   infeasible, the solver builds a feasibility cut for phase k-1, and
+ *   continues all the way to phase 0 if necessary.
+ *
+ * **Multi-scene support** – each scene is an independent trajectory (like
+ *   a PLP scenario).  Scenes are solved in parallel via the work pool.
+ *
+ * **Cut sharing** – optimality cuts generated in one scene can be shared
+ *   with other scenes at the same phase level.  Three modes are supported:
+ *   - None:     cuts stay in their originating scene (default)
+ *   - Expected: an average cut across scenes is computed and added to all
+ *   - Max:      all cuts from all scenes are added to all scenes
+ *
+ * **Cut persistence** – cuts can be saved to and loaded from JSON files
+ *   for hot-start capability.
  *
  * The solver iterates until the gap between the upper bound (forward-pass
  * cost) and the lower bound (with future-cost approximation) falls below
@@ -39,17 +54,36 @@
 #include <expected>
 #include <functional>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_solver.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
+
+// ─── Cut sharing mode ───────────────────────────────────────────────────────
+
+/**
+ * @brief How optimality cuts are shared between scenes at the same phase
+ *
+ * In PLP, only None and Expected are implemented.  gtopt supports all three.
+ */
+enum class CutSharingMode : uint8_t
+{
+  None = 0,  ///< No sharing; cuts stay in their originating scene
+  Expected,  ///< Average cut across scenes, added to all scenes
+  Max,  ///< All cuts from all scenes added to all scenes
+};
+
+/// Parse a cut-sharing mode from a string ("none", "expected", "max")
+[[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -61,6 +95,12 @@ struct SDDPOptions
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
+  CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
+
+  /// File path for saving cuts (empty = no save)
+  std::string cuts_output_file {};
+  /// File path for loading initial cuts (empty = no load / cold start)
+  std::string cuts_input_file {};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -108,6 +148,19 @@ struct PhaseStateInfo
   double forward_objective {0.0};  ///< Opex from last forward pass
 };
 
+// ─── Stored cut for persistence ─────────────────────────────────────────────
+
+/// A serialisable representation of a Benders cut
+struct StoredCut
+{
+  int phase {};  ///< Phase index this cut was added to
+  int scene {};  ///< Scene that generated this cut (-1 = shared)
+  std::string name {};  ///< Cut name
+  double rhs {};  ///< Right-hand side (lower bound)
+  /// Coefficient pairs: (column_index, coefficient)
+  std::vector<std::pair<int, double>> coefficients {};
+};
+
 // ─── Free-function building blocks ──────────────────────────────────────────
 // These are the modular algorithmic primitives used by SDDPSolver.
 
@@ -134,6 +187,10 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                               PhaseIndex phase,
                                               double penalty);
 
+/// Compute an average cut from a collection of cuts (for Expected sharing)
+[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
+                                       const std::string& name) -> SparseRow;
+
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 /**
@@ -143,6 +200,10 @@ void propagate_trial_values(std::span<StateVarLink> links,
  * Wraps a `PlanningLP` and adds Benders decomposition on top of the
  * per-phase LP subproblems.  Handles reservoir volumes, capacity
  * expansion variables, and future state-variable types generically.
+ *
+ * Supports multiple scenes (solved in parallel), optimality cut sharing
+ * between scenes, iterative feasibility backpropagation, and cut
+ * persistence for hot-start.
  *
  * @code
  * PlanningLP planning_lp(planning);
@@ -159,16 +220,40 @@ public:
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
-  /// Per-phase state information (valid after at least one iteration)
+  /// Per-phase state for a given scene (valid after at least one iteration)
+  [[nodiscard]] constexpr auto& phase_states(SceneIndex scene) const noexcept
+  {
+    return m_scene_phase_states_[scene];
+  }
+
+  /// Legacy accessor for scene 0 (backward compatibility)
   [[nodiscard]] constexpr auto& phase_states() const noexcept
   {
-    return m_phase_states_;
+    return m_scene_phase_states_[SceneIndex {0}];
   }
 
   /// SDDP options
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 
+  /// All stored cuts (for persistence / inspection)
+  [[nodiscard]] const auto& stored_cuts() const noexcept
+  {
+    return m_stored_cuts_;
+  }
+
+  /// Save accumulated cuts to a JSON file
+  [[nodiscard]] auto save_cuts(const std::string& filepath) const
+      -> std::expected<void, Error>;
+
+  /// Load cuts from a JSON file and add to phase LPs
+  [[nodiscard]] auto load_cuts(const std::string& filepath)
+      -> std::expected<int, Error>;
+
 private:
+  using scene_phase_states_t =
+      StrongIndexVector<SceneIndex,
+                        StrongIndexVector<PhaseIndex, PhaseStateInfo>>;
+
   void initialize_alpha_variables(SceneIndex scene);
   void collect_state_variable_links(SceneIndex scene);
 
@@ -182,6 +267,11 @@ private:
                                           PhaseIndex phase,
                                           const SolverOptions& opts);
 
+  /// Apply cut sharing across scenes for a given phase
+  void share_cuts_for_phase(
+      PhaseIndex phase,
+      const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts);
+
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
   [[nodiscard]] PlanningLP& planning_lp() noexcept
   {
@@ -194,8 +284,34 @@ private:
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
-  StrongIndexVector<PhaseIndex, PhaseStateInfo> m_phase_states_;
+  scene_phase_states_t m_scene_phase_states_;
+  std::vector<StoredCut> m_stored_cuts_;
   bool m_initialized_ {false};
+};
+
+// ─── SDDPPlanningSolver ─────────────────────────────────────────────────────
+
+/**
+ * @class SDDPPlanningSolver
+ * @brief Adapter that wraps SDDPSolver behind the PlanningSolver interface
+ */
+class SDDPPlanningSolver final : public PlanningSolver
+{
+public:
+  explicit SDDPPlanningSolver(SDDPOptions opts = {}) noexcept;
+
+  [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
+      -> std::expected<int, Error> override;
+
+  /// Access the last iteration results (valid after solve())
+  [[nodiscard]] const auto& last_results() const noexcept
+  {
+    return m_last_results_;
+  }
+
+private:
+  SDDPOptions m_sddp_opts_;
+  std::vector<SDDPIterationResult> m_last_results_;
 };
 
 }  // namespace gtopt

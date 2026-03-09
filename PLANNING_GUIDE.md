@@ -210,23 +210,58 @@ The complete time hierarchy in gtopt is:
 
 ```
 Planning
- └─ Scene (cross-product of scenarios × phases)
-     ├─ Scenario (probability-weighted future realization)
-     └─ Phase (higher-level grouping)
-         └─ Stage (investment period, discount factor)
-             └─ Block (smallest time unit, duration in hours)
+ ├─ Scene (independent LP trajectory, one per scene)
+ │    └─ Phase (Benders decomposition level; state variables propagate via cuts)
+ │         └─ Stage (investment period within a single LP formulation)
+ │              └─ Block (smallest operating time unit, duration in hours)
+ └─ Scenario (stochastic realization, probability-weighted in objective)
 ```
 
-For a typical seasonal study with 2 scenarios (dry/wet hydrology):
+Each **(scene, phase)** pair produces a separate LP subproblem.  Phases
+within the same scene are linked by state variables (reservoir volumes,
+installed capacity, etc.).  In the **monolithic** solver all LPs are solved
+independently.  In the **SDDP** solver, Benders optimality and feasibility
+cuts link consecutive phases, and cuts can optionally be shared across
+scenes.
+
+#### PLP equivalence
+
+When there is **one stage per phase** and **one scenario per scene**, the
+gtopt formulation is equivalent to the PLP formulation:
+
+| gtopt concept | PLP equivalent | Role |
+|---------------|---------------|------|
+| **Block** | PLP block | Smallest operating time unit |
+| **Stage** | — (within LP) | Generalized horizon time analysis within a single LP |
+| **Phase** | PLP stage | Benders decomposition level; state variables propagate via cuts |
+| **Scenario** | — (weighted in objective) | Stochastic realization with probability weight |
+| **Scene** | PLP scenario | Independent LP trajectory |
+
+For a typical seasonal study with 2 hydrological trajectories:
 
 ```
-Scene 1 ─── Scenario: "dry year" (prob=0.3)
-         └─ Phase: "summer" → Stages 1-3 (Jan, Feb, Mar)
-                              Each stage: 3 blocks (night, solar, evening)
-Scene 2 ─── Scenario: "wet year" (prob=0.7)
-         └─ Phase: "summer" → Stages 1-3 (Jan, Feb, Mar)
-                              Each stage: 3 blocks (night, solar, evening)
+Scene 1 ("dry") → groups Scenario "dry year" (prob=0.3)
+   Phase 1 ("summer") → LP₁: Stages 1-3 (Jan, Feb, Mar)
+       ↓ state variables (reservoir vol, capacity)
+   Phase 2 ("autumn") → LP₂: Stages 4-6 (Apr, May, Jun)
+       ↓ state variables
+   Phase 3 ("winter") → LP₃: Stages 7-9 (Jul, Aug, Sep)
+       ↓ state variables
+   Phase 4 ("spring") → LP₄: Stages 10-12 (Oct, Nov, Dec)
+
+Scene 2 ("wet") → groups Scenario "wet year" (prob=0.7)
+   Phase 1 ("summer") → LP₅: Stages 1-3 (Jan, Feb, Mar)
+       ↓ state variables
+   Phase 2 ("autumn") → LP₆: Stages 4-6 (Apr, May, Jun)
+       ↓ state variables
+   Phase 3 ("winter") → LP₇: Stages 7-9 (Jul, Aug, Sep)
+       ↓ state variables
+   Phase 4 ("spring") → LP₈: Stages 10-12 (Oct, Nov, Dec)
 ```
+
+In SDDP mode, optimality cuts generated in one scene can be shared with
+other scenes (see `cut_sharing_mode` option).  This is analogous to how
+PLP shares cuts between its scenarios.
 
 ### 1.3 System elements
 
