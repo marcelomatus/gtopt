@@ -96,6 +96,10 @@ struct Options
   OptInt lp_threads {};
   /** @brief Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
+  /** @brief Solver type: `"monolithic"` (default) or `"sddp"` */
+  OptName solver_type {};
+  /** @brief SDDP cut sharing mode: `"none"`, `"expected"`, or `"max"` */
+  OptName cut_sharing_mode {};
 
   void merge(Options&& opts)
   {
@@ -128,6 +132,8 @@ struct Options
     merge_opt(lp_algorithm, opts.lp_algorithm);
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
+    merge_opt(solver_type, std::move(opts.solver_type));
+    merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
 
     auto _ = std::move(opts);
   }

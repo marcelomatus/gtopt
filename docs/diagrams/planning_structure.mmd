@@ -70,13 +70,13 @@ classDiagram
 
     Planning  *--  Simulation : contains
     Planning  *--  System     : contains
-    Simulation *-- Scenario   : has many
+    Simulation *-- Scenario   : has many (probability-weighted in objective)
     Simulation *-- Stage      : has many
-    Simulation *-- Phase      : has many (default: 1)
+    Simulation *-- Phase      : has many (default: 1, Benders decomposition level)
     Simulation *-- Block      : has many
-    Simulation *-- Scene      : has many (default: 1)
+    Simulation *-- Scene      : has many (default: 1, independent LP trajectory)
     Phase      o-- Stage      : groups (first_stage + count_stage)
     Stage      o-- Block      : references (first_block + count_block)
     Scene      --> Scenario   : indexes (first_scenario + count_scenario)
-    Scene      ..> Phase      : paired with (via LP formulation)
+    Scene      ..> Phase      : each (scene,phase) = one LP subproblem
 ```
