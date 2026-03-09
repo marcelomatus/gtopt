@@ -72,7 +72,12 @@ warn() { echo "⚠ $*" >&2; }
 
 # ── Detect OS codename (needed for LLVM APT) ──────────────────────────────────
 CODENAME=$(lsb_release --codename --short 2>/dev/null || \
-           awk -F= '/^VERSION_CODENAME/{print $2}' /etc/os-release)
+           awk -F= '/^VERSION_CODENAME/{gsub(/["[:space:]]/, "", $2); print $2}' \
+             /etc/os-release)
+if [[ -z "$CODENAME" ]]; then
+  echo "ERROR: could not determine OS codename (lsb_release and /etc/os-release failed)." >&2
+  exit 1
+fi
 
 # ── Step 1: ccache + base APT packages ────────────────────────────────────────
 # ccache MUST be installed before cmake configure; cmake bakes the launcher
@@ -132,7 +137,7 @@ if (
     wget -qO /tmp/llvm-snapshot.gpg.key \
       https://apt.llvm.org/llvm-snapshot.gpg.key && break
     echo "⚠ Attempt ${attempt}/3: wget gpg key failed; retrying in 15 s..." >&2
-    [[ $attempt -lt 3 ]] && sleep 15 || exit 1
+    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
   done
 
   sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
@@ -147,7 +152,7 @@ if (
       -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-${VER}.list" \
       -o "Dir::Etc::sourceparts=-" && break
     echo "⚠ Attempt ${attempt}/3: apt-get update failed; retrying in 15 s..." >&2
-    [[ $attempt -lt 3 ]] && sleep 15 || exit 1
+    if [[ $attempt -lt 3 ]]; then sleep 15; else exit 1; fi
   done
 
   sudo apt-get install -y --no-install-recommends \
