@@ -440,10 +440,7 @@ def _df_to_rows(df):
     Float ``NaN`` and ``Inf`` values are replaced with ``None`` to
     produce valid JSON (the JSON specification does not allow ``NaN``).
     """
-    return [
-        [_sanitize_value(x) for x in row]
-        for row in df.itertuples(index=False, name=None)
-    ]
+    return [[_sanitize_value(x) for x in row] for row in df.itertuples(index=False, name=None)]
 
 
 def _build_case_json(case_data):
@@ -507,9 +504,7 @@ def _build_zip(case_data):
                         b64decode(raw_b64),
                     )
                 else:
-                    df = pd.DataFrame(
-                        file_content["data"], columns=file_content["columns"]
-                    )
+                    df = pd.DataFrame(file_content["data"], columns=file_content["columns"])
                     parquet_buf = io.BytesIO()
                     df.to_parquet(parquet_buf, index=False)
                     zf.writestr(
@@ -903,9 +898,7 @@ def get_solve_status(token):
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning(
-            "Webservice HTTP error on status token=%s status=%s", token, status
-        )
+        app.logger.warning("Webservice HTTP error on status token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on status token=%s", token)
@@ -945,9 +938,7 @@ def get_solve_results(token):
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning(
-            "Webservice HTTP error on results token=%s status=%s", token, status
-        )
+        app.logger.warning("Webservice HTTP error on results token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on results token=%s", token)
@@ -1089,9 +1080,7 @@ def get_job_logs(token):
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
-        app.logger.warning(
-            "Webservice HTTP error on job_logs token=%s status=%s", token, status
-        )
+        app.logger.warning("Webservice HTTP error on job_logs token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
     except Exception as e:
         app.logger.exception("Unexpected error on job_logs token=%s", token)
@@ -1139,9 +1128,7 @@ def check_server():
 
     # --- Logs ---
     try:
-        resp = http_requests.get(
-            f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10
-        )
+        resp = http_requests.get(f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10)
         resp.raise_for_status()
         results["logs"] = {"status": "ok", "data": resp.json()}
     except Exception as e:
