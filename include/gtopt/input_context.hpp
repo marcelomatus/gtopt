@@ -46,6 +46,18 @@ public:
         m_system_context_.get(), cname, m_array_table_maps_, sched, id);
   }
 
+  // Bring the template element_index from the base class into scope so that
+  // the non-template overloads below do not hide it for other element types.
+  using ElementContext<SystemLP>::element_index;
+
+  // Non-template element_index overloads — declared here, defined in
+  // input_context.cpp (which includes system_lp.hpp).  These allow callers
+  // such as reserve_provision_lp.cpp to resolve element indices for these
+  // specific types without themselves including system_lp.hpp.
+  template<typename Element>
+  [[nodiscard]] auto element_index(const ObjectSingleId<Element>& id) const
+      -> ElementIndex<Element>;
+
 private:
   std::reference_wrapper<const SystemContext> m_system_context_;
 
