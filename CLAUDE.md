@@ -28,10 +28,12 @@ and Python utility scripts.
 > ```
 >
 > The script is idempotent — safe to run again if something was missed.
-> **Clang 21 is always installed** — there is no fallback to GCC and no
-> `--no-clang` option.  Do not attempt to install Arrow via APT
-> (`libarrow-dev`); the APT v2300 package conflicts with conda Arrow at link
-> time.
+> **The script first attempts Clang 21** (preferred, matches CI); if the LLVM
+> APT repository is unreachable it **falls back automatically to GCC 14**
+> without asking.  A summary at the end reports which compiler was chosen.
+> Do not attempt to install Arrow via APT (`libarrow-dev`); the APT v2300
+> package conflicts with conda Arrow at link time, producing `undefined
+> reference` linker errors.
 
 ### How the CI installs Clang 21
 
@@ -56,6 +58,8 @@ resolve to version 21 without a version suffix.
 > bash tools/setup_sandbox.sh          # deps only
 > bash tools/setup_sandbox.sh --build  # deps + configure + build + test
 > ```
+> The script tries Clang 21 first; if the LLVM APT repo is unavailable it
+> falls back to GCC 14 automatically and prints the chosen compiler at the end.
 
 **Important**: In sandbox/agent environments, always use **conda** for
 Arrow/Parquet. Do NOT use the APT Arrow packages (`libarrow-dev` from
@@ -64,7 +68,7 @@ with conda libraries via versioned curl symbols, causing `undefined reference`
 linker errors even when cmake finds the correct headers.
 
 Follow the same step order as `ubuntu.yml`: ccache first, then Arrow/Parquet
-(conda), then Clang 21, then cmake.
+(conda), then Clang 21 (with GCC 14 fallback), then cmake.
 
 ```bash
 # 1. System packages — install ccache FIRST (CMake bakes its path at configure time)
@@ -81,43 +85,49 @@ sudo apt-get install -y --no-install-recommends \
 #    always use -DCMAKE_PREFIX_PATH="$(conda info --base)" with cmake.
 conda install -y -c conda-forge arrow-cpp parquet-cpp boost-cpp
 
-# 3. Clang 21 — via LLVM APT repository (matches .github/actions/install-clang)
-#    Must be installed BEFORE cmake configure so the compiler path is baked in.
-#    Note: clang-22 is not yet available on apt.llvm.org; use version 21.
+# 3a. Clang 21 — preferred; via LLVM APT repository.
+#     Must be installed BEFORE cmake configure so the compiler path is baked in.
+#     Note: clang-22 is not yet available on apt.llvm.org; use version 21.
 CODENAME=$(lsb_release --codename --short)
-for attempt in 1 2 3; do
-  wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key \
-    && break
-  echo "Attempt $attempt/3: wget failed, retrying in 15s..."
-  sleep 15
-done
-sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
-  /tmp/llvm-snapshot.gpg.key
-echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
-  https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
-  | sudo tee /etc/apt/sources.list.d/llvm-21.list
-for attempt in 1 2 3; do
+if (
+  for attempt in 1 2 3; do
+    wget -qO /tmp/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key \
+      && break
+    echo "Attempt $attempt/3: wget failed, retrying in 15s..." && sleep 15
+  done
+  sudo gpg --dearmor -o /usr/share/keyrings/llvm-snapshot.gpg \
+    /tmp/llvm-snapshot.gpg.key
+  echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg] \
+    https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-21 main" \
+    | sudo tee /etc/apt/sources.list.d/llvm-21.list
   sudo apt-get update -q \
     -o "Dir::Etc::sourcelist=/etc/apt/sources.list.d/llvm-21.list" \
-    -o "Dir::Etc::sourceparts=-" && break
-  echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
-  sleep 15
-done
-sudo apt-get install -y --no-install-recommends \
-  clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
-  llvm-21-dev llvm-21-tools libomp-21-dev \
-  libc++-21-dev libc++abi-21-dev \
-  libclang-common-21-dev libclang-21-dev libclang-cpp21-dev
-# Register unversioned aliases (clang, clang++, clang-format, clang-tidy…)
-for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
-  [ -e "$versioned" ] || continue
-  base=$(basename "$versioned" "-21")
-  sudo update-alternatives --remove-all "$base" 2>/dev/null || true
-  sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
-done
+    -o "Dir::Etc::sourceparts=-"
+  sudo apt-get install -y --no-install-recommends \
+    clang-21 clang-tools-21 clang-format-21 clang-tidy-21 \
+    llvm-21-dev llvm-21-tools libomp-21-dev \
+    libc++-21-dev libc++abi-21-dev \
+    libclang-common-21-dev libclang-21-dev libclang-cpp21-dev
+); then
+  # Register unversioned aliases (clang, clang++, clang-format, clang-tidy…)
+  for versioned in /usr/bin/clang*-21 /usr/bin/llvm*-21; do
+    [ -e "$versioned" ] || continue
+    base=$(basename "$versioned" "-21")
+    sudo update-alternatives --remove-all "$base" 2>/dev/null || true
+    sudo update-alternatives --install /usr/bin/"$base" "$base" "$versioned" 100
+  done
+  CC=clang; CXX=clang++
+  echo "Using Clang 21"
+else
+  # 3b. GCC 14 fallback — used when LLVM APT is unavailable.
+  sudo apt-get install -y --no-install-recommends gcc-14 g++-14
+  CC=gcc-14; CXX=g++-14
+  echo "Clang 21 unavailable — using GCC 14 fallback"
+fi
 ```
 
-GCC 14 is **not** used as a build compiler in sandbox/agent environments.
+GCC 14 is the **fallback** compiler when Clang 21 is unavailable in
+sandbox/agent environments (see `setup_sandbox.sh`).  CI always uses Clang 21.
 
 ### Common build failures and fixes
 
