@@ -114,7 +114,7 @@ struct ReservoirEfficiency
   }
   auto result = std::numeric_limits<Real>::max();
   for (const auto& seg : segments) {
-    const auto val = seg.constant + seg.slope * (volume - seg.volume);
+    const auto val = seg.constant + (seg.slope * (volume - seg.volume));
     result = std::min(result, val);
   }
   return std::max(result, 0.0);

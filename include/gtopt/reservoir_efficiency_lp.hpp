@@ -116,7 +116,7 @@ public:
   auto update_conversion_coeff(LinearInterface& li,
                                ScenarioUid suid,
                                StageUid tuid,
-                               Real volume) -> int;
+                               Real volume) const -> int;
 
   /// Per-block conversion row and flow column indices for coefficient updates
   struct CoeffIndex
