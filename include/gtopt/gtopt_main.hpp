@@ -82,6 +82,12 @@ struct MainOptions
    * all trace-level messages are captured for later review. */
   std::optional<std::string> trace_log {};
 
+  // ---- SDDP-specific directories ----
+  /** @brief Directory for Benders cut files (default: "cuts") */
+  std::optional<std::string> cut_directory {};
+  /** @brief Directory for log and trace files (default: "logs") */
+  std::optional<std::string> log_directory {};
+
   // ---- solver algorithm ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
    * 3=barrier) */

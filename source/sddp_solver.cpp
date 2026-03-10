@@ -569,6 +569,12 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
     -> std::expected<void, Error>
 {
   try {
+    // Ensure parent directory exists before writing
+    const auto parent = std::filesystem::path(filepath).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
+
     std::ofstream ofs(filepath);
     if (!ofs.is_open()) {
       return std::unexpected(Error {

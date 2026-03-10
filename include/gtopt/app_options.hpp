@@ -146,7 +146,13 @@ template<typename T>
        "enable/disable LP presolve")  //
       ("trace-log,T",
        po::value<std::string>(),
-       "path to file for trace-level log output (enables SPDLOG_TRACE)");
+       "path to file for trace-level log output (enables SPDLOG_TRACE)")  //
+      ("cut-directory",
+       po::value<std::string>(),
+       "directory for SDDP Benders cut files (default: cuts)")  //
+      ("log-directory",
+       po::value<std::string>(),
+       "directory for log and trace files (default: logs)");
   return desc;
 }
 
@@ -177,7 +183,9 @@ inline void apply_cli_options(
     const std::optional<std::string>& output_compression,
     const std::optional<int>& lp_algorithm = {},
     const std::optional<int>& lp_threads = {},
-    const std::optional<bool>& lp_presolve = {})
+    const std::optional<bool>& lp_presolve = {},
+    const std::optional<std::string>& cut_directory = {},
+    const std::optional<std::string>& log_directory = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -222,6 +230,14 @@ inline void apply_cli_options(
   if (lp_presolve) {
     planning.options.lp_presolve = lp_presolve;
   }
+
+  if (cut_directory) {
+    planning.options.cut_directory = cut_directory.value();
+  }
+
+  if (log_directory) {
+    planning.options.log_directory = log_directory.value();
+  }
 }
 
 /**
@@ -247,7 +263,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.output_compression,
                     opts.lp_algorithm,
                     opts.lp_threads,
-                    opts.lp_presolve);
+                    opts.lp_presolve,
+                    opts.cut_directory,
+                    opts.log_directory);
 }
 
 /**
@@ -307,6 +325,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
+      .cut_directory = get_opt<std::string>(vm, "cut-directory"),
+      .log_directory = get_opt<std::string>(vm, "log-directory"),
       .lp_algorithm = [&]() -> std::optional<int>
       {
         if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {
