@@ -51,6 +51,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <expected>
 #include <functional>
 #include <mutex>
@@ -204,6 +205,13 @@ void propagate_trial_values(std::span<StateVarLink> links,
 [[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
                                        std::string_view name) -> SparseRow;
 
+// ─── Callback / observer API ────────────────────────────────────────────────
+
+/// Callback invoked after each SDDP iteration.
+/// If the callback returns `true`, the solver stops after this iteration.
+using SDDPIterationCallback =
+    std::function<bool(const SDDPIterationResult& result)>;
+
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 /**
@@ -218,10 +226,38 @@ void propagate_trial_values(std::span<StateVarLink> links,
  * between scenes, iterative feasibility backpropagation, and cut
  * persistence for hot-start.
  *
+ * ## API for external monitoring / GUI integration
+ *
+ * The solver exposes a rich API that enables GUI or monitoring tools to
+ * observe the iterative process and control execution:
+ *
+ * - **Callback**: register an `SDDPIterationCallback` via
+ *   `set_iteration_callback()`.  It is invoked after every iteration with
+ *   the full `SDDPIterationResult`.  Return `true` from the callback to
+ *   request a stop.
+ * - **Programmatic stop**: call `request_stop()` from any thread; the
+ *   solver checks this flag at the start of each iteration and exits
+ *   gracefully, saving all accumulated cuts.
+ * - **Live query**: call `current_iteration()`, `current_gap()`,
+ *   `current_lower_bound()`, `current_upper_bound()` at any time (they
+ *   are atomic and thread-safe) to poll the solver's convergence state.
+ * - **Sentinel file**: same as PLP's `userstop` — check for a sentinel
+ *   file on disk.
+ *
  * @code
- * PlanningLP planning_lp(planning);
- * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 10});
+ * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 100});
+ *
+ * // Register a callback that prints progress and stops at gap < 1e-6
+ * sddp.set_iteration_callback([](const SDDPIterationResult& r) {
+ *     fmt::print("iter {} gap={:.6f}\n", r.iteration, r.gap);
+ *     return r.gap < 1e-6;  // true → stop
+ * });
+ *
+ * // Start solving (blocks until done / stopped)
  * auto results = sddp.solve();
+ *
+ * // Or stop programmatically from another thread:
+ * sddp.request_stop();
  * @endcode
  */
 class SDDPSolver
@@ -233,7 +269,65 @@ public:
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
-  /// Per-phase state for a given scene (valid after at least one iteration)
+  // ── Iteration callback / observer ──
+
+  /// Register a callback invoked after each iteration.
+  /// If the callback returns `true`, the solver stops after that iteration.
+  void set_iteration_callback(SDDPIterationCallback cb) noexcept
+  {
+    m_iteration_callback_ = std::move(cb);
+  }
+
+  // ── Programmatic stop (thread-safe) ──
+
+  /// Request the solver to stop gracefully after the current iteration.
+  /// Thread-safe — may be called from any thread.
+  void request_stop() noexcept { m_stop_requested_.store(true); }
+
+  /// Clear a previous stop request (e.g., before re-running solve()).
+  void clear_stop() noexcept { m_stop_requested_.store(false); }
+
+  /// Check whether a stop has been requested.
+  [[nodiscard]] bool is_stop_requested() const noexcept
+  {
+    return m_stop_requested_.load();
+  }
+
+  // ── Live query (thread-safe, atomic reads) ──
+
+  /// Current iteration number (0 before first iteration completes)
+  [[nodiscard]] int current_iteration() const noexcept
+  {
+    return m_current_iteration_.load();
+  }
+
+  /// Current relative convergence gap
+  [[nodiscard]] double current_gap() const noexcept
+  {
+    return m_current_gap_.load();
+  }
+
+  /// Current lower bound (phase-0 objective including α)
+  [[nodiscard]] double current_lower_bound() const noexcept
+  {
+    return m_current_lb_.load();
+  }
+
+  /// Current upper bound (sum of actual phase costs)
+  [[nodiscard]] double current_upper_bound() const noexcept
+  {
+    return m_current_ub_.load();
+  }
+
+  /// Whether the solver has converged
+  [[nodiscard]] bool has_converged() const noexcept
+  {
+    return m_converged_.load();
+  }
+
+  // ── Data accessors (valid after at least one iteration) ──
+
+  /// Per-phase state for a given scene
   [[nodiscard]] constexpr auto& phase_states(SceneIndex scene) const noexcept
   {
     return m_scene_phase_states_[scene];
@@ -252,6 +346,13 @@ public:
   [[nodiscard]] const auto& stored_cuts() const noexcept
   {
     return m_stored_cuts_;
+  }
+
+  /// Number of stored cuts (thread-safe)
+  [[nodiscard]] int num_stored_cuts() const noexcept
+  {
+    const std::lock_guard lock(m_cuts_mutex_);
+    return static_cast<int>(m_stored_cuts_.size());
   }
 
   /// Save accumulated cuts to a CSV file for hot-start
@@ -288,6 +389,9 @@ private:
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
+  /// Check all stop conditions: sentinel file, programmatic stop, callback
+  [[nodiscard]] bool should_stop() const;
+
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
       PhaseIndex phase,
@@ -308,8 +412,19 @@ private:
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   std::vector<StoredCut> m_stored_cuts_;
-  std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_ for parallel writes
+  mutable std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_
   bool m_initialized_ {false};
+
+  // ── Stop / callback machinery ──
+  SDDPIterationCallback m_iteration_callback_ {};
+  std::atomic<bool> m_stop_requested_ {false};
+
+  // ── Atomic live-query state ──
+  std::atomic<int> m_current_iteration_ {0};
+  std::atomic<double> m_current_gap_ {1.0};
+  std::atomic<double> m_current_lb_ {0.0};
+  std::atomic<double> m_current_ub_ {0.0};
+  std::atomic<bool> m_converged_ {false};
 
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>

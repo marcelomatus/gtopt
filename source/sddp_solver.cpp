@@ -292,6 +292,11 @@ bool SDDPSolver::check_sentinel_stop() const
   return std::filesystem::exists(m_options_.sentinel_file);
 }
 
+bool SDDPSolver::should_stop() const
+{
+  return m_stop_requested_.load() || check_sentinel_stop();
+}
+
 // ── Forward pass ────────────────────────────────────────────────────────────
 
 auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
@@ -744,14 +749,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
 
+  // Reset live-query atomics before starting
+  m_current_iteration_.store(0);
+  m_current_gap_.store(1.0);
+  m_current_lb_.store(0.0);
+  m_current_ub_.store(0.0);
+  m_converged_.store(false);
+
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
-    // ── Check sentinel file for user-requested stop ──
-    if (check_sentinel_stop()) {
-      SPDLOG_INFO(
-          "SDDP: sentinel file '{}' detected, stopping after {} "
-          "iterations",
-          m_options_.sentinel_file,
-          iter - 1);
+    // ── Check all stop conditions (sentinel, programmatic, callback) ──
+    if (should_stop()) {
+      SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
+                  iter - 1);
       break;
     }
 
@@ -869,6 +878,13 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.gap = (ir.upper_bound - ir.lower_bound) / denom;
     ir.converged = (ir.gap < m_options_.convergence_tol);
 
+    // ── Update live-query atomics for API consumers ──
+    m_current_iteration_.store(iter);
+    m_current_gap_.store(ir.gap);
+    m_current_lb_.store(ir.lower_bound);
+    m_current_ub_.store(ir.upper_bound);
+    m_converged_.store(ir.converged);
+
     SPDLOG_TRACE(
         "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={}{}",
         iter,
@@ -894,6 +910,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         SPDLOG_WARN("SDDP: could not save cuts at iter {}: {}",
                     iter,
                     save_result.error().message);
+      }
+    }
+
+    // ── Invoke iteration callback (may request stop) ──
+    if (m_iteration_callback_) {
+      if (m_iteration_callback_(ir)) {
+        SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
+        break;
       }
     }
 

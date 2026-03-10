@@ -295,6 +295,50 @@ the end).  This ensures that if the solver is interrupted — whether by the
 sentinel file, a time limit, or an external signal — the accumulated cuts
 are available for a subsequent hot-start run.
 
+### 4.8 Solver API for Monitoring and Control
+
+The `SDDPSolver` exposes a thread-safe API designed for GUI integration,
+external monitoring tools, and programmatic control of the solve process:
+
+**Iteration callback** — register an `SDDPIterationCallback` via
+`set_iteration_callback()`.  It is invoked after every iteration with the
+full `SDDPIterationResult` (iteration number, lower/upper bound, gap,
+cuts added, feasibility flags).  Return `true` from the callback to
+request an immediate stop.
+
+```cpp
+sddp.set_iteration_callback([](const SDDPIterationResult& r) {
+    fmt::print("iter {} gap={:.6f}\n", r.iteration, r.gap);
+    return r.gap < 1e-6;  // true → stop
+});
+```
+
+**Programmatic stop** — call `request_stop()` from any thread; the solver
+checks this atomic flag at the start of each iteration and exits
+gracefully, saving all accumulated cuts.
+
+```cpp
+// From a UI thread or signal handler:
+sddp.request_stop();
+```
+
+**Live query** — poll the solver's convergence state at any time via
+atomic accessors.  These are safe to call from any thread during solve:
+
+| Method | Returns |
+|--------|---------|
+| `current_iteration()` | Current iteration number (0 before start) |
+| `current_gap()` | Current relative convergence gap |
+| `current_lower_bound()` | Current LB (phase-0 obj including α) |
+| `current_upper_bound()` | Current UB (sum of forward-pass costs) |
+| `has_converged()` | Whether convergence tolerance has been met |
+| `num_stored_cuts()` | Number of accumulated Benders cuts |
+| `is_stop_requested()` | Whether a stop has been requested |
+
+**Data access** — after solving (or mid-solve via callback), the full
+per-phase state is available via `phase_states(scene)`, and all stored
+cuts via `stored_cuts()`.
+
 ---
 
 ## 5. Configuration
@@ -341,8 +385,10 @@ providing detailed iteration-by-iteration data including:
 
 ## 6. Integration Tests
 
-Two integration tests validate that the SDDP solver produces the same
-optimal solution as the monolithic solver.
+Three integration tests validate that the SDDP solver produces the same
+optimal solution as the monolithic solver.  Each test exercises a different
+type of state-variable coupling between phases: reservoir volume, reservoir
+depletion dynamics, and capacity expansion.
 
 ### 6.1 Reservoir Test (`make_5phase_reservoir_planning`)
 
@@ -372,35 +418,58 @@ available.
 The SDDP solver converges to the exact monolithic solution in 5 iterations
 with zero gap.
 
-### 6.2 Battery Test (`make_5phase_battery_planning`)
+### 6.2 Small Reservoir Test (`make_5phase_small_reservoir_planning`)
 
 **System configuration:**
 - 1 bus (single-bus / copper-plate mode)
+- 1 hydro generator: 80 MW, $3/MWh
 - 1 thermal generator: 200 MW, $80/MWh
-- 1 discharge generator: 30 MW, $0/MWh (linked to battery via converter)
 - 1 demand: 100 MW constant
-- 1 charge demand: 30 MW (linked to battery via converter)
-- 1 battery (BESS): 100 MWh capacity, starts at 50 MWh, 95% charge/discharge
-  efficiency
-- 1 converter: links battery ↔ discharge generator ↔ charge demand
+- 1 small reservoir: 200 dam³ capacity, starts at 180 dam³
+- Low natural inflow: 5 dam³/h (reservoir depletes over time)
 
 **Time structure:**
 - 5 phases × 1 stage each × 8 blocks of 3 hours = 120 hours total
 - 1 scenario, 1 scene
 
-**Expected behaviour:** the battery provides peak-shaving by charging when
-demand is low and discharging when demand is high, reducing reliance on
-expensive thermal generation.
+**Expected behaviour:** the reservoir is small relative to demand, so
+it depletes across phases.  This creates non-trivial state-variable
+values at phase boundaries, forcing the SDDP cuts to properly capture
+the marginal water value.
 
 **Results:**
 | Solver | Total cost | Iterations | Gap |
 |--------|-----------|------------|-----|
-| Monolithic | 988,080 | 1 (single LP) | — |
-| SDDP | 988,080 | 5 | 0.000000 |
+| Monolithic | 899,940 | 1 (single LP) | — |
+| SDDP | 899,940 | 5 | 0.000000 |
 
-The SDDP solver again converges to the exact monolithic solution.
+### 6.3 Expansion Test (`make_5phase_expansion_planning`)
 
-### 6.3 Why the Results Match Exactly
+**System configuration:**
+- 1 bus (single-bus / copper-plate mode)
+- 1 expandable generator: 0 MW initial capacity, 50 MW/module,
+  max 10 modules, $80/MWh operating cost, $500/module-year investment
+- 1 backup generator: 200 MW, $200/MWh (expensive "peaker")
+- 1 demand: 100 MW constant
+
+**Time structure:**
+- 5 phases × 1 stage each × 8 blocks of 3 hours = 120 hours total
+- 1 scenario, 1 scene
+
+**Expected behaviour:** the expandable generator starts at 0 MW and
+must invest in capacity modules to displace the expensive backup.
+The `capainst` (installed-capacity) state variable links across phases,
+ensuring that capacity built in phase $t$ is available in phase $t+1$.
+The solver finds the optimal expansion plan that minimizes total
+discounted CAPEX + OPEX.
+
+**Results:**
+| Solver | Total cost | Iterations | Gap |
+|--------|-----------|------------|-----|
+| Monolithic | 960,685 | 1 (single LP) | — |
+| SDDP | 960,685 | 5 | 0.000000 |
+
+### 6.4 Why the Results Match Exactly
 
 For deterministic problems (single scenario, no stochastic uncertainty),
 the SDDP algorithm is equivalent to Benders decomposition on a
