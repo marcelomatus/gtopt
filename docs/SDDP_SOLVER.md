@@ -390,6 +390,7 @@ cuts via `stored_cuts()`.
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `convergence_tol` | double | 1e-4 | Relative gap tolerance |
 | `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
+| `elastic_filter_mode` | ElasticFilterMode | FeasibilityCut | Elastic filter strategy (see §5.4) |
 | `alpha_min` | double | 0.0 | Lower bound for α variables |
 | `alpha_max` | double | 1e12 | Upper bound for α variables |
 | `cut_sharing` | CutSharingMode | None | Cut sharing strategy between scenes |
@@ -397,8 +398,14 @@ cuts via `stored_cuts()`.
 | `cuts_output_file` | string | "" | Path for saving cuts (CSV format) |
 | `cuts_input_file` | string | "" | Path for loading cuts (hot-start) |
 | `log_directory` | string | "logs" | Directory for log and error LP files |
+| `enable_api` | bool | true | Enable monitoring API (JSON status file) |
+| `api_status_file` | string | "" | Path for the JSON status file |
+| `api_update_interval` | ms | 500 | Interval between monitoring samples |
 
 ### 5.2 Options (JSON)
+
+The SDDP solver and all key tuning parameters are fully configurable from
+the JSON planning file.
 
 ```json
 {
@@ -406,7 +413,11 @@ cuts via `stored_cuts()`.
     "solver_type": "sddp",
     "cut_sharing_mode": "expected",
     "cut_directory": "cuts",
-    "log_directory": "logs"
+    "log_directory": "logs",
+    "sddp_max_iterations": 200,
+    "sddp_convergence_tol": 1e-5,
+    "sddp_elastic_penalty": 1e7,
+    "sddp_elastic_mode": "backpropagate"
   }
 }
 ```
@@ -417,11 +428,22 @@ cuts via `stored_cuts()`.
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, or `"max"` |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `log_directory` | string | `"logs"` | Directory for log and trace files |
+| `sddp_max_iterations` | int | 100 | Maximum SDDP iterations |
+| `sddp_convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
+| `sddp_elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
+| `sddp_elastic_mode` | string | `"cut"` | Elastic filter mode: `"cut"` or `"backpropagate"` |
 
 ### 5.3 CLI
 
 ```bash
-gtopt my_case.json --trace-log sddp_trace.log --cut-directory cuts --log-directory logs
+# Run with SDDP solver, custom cut directory, and tight convergence
+gtopt my_case.json \
+  --cut-directory cuts \
+  --log-directory logs \
+  --sddp-max-iterations 300 \
+  --sddp-convergence-tol 1e-5 \
+  --sddp-elastic-mode backpropagate \
+  --trace-log sddp_trace.log
 ```
 
 | Flag | Description |
@@ -429,6 +451,10 @@ gtopt my_case.json --trace-log sddp_trace.log --cut-directory cuts --log-directo
 | `--trace-log <file>` | Capture all `SPDLOG_TRACE` messages to a file |
 | `--cut-directory <dir>` | Directory for Benders cut files (default: `cuts`) |
 | `--log-directory <dir>` | Directory for log and trace files (default: `logs`) |
+| `--sddp-max-iterations <n>` | Maximum SDDP iterations (default: 100) |
+| `--sddp-convergence-tol <tol>` | Relative gap convergence tolerance (default: 1e-4) |
+| `--sddp-elastic-penalty <p>` | Elastic slack penalty coefficient (default: 1e6) |
+| `--sddp-elastic-mode <mode>` | Elastic filter mode: `cut` or `backpropagate` (default: `cut`) |
 
 The `--trace-log` option captures all `SPDLOG_TRACE` messages to a file,
 providing detailed iteration-by-iteration data including:
@@ -437,7 +463,54 @@ providing detailed iteration-by-iteration data including:
 - Elastic filter activations
 - Convergence metrics
 
-### 5.4 Per-Scene Cut Files
+### 5.4 Elastic Filter Modes
+
+When a backward-pass phase is infeasible due to the fixed trial values of
+state variables from the forward pass, the elastic filter handles the
+infeasibility by temporarily relaxing the state-variable bounds using
+penalised slack variables.  Two modes are available:
+
+#### Mode 1: `"cut"` (FeasibilityCut — default)
+
+This is the standard Nested Benders Decomposition approach.  When the
+elastic clone is solved, its dual information is used to build a
+**feasibility cut** for the previous phase.  The feasibility cut is added
+to the previous phase's LP and the phase is re-solved.  This tightens the
+previous phase's feasible region and prevents the same infeasible trial
+point from reappearing.
+
+**When to use:** when you want the classical NBD guarantee that all phases
+remain strictly feasible after each iteration and cuts accurately capture
+the future cost.
+
+#### Mode 2: `"backpropagate"` (BackpropagateBounds — PLP mechanism)
+
+This is based on the PLP hydrothermal scheduler mechanism in
+`osicallsc.cpp`.  Instead of adding a cut, the solver propagates the
+**elastic-clone solution values** back as tightened bounds on the source
+state columns in the previous phase.  Specifically, for each state variable
+link, the source column's upper and lower bounds in the previous phase are
+set to the value found by the elastic clone.  This forces the previous
+phase to produce a trial point that is known to be feasible for the current
+phase.
+
+**When to use:** when infeasibility is caused by physically unreachable
+trial points (e.g., reservoir levels outside capacity bounds) and you want
+to quickly correct the trial trajectory without adding cut rows.  This can
+converge faster in practice for hydrothermal problems with tight physical
+bounds, but may produce a different (non-cut-based) convergence path.
+
+**Comparison:**
+
+| Aspect | `cut` | `backpropagate` |
+|--------|-------|-----------------|
+| Adds cut rows | Yes | No |
+| Modifies previous phase bounds | No | Yes |
+| Convergence guarantee | Standard NBD | Heuristic |
+| Best for | General SDDP | Hydrothermal with tight bounds |
+| PLP origin | No | Yes (`osicallsc.cpp`) |
+
+### 5.5 Per-Scene Cut Files
 
 When `cuts_output_file` is set, the solver saves both a combined cut file
 and per-scene files to avoid write contention during parallel backward
@@ -456,7 +529,7 @@ allows concurrent scene processing to write independently without
 locking. Cut files for infeasible scenes are automatically renamed
 with an `error_` prefix (e.g. `error_scene_2.csv`).
 
-### 5.5 Infeasible Scene Handling
+### 5.6 Infeasible Scene Handling
 
 When one or more scenes are infeasible during the forward pass:
 
@@ -471,7 +544,7 @@ When one or more scenes are infeasible during the forward pass:
 5. **Error**: if **all** scenes are infeasible, the solver returns an error
    and `gtopt_main` exits with a non-zero exit code.
 
-### 5.6 Hot-Start and Error File Filtering
+### 5.7 Hot-Start and Error File Filtering
 
 On hot-start, the solver loads cuts from the cut directory to warm-start
 the Benders approximation.  Files with the `error_` prefix (from
@@ -623,11 +696,37 @@ enough that convergence is achieved quickly.
 | `SDDPSolver` | `sddp_solver.hpp/cpp` | Core SDDP algorithm |
 | `SDDPPlanningSolver` | `sddp_solver.hpp/cpp` | `PlanningSolver` interface adapter |
 | `MonolithicSolver` | `planning_solver.hpp/cpp` | Default full-LP solver |
+| `SolverMonitor` | `solver_monitor.hpp` | Background CPU/worker monitoring (SDDP + Monolithic) |
 | `PlanningLP` | `planning_lp.hpp/cpp` | LP assembly and phase management |
 | `LinearInterface` | `linear_interface.hpp/cpp` | LP solver abstraction (COIN-OR) |
 | `AdaptiveWorkPool` | `work_pool.hpp` | Parallel scene processing |
 
-### 7.2 Free Functions
+### 7.2 SolverMonitor
+
+`SolverMonitor` is a reusable class that samples `AdaptiveWorkPool`
+statistics (CPU load, active worker count) in a background `std::jthread`
+and writes them to a JSON status file for external monitoring tools such as
+`scripts/sddp_monitor.py`.
+
+Both `SDDPSolver` and `MonolithicSolver` create a local `SolverMonitor`
+during their `solve()` call.
+
+**SDDP status file** (`sddp_status.json`) contains:
+- `"version"`, `"timestamp"`, `"elapsed_s"`, `"status"`, `"iteration"`
+- `"lower_bound"`, `"upper_bound"`, `"gap"`, `"converged"`, `"max_iterations"`
+- `"history"`: per-iteration array with `lower_bound`, `upper_bound`, `gap`,
+  `converged`, `cuts_added`, `scene_upper_bounds`, `scene_lower_bounds`
+- `"realtime"`: rolling arrays of `timestamps`, `cpu_loads`, `active_workers`
+
+**Monolithic status file** (`monolithic_status.json`) contains:
+- `"version"`, `"status"`, `"elapsed_s"`, `"total_scenes"`, `"scenes_done"`
+- `"scene_times"`: wall-clock seconds per completed scene
+- `"realtime"`: same rolling CPU/worker arrays as SDDP
+
+The status file is written **atomically** (write to `.tmp`, then rename) to
+allow external tools to read it without seeing a partial write.
+
+### 7.3 Free Functions
 
 | Function | Purpose |
 |----------|---------|
@@ -636,8 +735,9 @@ enough that convergence is achieved quickly.
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
 | `average_benders_cut()` | Average multiple cuts (for `expected` sharing) |
 | `parse_cut_sharing_mode()` | Parse string to `CutSharingMode` enum |
+| `parse_elastic_filter_mode()` | Parse `"cut"` / `"backpropagate"` to `ElasticFilterMode` |
 
-### 7.3 LP Clone Pattern
+### 7.4 LP Clone Pattern
 
 The `LinearInterface::clone()` method (added for the SDDP elastic filter)
 uses `OsiSolverInterface::clone(true)` to create a deep copy of the LP
@@ -653,7 +753,7 @@ auto rc = cloned.get_col_cost();     // Extract dual information
 // Original LP `li` is untouched.
 ```
 
-### 7.4 Thread Safety
+### 7.5 Thread Safety
 
 The SDDP solver uses two levels of cut storage:
 
@@ -685,12 +785,19 @@ maintained in the `marcelomatus/plp_storage` repository:
 | `userstop` file | `sentinel_file` option in `SDDPOptions` |
 | Cut file persistence | `save_cuts()` / `load_cuts()` in CSV format |
 | `scloning` mode | Always-clone approach for elastic filter |
+| Bound backpropagation from elastic filter | `ElasticFilterMode::BackpropagateBounds` |
 
 The PLP code (`CEN65/src/osicallsc.cpp`) uses `OsiSolverInterface::clone()`
 in `osi_lp_get_feasible_cut` to create a temporary LP copy, zero the
 original objective, add elastic slack variables, solve for feasibility,
 extract the dual ray, and discard the clone.  gtopt's `elastic_solve()`
 follows the same pattern.
+
+The `BackpropagateBounds` elastic filter mode (`--sddp-elastic-mode
+backpropagate`) is a direct translation of the PLP bound-update mechanism:
+instead of building a feasibility cut, the elastic-clone solution values are
+propagated back as tightened bounds on the source columns in the previous
+phase, forcing the trial trajectory to remain within the feasible region.
 
 ---
 

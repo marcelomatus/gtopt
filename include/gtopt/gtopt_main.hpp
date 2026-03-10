@@ -88,6 +88,17 @@ struct MainOptions
   /** @brief Directory for log and trace files (default: "logs") */
   std::optional<std::string> log_directory {};
 
+  // ---- SDDP algorithm tuning ----
+  /** @brief Maximum SDDP forward/backward iterations (default: 100) */
+  std::optional<int> sddp_max_iterations {};
+  /** @brief SDDP relative convergence tolerance (default: 1e-4) */
+  std::optional<double> sddp_convergence_tol {};
+  /** @brief Penalty coefficient for SDDP elastic slack variables (default:
+   * 1e6) */
+  std::optional<double> sddp_elastic_penalty {};
+  /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
+  std::optional<std::string> sddp_elastic_mode {};
+
   // ---- solver algorithm ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
    * 3=barrier) */
