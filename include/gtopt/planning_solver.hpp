@@ -87,9 +87,14 @@ public:
  * @brief Create a solver instance based on the solver type name
  * @param solver_type "monolithic" (default) or "sddp"
  * @param cut_sharing_mode "none", "expected", or "max" (for SDDP)
+ * @param cut_directory Directory for Benders cut files (for SDDP)
+ * @param log_directory Directory for log and error LP files (for SDDP)
  * @return Unique pointer to the selected solver
  */
 [[nodiscard]] std::unique_ptr<PlanningSolver> make_planning_solver(
-    std::string_view solver_type, std::string_view cut_sharing_mode = "none");
+    std::string_view solver_type,
+    std::string_view cut_sharing_mode = "none",
+    std::string_view cut_directory = "cuts",
+    std::string_view log_directory = "logs");
 
 }  // namespace gtopt

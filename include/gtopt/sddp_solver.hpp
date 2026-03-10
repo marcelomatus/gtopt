@@ -51,14 +51,18 @@
 
 #pragma once
 
+#include <atomic>
 #include <expected>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -87,6 +91,19 @@ enum class CutSharingMode : uint8_t
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
+/// File naming patterns for per-scene cut files
+namespace sddp_file
+{
+/// Combined cut file name
+constexpr auto combined_cuts = "sddp_cuts.csv";
+/// Per-scene cut file pattern: format with scene index
+constexpr auto scene_cuts_fmt = "scene_{}.csv";
+/// Error-prefixed cut file pattern for infeasible scenes
+constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
+/// Error LP file pattern for infeasible scene/phase
+constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
+}  // namespace sddp_file
+
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions
 {
@@ -101,6 +118,15 @@ struct SDDPOptions
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
+
+  /// Path to a sentinel file: if the file exists, the solver stops
+  /// gracefully after the current iteration (analogous to PLP's userstop).
+  /// All accumulated cuts are saved before stopping.
+  std::string sentinel_file {};
+
+  /// Directory for log and error LP files (default: "logs").
+  /// Error LP files for infeasible scenes are saved here.
+  std::string log_directory {"logs"};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -146,6 +172,11 @@ struct PhaseStateInfo
   ColIndex alpha_col {unknown_index};  ///< α column (unknown for last)
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO the next phase
   double forward_objective {0.0};  ///< Opex from last forward pass
+  /// Full LP objective from last forward solve (including α).
+  /// Cached for the backward pass so the original LP need not be re-queried.
+  double forward_full_obj {0.0};
+  /// Reduced costs from last forward solve (cached for backward pass).
+  std::vector<double> forward_col_cost {};
 };
 
 // ─── Stored cut for persistence ─────────────────────────────────────────────
@@ -178,7 +209,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::span<const StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
-                                     const std::string& name) -> SparseRow;
+                                     std::string_view name) -> SparseRow;
 
 /// Relax a single fixed state-variable column to its physical source bounds,
 /// adding penalised slack variables.  Returns true if the column was relaxed.
@@ -189,7 +220,14 @@ void propagate_trial_values(std::span<StateVarLink> links,
 
 /// Compute an average cut from a collection of cuts (for Expected sharing)
 [[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                                       const std::string& name) -> SparseRow;
+                                       std::string_view name) -> SparseRow;
+
+// ─── Callback / observer API ────────────────────────────────────────────────
+
+/// Callback invoked after each SDDP iteration.
+/// If the callback returns `true`, the solver stops after this iteration.
+using SDDPIterationCallback =
+    std::function<bool(const SDDPIterationResult& result)>;
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
@@ -205,10 +243,38 @@ void propagate_trial_values(std::span<StateVarLink> links,
  * between scenes, iterative feasibility backpropagation, and cut
  * persistence for hot-start.
  *
+ * ## API for external monitoring / GUI integration
+ *
+ * The solver exposes a rich API that enables GUI or monitoring tools to
+ * observe the iterative process and control execution:
+ *
+ * - **Callback**: register an `SDDPIterationCallback` via
+ *   `set_iteration_callback()`.  It is invoked after every iteration with
+ *   the full `SDDPIterationResult`.  Return `true` from the callback to
+ *   request a stop.
+ * - **Programmatic stop**: call `request_stop()` from any thread; the
+ *   solver checks this flag at the start of each iteration and exits
+ *   gracefully, saving all accumulated cuts.
+ * - **Live query**: call `current_iteration()`, `current_gap()`,
+ *   `current_lower_bound()`, `current_upper_bound()` at any time (they
+ *   are atomic and thread-safe) to poll the solver's convergence state.
+ * - **Sentinel file**: same as PLP's `userstop` — check for a sentinel
+ *   file on disk.
+ *
  * @code
- * PlanningLP planning_lp(planning);
- * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 10});
+ * SDDPSolver sddp(planning_lp, SDDPOptions{.max_iterations = 100});
+ *
+ * // Register a callback that prints progress and stops at gap < 1e-6
+ * sddp.set_iteration_callback([](const SDDPIterationResult& r) {
+ *     fmt::print("iter {} gap={:.6f}\n", r.iteration, r.gap);
+ *     return r.gap < 1e-6;  // true → stop
+ * });
+ *
+ * // Start solving (blocks until done / stopped)
  * auto results = sddp.solve();
+ *
+ * // Or stop programmatically from another thread:
+ * sddp.request_stop();
  * @endcode
  */
 class SDDPSolver
@@ -220,7 +286,65 @@ public:
   [[nodiscard]] auto solve(const SolverOptions& lp_opts = {})
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
-  /// Per-phase state for a given scene (valid after at least one iteration)
+  // ── Iteration callback / observer ──
+
+  /// Register a callback invoked after each iteration.
+  /// If the callback returns `true`, the solver stops after that iteration.
+  void set_iteration_callback(SDDPIterationCallback cb) noexcept
+  {
+    m_iteration_callback_ = std::move(cb);
+  }
+
+  // ── Programmatic stop (thread-safe) ──
+
+  /// Request the solver to stop gracefully after the current iteration.
+  /// Thread-safe — may be called from any thread.
+  void request_stop() noexcept { m_stop_requested_.store(true); }
+
+  /// Clear a previous stop request (e.g., before re-running solve()).
+  void clear_stop() noexcept { m_stop_requested_.store(false); }
+
+  /// Check whether a stop has been requested.
+  [[nodiscard]] bool is_stop_requested() const noexcept
+  {
+    return m_stop_requested_.load();
+  }
+
+  // ── Live query (thread-safe, atomic reads) ──
+
+  /// Current iteration number (0 before first iteration completes)
+  [[nodiscard]] int current_iteration() const noexcept
+  {
+    return m_current_iteration_.load();
+  }
+
+  /// Current relative convergence gap
+  [[nodiscard]] double current_gap() const noexcept
+  {
+    return m_current_gap_.load();
+  }
+
+  /// Current lower bound (phase-0 objective including α)
+  [[nodiscard]] double current_lower_bound() const noexcept
+  {
+    return m_current_lb_.load();
+  }
+
+  /// Current upper bound (sum of actual phase costs)
+  [[nodiscard]] double current_upper_bound() const noexcept
+  {
+    return m_current_ub_.load();
+  }
+
+  /// Whether the solver has converged
+  [[nodiscard]] bool has_converged() const noexcept
+  {
+    return m_converged_.load();
+  }
+
+  // ── Data accessors (valid after at least one iteration) ──
+
+  /// Per-phase state for a given scene
   [[nodiscard]] constexpr auto& phase_states(SceneIndex scene) const noexcept
   {
     return m_scene_phase_states_[scene];
@@ -241,8 +365,27 @@ public:
     return m_stored_cuts_;
   }
 
+  /// Number of stored cuts (thread-safe)
+  [[nodiscard]] int num_stored_cuts() const noexcept
+  {
+    const std::lock_guard lock(m_cuts_mutex_);
+    return static_cast<int>(m_stored_cuts_.size());
+  }
+
   /// Save accumulated cuts to a CSV file for hot-start
   [[nodiscard]] auto save_cuts(const std::string& filepath) const
+      -> std::expected<void, Error>;
+
+  /// Save cuts for a single scene to a per-scene file.
+  /// Uses scene-specific storage, avoiding lock contention when called
+  /// in parallel for different scenes.
+  [[nodiscard]] auto save_scene_cuts(SceneIndex scene,
+                                     const std::string& directory) const
+      -> std::expected<void, Error>;
+
+  /// Save all scenes' cuts to per-scene files in the given directory.
+  /// Each scene gets its own file: `<directory>/scene_<N>.csv`.
+  [[nodiscard]] auto save_all_scene_cuts(const std::string& directory) const
       -> std::expected<void, Error>;
 
   /// Load cuts from a CSV file and add to all scenes' phase LPs.
@@ -251,6 +394,13 @@ public:
   /// problem (analogous to PLP's cut sharing across scenarios).
   [[nodiscard]] auto load_cuts(const std::string& filepath)
       -> std::expected<int, Error>;
+
+  /// Load all per-scene cut files from a directory.
+  /// Files matching `scene_<N>.csv` are loaded; files with the `error_`
+  /// prefix (from infeasible scenes in a previous run) are skipped to
+  /// prevent loading invalid cuts during hot-start.
+  [[nodiscard]] auto load_scene_cuts_from_directory(
+      const std::string& directory) -> std::expected<int, Error>;
 
 private:
   using scene_phase_states_t =
@@ -266,9 +416,17 @@ private:
   [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
       -> std::expected<int, Error>;
 
-  [[nodiscard]] bool apply_elastic_filter(SceneIndex scene,
-                                          PhaseIndex phase,
-                                          const SolverOptions& opts);
+  /// Clone the LP, apply elastic filter on the clone, and solve it.
+  /// Returns the solved clone (with solution data) if feasible, nullopt
+  /// otherwise.  The original LP is never modified (PLP clone pattern).
+  [[nodiscard]] std::optional<LinearInterface> elastic_solve(
+      SceneIndex scene, PhaseIndex phase, const SolverOptions& opts);
+
+  /// Check whether the sentinel file exists (user-requested stop)
+  [[nodiscard]] bool check_sentinel_stop() const;
+
+  /// Check all stop conditions: sentinel file, programmatic stop, callback
+  [[nodiscard]] bool should_stop() const;
 
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
@@ -287,9 +445,35 @@ private:
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
+  LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   std::vector<StoredCut> m_stored_cuts_;
+  mutable std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_
+
+  /// Per-scene cut storage — each scene writes its own vector without
+  /// needing the shared m_cuts_mutex_, preventing lock contention during
+  /// parallel backward passes.
+  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_;
+
   bool m_initialized_ {false};
+
+  // ── Stop / callback machinery ──
+  SDDPIterationCallback m_iteration_callback_ {};
+  std::atomic<bool> m_stop_requested_ {false};
+
+  // ── Atomic live-query state ──
+  std::atomic<int> m_current_iteration_ {0};
+  std::atomic<double> m_current_gap_ {1.0};
+  std::atomic<double> m_current_lb_ {0.0};
+  std::atomic<double> m_current_ub_ {0.0};
+  std::atomic<bool> m_converged_ {false};
+
+  /// Generate an LP name only when use_lp_names is enabled.
+  template<typename... Args>
+  [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
+  {
+    return m_label_maker_.lp_label(std::forward<Args>(args)...);
+  }
 };
 
 // ─── SDDPPlanningSolver ─────────────────────────────────────────────────────

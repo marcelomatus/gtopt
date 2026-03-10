@@ -442,7 +442,7 @@ Format violations are warnings only, not CI failures.
 
 | Aspect | Rule |
 |--------|------|
-| Standard | C++26 (`set(CMAKE_CXX_STANDARD 26)`). C++23 features are actively used now; C++26 features as support arrives. |
+| Standard | C++26 (`set(CMAKE_CXX_STANDARD 26)`). **Always use modern C++26** features in new code: `std::format`, `std::ranges`, `std::expected`, `std::flat_map`, `std::mdspan`, concepts, designated initializers, structured bindings, `constexpr` containers. Clang 21 is required. |
 | Compiler | Clang 21 (required) |
 | Indentation | 2 spaces (see `.clang-format`, `IndentWidth: 2`) |
 | Column limit | 80 characters |
@@ -607,8 +607,10 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
     `test/CMakeLists.txt` automatically via `CONFIGURE_DEPENDS`.
 12. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` – that is already in
     `test/source/main.cpp`.
-13. Use C++23/26 features freely: `std::format`, `std::ranges`, structured
-    bindings, designated initializers, `std::expected`, `std::mdspan`, etc.
+13. **Always use modern C++26** features: `std::format`, `std::ranges`,
+    `std::expected`, `std::flat_map`, `std::mdspan`, concepts with `requires`,
+    designated initializers, structured bindings, `constexpr` containers,
+    `auto` return types, etc.  The project targets C++26 with Clang 21.
 14. **Always add a trailing comma** to the last element of every brace-initializer list
     (member initializers, aggregate initializers, initializer-list arguments):
     ```cpp
@@ -1023,7 +1025,7 @@ gtopt/
 - **No `spdlog` format strings in hot paths**: `spdlog` is configured with
   `SPDLOG_USE_STD_FORMAT=1`, so it uses `std::format` syntax.
 - **`gtopt_main()` takes a single `MainOptions` struct** (not 15 positional
-  args). Use C++20 designated initializers — only set the fields you need:
+  args). Use designated initializers — only set the fields you need:
   ```cpp
   auto result = gtopt_main(MainOptions{
       .planning_files   = {"my_case"},

@@ -101,6 +101,12 @@ struct Options
   /** @brief SDDP cut sharing mode: `"none"`, `"expected"`, or `"max"` */
   OptName cut_sharing_mode {};
 
+  // ── SDDP-specific directories ─────────────────────────────────────────────
+  /** @brief Directory for Benders cut files (default: `"cuts"`) */
+  OptName cut_directory {};
+  /** @brief Directory for log and trace files (default: `"logs"`) */
+  OptName log_directory {};
+
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -134,6 +140,8 @@ struct Options
     merge_opt(lp_presolve, opts.lp_presolve);
     merge_opt(solver_type, std::move(opts.solver_type));
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
+    merge_opt(cut_directory, std::move(opts.cut_directory));
+    merge_opt(log_directory, std::move(opts.log_directory));
 
     auto _ = std::move(opts);
   }

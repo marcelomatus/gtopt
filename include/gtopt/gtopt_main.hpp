@@ -76,6 +76,18 @@ struct MainOptions
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
 
+  // ---- tracing / diagnostics ----
+  /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level
+   * logging).  When set, a dedicated file sink is added to spdlog so that
+   * all trace-level messages are captured for later review. */
+  std::optional<std::string> trace_log {};
+
+  // ---- SDDP-specific directories ----
+  /** @brief Directory for Benders cut files (default: "cuts") */
+  std::optional<std::string> cut_directory {};
+  /** @brief Directory for log and trace files (default: "logs") */
+  std::optional<std::string> log_directory {};
+
   // ---- solver algorithm ----
   /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
    * 3=barrier) */
