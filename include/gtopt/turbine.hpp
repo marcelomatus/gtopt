@@ -87,7 +87,9 @@ struct Turbine
   /// conversion rate.  When set, the SDDP solver will update the
   /// conversion-rate LP coefficient at each forward-pass iteration based
   /// on the current reservoir volume and the matching ReservoirEfficiency
-  /// element's piecewise-linear curve.
+  /// element's piecewise-linear curve.  The ReservoirEfficiency element
+  /// must reference this turbine's UID in its @c turbine field and the
+  /// reservoir's UID in its @c reservoir field.
   OptSingleId main_reservoir {};
 };
 

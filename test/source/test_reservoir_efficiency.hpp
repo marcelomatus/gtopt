@@ -300,6 +300,7 @@ TEST_CASE("SystemLP with reservoir efficiency element")
     // First solve to establish baseline
     auto result = lp.resolve();
     REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
 
     // Update coefficients using a known volume (vini = 500)
     const auto updated = update_lp_coefficients(
