@@ -825,7 +825,7 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       const auto rhs = std::stod(token);
 
       auto row = SparseRow {
-          .name = std::format("loaded_{}", cut_name),
+          .name = as_label("loaded", cut_name),
           .lowb = rhs,
           .uppb = LinearProblem::DblMax,
       };
