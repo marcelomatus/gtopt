@@ -93,7 +93,8 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
     -> std::expected<int, Error>
 {
   auto solver = make_planning_solver(m_options_.solver_type(),
-                                     m_options_.cut_sharing_mode());
+                                     m_options_.cut_sharing_mode(),
+                                     m_options_.cut_directory());
   return solver->solve(*this, lp_opts);
 }
 

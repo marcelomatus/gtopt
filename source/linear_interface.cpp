@@ -96,8 +96,13 @@ LinearInterface LinearInterface::clone() const
   auto* raw = solver->clone(true);
   solver_ptr_t cloned_solver(dynamic_cast<SolverInterface*>(raw));
   if (!cloned_solver) {
-    // Fallback: take ownership via base class pointer (has virtual dtor)
-    delete raw;
+    // The concrete solver type differs from SolverInterface.
+    // Delete the raw pointer to avoid a leak; log a warning and fall back
+    // to a fresh (empty) solver — the caller should re-load data if needed.
+    delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
+    SPDLOG_WARN(
+        "LinearInterface::clone: dynamic_cast failed, falling back to "
+        "empty solver");
     cloned_solver = std::make_shared<SolverInterface>();
   }
   return LinearInterface(std::move(cloned_solver), log_file);
