@@ -67,6 +67,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
+#include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
 
@@ -105,6 +106,38 @@ constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
 }  // namespace sddp_file
 
+// ─── Elastic filter mode ────────────────────────────────────────────────────
+
+/**
+ * @brief How the elastic filter handles feasibility issues in the backward pass
+ *
+ * When adding a Benders cut to phase k makes it infeasible, the elastic
+ * filter can handle the situation in two ways:
+ *
+ * - `FeasibilityCut` (default / current behavior): clone the LP, relax the
+ *   fixed state-variable bounds with penalised slack variables, solve the
+ *   clone, and build a feasibility-like Benders cut for phase k-1 from the
+ *   elastic clone's reduced costs.  This is the standard NBD approach.
+ *
+ * - `BackpropagateBounds` (PLP mechanism): same clone/relax/solve as above,
+ *   but instead of building a cut, propagate the slack-adjusted trial values
+ *   back as updated bounds on the source state variables in phase k-1.
+ *   Concretely, the source column in phase k-1 is tightened so that its
+ *   upper and lower bounds equal the elastic-clone solution value for the
+ *   dependent column.  This forces phase k-1 to produce a trial point that
+ *   is known to be feasible for phase k, avoiding further infeasibility.
+ *   This is the approach used in PLP (`osicallsc.cpp`).
+ */
+enum class ElasticFilterMode : uint8_t
+{
+  FeasibilityCut = 0,  ///< Build a feasibility cut (default, standard NBD)
+  BackpropagateBounds,  ///< Update source bounds to elastic trial values (PLP)
+};
+
+/// Parse an elastic filter mode from a string ("cut" or "backpropagate")
+[[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
+    std::string_view name);
+
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions
 {
@@ -114,6 +147,12 @@ struct SDDPOptions
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
   CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
+
+  /// Elastic filter mode: how to handle backward-pass infeasibility.
+  /// `FeasibilityCut` (default) adds a Benders feasibility cut to the
+  /// previous phase.  `BackpropagateBounds` updates the source column bounds
+  /// to match the elastic-clone solution (PLP mechanism).
+  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::FeasibilityCut};
 
   /// File path for saving cuts (empty = no save)
   std::string cuts_output_file {};
@@ -489,27 +528,18 @@ private:
   std::atomic<double> m_current_ub_ {0.0};
   std::atomic<bool> m_converged_ {false};
 
-  // ── Monitoring API state ──
-
-  /// A single real-time sample point (CPU load, active workers, timestamp).
-  struct MonitorPoint
-  {
-    double timestamp {};  ///< Seconds since solve() started
-    double cpu_load {};  ///< CPU load percentage [0–100]
-    int active_workers {};  ///< Number of active worker threads
-  };
-
-  mutable std::mutex m_realtime_mutex_;  ///< Protects m_realtime_history_
-  std::vector<MonitorPoint> m_realtime_history_;  ///< Sampled workpool stats
+  // ── Monitoring API (SolverMonitor owns the background thread) ──
 
   /// Write a JSON status file for the monitoring API.
-  /// Called after each iteration (and from the monitoring background thread).
+  /// Called after each iteration.
   /// @param status_file  Path to write the JSON file.
   /// @param results      Iteration results accumulated so far.
   /// @param elapsed_s    Seconds elapsed since solve() started.
+  /// @param monitor      The SolverMonitor whose history to include.
   void write_api_status(const std::string& status_file,
                         const std::vector<SDDPIterationResult>& results,
-                        double elapsed_s) const;
+                        double elapsed_s,
+                        const SolverMonitor& monitor) const;
 
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>

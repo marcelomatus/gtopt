@@ -315,6 +315,54 @@ public:
     return m_options_.sddp_api_enabled.value_or(default_sddp_api_enabled);
   }
 
+  // ── SDDP algorithm tuning defaults ─────────────────────────────────────
+  /** @brief Default maximum SDDP iterations */
+  static constexpr int default_sddp_max_iterations = 100;
+  /** @brief Default SDDP convergence tolerance */
+  static constexpr double default_sddp_convergence_tol = 1e-4;
+  /** @brief Default elastic penalty coefficient */
+  static constexpr double default_sddp_elastic_penalty = 1e6;
+  /** @brief Default elastic filter mode */
+  static constexpr auto default_sddp_elastic_mode = "cut";
+
+  /**
+   * @brief Gets the maximum number of SDDP iterations
+   * @return Max iterations (default: 100)
+   */
+  [[nodiscard]] constexpr auto sddp_max_iterations() const
+  {
+    return m_options_.sddp_max_iterations.value_or(default_sddp_max_iterations);
+  }
+
+  /**
+   * @brief Gets the SDDP relative convergence tolerance
+   * @return Convergence tolerance (default: 1e-4)
+   */
+  [[nodiscard]] constexpr auto sddp_convergence_tol() const
+  {
+    return m_options_.sddp_convergence_tol.value_or(
+        default_sddp_convergence_tol);
+  }
+
+  /**
+   * @brief Gets the elastic penalty coefficient
+   * @return Elastic penalty (default: 1e6)
+   */
+  [[nodiscard]] constexpr auto sddp_elastic_penalty() const
+  {
+    return m_options_.sddp_elastic_penalty.value_or(
+        default_sddp_elastic_penalty);
+  }
+
+  /**
+   * @brief Gets the elastic filter mode string
+   * @return "cut" (default) or "backpropagate"
+   */
+  [[nodiscard]] constexpr auto sddp_elastic_mode() const
+  {
+    return m_options_.sddp_elastic_mode.value_or(default_sddp_elastic_mode);
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
