@@ -235,6 +235,7 @@ for phase = 0 to T-1:
         propagate trial values from phase-1 solution
         (fix dependent columns to source column values)
     
+    update LP coefficients (see §4.6)
     solve phase LP
     
     if infeasible:
@@ -281,21 +282,60 @@ After the backward pass, cuts from all scenes are optionally shared.  In
 `expected` mode, an average cut is computed and added to all scenes.  In
 `max` mode, every cut from every scene is added to all other scenes.
 
-### 4.6 Sentinel File Stop
+### 4.6 LP Coefficient Updates
+
+Before solving each phase in the forward pass, the solver calls the
+**generalized coefficient update hook** `update_lp_coefficients()`.  This
+updates LP matrix coefficients that depend on the current state of the
+system (e.g., reservoir volumes).
+
+Currently implemented updates:
+
+1. **Turbine efficiency** — For each `ReservoirEfficiency` element, the
+   solver reads the current reservoir volume, evaluates the piecewise-
+   linear efficiency curve, and sets the turbine's conversion-rate LP
+   coefficient via `set_coeff()`.
+
+The hook is designed to be extended with additional update types:
+
+2. **Filtration coefficients** (planned) — seepage rates that depend on
+   reservoir volume.
+3. **Linearised line losses** (planned) — loss coefficients that depend
+   on the current operating point.
+
+**Volume source by iteration**:
+
+| Iteration | Phase 0 | Phase > 0 |
+|-----------|---------|-----------|
+| Initial (0) | `eini` from reservoir | `eini` from reservoir |
+| First (1)   | `eini` from reservoir | `eini` from reservoir |
+| Subsequent  | `eini` from reservoir | Previous phase efin (via state variable) |
+
+**Skip count**: the `sddp_efficiency_update_skip` option (per-element or
+global) controls how often the update is applied.  A skip of $N$ means
+"update every $N{+}1$ iterations".  This reduces computational overhead
+when the efficiency curve is nearly flat.
+
+**Solver fallback**: if the LP solver does not support in-place matrix
+coefficient modification (`supports_set_coeff()` returns `false`), the
+static `conversion_rate` from the Turbine element is used unchanged and
+a warning is logged.
+
+### 4.7 Sentinel File Stop
 
 The solver checks for a **sentinel file** (configurable via
 `sentinel_file` in `SDDPOptions`) at the beginning of each iteration.  If
 the file exists, the solver stops gracefully after saving all accumulated
 cuts.  This is analogous to PLP's `userstop` mechanism.
 
-### 4.7 Incremental Cut Saving
+### 4.8 Incremental Cut Saving
 
 Cuts are saved to the output file after **every iteration** (not just at
 the end).  This ensures that if the solver is interrupted — whether by the
 sentinel file, a time limit, or an external signal — the accumulated cuts
 are available for a subsequent hot-start run.
 
-### 4.8 Solver API for Monitoring and Control
+### 4.9 Solver API for Monitoring and Control
 
 The `SDDPSolver` exposes a thread-safe API designed for GUI integration,
 external monitoring tools, and programmatic control of the solve process:
