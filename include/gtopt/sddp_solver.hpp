@@ -53,12 +53,15 @@
 
 #include <expected>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -101,6 +104,11 @@ struct SDDPOptions
   std::string cuts_output_file {};
   /// File path for loading initial cuts (empty = no load / cold start)
   std::string cuts_input_file {};
+
+  /// Path to a sentinel file: if the file exists, the solver stops
+  /// gracefully after the current iteration (analogous to PLP's userstop).
+  /// All accumulated cuts are saved before stopping.
+  std::string sentinel_file {};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -146,6 +154,11 @@ struct PhaseStateInfo
   ColIndex alpha_col {unknown_index};  ///< α column (unknown for last)
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO the next phase
   double forward_objective {0.0};  ///< Opex from last forward pass
+  /// Full LP objective from last forward solve (including α).
+  /// Cached for the backward pass so the original LP need not be re-queried.
+  double forward_full_obj {0.0};
+  /// Reduced costs from last forward solve (cached for backward pass).
+  std::vector<double> forward_col_cost {};
 };
 
 // ─── Stored cut for persistence ─────────────────────────────────────────────
@@ -178,7 +191,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::span<const StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
-                                     const std::string& name) -> SparseRow;
+                                     std::string_view name) -> SparseRow;
 
 /// Relax a single fixed state-variable column to its physical source bounds,
 /// adding penalised slack variables.  Returns true if the column was relaxed.
@@ -189,7 +202,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
 
 /// Compute an average cut from a collection of cuts (for Expected sharing)
 [[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                                       const std::string& name) -> SparseRow;
+                                       std::string_view name) -> SparseRow;
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
@@ -266,9 +279,14 @@ private:
   [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
       -> std::expected<int, Error>;
 
-  [[nodiscard]] bool apply_elastic_filter(SceneIndex scene,
-                                          PhaseIndex phase,
-                                          const SolverOptions& opts);
+  /// Clone the LP, apply elastic filter on the clone, and solve it.
+  /// Returns the solved clone (with solution data) if feasible, nullopt
+  /// otherwise.  The original LP is never modified (PLP clone pattern).
+  [[nodiscard]] std::optional<LinearInterface> elastic_solve(
+      SceneIndex scene, PhaseIndex phase, const SolverOptions& opts);
+
+  /// Check whether the sentinel file exists (user-requested stop)
+  [[nodiscard]] bool check_sentinel_stop() const;
 
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
@@ -287,9 +305,18 @@ private:
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
+  LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   std::vector<StoredCut> m_stored_cuts_;
+  std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_ for parallel writes
   bool m_initialized_ {false};
+
+  /// Generate an LP name only when use_lp_names is enabled.
+  template<typename... Args>
+  [[nodiscard]] auto sddp_label(Args&&... args) const -> std::string
+  {
+    return m_label_maker_.lp_label(std::forward<Args>(args)...);
+  }
 };
 
 // ─── SDDPPlanningSolver ─────────────────────────────────────────────────────

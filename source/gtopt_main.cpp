@@ -24,6 +24,7 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -278,6 +279,22 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& opts)
 {
+  // ── Set up trace log file if requested ──
+  // When --trace-log is specified, a file sink is added so that all
+  // SPDLOG_TRACE messages are captured for later review.
+  if (opts.trace_log.has_value()) {
+    try {
+      auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+          opts.trace_log.value(), /*truncate=*/true);
+      trace_sink->set_level(spdlog::level::trace);
+      spdlog::default_logger()->sinks().push_back(std::move(trace_sink));
+      spdlog::set_level(spdlog::level::trace);
+      spdlog::info(std::format("trace log file: {}", opts.trace_log.value()));
+    } catch (const spdlog::spdlog_ex& ex) {
+      spdlog::warn(std::format("could not open trace log file: {}", ex.what()));
+    }
+  }
+
   const auto strict_parsing = !opts.fast_parsing.value_or(false);
   if (!strict_parsing) {  // NOLINT
     spdlog::info("using fast json parsing");

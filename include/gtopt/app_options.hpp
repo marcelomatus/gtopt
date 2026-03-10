@@ -143,7 +143,10 @@ template<typename T>
        "number of solver threads (0=automatic)")  //
       ("lp-presolve",
        po::value<bool>().implicit_value(/*v=*/true),
-       "enable/disable LP presolve");
+       "enable/disable LP presolve")  //
+      ("trace-log,T",
+       po::value<std::string>(),
+       "path to file for trace-level log output (enables SPDLOG_TRACE)");
   return desc;
 }
 
@@ -303,6 +306,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .just_create = get_opt<bool>(vm, "just-create"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .print_stats = get_opt<bool>(vm, "stats"),
+      .trace_log = get_opt<std::string>(vm, "trace-log"),
       .lp_algorithm = [&]() -> std::optional<int>
       {
         if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {

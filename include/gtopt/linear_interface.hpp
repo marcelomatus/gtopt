@@ -63,6 +63,19 @@ public:
   ~LinearInterface() = default;
 
   /**
+   * @brief Creates a deep copy of this LinearInterface via OsiSolverInterface
+   *        clone().
+   *
+   * The clone preserves the full LP state (variables, constraints, bounds,
+   * objective, warm-start basis).  Modifications to the clone do not affect
+   * the original — use this for tentative solves such as the SDDP elastic
+   * filter, where the original LP must remain unmodified.
+   *
+   * @return A new LinearInterface wrapping the cloned solver.
+   */
+  [[nodiscard]] LinearInterface clone() const;
+
+  /**
    * @brief Loads a flattened linear problem into the solver
    * @param flat_lp The flattened problem representation
    * @throws std::runtime_error if the problem cannot be loaded
