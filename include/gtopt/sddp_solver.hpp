@@ -91,6 +91,19 @@ enum class CutSharingMode : uint8_t
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
+/// File naming patterns for per-scene cut files
+namespace sddp_file
+{
+/// Combined cut file name
+constexpr auto combined_cuts = "sddp_cuts.csv";
+/// Per-scene cut file pattern: format with scene index
+constexpr auto scene_cuts_fmt = "scene_{}.csv";
+/// Error-prefixed cut file pattern for infeasible scenes
+constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
+/// Error LP file pattern for infeasible scene/phase
+constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
+}  // namespace sddp_file
+
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions
 {

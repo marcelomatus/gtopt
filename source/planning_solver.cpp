@@ -82,7 +82,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(
     sddp_opts.cut_sharing = parse_cut_sharing_mode(cut_sharing_mode);
     // Use cut_directory for both input and output cut files
     const auto cuts_path =
-        (std::filesystem::path(cut_directory) / "sddp_cuts.csv").string();
+        (std::filesystem::path(cut_directory) / sddp_file::combined_cuts)
+            .string();
     sddp_opts.cuts_output_file = cuts_path;
     sddp_opts.log_directory = std::string(log_directory);
     return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
