@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <gtopt/options_lp.hpp>
 #include <gtopt/reservoir_efficiency.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
@@ -71,6 +72,15 @@ public:
   [[nodiscard]] constexpr auto mean_efficiency() const noexcept -> Real
   {
     return efficiency().mean_efficiency;
+  }
+
+  /// Get the effective efficiency update skip count for this element.
+  /// Per-element value takes priority; falls back to global SDDP option.
+  [[nodiscard]] auto effective_update_skip(const OptionsLP& options) const
+      -> Int
+  {
+    return efficiency().sddp_efficiency_update_skip.value_or(
+        options.sddp_efficiency_update_skip());
   }
 
   /**

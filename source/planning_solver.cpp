@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <format>
 
+#include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/sddp_solver.hpp>
@@ -71,30 +72,47 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
 // ─── Factory ────────────────────────────────────────────────────────────────
 
-std::unique_ptr<PlanningSolver> make_planning_solver(
-    std::string_view solver_type,
-    std::string_view cut_sharing_mode,
-    std::string_view cut_directory,
-    std::string_view log_directory,
-    bool enable_api,
-    std::string_view api_output_dir)
+std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 {
-  if (solver_type == "sddp") {
+  if (options.sddp_solver_type() == "sddp") {
     SDDPOptions sddp_opts;
-    sddp_opts.cut_sharing = parse_cut_sharing_mode(cut_sharing_mode);
-    // Use cut_directory for both input and output cut files
-    const auto cuts_path =
-        (std::filesystem::path(cut_directory) / sddp_file::combined_cuts)
-            .string();
-    sddp_opts.cuts_output_file = cuts_path;
-    sddp_opts.log_directory = std::string(log_directory);
-    sddp_opts.enable_api = enable_api;
-    // api_status_file is left empty; SDDPSolver will derive it from
-    // api_output_dir at solve time when api_status_file is empty.
-    if (!api_output_dir.empty()) {
-      sddp_opts.api_status_file =
-          (std::filesystem::path(api_output_dir) / "sddp_status.json").string();
+
+    // Iteration control
+    sddp_opts.max_iterations = options.sddp_max_iterations();
+    sddp_opts.convergence_tol = options.sddp_convergence_tol();
+
+    // Advanced tuning
+    sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
+    sddp_opts.alpha_min = options.sddp_alpha_min();
+    sddp_opts.alpha_max = options.sddp_alpha_max();
+
+    // Cut sharing and files
+    sddp_opts.cut_sharing =
+        parse_cut_sharing_mode(options.sddp_cut_sharing_mode());
+    const auto cut_dir = options.sddp_cut_directory();
+    sddp_opts.cuts_output_file =
+        (std::filesystem::path(cut_dir) / sddp_file::combined_cuts).string();
+
+    const auto cuts_input = options.sddp_cuts_input_file();
+    if (!cuts_input.empty()) {
+      sddp_opts.cuts_input_file = cuts_input;
     }
+
+    // Sentinel
+    const auto sentinel = options.sddp_sentinel_file();
+    if (!sentinel.empty()) {
+      sddp_opts.sentinel_file = sentinel;
+    }
+
+    // Logging and API
+    sddp_opts.log_directory = std::string(options.log_directory());
+    sddp_opts.enable_api = options.sddp_api_enabled();
+    const auto output_dir = options.output_directory();
+    if (!output_dir.empty()) {
+      sddp_opts.api_status_file =
+          (std::filesystem::path(output_dir) / "sddp_status.json").string();
+    }
+
     return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
   }
 

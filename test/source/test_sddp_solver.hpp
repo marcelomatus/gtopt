@@ -500,7 +500,8 @@ TEST_CASE("MonolithicSolver - solves 3-phase problem")  // NOLINT
 
 TEST_CASE("make_planning_solver factory - monolithic")  // NOLINT
 {
-  auto solver = make_planning_solver("monolithic");
+  const OptionsLP options_lp;
+  auto solver = make_planning_solver(options_lp);
   REQUIRE(solver != nullptr);
 
   auto planning = make_single_phase_planning();
@@ -513,14 +514,17 @@ TEST_CASE("make_planning_solver factory - monolithic")  // NOLINT
 
 TEST_CASE("make_planning_solver factory - sddp")  // NOLINT
 {
-  auto solver = make_planning_solver("sddp");
+  Options opts;
+  opts.sddp_options.sddp_solver_type = OptName {"sddp"};
+  const OptionsLP options_lp(std::move(opts));
+  auto solver = make_planning_solver(options_lp);
   REQUIRE(solver != nullptr);
 }
 
-TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
+TEST_CASE("PlanningLP::resolve uses sddp_solver_type option")  // NOLINT
 {
   auto planning = make_single_phase_planning();
-  // Default solver_type is "monolithic"
+  // Default sddp_solver_type is "monolithic"
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -528,22 +532,22 @@ TEST_CASE("PlanningLP::resolve uses solver_type option")  // NOLINT
   CHECK(*result == 1);
 }
 
-TEST_CASE("Options solver_type and cut_sharing_mode")  // NOLINT
+TEST_CASE("Options sddp_solver_type and sddp_cut_sharing_mode")  // NOLINT
 {
   Options opts;
-  opts.solver_type = OptName {"sddp"};
-  opts.cut_sharing_mode = OptName {"expected"};
+  opts.sddp_options.sddp_solver_type = OptName {"sddp"};
+  opts.sddp_options.sddp_cut_sharing_mode = OptName {"expected"};
 
   const OptionsLP options_lp(std::move(opts));
-  CHECK(options_lp.solver_type() == "sddp");
-  CHECK(options_lp.cut_sharing_mode() == "expected");
+  CHECK(options_lp.sddp_solver_type() == "sddp");
+  CHECK(options_lp.sddp_cut_sharing_mode() == "expected");
 }
 
-TEST_CASE("Options solver_type defaults")  // NOLINT
+TEST_CASE("Options sddp_solver_type defaults")  // NOLINT
 {
   const OptionsLP options_lp;
-  CHECK(options_lp.solver_type() == "monolithic");
-  CHECK(options_lp.cut_sharing_mode() == "none");
+  CHECK(options_lp.sddp_solver_type() == "monolithic");
+  CHECK(options_lp.sddp_cut_sharing_mode() == "none");
 }
 
 // ─── Integration: monolithic vs SDDP comparison ────────────────────────────

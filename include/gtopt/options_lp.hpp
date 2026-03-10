@@ -258,51 +258,64 @@ public:
     return m_options_.lp_presolve;
   }
 
-  // Default values for solver type settings
+  // Default values for SDDP solver settings
   /** @brief Default solver type */
-  static constexpr auto default_solver_type = "monolithic";
+  static constexpr auto default_sddp_solver_type = "monolithic";
   /** @brief Default cut sharing mode for SDDP */
-  static constexpr auto default_cut_sharing_mode = "none";
+  static constexpr auto default_sddp_cut_sharing_mode = "none";
   /** @brief Default directory for Benders cut files */
-  static constexpr auto default_cut_directory = "cuts";
+  static constexpr auto default_sddp_cut_directory = "cuts";
   /** @brief Default directory for log/trace files */
   static constexpr auto default_log_directory = "logs";
   /** @brief Default for SDDP monitoring API (enabled by default) */
   static constexpr Bool default_sddp_api_enabled = true;
   /** @brief Default iterations to skip between efficiency updates (0 = every
    * iteration, matching PLP behaviour) */
-  static constexpr Int default_efficiency_update_skip = 0;
+  static constexpr Int default_sddp_efficiency_update_skip = 0;
+  /** @brief Default maximum SDDP iterations */
+  static constexpr Int default_sddp_max_iterations = 100;
+  /** @brief Default relative convergence tolerance */
+  static constexpr Real default_sddp_convergence_tol = 1e-4;
+  /** @brief Default elastic slack penalty */
+  static constexpr Real default_sddp_elastic_penalty = 1e6;
+  /** @brief Default lower bound for future cost variable α */
+  static constexpr Real default_sddp_alpha_min = 0.0;
+  /** @brief Default upper bound for future cost variable α */
+  static constexpr Real default_sddp_alpha_max = 1e12;
 
   /**
    * @brief Gets the solver type, using default if not set
    * @return The solver type ("monolithic" or "sddp")
    */
-  [[nodiscard]] constexpr auto solver_type() const
+  [[nodiscard]] constexpr auto sddp_solver_type() const
   {
-    return m_options_.solver_type.value_or(default_solver_type);
+    return m_options_.sddp_options.sddp_solver_type.value_or(
+        default_sddp_solver_type);
   }
 
   /**
    * @brief Gets the SDDP cut sharing mode, using default if not set
    * @return The cut sharing mode ("none", "expected", or "max")
    */
-  [[nodiscard]] constexpr auto cut_sharing_mode() const
+  [[nodiscard]] constexpr auto sddp_cut_sharing_mode() const
   {
-    return m_options_.cut_sharing_mode.value_or(default_cut_sharing_mode);
+    return m_options_.sddp_options.sddp_cut_sharing_mode.value_or(
+        default_sddp_cut_sharing_mode);
   }
 
   /**
    * @brief Gets the cut directory for SDDP cut files, using default if not set
    * @return The cut directory path
    */
-  [[nodiscard]] constexpr auto cut_directory() const
+  [[nodiscard]] constexpr auto sddp_cut_directory() const
   {
-    return m_options_.cut_directory.value_or(default_cut_directory);
+    return m_options_.sddp_options.sddp_cut_directory.value_or(
+        default_sddp_cut_directory);
   }
 
   /**
    * @brief Gets the log directory for log/trace files, using default if not set
-   * @return The log directory path
+   * @return The log directory path (global — used by both monolithic and SDDP)
    */
   [[nodiscard]] constexpr auto log_directory() const
   {
@@ -315,17 +328,86 @@ public:
    */
   [[nodiscard]] constexpr auto sddp_api_enabled() const
   {
-    return m_options_.sddp_api_enabled.value_or(default_sddp_api_enabled);
+    return m_options_.sddp_options.sddp_api_enabled.value_or(
+        default_sddp_api_enabled);
   }
 
   /**
-   * @brief Gets the efficiency update skip count, using default if not set
+   * @brief Gets the global efficiency update skip count
    * @return Number of SDDP iterations to skip between efficiency updates
    */
-  [[nodiscard]] constexpr auto efficiency_update_skip() const
+  [[nodiscard]] constexpr auto sddp_efficiency_update_skip() const
   {
-    return m_options_.efficiency_update_skip.value_or(
-        default_efficiency_update_skip);
+    return m_options_.sddp_options.sddp_efficiency_update_skip.value_or(
+        default_sddp_efficiency_update_skip);
+  }
+
+  /**
+   * @brief Gets the maximum SDDP iterations
+   * @return Maximum number of forward/backward iterations (default: 100)
+   */
+  [[nodiscard]] constexpr auto sddp_max_iterations() const
+  {
+    return m_options_.sddp_options.sddp_max_iterations.value_or(
+        default_sddp_max_iterations);
+  }
+
+  /**
+   * @brief Gets the SDDP convergence tolerance
+   * @return Relative gap tolerance for convergence (default: 1e-4)
+   */
+  [[nodiscard]] constexpr auto sddp_convergence_tol() const
+  {
+    return m_options_.sddp_options.sddp_convergence_tol.value_or(
+        default_sddp_convergence_tol);
+  }
+
+  /**
+   * @brief Gets the elastic slack penalty
+   * @return Penalty for elastic slack variables (default: 1e6)
+   */
+  [[nodiscard]] constexpr auto sddp_elastic_penalty() const
+  {
+    return m_options_.sddp_options.sddp_elastic_penalty.value_or(
+        default_sddp_elastic_penalty);
+  }
+
+  /**
+   * @brief Gets the lower bound for future cost variable α
+   * @return α lower bound in $ (default: 0.0)
+   */
+  [[nodiscard]] constexpr auto sddp_alpha_min() const
+  {
+    return m_options_.sddp_options.sddp_alpha_min.value_or(
+        default_sddp_alpha_min);
+  }
+
+  /**
+   * @brief Gets the upper bound for future cost variable α
+   * @return α upper bound in $ (default: 1e12)
+   */
+  [[nodiscard]] constexpr auto sddp_alpha_max() const
+  {
+    return m_options_.sddp_options.sddp_alpha_max.value_or(
+        default_sddp_alpha_max);
+  }
+
+  /**
+   * @brief Gets the input cut file for SDDP hot-start
+   * @return Cut file path or empty string for cold start
+   */
+  [[nodiscard]] auto sddp_cuts_input_file() const -> Name
+  {
+    return m_options_.sddp_options.sddp_cuts_input_file.value_or("");
+  }
+
+  /**
+   * @brief Gets the sentinel file path for graceful SDDP stop
+   * @return Sentinel file path or empty string (no sentinel)
+   */
+  [[nodiscard]] auto sddp_sentinel_file() const -> Name
+  {
+    return m_options_.sddp_options.sddp_sentinel_file.value_or("");
   }
 
 private:
