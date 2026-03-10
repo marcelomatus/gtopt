@@ -12,11 +12,13 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <span>
+#include <thread>
 
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
@@ -805,6 +807,135 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
   return total_loaded;
 }
 
+// ── Monitoring API ───────────────────────────────────────────────────────────
+
+void SDDPSolver::write_api_status(
+    const std::string& status_file,
+    const std::vector<SDDPIterationResult>& results,
+    double elapsed_s) const
+{
+  // Build JSON manually using std::format to avoid adding a new dependency.
+  // This is monitoring output only — correctness over aesthetics.
+
+  std::string json;
+  json.reserve(4096);
+
+  const auto now_ts = std::chrono::duration<double>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+
+  // Determine current state
+  const auto iter = m_current_iteration_.load();
+  const auto gap = m_current_gap_.load();
+  const auto lb = m_current_lb_.load();
+  const auto ub = m_current_ub_.load();
+  const auto conv = m_converged_.load();
+
+  const char* status_str = conv ? "converged"
+      : (iter == 0)             ? "initializing"
+                                : "running";
+
+  json += "{\n";
+  json += std::format("  \"version\": 1,\n");
+  json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
+  json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_s);
+  json += std::format("  \"status\": \"{}\",\n", status_str);
+  json += std::format("  \"iteration\": {},\n", iter);
+  json += std::format("  \"lower_bound\": {:.6f},\n", lb);
+  json += std::format("  \"upper_bound\": {:.6f},\n", ub);
+  json += std::format("  \"gap\": {:.6f},\n", gap);
+  json += std::format("  \"converged\": {},\n", conv ? "true" : "false");
+  json += std::format("  \"max_iterations\": {},\n", m_options_.max_iterations);
+
+  // ── Iteration history ──
+  json += "  \"history\": [\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const auto& r = results[i];
+    json += "    {\n";
+    json += std::format("      \"iteration\": {},\n", r.iteration);
+    json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
+    json += std::format("      \"upper_bound\": {:.6f},\n", r.upper_bound);
+    json += std::format("      \"gap\": {:.6f},\n", r.gap);
+    json += std::format("      \"converged\": {},\n",
+                        r.converged ? "true" : "false");
+    json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
+
+    // Per-scene upper bounds
+    json += "      \"scene_upper_bounds\": [";
+    for (std::size_t si = 0; si < r.scene_upper_bounds.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.6f}", r.scene_upper_bounds[si]);
+    }
+    json += "],\n";
+
+    // Per-scene lower bounds
+    json += "      \"scene_lower_bounds\": [";
+    for (std::size_t si = 0; si < r.scene_lower_bounds.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.6f}", r.scene_lower_bounds[si]);
+    }
+    json += "]\n";
+
+    json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
+  }
+  json += "  ],\n";
+
+  // ── Real-time workpool monitoring history ──
+  {
+    const std::lock_guard lock(m_realtime_mutex_);
+    json += "  \"realtime\": {\n";
+
+    json += "    \"timestamps\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.3f}", m_realtime_history_[i].timestamp);
+    }
+    json += "],\n";
+
+    json += "    \"cpu_loads\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.1f}", m_realtime_history_[i].cpu_load);
+    }
+    json += "],\n";
+
+    json += "    \"active_workers\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{}", m_realtime_history_[i].active_workers);
+    }
+    json += "]\n";
+    json += "  }\n";
+  }
+
+  json += "}\n";
+
+  // Write atomically: write to a temp file, then rename
+  const auto tmp_file = status_file + ".tmp";
+  try {
+    std::filesystem::create_directories(
+        std::filesystem::path(status_file).parent_path());
+    {
+      std::ofstream out(tmp_file);
+      out << json;
+    }
+    std::filesystem::rename(tmp_file, status_file);
+  } catch (const std::exception& e) {
+    SPDLOG_WARN(
+        "SDDP API: could not write status file {}: {}", status_file, e.what());
+  }
+}
+
 // ── Main solve loop ─────────────────────────────────────────────────────────
 
 auto SDDPSolver::solve(const SolverOptions& lp_opts)
@@ -896,6 +1027,48 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   m_current_ub_.store(0.0);
   m_converged_.store(false);
 
+  // ── Monitoring API setup ──
+  const auto solve_start = std::chrono::steady_clock::now();
+
+  // Determine the status file path
+  const std::string status_file = m_options_.api_status_file;
+
+  // Background thread: periodically samples workpool statistics and appends
+  // them to m_realtime_history_ so that write_api_status() can include them.
+  std::jthread monitoring_thread;
+  if (m_options_.enable_api && !status_file.empty()) {
+    // Clear old history
+    {
+      const std::lock_guard lock(m_realtime_mutex_);
+      m_realtime_history_.clear();
+    }
+
+    monitoring_thread = std::jthread {
+        [this, &pool, &solve_start](const std::stop_token& stoken)
+        {
+#ifdef __linux__
+          pthread_setname_np(pthread_self(), "SDDPMonitor");
+#endif
+          while (!stoken.stop_requested()) {
+            const auto now = std::chrono::steady_clock::now();
+            const double elapsed =
+                std::chrono::duration<double>(now - solve_start).count();
+
+            const auto stats = pool.get_statistics();
+            {
+              const std::lock_guard lock(m_realtime_mutex_);
+              m_realtime_history_.push_back(MonitorPoint {
+                  .timestamp = elapsed,
+                  .cpu_load = stats.current_cpu_load,
+                  .active_workers = stats.active_threads,
+              });
+            }
+
+            std::this_thread::sleep_for(m_options_.api_update_interval);
+          }
+        }};
+  }
+
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
     // ── Check all stop conditions (sentinel, programmatic, callback) ──
     if (should_stop()) {
@@ -922,6 +1095,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     double total_upper = 0.0;
     int scenes_solved = 0;
     std::vector<uint8_t> scene_feasible(num_scenes, 1);
+    ir.scene_upper_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
       auto fwd = fwd_futures[si].get();
       if (!fwd.has_value()) {
@@ -932,11 +1106,13 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         scene_feasible[si] = 0;
         continue;
       }
+      ir.scene_upper_bounds[si] = *fwd;
       total_upper += *fwd;
       ++scenes_solved;
     }
 
     if (scenes_solved == 0) {
+      monitoring_thread.request_stop();
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = "SDDP: all scenes infeasible in forward pass",
@@ -946,14 +1122,17 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Lower bound = average of phase 0 objectives across feasible scenes ──
     double total_lower = 0.0;
+    ir.scene_lower_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
       if (!scene_feasible[si]) {
         continue;
       }
-      total_lower += planning_lp()
-                         .system(SceneIndex {si}, PhaseIndex {0})
-                         .linear_interface()
-                         .get_obj_value();
+      const double lb_si = planning_lp()
+                               .system(SceneIndex {si}, PhaseIndex {0})
+                               .linear_interface()
+                               .get_obj_value();
+      ir.scene_lower_bounds[si] = lb_si;
+      total_lower += lb_si;
     }
     ir.lower_bound = total_lower / static_cast<double>(scenes_solved);
 
@@ -1050,6 +1229,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     results.push_back(ir);
 
+    // ── Write monitoring API status file ──
+    if (m_options_.enable_api && !status_file.empty()) {
+      const auto now = std::chrono::steady_clock::now();
+      const double elapsed =
+          std::chrono::duration<double>(now - solve_start).count();
+      write_api_status(status_file, results, elapsed);
+    }
+
     // ── Save cuts incrementally after each iteration ──
     if (!m_options_.cuts_output_file.empty()) {
       // Save combined cuts to the main file
@@ -1103,6 +1290,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       break;
     }
   }
+
+  // Stop the monitoring thread before returning (jthread auto-joins on
+  // destruction, but request_stop() allows the thread to exit promptly).
+  monitoring_thread.request_stop();
 
   return results;
 }

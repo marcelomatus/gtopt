@@ -75,7 +75,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(
     std::string_view solver_type,
     std::string_view cut_sharing_mode,
     std::string_view cut_directory,
-    std::string_view log_directory)
+    std::string_view log_directory,
+    bool enable_api,
+    std::string_view api_output_dir)
 {
   if (solver_type == "sddp") {
     SDDPOptions sddp_opts;
@@ -86,6 +88,13 @@ std::unique_ptr<PlanningSolver> make_planning_solver(
             .string();
     sddp_opts.cuts_output_file = cuts_path;
     sddp_opts.log_directory = std::string(log_directory);
+    sddp_opts.enable_api = enable_api;
+    // api_status_file is left empty; SDDPSolver will derive it from
+    // api_output_dir at solve time when api_status_file is empty.
+    if (!api_output_dir.empty()) {
+      sddp_opts.api_status_file =
+          (std::filesystem::path(api_output_dir) / "sddp_status.json").string();
+    }
     return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
   }
 
