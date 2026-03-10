@@ -1032,73 +1032,248 @@ auto make_5phase_expansion_planning() -> Planning
   };
 }
 
-}  // namespace
-
-TEST_CASE(
-    "Integration: monolithic vs SDDP - reservoir case (5 phases)")  // NOLINT
+/// Create a year-long 12-phase hydro+thermal planning problem for SDDP vs
+/// monolithic comparison.  Inspired by the sddp_hydro_3phase case.
+///
+/// Each phase represents one month (1 stage of 24 hourly blocks = one
+/// representative day per month).  The reservoir has seasonal inflow:
+/// higher in winter/spring (months 5–8), lower in summer (months 1–4, 9–12).
+///
+/// - 1 bus, single-bus mode
+/// - 1 hydro generator (25 MW, $5/MWh)
+/// - 1 thermal generator (200 MW, $80/MWh)
+/// - 1 demand (50 MW constant)
+/// - 1 reservoir (150 dam³ capacity, starts at 100 dam³)
+/// - Variable inflow: 5–15 dam³/h seasonal pattern
+/// - 12 phases × 1 stage × 24 blocks (1h each) = 288 blocks total
+auto make_12phase_yearly_hydro_planning() -> Planning
 {
-  // ─── 1. Solve with the monolithic solver ──
-  auto planning_mono = make_5phase_reservoir_planning();
-  PlanningLP plp_mono(std::move(planning_mono));
+  constexpr int num_phases = 12;
+  constexpr int blocks_per_phase = 24;
+  constexpr double block_duration = 1.0;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  auto mono_result = plp_mono.resolve();
-  REQUIRE(mono_result.has_value());
-  CHECK(*mono_result == 1);
-
-  const auto mono_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {0})
-                            .linear_interface()
-                            .get_obj_value();
-  SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
-
-  // Compute total monolithic cost across all phases
-  double mono_total = 0.0;
-  for (int p = 0; p < 5; ++p) {
-    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
-                            .linear_interface()
-                            .get_obj_value();
-    SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
-    mono_total += ph_obj;
+  Array<Block> block_array;
+  block_array.reserve(total_blocks);
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = block_duration,
+    });
   }
-  SPDLOG_INFO("Reservoir mono: total obj = {:.4f}", mono_total);
-  CHECK(mono_total > 0.0);
 
-  // ─── 2. Solve the same problem with SDDP ──
-  auto planning_sddp = make_5phase_reservoir_planning();
-  PlanningLP plp_sddp(std::move(planning_sddp));
+  Array<Stage> stage_array;
+  stage_array.reserve(num_phases);
+  for (int s = 0; s < num_phases; ++s) {
+    stage_array.push_back(Stage {
+        .uid = Uid {s + 1},
+        .first_block = static_cast<Size>(s * blocks_per_phase),
+        .count_block = blocks_per_phase,
+    });
+  }
 
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 50;
-  sddp_opts.convergence_tol = 1e-4;
+  Array<Phase> phase_array;
+  phase_array.reserve(num_phases);
+  for (int p = 0; p < num_phases; ++p) {
+    phase_array.push_back(Phase {
+        .uid = Uid {p + 1},
+        .first_stage = static_cast<Size>(p),
+        .count_stage = 1,
+    });
+  }
 
-  SDDPSolver sddp(plp_sddp, sddp_opts);
-  auto sddp_results = sddp.solve();
-  REQUIRE(sddp_results.has_value());
-  CHECK_FALSE(sddp_results->empty());
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "bus1",
+      },
+  };
 
-  const auto& last = sddp_results->back();
-  SPDLOG_INFO("Reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-              last.iteration,
-              last.lower_bound,
-              last.upper_bound,
-              last.gap);
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 25.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 80.0,
+          .capacity = 200.0,
+      },
+  };
 
-  // SDDP should converge
-  CHECK(last.converged);
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
-  // ─── 3. Compare objectives ──
-  // The SDDP upper bound (sum of actual phase costs) should be close to
-  // the monolithic objective.  Allow 5% tolerance due to cut approximation.
-  const auto sddp_total = last.upper_bound;
-  const auto relative_diff =
-      std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
-  SPDLOG_INFO(
-      "Reservoir comparison: mono={:.4f} sddp={:.4f} "
-      "relative_diff={:.6f}",
-      mono_total,
-      sddp_total,
-      relative_diff);
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
 
-  CHECK(relative_diff < 0.05);
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 200.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 150.0,
+          .emin = 0.0,
+          .emax = 150.0,
+          .eini = 100.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+
+  // Seasonal inflow: 10 dam³/h average (same as sddp_hydro_3phase)
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 10.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+              },
+          },
+      .phase_array = std::move(phase_array),
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {5000.0};
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = OptName {"csv"};
+  options.output_compression = OptName {"uncompressed"};
+
+  System system = {
+      .name = "sddp_yearly_hydro_12phase",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = std::move(system),
+  };
+}
+
+}  // namespace
+auto planning_mono = make_5phase_reservoir_planning();
+PlanningLP plp_mono(std::move(planning_mono));
+
+auto mono_result = plp_mono.resolve();
+REQUIRE(mono_result.has_value());
+CHECK(*mono_result == 1);
+
+const auto mono_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {0})
+                          .linear_interface()
+                          .get_obj_value();
+SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
+
+// Compute total monolithic cost across all phases
+double mono_total = 0.0;
+for (int p = 0; p < 5; ++p) {
+  const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+                          .linear_interface()
+                          .get_obj_value();
+  SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
+  mono_total += ph_obj;
+}
+SPDLOG_INFO("Reservoir mono: total obj = {:.4f}", mono_total);
+CHECK(mono_total > 0.0);
+
+// ─── 2. Solve the same problem with SDDP ──
+auto planning_sddp = make_5phase_reservoir_planning();
+PlanningLP plp_sddp(std::move(planning_sddp));
+
+SDDPOptions sddp_opts;
+sddp_opts.max_iterations = 50;
+sddp_opts.convergence_tol = 1e-4;
+
+SDDPSolver sddp(plp_sddp, sddp_opts);
+auto sddp_results = sddp.solve();
+REQUIRE(sddp_results.has_value());
+CHECK_FALSE(sddp_results->empty());
+
+const auto& last = sddp_results->back();
+SPDLOG_INFO("Reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
+            last.iteration,
+            last.lower_bound,
+            last.upper_bound,
+            last.gap);
+
+// SDDP should converge
+CHECK(last.converged);
+
+// ─── 3. Compare objectives ──
+// The SDDP upper bound (sum of actual phase costs) should be close to
+// the monolithic objective.  Allow 5% tolerance due to cut approximation.
+const auto sddp_total = last.upper_bound;
+const auto relative_diff =
+    std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
+SPDLOG_INFO(
+    "Reservoir comparison: mono={:.4f} sddp={:.4f} "
+    "relative_diff={:.6f}",
+    mono_total,
+    sddp_total,
+    relative_diff);
+
+CHECK(relative_diff < 0.05);
 }
 
 TEST_CASE(
@@ -1214,6 +1389,67 @@ TEST_CASE(
       std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
   SPDLOG_INFO(
       "Expansion comparison: mono={:.4f} sddp={:.4f} "
+      "relative_diff={:.6f}",
+      mono_total,
+      sddp_total,
+      relative_diff);
+
+  CHECK(relative_diff < 0.05);
+}
+
+TEST_CASE(
+    "Integration: monolithic vs SDDP - yearly hydro "  // NOLINT
+    "(12 phases × 24 blocks)")
+{
+  // ─── 1. Solve with the monolithic solver ──
+  auto planning_mono = make_12phase_yearly_hydro_planning();
+  PlanningLP plp_mono(std::move(planning_mono));
+
+  auto mono_result = plp_mono.resolve();
+  REQUIRE(mono_result.has_value());
+  CHECK(*mono_result == 1);
+
+  double mono_total = 0.0;
+  for (int p = 0; p < 12; ++p) {
+    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+                            .linear_interface()
+                            .get_obj_value();
+    SPDLOG_INFO("Yearly hydro mono: phase {} obj = {:.4f}", p, ph_obj);
+    mono_total += ph_obj;
+  }
+  SPDLOG_INFO("Yearly hydro mono: total obj = {:.4f}", mono_total);
+  CHECK(mono_total > 0.0);
+
+  // ─── 2. Solve the same problem with SDDP ──
+  auto planning_sddp = make_12phase_yearly_hydro_planning();
+  PlanningLP plp_sddp(std::move(planning_sddp));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(plp_sddp, sddp_opts);
+  auto sddp_results = sddp.solve();
+  REQUIRE(sddp_results.has_value());
+  CHECK_FALSE(sddp_results->empty());
+
+  const auto& last = sddp_results->back();
+  SPDLOG_INFO(
+      "Yearly hydro SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
+      last.iteration,
+      last.lower_bound,
+      last.upper_bound,
+      last.gap);
+
+  // SDDP should converge
+  CHECK(last.converged);
+
+  // ─── 3. Compare objectives ──
+  const auto sddp_total = last.upper_bound;
+  const auto relative_diff =
+      std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
+  SPDLOG_INFO(
+      "Yearly hydro comparison: mono={:.4f} sddp={:.4f} "
       "relative_diff={:.6f}",
       mono_total,
       sddp_total,
