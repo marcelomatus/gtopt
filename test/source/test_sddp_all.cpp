@@ -8,6 +8,8 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/battery.hpp>
+#include <gtopt/converter.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/sddp_solver.hpp>
