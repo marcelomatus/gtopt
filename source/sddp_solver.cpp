@@ -47,6 +47,14 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
   return CutSharingMode::None;
 }
 
+ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
+{
+  if (name == "backpropagate") {
+    return ElasticFilterMode::BackpropagateBounds;
+  }
+  return ElasticFilterMode::FeasibilityCut;
+}
+
 // ─── Free-function building blocks ──────────────────────────────────────────
 
 void propagate_trial_values(std::span<StateVarLink> links,
@@ -326,7 +334,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
 
     // Pointer to the LP whose solution we use for cost/cut data.
     // Defaults to the original LP; switches to elastic clone if needed.
-    LinearInterface* solved_li = &li;
+    const LinearInterface* solved_li = &li;
     std::optional<LinearInterface> elastic_clone;
 
     if (!result.has_value() || !li.is_optimal()) {
@@ -467,23 +475,48 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                   planning_lp().system(scene, prev_bp).linear_interface();
               const auto& prev_state = phase_states[prev_bp];
 
-              auto feas_cut = build_benders_cut(prev_state.alpha_col,
-                                                prev_state.outgoing_links,
-                                                elastic_clone->get_col_cost(),
-                                                elastic_clone->get_obj_value(),
-                                                sddp_label("sddp",
-                                                           "feas",
-                                                           "sc",
-                                                           scene,
-                                                           "ph",
-                                                           back_pi,
-                                                           "n",
-                                                           total_cuts));
+              if (m_options_.elastic_filter_mode
+                  == ElasticFilterMode::BackpropagateBounds)
+              {
+                // PLP mechanism: instead of building a feasibility cut,
+                // propagate the elastic-clone dependent-column solution
+                // values back as updated bounds on the source columns in
+                // the previous phase.  This forces the previous phase to
+                // produce a trial point that is known feasible for the
+                // current phase, avoiding further infeasibility without
+                // adding a cut row.
+                const auto& dep_sol = elastic_clone->get_col_sol();
+                for (const auto& link : prev_state.outgoing_links) {
+                  const double feasible_val = dep_sol[link.dependent_col];
+                  prev_li.set_col_low(link.source_col, feasible_val);
+                  prev_li.set_col_upp(link.source_col, feasible_val);
+                }
+                SPDLOG_TRACE(
+                    "SDDP backward (BackpropagateBounds): scene {} phase {} "
+                    "bounds updated to elastic trial values",
+                    scene,
+                    prev_bp);
+              } else {
+                // FeasibilityCut mode (default): build a Benders cut
+                auto feas_cut =
+                    build_benders_cut(prev_state.alpha_col,
+                                      prev_state.outgoing_links,
+                                      elastic_clone->get_col_cost(),
+                                      elastic_clone->get_obj_value(),
+                                      sddp_label("sddp",
+                                                 "feas",
+                                                 "sc",
+                                                 scene,
+                                                 "ph",
+                                                 back_pi,
+                                                 "n",
+                                                 total_cuts));
 
-              prev_li.add_row(feas_cut);
-              ++total_cuts;
+                prev_li.add_row(feas_cut);
+                ++total_cuts;
+              }
 
-              // Re-solve the previous phase
+              // Re-solve the previous phase with updated cuts or bounds
               auto r3 = prev_li.resolve(opts);
               if (r3.has_value() && prev_li.is_optimal()) {
                 break;  // Feasibility restored
@@ -812,7 +845,8 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
 void SDDPSolver::write_api_status(
     const std::string& status_file,
     const std::vector<SDDPIterationResult>& results,
-    double elapsed_s) const
+    double elapsed_s,
+    const SolverMonitor& monitor) const
 {
   // Build JSON manually using std::format to avoid adding a new dependency.
   // This is monitoring output only — correctness over aesthetics.
@@ -831,9 +865,14 @@ void SDDPSolver::write_api_status(
   const auto ub = m_current_ub_.load();
   const auto conv = m_converged_.load();
 
-  const char* status_str = conv ? "converged"
-      : (iter == 0)             ? "initializing"
-                                : "running";
+  const char* status_str = nullptr;
+  if (conv) {
+    status_str = "converged";
+  } else if (iter == 0) {
+    status_str = "initializing";
+  } else {
+    status_str = "running";
+  }
 
   json += "{\n";
   json += std::format("  \"version\": 1,\n");
@@ -885,55 +924,12 @@ void SDDPSolver::write_api_status(
   json += "  ],\n";
 
   // ── Real-time workpool monitoring history ──
-  {
-    const std::scoped_lock lock(m_realtime_mutex_);
-    json += "  \"realtime\": {\n";
-
-    json += "    \"timestamps\": [";
-    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
-      if (i > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.3f}", m_realtime_history_[i].timestamp);
-    }
-    json += "],\n";
-
-    json += "    \"cpu_loads\": [";
-    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
-      if (i > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.1f}", m_realtime_history_[i].cpu_load);
-    }
-    json += "],\n";
-
-    json += "    \"active_workers\": [";
-    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
-      if (i > 0) {
-        json += ", ";
-      }
-      json += std::format("{}", m_realtime_history_[i].active_workers);
-    }
-    json += "]\n";
-    json += "  }\n";
-  }
+  monitor.append_history_json(json);
 
   json += "}\n";
 
-  // Write atomically: write to a temp file, then rename
-  const auto tmp_file = status_file + ".tmp";
-  try {
-    std::filesystem::create_directories(
-        std::filesystem::path(status_file).parent_path());
-    {
-      std::ofstream out(tmp_file);
-      out << json;
-    }
-    std::filesystem::rename(tmp_file, status_file);
-  } catch (const std::exception& e) {
-    SPDLOG_WARN(
-        "SDDP API: could not write status file {}: {}", status_file, e.what());
-  }
+  // Write atomically via SolverMonitor::write_status (write tmp, rename)
+  SolverMonitor::write_status(json, status_file);
 }
 
 // ── Main solve loop ─────────────────────────────────────────────────────────
@@ -1033,40 +1029,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // Determine the status file path
   const std::string status_file = m_options_.api_status_file;
 
-  // Background thread: periodically samples workpool statistics and appends
-  // them to m_realtime_history_ so that write_api_status() can include them.
-  std::jthread monitoring_thread;
+  // Start the background monitoring thread via SolverMonitor (local, RAII)
+  SolverMonitor monitor(m_options_.api_update_interval);
   if (m_options_.enable_api && !status_file.empty()) {
-    // Clear old history
-    {
-      const std::scoped_lock lock(m_realtime_mutex_);
-      m_realtime_history_.clear();
-    }
-
-    monitoring_thread = std::jthread {
-        [this, &pool, &solve_start](const std::stop_token& stoken)
-        {
-#ifdef __linux__
-          pthread_setname_np(pthread_self(), "SDDPMonitor");
-#endif
-          while (!stoken.stop_requested()) {
-            const auto now = std::chrono::steady_clock::now();
-            const double elapsed =
-                std::chrono::duration<double>(now - solve_start).count();
-
-            const auto stats = pool.get_statistics();
-            {
-              const std::scoped_lock lock(m_realtime_mutex_);
-              m_realtime_history_.push_back(MonitorPoint {
-                  .timestamp = elapsed,
-                  .cpu_load = stats.current_cpu_load,
-                  .active_workers = stats.active_threads,
-              });
-            }
-
-            std::this_thread::sleep_for(m_options_.api_update_interval);
-          }
-        }};
+    monitor.start(pool, solve_start, "SDDPMonitor");
   }
 
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
@@ -1112,7 +1078,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
 
     if (scenes_solved == 0) {
-      monitoring_thread.request_stop();
+      monitor.stop();
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = "SDDP: all scenes infeasible in forward pass",
@@ -1124,7 +1090,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     double total_lower = 0.0;
     ir.scene_lower_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
-      if (!scene_feasible[si]) {
+      if (scene_feasible[si] == 0u) {
         continue;
       }
       const double lb_si = planning_lp()
@@ -1148,7 +1114,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     bwd_futures.reserve(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
-      if (!scene_feasible[si]) {
+      if (scene_feasible[si] == 0u) {
         continue;  // Skip infeasible scenes in backward pass
       }
       const auto scene = SceneIndex {si};
@@ -1234,7 +1200,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       const auto now = std::chrono::steady_clock::now();
       const double elapsed =
           std::chrono::duration<double>(now - solve_start).count();
-      write_api_status(status_file, results, elapsed);
+      write_api_status(status_file, results, elapsed, monitor);
     }
 
     // ── Save cuts incrementally after each iteration ──
@@ -1258,7 +1224,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         }
         // Rename cut files for infeasible scenes with "error_" prefix
         for (Index si = 0; si < num_scenes; ++si) {
-          if (!scene_feasible[si]) {
+          if (scene_feasible[si] == 0u) {
             const auto scene_file =
                 cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
             const auto error_file =
@@ -1291,9 +1257,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
   }
 
-  // Stop the monitoring thread before returning (jthread auto-joins on
-  // destruction, but request_stop() allows the thread to exit promptly).
-  monitoring_thread.request_stop();
+  // Stop the monitoring thread before returning (SolverMonitor is local;
+  // its jthread destructor will join, but stop() ensures prompt exit).
+  monitor.stop();
 
   return results;
 }
