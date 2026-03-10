@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstddef>
+#include <ranges>
 #include <tuple>
 #include <type_traits>
 
@@ -86,11 +87,11 @@ namespace detail
 template<typename T, typename... Ts>
 [[nodiscard]] consteval std::size_t type_index_in() noexcept
 {
-  const bool same[] = {
+  const std::array<bool, sizeof...(Ts)> same = {
       std::is_same_v<T, Ts>...,
   };
-  for (std::size_t i = 0; i < sizeof...(Ts); ++i) {
-    if (same[i]) {
+  for (auto [i, v] : std::views::enumerate(same)) {
+    if (v) {
       return i;
     }
   }

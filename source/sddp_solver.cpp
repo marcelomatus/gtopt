@@ -58,11 +58,10 @@ auto build_benders_cut(ColIndex alpha_col,
                        double objective_value,
                        const std::string& name) -> SparseRow
 {
-  SparseRow row;
-  row.name = name;
+  auto row = SparseRow {.name = name};
   row[alpha_col] = 1.0;
 
-  double rhs = objective_value;
+  auto rhs = objective_value;
   for (const auto& link : links) {
     const auto rc = reduced_costs[link.dependent_col];
     row[link.source_col] = -rc;
