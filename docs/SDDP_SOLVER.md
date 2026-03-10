@@ -356,6 +356,7 @@ cuts via `stored_cuts()`.
 | `sentinel_file` | string | "" | Path to sentinel file for graceful stop |
 | `cuts_output_file` | string | "" | Path for saving cuts (CSV format) |
 | `cuts_input_file` | string | "" | Path for loading cuts (hot-start) |
+| `log_directory` | string | "logs" | Directory for log and error LP files |
 
 ### 5.2 Options (JSON)
 
@@ -428,6 +429,25 @@ When one or more scenes are infeasible during the forward pass:
 4. **Continue**: the solver continues with remaining feasible scenes.
 5. **Error**: if **all** scenes are infeasible, the solver returns an error
    and `gtopt_main` exits with a non-zero exit code.
+
+### 5.6 Hot-Start and Error File Filtering
+
+On hot-start, the solver loads cuts from the cut directory to warm-start
+the Benders approximation.  Files with the `error_` prefix (from
+infeasible scenes in previous runs) are automatically **skipped** to
+prevent loading invalid cuts:
+
+```
+cuts/
+├── sddp_cuts.csv        ← loaded (combined cuts)
+├── scene_0.csv           ← loaded (valid scene)
+├── scene_1.csv           ← loaded (valid scene)
+├── error_scene_2.csv     ← SKIPPED (infeasible in previous run)
+└── error_scene_3.csv     ← SKIPPED (infeasible in previous run)
+```
+
+The `load_scene_cuts_from_directory()` method handles this filtering.
+Only files matching `scene_<N>.csv` or `sddp_cuts.csv` are loaded.
 
 ---
 
