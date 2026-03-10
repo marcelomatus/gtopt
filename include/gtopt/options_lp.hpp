@@ -267,6 +267,8 @@ public:
   static constexpr auto default_cut_directory = "cuts";
   /** @brief Default directory for log/trace files */
   static constexpr auto default_log_directory = "logs";
+  /** @brief Default for SDDP monitoring API (enabled by default) */
+  static constexpr Bool default_sddp_api_enabled = true;
 
   /**
    * @brief Gets the solver type, using default if not set
@@ -302,6 +304,15 @@ public:
   [[nodiscard]] constexpr auto log_directory() const
   {
     return m_options_.log_directory.value_or(default_log_directory);
+  }
+
+  /**
+   * @brief Gets the SDDP monitoring API enabled flag, using default if not set
+   * @return Whether the SDDP monitoring API is enabled (default: true)
+   */
+  [[nodiscard]] constexpr auto sddp_api_enabled() const
+  {
+    return m_options_.sddp_api_enabled.value_or(default_sddp_api_enabled);
   }
 
 private:

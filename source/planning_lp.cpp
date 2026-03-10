@@ -101,7 +101,9 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
   auto solver = make_planning_solver(m_options_.solver_type(),
                                      m_options_.cut_sharing_mode(),
                                      m_options_.cut_directory(),
-                                     m_options_.log_directory());
+                                     m_options_.log_directory(),
+                                     m_options_.sddp_api_enabled(),
+                                     m_options_.output_directory());
   return solver->solve(*this, lp_opts);
 }
 

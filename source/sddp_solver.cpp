@@ -12,11 +12,13 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <span>
+#include <thread>
 
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
@@ -803,6 +805,137 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
   }
 
   return total_loaded;
+}
+
+// ── Monitoring API ───────────────────────────────────────────────────────────
+
+void SDDPSolver::write_api_status(
+    const std::string& status_file,
+    const std::vector<SDDPIterationResult>& results,
+    double elapsed_s) const
+{
+  // Build JSON manually using std::format to avoid adding a new dependency.
+  // This is monitoring output only — correctness over aesthetics.
+
+  std::string json;
+  json.reserve(4096);
+
+  const auto now_ts = std::chrono::duration<double>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+
+  // Determine current state
+  const auto iter = m_current_iteration_.load();
+  const auto gap = m_current_gap_.load();
+  const auto lb = m_current_lb_.load();
+  const auto ub = m_current_ub_.load();
+  const auto conv = m_converged_.load();
+
+  const char* status_str = conv ? "converged"
+      : (iter == 0)              ? "initializing"
+                                 : "running";
+
+  json += "{\n";
+  json += std::format("  \"version\": 1,\n");
+  json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
+  json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_s);
+  json += std::format("  \"status\": \"{}\",\n", status_str);
+  json += std::format("  \"iteration\": {},\n", iter);
+  json += std::format("  \"lower_bound\": {:.6f},\n", lb);
+  json += std::format("  \"upper_bound\": {:.6f},\n", ub);
+  json += std::format("  \"gap\": {:.6f},\n", gap);
+  json += std::format("  \"converged\": {},\n", conv ? "true" : "false");
+  json += std::format("  \"max_iterations\": {},\n",
+                      m_options_.max_iterations);
+
+  // ── Iteration history ──
+  json += "  \"history\": [\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const auto& r = results[i];
+    json += "    {\n";
+    json += std::format("      \"iteration\": {},\n", r.iteration);
+    json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
+    json += std::format("      \"upper_bound\": {:.6f},\n", r.upper_bound);
+    json += std::format("      \"gap\": {:.6f},\n", r.gap);
+    json += std::format("      \"converged\": {},\n",
+                        r.converged ? "true" : "false");
+    json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
+
+    // Per-scene upper bounds
+    json += "      \"scene_upper_bounds\": [";
+    for (std::size_t si = 0; si < r.scene_upper_bounds.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.6f}", r.scene_upper_bounds[si]);
+    }
+    json += "],\n";
+
+    // Per-scene lower bounds
+    json += "      \"scene_lower_bounds\": [";
+    for (std::size_t si = 0; si < r.scene_lower_bounds.size(); ++si) {
+      if (si > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.6f}", r.scene_lower_bounds[si]);
+    }
+    json += "]\n";
+
+    json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
+  }
+  json += "  ],\n";
+
+  // ── Real-time workpool monitoring history ──
+  {
+    const std::lock_guard lock(m_realtime_mutex_);
+    json += "  \"realtime\": {\n";
+
+    json += "    \"timestamps\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.3f}", m_realtime_history_[i].timestamp);
+    }
+    json += "],\n";
+
+    json += "    \"cpu_loads\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.1f}", m_realtime_history_[i].cpu_load);
+    }
+    json += "],\n";
+
+    json += "    \"active_workers\": [";
+    for (std::size_t i = 0; i < m_realtime_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{}", m_realtime_history_[i].active_workers);
+    }
+    json += "]\n";
+    json += "  }\n";
+  }
+
+  json += "}\n";
+
+  // Write atomically: write to a temp file, then rename
+  const auto tmp_file = status_file + ".tmp";
+  try {
+    std::filesystem::create_directories(
+        std::filesystem::path(status_file).parent_path());
+    {
+      std::ofstream out(tmp_file);
+      out << json;
+    }
+    std::filesystem::rename(tmp_file, status_file);
+  } catch (const std::exception& e) {
+    SPDLOG_WARN("SDDP API: could not write status file {}: {}",
+                status_file,
+                e.what());
+  }
 }
 
 // ── Main solve loop ─────────────────────────────────────────────────────────

@@ -48,7 +48,8 @@ struct json_data_contract<Options>
                        json_string_null<"solver_type", OptName>,
                        json_string_null<"cut_sharing_mode", OptName>,
                        json_string_null<"cut_directory", OptName>,
-                       json_string_null<"log_directory", OptName> >;
+                       json_string_null<"log_directory", OptName>,
+                       json_bool_null<"sddp_api_enabled", OptBool> >;
 
   constexpr static auto to_json_data(Options const& opt)
   {
@@ -78,7 +79,8 @@ struct json_data_contract<Options>
                                  opt.solver_type,
                                  opt.cut_sharing_mode,
                                  opt.cut_directory,
-                                 opt.log_directory);
+                                 opt.log_directory,
+                                 opt.sddp_api_enabled);
   }
 };
 
