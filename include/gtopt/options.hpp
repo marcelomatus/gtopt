@@ -25,7 +25,8 @@
  *       "sddp_cut_directory": "cuts",
  *       "sddp_api_enabled": true,
  *       "sddp_efficiency_update_skip": 0,
- *       "sddp_elastic_mode": "cut"
+ *       "sddp_elastic_mode": "single-cut",
+ *       "sddp_multi_cut_threshold": 10
  *     }
  *   }
  * }
@@ -84,8 +85,12 @@ struct SddpOptions
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sddp_sentinel_file {};
-  /** @brief Elastic filter mode: `"cut"` (default) or `"backpropagate"` */
+  /** @brief Elastic filter mode: `"single-cut"` (default, alias `"cut"`) or
+   *         `"multi-cut"` or `"backpropagate"` */
   OptName sddp_elastic_mode {};
+  /** @brief Forward-pass infeasibility count threshold for switching from
+   *         single-cut to multi-cut (default: 10; 0 = never auto-switch) */
+  OptInt sddp_multi_cut_threshold {};
 
   void merge(SddpOptions&& opts)
   {
@@ -102,6 +107,7 @@ struct SddpOptions
     merge_opt(sddp_cuts_input_file, std::move(opts.sddp_cuts_input_file));
     merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
+    merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
 
     auto _ = std::move(opts);
   }

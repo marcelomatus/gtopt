@@ -402,6 +402,48 @@ TEST_CASE("parse_cut_sharing_mode")  // NOLINT
   CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::None);
 }
 
+TEST_CASE("parse_elastic_filter_mode")  // NOLINT
+{
+  // Canonical names
+  CHECK(parse_elastic_filter_mode("single-cut")
+        == ElasticFilterMode::FeasibilityCut);
+  CHECK(parse_elastic_filter_mode("multi-cut") == ElasticFilterMode::MultiCut);
+  CHECK(parse_elastic_filter_mode("backpropagate")
+        == ElasticFilterMode::BackpropagateBounds);
+  // Backward-compat alias
+  CHECK(parse_elastic_filter_mode("cut") == ElasticFilterMode::FeasibilityCut);
+  // Unknown → default (FeasibilityCut)
+  CHECK(parse_elastic_filter_mode("unknown")
+        == ElasticFilterMode::FeasibilityCut);
+}
+
+TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
+{
+  LinearInterface li;
+
+  // Create a column and fix it at 50.0
+  const auto col = li.add_col("dep", 50.0, 50.0);
+
+  const StateVarLink link {
+      .dependent_col = col,
+      .source_phase = PhaseIndex {0},
+      .trial_value = 50.0,
+      .source_low = 0.0,
+      .source_upp = 100.0,
+  };
+
+  const auto info = relax_fixed_state_variable(li, link, PhaseIndex {1}, 1e6);
+
+  REQUIRE(info.relaxed);
+  // After relaxation, bounds should match source bounds
+  CHECK(li.get_col_low()[col] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp()[col] == doctest::Approx(100.0));
+  // slack columns must be valid
+  CHECK(info.sup_col != ColIndex {unknown_index});
+  CHECK(info.sdn_col != ColIndex {unknown_index});
+  CHECK(info.sup_col != info.sdn_col);
+}
+
 // ─── Integration tests ─────────────────────────────────────────────────────
 
 TEST_CASE("SDDPSolver - 3-phase hydro+thermal converges")  // NOLINT

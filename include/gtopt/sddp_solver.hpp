@@ -115,10 +115,18 @@ constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
  * When adding a Benders cut to phase k makes it infeasible, the elastic
  * filter can handle the situation in two ways:
  *
- * - `FeasibilityCut` (default / current behavior): clone the LP, relax the
+ * - `FeasibilityCut` / "single-cut" (default): clone the LP, relax the
  *   fixed state-variable bounds with penalised slack variables, solve the
- *   clone, and build a feasibility-like Benders cut for phase k-1 from the
- *   elastic clone's reduced costs.  This is the standard NBD approach.
+ *   clone, and build a single feasibility-like Benders cut for phase k-1
+ *   from the elastic clone's reduced costs.  This is the standard NBD
+ *   approach.
+ *
+ * - `MultiCut` / "multi-cut": same as single-cut, but also adds one
+ *   additional bound-constraint cut per state variable whose slack was
+ *   activated (non-zero) in the elastic clone solution.  If the forward
+ *   pass has encountered infeasibility at this (scene, phase) more than
+ *   `multi_cut_threshold` times, the solver automatically switches from
+ *   single-cut to multi-cut.
  *
  * - `BackpropagateBounds` (PLP mechanism): same clone/relax/solve as above,
  *   but instead of building a cut, propagate the slack-adjusted trial values
@@ -131,11 +139,15 @@ constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
  */
 enum class ElasticFilterMode : uint8_t
 {
-  FeasibilityCut = 0,  ///< Build a feasibility cut (default, standard NBD)
+  FeasibilityCut = 0,  ///< Build a single Benders feasibility cut (single-cut)
+  MultiCut,  ///< Build a Benders cut + per-slack bound cuts (multi-cut)
   BackpropagateBounds,  ///< Update source bounds to elastic trial values (PLP)
 };
 
-/// Parse an elastic filter mode from a string ("cut" or "backpropagate")
+/// Parse an elastic filter mode from a string.
+/// Accepts "single-cut" or its backward-compatible alias "cut"
+/// (= FeasibilityCut), "multi-cut" (= MultiCut), and "backpropagate"
+/// (= BackpropagateBounds).
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
@@ -150,10 +162,20 @@ struct SDDPOptions
   CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `FeasibilityCut` (default) adds a Benders feasibility cut to the
-  /// previous phase.  `BackpropagateBounds` updates the source column bounds
-  /// to match the elastic-clone solution (PLP mechanism).
+  /// `FeasibilityCut` / "single-cut" (default) adds a single Benders
+  /// feasibility cut to the previous phase.  `MultiCut` / "multi-cut" adds
+  /// the same cut plus one bound-constraint cut per activated slack variable.
+  /// `BackpropagateBounds` updates the source column bounds to match the
+  /// elastic-clone solution (PLP mechanism).
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::FeasibilityCut};
+
+  /// Forward-pass infeasibility counter threshold for automatic switching
+  /// from single-cut to multi-cut.  When the forward pass has encountered
+  /// infeasibility at (scene, phase) more than this many times without
+  /// recovery, the backward-pass infeasibility handler switches to multi-cut
+  /// mode for that (scene, phase).  0 = never auto-switch (use explicit mode
+  /// only).  Default: 10.
+  int multi_cut_threshold {10};
 
   /// File path for saving cuts (empty = no save)
   std::string cuts_output_file {};
@@ -256,6 +278,22 @@ struct StoredCut
 // ─── Free-function building blocks ──────────────────────────────────────────
 // These are the modular algorithmic primitives used by SDDPSolver.
 
+/// Result of relaxing one state-variable column via the elastic filter.
+/// Contains the relaxation status and the indices of the penalised slack
+/// columns added to the LP.
+struct RelaxedVarInfo
+{
+  bool relaxed {false};  ///< True if the column was relaxed (was fixed)
+  ColIndex sup_col {
+      unknown_index};  ///< Overshoot slack col (sup > 0 → solution < trial)
+  ColIndex sdn_col {
+      unknown_index};  ///< Undershoot slack col (sdn > 0 → solution > trial)
+
+  /// Implicit bool conversion: true iff the column was relaxed.
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  operator bool() const noexcept { return relaxed; }
+};
+
 /// Propagate trial values: fix dependent columns to source-column solution
 void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
@@ -273,11 +311,14 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::string_view name) -> SparseRow;
 
 /// Relax a single fixed state-variable column to its physical source bounds,
-/// adding penalised slack variables.  Returns true if the column was relaxed.
-[[nodiscard]] bool relax_fixed_state_variable(LinearInterface& li,
-                                              const StateVarLink& link,
-                                              PhaseIndex phase,
-                                              double penalty);
+/// adding penalised slack variables.
+/// Returns a RelaxedVarInfo with the relaxation status and slack column
+/// indices.  Converts to bool (true iff relaxed) for backward compatibility.
+[[nodiscard]] RelaxedVarInfo relax_fixed_state_variable(
+    LinearInterface& li,
+    const StateVarLink& link,
+    PhaseIndex phase,
+    double penalty);
 
 /// Compute an average cut from a collection of cuts (for Expected sharing)
 [[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
@@ -468,6 +509,15 @@ private:
       StrongIndexVector<SceneIndex,
                         StrongIndexVector<PhaseIndex, PhaseStateInfo>>;
 
+  /// Full result of the elastic-filter solve: the solved LP clone plus
+  /// per-link slack column information for multi-cut generation.
+  struct ElasticResult
+  {
+    LinearInterface clone;  ///< Solved elastic clone
+    /// One RelaxedVarInfo per entry in the previous phase's outgoing_links
+    std::vector<RelaxedVarInfo> link_infos {};
+  };
+
   void initialize_alpha_variables(SceneIndex scene);
   void collect_state_variable_links(SceneIndex scene);
 
@@ -488,9 +538,10 @@ private:
                                      int iteration);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
-  /// Returns the solved clone (with solution data) if feasible, nullopt
-  /// otherwise.  The original LP is never modified (PLP clone pattern).
-  [[nodiscard]] std::optional<LinearInterface> elastic_solve(
+  /// Returns an ElasticResult (with solution data and per-link slack info)
+  /// if feasible, nullopt otherwise.
+  /// The original LP is never modified (PLP clone pattern).
+  [[nodiscard]] std::optional<ElasticResult> elastic_solve(
       SceneIndex scene, PhaseIndex phase, const SolverOptions& opts);
 
   /// Check whether the sentinel file exists (user-requested stop)
@@ -525,6 +576,13 @@ private:
   /// needing the shared m_cuts_mutex_, preventing lock contention during
   /// parallel backward passes.
   StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_;
+
+  /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
+  /// Incremented when the elastic filter is used in forward_pass at (scene,
+  /// phase).  Reset to 0 when the phase is solved normally (no elastic).
+  /// Used by the backward pass to decide single-cut vs multi-cut mode.
+  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, int>>
+      m_infeasibility_counter_;
 
   bool m_initialized_ {false};
 
