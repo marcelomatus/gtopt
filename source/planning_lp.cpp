@@ -103,7 +103,11 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
                                      m_options_.cut_directory(),
                                      m_options_.log_directory(),
                                      m_options_.sddp_api_enabled(),
-                                     m_options_.output_directory());
+                                     m_options_.output_directory(),
+                                     m_options_.sddp_max_iterations(),
+                                     m_options_.sddp_convergence_tol(),
+                                     m_options_.sddp_elastic_penalty(),
+                                     m_options_.sddp_elastic_mode());
   return solver->solve(*this, lp_opts);
 }
 
