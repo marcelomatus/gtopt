@@ -534,14 +534,14 @@ TEST_CASE("Options solver_type and cut_sharing_mode")  // NOLINT
   opts.solver_type = OptName {"sddp"};
   opts.cut_sharing_mode = OptName {"expected"};
 
-  OptionsLP options_lp(std::move(opts));
+  const OptionsLP options_lp(std::move(opts));
   CHECK(options_lp.solver_type() == "sddp");
   CHECK(options_lp.cut_sharing_mode() == "expected");
 }
 
 TEST_CASE("Options solver_type defaults")  // NOLINT
 {
-  OptionsLP options_lp;
+  const OptionsLP options_lp;
   CHECK(options_lp.solver_type() == "monolithic");
   CHECK(options_lp.cut_sharing_mode() == "none");
 }
