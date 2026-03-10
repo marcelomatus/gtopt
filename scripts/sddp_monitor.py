@@ -207,12 +207,10 @@ def run_gui(status_file: Path, poll_interval: float) -> None:
                 default_bounds = [0.0] * num_scenes
                 for si in range(num_scenes):
                     ubs = [
-                        r.get("scene_upper_bounds", default_bounds)[si]
-                        for r in history
+                        r.get("scene_upper_bounds", default_bounds)[si] for r in history
                     ]
                     lbs = [
-                        r.get("scene_lower_bounds", default_bounds)[si]
-                        for r in history
+                        r.get("scene_lower_bounds", default_bounds)[si] for r in history
                     ]
                     scene_ub_lines[si].set_data(iterations, ubs)
                     scene_lb_lines[si].set_data(iterations, lbs)
