@@ -299,9 +299,70 @@ bool SDDPSolver::should_stop() const
   return m_stop_requested_.load() || check_sentinel_stop();
 }
 
+// ── Coefficient updates ─────────────────────────────────────────────────────
+
+void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
+                                               PhaseIndex phase,
+                                               int iteration)
+{
+  auto& sys = planning_lp().system(scene, phase);
+
+  // Build a volume provider: for the first iteration (or phase 0 at any
+  // iteration), use the reservoir's static eini value.  For subsequent
+  // iterations at phase > 0, use the previous phase's solved efin column
+  // value which has been propagated into eini via state variable coupling.
+  auto get_reservoir_volume = [&](const ReservoirLPSId& rsid) -> Real
+  {
+    const auto& rsv = sys.element<ReservoirLP>(rsid);
+
+    if (iteration <= 1) {
+      // First iteration: use the reservoir's initial volume (vini)
+      return rsv.reservoir().eini.value_or(0.0);
+    }
+
+    // Subsequent iterations: read eini column solution from the current
+    // phase's LP (the state variable propagation has already fixed it to
+    // the previous phase's efin value).  For phase 0, eini is the static
+    // boundary condition, so reservoir().eini is correct too.
+    if (phase == PhaseIndex {0}) {
+      return rsv.reservoir().eini.value_or(0.0);
+    }
+
+    // For phases > 0 in iterations > 1, the eini column is fixed to the
+    // previous phase's efin.  Read the value from the linear interface.
+    const auto& li = sys.linear_interface();
+    const auto& scenarios = sys.scene().scenarios();
+    if (!scenarios.empty()) {
+      const auto& first_scenario = scenarios.front();
+      const auto& stages = sys.phase().stages();
+      if (!stages.empty()) {
+        const auto eini_col = rsv.eini_col_at(first_scenario, stages.front());
+        // eini is fixed as a bound — read col_low (= col_upp = trial value)
+        return li.get_col_low()[eini_col];
+      }
+    }
+
+    return rsv.reservoir().eini.value_or(0.0);
+  };
+
+  const auto updated = update_lp_coefficients(
+      sys, planning_lp().options(), get_reservoir_volume, iteration);
+
+  if (updated > 0) {
+    SPDLOG_TRACE(
+        "SDDP: updated {} LP coefficients for scene {} phase {} (iter {})",
+        updated,
+        scene,
+        phase,
+        iteration);
+  }
+}
+
 // ── Forward pass ────────────────────────────────────────────────────────────
 
-auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
+auto SDDPSolver::forward_pass(SceneIndex scene,
+                              int iteration,
+                              const SolverOptions& opts)
     -> std::expected<double, Error>
 {
   const auto& phases = planning_lp().simulation().phases();
@@ -320,6 +381,9 @@ auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
           planning_lp().system(scene, prev).linear_interface().get_col_sol();
       propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
     }
+
+    // Update volume-dependent coefficients (turbine efficiency, etc.)
+    update_coefficients_for_phase(scene, phase, iteration);
 
     // Solve this phase
     auto result = li.resolve(opts);
@@ -1004,6 +1068,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
 
     m_initialized_ = true;
+
+    // Apply initial reservoir efficiency coefficients using eini volumes.
+    // This updates the turbine conversion-rate coefficients from the static
+    // value set by TurbineLP::add_to_lp() to the piecewise-linear efficiency
+    // evaluated at each reservoir's initial volume.
+    for (Index si = 0; si < num_scenes; ++si) {
+      const auto scene = SceneIndex {si};
+      for (Index pi = 0; pi < num_phases; ++pi) {
+        const auto phase = PhaseIndex {pi};
+        update_coefficients_for_phase(scene, phase, 0);
+      }
+    }
   }
 
   // Set up work pool for parallel scene processing
@@ -1087,8 +1163,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
-      auto fut = pool.submit([this, scene, &lp_opts]
-                             { return forward_pass(scene, lp_opts); });
+      auto fut = pool.submit([this, scene, iter, &lp_opts]
+                             { return forward_pass(scene, iter, lp_opts); });
       fwd_futures.push_back(std::move(fut.value()));
     }
 
