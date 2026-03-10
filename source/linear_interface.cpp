@@ -105,7 +105,7 @@ LinearInterface LinearInterface::clone() const
         "empty solver");
     cloned_solver = std::make_shared<SolverInterface>();
   }
-  return LinearInterface(std::move(cloned_solver), log_file);
+  return {std::move(cloned_solver), log_file};
 }
 
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
