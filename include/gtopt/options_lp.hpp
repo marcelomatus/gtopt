@@ -283,7 +283,10 @@ public:
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
   /** @brief Default elastic filter mode */
-  static constexpr auto default_sddp_elastic_mode = "cut";
+  static constexpr auto default_sddp_elastic_mode = "single-cut";
+  /** @brief Default multi-cut threshold (auto-switch after this many
+   *         consecutive forward-pass infeasibilities at a phase) */
+  static constexpr int default_sddp_multi_cut_threshold = 10;
 
   /**
    * @brief Gets the solver type, using default if not set
@@ -414,12 +417,23 @@ public:
 
   /**
    * @brief Gets the elastic filter mode string
-   * @return "cut" (default) or "backpropagate"
+   * @return "single-cut" (default), "multi-cut", or "backpropagate"
    */
   [[nodiscard]] constexpr auto sddp_elastic_mode() const
   {
     return m_options_.sddp_options.sddp_elastic_mode.value_or(
         default_sddp_elastic_mode);
+  }
+
+  /**
+   * @brief Gets the multi-cut threshold
+   * @return Forward-pass infeasibility count before auto-switching to
+   *         multi-cut (default: 10; 0 = never auto-switch)
+   */
+  [[nodiscard]] constexpr auto sddp_multi_cut_threshold() const
+  {
+    return m_options_.sddp_options.sddp_multi_cut_threshold.value_or(
+        default_sddp_multi_cut_threshold);
   }
 
 private:

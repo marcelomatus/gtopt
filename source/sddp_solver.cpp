@@ -52,6 +52,11 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   if (name == "backpropagate") {
     return ElasticFilterMode::BackpropagateBounds;
   }
+  if (name == "multi-cut") {
+    return ElasticFilterMode::MultiCut;
+  }
+  // "single-cut" is the canonical name; "cut" is kept as a backward-compat
+  // alias
   return ElasticFilterMode::FeasibilityCut;
 }
 
@@ -90,17 +95,17 @@ auto build_benders_cut(ColIndex alpha_col,
   return row;
 }
 
-bool relax_fixed_state_variable(LinearInterface& li,
-                                const StateVarLink& link,
-                                [[maybe_unused]] PhaseIndex phase,
-                                double penalty)
+RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
+                                          const StateVarLink& link,
+                                          [[maybe_unused]] PhaseIndex phase,
+                                          double penalty)
 {
   const auto dep = link.dependent_col;
   const auto lo = li.get_col_low()[dep];
   const auto hi = li.get_col_upp()[dep];
 
   if (std::abs(lo - hi) >= 1e-10) {
-    return false;
+    return {};
   }
 
   // Relax to the physical bounds captured from the source column
@@ -134,7 +139,12 @@ bool relax_fixed_state_variable(LinearInterface& li,
       link.source_low,
       link.source_upp,
       static_cast<Index>(link.source_phase));
-  return true;
+
+  return RelaxedVarInfo {
+      .relaxed = true,
+      .sup_col = sup,
+      .sdn_col = sdn,
+  };
 }
 
 auto average_benders_cut(const std::vector<SparseRow>& cuts,
@@ -256,7 +266,7 @@ void SDDPSolver::collect_state_variable_links(SceneIndex scene)
 
 // ── Elastic filter via LP clone (PLP pattern) ───────────────────────────────
 
-std::optional<LinearInterface> SDDPSolver::elastic_solve(
+std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
     SceneIndex scene, PhaseIndex phase, const SolverOptions& opts)
 {
   if (phase == PhaseIndex {0}) {
@@ -270,10 +280,15 @@ std::optional<LinearInterface> SDDPSolver::elastic_solve(
   // Clone the LP – modifications to the clone don't touch the original
   auto cloned = li.clone();
 
+  ElasticResult result;
+  result.link_infos.reserve(prev_state.outgoing_links.size());
+
   bool modified = false;
   for (const auto& link : prev_state.outgoing_links) {
-    modified |= relax_fixed_state_variable(
+    auto info = relax_fixed_state_variable(
         cloned, link, phase, m_options_.elastic_penalty);
+    modified |= info.relaxed;
+    result.link_infos.push_back(std::move(info));
   }
 
   if (!modified) {
@@ -281,15 +296,16 @@ std::optional<LinearInterface> SDDPSolver::elastic_solve(
   }
 
   // Solve the clone with elastic slack variables
-  auto result = cloned.resolve(opts);
-  if (result.has_value() && cloned.is_optimal()) {
+  auto r = cloned.resolve(opts);
+  if (r.has_value() && cloned.is_optimal()) {
     SPDLOG_TRACE(
         "SDDP elastic: scene {} phase {} solved via clone "
         "(obj={:.4f})",
         scene,
         phase,
         cloned.get_obj_value());
-    return cloned;
+    result.clone = std::move(cloned);
+    return result;
   }
   return std::nullopt;
 }
@@ -397,17 +413,37 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     // Solve this phase
     auto result = li.resolve(opts);
 
-    // Pointer to the LP whose solution we use for cost/cut data.
-    // Defaults to the original LP; switches to elastic clone if needed.
-    const LinearInterface* solved_li = &li;
-    std::optional<LinearInterface> elastic_clone;
-
     if (!result.has_value() || !li.is_optimal()) {
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
-      elastic_clone = elastic_solve(scene, phase, opts);
-      if (elastic_clone.has_value()) {
-        solved_li = &(*elastic_clone);
+      auto elastic_result = elastic_solve(scene, phase, opts);
+      if (elastic_result.has_value()) {
+        const LinearInterface& solved_li = elastic_result->clone;
+        // Increment infeasibility counter for this (scene, phase)
+        ++m_infeasibility_counter_[scene][phase];
+
+        // Cache solution data for the backward pass
+        const auto obj = solved_li.get_obj_value();
+        state.forward_full_obj = obj;
+
+        const auto rc = solved_li.get_col_cost();
+        state.forward_col_cost.assign(rc.begin(), rc.end());
+
+        const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
+            ? solved_li.get_col_sol()[state.alpha_col]
+            : 0.0;
+        state.forward_objective = obj - alpha_val;
+        total_opex += state.forward_objective;
+
+        SPDLOG_TRACE(
+            "SDDP forward: scene {} phase {} obj={:.4f} alpha={:.4f} "
+            "opex={:.4f} [elastic, infeas_count={}]",
+            scene,
+            phase,
+            obj,
+            alpha_val,
+            state.forward_objective,
+            m_infeasibility_counter_[scene][phase]);
       } else {
         // Save the infeasible LP to the log directory for debugging
         if (!m_options_.log_directory.empty()) {
@@ -428,29 +464,31 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                 li.get_status()),
         });
       }
+    } else {
+      // Phase solved normally – reset infeasibility counter
+      m_infeasibility_counter_[scene][phase] = 0;
+
+      // Cache solution data for the backward pass
+      const auto obj = li.get_obj_value();
+      state.forward_full_obj = obj;
+
+      const auto rc = li.get_col_cost();
+      state.forward_col_cost.assign(rc.begin(), rc.end());
+
+      const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
+          ? li.get_col_sol()[state.alpha_col]
+          : 0.0;
+      state.forward_objective = obj - alpha_val;
+      total_opex += state.forward_objective;
+
+      SPDLOG_TRACE(
+          "SDDP forward: scene {} phase {} obj={:.4f} alpha={:.4f} opex={:.4f}",
+          scene,
+          phase,
+          obj,
+          alpha_val,
+          state.forward_objective);
     }
-
-    // Cache solution data for the backward pass
-    const auto obj = solved_li->get_obj_value();
-    state.forward_full_obj = obj;
-
-    const auto rc = solved_li->get_col_cost();
-    state.forward_col_cost.assign(rc.begin(), rc.end());
-
-    const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-        ? solved_li->get_col_sol()[state.alpha_col]
-        : 0.0;
-    state.forward_objective = obj - alpha_val;
-    total_opex += state.forward_objective;
-
-    SPDLOG_TRACE(
-        "SDDP forward: scene {} phase {} obj={:.4f} alpha={:.4f} opex={:.4f}{}",
-        scene,
-        phase,
-        obj,
-        alpha_val,
-        state.forward_objective,
-        elastic_clone.has_value() ? " [elastic]" : "");
   }
 
   return total_opex;
@@ -482,7 +520,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
         src_state.outgoing_links,
         target_state.forward_col_cost,
         target_state.forward_full_obj,
-        sddp_label("sddp", "cut", "sc", scene, "ph", pi, "n", total_cuts));
+        sddp_label(
+            "sddp", "single-cut", "sc", scene, "ph", pi, "n", total_cuts));
 
     // Store the cut for sharing and persistence (thread-safe)
     {
@@ -531,8 +570,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
 
           // Clone the LP, apply elastic filter, solve the clone.
           // The original LP is never modified by the elastic filter.
-          auto elastic_clone = elastic_solve(scene, back_phase, opts);
-          if (elastic_clone.has_value()) {
+          auto elastic_result = elastic_solve(scene, back_phase, opts);
+          if (elastic_result.has_value()) {
             if (back_pi > 0) {
               // Build a feasibility-like cut for the previous phase
               const auto prev_bp = PhaseIndex {back_pi - 1};
@@ -550,7 +589,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                 // produce a trial point that is known feasible for the
                 // current phase, avoiding further infeasibility without
                 // adding a cut row.
-                const auto& dep_sol = elastic_clone->get_col_sol();
+                const auto& dep_sol = elastic_result->clone.get_col_sol();
                 for (const auto& link : prev_state.outgoing_links) {
                   const double feasible_val = dep_sol[link.dependent_col];
                   prev_li.set_col_low(link.source_col, feasible_val);
@@ -562,14 +601,15 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                     scene,
                     prev_bp);
               } else {
-                // FeasibilityCut mode (default): build a Benders cut
+                // single-cut or multi-cut mode:
+                // Always add the regular Benders feasibility cut.
                 auto feas_cut =
                     build_benders_cut(prev_state.alpha_col,
                                       prev_state.outgoing_links,
-                                      elastic_clone->get_col_cost(),
-                                      elastic_clone->get_obj_value(),
+                                      elastic_result->clone.get_col_cost(),
+                                      elastic_result->clone.get_obj_value(),
                                       sddp_label("sddp",
-                                                 "feas",
+                                                 "single-cut",
                                                  "sc",
                                                  scene,
                                                  "ph",
@@ -579,6 +619,97 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
 
                 prev_li.add_row(feas_cut);
                 ++total_cuts;
+
+                // multi-cut: also add one bound-constraint cut per
+                // state variable whose elastic slack was activated.
+                // The cut implements the bound constraint as a linear
+                // row using the non-zero slack variable solution value.
+                // Auto-switch to multi-cut when the forward pass has
+                // encountered infeasibility here more than the threshold.
+                const bool use_multi_cut = (m_options_.elastic_filter_mode
+                                            == ElasticFilterMode::MultiCut)
+                    || (m_options_.multi_cut_threshold > 0
+                        && m_infeasibility_counter_[scene][back_phase]
+                            > m_options_.multi_cut_threshold);
+
+                if (use_multi_cut) {
+                  const auto& dep_sol = elastic_result->clone.get_col_sol();
+                  const auto& links = prev_state.outgoing_links;
+                  const auto& link_infos = elastic_result->link_infos;
+                  // link_infos has exactly one entry per outgoing link
+                  // (built in elastic_solve() from the same link vector).
+                  const std::size_t nlinks = links.size();
+
+                  // Minimum slack magnitude to consider a slack "active"
+                  static constexpr double kActiveSlackTol = 1e-6;
+
+                  for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
+                    const auto& info = link_infos[li_idx];
+                    if (!info.relaxed) {
+                      continue;
+                    }
+                    const auto& link = links[li_idx];
+                    const double dep_val = dep_sol[link.dependent_col];
+
+                    // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
+                    if (info.sup_col != ColIndex {unknown_index}) {
+                      const double sup_val = dep_sol[info.sup_col];
+                      if (sup_val > kActiveSlackTol) {
+                        auto ub_cut = SparseRow {
+                            .name = sddp_label("sddp",
+                                               "multi-cut-ub",
+                                               "sc",
+                                               scene,
+                                               "ph",
+                                               back_pi,
+                                               "n",
+                                               total_cuts),
+                            .lowb = -LinearProblem::DblMax,
+                            .uppb = dep_val,
+                        };
+                        ub_cut[link.source_col] = 1.0;
+                        prev_li.add_row(ub_cut);
+                        ++total_cuts;
+                        SPDLOG_TRACE(
+                            "SDDP backward (multi-cut): scene {} phase {} "
+                            "added UB cut source_col≤{:.4f} (sup={:.4f})",
+                            scene,
+                            prev_bp,
+                            dep_val,
+                            sup_val);
+                      }
+                    }
+
+                    // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
+                    if (info.sdn_col != ColIndex {unknown_index}) {
+                      const double sdn_val = dep_sol[info.sdn_col];
+                      if (sdn_val > kActiveSlackTol) {
+                        auto lb_cut = SparseRow {
+                            .name = sddp_label("sddp",
+                                               "multi-cut-lb",
+                                               "sc",
+                                               scene,
+                                               "ph",
+                                               back_pi,
+                                               "n",
+                                               total_cuts),
+                            .lowb = dep_val,
+                            .uppb = LinearProblem::DblMax,
+                        };
+                        lb_cut[link.source_col] = 1.0;
+                        prev_li.add_row(lb_cut);
+                        ++total_cuts;
+                        SPDLOG_TRACE(
+                            "SDDP backward (multi-cut): scene {} phase {} "
+                            "added LB cut source_col≥{:.4f} (sdn={:.4f})",
+                            scene,
+                            prev_bp,
+                            dep_val,
+                            sdn_val);
+                      }
+                    }
+                  }
+                }
               }
 
               // Re-solve the previous phase with updated cuts or bounds
@@ -1032,6 +1163,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   if (!m_initialized_) {
     m_scene_phase_states_.resize(num_scenes);
     m_scene_cuts_.resize(num_scenes);
+
+    // Initialize per-(scene, phase) infeasibility counters to 0
+    m_infeasibility_counter_.resize(num_scenes);
+    for (Index si = 0; si < num_scenes; ++si) {
+      m_infeasibility_counter_[SceneIndex {si}].resize(num_phases, 0);
+    }
 
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
