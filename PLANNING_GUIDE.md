@@ -853,9 +853,19 @@ charge Demand, and Converter automatically.
 | **Flow** | `uid`✱, `name`✱, `junction`✱, `discharge`✱ (m³/s) | Exogenous inflow/outflow |
 | **Reservoir** | `uid`✱, `name`✱, `junction`✱, `emin`, `emax` (dam³), `eini`, `efin` | Water storage |
 | **Filtration** | `uid`✱, `name`✱, `waterway`✱, `reservoir`✱, `slope`, `constant` | Seepage model |
-| **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `conversion_rate` | Hydro turbine |
+| **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `conversion_rate`, `main_reservoir` | Hydro turbine |
+| **ReservoirEfficiency** | `uid`✱, `name`✱, `turbine`✱, `reservoir`✱, `mean_efficiency`, `segments` | Volume-dependent efficiency |
 
 > See **[INPUT_DATA.md](INPUT_DATA.md)** for full field descriptions, units, and all optional fields.
+
+**Volume-dependent turbine efficiency**: when a `ReservoirEfficiency`
+element is defined, the turbine's conversion rate is updated during SDDP
+iterations based on the current reservoir volume.  The efficiency curve
+is a concave piecewise-linear function (analogous to PLP's "rendimiento"
+tables).  For monolithic solves, the static `conversion_rate` is used.
+See the [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)
+for the efficiency formula and the [SDDP Solver](docs/SDDP_SOLVER.md)
+for the update mechanism.
 
 ---
 

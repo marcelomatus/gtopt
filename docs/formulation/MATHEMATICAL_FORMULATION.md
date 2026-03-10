@@ -744,6 +744,39 @@ p_{g,s,t,b} \;\leq\; \kappa_u \cdot \varphi_{w,s,t,b}
 \qquad \forall \; u, s, t, b
 $$
 
+##### Volume-Dependent Efficiency
+
+In practice, the conversion rate $\kappa_u$ is not constant — it depends
+on the hydraulic head, which is a function of the reservoir volume.  When
+a `ReservoirEfficiency` element is defined for a turbine, the solver
+replaces the static $\kappa_u$ with a volume-dependent function.
+
+The efficiency is modelled as a **concave piecewise-linear envelope**
+parameterised by $N$ segments:
+
+$$
+\kappa_u(v) = \min_{i=1}^{N} \left\{ c_i + m_i \cdot (v - v_i) \right\}
+$$
+
+where for each segment $i$:
+
+| Symbol | JSON field  | Meaning |
+|--------|-----------|---------|
+| $v_i$  | `volume`  | Volume breakpoint [dam³] |
+| $m_i$  | `slope`   | Marginal efficiency change per dam³ |
+| $c_i$  | `constant`| Efficiency intercept at breakpoint $v_i$ |
+
+The result is clamped to zero: $\kappa_u(v) \ge 0$.  The fallback
+`mean_efficiency` $\bar{\kappa}_u$ is used when the solver cannot modify
+LP matrix coefficients in-place.
+
+**SDDP integration**: during the forward pass, the solver evaluates
+$\kappa_u(v_{r}^{(k)})$ using the reservoir volume $v_{r}^{(k)}$ from
+iteration $k$ and updates the LP matrix coefficient via
+`set_coeff(row, col, -\kappa_u)`.  For the **first iteration**
+($k{=}1$), the initial volume $v_{\text{ini}}$ is used for all phases
+and scenes.
+
 #### Filtration (Water Seepage)
 
 Filtration models seepage from a waterway $w$ into a reservoir $r$ as a
@@ -966,6 +999,11 @@ mathematical symbols used in this formulation.
 | `reservoir_array[].vmin` | $\underline{V}_r$ | Min volume (hm³) |
 | `reservoir_array[].vmax` | $\overline{V}_r$ | Max volume (hm³) |
 | `turbine_array[].conversion_rate` | $\kappa_u$ | Water-to-power factor |
+| `turbine_array[].main_reservoir` | — | Reservoir for efficiency lookup |
+| `reservoir_efficiency_array[].mean_efficiency` | $\bar{\kappa}_u$ | Fallback efficiency |
+| `reservoir_efficiency_array[].segments[].volume` | $v_i$ | Volume breakpoint (dam³) |
+| `reservoir_efficiency_array[].segments[].slope` | $m_i$ | Marginal efficiency per dam³ |
+| `reservoir_efficiency_array[].segments[].constant` | $c_i$ | Efficiency intercept |
 | `filtration_array[].constant` | $a_i$ | Seepage constant |
 | `filtration_array[].slope` | $b_i$ | Seepage slope |
 
