@@ -636,8 +636,12 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                   const auto& dep_sol = elastic_result->clone.get_col_sol();
                   const auto& links = prev_state.outgoing_links;
                   const auto& link_infos = elastic_result->link_infos;
-                  const std::size_t nlinks =
-                      std::min(links.size(), link_infos.size());
+                  // link_infos has exactly one entry per outgoing link
+                  // (built in elastic_solve() from the same link vector).
+                  const std::size_t nlinks = links.size();
+
+                  // Minimum slack magnitude to consider a slack "active"
+                  static constexpr double kActiveSlackTol = 1e-6;
 
                   for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
                     const auto& info = link_infos[li_idx];
@@ -650,7 +654,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                     // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
                     if (info.sup_col != ColIndex {unknown_index}) {
                       const double sup_val = dep_sol[info.sup_col];
-                      if (sup_val > 1e-6) {
+                      if (sup_val > kActiveSlackTol) {
                         auto ub_cut = SparseRow {
                             .name = sddp_label("sddp",
                                                "multi-cut-ub",
@@ -679,7 +683,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                     // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
                     if (info.sdn_col != ColIndex {unknown_index}) {
                       const double sdn_val = dep_sol[info.sdn_col];
-                      if (sdn_val > 1e-6) {
+                      if (sdn_val > kActiveSlackTol) {
                         auto lb_cut = SparseRow {
                             .name = sddp_label("sddp",
                                                "multi-cut-lb",
