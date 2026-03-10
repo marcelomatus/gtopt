@@ -10,10 +10,14 @@
  * constraints and relationships with other system components.
  */
 
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reservoir_efficiency_lp.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -118,6 +122,71 @@ bool TurbineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, "capacity", id(), capacity_rows);
 
   return true;
+}
+
+/**
+ * @brief Update reservoir-dependent LP coefficients for this turbine.
+ *
+ * Finds the ReservoirEfficiencyLP element(s) that reference this turbine,
+ * queries the associated reservoir for the current volume and updates the
+ * turbine conversion-rate coefficient in the LP.
+ */
+int TurbineLP::update_lp(SystemLP& sys,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         PhaseIndex phase,
+                         int iteration)
+{
+  auto& li = sys.linear_interface();
+  const auto& options = sys.options();
+  const auto my_sid = TurbineLPSId {uid()};
+
+  int total = 0;
+
+  for (auto& eff : sys.elements<ReservoirEfficiencyLP>()) {
+    if (eff.turbine_sid() != my_sid) {
+      continue;
+    }
+
+    // Check per-element skip count
+    const auto skip = eff.effective_update_skip(options);
+    if (iteration > 0 && skip > 0 && (iteration % (skip + 1)) != 0) {
+      continue;
+    }
+
+    // Determine current reservoir volume:
+    //  - first iteration OR first phase → use static initial volume (eini)
+    //  - otherwise → read from eini column (fixed to previous-phase efin)
+    const auto& rsv = sys.element<ReservoirLP>(eff.reservoir_sid());
+    Real volume = rsv.reservoir().eini.value_or(0.0);
+
+    // Use LP-bound volume only when we are past the first iteration AND past
+    // the first phase.  In iteration 1 the LP has not yet been solved from a
+    // previous phase, so there is no meaningful bound to read back.  In phase 0
+    // the eini column is the fixed initial condition, so reservoir().eini is
+    // always correct.  The skip-count guard already uses iteration > 0, which
+    // is a different check (whether to skip the update entirely).
+    if (iteration > 1 && phase != PhaseIndex {0}) {
+      const auto eini_col = rsv.eini_col_at(scenario, stage);
+      // eini is fixed as a bound — read col_low (= col_upp = trial value)
+      volume = li.get_col_low()[eini_col];
+    }
+
+    total +=
+        eff.update_conversion_coeff(li, scenario.uid(), stage.uid(), volume);
+  }
+
+  if (total > 0) {
+    SPDLOG_TRACE(
+        "TurbineLP uid={}: updated {} LP coefficients "
+        "(scene phase={} iter={})",
+        uid(),
+        total,
+        phase,
+        iteration);
+  }
+
+  return total;
 }
 
 }  // namespace gtopt

@@ -173,8 +173,11 @@ struct SDDPOptions
   /// from single-cut to multi-cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without
   /// recovery, the backward-pass infeasibility handler switches to multi-cut
-  /// mode for that (scene, phase).  0 = never auto-switch (use explicit mode
-  /// only).  Default: 10.
+  /// mode for that (scene, phase).
+  ///  = 0  always use multi-cut for any infeasibility (force multi-cut).
+  ///  > 0  switch to multi-cut after the counter exceeds this threshold.
+  ///  < 0  never auto-switch (disabled; use explicit mode only).
+  /// Default: 10.
   int multi_cut_threshold {10};
 
   /// File path for saving cuts (empty = no save)
@@ -323,6 +326,20 @@ void propagate_trial_values(std::span<StateVarLink> links,
 /// Compute an average cut from a collection of cuts (for Expected sharing)
 [[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
                                        std::string_view name) -> SparseRow;
+
+/// Compute a probability-weighted average cut from a collection of cuts.
+///
+/// Each cut is weighted by the corresponding element in @p weights.
+/// The weights are normalised internally so they need not sum to 1.
+/// If all weights are zero the function returns an empty SparseRow.
+///
+/// @param cuts    Collection of Benders optimality cuts (SparseRow)
+/// @param weights Per-cut probability weights (must be same size as cuts)
+/// @param name    Name for the resulting averaged cut row
+[[nodiscard]] auto weighted_average_benders_cut(
+    const std::vector<SparseRow>& cuts,
+    const std::vector<double>& weights,
+    std::string_view name) -> SparseRow;
 
 // ─── Callback / observer API ────────────────────────────────────────────────
 

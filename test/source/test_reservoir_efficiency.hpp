@@ -302,12 +302,11 @@ TEST_CASE("SystemLP with reservoir efficiency element")
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    // Update coefficients using a known volume (vini = 500)
-    const auto updated = update_lp_coefficients(
-        system_lp,
-        options,
-        [](const ReservoirLPSId& /*rsid*/) { return 500.0; },
-        0);
+    // Update coefficients using the reservoir's initial volume (eini = 500).
+    // The new API derives the volume from the reservoir LP itself (iteration=0
+    // and phase=0 both trigger the eini fallback: rsv.reservoir().eini = 500).
+    const auto updated =
+        update_lp_coefficients(system_lp, options, 0, PhaseIndex {0});
     CHECK(updated > 0);
 
     // Verify the coefficient was changed (original was -1.0)

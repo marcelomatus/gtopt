@@ -18,6 +18,10 @@
 namespace gtopt
 {
 
+// Forward declaration to avoid circular includes (system_lp.hpp includes
+// filtration_lp.hpp).
+class SystemLP;
+
 /**
  * @brief LP wrapper for Filtration systems
  *
@@ -68,6 +72,27 @@ public:
                                LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
+
+  /**
+   * @brief Update reservoir-dependent LP coefficients for this filtration.
+   *
+   * Currently a no-op (the filtration slope and constant are fixed
+   * parameters that do not depend on the reservoir volume at run time).
+   * This method exists for interface consistency with TurbineLP::update_lp
+   * and will be extended in the future if volume-dependent filtration rates
+   * are required.
+   *
+   * @return Always 0 (no coefficients updated)
+   */
+  [[nodiscard]] constexpr int update_lp(
+      [[maybe_unused]] SystemLP& sys,
+      [[maybe_unused]] const ScenarioLP& scenario,
+      [[maybe_unused]] const StageLP& stage,
+      [[maybe_unused]] PhaseIndex phase,
+      [[maybe_unused]] int iteration) noexcept
+  {
+    return 0;
+  }
 
 private:
   STBIndexHolder<ColIndex> filtration_cols;
