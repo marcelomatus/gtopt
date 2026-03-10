@@ -67,6 +67,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
+#include <gtopt/reservoir_efficiency_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
 
@@ -431,11 +432,21 @@ private:
   void initialize_alpha_variables(SceneIndex scene);
   void collect_state_variable_links(SceneIndex scene);
 
-  [[nodiscard]] auto forward_pass(SceneIndex scene, const SolverOptions& opts)
+  [[nodiscard]] auto forward_pass(SceneIndex scene,
+                                  int iteration,
+                                  const SolverOptions& opts)
       -> std::expected<double, Error>;
 
   [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
       -> std::expected<int, Error>;
+
+  /// Update volume-dependent LP coefficients (turbine efficiency, etc.)
+  /// before solving a phase in the forward pass.  Uses reservoir eini for
+  /// the first iteration and the previous iteration's solved volumes for
+  /// subsequent iterations.
+  void update_coefficients_for_phase(SceneIndex scene,
+                                     PhaseIndex phase,
+                                     int iteration);
 
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns the solved clone (with solution data) if feasible, nullopt

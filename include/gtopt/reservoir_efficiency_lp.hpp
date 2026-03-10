@@ -14,9 +14,9 @@
  * stores their indices, and computes the initial conversion rate from
  * the reservoir's initial volume (`eini`).
  *
- * During SDDP forward-pass iterations, `update_efficiency()` recomputes
- * the conversion rate from the current reservoir volume and calls
- * `LinearInterface::set_coeff()` to update the LP matrix in-place.
+ * During SDDP forward-pass iterations, `update_conversion_coeff()`
+ * recomputes the conversion rate from the current reservoir volume and
+ * calls `LinearInterface::set_coeff()` to update the LP matrix in-place.
  */
 
 #pragma once
@@ -28,6 +28,8 @@
 
 namespace gtopt
 {
+
+class LinearInterface;
 
 /**
  * @brief LP representation of a ReservoirEfficiency element
@@ -97,6 +99,25 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
+  /**
+   * @brief Update the conversion-rate LP coefficient for a given volume
+   *
+   * Evaluates the piecewise-linear efficiency at @p volume and sets the
+   * coefficient to `-efficiency` for every (row, col) pair stored for the
+   * given (scenario, stage).  The negative sign matches the turbine
+   * conversion-row convention: `generation − conversion_rate × flow = 0`.
+   *
+   * @param li   The linear interface to modify
+   * @param suid Scenario UID
+   * @param tuid Stage UID
+   * @param volume Current reservoir volume [dam³]
+   * @return Number of coefficients updated
+   */
+  auto update_conversion_coeff(LinearInterface& li,
+                               ScenarioUid suid,
+                               StageUid tuid,
+                               Real volume) -> int;
+
   /// Per-block conversion row and flow column indices for coefficient updates
   struct CoeffIndex
   {
@@ -124,5 +145,36 @@ private:
   /// Stored row/column indices indexed by (scenario, stage) → block
   IndexHolder2<ScenarioUid, StageUid, BCoeffMap> m_coeff_indices_;
 };
+
+// ─── Generalized LP coefficient update ──────────────────────────────────────
+
+/**
+ * @brief Update all volume-dependent LP coefficients for a (scene, phase)
+ *
+ * This is the **generalized coefficient update hook** called by the SDDP
+ * solver before each phase solve.  It currently handles:
+ *
+ * 1. **Turbine efficiency** — updates conversion-rate coefficients in
+ *    turbines that have a `ReservoirEfficiency` element, using the current
+ *    reservoir volume to evaluate the piecewise-linear efficiency curve.
+ *
+ * Future extensions (filtration updates, linearised losses, etc.) should
+ * be added here so that the SDDP forward-pass loop remains unchanged.
+ *
+ * @param system_lp      The SystemLP for this (scene, phase)
+ * @param options        Global LP options (provides default skip count)
+ * @param reservoir_volume  Function mapping ReservoirLPSId → current volume
+ *                          (e.g. from reservoir eini or previous-iteration
+ *                          efin solution)
+ * @param iteration      Current SDDP iteration (1-based; 0 = initial)
+ * @return Total number of LP coefficients modified
+ */
+class SystemLP;  // forward
+
+[[nodiscard]] int update_lp_coefficients(
+    SystemLP& system_lp,
+    const OptionsLP& options,
+    const std::function<Real(const ReservoirLPSId&)>& reservoir_volume,
+    int iteration);
 
 }  // namespace gtopt
