@@ -339,7 +339,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
           std::filesystem::create_directories(m_options_.log_directory);
           const auto err_file =
               (std::filesystem::path(m_options_.log_directory)
-               / std::format("error_scene_{}_phase_{}", scene, phase))
+               / std::format(sddp_file::error_lp_fmt, scene, phase))
                   .string();
           li.write_lp(err_file);
           SPDLOG_WARN("SDDP: saved infeasible LP to {}.lp", err_file);
@@ -628,7 +628,7 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
 
     const auto filepath =
         (std::filesystem::path(directory)
-         / std::format("scene_{}.csv", static_cast<int>(scene)))
+         / std::format(sddp_file::scene_cuts_fmt, static_cast<int>(scene)))
             .string();
 
     const auto& cuts = m_scene_cuts_[scene];
@@ -783,7 +783,8 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
     }
 
     // Only load scene_N.csv files and the combined sddp_cuts.csv
-    if (!filename.starts_with("scene_") && filename != "sddp_cuts.csv") {
+    if (!filename.starts_with("scene_") && filename != sddp_file::combined_cuts)
+    {
       continue;
     }
     if (!filename.ends_with(".csv")) {
@@ -920,7 +921,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     double total_upper = 0.0;
     int scenes_solved = 0;
-    std::vector<bool> scene_feasible(num_scenes, true);
+    std::vector<uint8_t> scene_feasible(num_scenes, 1);
     for (Index si = 0; si < num_scenes; ++si) {
       auto fwd = fwd_futures[si].get();
       if (!fwd.has_value()) {
@@ -928,7 +929,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         SPDLOG_WARN(
             "SDDP forward: scene {} failed: {}", si, fwd.error().message);
         ir.feasibility_issue = true;
-        scene_feasible[si] = false;
+        scene_feasible[si] = 0;
         continue;
       }
       total_upper += *fwd;
@@ -1071,9 +1072,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         // Rename cut files for infeasible scenes with "error_" prefix
         for (Index si = 0; si < num_scenes; ++si) {
           if (!scene_feasible[si]) {
-            const auto scene_file = cut_dir / std::format("scene_{}.csv", si);
+            const auto scene_file =
+                cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
             const auto error_file =
-                cut_dir / std::format("error_scene_{}.csv", si);
+                cut_dir / std::format(sddp_file::error_scene_cuts_fmt, si);
             std::error_code ec;
             if (std::filesystem::exists(scene_file, ec)) {
               std::filesystem::rename(scene_file, error_file, ec);

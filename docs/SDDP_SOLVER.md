@@ -413,7 +413,8 @@ cuts/
 
 Each per-scene file has the same CSV format as the combined file. This
 allows concurrent scene processing to write independently without
-locking. Cut files for infeasible scenes are automatically removed.
+locking. Cut files for infeasible scenes are automatically renamed
+with an `error_` prefix (e.g. `error_scene_2.csv`).
 
 ### 5.5 Infeasible Scene Handling
 
