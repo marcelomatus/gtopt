@@ -334,6 +334,16 @@ auto SDDPSolver::forward_pass(SceneIndex scene, const SolverOptions& opts)
       if (elastic_clone.has_value()) {
         solved_li = &(*elastic_clone);
       } else {
+        // Save the infeasible LP to the log directory for debugging
+        if (!m_options_.log_directory.empty()) {
+          std::filesystem::create_directories(m_options_.log_directory);
+          const auto err_file =
+              (std::filesystem::path(m_options_.log_directory)
+               / std::format("error_scene_{}_phase_{}", scene, phase))
+                  .string();
+          li.write_lp(err_file);
+          SPDLOG_WARN("SDDP: saved infeasible LP to {}.lp", err_file);
+        }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format(
@@ -853,6 +863,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     double total_upper = 0.0;
     int scenes_solved = 0;
+    std::vector<bool> scene_feasible(num_scenes, true);
     for (Index si = 0; si < num_scenes; ++si) {
       auto fwd = fwd_futures[si].get();
       if (!fwd.has_value()) {
@@ -860,6 +871,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         SPDLOG_WARN(
             "SDDP forward: scene {} failed: {}", si, fwd.error().message);
         ir.feasibility_issue = true;
+        scene_feasible[si] = false;
         continue;
       }
       total_upper += *fwd;
@@ -874,15 +886,18 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
     ir.upper_bound = total_upper / static_cast<double>(scenes_solved);
 
-    // ── Lower bound = average of phase 0 objectives across scenes ──
+    // ── Lower bound = average of phase 0 objectives across feasible scenes ──
     double total_lower = 0.0;
     for (Index si = 0; si < num_scenes; ++si) {
+      if (!scene_feasible[si]) {
+        continue;
+      }
       total_lower += planning_lp()
                          .system(SceneIndex {si}, PhaseIndex {0})
                          .linear_interface()
                          .get_obj_value();
     }
-    ir.lower_bound = total_lower / static_cast<double>(num_scenes);
+    ir.lower_bound = total_lower / static_cast<double>(scenes_solved);
 
     // ── Backward pass for all scenes (parallel) ──
     // Collect cuts per scene per phase for sharing
@@ -896,6 +911,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     bwd_futures.reserve(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
+      if (!scene_feasible[si]) {
+        continue;  // Skip infeasible scenes in backward pass
+      }
       const auto scene = SceneIndex {si};
       auto fut = pool.submit([this, scene, &lp_opts]
                              { return backward_pass(scene, lp_opts); });
@@ -903,12 +921,11 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
 
     int total_cuts = 0;
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto bwd = bwd_futures[si].get();
+    for (size_t fi = 0; fi < bwd_futures.size(); ++fi) {
+      auto bwd = bwd_futures[fi].get();
       if (!bwd.has_value()) {
         // If a scene is infeasible in backward pass, keep solving others
-        SPDLOG_WARN(
-            "SDDP backward: scene {} failed: {}", si, bwd.error().message);
+        SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
         ir.feasibility_issue = true;
         continue;
       }
@@ -993,6 +1010,24 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
           SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
                       iter,
                       scene_result.error().message);
+        }
+        // Rename cut files for infeasible scenes with "error_" prefix
+        for (Index si = 0; si < num_scenes; ++si) {
+          if (!scene_feasible[si]) {
+            const auto scene_file = cut_dir / std::format("scene_{}.csv", si);
+            const auto error_file =
+                cut_dir / std::format("error_scene_{}.csv", si);
+            std::error_code ec;
+            if (std::filesystem::exists(scene_file, ec)) {
+              std::filesystem::rename(scene_file, error_file, ec);
+              if (!ec) {
+                SPDLOG_TRACE(
+                    "SDDP: renamed cut file for infeasible scene {} to {}",
+                    si,
+                    error_file.string());
+              }
+            }
+          }
         }
       }
     }

@@ -110,6 +110,10 @@ struct SDDPOptions
   /// gracefully after the current iteration (analogous to PLP's userstop).
   /// All accumulated cuts are saved before stopping.
   std::string sentinel_file {};
+
+  /// Directory for log and error LP files (default: "logs").
+  /// Error LP files for infeasible scenes are saved here.
+  std::string log_directory {"logs"};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
