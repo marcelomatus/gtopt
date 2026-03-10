@@ -389,7 +389,7 @@ public:
   /// Number of stored cuts (thread-safe)
   [[nodiscard]] int num_stored_cuts() const noexcept
   {
-    const std::lock_guard lock(m_cuts_mutex_);
+    const std::scoped_lock lock(m_cuts_mutex_);
     return static_cast<int>(m_stored_cuts_.size());
   }
 

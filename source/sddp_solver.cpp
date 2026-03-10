@@ -281,7 +281,7 @@ std::optional<LinearInterface> SDDPSolver::elastic_solve(
         scene,
         phase,
         cloned.get_obj_value());
-    return std::move(cloned);
+    return cloned;
   }
   return std::nullopt;
 }
@@ -425,7 +425,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
       // Per-scene storage: no lock needed (each scene writes its own vector)
       m_scene_cuts_[scene].push_back(stored);
       // Shared storage: needs lock for cut sharing and combined persistence
-      const std::lock_guard lock(m_cuts_mutex_);
+      const std::scoped_lock lock(m_cuts_mutex_);
       m_stored_cuts_.push_back(std::move(stored));
     }
 
@@ -886,7 +886,7 @@ void SDDPSolver::write_api_status(
 
   // ── Real-time workpool monitoring history ──
   {
-    const std::lock_guard lock(m_realtime_mutex_);
+    const std::scoped_lock lock(m_realtime_mutex_);
     json += "  \"realtime\": {\n";
 
     json += "    \"timestamps\": [";
@@ -1039,7 +1039,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   if (m_options_.enable_api && !status_file.empty()) {
     // Clear old history
     {
-      const std::lock_guard lock(m_realtime_mutex_);
+      const std::scoped_lock lock(m_realtime_mutex_);
       m_realtime_history_.clear();
     }
 
@@ -1056,7 +1056,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
             const auto stats = pool.get_statistics();
             {
-              const std::lock_guard lock(m_realtime_mutex_);
+              const std::scoped_lock lock(m_realtime_mutex_);
               m_realtime_history_.push_back(MonitorPoint {
                   .timestamp = elapsed,
                   .cpu_load = stats.current_cpu_load,
@@ -1158,8 +1158,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
 
     int total_cuts = 0;
-    for (size_t fi = 0; fi < bwd_futures.size(); ++fi) {
-      auto bwd = bwd_futures[fi].get();
+    for (auto& ibwd : bwd_futures) {
+      auto bwd = ibwd.get();
       if (!bwd.has_value()) {
         // If a scene is infeasible in backward pass, keep solving others
         SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
