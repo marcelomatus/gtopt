@@ -150,6 +150,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
     sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
     sddp_opts.elastic_filter_mode =
         parse_elastic_filter_mode(options.sddp_elastic_mode());
+    sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
     sddp_opts.alpha_min = options.sddp_alpha_min();
     sddp_opts.alpha_max = options.sddp_alpha_max();
 
