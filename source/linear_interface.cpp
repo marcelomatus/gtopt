@@ -87,6 +87,22 @@ LinearInterface::LinearInterface(const FlatLinearProblem& flat_lp,
   load_flat(flat_lp);
 }
 
+LinearInterface LinearInterface::clone() const
+{
+  // OsiSolverInterface::clone(copyData=true) deep-copies the full LP
+  // state including variables, constraints, bounds, objective, and basis.
+  // The clone returns OsiSolverInterface* (virtual base), so we need
+  // dynamic_cast to recover the concrete solver type.
+  auto* raw = solver->clone(true);
+  solver_ptr_t cloned_solver(dynamic_cast<SolverInterface*>(raw));
+  if (!cloned_solver) {
+    // Fallback: take ownership via base class pointer (has virtual dtor)
+    delete raw;
+    cloned_solver = std::make_shared<SolverInterface>();
+  }
+  return LinearInterface(std::move(cloned_solver), log_file);
+}
+
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 {
   solver->setStrParam(OsiProbName, flat_lp.name);
