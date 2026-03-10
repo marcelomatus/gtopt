@@ -372,6 +372,7 @@ A hydro turbine linking a waterway to a generator.
 | `drain`           | boolean             | —          | No       | If true, turbine can spill water without generating |
 | `conversion_rate` | number\|array\|string| MW·s/m³   | No       | Water-to-power conversion factor |
 | `capacity`        | number\|array\|string| MW        | No       | Maximum turbine power output |
+| `main_reservoir`  | integer\|string     | —          | No       | Reservoir whose volume drives the efficiency curve |
 
 ### 3.11 Flow (Inflow)
 
@@ -400,7 +401,69 @@ Linear seepage model from a waterway to an adjacent reservoir.
 | `slope`     | number  | p.u.       | No       | Seepage rate proportional to waterway flow |
 | `constant`  | number  | m³/s       | No       | Constant seepage rate independent of flow |
 
-### 3.13 Generator Profile
+### 3.13 Reservoir Efficiency
+
+Piecewise-linear turbine efficiency as a function of reservoir volume
+(hydraulic head).  Models the PLP "rendimiento" concept: the turbine
+conversion rate varies with the current water level in the reservoir.
+
+When the SDDP solver runs, it updates the turbine's conversion-rate LP
+coefficient at each forward-pass iteration using the current reservoir
+volume.  For the first iteration, the reservoir's `eini` value is used.
+If the LP solver does not support in-place coefficient modification
+(`supports_set_coeff()`), the static `conversion_rate` from the Turbine
+element is used unchanged.
+
+| Field                        | Type    | Units          | Required | Description |
+|------------------------------|---------|----------------|----------|-------------|
+| `uid`                        | integer | —              | Yes      | Unique identifier |
+| `name`                       | string  | —              | Yes      | Efficiency element name |
+| `active`                     | boolean | —              | No       | Whether the element is active |
+| `turbine`                    | integer\|string | —      | Yes      | Associated turbine UID or name |
+| `reservoir`                  | integer\|string | —      | Yes      | Associated reservoir UID or name |
+| `mean_efficiency`            | number  | MW·s/m³        | No       | Fallback efficiency (default: 1.0) |
+| `segments`                   | array   | —              | No       | Piecewise-linear concave segments |
+| `sddp_efficiency_update_skip`| integer | —              | No       | SDDP iterations to skip between updates |
+
+Each segment in the `segments` array has the following fields:
+
+| Field      | Type   | Units           | Description |
+|------------|--------|-----------------|-------------|
+| `volume`   | number | dam³            | Volume breakpoint |
+| `slope`    | number | efficiency/dam³ | Slope at this breakpoint |
+| `constant` | number | MW·s/m³         | Intercept (efficiency) at this breakpoint |
+
+The efficiency is computed as the **minimum** over all segments:
+
+```
+efficiency(V) = min_i { constant_i + slope_i × (V − volume_i) }
+```
+
+Segments should have slopes in **decreasing** order so the function forms
+a concave envelope.  The result is clamped to zero (efficiency cannot be
+negative).
+
+**Example:**
+
+```json
+{
+  "reservoir_efficiency_array": [
+    {
+      "uid": 1,
+      "name": "eff_colbun",
+      "turbine": "COLBUN",
+      "reservoir": "COLBUN",
+      "mean_efficiency": 1.53,
+      "segments": [
+        { "volume": 0.0, "slope": 0.0002294, "constant": 1.2558 },
+        { "volume": 500.0, "slope": 0.0001, "constant": 1.53 }
+      ]
+    }
+  ]
+}
+```
+
+### 3.14 Generator Profile
 
 A time-varying capacity-factor profile for a generator.
 
@@ -413,7 +476,7 @@ A time-varying capacity-factor profile for a generator.
 | `profile`   | number\|array\|string| p.u. | Yes      | Capacity-factor profile (0–1) |
 | `scost`     | number\|array\|string| $/MWh| No       | Short-run generation cost override |
 
-### 3.14 Demand Profile
+### 3.15 Demand Profile
 
 A time-varying load-shape profile for a demand element.
 
@@ -426,7 +489,7 @@ A time-varying load-shape profile for a demand element.
 | `profile`| number\|array\|string| p.u. | Yes      | Load-scaling profile (0–1) |
 | `scost`  | number\|array\|string| $/MWh| No       | Short-run load-shedding cost override |
 
-### 3.15 Reserve Zone
+### 3.16 Reserve Zone
 
 A spinning-reserve requirement zone.
 
@@ -440,7 +503,7 @@ A spinning-reserve requirement zone.
 | `urcost` | number\|array\|string| $/MW  | No       | Up-reserve shortage penalty |
 | `drcost` | number\|array\|string| $/MW  | No       | Down-reserve shortage penalty |
 
-### 3.16 Reserve Provision
+### 3.17 Reserve Provision
 
 A generator's contribution to reserve zones.
 

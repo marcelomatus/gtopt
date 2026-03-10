@@ -36,6 +36,7 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/reservoir.hpp>
+#include <gtopt/reservoir_efficiency.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
@@ -86,6 +87,8 @@ struct System
   Array<Filtration>
       filtration_array {};  ///< Waterway → reservoir seepage links
   Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
+  Array<ReservoirEfficiency>
+      reservoir_efficiency_array {};  ///< Volume-dependent turbine efficiency
 
   /**
    * @brief Merges another system into this one
