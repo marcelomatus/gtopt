@@ -557,7 +557,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 /// - 1 bus, single-bus mode
 /// - 1 thermal generator (200 MW, $80/MWh)
 /// - 1 hydro generator (50 MW, $5/MWh)
-/// - 1 demand (80 MW, 3-hour blocks → varying daily profile)
+/// - 1 demand (100 MW, 3-hour blocks → varying daily profile)
 /// - 1 reservoir (500 dam³ capacity, starts at 300 dam³)
 /// - Natural inflow: 8 dam³/h
 /// - Hydro topology: 2 junctions, 1 waterway, 1 turbine
@@ -1213,67 +1213,73 @@ auto make_12phase_yearly_hydro_planning() -> Planning
 }
 
 }  // namespace
-auto planning_mono = make_5phase_reservoir_planning();
-PlanningLP plp_mono(std::move(planning_mono));
 
-auto mono_result = plp_mono.resolve();
-REQUIRE(mono_result.has_value());
-CHECK(*mono_result == 1);
+TEST_CASE(
+    "Integration: monolithic vs SDDP - reservoir "  // NOLINT
+    "(5 phases × 8 blocks)")
+{
+  // ─── 1. Solve with the monolithic solver ──
+  auto planning_mono = make_5phase_reservoir_planning();
+  PlanningLP plp_mono(std::move(planning_mono));
 
-const auto mono_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {0})
-                          .linear_interface()
-                          .get_obj_value();
-SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
+  auto mono_result = plp_mono.resolve();
+  REQUIRE(mono_result.has_value());
+  CHECK(*mono_result == 1);
 
-// Compute total monolithic cost across all phases
-double mono_total = 0.0;
-for (int p = 0; p < 5; ++p) {
-  const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
-                          .linear_interface()
-                          .get_obj_value();
-  SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
-  mono_total += ph_obj;
-}
-SPDLOG_INFO("Reservoir mono: total obj = {:.4f}", mono_total);
-CHECK(mono_total > 0.0);
+  const auto mono_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {0})
+                            .linear_interface()
+                            .get_obj_value();
+  SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
 
-// ─── 2. Solve the same problem with SDDP ──
-auto planning_sddp = make_5phase_reservoir_planning();
-PlanningLP plp_sddp(std::move(planning_sddp));
+  // Compute total monolithic cost across all phases
+  double mono_total = 0.0;
+  for (int p = 0; p < 5; ++p) {
+    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+                            .linear_interface()
+                            .get_obj_value();
+    SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
+    mono_total += ph_obj;
+  }
+  SPDLOG_INFO("Reservoir mono: total obj = {:.4f}", mono_total);
+  CHECK(mono_total > 0.0);
 
-SDDPOptions sddp_opts;
-sddp_opts.max_iterations = 50;
-sddp_opts.convergence_tol = 1e-4;
+  // ─── 2. Solve the same problem with SDDP ──
+  auto planning_sddp = make_5phase_reservoir_planning();
+  PlanningLP plp_sddp(std::move(planning_sddp));
 
-SDDPSolver sddp(plp_sddp, sddp_opts);
-auto sddp_results = sddp.solve();
-REQUIRE(sddp_results.has_value());
-CHECK_FALSE(sddp_results->empty());
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 50;
+  sddp_opts.convergence_tol = 1e-4;
 
-const auto& last = sddp_results->back();
-SPDLOG_INFO("Reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-            last.iteration,
-            last.lower_bound,
-            last.upper_bound,
-            last.gap);
+  SDDPSolver sddp(plp_sddp, sddp_opts);
+  auto sddp_results = sddp.solve();
+  REQUIRE(sddp_results.has_value());
+  CHECK_FALSE(sddp_results->empty());
 
-// SDDP should converge
-CHECK(last.converged);
+  const auto& last = sddp_results->back();
+  SPDLOG_INFO("Reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
+              last.iteration,
+              last.lower_bound,
+              last.upper_bound,
+              last.gap);
 
-// ─── 3. Compare objectives ──
-// The SDDP upper bound (sum of actual phase costs) should be close to
-// the monolithic objective.  Allow 5% tolerance due to cut approximation.
-const auto sddp_total = last.upper_bound;
-const auto relative_diff =
-    std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
-SPDLOG_INFO(
-    "Reservoir comparison: mono={:.4f} sddp={:.4f} "
-    "relative_diff={:.6f}",
-    mono_total,
-    sddp_total,
-    relative_diff);
+  // SDDP should converge
+  CHECK(last.converged);
 
-CHECK(relative_diff < 0.05);
+  // ─── 3. Compare objectives ──
+  // The SDDP upper bound (sum of actual phase costs) should be close to
+  // the monolithic objective.  Allow 5% tolerance due to cut approximation.
+  const auto sddp_total = last.upper_bound;
+  const auto relative_diff =
+      std::abs(sddp_total - mono_total) / std::max(1.0, std::abs(mono_total));
+  SPDLOG_INFO(
+      "Reservoir comparison: mono={:.4f} sddp={:.4f} "
+      "relative_diff={:.6f}",
+      mono_total,
+      sddp_total,
+      relative_diff);
+
+  CHECK(relative_diff < 0.05);
 }
 
 TEST_CASE(
