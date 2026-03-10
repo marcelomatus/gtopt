@@ -52,6 +52,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <expected>
 #include <functional>
 #include <mutex>
@@ -127,6 +128,21 @@ struct SDDPOptions
   /// Directory for log and error LP files (default: "logs").
   /// Error LP files for infeasible scenes are saved here.
   std::string log_directory {"logs"};
+
+  /// Enable the monitoring API: write a JSON status file after each iteration
+  /// and periodically update real-time workpool statistics.  Consumers
+  /// (e.g. sddp_monitor.py) can poll this file to display live charts.
+  /// Default: true.
+  bool enable_api {true};
+
+  /// Path for the JSON status file.  If empty, the solver writes to
+  /// "<output_directory>/sddp_status.json" (derived at solve time from the
+  /// PlanningLP options).
+  std::string api_status_file {};
+
+  /// Interval at which the background monitoring thread refreshes real-time
+  /// workpool statistics (CPU load, active workers) in the status file.
+  std::chrono::milliseconds api_update_interval {500};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -141,6 +157,11 @@ struct SDDPIterationResult
   bool converged {};  ///< True if gap < convergence tolerance
   int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
+
+  /// Per-scene upper bounds (forward-pass costs).  Size = num_scenes.
+  std::vector<double> scene_upper_bounds {};
+  /// Per-scene lower bounds (phase-0 objective values).  Size = num_scenes.
+  std::vector<double> scene_lower_bounds {};
 };
 
 // ─── State variable linkage ─────────────────────────────────────────────────
@@ -467,6 +488,28 @@ private:
   std::atomic<double> m_current_lb_ {0.0};
   std::atomic<double> m_current_ub_ {0.0};
   std::atomic<bool> m_converged_ {false};
+
+  // ── Monitoring API state ──
+
+  /// A single real-time sample point (CPU load, active workers, timestamp).
+  struct MonitorPoint
+  {
+    double timestamp {};  ///< Seconds since solve() started
+    double cpu_load {};  ///< CPU load percentage [0–100]
+    int active_workers {};  ///< Number of active worker threads
+  };
+
+  mutable std::mutex m_realtime_mutex_;  ///< Protects m_realtime_history_
+  std::vector<MonitorPoint> m_realtime_history_;  ///< Sampled workpool stats
+
+  /// Write a JSON status file for the monitoring API.
+  /// Called after each iteration (and from the monitoring background thread).
+  /// @param status_file  Path to write the JSON file.
+  /// @param results      Iteration results accumulated so far.
+  /// @param elapsed_s    Seconds elapsed since solve() started.
+  void write_api_status(const std::string& status_file,
+                        const std::vector<SDDPIterationResult>& results,
+                        double elapsed_s) const;
 
   /// Generate an LP name only when use_lp_names is enabled.
   template<typename... Args>
