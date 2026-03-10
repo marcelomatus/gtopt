@@ -23,9 +23,9 @@
  *       "sddp_solver_type": "sddp",
  *       "sddp_cut_sharing_mode": "expected",
  *       "sddp_cut_directory": "cuts",
- *       "sddp_log_directory": "logs",
  *       "sddp_api_enabled": true,
- *       "sddp_efficiency_update_skip": 0
+ *       "sddp_efficiency_update_skip": 0,
+ *       "sddp_elastic_mode": "cut"
  *     }
  *   }
  * }
@@ -84,6 +84,8 @@ struct SddpOptions
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sddp_sentinel_file {};
+  /** @brief Elastic filter mode: `"cut"` (default) or `"backpropagate"` */
+  OptName sddp_elastic_mode {};
 
   void merge(SddpOptions&& opts)
   {
@@ -99,6 +101,7 @@ struct SddpOptions
     merge_opt(sddp_alpha_max, opts.sddp_alpha_max);
     merge_opt(sddp_cuts_input_file, std::move(opts.sddp_cuts_input_file));
     merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
+    merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
 
     auto _ = std::move(opts);
   }
@@ -180,16 +183,6 @@ struct Options
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
   SddpOptions sddp_options {};
 
-  // ── SDDP algorithm tuning ─────────────────────────────────────────────────
-  /** @brief Maximum SDDP forward/backward iterations (default: 100) */
-  OptInt sddp_max_iterations {};
-  /** @brief SDDP relative convergence tolerance (default: 1e-4) */
-  OptReal sddp_convergence_tol {};
-  /** @brief Penalty coefficient for elastic slack variables (default: 1e6) */
-  OptReal sddp_elastic_penalty {};
-  /** @brief Elastic filter mode: `"cut"` (default) or `"backpropagate"` */
-  OptName sddp_elastic_mode {};
-
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -225,12 +218,6 @@ struct Options
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));
-
-    // Merge SDDP algorithm tuning
-    merge_opt(sddp_max_iterations, opts.sddp_max_iterations);
-    merge_opt(sddp_convergence_tol, opts.sddp_convergence_tol);
-    merge_opt(sddp_elastic_penalty, opts.sddp_elastic_penalty);
-    merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
 
     auto _ = std::move(opts);
   }
