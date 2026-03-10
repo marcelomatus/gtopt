@@ -359,6 +359,18 @@ public:
   [[nodiscard]] auto save_cuts(const std::string& filepath) const
       -> std::expected<void, Error>;
 
+  /// Save cuts for a single scene to a per-scene file.
+  /// Uses scene-specific storage, avoiding lock contention when called
+  /// in parallel for different scenes.
+  [[nodiscard]] auto save_scene_cuts(SceneIndex scene,
+                                     const std::string& directory) const
+      -> std::expected<void, Error>;
+
+  /// Save all scenes' cuts to per-scene files in the given directory.
+  /// Each scene gets its own file: `<directory>/scene_<N>.csv`.
+  [[nodiscard]] auto save_all_scene_cuts(const std::string& directory) const
+      -> std::expected<void, Error>;
+
   /// Load cuts from a CSV file and add to all scenes' phase LPs.
   /// Cuts are broadcast to all scenes regardless of originating scene,
   /// since loaded cuts serve as warm-start approximations for the entire
@@ -413,6 +425,12 @@ private:
   scene_phase_states_t m_scene_phase_states_;
   std::vector<StoredCut> m_stored_cuts_;
   mutable std::mutex m_cuts_mutex_;  ///< Protects m_stored_cuts_
+
+  /// Per-scene cut storage — each scene writes its own vector without
+  /// needing the shared m_cuts_mutex_, preventing lock contention during
+  /// parallel backward passes.
+  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_;
+
   bool m_initialized_ {false};
 
   // ── Stop / callback machinery ──
