@@ -410,6 +410,9 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
       for (const auto& [col, coeff] : cut.cmap) {
         stored.coefficients.emplace_back(static_cast<int>(col), coeff);
       }
+      // Per-scene storage: no lock needed (each scene writes its own vector)
+      m_scene_cuts_[scene].push_back(stored);
+      // Shared storage: needs lock for cut sharing and combined persistence
       const std::lock_guard lock(m_cuts_mutex_);
       m_stored_cuts_.push_back(std::move(stored));
     }
@@ -606,6 +609,68 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
   }
 }
 
+auto SDDPSolver::save_scene_cuts(SceneIndex scene,
+                                 const std::string& directory) const
+    -> std::expected<void, Error>
+{
+  try {
+    std::filesystem::create_directories(directory);
+
+    const auto filepath =
+        (std::filesystem::path(directory)
+         / std::format("scene_{}.csv", static_cast<int>(scene)))
+            .string();
+
+    const auto& cuts = m_scene_cuts_[scene];
+
+    std::ofstream ofs(filepath);
+    if (!ofs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format("Cannot open scene cut file for writing: {}",
+                                 filepath),
+      });
+    }
+
+    ofs << "phase,scene,name,rhs,coefficients\n";
+    for (const auto& cut : cuts) {
+      ofs << cut.phase << "," << cut.scene << "," << cut.name << "," << cut.rhs;
+      for (const auto& [col, coeff] : cut.coefficients) {
+        ofs << "," << col << ":" << coeff;
+      }
+      ofs << "\n";
+    }
+
+    SPDLOG_TRACE(
+        "SDDP: saved {} cuts for scene {} to {}", cuts.size(), scene, filepath);
+    return {};
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("Error saving scene {} cuts to {}: {}",
+                               static_cast<int>(scene),
+                               directory,
+                               e.what()),
+    });
+  }
+}
+
+auto SDDPSolver::save_all_scene_cuts(const std::string& directory) const
+    -> std::expected<void, Error>
+{
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  for (Index si = 0; si < num_scenes; ++si) {
+    auto result = save_scene_cuts(SceneIndex {si}, directory);
+    if (!result.has_value()) {
+      return result;
+    }
+  }
+  return {};
+}
+
 auto SDDPSolver::load_cuts(const std::string& filepath)
     -> std::expected<int, Error>
 {
@@ -720,6 +785,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
   if (!m_initialized_) {
     m_scene_phase_states_.resize(num_scenes);
+    m_scene_cuts_.resize(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
@@ -911,11 +977,23 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Save cuts incrementally after each iteration ──
     if (!m_options_.cuts_output_file.empty()) {
+      // Save combined cuts to the main file
       auto save_result = save_cuts(m_options_.cuts_output_file);
       if (!save_result.has_value()) {
         SPDLOG_WARN("SDDP: could not save cuts at iter {}: {}",
                     iter,
                     save_result.error().message);
+      }
+      // Also save per-scene files to prevent lock contention on re-load
+      const auto cut_dir =
+          std::filesystem::path(m_options_.cuts_output_file).parent_path();
+      if (!cut_dir.empty()) {
+        auto scene_result = save_all_scene_cuts(cut_dir.string());
+        if (!scene_result.has_value()) {
+          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                      iter,
+                      scene_result.error().message);
+        }
       }
     }
 
