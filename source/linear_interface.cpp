@@ -2,6 +2,7 @@
 #include <expected>
 #include <memory>
 
+#include <coin/CoinPackedMatrix.hpp>
 #include <coin/CoinPackedVector.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -200,21 +201,54 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       row.name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
-#ifdef OSI_EXTENDED
 void LinearInterface::set_coeff(const RowIndex row,
                                 const ColIndex column,
                                 const double value)
 {
-  solver->setCoefficient(
-      static_cast<int>(row), static_cast<int>(column), value);
+  const auto r = static_cast<int>(row);
+  const auto c = static_cast<int>(column);
+
+#ifdef COIN_USE_CLP
+  // OsiClpSolverInterface provides modifyCoefficient() directly
+  solver->modifyCoefficient(r, c, value, false);
+#elif defined(COIN_USE_CBC)
+  // OsiCbcSolverInterface wraps a CLP solver underneath
+  auto* real_solver = solver->getRealSolverPtr();
+  auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
+  if (clp_solver != nullptr) {
+    clp_solver->modifyCoefficient(r, c, value, false);
+  } else {
+    SPDLOG_WARN(
+        "set_coeff: underlying solver does not support "
+        "modifyCoefficient");
+  }
+#elif defined(COIN_USE_CPX)
+  // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef
+  solver->setCoefficient(r, c, value);
+#else
+  SPDLOG_WARN("set_coeff: not implemented for this solver backend");
+#endif
 }
 
-double LinearInterface::get_coeff(RowIndex row, size_t column) const
+double LinearInterface::get_coeff(const RowIndex row,
+                                  const ColIndex column) const
 {
-  return solver->getCoefficient(static_cast<int>(row),
+  const auto* matrix = solver->getMatrixByCol();
+  if (matrix == nullptr) {
+    return 0.0;
+  }
+  return matrix->getCoefficient(static_cast<int>(row),
                                 static_cast<int>(column));
 }
+
+bool LinearInterface::supports_set_coeff() const noexcept
+{
+#if defined(COIN_USE_CLP) || defined(COIN_USE_CBC) || defined(COIN_USE_CPX)
+  return true;
+#else
+  return false;
 #endif
+}
 
 void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 {

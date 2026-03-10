@@ -269,6 +269,9 @@ public:
   static constexpr auto default_log_directory = "logs";
   /** @brief Default for SDDP monitoring API (enabled by default) */
   static constexpr Bool default_sddp_api_enabled = true;
+  /** @brief Default iterations to skip between efficiency updates (0 = every
+   * iteration, matching PLP behaviour) */
+  static constexpr Int default_efficiency_update_skip = 0;
 
   /**
    * @brief Gets the solver type, using default if not set
@@ -313,6 +316,16 @@ public:
   [[nodiscard]] constexpr auto sddp_api_enabled() const
   {
     return m_options_.sddp_api_enabled.value_or(default_sddp_api_enabled);
+  }
+
+  /**
+   * @brief Gets the efficiency update skip count, using default if not set
+   * @return Number of SDDP iterations to skip between efficiency updates
+   */
+  [[nodiscard]] constexpr auto efficiency_update_skip() const
+  {
+    return m_options_.efficiency_update_skip.value_or(
+        default_efficiency_update_skip);
   }
 
 private:

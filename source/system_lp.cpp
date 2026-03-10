@@ -187,6 +187,9 @@ void create_collections(const auto& system_context,
       make_collection<FiltrationLP>(ic, sys.filtration_array);
   std::get<Collection<TurbineLP>>(colls) =
       make_collection<TurbineLP>(ic, sys.turbine_array);
+  std::get<Collection<ReservoirEfficiencyLP>>(colls) =
+      make_collection<ReservoirEfficiencyLP>(ic,
+                                             sys.reservoir_efficiency_array);
 
 #ifdef GTOPT_EXTRA
   std::get<Collection<EmissionZoneLP>>(colls) =

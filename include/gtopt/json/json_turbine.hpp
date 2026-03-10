@@ -22,7 +22,8 @@ struct json_data_contract<Turbine>
       json_variant_null<"conversion_rate",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
-      json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"main_reservoir", OptSingleId, jvtl_SingleId>>;
 
   constexpr static auto to_json_data(Turbine const& turbine)
   {
@@ -33,7 +34,8 @@ struct json_data_contract<Turbine>
                                  turbine.generator,
                                  turbine.drain,
                                  turbine.conversion_rate,
-                                 turbine.capacity);
+                                 turbine.capacity,
+                                 turbine.main_reservoir);
   }
 };
 }  // namespace daw::json

@@ -130,10 +130,38 @@ public:
   void set_row_low(RowIndex index, double value);
   void set_row_upp(RowIndex index, double value);
 
-#ifdef OSI_EXTENDED
-  double get_coeff(RowIndex row, ColIndex column) const;
+  /**
+   * @brief Gets a coefficient value from the constraint matrix
+   * @param row Row index of the coefficient
+   * @param column Column index of the coefficient
+   * @return The coefficient value, or 0.0 if the element does not exist
+   */
+  [[nodiscard]] double get_coeff(RowIndex row, ColIndex column) const;
+
+  /**
+   * @brief Sets (modifies) a coefficient in the constraint matrix
+   *
+   * Uses solver-specific methods to update the matrix element in place:
+   * - CLP:  `OsiClpSolverInterface::modifyCoefficient()`
+   * - CBC:  delegates to the underlying CLP solver
+   * - CPLEX: `CPXchgcoef()` via `OsiCpxSolverInterface::setCoefficient()`
+   *
+   * @param row Row index of the coefficient
+   * @param column Column index of the coefficient
+   * @param value New coefficient value
+   */
   void set_coeff(RowIndex row, ColIndex column, double value);
-#endif
+
+  /**
+   * @brief Checks whether the solver supports in-place coefficient updates
+   *
+   * Returns true for CLP, CBC, and CPLEX solvers that provide
+   * `modifyCoefficient()` or equivalent.  When false, the caller should
+   * fall back to a static coefficient (e.g. mean efficiency).
+   *
+   * @return true if set_coeff() is functional
+   */
+  [[nodiscard]] bool supports_set_coeff() const noexcept;
 
   void set_obj_coeff(ColIndex index, double value);
   [[nodiscard]] constexpr auto get_obj_coeff() const

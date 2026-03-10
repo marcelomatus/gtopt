@@ -112,6 +112,13 @@ struct Options
    * iteration; default: true) */
   OptBool sddp_api_enabled {};
 
+  // ── Reservoir efficiency settings ──────────────────────────────────────────
+  /** @brief Number of SDDP iterations to skip between efficiency coefficient
+   * updates.  0 = update every iteration (PLP default), 1 = skip one, etc.
+   * When the solver does not support in-place coefficient modification, the
+   * mean efficiency is used as a static fallback. */
+  OptInt efficiency_update_skip {};
+
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -148,6 +155,7 @@ struct Options
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
+    merge_opt(efficiency_update_skip, opts.efficiency_update_skip);
 
     auto _ = std::move(opts);
   }
