@@ -185,6 +185,64 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts,
   return result;
 }
 
+auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
+                                  const std::vector<double>& weights,
+                                  std::string_view name) -> SparseRow
+{
+  if (cuts.empty()) {
+    return {};
+  }
+  if (cuts.size() != weights.size()) {
+    SPDLOG_WARN(
+        "weighted_average_benders_cut: cuts.size()={} != weights.size()={}, "
+        "returning empty cut",
+        cuts.size(),
+        weights.size());
+    return {};
+  }
+
+  // Compute the total weight for normalisation
+  double total_weight = 0.0;
+  for (const double w : weights) {
+    total_weight += w;
+  }
+
+  if (total_weight <= 0.0) {
+    return {};
+  }
+
+  // Single-cut shortcut (avoid unnecessary work)
+  if (cuts.size() == 1) {
+    auto result = cuts.front();
+    result.name = std::string(name);
+    return result;
+  }
+
+  flat_map<ColIndex, double> avg_coeffs;
+  double avg_rhs = 0.0;
+
+  for (std::size_t i = 0; i < cuts.size(); ++i) {
+    const auto& cut = cuts[i];
+    const double w = weights[i] / total_weight;
+    avg_rhs += w * cut.lowb;
+    for (const auto& [col, coeff] : cut.cmap) {
+      avg_coeffs[col] += w * coeff;
+    }
+  }
+
+  auto result = SparseRow {
+      .name = std::string(name),
+      .lowb = avg_rhs,
+      .uppb = LinearProblem::DblMax,
+  };
+
+  for (const auto& [col, coeff] : avg_coeffs) {
+    result[col] = coeff;
+  }
+
+  return result;
+}
+
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
 SDDPSolver::SDDPSolver(PlanningLP& planning_lp, SDDPOptions opts) noexcept
@@ -331,47 +389,8 @@ void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
 {
   auto& sys = planning_lp().system(scene, phase);
 
-  // Build a volume provider: for the first iteration (or phase 0 at any
-  // iteration), use the reservoir's static eini value.  For subsequent
-  // iterations at phase > 0, use the previous phase's solved efin column
-  // value which has been propagated into eini via state variable coupling.
-  auto get_reservoir_volume =
-      [&sys, phase, iteration](const ReservoirLPSId& rsid) -> Real
-  {
-    const auto& rsv = sys.element<ReservoirLP>(rsid);
-
-    if (iteration <= 1) {
-      // First iteration: use the reservoir's initial volume (vini)
-      return rsv.reservoir().eini.value_or(0.0);
-    }
-
-    // Subsequent iterations: read eini column solution from the current
-    // phase's LP (the state variable propagation has already fixed it to
-    // the previous phase's efin value).  For phase 0, eini is the static
-    // boundary condition, so reservoir().eini is correct too.
-    if (phase == PhaseIndex {0}) {
-      return rsv.reservoir().eini.value_or(0.0);
-    }
-
-    // For phases > 0 in iterations > 1, the eini column is fixed to the
-    // previous phase's efin.  Read the value from the linear interface.
-    const auto& li = sys.linear_interface();
-    const auto& scenarios = sys.scene().scenarios();
-    if (!scenarios.empty()) {
-      const auto& first_scenario = scenarios.front();
-      const auto& stages = sys.phase().stages();
-      if (!stages.empty()) {
-        const auto eini_col = rsv.eini_col_at(first_scenario, stages.front());
-        // eini is fixed as a bound — read col_low (= col_upp = trial value)
-        return li.get_col_low()[eini_col];
-      }
-    }
-
-    return rsv.reservoir().eini.value_or(0.0);
-  };
-
-  const auto updated = update_lp_coefficients(
-      sys, planning_lp().options(), get_reservoir_volume, iteration);
+  const auto updated =
+      update_lp_coefficients(sys, planning_lp().options(), iteration, phase);
 
   if (updated > 0) {
     SPDLOG_TRACE(
@@ -624,10 +643,12 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                 // state variable whose elastic slack was activated.
                 // The cut implements the bound constraint as a linear
                 // row using the non-zero slack variable solution value.
-                // Auto-switch to multi-cut when the forward pass has
-                // encountered infeasibility here more than the threshold.
+                // Auto-switch to multi-cut when:
+                //   threshold == 0 (always), OR
+                //   threshold > 0 and counter > threshold.
                 const bool use_multi_cut = (m_options_.elastic_filter_mode
                                             == ElasticFilterMode::MultiCut)
+                    || (m_options_.multi_cut_threshold == 0)
                     || (m_options_.multi_cut_threshold > 0
                         && m_infeasibility_counter_[scene][back_phase]
                             > m_options_.multi_cut_threshold);
@@ -753,19 +774,62 @@ void SDDPSolver::share_cuts_for_phase(
   }
 
   if (m_options_.cut_sharing == CutSharingMode::Expected) {
-    // Collect all cuts from all scenes for this phase
-    std::vector<SparseRow> all_cuts;
-    for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
-      all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
+    // Get scenario probability for each scene (sum of all scenario
+    // probability_factors in that scene). Scenes with no cuts (infeasible)
+    // automatically get weight 0. The weights are then normalised to sum to 1.
+    const auto& scenes = planning_lp().simulation().scenes();
+    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
+    double total_prob = 0.0;
+
+    for (Index si = 0; si < num_scenes; ++si) {
+      if (scene_cuts[SceneIndex {si}].empty()) {
+        // Infeasible or no cuts generated — skip this scene
+        continue;
+      }
+      if (si < static_cast<Index>(scenes.size())) {
+        for (const auto& sc : scenes[si].scenarios()) {
+          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
+        }
+      }
+      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
+        // No positive probability weight — fall back to equal weight
+        scene_probs[static_cast<std::size_t>(si)] = 1.0;
+      }
+      total_prob += scene_probs[static_cast<std::size_t>(si)];
     }
 
-    if (all_cuts.empty()) {
+    if (total_prob <= 0.0) {
       return;
     }
 
-    // Compute average cut
-    auto avg = average_benders_cut(
-        all_cuts, sddp_label("sddp", "avg", "cut", "ph", phase));
+    // For each scene with positive weight, compute the average of its cuts,
+    // then compute the probability-weighted average across scenes.
+    std::vector<SparseRow> scene_avg_cuts;
+    std::vector<double> weights;
+    scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
+    weights.reserve(static_cast<std::size_t>(num_scenes));
+
+    for (Index si = 0; si < num_scenes; ++si) {
+      const auto& cuts = scene_cuts[SceneIndex {si}];
+      if (cuts.empty()) {
+        continue;
+      }
+      const double w = scene_probs[static_cast<std::size_t>(si)];
+      if (w <= 0.0) {
+        continue;
+      }
+      scene_avg_cuts.push_back(
+          average_benders_cut(cuts, sddp_label("sddp", "tmp", "ph", phase)));
+      weights.push_back(w);
+    }
+
+    if (scene_avg_cuts.empty()) {
+      return;
+    }
+
+    // Compute probability-weighted average cut
+    const auto avg = weighted_average_benders_cut(
+        scene_avg_cuts, weights, sddp_label("sddp", "avg", "cut", "ph", phase));
 
     // Add the average cut to all scenes
     for (Index si = 0; si < num_scenes; ++si) {
@@ -775,11 +839,11 @@ void SDDPSolver::share_cuts_for_phase(
     }
 
     SPDLOG_TRACE(
-        "SDDP sharing: added average cut to phase {} "
-        "({} source cuts from {} scenes)",
+        "SDDP sharing: added probability-weighted average cut to phase {} "
+        "({} scenes with cuts, total_prob={:.4f})",
         phase,
-        all_cuts.size(),
-        num_scenes);
+        scene_avg_cuts.size(),
+        total_prob);
 
   } else if (m_options_.cut_sharing == CutSharingMode::Max) {
     // Add ALL cuts from ALL scenes to ALL scenes for this phase
@@ -1272,7 +1336,6 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       fwd_futures.push_back(std::move(fut.value()));
     }
 
-    double total_upper = 0.0;
     int scenes_solved = 0;
     std::vector<uint8_t> scene_feasible(num_scenes, 1);
     ir.scene_upper_bounds.resize(num_scenes, 0.0);
@@ -1287,7 +1350,6 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         continue;
       }
       ir.scene_upper_bounds[si] = *fwd;
-      total_upper += *fwd;
       ++scenes_solved;
     }
 
@@ -1298,10 +1360,54 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
           .message = "SDDP: all scenes infeasible in forward pass",
       });
     }
-    ir.upper_bound = total_upper / static_cast<double>(scenes_solved);
 
-    // ── Lower bound = average of phase 0 objectives across feasible scenes ──
-    double total_lower = 0.0;
+    // ── Compute scene probability weights for expectation ──
+    // Each scene's probability = sum of its scenario probability_factors.
+    // Infeasible scenes are excluded (weight = 0).
+    // Weights are normalised to sum to 1 across feasible scenes.
+    const auto& scenes = planning_lp().simulation().scenes();
+    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
+    double total_scene_prob = 0.0;
+    for (Index si = 0; si < num_scenes; ++si) {
+      if (scene_feasible[si] == 0u) {
+        continue;
+      }
+      if (si < static_cast<Index>(scenes.size())) {
+        for (const auto& sc : scenes[si].scenarios()) {
+          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
+        }
+      }
+      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
+        // No explicit probability — use equal weight
+        scene_probs[static_cast<std::size_t>(si)] = 1.0;
+      }
+      total_scene_prob += scene_probs[static_cast<std::size_t>(si)];
+    }
+    // Normalise
+    if (total_scene_prob > 0.0) {
+      for (auto& p : scene_probs) {
+        p /= total_scene_prob;
+      }
+    } else {
+      // Fall back to equal weights if no probability information
+      const double equal_w = 1.0 / static_cast<double>(scenes_solved);
+      for (Index si = 0; si < num_scenes; ++si) {
+        if (scene_feasible[si] != 0u) {
+          scene_probs[static_cast<std::size_t>(si)] = equal_w;
+        }
+      }
+    }
+
+    // ── Upper bound = probability-weighted expected forward cost ──
+    double weighted_upper = 0.0;
+    for (Index si = 0; si < num_scenes; ++si) {
+      weighted_upper +=
+          scene_probs[static_cast<std::size_t>(si)] * ir.scene_upper_bounds[si];
+    }
+    ir.upper_bound = weighted_upper;
+
+    // ── Lower bound = probability-weighted phase-0 objective ──
+    double weighted_lower = 0.0;
     ir.scene_lower_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
       if (scene_feasible[si] == 0u) {
@@ -1312,9 +1418,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
                                .linear_interface()
                                .get_obj_value();
       ir.scene_lower_bounds[si] = lb_si;
-      total_lower += lb_si;
+      weighted_lower += scene_probs[static_cast<std::size_t>(si)] * lb_si;
     }
-    ir.lower_bound = total_lower / static_cast<double>(scenes_solved);
+    ir.lower_bound = weighted_lower;
 
     // ── Backward pass for all scenes (parallel) ──
     // Collect cuts per scene per phase for sharing

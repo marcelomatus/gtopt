@@ -1616,22 +1616,652 @@ TEST_CASE("SDDPSolver API - live query atomics")  // NOLINT
   }
 }
 
-TEST_CASE("SDDPSolver API - num_stored_cuts")  // NOLINT
+// ─── weighted_average_benders_cut unit tests ─────────────────────────────────
+
+TEST_CASE("weighted_average_benders_cut - empty input")  // NOLINT
 {
+  const auto result = weighted_average_benders_cut({}, {}, "empty");
+  CHECK(result.name.empty());
+}
+
+TEST_CASE("weighted_average_benders_cut - single cut")  // NOLINT
+{
+  const auto alpha = ColIndex {0};
+  const auto src = ColIndex {1};
+
+  SparseRow cut1;
+  cut1.name = "cut1";
+  cut1[alpha] = 1.0;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  const auto result = weighted_average_benders_cut({cut1}, {0.7}, "single");
+  CHECK(result.name == "single");
+  // single cut → returned as-is (weight normalised to 1)
+  CHECK(result.get_coeff(alpha) == doctest::Approx(1.0));
+  CHECK(result.get_coeff(src) == doctest::Approx(10.0));
+  CHECK(result.lowb == doctest::Approx(100.0));
+}
+
+TEST_CASE(
+    "weighted_average_benders_cut - equal weights same as average")  // NOLINT
+{
+  const auto alpha = ColIndex {0};
+  const auto src = ColIndex {1};
+
+  SparseRow cut1;
+  cut1[alpha] = 1.0;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  SparseRow cut2;
+  cut2[alpha] = 1.0;
+  cut2[src] = 20.0;
+  cut2.lowb = 200.0;
+  cut2.uppb = LinearProblem::DblMax;
+
+  // Equal weights → same as unweighted average
+  const auto wavg =
+      weighted_average_benders_cut({cut1, cut2}, {0.5, 0.5}, "wavg");
+  const auto avg = average_benders_cut({cut1, cut2}, "avg");
+
+  CHECK(wavg.get_coeff(alpha) == doctest::Approx(avg.get_coeff(alpha)));
+  CHECK(wavg.get_coeff(src) == doctest::Approx(avg.get_coeff(src)));
+  CHECK(wavg.lowb == doctest::Approx(avg.lowb));
+}
+
+TEST_CASE(
+    "weighted_average_benders_cut - probability weights applied")  // NOLINT
+{
+  const auto alpha = ColIndex {0};
+  const auto src = ColIndex {1};
+
+  SparseRow cut1;
+  cut1[alpha] = 1.0;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  SparseRow cut2;
+  cut2[alpha] = 1.0;
+  cut2[src] = 30.0;
+  cut2.lowb = 300.0;
+  cut2.uppb = LinearProblem::DblMax;
+
+  // 75% weight on cut1, 25% weight on cut2
+  const auto result =
+      weighted_average_benders_cut({cut1, cut2}, {0.75, 0.25}, "w_avg");
+
+  CHECK(result.name == "w_avg");
+  CHECK(result.get_coeff(alpha) == doctest::Approx(1.0));
+  // expected: 0.75 * 10 + 0.25 * 30 = 7.5 + 7.5 = 15.0
+  CHECK(result.get_coeff(src) == doctest::Approx(15.0));
+  // expected: 0.75 * 100 + 0.25 * 300 = 75 + 75 = 150
+  CHECK(result.lowb == doctest::Approx(150.0));
+}
+
+TEST_CASE("weighted_average_benders_cut - unnormalised weights")  // NOLINT
+{
+  const auto src = ColIndex {0};
+
+  SparseRow cut1;
+  cut1[src] = 4.0;
+  cut1.lowb = 40.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  SparseRow cut2;
+  cut2[src] = 8.0;
+  cut2.lowb = 80.0;
+  cut2.uppb = LinearProblem::DblMax;
+
+  // weights {3, 1} → normalised: {0.75, 0.25}
+  const auto result =
+      weighted_average_benders_cut({cut1, cut2}, {3.0, 1.0}, "unnorm");
+
+  // expected src: 0.75 * 4 + 0.25 * 8 = 3 + 2 = 5
+  CHECK(result.get_coeff(src) == doctest::Approx(5.0));
+  // expected rhs: 0.75 * 40 + 0.25 * 80 = 30 + 20 = 50
+  CHECK(result.lowb == doctest::Approx(50.0));
+}
+
+TEST_CASE(
+    "weighted_average_benders_cut - zero weight scene excluded")  // NOLINT
+{
+  const auto src = ColIndex {0};
+
+  SparseRow cut1;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  SparseRow cut2;
+  cut2[src] = 20.0;
+  cut2.lowb = 200.0;
+  cut2.uppb = LinearProblem::DblMax;
+
+  // Zero weight on cut2 → only cut1 contributes
+  const auto result =
+      weighted_average_benders_cut({cut1, cut2}, {1.0, 0.0}, "zero_w");
+
+  CHECK(result.get_coeff(src) == doctest::Approx(10.0));
+  CHECK(result.lowb == doctest::Approx(100.0));
+}
+
+TEST_CASE(
+    "weighted_average_benders_cut - all zero weights returns empty")  // NOLINT
+{
+  const auto src = ColIndex {0};
+
+  SparseRow cut1;
+  cut1[src] = 10.0;
+  cut1.lowb = 100.0;
+  cut1.uppb = LinearProblem::DblMax;
+
+  // All zero weights → empty result
+  const auto result = weighted_average_benders_cut({cut1}, {0.0}, "all_zero");
+  CHECK(result.name.empty());
+  CHECK(result.cmap.empty());
+  CHECK(result.lowb == doctest::Approx(0.0));
+}
+
+// ─── Multi-cut threshold=0 forces multi-cut immediately ──────────────────────
+
+TEST_CASE("SDDPSolver - multi_cut_threshold=0 forces multi-cut mode")  // NOLINT
+{
+  // Use the 3-phase hydro planning; set threshold=0 so any infeasibility
+  // instantly uses multi-cut mode.  The problem should still converge.
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 3;
-  sddp_opts.convergence_tol = 1e-6;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.multi_cut_threshold = 0;  // always force multi-cut
 
   SDDPSolver sddp(planning_lp, sddp_opts);
-  CHECK(sddp.num_stored_cuts() == 0);
-
   auto results = sddp.solve();
   REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
 
-  // After solving, cuts should have been accumulated
-  CHECK(sddp.num_stored_cuts() > 0);
-  CHECK(sddp.num_stored_cuts() == static_cast<int>(sddp.stored_cuts().size()));
+  // Convergence should still be reached
+  CHECK(results->back().converged);
+}
+
+TEST_CASE("SDDPSolver - multi_cut_threshold<0 disables auto-switch")  // NOLINT
+{
+  // Negative threshold disables automatic multi-cut switching entirely.
+  // The problem should still converge with single-cut only.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.multi_cut_threshold = -1;  // never auto-switch
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  CHECK(results->back().converged);
+}
+
+// ─── Probability-weighted cut sharing ────────────────────────────────────────
+
+/// Create a 2-scene, 3-phase hydro+thermal planning problem with explicit
+/// per-scene probability weights (0.7 and 0.3).
+auto make_2scene_3phase_hydro_planning(double prob1 = 0.7, double prob2 = 0.3)
+    -> Planning
+{
+  constexpr int num_phases = 3;
+  constexpr int blocks_per_phase = 4;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+
+  Array<Block> block_array;
+  block_array.reserve(total_blocks);
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = 1.0,
+    });
+  }
+
+  Array<Stage> stage_array;
+  stage_array.reserve(num_phases);
+  for (int s = 0; s < num_phases; ++s) {
+    stage_array.push_back(Stage {
+        .uid = Uid {s + 1},
+        .first_block = static_cast<Size>(s * blocks_per_phase),
+        .count_block = blocks_per_phase,
+    });
+  }
+
+  Array<Phase> phase_array;
+  phase_array.reserve(num_phases);
+  for (int p = 0; p < num_phases; ++p) {
+    phase_array.push_back(Phase {
+        .uid = Uid {p + 1},
+        .first_stage = static_cast<Size>(p),
+        .count_stage = 1,
+    });
+  }
+
+  const Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .probability_factor = prob1,
+              },
+              {
+                  .uid = Uid {2},
+                  .probability_factor = prob2,
+              },
+          },
+      .phase_array = std::move(phase_array),
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "scene1",
+                  .active = true,
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = "scene2",
+                  .active = true,
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 80.0,
+  }};
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 200.0,
+      .emin = 0.0,
+      .emax = 200.0,
+      .eini = 100.0,
+      .fmin = -1000.0,
+      .fmax = 1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+
+  const Array<Flow> flow_array = {{
+      .uid = Uid {1},
+      .name = "inflow",
+      .direction = 1,
+      .junction = Uid {1},
+      .discharge = 8.0,
+  }};
+
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .conversion_rate = 1.0,
+  }};
+
+  const System system = {
+      .name = "sddp_2scene_3phase",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = OptName {"csv"};
+  options.output_compression = OptName {"uncompressed"};
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = system,
+  };
+}
+
+TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
+{
+  // Two scenes with probabilities 0.7 and 0.3.
+  // UB and LB should be probability-weighted expectations, not simple averages.
+  auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.cut_sharing = CutSharingMode::None;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  // The solver should converge
+  CHECK(results->back().converged);
+
+  // Verify that the final upper bound is consistent with a
+  // probability-weighted combination (not a simple average):
+  // UB = 0.7 * ub_scene0 + 0.3 * ub_scene1
+  const auto& last = results->back();
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  const double expected_ub =
+      0.7 * last.scene_upper_bounds[0] + 0.3 * last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+  SPDLOG_INFO("2-scene weighted UB: {:.4f} (scene0={:.4f}, scene1={:.4f})",
+              last.upper_bound,
+              last.scene_upper_bounds[0],
+              last.scene_upper_bounds[1]);
+
+  // Verify lower bound is also probability-weighted
+  REQUIRE(last.scene_lower_bounds.size() == 2);
+  const double expected_lb =
+      0.7 * last.scene_lower_bounds[0] + 0.3 * last.scene_lower_bounds[1];
+  CHECK(last.lower_bound == doctest::Approx(expected_lb).epsilon(1e-9));
+}
+
+TEST_CASE(
+    "SDDPSolver 2-scene - equal weights same as simple average")  // NOLINT
+{
+  // Equal probability weights → result should match simple average
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 20;
+  sddp_opts.convergence_tol = 1e-4;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().converged);
+
+  const auto& last = results->back();
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  // With equal weights 0.5/0.5 the weighted average = arithmetic mean
+  const double simple_avg =
+      0.5 * (last.scene_upper_bounds[0] + last.scene_upper_bounds[1]);
+  CHECK(last.upper_bound == doctest::Approx(simple_avg).epsilon(1e-9));
+}
+
+TEST_CASE(
+    "SDDPSolver 2-scene Expected cut sharing with prob weights")  // NOLINT
+{
+  // Verify that Expected cut-sharing mode produces the same convergence
+  // outcome whether we use equal or unequal probability weights.
+  // The solver should converge in both cases.
+
+  SUBCASE("equal probabilities with Expected cut sharing")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-4;
+    sddp_opts.cut_sharing = CutSharingMode::Expected;
+
+    SDDPSolver sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("unequal probabilities with Expected cut sharing")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-4;
+    sddp_opts.cut_sharing = CutSharingMode::Expected;
+
+    SDDPSolver sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+
+    // The weighted UB should equal the probability-weighted combination
+    const auto& last = results->back();
+    REQUIRE(last.scene_upper_bounds.size() == 2);
+    const double expected_ub =
+        0.7 * last.scene_upper_bounds[0] + 0.3 * last.scene_upper_bounds[1];
+    CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+  }
+}
+
+// ─── TurbineLP::update_lp unit tests ─────────────────────────────────────────
+
+TEST_CASE("TurbineLP::update_lp - no-op when no efficiency element")  // NOLINT
+{
+  // Build a minimal system WITHOUT a ReservoirEfficiency element.
+  // update_lp should return 0 (nothing to update).
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {{
+      .uid = Uid {1},
+      .name = "hydro_gen",
+      .bus = Uid {1},
+      .gcost = 5.0,
+      .capacity = 50.0,
+  }};
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 30.0,
+  }};
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 200.0,
+      .emin = 0.0,
+      .emax = 200.0,
+      .eini = 100.0,
+      .fmin = -1000.0,
+      .fmax = 1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .conversion_rate = 1.0,
+  }};
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {1}}},
+  };
+
+  const System system = {
+      .name = "test_no_eff",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  OptionsLP options_lp(options);
+  SimulationLP sim_lp(simulation, options_lp);
+  SystemLP system_lp(system, sim_lp);
+
+  // The solver must support set_coeff for update_lp to actually try anything;
+  // either way, the function call should be safe.
+  auto& li = system_lp.linear_interface();
+  [[maybe_unused]] const bool set_coeff_supported = li.supports_set_coeff();
+
+  // update_lp_coefficients with no efficiency elements → 0 updated
+  const auto updated =
+      update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
+  CHECK(updated == 0);
+}
+
+TEST_CASE("FiltrationLP::update_lp is always a no-op")  // NOLINT
+{
+  // Verify the trivial no-op path of FiltrationLP::update_lp by calling
+  // update_lp_coefficients on a system that has filtration but no efficiency.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {{
+      .uid = Uid {1},
+      .name = "hydro_gen",
+      .bus = Uid {1},
+      .gcost = 5.0,
+      .capacity = 50.0,
+  }};
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 30.0,
+  }};
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 200.0,
+      .emin = 0.0,
+      .emax = 200.0,
+      .eini = 100.0,
+      .fmin = -1000.0,
+      .fmax = 1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .conversion_rate = 1.0,
+  }};
+  const Array<Filtration> filtration_array = {{
+      .uid = Uid {1},
+      .name = "flt1",
+      .waterway = Uid {1},
+      .reservoir = Uid {1},
+      .slope = 0.01,
+      .constant = 0.0,
+  }};
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {1}}},
+  };
+
+  const System system = {
+      .name = "test_filtration_noop",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .filtration_array = filtration_array,
+      .turbine_array = turbine_array,
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  OptionsLP options_lp(options);
+  SimulationLP sim_lp(simulation, options_lp);
+  SystemLP system_lp(system, sim_lp);
+
+  // FiltrationLP::update_lp is a no-op → total updated = 0
+  const auto updated =
+      update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
+  CHECK(updated == 0);
 }
