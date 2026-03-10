@@ -832,8 +832,8 @@ void SDDPSolver::write_api_status(
   const auto conv = m_converged_.load();
 
   const char* status_str = conv ? "converged"
-      : (iter == 0)              ? "initializing"
-                                 : "running";
+      : (iter == 0)             ? "initializing"
+                                : "running";
 
   json += "{\n";
   json += std::format("  \"version\": 1,\n");
@@ -845,8 +845,7 @@ void SDDPSolver::write_api_status(
   json += std::format("  \"upper_bound\": {:.6f},\n", ub);
   json += std::format("  \"gap\": {:.6f},\n", gap);
   json += std::format("  \"converged\": {},\n", conv ? "true" : "false");
-  json += std::format("  \"max_iterations\": {},\n",
-                      m_options_.max_iterations);
+  json += std::format("  \"max_iterations\": {},\n", m_options_.max_iterations);
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
@@ -932,9 +931,8 @@ void SDDPSolver::write_api_status(
     }
     std::filesystem::rename(tmp_file, status_file);
   } catch (const std::exception& e) {
-    SPDLOG_WARN("SDDP API: could not write status file {}: {}",
-                status_file,
-                e.what());
+    SPDLOG_WARN(
+        "SDDP API: could not write status file {}: {}", status_file, e.what());
   }
 }
 

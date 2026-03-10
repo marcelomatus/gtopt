@@ -93,8 +93,7 @@ std::unique_ptr<PlanningSolver> make_planning_solver(
     // api_output_dir at solve time when api_status_file is empty.
     if (!api_output_dir.empty()) {
       sddp_opts.api_status_file =
-          (std::filesystem::path(api_output_dir) / "sddp_status.json")
-              .string();
+          (std::filesystem::path(api_output_dir) / "sddp_status.json").string();
     }
     return std::make_unique<SDDPPlanningSolver>(std::move(sddp_opts));
   }
