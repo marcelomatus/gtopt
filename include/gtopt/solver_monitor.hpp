@@ -104,7 +104,7 @@ public:
   /// @param thread_name  Name to assign the background thread (Linux only).
   void start(AdaptiveWorkPool& pool,
              std::chrono::steady_clock::time_point start_time,
-             const char* thread_name = "SolverMonitor")
+             [[maybe_unused]] const char* thread_name = "SolverMonitor")
   {
     {
       const std::scoped_lock lock(m_mutex_);
@@ -115,8 +115,6 @@ public:
         {
 #ifdef __linux__
           pthread_setname_np(pthread_self(), thread_name);
-#else
-          (void)thread_name;
 #endif
           while (!stoken.stop_requested()) {
             const auto now = std::chrono::steady_clock::now();

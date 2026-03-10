@@ -62,18 +62,18 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
          enumerate<SceneIndex>(planning_lp.systems()))
     {
       auto result = pool.submit(
-          [&, si = static_cast<int>(scene_index)]
+          [&, scene_index]
           {
             const auto t_scene = std::chrono::steady_clock::now();
             auto r = planning_lp.resolve_scene_phases(
-                SceneIndex {si}, phase_systems, opts);
+                scene_index, phase_systems, opts);
             const double elapsed =
                 std::chrono::duration<double>(std::chrono::steady_clock::now()
                                               - t_scene)
                     .count();
             {
               const std::scoped_lock lk(times_mutex);
-              scene_times[si] = elapsed;
+              scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
             }
             ++scenes_done;
             return r;
