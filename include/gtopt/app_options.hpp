@@ -152,7 +152,19 @@ template<typename T>
        "directory for SDDP Benders cut files (default: cuts)")  //
       ("log-directory",
        po::value<std::string>(),
-       "directory for log and trace files (default: logs)");
+       "directory for log and trace files (default: logs)")  //
+      ("sddp-max-iterations",
+       po::value<int>(),
+       "maximum SDDP forward/backward iterations (default: 100)")  //
+      ("sddp-convergence-tol",
+       po::value<double>(),
+       "SDDP relative convergence tolerance (default: 1e-4)")  //
+      ("sddp-elastic-penalty",
+       po::value<double>(),
+       "penalty coefficient for SDDP elastic slack variables (default: 1e6)")  //
+      ("sddp-elastic-mode",
+       po::value<std::string>(),
+       "SDDP elastic filter mode: 'cut' (default) or 'backpropagate'");
   return desc;
 }
 
@@ -170,6 +182,10 @@ template<typename T>
  * @param output_directory Optional output directory path
  * @param output_format Optional output format string
  * @param output_compression Optional compression codec string
+ * @param sddp_max_iterations Optional SDDP max iterations
+ * @param sddp_convergence_tol Optional SDDP convergence tolerance
+ * @param sddp_elastic_penalty Optional elastic penalty coefficient
+ * @param sddp_elastic_mode Optional elastic filter mode string
  */
 inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
@@ -185,7 +201,11 @@ inline void apply_cli_options(
     const std::optional<int>& lp_threads = {},
     const std::optional<bool>& lp_presolve = {},
     const std::optional<std::string>& cut_directory = {},
-    const std::optional<std::string>& log_directory = {})
+    const std::optional<std::string>& log_directory = {},
+    const std::optional<int>& sddp_max_iterations = {},
+    const std::optional<double>& sddp_convergence_tol = {},
+    const std::optional<double>& sddp_elastic_penalty = {},
+    const std::optional<std::string>& sddp_elastic_mode = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -238,6 +258,22 @@ inline void apply_cli_options(
   if (log_directory) {
     planning.options.log_directory = log_directory.value();
   }
+
+  if (sddp_max_iterations) {
+    planning.options.sddp_max_iterations = sddp_max_iterations;
+  }
+
+  if (sddp_convergence_tol) {
+    planning.options.sddp_convergence_tol = sddp_convergence_tol;
+  }
+
+  if (sddp_elastic_penalty) {
+    planning.options.sddp_elastic_penalty = sddp_elastic_penalty;
+  }
+
+  if (sddp_elastic_mode) {
+    planning.options.sddp_elastic_mode = sddp_elastic_mode.value();
+  }
 }
 
 /**
@@ -265,7 +301,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.lp_threads,
                     opts.lp_presolve,
                     opts.cut_directory,
-                    opts.log_directory);
+                    opts.log_directory,
+                    opts.sddp_max_iterations,
+                    opts.sddp_convergence_tol,
+                    opts.sddp_elastic_penalty,
+                    opts.sddp_elastic_mode);
 }
 
 /**
@@ -327,6 +367,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
+      .sddp_max_iterations = get_opt<int>(vm, "sddp-max-iterations"),
+      .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
+      .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
+      .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .lp_algorithm = [&]() -> std::optional<int>
       {
         if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {
