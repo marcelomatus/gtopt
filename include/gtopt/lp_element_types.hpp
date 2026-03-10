@@ -40,6 +40,7 @@ class JunctionLP;
 class LineLP;
 class ReserveProvisionLP;
 class ReserveZoneLP;
+class ReservoirEfficiencyLP;
 class ReservoirLP;
 class TurbineLP;
 class WaterwayLP;
@@ -70,7 +71,8 @@ using lp_element_types_t = std::tuple<BusLP,
                                       FlowLP,
                                       ReservoirLP,
                                       FiltrationLP,
-                                      TurbineLP>;
+                                      TurbineLP,
+                                      ReservoirEfficiencyLP>;
 
 /// Total number of LP element types.
 inline constexpr std::size_t lp_type_count_v =

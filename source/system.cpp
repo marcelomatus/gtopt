@@ -182,6 +182,8 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(reservoir_array, std::move(sys.reservoir_array));
   gtopt::merge(filtration_array, std::move(sys.filtration_array));
   gtopt::merge(turbine_array, std::move(sys.turbine_array));
+  gtopt::merge(reservoir_efficiency_array,
+               std::move(sys.reservoir_efficiency_array));
 }
 
 }  // namespace gtopt

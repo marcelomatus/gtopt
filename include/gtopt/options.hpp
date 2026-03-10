@@ -18,7 +18,15 @@
  *     "scale_objective": 1000,
  *     "annual_discount_rate": 0.1,
  *     "output_format": "parquet",
- *     "input_directory": "input"
+ *     "input_directory": "input",
+ *     "sddp_options": {
+ *       "sddp_solver_type": "sddp",
+ *       "sddp_cut_sharing_mode": "expected",
+ *       "sddp_cut_directory": "cuts",
+ *       "sddp_api_enabled": true,
+ *       "sddp_efficiency_update_skip": 0,
+ *       "sddp_elastic_mode": "cut"
+ *     }
  *   }
  * }
  * ```
@@ -30,6 +38,74 @@
 
 namespace gtopt
 {
+
+/**
+ * @brief SDDP-specific solver configuration parameters
+ *
+ * Groups all SDDP-related options into a single sub-object for clearer
+ * JSON organization and consistent `sddp_` prefix naming.
+ *
+ * All fields are optional — defaults are applied via `OptionsLP`.
+ */
+struct SddpOptions
+{
+  /** @brief Solver type: `"monolithic"` (default) or `"sddp"` */
+  OptName sddp_solver_type {};
+  /** @brief Cut sharing mode: `"none"`, `"expected"`, or `"max"` */
+  OptName sddp_cut_sharing_mode {};
+  /** @brief Directory for Benders cut files (default: `"cuts"`) */
+  OptName sddp_cut_directory {};
+  /** @brief Enable the SDDP monitoring API (writes JSON status file each
+   * iteration; default: true) */
+  OptBool sddp_api_enabled {};
+  /** @brief Global default for iterations to skip between efficiency
+   * coefficient updates.  0 = update every iteration (PLP default). */
+  OptInt sddp_efficiency_update_skip {};
+
+  // ── Iteration control ──────────────────────────────────────────────────────
+  /** @brief Maximum number of forward/backward iterations (default: 100) */
+  OptInt sddp_max_iterations {};
+  /** @brief Relative gap tolerance for convergence (default: 1e-4) */
+  OptReal sddp_convergence_tol {};
+
+  // ── Advanced tuning ────────────────────────────────────────────────────────
+  /** @brief Penalty for elastic slack variables in feasibility (default: 1e6)
+   */
+  OptReal sddp_elastic_penalty {};
+  /** @brief Lower bound for future cost variable α (default: 0.0) */
+  OptReal sddp_alpha_min {};
+  /** @brief Upper bound for future cost variable α (default: 1e12) */
+  OptReal sddp_alpha_max {};
+
+  // ── Cut file management ────────────────────────────────────────────────────
+  /** @brief File path for loading initial cuts (hot-start; empty = cold start)
+   */
+  OptName sddp_cuts_input_file {};
+  /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
+   * after the current iteration (analogous to PLP's userstop) */
+  OptName sddp_sentinel_file {};
+  /** @brief Elastic filter mode: `"cut"` (default) or `"backpropagate"` */
+  OptName sddp_elastic_mode {};
+
+  void merge(SddpOptions&& opts)
+  {
+    merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
+    merge_opt(sddp_cut_sharing_mode, std::move(opts.sddp_cut_sharing_mode));
+    merge_opt(sddp_cut_directory, std::move(opts.sddp_cut_directory));
+    merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
+    merge_opt(sddp_efficiency_update_skip, opts.sddp_efficiency_update_skip);
+    merge_opt(sddp_max_iterations, opts.sddp_max_iterations);
+    merge_opt(sddp_convergence_tol, opts.sddp_convergence_tol);
+    merge_opt(sddp_elastic_penalty, opts.sddp_elastic_penalty);
+    merge_opt(sddp_alpha_min, opts.sddp_alpha_min);
+    merge_opt(sddp_alpha_max, opts.sddp_alpha_max);
+    merge_opt(sddp_cuts_input_file, std::move(opts.sddp_cuts_input_file));
+    merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
+    merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
+
+    auto _ = std::move(opts);
+  }
+};
 
 /**
  * @brief Global configuration parameters for the optimization model
@@ -96,31 +172,16 @@ struct Options
   OptInt lp_threads {};
   /** @brief Whether to apply the solver's built-in presolve (default: true) */
   OptBool lp_presolve {};
-  /** @brief Solver type: `"monolithic"` (default) or `"sddp"` */
-  OptName solver_type {};
-  /** @brief SDDP cut sharing mode: `"none"`, `"expected"`, or `"max"` */
-  OptName cut_sharing_mode {};
 
-  // ── SDDP-specific directories ─────────────────────────────────────────────
-  /** @brief Directory for Benders cut files (default: `"cuts"`) */
-  OptName cut_directory {};
-  /** @brief Directory for log and trace files (default: `"logs"`) */
+  // ── Logging ────────────────────────────────────────────────────────────────
+  /** @brief Directory for log and trace files (default: `"logs"`).
+   * Used for error LP dumps (both monolithic and SDDP) and SDDP iteration
+   * logs. */
   OptName log_directory {};
 
-  // ── SDDP monitoring API ────────────────────────────────────────────────────
-  /** @brief Enable the SDDP monitoring API (writes JSON status file each
-   * iteration; default: true) */
-  OptBool sddp_api_enabled {};
-
-  // ── SDDP algorithm tuning ─────────────────────────────────────────────────
-  /** @brief Maximum SDDP forward/backward iterations (default: 100) */
-  OptInt sddp_max_iterations {};
-  /** @brief SDDP relative convergence tolerance (default: 1e-4) */
-  OptReal sddp_convergence_tol {};
-  /** @brief Penalty coefficient for elastic slack variables (default: 1e6) */
-  OptReal sddp_elastic_penalty {};
-  /** @brief Elastic filter mode: `"cut"` (default) or `"backpropagate"` */
-  OptName sddp_elastic_mode {};
+  // ── SDDP-specific options (grouped sub-object) ────────────────────────────
+  /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
+  SddpOptions sddp_options {};
 
   void merge(Options&& opts)
   {
@@ -153,17 +214,10 @@ struct Options
     merge_opt(lp_algorithm, opts.lp_algorithm);
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
-    merge_opt(solver_type, std::move(opts.solver_type));
-    merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
-    merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(log_directory, std::move(opts.log_directory));
-    merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
 
-    // Merge SDDP algorithm tuning
-    merge_opt(sddp_max_iterations, opts.sddp_max_iterations);
-    merge_opt(sddp_convergence_tol, opts.sddp_convergence_tol);
-    merge_opt(sddp_elastic_penalty, opts.sddp_elastic_penalty);
-    merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
+    // Merge SDDP-specific options
+    sddp_options.merge(std::move(opts.sddp_options));
 
     auto _ = std::move(opts);
   }

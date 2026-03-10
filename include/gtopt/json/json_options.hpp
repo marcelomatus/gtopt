@@ -1,11 +1,9 @@
 /**
  * @file      json_options.hpp
- * @brief     Header of
+ * @brief     JSON serialization for Options and SddpOptions
  * @date      Sun Apr 20 16:01:20 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
- *
- * This module
  */
 
 #pragma once
@@ -17,6 +15,43 @@
 namespace daw::json
 {
 using gtopt::Options;
+using gtopt::SddpOptions;
+
+template<>
+struct json_data_contract<SddpOptions>
+{
+  using type =
+      json_member_list<json_string_null<"sddp_solver_type", OptName>,
+                       json_string_null<"sddp_cut_sharing_mode", OptName>,
+                       json_string_null<"sddp_cut_directory", OptName>,
+                       json_bool_null<"sddp_api_enabled", OptBool>,
+                       json_number_null<"sddp_efficiency_update_skip", OptInt>,
+                       json_number_null<"sddp_max_iterations", OptInt>,
+                       json_number_null<"sddp_convergence_tol", OptReal>,
+                       json_number_null<"sddp_elastic_penalty", OptReal>,
+                       json_number_null<"sddp_alpha_min", OptReal>,
+                       json_number_null<"sddp_alpha_max", OptReal>,
+                       json_string_null<"sddp_cuts_input_file", OptName>,
+                       json_string_null<"sddp_sentinel_file", OptName>,
+                       json_string_null<"sddp_elastic_mode", OptName>>;
+
+  constexpr static auto to_json_data(SddpOptions const& opt)
+  {
+    return std::forward_as_tuple(opt.sddp_solver_type,
+                                 opt.sddp_cut_sharing_mode,
+                                 opt.sddp_cut_directory,
+                                 opt.sddp_api_enabled,
+                                 opt.sddp_efficiency_update_skip,
+                                 opt.sddp_max_iterations,
+                                 opt.sddp_convergence_tol,
+                                 opt.sddp_elastic_penalty,
+                                 opt.sddp_alpha_min,
+                                 opt.sddp_alpha_max,
+                                 opt.sddp_cuts_input_file,
+                                 opt.sddp_sentinel_file,
+                                 opt.sddp_elastic_mode);
+  }
+};
 
 template<>
 struct json_data_contract<Options>
@@ -45,11 +80,9 @@ struct json_data_contract<Options>
                        json_number_null<"lp_threads", OptInt>,
                        json_bool_null<"lp_presolve", OptBool>,
 
-                       json_string_null<"solver_type", OptName>,
-                       json_string_null<"cut_sharing_mode", OptName>,
-                       json_string_null<"cut_directory", OptName>,
                        json_string_null<"log_directory", OptName>,
-                       json_bool_null<"sddp_api_enabled", OptBool> >;
+
+                       json_class_null<"sddp_options", SddpOptions>>;
 
   constexpr static auto to_json_data(Options const& opt)
   {
@@ -76,11 +109,9 @@ struct json_data_contract<Options>
                                  opt.lp_threads,
                                  opt.lp_presolve,
 
-                                 opt.solver_type,
-                                 opt.cut_sharing_mode,
-                                 opt.cut_directory,
                                  opt.log_directory,
-                                 opt.sddp_api_enabled);
+
+                                 opt.sddp_options);
   }
 };
 

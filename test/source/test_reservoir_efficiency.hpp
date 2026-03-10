@@ -1,0 +1,331 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file      test_reservoir_efficiency.hpp
+ * @brief     Unit tests for ReservoirEfficiency, evaluate_efficiency,
+ *            and the LP coefficient update mechanism
+ * @date      2026-03-10
+ * @copyright BSD-3-Clause
+ */
+
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/linear_interface.hpp>
+#include <gtopt/reservoir_efficiency.hpp>
+#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_lp.hpp>
+
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+// ─── evaluate_efficiency tests ──────────────────────────────────────────────
+
+TEST_CASE("evaluate_efficiency with empty segments returns 1.0")
+{
+  const std::vector<EfficiencySegment> segments {};
+  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.0));
+  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(1.0));
+}
+
+TEST_CASE("evaluate_efficiency with single segment")
+{
+  // constant = 1.2, slope = 0.0002, volume breakpoint = 0
+  // efficiency(V) = 1.2 + 0.0002 * (V - 0) = 1.2 + 0.0002 * V
+  const std::vector<EfficiencySegment> segments {
+      {.volume = 0.0, .slope = 0.0002, .constant = 1.2},
+  };
+
+  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.2));
+  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(1.3));
+  CHECK(evaluate_efficiency(segments, 1000.0) == doctest::Approx(1.4));
+}
+
+TEST_CASE("evaluate_efficiency with multiple segments (concave envelope)")
+{
+  // Two segments creating a concave envelope (PLP rendimiento style):
+  // seg1: constant=2.0, slope=0.001, volume=0.0 → 2.0 + 0.001 * V
+  // seg2: constant=2.8, slope=0.0002, volume=500.0 → 2.8 + 0.0002*(V-500)
+  //
+  // At V=0:   seg1=2.0, seg2=2.8+0.0002*(-500)=2.7 → min=2.0
+  // At V=500: seg1=2.5, seg2=2.8 → min=2.5
+  // At V=1500: seg1=3.5, seg2=2.8+0.0002*1000=3.0 → min=3.0
+  const std::vector<EfficiencySegment> segments {
+      {.volume = 0.0, .slope = 0.001, .constant = 2.0},
+      {.volume = 500.0, .slope = 0.0002, .constant = 2.8},
+  };
+
+  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(2.0));
+  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(2.5));
+  CHECK(evaluate_efficiency(segments, 1500.0) == doctest::Approx(3.0));
+}
+
+TEST_CASE("evaluate_efficiency never returns negative")
+{
+  // slope = -0.01 → at large volume, result would go negative
+  const std::vector<EfficiencySegment> segments {
+      {.volume = 0.0, .slope = -0.01, .constant = 1.0},
+  };
+
+  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.0));
+  CHECK(evaluate_efficiency(segments, 50.0) == doctest::Approx(0.5));
+  CHECK(evaluate_efficiency(segments, 200.0) == doctest::Approx(0.0));
+}
+
+// ─── ReservoirEfficiency struct tests ───────────────────────────────────────
+
+TEST_CASE("ReservoirEfficiency default construction")
+{
+  const ReservoirEfficiency re;
+
+  CHECK(re.uid == Uid {unknown_uid});
+  CHECK(re.name == Name {});
+  CHECK_FALSE(re.active.has_value());
+  CHECK(re.turbine == SingleId {unknown_uid});
+  CHECK(re.reservoir == SingleId {unknown_uid});
+  CHECK(re.mean_efficiency == doctest::Approx(1.0));
+  CHECK(re.segments.empty());
+  CHECK_FALSE(re.sddp_efficiency_update_skip.has_value());
+}
+
+TEST_CASE("ReservoirEfficiency attribute assignment")
+{
+  ReservoirEfficiency re;
+
+  re.uid = 9001;
+  re.name = "eff_colbun";
+  re.turbine = Uid {101};
+  re.reservoir = Uid {201};
+  re.mean_efficiency = 1.53;
+  re.segments = {
+      {.volume = 0.0, .slope = 0.0002294, .constant = 1.2558},
+      {.volume = 500.0, .slope = 0.0001, .constant = 1.53},
+  };
+  re.sddp_efficiency_update_skip = 2;
+
+  CHECK(re.uid == 9001);
+  CHECK(re.name == "eff_colbun");
+  CHECK(std::get<Uid>(re.turbine) == Uid {101});
+  CHECK(std::get<Uid>(re.reservoir) == Uid {201});
+  CHECK(re.mean_efficiency == doctest::Approx(1.53));
+  CHECK(re.segments.size() == 2);
+  CHECK(re.segments[0].constant == doctest::Approx(1.2558));
+  CHECK(re.segments[1].slope == doctest::Approx(0.0001));
+  REQUIRE(re.sddp_efficiency_update_skip.has_value());
+  CHECK(re.sddp_efficiency_update_skip.value() == 2);
+}
+
+// ─── EfficiencySegment tests ────────────────────────────────────────────────
+
+TEST_CASE("EfficiencySegment default values")
+{
+  const EfficiencySegment seg;
+
+  CHECK(seg.volume == doctest::Approx(0.0));
+  CHECK(seg.slope == doctest::Approx(0.0));
+  CHECK(seg.constant == doctest::Approx(0.0));
+}
+
+// ─── Turbine main_reservoir field ───────────────────────────────────────────
+
+TEST_CASE("Turbine main_reservoir field")
+{
+  SUBCASE("default has no main_reservoir")
+  {
+    const Turbine turbine;
+    CHECK_FALSE(turbine.main_reservoir.has_value());
+  }
+
+  SUBCASE("can set main_reservoir")
+  {
+    Turbine turbine;
+    turbine.main_reservoir = Uid {201};
+
+    REQUIRE(turbine.main_reservoir.has_value());
+    CHECK(std::get<Uid>(turbine.main_reservoir.value()) == Uid {201});
+  }
+}
+
+// ─── SystemLP with ReservoirEfficiency ──────────────────────────────────────
+
+TEST_CASE("SystemLP with reservoir efficiency element")
+{
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_upstream",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_downstream",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
+
+  const Array<ReservoirEfficiency> reservoir_efficiency_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_efficiency = 1.5,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 2,
+              },
+          },
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 2,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "HydroEfficiencyTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .reservoir_efficiency_array = reservoir_efficiency_array,
+  };
+
+  const OptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  SUBCASE("system solves successfully")
+  {
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  SUBCASE("ReservoirEfficiencyLP stores coefficient indices")
+  {
+    auto& effs = system_lp.elements<ReservoirEfficiencyLP>();
+    REQUIRE(effs.size() == 1);
+
+    auto& eff = effs.front();
+    CHECK(eff.has_coeff_indices(ScenarioUid {0}, StageUid {1}));
+
+    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    CHECK(bmap.size() == 2);  // 2 blocks
+  }
+
+  SUBCASE("update_lp_coefficients modifies coefficients using vini")
+  {
+    // First solve to establish baseline
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    // Update coefficients using a known volume (vini = 500)
+    const auto updated = update_lp_coefficients(
+        system_lp,
+        options,
+        [](const ReservoirLPSId& /*rsid*/) { return 500.0; },
+        0);
+    CHECK(updated > 0);
+
+    // Verify the coefficient was changed (original was -1.0)
+    auto& effs = system_lp.elements<ReservoirEfficiencyLP>();
+    auto& eff = effs.front();
+    const auto expected_rate = eff.compute_efficiency(500.0);
+    CHECK(expected_rate > 0.0);
+
+    // Check that the LP coefficient matches
+    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    for (const auto& [buid, ci] : bmap) {
+      const auto coeff = lp.get_coeff(ci.row, ci.col);
+      CHECK(coeff == doctest::Approx(-expected_rate));
+    }
+
+    // Re-solve with the updated coefficient
+    auto result2 = lp.resolve();
+    REQUIRE(result2.has_value());
+    CHECK(result2.value() == 0);
+  }
+}
