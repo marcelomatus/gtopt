@@ -761,6 +761,49 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
   }
 }
 
+auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
+    -> std::expected<int, Error>
+{
+  int total_loaded = 0;
+
+  if (!std::filesystem::exists(directory)) {
+    return 0;  // No directory = no cuts to load (not an error)
+  }
+
+  for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+    const auto filename = entry.path().filename().string();
+
+    // Skip error files from infeasible scenes (previous runs)
+    if (filename.starts_with("error_")) {
+      SPDLOG_INFO("SDDP hot-start: skipping error file {}", filename);
+      continue;
+    }
+
+    // Only load scene_N.csv files and the combined sddp_cuts.csv
+    if (!filename.starts_with("scene_") && filename != "sddp_cuts.csv") {
+      continue;
+    }
+    if (!filename.ends_with(".csv")) {
+      continue;
+    }
+
+    auto result = load_cuts(entry.path().string());
+    if (result.has_value()) {
+      total_loaded += *result;
+      SPDLOG_TRACE("SDDP hot-start: loaded {} cuts from {}", *result, filename);
+    } else {
+      SPDLOG_WARN("SDDP hot-start: could not load {}: {}",
+                  filename,
+                  result.error().message);
+    }
+  }
+
+  return total_loaded;
+}
+
 // ── Main solve loop ─────────────────────────────────────────────────────────
 
 auto SDDPSolver::solve(const SolverOptions& lp_opts)
@@ -811,6 +854,20 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       } else {
         SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                     load_result.error().message);
+      }
+    } else if (!m_options_.cuts_output_file.empty()) {
+      // Try loading from the cut directory (per-scene files).
+      // Error files (error_scene_N.csv) from previous infeasible runs
+      // are automatically skipped.
+      const auto cut_dir =
+          std::filesystem::path(m_options_.cuts_output_file).parent_path();
+      if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
+        auto load_result = load_scene_cuts_from_directory(cut_dir.string());
+        if (load_result.has_value() && *load_result > 0) {
+          SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {}",
+                      *load_result,
+                      cut_dir.string());
+        }
       }
     }
 

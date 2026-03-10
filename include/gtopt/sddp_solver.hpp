@@ -382,6 +382,13 @@ public:
   [[nodiscard]] auto load_cuts(const std::string& filepath)
       -> std::expected<int, Error>;
 
+  /// Load all per-scene cut files from a directory.
+  /// Files matching `scene_<N>.csv` are loaded; files with the `error_`
+  /// prefix (from infeasible scenes in a previous run) are skipped to
+  /// prevent loading invalid cuts during hot-start.
+  [[nodiscard]] auto load_scene_cuts_from_directory(
+      const std::string& directory) -> std::expected<int, Error>;
+
 private:
   using scene_phase_states_t =
       StrongIndexVector<SceneIndex,
