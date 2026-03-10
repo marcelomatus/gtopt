@@ -284,10 +284,10 @@ struct StoredCut
 struct RelaxedVarInfo
 {
   bool relaxed {false};  ///< True if the column was relaxed (was fixed)
-  ColIndex sup_col {
-      unknown_index};  ///< Overshoot slack col (sup > 0 → solution < trial)
-  ColIndex sdn_col {
-      unknown_index};  ///< Undershoot slack col (sdn > 0 → solution > trial)
+  /// Overshoot slack col (sup > 0 → solution < trial)
+  ColIndex sup_col {unknown_index};
+  /// Undershoot slack col (sdn > 0 → solution > trial)
+  ColIndex sdn_col {unknown_index};
 
   /// Implicit bool conversion: true iff the column was relaxed.
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
