@@ -32,7 +32,8 @@ struct json_data_contract<SddpOptions>
                        json_number_null<"sddp_alpha_min", OptReal>,
                        json_number_null<"sddp_alpha_max", OptReal>,
                        json_string_null<"sddp_cuts_input_file", OptName>,
-                       json_string_null<"sddp_sentinel_file", OptName>>;
+                       json_string_null<"sddp_sentinel_file", OptName>,
+                       json_string_null<"sddp_elastic_mode", OptName>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -47,7 +48,8 @@ struct json_data_contract<SddpOptions>
                                  opt.sddp_alpha_min,
                                  opt.sddp_alpha_max,
                                  opt.sddp_cuts_input_file,
-                                 opt.sddp_sentinel_file);
+                                 opt.sddp_sentinel_file,
+                                 opt.sddp_elastic_mode);
   }
 };
 
