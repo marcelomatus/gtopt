@@ -14,6 +14,13 @@
  * power [MW] = conversion_rate [MW·s/m³] × flow [m³/s]
  * ```
  *
+ * ### Variable efficiency (hydraulic head)
+ * When `main_reservoir` is set, the turbine's conversion rate can vary
+ * with the reservoir volume (hydraulic head).  The piecewise-linear
+ * efficiency curve is provided by a matching `ReservoirEfficiency`
+ * element.  During SDDP forward iterations the conversion-rate LP
+ * coefficient is updated based on the current reservoir volume.
+ *
  * ### JSON Example
  * ```json
  * {
@@ -22,7 +29,8 @@
  *   "waterway": "w1_2",
  *   "generator": "g_hydro",
  *   "conversion_rate": 0.0025,
- *   "capacity": 100
+ *   "capacity": 100,
+ *   "main_reservoir": "res1"
  * }
  * ```
  *
@@ -49,8 +57,13 @@ namespace gtopt
  * into electrical power at the linked generator, and passes the remaining
  * flow to the downstream junction of the waterway.
  *
+ * When `main_reservoir` is specified, the turbine's conversion rate may be
+ * updated dynamically by the SDDP solver using the piecewise-linear
+ * efficiency curve from the corresponding `ReservoirEfficiency` element.
+ *
  * @see Waterway for the water channel
  * @see Generator for the power output representation
+ * @see ReservoirEfficiency for the piecewise-linear efficiency curve
  * @see TurbineLP for the LP formulation
  */
 struct Turbine
@@ -69,6 +82,13 @@ struct Turbine
   OptTRealFieldSched
       conversion_rate {};  ///< Water-to-power conversion factor [MW·s/m³]
   OptTRealFieldSched capacity {};  ///< Maximum turbine power output [MW]
+
+  /// Optional ID of the main reservoir whose volume drives the turbine's
+  /// conversion rate.  When set, the SDDP solver will update the
+  /// conversion-rate LP coefficient at each forward-pass iteration based
+  /// on the current reservoir volume and the matching ReservoirEfficiency
+  /// element's piecewise-linear curve.
+  OptSingleId main_reservoir {};
 };
 
 }  // namespace gtopt

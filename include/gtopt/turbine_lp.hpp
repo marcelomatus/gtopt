@@ -19,6 +19,9 @@
 namespace gtopt
 {
 
+/// Single-ID alias for referencing a TurbineLP in other LP elements
+using TurbineLPSId = ObjectSingleId<class TurbineLP>;
+
 /**
  * @brief Linear programming representation of a hydroelectric turbine
  *
@@ -67,6 +70,14 @@ public:
                                LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
+
+  /// Access conversion-rate constraint row indices for a (scenario, stage)
+  [[nodiscard]] auto conversion_rows_at(const ScenarioLP& scenario,
+                                        const StageLP& stage) const
+      -> const BIndexHolder<RowIndex>&
+  {
+    return conversion_rows.at({scenario.uid(), stage.uid()});
+  }
 
 private:
   OptTRealSched conversion_rate;
