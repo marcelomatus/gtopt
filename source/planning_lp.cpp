@@ -7,6 +7,7 @@
  *
  */
 
+#include <filesystem>
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
@@ -57,9 +58,14 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 {
   for (auto&& [phase_index, system_sp] : enumerate<PhaseIndex>(phase_systems)) {
     if (auto result = system_sp.resolve(lp_opts); !result) {
-      // On error, write the problematic model to a file for debugging
+      // On error, write the problematic model to the log directory for
+      // debugging
+      const auto log_dir = m_options_.log_directory();
+      std::filesystem::create_directories(log_dir);
       const auto filename =
-          std::format("error_{}_{}", scene_index, phase_index);
+          (std::filesystem::path(log_dir)
+           / std::format("error_{}_{}", scene_index, phase_index))
+              .string();
       system_sp.write_lp(filename);
 
       auto error = std::move(result.error());
@@ -94,7 +100,8 @@ auto PlanningLP::resolve(const SolverOptions& lp_opts)
 {
   auto solver = make_planning_solver(m_options_.solver_type(),
                                      m_options_.cut_sharing_mode(),
-                                     m_options_.cut_directory());
+                                     m_options_.cut_directory(),
+                                     m_options_.log_directory());
   return solver->solve(*this, lp_opts);
 }
 
