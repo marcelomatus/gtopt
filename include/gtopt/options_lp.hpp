@@ -263,6 +263,10 @@ public:
   static constexpr auto default_solver_type = "monolithic";
   /** @brief Default cut sharing mode for SDDP */
   static constexpr auto default_cut_sharing_mode = "none";
+  /** @brief Default directory for Benders cut files */
+  static constexpr auto default_cut_directory = "cuts";
+  /** @brief Default directory for log/trace files */
+  static constexpr auto default_log_directory = "logs";
 
   /**
    * @brief Gets the solver type, using default if not set
@@ -280,6 +284,24 @@ public:
   [[nodiscard]] constexpr auto cut_sharing_mode() const
   {
     return m_options_.cut_sharing_mode.value_or(default_cut_sharing_mode);
+  }
+
+  /**
+   * @brief Gets the cut directory for SDDP cut files, using default if not set
+   * @return The cut directory path
+   */
+  [[nodiscard]] constexpr auto cut_directory() const
+  {
+    return m_options_.cut_directory.value_or(default_cut_directory);
+  }
+
+  /**
+   * @brief Gets the log directory for log/trace files, using default if not set
+   * @return The log directory path
+   */
+  [[nodiscard]] constexpr auto log_directory() const
+  {
+    return m_options_.log_directory.value_or(default_log_directory);
   }
 
 private:

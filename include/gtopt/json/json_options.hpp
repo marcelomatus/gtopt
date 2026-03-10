@@ -43,7 +43,12 @@ struct json_data_contract<Options>
 
                        json_number_null<"lp_algorithm", OptInt>,
                        json_number_null<"lp_threads", OptInt>,
-                       json_bool_null<"lp_presolve", OptBool> >;
+                       json_bool_null<"lp_presolve", OptBool>,
+
+                       json_string_null<"solver_type", OptName>,
+                       json_string_null<"cut_sharing_mode", OptName>,
+                       json_string_null<"cut_directory", OptName>,
+                       json_string_null<"log_directory", OptName> >;
 
   constexpr static auto to_json_data(Options const& opt)
   {
@@ -68,7 +73,12 @@ struct json_data_contract<Options>
 
                                  opt.lp_algorithm,
                                  opt.lp_threads,
-                                 opt.lp_presolve);
+                                 opt.lp_presolve,
+
+                                 opt.solver_type,
+                                 opt.cut_sharing_mode,
+                                 opt.cut_directory,
+                                 opt.log_directory);
   }
 };
 

@@ -403,8 +403,10 @@ cmake --build build -j$(nproc)
 
 ### C++
 
-- **Standard**: C++26 (`CMAKE_CXX_STANDARD 26`). C++23 features are used throughout;
-  C++26 features added as compiler support matures (Clang 21).
+- **Standard**: C++26 (`CMAKE_CXX_STANDARD 26`). **Always use modern C++26**
+  features when writing new code: `std::format`, `std::ranges`, `std::expected`,
+  `std::flat_map`, `std::mdspan`, concepts, designated initializers, structured
+  bindings, `constexpr` containers, etc.  Clang 21 is the required compiler.
 - **Compiler flags**: `-Wall -Wpedantic -Wextra -Werror` on all platforms.
 - **Indentation**: 2 spaces (`.clang-format`, `IndentWidth: 2`)
 - **Column limit**: 80 characters
@@ -616,7 +618,10 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
    on anonymous `namespace` blocks in `.hpp` test files.
 9. Do NOT add `#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` (already in `test/source/main.cpp`).
 10. Use `[[maybe_unused]]` for loop variables used only for side-effects.
-11. Use C++23/26 features freely: `std::format`, `std::ranges`, designated initializers, etc.
+11. **Always use modern C++26** features: `std::format`, `std::ranges`,
+    `std::expected`, `std::flat_map`, `std::mdspan`, concepts with `requires`,
+    designated initializers, structured bindings, `constexpr` containers,
+    `auto` return types, etc.  The project targets C++26 and Clang 21.
 12. **Always add a trailing comma** to the last element of every brace-initializer list
     (member initializers, aggregate initializers, initializer-list arguments) to satisfy
     `readability-trailing-comma`.
