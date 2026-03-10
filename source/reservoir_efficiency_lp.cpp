@@ -75,7 +75,7 @@ bool ReservoirEfficiencyLP::add_to_output(
 auto ReservoirEfficiencyLP::update_conversion_coeff(LinearInterface& li,
                                                     ScenarioUid suid,
                                                     StageUid tuid,
-                                                    Real volume) -> int
+                                                    Real volume) const -> int
 {
   if (!has_coeff_indices(suid, tuid)) {
     return 0;
