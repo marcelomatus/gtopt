@@ -1027,6 +1027,48 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   m_current_ub_.store(0.0);
   m_converged_.store(false);
 
+  // ── Monitoring API setup ──
+  const auto solve_start = std::chrono::steady_clock::now();
+
+  // Determine the status file path
+  const std::string status_file = m_options_.api_status_file;
+
+  // Background thread: periodically samples workpool statistics and appends
+  // them to m_realtime_history_ so that write_api_status() can include them.
+  std::jthread monitoring_thread;
+  if (m_options_.enable_api && !status_file.empty()) {
+    // Clear old history
+    {
+      const std::lock_guard lock(m_realtime_mutex_);
+      m_realtime_history_.clear();
+    }
+
+    monitoring_thread = std::jthread {
+        [this, &pool, &solve_start](const std::stop_token& stoken)
+        {
+#ifdef __linux__
+          pthread_setname_np(pthread_self(), "SDDPMonitor");
+#endif
+          while (!stoken.stop_requested()) {
+            const auto now = std::chrono::steady_clock::now();
+            const double elapsed =
+                std::chrono::duration<double>(now - solve_start).count();
+
+            const auto stats = pool.get_statistics();
+            {
+              const std::lock_guard lock(m_realtime_mutex_);
+              m_realtime_history_.push_back(MonitorPoint {
+                  .timestamp = elapsed,
+                  .cpu_load = stats.current_cpu_load,
+                  .active_workers = stats.active_threads,
+              });
+            }
+
+            std::this_thread::sleep_for(m_options_.api_update_interval);
+          }
+        }};
+  }
+
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
     // ── Check all stop conditions (sentinel, programmatic, callback) ──
     if (should_stop()) {
@@ -1053,6 +1095,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     double total_upper = 0.0;
     int scenes_solved = 0;
     std::vector<uint8_t> scene_feasible(num_scenes, 1);
+    ir.scene_upper_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
       auto fwd = fwd_futures[si].get();
       if (!fwd.has_value()) {
@@ -1063,11 +1106,13 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         scene_feasible[si] = 0;
         continue;
       }
+      ir.scene_upper_bounds[si] = *fwd;
       total_upper += *fwd;
       ++scenes_solved;
     }
 
     if (scenes_solved == 0) {
+      monitoring_thread.request_stop();
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = "SDDP: all scenes infeasible in forward pass",
@@ -1077,14 +1122,17 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Lower bound = average of phase 0 objectives across feasible scenes ──
     double total_lower = 0.0;
+    ir.scene_lower_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
       if (!scene_feasible[si]) {
         continue;
       }
-      total_lower += planning_lp()
-                         .system(SceneIndex {si}, PhaseIndex {0})
-                         .linear_interface()
-                         .get_obj_value();
+      const double lb_si = planning_lp()
+                               .system(SceneIndex {si}, PhaseIndex {0})
+                               .linear_interface()
+                               .get_obj_value();
+      ir.scene_lower_bounds[si] = lb_si;
+      total_lower += lb_si;
     }
     ir.lower_bound = total_lower / static_cast<double>(scenes_solved);
 
@@ -1181,6 +1229,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     results.push_back(ir);
 
+    // ── Write monitoring API status file ──
+    if (m_options_.enable_api && !status_file.empty()) {
+      const auto now = std::chrono::steady_clock::now();
+      const double elapsed =
+          std::chrono::duration<double>(now - solve_start).count();
+      write_api_status(status_file, results, elapsed);
+    }
+
     // ── Save cuts incrementally after each iteration ──
     if (!m_options_.cuts_output_file.empty()) {
       // Save combined cuts to the main file
@@ -1234,6 +1290,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       break;
     }
   }
+
+  // Stop the monitoring thread before returning (jthread auto-joins on
+  // destruction, but request_stop() allows the thread to exit promptly).
+  monitoring_thread.request_stop();
 
   return results;
 }
