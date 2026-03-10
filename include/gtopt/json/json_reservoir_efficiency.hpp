@@ -36,7 +36,8 @@ struct json_data_contract<ReservoirEfficiency>
                        json_number_null<"mean_efficiency", Real>,
                        json_array_null<"segments",
                                        std::vector<EfficiencySegment>,
-                                       EfficiencySegment>>;
+                                       EfficiencySegment>,
+                       json_number_null<"sddp_efficiency_update_skip", OptInt>>;
 
   static constexpr auto to_json_data(ReservoirEfficiency const& re)
   {
@@ -46,7 +47,8 @@ struct json_data_contract<ReservoirEfficiency>
                                  re.turbine,
                                  re.reservoir,
                                  re.mean_efficiency,
-                                 re.segments);
+                                 re.segments,
+                                 re.sddp_efficiency_update_skip);
   }
 };
 

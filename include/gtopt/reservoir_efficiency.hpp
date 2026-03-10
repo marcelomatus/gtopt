@@ -84,6 +84,11 @@ struct ReservoirEfficiency
 
   std::vector<EfficiencySegment>
       segments {};  ///< Piecewise-linear segments (slopes in decreasing order)
+
+  /// Per-element override for the number of SDDP iterations to skip between
+  /// efficiency coefficient updates.  When not set, falls back to the global
+  /// `sddp_options.sddp_efficiency_update_skip` option.
+  OptInt sddp_efficiency_update_skip {};
 };
 
 /**

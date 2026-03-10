@@ -232,7 +232,7 @@ inline void apply_cli_options(
   }
 
   if (cut_directory) {
-    planning.options.cut_directory = cut_directory.value();
+    planning.options.sddp_options.sddp_cut_directory = cut_directory.value();
   }
 
   if (log_directory) {
