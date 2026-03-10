@@ -260,19 +260,19 @@ inline void apply_cli_options(
   }
 
   if (sddp_max_iterations) {
-    planning.options.sddp_max_iterations = sddp_max_iterations;
+    planning.options.sddp_options.sddp_max_iterations = sddp_max_iterations;
   }
 
   if (sddp_convergence_tol) {
-    planning.options.sddp_convergence_tol = sddp_convergence_tol;
+    planning.options.sddp_options.sddp_convergence_tol = sddp_convergence_tol;
   }
 
   if (sddp_elastic_penalty) {
-    planning.options.sddp_elastic_penalty = sddp_elastic_penalty;
+    planning.options.sddp_options.sddp_elastic_penalty = sddp_elastic_penalty;
   }
 
   if (sddp_elastic_mode) {
-    planning.options.sddp_elastic_mode = sddp_elastic_mode.value();
+    planning.options.sddp_options.sddp_elastic_mode = sddp_elastic_mode.value();
   }
 }
 

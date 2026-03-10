@@ -148,6 +148,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 
     // Advanced tuning
     sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
+    sddp_opts.elastic_filter_mode =
+        parse_elastic_filter_mode(options.sddp_elastic_mode());
     sddp_opts.alpha_min = options.sddp_alpha_min();
     sddp_opts.alpha_max = options.sddp_alpha_max();
 
@@ -183,10 +185,11 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 
   // Default: monolithic
   auto solver = std::make_unique<MonolithicSolver>();
-  if (enable_api && !api_output_dir.empty()) {
+  const auto output_dir_m = options.output_directory();
+  if (options.sddp_api_enabled() && !output_dir_m.empty()) {
     solver->enable_api = true;
     solver->api_status_file =
-        (std::filesystem::path(api_output_dir) / "monolithic_status.json")
+        (std::filesystem::path(output_dir_m) / "monolithic_status.json")
             .string();
   }
   return solver;
