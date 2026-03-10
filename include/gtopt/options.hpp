@@ -107,6 +107,11 @@ struct Options
   /** @brief Directory for log and trace files (default: `"logs"`) */
   OptName log_directory {};
 
+  // ── SDDP monitoring API ────────────────────────────────────────────────────
+  /** @brief Enable the SDDP monitoring API (writes JSON status file each
+   * iteration; default: true) */
+  OptBool sddp_api_enabled {};
+
   void merge(Options&& opts)
   {
     // Merge input-related options (always moving string values)
@@ -142,6 +147,7 @@ struct Options
     merge_opt(cut_sharing_mode, std::move(opts.cut_sharing_mode));
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(log_directory, std::move(opts.log_directory));
+    merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
 
     auto _ = std::move(opts);
   }

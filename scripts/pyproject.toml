@@ -35,6 +35,7 @@ igtopt             = "igtopt.igtopt:main"
 plp2gtopt          = "plp2gtopt.main:main"
 pp2gtopt           = "pp2gtopt.main:main"
 ts2gtopt           = "ts2gtopt.main:main"
+sddp-monitor       = "sddp_monitor:main"
 
 
 [project.optional-dependencies]
@@ -58,7 +59,7 @@ where = ["."]
 include = ["gtopt_compare*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
 
 [tool.setuptools]
-py-modules = ["gtopt_diagram", "gtopt_field_extractor"]
+py-modules = ["gtopt_diagram", "gtopt_field_extractor", "sddp_monitor"]
 
 
 # ---------------------------------------------------------------------------

@@ -89,12 +89,16 @@ public:
  * @param cut_sharing_mode "none", "expected", or "max" (for SDDP)
  * @param cut_directory Directory for Benders cut files (for SDDP)
  * @param log_directory Directory for log and error LP files (for SDDP)
+ * @param enable_api Enable the SDDP monitoring API (default: true)
+ * @param api_output_dir Base directory for the JSON status file (for SDDP)
  * @return Unique pointer to the selected solver
  */
 [[nodiscard]] std::unique_ptr<PlanningSolver> make_planning_solver(
     std::string_view solver_type,
     std::string_view cut_sharing_mode = "none",
     std::string_view cut_directory = "cuts",
-    std::string_view log_directory = "logs");
+    std::string_view log_directory = "logs",
+    bool enable_api = true,
+    std::string_view api_output_dir = "output");
 
 }  // namespace gtopt
