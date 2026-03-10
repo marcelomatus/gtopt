@@ -219,8 +219,8 @@ void LinearInterface::set_coeff(const RowIndex row,
     clp_solver->modifyCoefficient(r, c, value, false);
   } else {
     SPDLOG_WARN(
-        "set_coeff: underlying solver does not support "
-        "modifyCoefficient");
+        "set_coeff: underlying CBC solver's real solver "
+        "is not OsiClpSolverInterface — cannot modify coefficient");
   }
 #elif defined(COIN_USE_CPX)
   // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef

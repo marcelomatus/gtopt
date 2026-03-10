@@ -311,7 +311,8 @@ void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
   // iteration), use the reservoir's static eini value.  For subsequent
   // iterations at phase > 0, use the previous phase's solved efin column
   // value which has been propagated into eini via state variable coupling.
-  auto get_reservoir_volume = [&](const ReservoirLPSId& rsid) -> Real
+  auto get_reservoir_volume =
+      [&sys, phase, iteration](const ReservoirLPSId& rsid) -> Real
   {
     const auto& rsv = sys.element<ReservoirLP>(rsid);
 
