@@ -158,8 +158,11 @@ private:
  *    that has a `ReservoirEfficiency` element, using the current reservoir
  *    volume to evaluate the piecewise-linear efficiency curve.
  *
- * 2. **Filtration** — calls FiltrationLP::update_lp() (currently a no-op
- *    but provided for interface consistency).
+ * 2. **Filtration** — calls FiltrationLP::update_lp() which, when the
+ *    Filtration has piecewise-linear segments, selects the active segment
+ *    based on the reservoir's current volume and updates the constraint
+ *    slope coefficient and RHS.  Only dispatches set_coeff/set_rhs calls
+ *    when the new value differs from the previously stored one.
  *
  * Future extensions (linearised losses, etc.) can be added in the
  * TurbineLP::update_lp or FiltrationLP::update_lp methods.
