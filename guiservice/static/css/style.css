@@ -773,6 +773,20 @@ button {
 
 /* ── Solver monitoring ─────────────────────────────────────────────────────── */
 
+.btn-warning {
+  background: #e67e22;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background 0.15s;
+  margin-right: 6px;
+}
+.btn-warning:hover { background: #ca6f1e; }
+
 .btn-danger {
   background: #e74c3c;
   color: #fff;

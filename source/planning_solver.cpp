@@ -166,16 +166,22 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
       sddp_opts.cuts_input_file = cuts_input;
     }
 
-    // Sentinel
+    // Sentinel: use user-configured path if provided, otherwise always set
+    // a default path in the output directory so the webservice stop endpoint
+    // can trigger a graceful stop by creating sddp_file::stop_sentinel there.
     const auto sentinel = options.sddp_sentinel_file();
+    const auto output_dir = options.output_directory();
     if (!sentinel.empty()) {
       sddp_opts.sentinel_file = sentinel;
+    } else if (!output_dir.empty()) {
+      sddp_opts.sentinel_file =
+          (std::filesystem::path(output_dir) / sddp_file::stop_sentinel)
+              .string();
     }
 
     // Logging and API
     sddp_opts.log_directory = std::string(options.log_directory());
     sddp_opts.enable_api = options.sddp_api_enabled();
-    const auto output_dir = options.output_directory();
     if (!output_dir.empty()) {
       sddp_opts.api_status_file =
           (std::filesystem::path(output_dir) / "sddp_status.json").string();

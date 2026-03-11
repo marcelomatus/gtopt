@@ -239,7 +239,12 @@
           <p id="solverStatusText"></p>
         </div>
         <div id="solverControls" style="display:none">
-          <button class="btn-danger" onclick="stopCurrentJob()" id="btnStopJob">⏹ Stop Job</button>
+          <button class="btn-warning" onclick="stopCurrentJob('soft')" id="btnStopJob"
+            title="Finish the current iteration, save cuts, then stop"
+            aria-label="Soft stop: finish current iteration and save cuts">⏹ Soft Stop</button>
+          <button class="btn-danger" onclick="stopCurrentJob('force')" id="btnForceStopJob"
+            title="Send SIGTERM immediately (cuts may not be saved)"
+            aria-label="Force stop: send SIGTERM immediately">✖ Force Stop</button>
         </div>
         <div id="solverActions" style="display:none">
           <button class="primary" onclick="loadSolverResults()">Load Results</button>

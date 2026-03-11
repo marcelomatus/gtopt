@@ -2415,7 +2415,8 @@ class TestSolveStop:
     def test_stop_success(self, mock_post, client):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
-            "message": "Stop signal sent to job process",
+            "mode": "soft",
+            "message": "Sentinel file created — solver will stop gracefully after the current iteration",
             "stopped": True,
         }
         mock_resp.raise_for_status.return_value = None
@@ -2424,6 +2425,27 @@ class TestSolveStop:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["stopped"] is True
+        # Verify the mode=soft param is forwarded to the webservice
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs.get("params", {}).get("mode") == "soft"
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_force_mode(self, mock_post, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "mode": "force",
+            "message": "SIGTERM sent to job process",
+            "stopped": True,
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        resp = client.post("/api/solve/stop/tok-1?mode=force")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["stopped"] is True
+        # Verify the mode=force param is forwarded
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs.get("params", {}).get("mode") == "force"
 
     @patch("guiservice.app.http_requests.post")
     def test_stop_not_running(self, mock_post, client):

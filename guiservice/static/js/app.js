@@ -872,16 +872,23 @@ async function pollStatus() {
 // Stop job
 // ---------------------------------------------------------------------------
 
-async function stopCurrentJob() {
+async function stopCurrentJob(mode) {
   if (!solverJobId) return;
-  if (!confirm("Stop the running solver job?")) return;
+  const isSoft = mode === "soft";
+  const confirmMsg = isSoft
+    ? "Request a graceful stop? The SDDP solver will finish the current iteration and save cuts before stopping."
+    : "Force-stop the job immediately? This sends SIGTERM and cuts will NOT be saved.";
+  if (!confirm(confirmMsg)) return;
+  const params = new URLSearchParams({ mode: isSoft ? "soft" : "force" });
+  const url = `/api/solve/stop/${encodeURIComponent(solverJobId)}?${params}`;
   try {
-    const resp = await fetch(`/api/solve/stop/${encodeURIComponent(solverJobId)}`, {
-      method: "POST",
-    });
+    const resp = await fetch(url, { method: "POST" });
     const data = await resp.json();
     if (resp.ok) {
-      setSolverStatus("Stop signal sent. Waiting for job to finish…");
+      const msg = isSoft
+        ? "Graceful stop requested — solver will finish the current iteration…"
+        : "Force-stop signal sent. Waiting for job to terminate…";
+      setSolverStatus(msg);
     } else {
       alert("Stop failed: " + (data.error || "Unknown error"));
     }

@@ -217,7 +217,40 @@ export async function runGtopt(token: string): Promise<void> {
 }
 
 /**
- * Stop a running job by sending SIGTERM to its child process.
+ * The sentinel file name that the SDDP solver polls for graceful stop.
+ * Must match `sddp_file::stop_sentinel` in include/gtopt/sddp_solver.hpp.
+ */
+export const SDDP_STOP_SENTINEL = "sddp_stop";
+
+/**
+ * Soft-stop a running SDDP job by creating the sentinel file in the job's
+ * output directory.  The SDDP solver checks for this file at the start of
+ * each iteration; when found it finishes the iteration, saves all accumulated
+ * Benders cuts, and returns normally.
+ *
+ * Returns true if the sentinel file was written, false if the output directory
+ * does not exist yet (job may not have started).
+ */
+export async function softStopJob(token: string): Promise<boolean> {
+  const outputDir = getJobOutputDir(token);
+  const sentinelPath = path.join(outputDir, SDDP_STOP_SENTINEL);
+  try {
+    // Ensure the output directory exists before writing
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(sentinelPath, `stop requested at ${new Date().toISOString()}\n`);
+    // Note: the SDDP solver only checks file existence, not content.
+    // The timestamp string is written purely as a human-readable marker for debugging.
+    log.info(`Job ${token}: created SDDP sentinel file at ${sentinelPath}`);
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn(`Job ${token}: could not create sentinel file ${sentinelPath}: ${msg}`);
+    return false;
+  }
+}
+
+/**
+ * Stop a running job by sending SIGTERM to its child process (hard stop).
  * Returns true if a signal was sent, false if the job was not running.
  */
 export async function stopJob(token: string): Promise<boolean> {
