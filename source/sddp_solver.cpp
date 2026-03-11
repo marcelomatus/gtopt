@@ -62,187 +62,9 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 }
 
 // ─── Free-function building blocks ──────────────────────────────────────────
+// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
 
-void propagate_trial_values(std::span<StateVarLink> links,
-                            std::span<const double> source_solution,
-                            LinearInterface& target_li) noexcept
-{
-  for (auto& link : links) {
-    link.trial_value = source_solution[link.source_col];
-    target_li.set_col_low(link.dependent_col, link.trial_value);
-    target_li.set_col_upp(link.dependent_col, link.trial_value);
-  }
-}
-
-auto build_benders_cut(ColIndex alpha_col,
-                       std::span<const StateVarLink> links,
-                       std::span<const double> reduced_costs,
-                       double objective_value,
-                       std::string_view name) -> SparseRow
-{
-  auto row = SparseRow {
-      .name = std::string(name),
-      .lowb = objective_value,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha_col] = 1.0;
-
-  for (const auto& link : links) {
-    const auto rc = reduced_costs[link.dependent_col];
-    row[link.source_col] = -rc;
-    row.lowb -= rc * link.trial_value;
-  }
-
-  return row;
-}
-
-RelaxedVarInfo relax_fixed_state_variable(LinearInterface& li,
-                                          const StateVarLink& link,
-                                          [[maybe_unused]] PhaseIndex phase,
-                                          double penalty)
-{
-  const auto dep = link.dependent_col;
-  const auto lo = li.get_col_low()[dep];
-  const auto hi = li.get_col_upp()[dep];
-
-  if (std::abs(lo - hi) >= 1e-10) {
-    return {};
-  }
-
-  // Relax to the physical bounds captured from the source column
-  li.set_col_low(dep, link.source_low);
-  li.set_col_upp(dep, link.source_upp);
-
-  // Penalised slack variables: up (overshoot) and dn (undershoot)
-  const auto sup = li.add_col({}, 0.0, LinearProblem::DblMax);
-  li.set_obj_coeff(sup, penalty);
-
-  const auto sdn = li.add_col({}, 0.0, LinearProblem::DblMax);
-  li.set_obj_coeff(sdn, penalty);
-
-  // dep + sup − sdn = trial_value
-  auto elastic = SparseRow {
-      .name = {},
-      .lowb = link.trial_value,
-      .uppb = link.trial_value,
-  };
-  elastic[dep] = 1.0;
-  elastic[sup] = 1.0;
-  elastic[sdn] = -1.0;
-
-  li.add_row(elastic);
-
-  SPDLOG_TRACE(
-      "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
-      "(source bounds from phase {})",
-      static_cast<Index>(phase),
-      static_cast<Index>(dep),
-      link.source_low,
-      link.source_upp,
-      static_cast<Index>(link.source_phase));
-
-  return RelaxedVarInfo {
-      .relaxed = true,
-      .sup_col = sup,
-      .sdn_col = sdn,
-  };
-}
-
-auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                         std::string_view name) -> SparseRow
-{
-  if (cuts.empty()) {
-    return {};
-  }
-  if (cuts.size() == 1) {
-    auto result = cuts.front();
-    result.name = std::string(name);
-    return result;
-  }
-
-  const auto n = static_cast<double>(cuts.size());
-
-  // Collect all column indices that appear in any cut
-  flat_map<ColIndex, double> avg_coeffs;
-  double avg_rhs = 0.0;
-
-  for (const auto& cut : cuts) {
-    avg_rhs += cut.lowb;
-    for (const auto& [col, coeff] : cut.cmap) {
-      avg_coeffs[col] += coeff;
-    }
-  }
-
-  auto result = SparseRow {
-      .name = std::string(name),
-      .lowb = avg_rhs / n,
-      .uppb = LinearProblem::DblMax,
-  };
-
-  for (const auto& [col, total_coeff] : avg_coeffs) {
-    result[col] = total_coeff / n;
-  }
-
-  return result;
-}
-
-auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
-                                  const std::vector<double>& weights,
-                                  std::string_view name) -> SparseRow
-{
-  if (cuts.empty()) {
-    return {};
-  }
-  if (cuts.size() != weights.size()) {
-    SPDLOG_WARN(
-        "weighted_average_benders_cut: cuts.size()={} != weights.size()={}, "
-        "returning empty cut",
-        cuts.size(),
-        weights.size());
-    return {};
-  }
-
-  // Compute the total weight for normalisation
-  double total_weight = 0.0;
-  for (const double w : weights) {
-    total_weight += w;
-  }
-
-  if (total_weight <= 0.0) {
-    return {};
-  }
-
-  // Single-cut shortcut (avoid unnecessary work)
-  if (cuts.size() == 1) {
-    auto result = cuts.front();
-    result.name = std::string(name);
-    return result;
-  }
-
-  flat_map<ColIndex, double> avg_coeffs;
-  double avg_rhs = 0.0;
-
-  for (std::size_t i = 0; i < cuts.size(); ++i) {
-    const auto& cut = cuts[i];
-    const double w = weights[i] / total_weight;
-    avg_rhs += w * cut.lowb;
-    for (const auto& [col, coeff] : cut.cmap) {
-      avg_coeffs[col] += w * coeff;
-    }
-  }
-
-  auto result = SparseRow {
-      .name = std::string(name),
-      .lowb = avg_rhs,
-      .uppb = LinearProblem::DblMax,
-  };
-
-  for (const auto& [col, coeff] : avg_coeffs) {
-    result[col] = coeff;
-  }
-
-  return result;
-}
+// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
@@ -332,41 +154,24 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
     return std::nullopt;
   }
 
-  auto& li = planning_lp().system(scene, phase).linear_interface();
+  const auto& li = planning_lp().system(scene, phase).linear_interface();
   const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
   const auto& prev_state = m_scene_phase_states_[scene][prev];
 
-  // Clone the LP – modifications to the clone don't touch the original
-  auto cloned = li.clone();
+  // Delegate to the standalone elastic_filter_solve() from benders_cut.hpp
+  auto result = elastic_filter_solve(
+      li, prev_state.outgoing_links, m_options_.elastic_penalty, opts);
 
-  ElasticResult result;
-  result.link_infos.reserve(prev_state.outgoing_links.size());
-
-  bool modified = false;
-  for (const auto& link : prev_state.outgoing_links) {
-    auto info = relax_fixed_state_variable(
-        cloned, link, phase, m_options_.elastic_penalty);
-    modified |= info.relaxed;
-    result.link_infos.push_back(info);
-  }
-
-  if (!modified) {
-    return std::nullopt;
-  }
-
-  // Solve the clone with elastic slack variables
-  auto r = cloned.resolve(opts);
-  if (r.has_value() && cloned.is_optimal()) {
+  if (result.has_value()) {
     SPDLOG_TRACE(
         "SDDP elastic: scene {} phase {} solved via clone "
         "(obj={:.4f})",
         scene,
         phase,
-        cloned.get_obj_value());
-    result.clone = std::move(cloned);
-    return result;
+        result->clone.get_obj_value());
   }
-  return std::nullopt;
+
+  return result;
 }
 
 bool SDDPSolver::check_sentinel_stop() const
@@ -651,8 +456,6 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
 
                 // multi-cut: also add one bound-constraint cut per
                 // state variable whose elastic slack was activated.
-                // The cut implements the bound constraint as a linear
-                // row using the non-zero slack variable solution value.
                 // Auto-switch to multi-cut when:
                 //   threshold == 0 (always), OR
                 //   threshold > 0 and counter > threshold.
@@ -664,81 +467,20 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                             > m_options_.multi_cut_threshold);
 
                 if (use_multi_cut) {
-                  const auto& dep_sol = elastic_result->clone.get_col_sol();
-                  const auto& links = prev_state.outgoing_links;
-                  const auto& link_infos = elastic_result->link_infos;
-                  // link_infos has exactly one entry per outgoing link
-                  // (built in elastic_solve() from the same link vector).
-                  const std::size_t nlinks = links.size();
+                  auto mc_cuts = build_multi_cuts(*elastic_result,
+                                                  prev_state.outgoing_links,
+                                                  sddp_label("sddp",
+                                                             "multi-cut",
+                                                             "sc",
+                                                             scene,
+                                                             "ph",
+                                                             back_pi,
+                                                             "n",
+                                                             total_cuts));
 
-                  // Minimum slack magnitude to consider a slack "active"
-                  static constexpr double kActiveSlackTol = 1e-6;
-
-                  for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
-                    const auto& info = link_infos[li_idx];
-                    if (!info.relaxed) {
-                      continue;
-                    }
-                    const auto& link = links[li_idx];
-                    const double dep_val = dep_sol[link.dependent_col];
-
-                    // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
-                    if (info.sup_col != ColIndex {unknown_index}) {
-                      const double sup_val = dep_sol[info.sup_col];
-                      if (sup_val > kActiveSlackTol) {
-                        auto ub_cut = SparseRow {
-                            .name = sddp_label("sddp",
-                                               "multi-cut-ub",
-                                               "sc",
-                                               scene,
-                                               "ph",
-                                               back_pi,
-                                               "n",
-                                               total_cuts),
-                            .lowb = -LinearProblem::DblMax,
-                            .uppb = dep_val,
-                        };
-                        ub_cut[link.source_col] = 1.0;
-                        prev_li.add_row(ub_cut);
-                        ++total_cuts;
-                        SPDLOG_TRACE(
-                            "SDDP backward (multi-cut): scene {} phase {} "
-                            "added UB cut source_col≤{:.4f} (sup={:.4f})",
-                            scene,
-                            prev_bp,
-                            dep_val,
-                            sup_val);
-                      }
-                    }
-
-                    // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
-                    if (info.sdn_col != ColIndex {unknown_index}) {
-                      const double sdn_val = dep_sol[info.sdn_col];
-                      if (sdn_val > kActiveSlackTol) {
-                        auto lb_cut = SparseRow {
-                            .name = sddp_label("sddp",
-                                               "multi-cut-lb",
-                                               "sc",
-                                               scene,
-                                               "ph",
-                                               back_pi,
-                                               "n",
-                                               total_cuts),
-                            .lowb = dep_val,
-                            .uppb = LinearProblem::DblMax,
-                        };
-                        lb_cut[link.source_col] = 1.0;
-                        prev_li.add_row(lb_cut);
-                        ++total_cuts;
-                        SPDLOG_TRACE(
-                            "SDDP backward (multi-cut): scene {} phase {} "
-                            "added LB cut source_col≥{:.4f} (sdn={:.4f})",
-                            scene,
-                            prev_bp,
-                            dep_val,
-                            sdn_val);
-                      }
-                    }
+                  for (auto& mc : mc_cuts) {
+                    prev_li.add_row(mc);
+                    ++total_cuts;
                   }
                 }
               }
@@ -1168,6 +910,11 @@ void SDDPSolver::write_api_status(
     json += std::format("      \"converged\": {},\n",
                         r.converged ? "true" : "false");
     json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
+    json +=
+        std::format("      \"forward_pass_s\": {:.4f},\n", r.forward_pass_s);
+    json +=
+        std::format("      \"backward_pass_s\": {:.4f},\n", r.backward_pass_s);
+    json += std::format("      \"iteration_s\": {:.4f},\n", r.iteration_s);
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
@@ -1291,15 +1038,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   }
 
   // Set up work pool for parallel scene processing
-  WorkPoolConfig pool_config {};
-  const double cpu_factor = 1.25;
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
-
-  AdaptiveWorkPool pool(pool_config);
-  pool.start();
+  auto pool = make_solver_work_pool();
 
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
@@ -1320,10 +1059,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // Start the background monitoring thread via SolverMonitor (local, RAII)
   SolverMonitor monitor(m_options_.api_update_interval);
   if (m_options_.enable_api && !status_file.empty()) {
-    monitor.start(pool, solve_start, "SDDPMonitor");
+    monitor.start(*pool, solve_start, "SDDPMonitor");
   }
 
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
+    const auto iter_start = std::chrono::steady_clock::now();
+
     // ── Check all stop conditions (sentinel, programmatic, callback) ──
     if (should_stop()) {
       SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
@@ -1336,13 +1077,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     };
 
     // ── Forward pass for all scenes (parallel) ──
+    const auto fwd_start = std::chrono::steady_clock::now();
     std::vector<std::future<std::expected<double, Error>>> fwd_futures;
     fwd_futures.reserve(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
-      auto fut = pool.submit([this, scene, iter, &lp_opts]
-                             { return forward_pass(scene, iter, lp_opts); });
+      auto fut = pool->submit([this, scene, iter, &lp_opts]
+                              { return forward_pass(scene, iter, lp_opts); });
       fwd_futures.push_back(std::move(fut.value()));
     }
 
@@ -1362,6 +1104,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       ir.scene_upper_bounds[si] = *fwd;
       ++scenes_solved;
     }
+    ir.forward_pass_s = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - fwd_start)
+                            .count();
 
     if (scenes_solved == 0) {
       monitor.stop();
@@ -1433,6 +1178,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.lower_bound = weighted_lower;
 
     // ── Backward pass for all scenes (parallel) ──
+    const auto bwd_start = std::chrono::steady_clock::now();
     // Collect cuts per scene per phase for sharing
     using phase_cuts_t = StrongIndexVector<SceneIndex, std::vector<SparseRow>>;
     std::vector<phase_cuts_t> per_phase_scene_cuts(num_phases);
@@ -1448,8 +1194,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         continue;  // Skip infeasible scenes in backward pass
       }
       const auto scene = SceneIndex {si};
-      auto fut = pool.submit([this, scene, &lp_opts]
-                             { return backward_pass(scene, lp_opts); });
+      auto fut = pool->submit([this, scene, &lp_opts]
+                              { return backward_pass(scene, lp_opts); });
       bwd_futures.push_back(std::move(fut.value()));
     }
 
@@ -1465,6 +1211,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       total_cuts += *bwd;
     }
     ir.cuts_added = total_cuts;
+    ir.backward_pass_s = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - bwd_start)
+                             .count();
+    ir.iteration_s = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - iter_start)
+                         .count();
 
     // ── Cut sharing between scenes ──
     if (m_options_.cut_sharing != CutSharingMode::None && num_scenes > 1) {
@@ -1508,19 +1260,24 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     m_converged_.store(ir.converged);
 
     SPDLOG_TRACE(
-        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={}{}",
+        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={} "
+        "fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
         iter,
         ir.lower_bound,
         ir.upper_bound,
         ir.gap,
         ir.cuts_added,
         num_scenes,
+        ir.forward_pass_s,
+        ir.backward_pass_s,
+        ir.iteration_s,
         ir.converged ? " [CONVERGED]" : "");
 
     // Log a brief INFO summary every iteration (non-trace)
-    SPDLOG_INFO("SDDP iter {}: gap={:.6f}{}",
+    SPDLOG_INFO("SDDP iter {}: gap={:.6f} ({:.3f}s){}",
                 iter,
                 ir.gap,
+                ir.iteration_s,
                 ir.converged ? " [CONVERGED]" : "");
 
     results.push_back(ir);
