@@ -1058,3 +1058,109 @@ def test_bat_4b_24_lmax_parquet(tmp_path):
     peak_vals = sorted(float(peak_row[c].iloc[0]) for c in dem_cols)
     assert peak_vals[0] == pytest.approx(75.0)
     assert peak_vals[1] == pytest.approx(110.0)
+
+
+# ---------------------------------------------------------------------------
+# plp_min_hydro_ms – multi-stage hydro pasada pura with 2-hydrology stochastic
+# flow. Tests that each PLP scenario maps to exactly one gtopt scene and each
+# PLP stage maps to exactly one gtopt phase.
+# ---------------------------------------------------------------------------
+
+_PLPMinHydroMs = _CASES_DIR / "plp_min_hydro_ms"
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_parse():
+    """plp_min_hydro_ms: all parsers load, 3 stages, 1 block each, 2 hydrologies."""
+    parser = PLPParser({"input_dir": _PLPMinHydroMs})
+    parser.parse_all()
+
+    assert parser.parsed_data["bus_parser"].num_buses == 1
+    assert parser.parsed_data["block_parser"].num_blocks == 3
+    assert parser.parsed_data["stage_parser"].num_stages == 3
+    assert parser.parsed_data["line_parser"].num_lines == 0
+
+    cp = parser.parsed_data["central_parser"]
+    assert cp.num_pasadas == 1
+    assert cp.num_fallas == 1
+
+    aflce = parser.parsed_data["aflce_parser"]
+    assert aflce.num_flows == 1
+    assert aflce.flows[0]["name"] == "HydroGen"
+    # flow shape: (num_blocks, num_hydrologies) = (3, 2)
+    assert aflce.flows[0]["flow"].shape == (3, 2)
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_scene_phase_structure(tmp_path):
+    """plp_min_hydro_ms: one scene per PLP scenario, one phase per PLP stage."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms")
+    opts["hydrologies"] = "0,1"
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sim = data["simulation"]
+
+    # 2 PLP scenarios → 2 gtopt scenarios with unique UIDs
+    scenarios = sim["scenario_array"]
+    assert len(scenarios) == 2
+    assert scenarios[0]["uid"] == 1
+    assert scenarios[1]["uid"] == 2
+    assert scenarios[0]["hydrology"] == 0
+    assert scenarios[1]["hydrology"] == 1
+
+    # 2 PLP scenarios → 2 gtopt scenes (one per scenario)
+    scenes = sim["scene_array"]
+    assert len(scenes) == 2
+    assert scenes[0]["uid"] == 1
+    assert scenes[0]["first_scenario"] == 0
+    assert scenes[0]["count_scenario"] == 1
+    assert scenes[1]["uid"] == 2
+    assert scenes[1]["first_scenario"] == 1
+    assert scenes[1]["count_scenario"] == 1
+
+    # 3 PLP stages → 3 gtopt stages
+    stages = sim["stage_array"]
+    assert len(stages) == 3
+
+    # 3 PLP stages → 3 gtopt phases (one per stage)
+    phases = sim["phase_array"]
+    assert len(phases) == 3
+    for i, phase in enumerate(phases):
+        assert phase["first_stage"] == i
+        assert phase["count_stage"] == 1
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_afluent_parquet(tmp_path):
+    """plp_min_hydro_ms: afluent parquet has unique scenario UIDs across 3 stages."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms")
+    opts["hydrologies"] = "0,1"
+    convert_plp_case(opts)
+
+    afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
+    assert afluent_path.exists(), "Afluent/afluent.parquet not written"
+
+    df = pd.read_parquet(afluent_path)
+    assert "scenario" in df.columns
+    assert "stage" in df.columns
+    assert "block" in df.columns
+    assert "uid:1" in df.columns  # HydroGen uid=1
+
+    # 2 scenarios × 3 blocks = 6 rows
+    assert len(df) == 6
+
+    # Scenario UIDs must be unique: 1 and 2 (not all 1)
+    assert set(df["scenario"].unique()) == {1, 2}
+
+    # Hydrology 0 (scenario 1): blocks 1,2,3 → 50/200, 55/200, 60/200
+    s1 = df[df["scenario"] == 1].sort_values("block")
+    assert s1["uid:1"].iloc[0] == pytest.approx(50.0 / 200.0)
+    assert s1["uid:1"].iloc[1] == pytest.approx(55.0 / 200.0)
+    assert s1["uid:1"].iloc[2] == pytest.approx(60.0 / 200.0)
+
+    # Hydrology 1 (scenario 2): blocks 1,2,3 → 80/200, 85/200, 90/200
+    s2 = df[df["scenario"] == 2].sort_values("block")
+    assert s2["uid:1"].iloc[0] == pytest.approx(80.0 / 200.0)
+    assert s2["uid:1"].iloc[1] == pytest.approx(85.0 / 200.0)
+    assert s2["uid:1"].iloc[2] == pytest.approx(90.0 / 200.0)

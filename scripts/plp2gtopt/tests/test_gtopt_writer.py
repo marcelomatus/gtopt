@@ -41,7 +41,7 @@ class TestGTOptWriterWithRealParser:
         assert set(result.keys()) >= {"options", "system", "simulation"}
 
     def test_to_json_simulation_has_stages_and_blocks(self, tmp_path):
-        """simulation block must contain stage_array and block_array."""
+        """simulation block must contain stage_array, block_array, phase_array, scene_array."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
@@ -52,6 +52,15 @@ class TestGTOptWriterWithRealParser:
         assert "block_array" in sim
         assert len(sim["stage_array"]) > 0
         assert len(sim["block_array"]) > 0
+        # phase_array: one phase per stage
+        assert "phase_array" in sim
+        assert len(sim["phase_array"]) == len(sim["stage_array"])
+        for i, phase in enumerate(sim["phase_array"]):
+            assert phase["first_stage"] == i
+            assert phase["count_stage"] == 1
+        # scene_array: one scene per scenario
+        assert "scene_array" in sim
+        assert len(sim["scene_array"]) == len(sim["scenario_array"])
 
     def test_to_json_system_has_generators(self, tmp_path):
         """system block must contain a non-empty generator_array."""
@@ -105,25 +114,42 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["options"]["annual_discount_rate"] == pytest.approx(0.08)
 
     def test_process_scenarios_single_hydrology(self):
-        """Single hydrology → probability_factor = 1.0."""
+        """Single hydrology → probability_factor = 1.0, unique uid=1, one scene."""
         writer = GTOptWriter(MagicMock())
         writer.process_scenarios({"hydrologies": "2", "probability_factors": None})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 1
         assert scenarios[0]["probability_factor"] == pytest.approx(1.0)
         assert scenarios[0]["hydrology"] == 2
+        assert scenarios[0]["uid"] == 1
+
+        scenes = writer.planning["simulation"]["scene_array"]
+        assert len(scenes) == 1
+        assert scenes[0]["uid"] == 1
+        assert scenes[0]["first_scenario"] == 0
+        assert scenes[0]["count_scenario"] == 1
 
     def test_process_scenarios_two_hydrologies_equal(self):
-        """Two hydrologies with no explicit weights → 0.5 each."""
+        """Two hydrologies with no explicit weights → 0.5 each, unique UIDs, 2 scenes."""
         writer = GTOptWriter(MagicMock())
         writer.process_scenarios({"hydrologies": "1,3", "probability_factors": None})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
         for s in scenarios:
             assert s["probability_factor"] == pytest.approx(0.5)
+        # UIDs must be unique 1-based
+        assert scenarios[0]["uid"] == 1
+        assert scenarios[1]["uid"] == 2
+
+        scenes = writer.planning["simulation"]["scene_array"]
+        assert len(scenes) == 2
+        assert scenes[0]["first_scenario"] == 0
+        assert scenes[1]["first_scenario"] == 1
+        assert scenes[0]["count_scenario"] == 1
+        assert scenes[1]["count_scenario"] == 1
 
     def test_process_scenarios_explicit_weights(self):
-        """Explicit probability_factors are parsed as floats."""
+        """Explicit probability_factors are parsed as floats, 3 unique UIDs, 3 scenes."""
         writer = GTOptWriter(MagicMock())
         writer.process_scenarios(
             {"hydrologies": "0,1,2", "probability_factors": "0.2,0.5,0.3"}
@@ -132,6 +158,16 @@ class TestGTOptWriterProcessMethods:
         assert len(scenarios) == 3
         assert scenarios[0]["probability_factor"] == pytest.approx(0.2)
         assert scenarios[2]["probability_factor"] == pytest.approx(0.3)
+        # Each scenario has a distinct UID
+        uids = [s["uid"] for s in scenarios]
+        assert len(uids) == len(set(uids)), "scenario UIDs must be unique"
+        assert uids == sorted(uids), "scenario UIDs must be sorted"
+
+        scenes = writer.planning["simulation"]["scene_array"]
+        assert len(scenes) == 3
+        for i, scene in enumerate(scenes):
+            assert scene["first_scenario"] == i
+            assert scene["count_scenario"] == 1
 
     def test_process_buses_empty(self):
         """process_buses handles missing bus_parser gracefully."""
