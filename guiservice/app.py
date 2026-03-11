@@ -1129,12 +1129,18 @@ def get_solve_monitor(token):
 def stop_solve(token):
     """Stop a running solver job.
 
-    Proxies to POST /api/jobs/:token/stop on the webservice which sends
-    SIGTERM to the gtopt process.
+    Proxies to POST /api/jobs/:token/stop on the webservice.
+
+    Query parameters forwarded to the webservice:
+      mode=soft  (default) — Create the SDDP sentinel file so the solver
+                  finishes the current iteration and saves cuts before stopping.
+      mode=force — Send SIGTERM to the process immediately (hard stop).
     """
+    mode = request.args.get("mode", "soft")
     try:
         resp = http_requests.post(
             f"{_webservice_url}/api/jobs/{token}/stop",
+            params={"mode": mode},
             timeout=10,
         )
         resp.raise_for_status()

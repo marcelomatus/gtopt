@@ -105,6 +105,10 @@ constexpr auto scene_cuts_fmt = "scene_{}.csv";
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// Error LP file pattern for infeasible scene/phase
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
+/// Sentinel file name: if this file exists in the output directory, the
+/// SDDP solver stops gracefully after the current iteration and saves cuts.
+/// Created externally (e.g. by the webservice stop endpoint).
+constexpr auto stop_sentinel = "sddp_stop";
 }  // namespace sddp_file
 
 // ─── Elastic filter mode ────────────────────────────────────────────────────
