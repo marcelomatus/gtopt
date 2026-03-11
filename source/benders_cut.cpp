@@ -185,7 +185,7 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
   const auto& link_infos = elastic.link_infos;
   const std::size_t nlinks = links.size();
 
-  int cut_idx = 0;
+  int cut_counter = 0;
   for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
     const auto& info = link_infos[li_idx];
     if (!info.relaxed) {
@@ -199,7 +199,7 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
       const double sup_val = dep_sol[info.sup_col];
       if (sup_val > slack_tol) {
         auto ub_cut = SparseRow {
-            .name = std::format("{}_ub_{}", name_prefix, cut_idx++),
+            .name = std::format("{}_ub_{}", name_prefix, cut_counter++),
             .lowb = -LinearProblem::DblMax,
             .uppb = dep_val,
         };
@@ -213,7 +213,7 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
       const double sdn_val = dep_sol[info.sdn_col];
       if (sdn_val > slack_tol) {
         auto lb_cut = SparseRow {
-            .name = std::format("{}_lb_{}", name_prefix, cut_idx++),
+            .name = std::format("{}_lb_{}", name_prefix, cut_counter++),
             .lowb = dep_val,
             .uppb = LinearProblem::DblMax,
         };

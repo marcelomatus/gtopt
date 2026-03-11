@@ -2584,7 +2584,7 @@ TEST_CASE(  // NOLINT
   demand[x0] = 1.0;
   demand[dep] = 1.0;
   li.add_row(demand);
-  [[maybe_unused]] auto r_ = li.resolve({});
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const std::vector<StateVarLink> links = {
       StateVarLink {
@@ -2615,7 +2615,7 @@ TEST_CASE(  // NOLINT
   demand[x0] = 1.0;
   demand[dep] = 1.0;
   li.add_row(demand);
-  [[maybe_unused]] auto r_ = li.resolve({});
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const auto alpha_col = ColIndex {10};
   const auto src = ColIndex {11};
@@ -2660,7 +2660,7 @@ TEST_CASE(  // NOLINT
   demand[x0] = 1.0;
   demand[dep] = 1.0;
   li.add_row(demand);
-  [[maybe_unused]] auto r_ = li.resolve({});
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const std::vector<StateVarLink> links = {
       StateVarLink {
@@ -2748,7 +2748,7 @@ TEST_CASE(  // NOLINT
   demand[x0] = 1.0;
   demand[dep] = 1.0;
   li.add_row(demand);
-  [[maybe_unused]] auto r_ = li.resolve({});
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
   REQUIRE(li.is_optimal());
 
   const std::vector<StateVarLink> links = {
