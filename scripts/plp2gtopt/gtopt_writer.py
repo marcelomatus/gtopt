@@ -90,8 +90,24 @@ class GTOptWriter:
             stage_parser=stage_parser, block_parser=block_parser, options=options
         ).to_json_array(stages)
 
+        # Add phase_array: one phase per PLP stage, enabling SDDP
+        # (Stochastic Dual Dynamic Programming) per-stage state variables:
+        # each PLP stage maps to exactly one gtopt phase.
+        self.planning["simulation"]["phase_array"] = [
+            {
+                "uid": i + 1,
+                "first_stage": i,
+                "count_stage": 1,
+            }
+            for i in range(len(self.planning["simulation"]["stage_array"]))
+        ]
+
     def process_scenarios(self, options):
-        """Process scenario data to include block and stage information."""
+        """Process scenario data to include block and stage information.
+
+        Each PLP hydrology becomes one gtopt scenario and one gtopt scene,
+        so that one PLP-scenario maps to exactly one gtopt scene.
+        """
         hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
         probability_factors = options.get("probability_factors", None)
 
@@ -103,15 +119,26 @@ class GTOptWriter:
             ]
 
         scenarios = []
-        for hydro_idx, factor in zip(hydrologies, probability_factors):
+        scenes = []
+        for i, (hydro_idx, factor) in enumerate(zip(hydrologies, probability_factors)):
+            uid = i + 1  # Unique 1-based UID per PLP scenario
             scenarios.append(
                 {
-                    "uid": 1,
+                    "uid": uid,
                     "probability_factor": factor,
                     "hydrology": hydro_idx,
                 }
             )
+            # One scene per PLP scenario (first_scenario is 0-based index)
+            scenes.append(
+                {
+                    "uid": uid,
+                    "first_scenario": i,
+                    "count_scenario": 1,
+                }
+            )
         self.planning["simulation"]["scenario_array"] = scenarios
+        self.planning["simulation"]["scene_array"] = scenes
 
     def process_generator_profiles(self, options):
         """Process generator profile data to include block and stage information."""
