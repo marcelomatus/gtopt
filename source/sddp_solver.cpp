@@ -19,6 +19,7 @@
 #include <fstream>
 #include <span>
 #include <thread>
+#include <utility>
 
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
@@ -346,7 +347,7 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
     auto info = relax_fixed_state_variable(
         cloned, link, phase, m_options_.elastic_penalty);
     modified |= info.relaxed;
-    result.link_infos.push_back(std::move(info));
+    result.link_infos.push_back(info);
   }
 
   if (!modified) {
@@ -795,7 +796,7 @@ void SDDPSolver::share_cuts_for_phase(
         // Infeasible or no cuts generated — skip this scene
         continue;
       }
-      if (si < static_cast<Index>(scenes.size())) {
+      if (std::cmp_less(si, scenes.size())) {
         for (const auto& sc : scenes[si].scenarios()) {
           scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
         }
@@ -1378,10 +1379,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
     double total_scene_prob = 0.0;
     for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0u) {
+      if (scene_feasible[si] == 0U) {
         continue;
       }
-      if (si < static_cast<Index>(scenes.size())) {
+      if (std::cmp_less(si, scenes.size())) {
         for (const auto& sc : scenes[si].scenarios()) {
           scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
         }
@@ -1401,7 +1402,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       // Fall back to equal weights if no probability information
       const double equal_w = 1.0 / static_cast<double>(scenes_solved);
       for (Index si = 0; si < num_scenes; ++si) {
-        if (scene_feasible[si] != 0u) {
+        if (scene_feasible[si] != 0U) {
           scene_probs[static_cast<std::size_t>(si)] = equal_w;
         }
       }
@@ -1419,7 +1420,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     double weighted_lower = 0.0;
     ir.scene_lower_bounds.resize(num_scenes, 0.0);
     for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0u) {
+      if (scene_feasible[si] == 0U) {
         continue;
       }
       const double lb_si = planning_lp()
@@ -1443,7 +1444,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     bwd_futures.reserve(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0u) {
+      if (scene_feasible[si] == 0U) {
         continue;  // Skip infeasible scenes in backward pass
       }
       const auto scene = SceneIndex {si};
@@ -1553,7 +1554,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         }
         // Rename cut files for infeasible scenes with "error_" prefix
         for (Index si = 0; si < num_scenes; ++si) {
-          if (scene_feasible[si] == 0u) {
+          if (scene_feasible[si] == 0U) {
             const auto scene_file =
                 cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
             const auto error_file =

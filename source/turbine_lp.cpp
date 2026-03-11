@@ -161,7 +161,7 @@ int TurbineLP::update_lp(SystemLP& sys,
     if (!rsv.reservoir().eini.has_value()) {
       break;
     }
-    Real volume = rsv.reservoir().eini.value();
+    Real volume = rsv.reservoir().eini.value_or(0.0);
 
     auto& li = sys.linear_interface();
     if (iteration > 1 && phase != PhaseIndex {0}) {
