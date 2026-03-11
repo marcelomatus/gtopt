@@ -137,7 +137,6 @@ int TurbineLP::update_lp(SystemLP& sys,
                          PhaseIndex phase,
                          int iteration)
 {
-  auto& li = sys.linear_interface();
   const auto& options = sys.options();
   const auto my_sid = TurbineLPSId {uid()};
 
@@ -158,22 +157,24 @@ int TurbineLP::update_lp(SystemLP& sys,
     //  - first iteration OR first phase → use static initial volume (eini)
     //  - otherwise → read from eini column (fixed to previous-phase efin)
     const auto& rsv = sys.element<ReservoirLP>(eff.reservoir_sid());
-    Real volume = rsv.reservoir().eini.value_or(0.0);
 
-    // Use LP-bound volume only when we are past the first iteration AND past
-    // the first phase.  In iteration 1 the LP has not yet been solved from a
-    // previous phase, so there is no meaningful bound to read back.  In phase 0
-    // the eini column is the fixed initial condition, so reservoir().eini is
-    // always correct.  The skip-count guard already uses iteration > 0, which
-    // is a different check (whether to skip the update entirely).
+    if (!rsv.reservoir().eini.has_value()) {
+      break;
+    }
+    Real volume = rsv.reservoir().eini.value();
+
+    auto& li = sys.linear_interface();
     if (iteration > 1 && phase != PhaseIndex {0}) {
-      const auto eini_col = rsv.eini_col_at(scenario, stage);
-      // eini is fixed as a bound — read col_low (= col_upp = trial value)
-      volume = li.get_col_low()[eini_col];
+      if (li.is_optimal()) {
+        const auto eini_col = rsv.eini_col_at(scenario, stage);
+        volume = li.get_col_sol()[eini_col];
+      }
     }
 
     total +=
         eff.update_conversion_coeff(li, scenario.uid(), stage.uid(), volume);
+
+    break;
   }
 
   if (total > 0) {
