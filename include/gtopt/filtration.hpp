@@ -175,7 +175,7 @@ struct FiltrationCoeffs
   auto best_val = std::numeric_limits<Real>::max();
 
   for (const auto& seg : segments) {
-    const auto val = seg.constant + seg.slope * (volume - seg.volume);
+    const auto val = seg.constant + (seg.slope * (volume - seg.volume));
     if (val < best_val) {
       best_val = val;
       best_seg = &seg;
