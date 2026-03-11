@@ -9,14 +9,13 @@ export const dynamic = "force-dynamic";
 // POST /api/jobs/[token]/stop - Stop a running job
 //
 // Query parameters:
-//   mode=soft  (default) — Create the SDDP sentinel file so the solver
-//              finishes the current iteration and saves cuts before exiting.
-//              For the monolithic solver this has no effect on its own;
-//              use mode=force in that case.
+//   mode=soft  (default) — Write the monitoring API stop-request file
+//              (sddp_stop_request.json) in the job output directory.  The SDDP
+//              solver checks both the legacy sentinel file and this file at the
+//              start of each iteration; when found it finishes the iteration,
+//              saves all accumulated Benders cuts, and exits normally.
+//              For the monolithic solver use mode=force instead.
 //   mode=force — Send SIGTERM to the process immediately (hard stop).
-//
-// Both modes can be combined: POST /api/jobs/[token]/stop?mode=force will
-// skip the sentinel and send SIGTERM right away.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -61,16 +60,18 @@ export async function POST(
     );
   }
 
-  // Soft stop (default): create SDDP sentinel file
-  const sentinelCreated = await softStopJob(token);
+  // Soft stop: write the monitoring API stop-request file.
+  // The SDDP solver checks this file (and the legacy sentinel) at the start of
+  // each iteration.  When found it completes the iteration, saves cuts, and exits.
+  const requestWritten = await softStopJob(token);
   log.info(
-    `POST /api/jobs/${token}/stop(soft): sentinelCreated=${sentinelCreated}`
+    `POST /api/jobs/${token}/stop(soft): requestWritten=${requestWritten}`
   );
   return NextResponse.json({
     mode: "soft",
-    message: sentinelCreated
-      ? "Sentinel file created — solver will stop gracefully after the current iteration"
-      : "Could not create sentinel file (output directory not ready yet)",
-    stopped: sentinelCreated,
+    message: requestWritten
+      ? "Stop request written — solver will stop gracefully after the current iteration"
+      : "Could not write stop-request file (output directory not ready yet)",
+    stopped: requestWritten,
   });
 }

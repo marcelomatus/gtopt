@@ -174,6 +174,10 @@ export async function runGtopt(token: string): Promise<void> {
         log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
 
+      // Remove the stop-request file so it does not interfere with
+      // subsequent hot-start runs in the same output directory.
+      await cleanupStopRequestFile(token);
+
       // Log output directory contents after execution
       try {
         const outputFiles = await listDirRecursive(outputDir);
@@ -217,41 +221,81 @@ export async function runGtopt(token: string): Promise<void> {
 }
 
 /**
- * The sentinel file name that the SDDP solver polls for graceful stop.
- * Must match `sddp_file::stop_sentinel` in include/gtopt/sddp_solver.hpp.
+ * The monitoring API stop-request file name.
+ * Must match `sddp_file::stop_request` in include/gtopt/sddp_solver.hpp.
+ *
+ * When this file exists in the job output directory the SDDP solver stops
+ * gracefully after the current iteration and saves all accumulated Benders
+ * cuts.  The solver checks both the legacy sentinel file and this file
+ * (whichever is found first triggers a soft stop).
  */
-export const SDDP_STOP_SENTINEL = "sddp_stop";
+export const SDDP_STOP_REQUEST_FILE = "sddp_stop_request.json";
 
 /**
- * Soft-stop a running SDDP job by creating the sentinel file in the job's
- * output directory.  The SDDP solver checks for this file at the start of
- * each iteration; when found it finishes the iteration, saves all accumulated
- * Benders cuts, and returns normally.
+ * Soft-stop a running SDDP job by writing the monitoring API stop-request
+ * file in the job output directory.  The SDDP solver checks for this file
+ * at the start of each iteration; when found it finishes the iteration,
+ * saves all accumulated Benders cuts, and returns normally.
  *
- * Returns true if the sentinel file was written, false if the output directory
- * does not exist yet (job may not have started).
+ * The stop-request file contains a small JSON object with the timestamp and
+ * the requesting source, useful for debugging.  The C++ solver only tests
+ * file existence, not content.
+ *
+ * The output directory is created if it does not yet exist so that the file
+ * can be written as soon as the solver starts.  Returns true if the file was
+ * written successfully, false otherwise.
  */
 export async function softStopJob(token: string): Promise<boolean> {
   const outputDir = getJobOutputDir(token);
-  const sentinelPath = path.join(outputDir, SDDP_STOP_SENTINEL);
+  const stopRequestPath = path.join(outputDir, SDDP_STOP_REQUEST_FILE);
   try {
     // Ensure the output directory exists before writing
     await fs.mkdir(outputDir, { recursive: true });
-    await fs.writeFile(sentinelPath, `stop requested at ${new Date().toISOString()}\n`);
-    // Note: the SDDP solver only checks file existence, not content.
-    // The timestamp string is written purely as a human-readable marker for debugging.
-    log.info(`Job ${token}: created SDDP sentinel file at ${sentinelPath}`);
+    const payload = JSON.stringify(
+      {
+        stop_requested: true,
+        source: "webservice",
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2
+    );
+    await fs.writeFile(stopRequestPath, payload + "\n");
+    log.info(
+      `Job ${token}: wrote monitoring API stop-request to ${stopRequestPath}`
+    );
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    log.warn(`Job ${token}: could not create sentinel file ${sentinelPath}: ${msg}`);
+    log.warn(
+      `Job ${token}: could not write stop-request file ${stopRequestPath}: ${msg}`
+    );
     return false;
   }
 }
 
 /**
+ * Remove the monitoring API stop-request file (if present) so it does not
+ * interfere with a subsequent hot-start run of the same job directory.
+ * Called internally when a job transitions to completed or failed.
+ */
+async function cleanupStopRequestFile(token: string): Promise<void> {
+  const stopRequestPath = path.join(
+    getJobOutputDir(token),
+    SDDP_STOP_REQUEST_FILE
+  );
+  try {
+    await fs.unlink(stopRequestPath);
+    log.info(`Job ${token}: removed stop-request file ${stopRequestPath}`);
+  } catch {
+    // File may not exist — that is the normal case; ignore silently
+  }
+}
+
+/**
  * Stop a running job by sending SIGTERM to its child process (hard stop).
- * Returns true if a signal was sent, false if the job was not running.
+ * Returns true if a signal was sent successfully, false if the job was not
+ * running or if the signal could not be delivered.
  */
 export async function stopJob(token: string): Promise<boolean> {
   const proc = runningProcesses.get(token);
@@ -259,9 +303,15 @@ export async function stopJob(token: string): Promise<boolean> {
     log.info(`Job ${token}: stop requested but no running process found`);
     return false;
   }
-  log.info(`Job ${token}: sending SIGTERM to process pid=${proc.pid}`);
-  proc.kill("SIGTERM");
-  return true;
+  try {
+    log.info(`Job ${token}: sending SIGTERM to process pid=${proc.pid}`);
+    proc.kill("SIGTERM");
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn(`Job ${token}: could not send SIGTERM (pid=${proc.pid}): ${msg}`);
+    return false;
+  }
 }
 
 /**
