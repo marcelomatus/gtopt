@@ -2189,8 +2189,8 @@ TEST_CASE("TurbineLP::update_lp - no-op when no efficiency element")  // NOLINT
 
   // The solver must support set_coeff for update_lp to actually try anything;
   // either way, the function call should be safe.
-  auto& li = system_lp.linear_interface();
-  [[maybe_unused]] const bool set_coeff_supported = li.supports_set_coeff();
+  [[maybe_unused]] const bool set_coeff_supported =
+      LinearInterface::supports_set_coeff();
 
   // update_lp_coefficients with no efficiency elements → 0 updated
   const auto updated =

@@ -161,7 +161,7 @@ public:
    *
    * @return true if set_coeff() is functional
    */
-  [[nodiscard]] bool supports_set_coeff() const noexcept;
+  static bool supports_set_coeff() noexcept;
 
   void set_obj_coeff(ColIndex index, double value);
   [[nodiscard]] constexpr auto get_obj_coeff() const
