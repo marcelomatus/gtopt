@@ -242,6 +242,13 @@ struct SDDPIterationResult
   int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
 
+  /// Wall-clock time in seconds for the forward pass (all scenes).
+  double forward_pass_s {};
+  /// Wall-clock time in seconds for the backward pass (all scenes).
+  double backward_pass_s {};
+  /// Total wall-clock time in seconds for this iteration.
+  double iteration_s {};
+
   /// Per-scene upper bounds (forward-pass costs).  Size = num_scenes.
   std::vector<double> scene_upper_bounds {};
   /// Per-scene lower bounds (phase-0 objective values).  Size = num_scenes.

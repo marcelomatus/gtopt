@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -54,6 +55,38 @@
 
 namespace gtopt
 {
+
+// ─── Work pool factory ───────────────────────────────────────────────────────
+
+/**
+ * @brief Create and start an AdaptiveWorkPool configured for solver use.
+ *
+ * Both MonolithicSolver and SDDPSolver use the same work-pool
+ * configuration.  This factory eliminates the duplication and provides
+ * a single place to tune the pool parameters.
+ *
+ * The pool is started (ready to accept tasks) before it is returned.
+ *
+ * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
+ *                    Default 1.25 (25 % more threads than physical cores).
+ * @return A started AdaptiveWorkPool (heap-allocated, non-movable).
+ */
+[[nodiscard]] inline std::unique_ptr<AdaptiveWorkPool> make_solver_work_pool(
+    double cpu_factor = 1.25)
+{
+  WorkPoolConfig pool_config {};
+  pool_config.max_threads = static_cast<int>(
+      std::lround(cpu_factor * std::thread::hardware_concurrency()));
+  pool_config.max_cpu_threshold = static_cast<int>(
+      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+
+  auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
+  pool->start();
+  SPDLOG_TRACE("Solver work pool started: max_threads={} cpu_threshold={:.0f}%",
+               pool_config.max_threads,
+               pool_config.max_cpu_threshold);
+  return pool;
+}
 
 // ─── MonitorPoint ────────────────────────────────────────────────────────────
 

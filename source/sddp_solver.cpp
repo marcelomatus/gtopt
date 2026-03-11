@@ -1168,6 +1168,11 @@ void SDDPSolver::write_api_status(
     json += std::format("      \"converged\": {},\n",
                         r.converged ? "true" : "false");
     json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
+    json +=
+        std::format("      \"forward_pass_s\": {:.4f},\n", r.forward_pass_s);
+    json +=
+        std::format("      \"backward_pass_s\": {:.4f},\n", r.backward_pass_s);
+    json += std::format("      \"iteration_s\": {:.4f},\n", r.iteration_s);
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
@@ -1291,15 +1296,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   }
 
   // Set up work pool for parallel scene processing
-  WorkPoolConfig pool_config {};
-  const double cpu_factor = 1.25;
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
-
-  AdaptiveWorkPool pool(pool_config);
-  pool.start();
+  auto pool = make_solver_work_pool();
 
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
@@ -1320,10 +1317,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // Start the background monitoring thread via SolverMonitor (local, RAII)
   SolverMonitor monitor(m_options_.api_update_interval);
   if (m_options_.enable_api && !status_file.empty()) {
-    monitor.start(pool, solve_start, "SDDPMonitor");
+    monitor.start(*pool, solve_start, "SDDPMonitor");
   }
 
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
+    const auto iter_start = std::chrono::steady_clock::now();
+
     // ── Check all stop conditions (sentinel, programmatic, callback) ──
     if (should_stop()) {
       SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
@@ -1336,13 +1335,14 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     };
 
     // ── Forward pass for all scenes (parallel) ──
+    const auto fwd_start = std::chrono::steady_clock::now();
     std::vector<std::future<std::expected<double, Error>>> fwd_futures;
     fwd_futures.reserve(num_scenes);
 
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
-      auto fut = pool.submit([this, scene, iter, &lp_opts]
-                             { return forward_pass(scene, iter, lp_opts); });
+      auto fut = pool->submit([this, scene, iter, &lp_opts]
+                              { return forward_pass(scene, iter, lp_opts); });
       fwd_futures.push_back(std::move(fut.value()));
     }
 
@@ -1362,6 +1362,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       ir.scene_upper_bounds[si] = *fwd;
       ++scenes_solved;
     }
+    ir.forward_pass_s = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - fwd_start)
+                            .count();
 
     if (scenes_solved == 0) {
       monitor.stop();
@@ -1433,6 +1436,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     ir.lower_bound = weighted_lower;
 
     // ── Backward pass for all scenes (parallel) ──
+    const auto bwd_start = std::chrono::steady_clock::now();
     // Collect cuts per scene per phase for sharing
     using phase_cuts_t = StrongIndexVector<SceneIndex, std::vector<SparseRow>>;
     std::vector<phase_cuts_t> per_phase_scene_cuts(num_phases);
@@ -1448,8 +1452,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         continue;  // Skip infeasible scenes in backward pass
       }
       const auto scene = SceneIndex {si};
-      auto fut = pool.submit([this, scene, &lp_opts]
-                             { return backward_pass(scene, lp_opts); });
+      auto fut = pool->submit([this, scene, &lp_opts]
+                              { return backward_pass(scene, lp_opts); });
       bwd_futures.push_back(std::move(fut.value()));
     }
 
@@ -1465,6 +1469,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       total_cuts += *bwd;
     }
     ir.cuts_added = total_cuts;
+    ir.backward_pass_s = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - bwd_start)
+                             .count();
+    ir.iteration_s = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - iter_start)
+                         .count();
 
     // ── Cut sharing between scenes ──
     if (m_options_.cut_sharing != CutSharingMode::None && num_scenes > 1) {
@@ -1508,19 +1518,24 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     m_converged_.store(ir.converged);
 
     SPDLOG_TRACE(
-        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={}{}",
+        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={} "
+        "fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
         iter,
         ir.lower_bound,
         ir.upper_bound,
         ir.gap,
         ir.cuts_added,
         num_scenes,
+        ir.forward_pass_s,
+        ir.backward_pass_s,
+        ir.iteration_s,
         ir.converged ? " [CONVERGED]" : "");
 
     // Log a brief INFO summary every iteration (non-trace)
-    SPDLOG_INFO("SDDP iter {}: gap={:.6f}{}",
+    SPDLOG_INFO("SDDP iter {}: gap={:.6f} ({:.3f}s){}",
                 iter,
                 ir.gap,
+                ir.iteration_s,
                 ir.converged ? " [CONVERGED]" : "");
 
     results.push_back(ir);
