@@ -527,6 +527,56 @@ def test_filtration_skips_unknown_central():
     assert result["filtration_array"] == []
 
 
+def test_filtration_with_segments():
+    """JunctionWriter propagates piecewise segments from cenfi_parser."""
+    central_parser = _make_hydro_parser()
+    cenfi_parser = MockCenfiParser(
+        [
+            {
+                "name": "Turbine1",
+                "reservoir": "Dam1",
+                "slope": 0.001,
+                "constant": 5.0,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.001, "constant": 5.0},
+                    {"volume": 500.0, "slope": 0.0002, "constant": 5.5},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
+    result = writer.to_json_array()[0]
+
+    assert len(result["filtration_array"]) == 1
+    filt = result["filtration_array"][0]
+    assert filt["slope"] == pytest.approx(0.001)
+    assert filt["constant"] == pytest.approx(5.0)
+    assert "segments" in filt
+    assert len(filt["segments"]) == 2
+    assert filt["segments"][0]["volume"] == pytest.approx(0.0)
+    assert filt["segments"][1]["volume"] == pytest.approx(500.0)
+
+
+def test_filtration_without_segments_no_key():
+    """Filtration without segments does not include the segments key."""
+    central_parser = _make_hydro_parser()
+    cenfi_parser = MockCenfiParser(
+        [
+            {
+                "name": "Turbine1",
+                "reservoir": "Dam1",
+                "slope": 0.001,
+                "constant": 5.0,
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
+    result = writer.to_json_array()[0]
+    filt = result["filtration_array"][0]
+    # When no segments present, the key should not be in the output
+    assert "segments" not in filt
+
+
 def test_reservoir_efficiency_array_populated():
     """JunctionWriter creates reservoir_efficiency_array from CenreParser data."""
     central_parser = _make_hydro_parser()

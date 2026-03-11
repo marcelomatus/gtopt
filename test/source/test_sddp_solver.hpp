@@ -2178,10 +2178,11 @@ TEST_CASE("TurbineLP::update_lp - no-op when no efficiency element")  // NOLINT
   CHECK(updated == 0);
 }
 
-TEST_CASE("FiltrationLP::update_lp is always a no-op")  // NOLINT
+TEST_CASE("FiltrationLP::update_lp is a no-op without segments")  // NOLINT
 {
   // Verify the trivial no-op path of FiltrationLP::update_lp by calling
-  // update_lp_coefficients on a system that has filtration but no efficiency.
+  // update_lp_coefficients on a system that has filtration without
+  // piecewise segments (static slope/constant only).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> generator_array = {{
       .uid = Uid {1},
@@ -2260,7 +2261,7 @@ TEST_CASE("FiltrationLP::update_lp is always a no-op")  // NOLINT
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 
-  // FiltrationLP::update_lp is a no-op → total updated = 0
+  // FiltrationLP::update_lp is a no-op when no segments are present → 0
   const auto updated =
       update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
   CHECK(updated == 0);

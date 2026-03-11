@@ -389,9 +389,10 @@ A water inflow or outflow at a junction.
 
 ### 3.12 Filtration
 
-Linear seepage model from a waterway to an adjacent reservoir, representing
-water losses due to soil permeability (Darcy's law approximation).  The
-seepage flow through the filtration waterway is constrained to:
+Piecewise-linear seepage model from a waterway to an adjacent reservoir,
+representing water losses due to soil permeability (Darcy's law
+approximation).  The seepage flow through the filtration waterway is
+constrained to:
 
 ```
 seepage [m³/s] = slope [m³/s/dam³] × avg_reservoir_volume [dam³] + constant [m³/s]
@@ -401,6 +402,13 @@ where `avg_reservoir_volume = (eini + efin) / 2`.  This captures the
 hydrostatic-head dependence of seepage.  Corresponds to PLP **plpcenfi.dat**
 (*Centrales Filtración*).
 
+When piecewise-linear `segments` are provided, the active segment is
+selected based on the reservoir's current volume (vini from the previous
+phase).  The LP constraint coefficients (slope and RHS) are updated
+dynamically — the same mechanism used by Reservoir Efficiency for turbine
+conversion rates.  If `segments` is empty, the static `slope` and
+`constant` fields are used as a simple linear model.
+
 | Field       | Type    | Units        | Required | Description |
 |-------------|---------|--------------|----------|-------------|
 | `uid`       | integer | —            | Yes      | Unique identifier |
@@ -408,8 +416,40 @@ hydrostatic-head dependence of seepage.  Corresponds to PLP **plpcenfi.dat**
 | `active`    | boolean | —            | No       | Whether the filtration is active |
 | `waterway`  | integer\|string | —    | Yes      | Source waterway UID or name |
 | `reservoir` | integer\|string | —    | Yes      | Receiving reservoir UID or name |
-| `slope`     | number  | m³/s / dam³  | No       | Seepage rate proportional to reservoir volume |
-| `constant`  | number  | m³/s         | No       | Constant seepage rate independent of volume |
+| `slope`     | number  | m³/s / dam³  | No       | Default seepage slope (used when `segments` is empty) |
+| `constant`  | number  | m³/s         | No       | Default constant seepage rate (used when `segments` is empty) |
+| `segments`  | array   | —            | No       | Piecewise-linear concave segments (see below) |
+
+Each segment in the `segments` array describes one piece of the concave
+filtration envelope:
+
+| Field      | Type   | Units          | Description |
+|------------|--------|----------------|-------------|
+| `volume`   | number | dam³           | Volume breakpoint |
+| `slope`    | number | m³/s / dam³    | Seepage slope at this breakpoint |
+| `constant` | number | m³/s           | Seepage rate at this breakpoint |
+
+The filtration rate at volume *V* is computed as the minimum over all
+segments: `filtration(V) = min_i { constant_i + slope_i × (V − volume_i) }`.
+This is analogous to the piecewise-linear efficiency evaluation used in
+[Reservoir Efficiency](#313-reservoir-efficiency).
+
+**Example with segments:**
+
+```json
+{
+  "uid": 1,
+  "name": "filt1",
+  "waterway": "w1_2",
+  "reservoir": "r1",
+  "slope": 0.001,
+  "constant": 1.0,
+  "segments": [
+    { "volume": 0.0, "slope": 0.0003, "constant": 0.5 },
+    { "volume": 5000.0, "slope": 0.0001, "constant": 2.0 }
+  ]
+}
+```
 
 ### 3.13 Reservoir Efficiency
 
