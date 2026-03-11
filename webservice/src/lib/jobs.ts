@@ -138,6 +138,7 @@ export async function runGtopt(token: string): Promise<void> {
 
     // Register process so it can be stopped via stopJob()
     runningProcesses.set(token, proc);
+    log.info(`Job ${token}: process started pid=${proc.pid ?? "unknown"}`);
 
     let stdout = "";
     let stderr = "";
@@ -252,8 +253,10 @@ export async function getJobMonitorData(
         ? "sddp"
         : "monolithic";
       return data;
-    } catch {
+    } catch (e) {
       // File not present or not valid JSON yet — try next candidate
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn(`getJobMonitorData: could not parse ${candidate}: ${msg}`);
     }
   }
   return null;

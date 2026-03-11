@@ -985,7 +985,7 @@ function renderSddpCharts(data) {
   }
 
   // Gap chart
-  const gaps = history.map((h) => (h.gap * 100).toFixed(4));
+  const gaps = history.map((h) => h.gap * 100);
   let gapChart = getOrCreateChart("chartGap", {
     type: "line",
     data: {
@@ -1007,18 +1007,12 @@ function renderSddpCharts(data) {
     gapChart.update("none");
   }
 
-  // Per-scene bounds (last iteration only)
+  // Per-scene bounds shown in the stats panel (see renderMonitorStats)
   if (history.length > 0) {
     const last = history[history.length - 1];
     const sceneUbs = last.scene_upper_bounds || [];
-    const sceneLbs = last.scene_lower_bounds || [];
     if (sceneUbs.length > 0) {
-      const sceneLabels = sceneUbs.map((_, i) => `S${i}`);
-      let sceneChart = getOrCreateChart("chartBoundsPerScene", null);
-      if (!sceneChart) {
-        const canvas = document.getElementById("chartBounds");
-        // Per-scene data shown in the stats panel instead of a separate chart
-      }
+      // Per-scene data is rendered as text in monitorStats, not a separate chart
     }
   }
 }
