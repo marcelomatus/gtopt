@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
@@ -2338,4 +2339,518 @@ TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
   CHECK(results->size() <= 2);
 
   std::filesystem::remove_all(tmp_dir);
+}
+
+// ─── Solver infrastructure tests ────────────────────────────────────────────
+
+TEST_CASE("make_solver_work_pool creates a working pool")  // NOLINT
+{
+  auto pool = make_solver_work_pool();
+  REQUIRE(pool != nullptr);
+
+  // Submit a simple task and verify it executes
+  auto fut = pool->submit([] { return 42; });
+  REQUIRE(fut.has_value());
+  CHECK(fut->get() == 42);
+
+  // Check statistics are available
+  const auto stats = pool->get_statistics();
+  CHECK(stats.tasks_submitted >= 1);
+}
+
+TEST_CASE("make_solver_work_pool with custom cpu_factor")  // NOLINT
+{
+  // Use a small cpu_factor to verify it parameterises correctly
+  auto pool = make_solver_work_pool(0.5);
+  REQUIRE(pool != nullptr);
+
+  auto fut = pool->submit([] { return 7; });
+  REQUIRE(fut.has_value());
+  CHECK(fut->get() == 7);
+}
+
+TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-3;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  // Every iteration should have non-negative timing
+  for (const auto& ir : *results) {
+    CHECK(ir.forward_pass_s >= 0.0);
+    CHECK(ir.backward_pass_s >= 0.0);
+    CHECK(ir.iteration_s >= 0.0);
+    // iteration_s should be >= forward + backward
+    CHECK(ir.iteration_s
+          >= doctest::Approx(ir.forward_pass_s + ir.backward_pass_s)
+                 .epsilon(0.01));
+  }
+}
+
+TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
+{
+  const auto tmp_dir =
+      std::filesystem::temp_directory_path() / "test_sddp_timing_status";
+  std::filesystem::remove_all(tmp_dir);
+  std::filesystem::create_directories(tmp_dir);
+
+  const auto status_file = (tmp_dir / "sddp_status.json").string();
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = true;
+  sddp_opts.api_status_file = status_file;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // The status file should exist and contain timing fields
+  CHECK(std::filesystem::exists(status_file));
+  if (std::filesystem::exists(status_file)) {
+    std::ifstream ifs(status_file);
+    const std::string content(std::istreambuf_iterator<char>(ifs), {});
+    CHECK(content.find("forward_pass_s") != std::string::npos);
+    CHECK(content.find("backward_pass_s") != std::string::npos);
+    CHECK(content.find("iteration_s") != std::string::npos);
+    CHECK(content.find("elapsed_s") != std::string::npos);
+    CHECK(content.find("realtime") != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE("MonolithicSolver uses work pool from factory")  // NOLINT
+{
+  // Verify that MonolithicSolver works correctly after the refactoring
+  // to use make_solver_work_pool()
+  auto planning = make_single_phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("MonolithicSolver with 3-phase uses work pool")  // NOLINT
+{
+  // Verify multi-phase monolithic solving after refactoring
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+// ─── Modular Benders cut tests (benders_cut.hpp) ────────────────────────────
+//
+// These tests exercise the cut-creation functions against actual LP solves
+// using simple 2-variable LP problems.  They do not depend on SDDPSolver.
+
+TEST_CASE(  // NOLINT
+    "build_benders_cut - optimality cut from LP solve")
+{
+  // Build a simple LP:
+  //   min  10*x0 + 20*x1 + alpha
+  //   s.t. x0 + x1 + dep >= 100   (demand)
+  //        0 <= x0 <= 80
+  //        0 <= x1 <= 80
+  //        dep fixed at 50
+
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 80.0);
+  const auto x1 = li.add_col("x1", 0.0, 80.0);
+  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff(x1, 20.0);
+
+  // Alpha (future cost)
+  const auto alpha_col = li.add_col("alpha", 0.0, 1e12);
+  li.set_obj_coeff(alpha_col, 1.0);
+
+  // Dependent (state variable from previous phase)
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  // demand: x0 + x1 + dep >= 100
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[x1] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+
+  auto r = li.resolve({});
+  REQUIRE(r.has_value());
+  REQUIRE(li.is_optimal());
+
+  const auto src = ColIndex {20};  // arbitrary source col index
+
+  std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = src,
+          .dependent_col = dep,
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+
+  auto cut = build_benders_cut(
+      alpha_col, links, li.get_col_cost(), li.get_obj_value(), "opt_cut");
+
+  CHECK(cut.name == "opt_cut");
+  CHECK(cut.get_coeff(alpha_col) == doctest::Approx(1.0));
+  CHECK(cut.lowb > -1e20);
+  CHECK(cut.uppb > 1e20);
+  // Source coefficient from reduced costs
+  CHECK(std::abs(cut.get_coeff(src)) > 1e-10);
+}
+
+TEST_CASE(  // NOLINT
+    "elastic_filter_solve - relaxes fixed column and solves clone")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+
+  auto r0 = li.resolve({});
+  REQUIRE(r0.has_value());
+  REQUIRE(li.is_optimal());
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto result = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(result.has_value());
+  if (result) {
+    CHECK(result->clone.is_optimal());
+    REQUIRE(result->link_infos.size() == 1);
+    CHECK(result->link_infos[0].relaxed);
+  }
+
+  // Original LP untouched
+  CHECK(li.get_col_low()[dep] == doctest::Approx(50.0));
+  CHECK(li.get_col_upp()[dep] == doctest::Approx(50.0));
+}
+
+TEST_CASE(  // NOLINT
+    "elastic_filter_solve - returns nullopt for non-fixed column")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 100.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 50.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .dependent_col = dep,
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+
+  auto result = elastic_filter_solve(li, links, 1e6, {});
+  CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "build_feasibility_cut - produces valid cut from elastic solve")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
+
+  const auto alpha_col = ColIndex {10};
+  const auto src = ColIndex {11};
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = src,
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto result =
+      build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas_cut");
+  REQUIRE(result.has_value());
+  if (result) {
+    CHECK(result->cut.name == "feas_cut");
+    CHECK(result->cut.get_coeff(alpha_col) == doctest::Approx(1.0));
+    CHECK(result->cut.lowb > -1e20);
+    CHECK(result->elastic.clone.is_optimal());
+    REQUIRE(result->elastic.link_infos.size() == 1);
+    CHECK(result->elastic.link_infos[0].relaxed);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "build_feasibility_cut - returns nullopt for non-fixed column")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 100.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 0.0, 100.0);  // NOT fixed
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 50.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .dependent_col = dep,
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+
+  auto result =
+      build_feasibility_cut(li, ColIndex {10}, links, 1e6, {}, "none");
+  CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts - generates bound cuts from elastic slack")
+{
+  // LP infeasible when dep fixed at 50: x0+dep>=200, x0<=80
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 80.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 200.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+
+  [[maybe_unused]] auto r0 = li.resolve({});
+  CHECK_FALSE(li.is_optimal());
+
+  const auto src = ColIndex {10};
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = src,
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto elastic = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(elastic.has_value());
+  if (elastic) {
+    CHECK(elastic->clone.is_optimal());
+
+    auto multi = build_multi_cuts(*elastic, links, "mc");
+    CHECK_FALSE(multi.empty());
+
+    // sdn active (dep went from 50 to ~120) → lower-bound cut
+    bool found_lb = false;
+    for (const auto& mc : multi) {
+      if (mc.lowb > -1e20) {
+        found_lb = true;
+        CHECK(mc.get_coeff(src) == doctest::Approx(1.0));
+        CHECK(mc.lowb > 50.0);
+      }
+    }
+    CHECK(found_lb);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts - returns empty when no slack is active")
+{
+  // Feasible LP with dep fixed
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
+  REQUIRE(li.is_optimal());
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto elastic = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(elastic.has_value());
+  if (elastic) {
+    auto multi = build_multi_cuts(*elastic, links, "mc");
+    CHECK(multi.empty());
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "Benders cut tightens lower bound in two-phase LP")
+{
+  // Simulate a minimal 2-phase decomposition manually:
+  //
+  // Phase 0: min 10*x0 + alpha, s.t. x0 >= 20, x0 in [0,100]
+  // Phase 1: min 50*x1, s.t. x1 + dep >= 80, dep fixed at x0, x1 in [0,100]
+  //
+  // Full: min 10*x0+50*x1, x0>=20, x1+x0>=80 → x0=80,x1=0 obj=800
+
+  // Phase 0
+  LinearInterface phase0;
+  const auto x0 = phase0.add_col("x0", 0.0, 100.0);
+  phase0.set_obj_coeff(x0, 10.0);
+  const auto alpha_col = phase0.add_col("alpha", 0.0, 1e12);
+  phase0.set_obj_coeff(alpha_col, 1.0);
+
+  auto constr0 = SparseRow {
+      .name = "min_gen",
+      .lowb = 20.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  constr0[x0] = 1.0;
+  phase0.add_row(constr0);
+
+  // Phase 1
+  LinearInterface phase1;
+  const auto x1 = phase1.add_col("x1", 0.0, 100.0);
+  phase1.set_obj_coeff(x1, 50.0);
+  const auto dep = phase1.add_col("dep", 20.0, 20.0);
+
+  auto constr1 = SparseRow {
+      .name = "demand",
+      .lowb = 80.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  constr1[x1] = 1.0;
+  constr1[dep] = 1.0;
+  phase1.add_row(constr1);
+
+  // Forward pass iteration 1: solve phase 0
+  auto r0 = phase0.resolve({});
+  REQUIRE(r0.has_value());
+  REQUIRE(phase0.is_optimal());
+  const double lb_before = phase0.get_obj_value();
+
+  // Propagate x0 → dep
+  std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = x0,
+          .dependent_col = dep,
+          .trial_value = 20.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+  propagate_trial_values(links, phase0.get_col_sol(), phase1);
+  CHECK(links[0].trial_value == doctest::Approx(20.0));
+
+  // Solve phase 1
+  auto r1 = phase1.resolve({});
+  REQUIRE(r1.has_value());
+  REQUIRE(phase1.is_optimal());
+  CHECK(phase1.get_obj_value() == doctest::Approx(3000.0));  // 60*50
+
+  // Backward: build optimality cut and add to phase 0
+  auto cut = build_benders_cut(alpha_col,
+                               links,
+                               phase1.get_col_cost(),
+                               phase1.get_obj_value(),
+                               "iter1_cut");
+  phase0.add_row(cut);
+
+  // Re-solve phase 0 with cut
+  auto r0b = phase0.resolve({});
+  REQUIRE(r0b.has_value());
+  REQUIRE(phase0.is_optimal());
+  const double lb_after = phase0.get_obj_value();
+
+  // Lower bound must increase (cut tightens approximation)
+  CHECK(lb_after > lb_before);
+  // Phase 0 should now choose larger x0
+  CHECK(phase0.get_col_sol()[x0] > 20.0 + 1e-6);
 }

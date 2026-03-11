@@ -433,6 +433,22 @@ cmake -S all -B build \
 cmake --build build -j$(nproc)
 ```
 
+> **⚠️ Before committing C++ code**, always run **clang-tidy** over the
+> modified files to catch static-analysis issues early.  Use the following
+> one-liner from the repo root (requires a configured build directory):
+>
+> ```bash
+> # Run clang-tidy on modified C++ files only (fast, incremental)
+> git diff --name-only --diff-filter=d HEAD \
+>   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
+>   | xargs -r clang-tidy -p build --warnings-as-errors='*'
+> ```
+>
+> Fix any warnings before committing.  If a warning is a false positive,
+> add an inline `// NOLINT(check-name)` with a justification comment.
+> See the "clang-tidy suppressions in test code" section below for
+> accepted patterns.
+
 The CI **auto-formats** every push on non-main branches and commits a fixup.
 Format violations are warnings only, not CI failures.
 
