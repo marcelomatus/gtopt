@@ -40,6 +40,17 @@ class GTOptWriter:
             "simulation": {},
         }
 
+    @staticmethod
+    def _normalize_solver_type(solver_type: str) -> str:
+        """Normalize solver type string.
+
+        Accepts 'sddp', 'mono', or 'monolithic'; returns either 'sddp' or
+        'monolithic' (the values understood by the gtopt C++ solver).
+        """
+        if solver_type in ("mono", "monolithic"):
+            return "monolithic"
+        return "sddp"
+
     def process_options(self, options):
         """Process options data to include input and output paths."""
         if not options:
@@ -48,6 +59,7 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "gzip")
+        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
@@ -60,6 +72,7 @@ class GTOptWriter:
             "demand_fail_cost": options.get("demand_fail_cost", 1000),
             "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
+            "sddp_solver_type": solver_type,
         }
         if "reserve_fail_cost" in options:
             planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
@@ -68,7 +81,15 @@ class GTOptWriter:
         self.planning["options"] = planning_opts
 
     def process_stage_blocks(self, options):
-        """Calculate first_block and count_block for stages."""
+        """Calculate first_block and count_block for stages.
+
+        For ``solver_type='sddp'`` (default), one gtopt phase is created per
+        PLP stage so that SDDP can manage per-phase state variables.
+
+        For ``solver_type='monolithic'`` (or ``'mono'``), a single phase that
+        spans all stages is created, matching the monolithic solver's
+        expectation of one operational horizon.
+        """
         stage_parser = self.parser.parsed_data.get("stage_parser", [])
         block_parser = self.parser.parsed_data.get("block_parser", [])
 
@@ -90,36 +111,60 @@ class GTOptWriter:
             stage_parser=stage_parser, block_parser=block_parser, options=options
         ).to_json_array(stages)
 
-        # Add phase_array: one phase per PLP stage, enabling SDDP
-        # (Stochastic Dual Dynamic Programming) per-stage state variables:
-        # each PLP stage maps to exactly one gtopt phase.
-        self.planning["simulation"]["phase_array"] = [
-            {
-                "uid": i + 1,
-                "first_stage": i,
-                "count_stage": 1,
-            }
-            for i in range(len(self.planning["simulation"]["stage_array"]))
-        ]
+        num_stages = len(self.planning["simulation"]["stage_array"])
+        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+
+        if solver_type == "monolithic":
+            # One phase covering all stages
+            self.planning["simulation"]["phase_array"] = [
+                {
+                    "uid": 1,
+                    "first_stage": 0,
+                    "count_stage": num_stages,
+                }
+            ]
+        else:
+            # SDDP: one phase per PLP stage, enabling per-stage state
+            # variables (Stochastic Dual Dynamic Programming).
+            self.planning["simulation"]["phase_array"] = [
+                {
+                    "uid": i + 1,
+                    "first_stage": i,
+                    "count_stage": 1,
+                }
+                for i in range(num_stages)
+            ]
 
     def process_scenarios(self, options):
         """Process scenario data to include block and stage information.
 
-        Each PLP hydrology becomes one gtopt scenario and one gtopt scene,
-        so that one PLP-scenario maps to exactly one gtopt scene.
+        All PLP scenarios are considered equally probable unless explicit
+        ``probability_factors`` are provided.  When no explicit weights are
+        given, each exported scenario receives probability ``1/N`` where *N*
+        is the number of exported hydrologies.  When ``probability_factors``
+        is provided, those explicit weights are used instead.
+
+        For ``solver_type='sddp'`` (default), each PLP hydrology becomes its
+        own gtopt scenario **and** its own gtopt scene (one-to-one mapping),
+        so the SDDP solver processes each scenario independently.
+
+        For ``solver_type='monolithic'`` (or ``'mono'``), all PLP hydrologies
+        map to individual gtopt scenarios but are grouped into a **single**
+        gtopt scene so the monolithic solver processes them together.
         """
         hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
-        probability_factors = options.get("probability_factors", None)
+        num_scenarios = len(hydrologies)
 
+        # Always use 1/N equal probability unless explicitly overridden.
+        probability_factors = options.get("probability_factors", None)
         if probability_factors is None or len(probability_factors) == 0:
-            probability_factors = [1.0 / len(hydrologies)] * len(hydrologies)
+            probability_factors = [1.0 / num_scenarios] * num_scenarios
         else:
             probability_factors = [
                 float(factor) for factor in probability_factors.split(",")
             ]
 
         scenarios = []
-        scenes = []
         for i, (hydro_idx, factor) in enumerate(zip(hydrologies, probability_factors)):
             uid = i + 1  # Unique 1-based UID per PLP scenario
             scenarios.append(
@@ -129,15 +174,29 @@ class GTOptWriter:
                     "hydrology": hydro_idx,
                 }
             )
-            # One scene per PLP scenario (first_scenario is 0-based index)
-            scenes.append(
+        self.planning["simulation"]["scenario_array"] = scenarios
+
+        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+
+        if solver_type == "monolithic":
+            # One scene with all scenarios grouped together
+            scenes = [
                 {
-                    "uid": uid,
+                    "uid": 1,
+                    "first_scenario": 0,
+                    "count_scenario": num_scenarios,
+                }
+            ]
+        else:
+            # SDDP: one scene per scenario (first_scenario = 0-based index)
+            scenes = [
+                {
+                    "uid": i + 1,
                     "first_scenario": i,
                     "count_scenario": 1,
                 }
-            )
-        self.planning["simulation"]["scenario_array"] = scenarios
+                for i in range(num_scenarios)
+            ]
         self.planning["simulation"]["scene_array"] = scenes
 
     def process_generator_profiles(self, options):

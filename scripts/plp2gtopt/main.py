@@ -242,7 +242,22 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "comma-separated probability weights for each hydrology scenario "
-            "(default: equal distribution)"
+            "(default: equal distribution 1/N)"
+        ),
+    )
+    parser.add_argument(
+        "--solver",
+        dest="solver_type",
+        metavar="TYPE",
+        default="sddp",
+        choices=["sddp", "mono", "monolithic"],
+        help=(
+            "solver type controlling the simulation structure: "
+            "'sddp' produces one scene per scenario and one phase per stage "
+            "(for Stochastic Dual Dynamic Programming); "
+            "'mono'/'monolithic' produces a single scene with all scenarios and "
+            "a single phase with all stages (for the monolithic solver). "
+            "(default: %(default)s)"
         ),
     )
     parser.add_argument(
@@ -304,6 +319,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "scale_objective": args.scale_objective,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
+        "solver_type": args.solver_type,
     }
     if args.reserve_fail_cost is not None:
         opts["reserve_fail_cost"] = args.reserve_fail_cost
