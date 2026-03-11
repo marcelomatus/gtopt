@@ -62,8 +62,7 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
 
 // ── add_to_output ───────────────────────────────────────────────────────────
 
-bool ReservoirEfficiencyLP::add_to_output(
-    [[maybe_unused]] OutputContext& out) const
+bool ReservoirEfficiencyLP::add_to_output([[maybe_unused]] OutputContext& out)
 {
   // No direct output for efficiency elements — the updated conversion
   // rate is reflected in the turbine's conversion dual output.

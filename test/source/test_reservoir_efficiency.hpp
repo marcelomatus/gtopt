@@ -149,10 +149,12 @@ TEST_CASE("Turbine main_reservoir field")
 
 TEST_CASE("SystemLP with reservoir efficiency element")
 {
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -246,14 +248,20 @@ TEST_CASE("SystemLP with reservoir efficiency element")
                   .duration = 2,
               },
           },
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 2,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 2,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
