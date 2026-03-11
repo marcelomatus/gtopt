@@ -8,6 +8,20 @@
 namespace daw::json
 {
 using gtopt::Filtration;
+using gtopt::FiltrationSegment;
+
+template<>
+struct json_data_contract<FiltrationSegment>
+{
+  using type = json_member_list<json_number<"volume", Real>,
+                                json_number<"slope", Real>,
+                                json_number<"constant", Real>>;
+
+  static constexpr auto to_json_data(FiltrationSegment const& seg)
+  {
+    return std::forward_as_tuple(seg.volume, seg.slope, seg.constant);
+  }
+};
 
 template<>
 struct json_data_contract<Filtration>
@@ -19,7 +33,10 @@ struct json_data_contract<Filtration>
                        json_variant<"waterway", SingleId>,
                        json_variant<"reservoir", SingleId>,
                        json_number_null<"slope", Real>,
-                       json_number_null<"constant", Real>>;
+                       json_number_null<"constant", Real>,
+                       json_array_null<"segments",
+                                       std::vector<FiltrationSegment>,
+                                       FiltrationSegment>>;
 
   static constexpr auto to_json_data(Filtration const& filtration)
   {
@@ -29,7 +46,8 @@ struct json_data_contract<Filtration>
                                  filtration.waterway,
                                  filtration.reservoir,
                                  filtration.slope,
-                                 filtration.constant);
+                                 filtration.constant,
+                                 filtration.segments);
   }
 };
 }  // namespace daw::json

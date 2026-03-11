@@ -136,8 +136,7 @@ int update_lp_coefficients(SystemLP& system_lp,
             turbine.update_lp(system_lp, scenario, stage, phase, iteration);
       }
 
-      // 2. Filtration updates (currently a no-op; provided for interface
-      //    consistency — future volume-dependent filtration rates go here)
+      // 2. Filtration updates — piecewise-linear volume-dependent seepage
       for (auto& filtration : system_lp.elements<FiltrationLP>()) {
         total +=
             filtration.update_lp(system_lp, scenario, stage, phase, iteration);
