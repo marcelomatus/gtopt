@@ -154,27 +154,27 @@ private:
  * This is the **generalized coefficient update hook** called by the SDDP
  * solver before each phase solve.  It currently handles:
  *
- * 1. **Turbine efficiency** — updates conversion-rate coefficients in
- *    turbines that have a `ReservoirEfficiency` element, using the current
- *    reservoir volume to evaluate the piecewise-linear efficiency curve.
+ * 1. **Turbine efficiency** — calls TurbineLP::update_lp() for each turbine
+ *    that has a `ReservoirEfficiency` element, using the current reservoir
+ *    volume to evaluate the piecewise-linear efficiency curve.
  *
- * Future extensions (filtration updates, linearised losses, etc.) should
- * be added here so that the SDDP forward-pass loop remains unchanged.
+ * 2. **Filtration** — calls FiltrationLP::update_lp() (currently a no-op
+ *    but provided for interface consistency).
  *
- * @param system_lp      The SystemLP for this (scene, phase)
- * @param options        Global LP options (provides default skip count)
- * @param reservoir_volume  Function mapping ReservoirLPSId → current volume
- *                          (e.g. from reservoir eini or previous-iteration
- *                          efin solution)
- * @param iteration      Current SDDP iteration (1-based; 0 = initial)
+ * Future extensions (linearised losses, etc.) can be added in the
+ * TurbineLP::update_lp or FiltrationLP::update_lp methods.
+ *
+ * @param system_lp  The SystemLP for this (scene, phase)
+ * @param options    Global LP options (provides default skip count)
+ * @param iteration  Current SDDP iteration (1-based; 0 = initial)
+ * @param phase      Current phase index (PhaseIndex{0} = first phase)
  * @return Total number of LP coefficients modified
  */
 class SystemLP;  // forward
 
-[[nodiscard]] int update_lp_coefficients(
-    SystemLP& system_lp,
-    const OptionsLP& options,
-    const std::function<Real(const ReservoirLPSId&)>& reservoir_volume,
-    int iteration);
+[[nodiscard]] int update_lp_coefficients(SystemLP& system_lp,
+                                         const OptionsLP& options,
+                                         int iteration,
+                                         PhaseIndex phase);
 
 }  // namespace gtopt
