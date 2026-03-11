@@ -2854,3 +2854,199 @@ TEST_CASE(  // NOLINT
   // Phase 0 should now choose larger x0
   CHECK(phase0.get_col_sol()[x0] > 20.0 + 1e-6);
 }
+
+// ─── BendersCut class tests ──────────────────────────────────────────────────
+//
+// These tests exercise BendersCut without a pool (null-pool mode) and with
+// a work pool, verifying that:
+//  - elastic_filter_solve() works equivalently to the free function
+//  - infeasible_cut_count() is incremented on each successful elastic solve
+//  - reset_infeasible_cut_count() resets the counter
+
+TEST_CASE(
+    "BendersCut - default construction and no-pool elastic_filter_solve")  // NOLINT
+{
+  // Build a simple LP where dep is fixed at 50 and x0 <= 80; demand >= 100.
+  // With dep=50 the LP is feasible; the elastic filter should relax dep.
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto r0 = li.resolve({});
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  BendersCut bc;  // null pool
+  CHECK(bc.pool() == nullptr);
+  CHECK(bc.infeasible_cut_count() == 0);
+
+  auto result = bc.elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(result.has_value());
+  if (result) {
+    CHECK(result->clone.is_optimal());
+  }
+  CHECK(bc.infeasible_cut_count() == 1);
+
+  // A second solve increments again
+  auto result2 = bc.elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(result2.has_value());
+  CHECK(bc.infeasible_cut_count() == 2);
+
+  // Reset resets the counter
+  bc.reset_infeasible_cut_count();
+  CHECK(bc.infeasible_cut_count() == 0);
+
+  // Original LP untouched
+  CHECK(li.get_col_low()[dep] == doctest::Approx(50.0));
+  CHECK(li.get_col_upp()[dep] == doctest::Approx(50.0));
+}
+
+TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
+{
+  // Same LP as above but with a live work pool.
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto r0 = li.resolve({});
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto pool = make_solver_work_pool();
+  BendersCut bc(pool.get());
+  CHECK(bc.pool() == pool.get());
+  CHECK(bc.infeasible_cut_count() == 0);
+
+  auto result = bc.elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(result.has_value());
+  if (result) {
+    CHECK(result->clone.is_optimal());
+  }
+  // Counter incremented once
+  CHECK(bc.infeasible_cut_count() == 1);
+
+  // nullopt when no fixed columns
+  LinearInterface li2;
+  const auto x1 = li2.add_col("x1", 0.0, 100.0);
+  li2.set_obj_coeff(x1, 5.0);
+  const auto dep2 = li2.add_col("dep2", 0.0, 100.0);  // NOT fixed
+  auto d2 =
+      SparseRow {.name = "d", .lowb = 50.0, .uppb = LinearProblem::DblMax};
+  d2[x1] = 1.0;
+  d2[dep2] = 1.0;
+  li2.add_row(d2);
+  [[maybe_unused]] auto r2 = li2.resolve({});
+
+  const std::vector<StateVarLink> links2 = {
+      StateVarLink {
+          .dependent_col = dep2,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+      },
+  };
+  auto result2 = bc.elastic_filter_solve(li2, links2, 1e6, {});
+  CHECK_FALSE(result2.has_value());
+  // Counter unchanged (no fixed column, no solve)
+  CHECK(bc.infeasible_cut_count() == 1);
+
+  // Detach pool before it goes out of scope
+  bc.set_pool(nullptr);
+}
+
+TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
+{
+  LinearInterface li;
+  const auto x0 = li.add_col("x0", 0.0, 200.0);
+  li.set_obj_coeff(x0, 10.0);
+  const auto dep = li.add_col("dep", 50.0, 50.0);
+
+  auto demand = SparseRow {
+      .name = "demand",
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+  [[maybe_unused]] auto resolve_ok = li.resolve({});
+
+  const auto alpha_col = ColIndex {10};
+  const auto src = ColIndex {11};
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = src,
+          .dependent_col = dep,
+          .target_phase = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  BendersCut bc;
+  CHECK(bc.infeasible_cut_count() == 0);
+
+  auto result = bc.build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas");
+  REQUIRE(result.has_value());
+  if (result) {
+    CHECK(result->cut.name == "feas");
+    CHECK(result->cut.get_coeff(alpha_col) == doctest::Approx(1.0));
+    CHECK(result->elastic.clone.is_optimal());
+  }
+
+  // build_feasibility_cut calls elastic_filter_solve internally → counter == 1
+  CHECK(bc.infeasible_cut_count() == 1);
+
+  bc.reset_infeasible_cut_count();
+  CHECK(bc.infeasible_cut_count() == 0);
+}
+
+TEST_CASE("BendersCut - set_pool updates pool reference")  // NOLINT
+{
+  BendersCut bc;
+  CHECK(bc.pool() == nullptr);
+
+  auto pool = make_solver_work_pool();
+  bc.set_pool(pool.get());
+  CHECK(bc.pool() == pool.get());
+
+  bc.set_pool(nullptr);
+  CHECK(bc.pool() == nullptr);
+}

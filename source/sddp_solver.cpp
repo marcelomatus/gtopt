@@ -158,8 +158,8 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
   const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
   const auto& prev_state = m_scene_phase_states_[scene][prev];
 
-  // Delegate to the standalone elastic_filter_solve() from benders_cut.hpp
-  auto result = elastic_filter_solve(
+  // Delegate to BendersCut member (uses work pool when set)
+  auto result = m_benders_cut_.elastic_filter_solve(
       li, prev_state.outgoing_links, m_options_.elastic_penalty, opts);
 
   if (result.has_value()) {
@@ -910,6 +910,8 @@ void SDDPSolver::write_api_status(
     json += std::format("      \"converged\": {},\n",
                         r.converged ? "true" : "false");
     json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
+    json += std::format("      \"infeasible_cuts_added\": {},\n",
+                        r.infeasible_cuts_added);
     json +=
         std::format("      \"forward_pass_s\": {:.4f},\n", r.forward_pass_s);
     json +=
@@ -1040,6 +1042,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // Set up work pool for parallel scene processing
   auto pool = make_solver_work_pool();
 
+  // Wire the pool into the BendersCut member so that elastic-filter LP solves
+  // are submitted to the pool (rather than run synchronously on the caller).
+  m_benders_cut_.set_pool(pool.get());
+
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
 
@@ -1075,6 +1081,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     SDDPIterationResult ir {
         .iteration = iter,
     };
+
+    // Reset the elastic-filter (infeasible-cut) counter for this iteration
+    m_benders_cut_.reset_infeasible_cut_count();
 
     // ── Forward pass for all scenes (parallel) ──
     const auto fwd_start = std::chrono::steady_clock::now();
@@ -1211,6 +1220,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
       total_cuts += *bwd;
     }
     ir.cuts_added = total_cuts;
+    ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
     ir.backward_pass_s = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - bwd_start)
                              .count();
@@ -1260,13 +1270,15 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     m_converged_.store(ir.converged);
 
     SPDLOG_TRACE(
-        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} scenes={} "
+        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} "
+        "infeas_cuts={} scenes={} "
         "fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
         iter,
         ir.lower_bound,
         ir.upper_bound,
         ir.gap,
         ir.cuts_added,
+        ir.infeasible_cuts_added,
         num_scenes,
         ir.forward_pass_s,
         ir.backward_pass_s,
@@ -1347,6 +1359,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // Stop the monitoring thread before returning (SolverMonitor is local;
   // its jthread destructor will join, but stop() ensures prompt exit).
   monitor.stop();
+
+  // Detach the pool from the BendersCut member — the pool is a local
+  // variable and will be destroyed when solve() returns.
+  m_benders_cut_.set_pool(nullptr);
 
   return results;
 }
