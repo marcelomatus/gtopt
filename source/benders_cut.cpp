@@ -7,6 +7,7 @@
  *
  * Implements the cut-creation building blocks declared in benders_cut.hpp.
  * The free functions moved here were originally part of sddp_solver.cpp.
+ * The BendersCut class implementation is also here.
  */
 
 #include <cmath>
@@ -15,6 +16,7 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -322,6 +324,99 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   }
 
   return result;
+}
+
+// ─── BendersCut class ────────────────────────────────────────────────────────
+
+auto BendersCut::elastic_filter_solve(const LinearInterface& li,
+                                      std::span<const StateVarLink> links,
+                                      double penalty,
+                                      const SolverOptions& opts)
+    -> std::optional<ElasticSolveResult>
+{
+  if (m_pool_ == nullptr) {
+    // No pool available: delegate directly to the free function.
+    auto result = gtopt::elastic_filter_solve(li, links, penalty, opts);
+    if (result.has_value()) {
+      m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+    return result;
+  }
+
+  // Clone the LP – modifications to the clone don't touch the original.
+  auto cloned = li.clone();
+
+  ElasticSolveResult result;
+  result.link_infos.reserve(links.size());
+
+  bool modified = false;
+  for (const auto& link : links) {
+    auto info =
+        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    modified |= info.relaxed;
+    result.link_infos.push_back(info);
+  }
+
+  if (!modified) {
+    return std::nullopt;
+  }
+
+  // Submit the LP solve to the work pool so that the pool's scheduling and
+  // monitoring infrastructure (CPU load, active workers) observe the solve.
+  // The calling thread blocks on the future until the solve completes.
+  auto fut = m_pool_->submit([&cloned, opts]() -> std::expected<int, Error>
+                             { return cloned.resolve(opts); });
+
+  bool solved = false;
+  if (fut.has_value()) {
+    auto r = fut.value().get();
+    solved = r.has_value() && cloned.is_optimal();
+  } else {
+    // Pool submission failed (e.g. pool shut down): fall back to direct solve.
+    SPDLOG_WARN(
+        "BendersCut::elastic_filter_solve: pool submit failed, "
+        "falling back to direct solve");
+    auto r = cloned.resolve(opts);
+    solved = r.has_value() && cloned.is_optimal();
+  }
+
+  if (solved) {
+    m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
+    SPDLOG_TRACE(
+        "BendersCut::elastic_filter_solve: solved clone via pool "
+        "(obj={:.4f}), total_infeasible_cuts={}",
+        cloned.get_obj_value(),
+        m_infeasible_cut_count_.load(std::memory_order_relaxed));
+    result.clone = std::move(cloned);
+    return result;
+  }
+
+  return std::nullopt;
+}
+
+auto BendersCut::build_feasibility_cut(const LinearInterface& li,
+                                       ColIndex alpha_col,
+                                       std::span<const StateVarLink> links,
+                                       double penalty,
+                                       const SolverOptions& opts,
+                                       std::string_view name)
+    -> std::optional<FeasibilityCutResult>
+{
+  auto elastic = this->elastic_filter_solve(li, links, penalty, opts);
+  if (!elastic.has_value()) {
+    return std::nullopt;
+  }
+
+  auto cut = build_benders_cut(alpha_col,
+                               links,
+                               elastic->clone.get_col_cost(),
+                               elastic->clone.get_obj_value(),
+                               name);
+
+  return FeasibilityCutResult {
+      .cut = std::move(cut),
+      .elastic = std::move(*elastic),
+  };
 }
 
 }  // namespace gtopt

@@ -6,11 +6,9 @@
  * @copyright BSD-3-Clause
  *
  * This module extracts the cut-creation logic from the SDDP solver into
- * standalone, testable functions.  Each function operates on a
- * `LinearInterface` (or data extracted from one) and returns `SparseRow`
- * cut(s) without depending on `SDDPSolver` state.
+ * standalone, testable functions and a class-based interface.
  *
- * ## Functions
+ * ## Free functions
  *
  * - `build_benders_cut()`        – standard optimality cut from reduced costs
  * - `relax_fixed_state_variable()` – elastic-filter column relaxation
@@ -19,13 +17,24 @@
  * - `average_benders_cut()`      – unweighted average of several cuts
  * - `weighted_average_benders_cut()` – probability-weighted average
  *
- * The SDDP solver (`sddp_solver.hpp`) re-exports these symbols so that
- * existing code that includes `sddp_solver.hpp` continues to compile
+ * ## BendersCut class
+ *
+ * `BendersCut` wraps the free functions as member functions and adds:
+ * - An optional `AdaptiveWorkPool` for LP solve/resolve operations.
+ *   When a pool is provided, the elastic-filter LP solve is submitted to
+ *   the pool; otherwise it is performed synchronously.
+ * - An infeasible-cut counter: every successful elastic-filter solve
+ *   (i.e. every LP infeasibility event handled by the filter) is counted.
+ *   The counter can be queried for monitoring-API integration.
+ *
+ * The SDDP solver (`sddp_solver.hpp`) re-exports the free-function symbols
+ * so that existing code that includes `sddp_solver.hpp` continues to compile
  * without changes.
  */
 
 #pragma once
 
+#include <atomic>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -36,6 +45,14 @@
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
+
+// Forward declaration to avoid including the heavy work_pool.hpp header.
+// Consumers that need the full AdaptiveWorkPool definition (e.g. to call
+// make_solver_work_pool) should include <gtopt/work_pool.hpp> directly.
+namespace gtopt
+{
+class AdaptiveWorkPool;
+}
 
 namespace gtopt
 {
@@ -198,5 +215,113 @@ struct FeasibilityCutResult
     const std::vector<SparseRow>& cuts,
     const std::vector<double>& weights,
     std::string_view name) -> SparseRow;
+
+// ─── BendersCut class ────────────────────────────────────────────────────────
+
+/**
+ * @class BendersCut
+ * @brief Class-based interface for Benders cut construction with work-pool
+ *        support and infeasibility monitoring.
+ *
+ * Wraps the free functions declared above as member functions and adds:
+ * - An optional `AdaptiveWorkPool` used for LP solve/resolve operations.
+ *   When a pool is provided, the elastic-filter clone LP solve is submitted
+ *   to the pool (rather than run synchronously on the calling thread).
+ *   This allows the solver's work pool to track and schedule elastic-filter
+ *   solves alongside other LP subproblems.
+ * - An infeasible-cut counter: every successful elastic-filter solve
+ *   (i.e. every LP infeasibility event handled by the filter) increments
+ *   the counter.  The counter can be reset per-iteration and queried for
+ *   monitoring-API integration (e.g. logged to the SDDP JSON status file).
+ *
+ * ## Usage
+ *
+ * ```cpp
+ * // In SDDPSolver::solve():
+ * auto pool = make_solver_work_pool();
+ * m_benders_cut_.set_pool(pool.get());
+ *
+ * // In elastic_solve():
+ * auto result = m_benders_cut_.elastic_filter_solve(li, links, penalty, opts);
+ *
+ * // After each iteration:
+ * ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
+ * m_benders_cut_.reset_infeasible_cut_count();
+ * ```
+ */
+class BendersCut
+{
+public:
+  /// Construct with an optional work pool for LP solve/resolve operations.
+  /// If @p pool is nullptr, LP solves are performed synchronously on the
+  /// calling thread (same behaviour as the standalone free functions).
+  explicit BendersCut(AdaptiveWorkPool* pool = nullptr) noexcept
+      : m_pool_(pool)
+  {
+  }
+
+  BendersCut(const BendersCut&) = delete;
+  BendersCut& operator=(const BendersCut&) = delete;
+  BendersCut(BendersCut&&) = delete;
+  BendersCut& operator=(BendersCut&&) = delete;
+  ~BendersCut() = default;
+
+  /// Update the work pool used for LP solves.
+  /// Thread-safe: the pointer is plain (not atomic), so callers must ensure
+  /// this is only called from a single thread (e.g. before starting the
+  /// parallel solve loop).
+  void set_pool(AdaptiveWorkPool* pool) noexcept { m_pool_ = pool; }
+
+  /// Access the current work pool (may be nullptr).
+  [[nodiscard]] AdaptiveWorkPool* pool() const noexcept { return m_pool_; }
+
+  /// Number of successful elastic-filter solves since construction (or last
+  /// reset).  Each such solve corresponds to an LP infeasibility event; in
+  /// the backward pass these become feasibility cuts.
+  [[nodiscard]] int infeasible_cut_count() const noexcept
+  {
+    return m_infeasible_cut_count_.load(std::memory_order_relaxed);
+  }
+
+  /// Reset the infeasible-cut counter (typically called at the start of each
+  /// SDDP iteration to obtain per-iteration counts).
+  void reset_infeasible_cut_count() noexcept
+  {
+    m_infeasible_cut_count_.store(0, std::memory_order_relaxed);
+  }
+
+  /// Clone @p li, apply elastic relaxation on fixed state-variable columns,
+  /// and solve the clone.  When a work pool is set, the LP solve is submitted
+  /// to the pool (allowing the pool's scheduling and monitoring to observe it);
+  /// otherwise the solve is performed synchronously.
+  ///
+  /// Increments the infeasible-cut counter on each successful solve.
+  ///
+  /// @return Solved elastic clone and per-link slack info, or nullopt if no
+  ///         columns were fixed or the clone solve failed.
+  [[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
+                                          std::span<const StateVarLink> links,
+                                          double penalty,
+                                          const SolverOptions& opts)
+      -> std::optional<ElasticSolveResult>;
+
+  /// Build a Benders feasibility cut using this object's elastic_filter_solve.
+  /// Equivalent to the free function `build_feasibility_cut()` but uses the
+  /// work pool (if set) for the internal LP solve.
+  ///
+  /// @return A feasibility cut and the ElasticSolveResult, or nullopt if the
+  ///         elastic solve fails.
+  [[nodiscard]] auto build_feasibility_cut(const LinearInterface& li,
+                                           ColIndex alpha_col,
+                                           std::span<const StateVarLink> links,
+                                           double penalty,
+                                           const SolverOptions& opts,
+                                           std::string_view name)
+      -> std::optional<FeasibilityCutResult>;
+
+private:
+  AdaptiveWorkPool* m_pool_ {nullptr};
+  std::atomic<int> m_infeasible_cut_count_ {0};
+};
 
 }  // namespace gtopt

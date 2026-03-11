@@ -250,6 +250,11 @@ struct SDDPIterationResult
   /// Total wall-clock time in seconds for this iteration.
   double iteration_s {};
 
+  /// Number of successful elastic-filter solves this iteration.
+  /// Each elastic-filter solve corresponds to an LP infeasibility event;
+  /// in the backward pass these become Benders feasibility cuts.
+  int infeasible_cuts_added {};
+
   /// Per-scene upper bounds (forward-pass costs).  Size = num_scenes.
   std::vector<double> scene_upper_bounds {};
   /// Per-scene lower bounds (phase-0 objective values).  Size = num_scenes.
@@ -564,6 +569,11 @@ private:
   std::atomic<double> m_current_lb_ {0.0};
   std::atomic<double> m_current_ub_ {0.0};
   std::atomic<bool> m_converged_ {false};
+
+  // ── BendersCut: wraps elastic-filter LP solves via the work pool ──
+  /// Constructed with null pool; updated in solve() once the pool is created.
+  /// Used by elastic_solve() to submit elastic-filter LP solves to the pool.
+  BendersCut m_benders_cut_;
 
   // ── Monitoring API (SolverMonitor owns the background thread) ──
 
