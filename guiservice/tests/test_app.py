@@ -2330,3 +2330,145 @@ class TestParquetNanHandling:
         assert pq_out["data"][0][3] == 42.0
         assert pq_out["data"][1][3] is None  # missing → null
         assert pq_out["data"][2][3] is None  # missing → null
+
+
+# ---------------------------------------------------------------------------
+# Monitor and Stop endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestSolveMonitor:
+    """Tests for GET /api/solve/monitor/<token>."""
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_success_sddp(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "available": True,
+            "_solver_type": "sddp",
+            "status": "running",
+            "iteration": 3,
+            "lower_bound": 1.0,
+            "upper_bound": 1.5,
+            "gap": 0.3,
+            "converged": False,
+            "history": [],
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/monitor/tok-1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["_solver_type"] == "sddp"
+        assert data["available"] is True
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_not_available(self, mock_get, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"available": False, "status": "running"}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+        resp = client.get("/api/solve/monitor/tok-2")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["available"] is False
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_connection_error(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.ConnectionError("refused")
+        resp = client.get("/api/solve/monitor/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_timeout(self, mock_get, client):
+        import requests
+
+        mock_get.side_effect = requests.Timeout("timed out")
+        resp = client.get("/api/solve/monitor/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_http_error(self, mock_get, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_get.side_effect = http_err
+        resp = client.get("/api/solve/monitor/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.get")
+    def test_monitor_generic_exception(self, mock_get, client):
+        mock_get.side_effect = RuntimeError("unexpected")
+        resp = client.get("/api/solve/monitor/tok-1")
+        assert resp.status_code == 500
+
+
+class TestSolveStop:
+    """Tests for POST /api/solve/stop/<token>."""
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_success(self, mock_post, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "message": "Stop signal sent to job process",
+            "stopped": True,
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        resp = client.post("/api/solve/stop/tok-1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["stopped"] is True
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_not_running(self, mock_post, client):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "message": "Job is not running (status: completed)",
+            "stopped": False,
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_post.return_value = mock_resp
+        resp = client.post("/api/solve/stop/tok-done")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["stopped"] is False
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_connection_error(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.ConnectionError("refused")
+        resp = client.post("/api/solve/stop/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_timeout(self, mock_post, client):
+        import requests
+
+        mock_post.side_effect = requests.Timeout("timed out")
+        resp = client.post("/api/solve/stop/tok-1")
+        assert resp.status_code == 504
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_http_error(self, mock_post, client):
+        import requests
+
+        http_err = requests.HTTPError("not found")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        http_err.response = mock_resp
+        mock_post.side_effect = http_err
+        resp = client.post("/api/solve/stop/tok-1")
+        assert resp.status_code == 502
+
+    @patch("guiservice.app.http_requests.post")
+    def test_stop_generic_exception(self, mock_post, client):
+        mock_post.side_effect = RuntimeError("unexpected")
+        resp = client.post("/api/solve/stop/tok-1")
+        assert resp.status_code == 500

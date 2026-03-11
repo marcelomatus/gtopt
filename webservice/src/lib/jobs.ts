@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { spawn, execFile } from "child_process";
+import { spawn, execFile, ChildProcess } from "child_process";
 import { createLogger } from "./logger";
 import { listDirRecursive } from "./files";
 
@@ -22,6 +22,9 @@ const GTOPT_BIN =
 
 // In-memory job store (for production, use a database)
 const jobs = new Map<string, JobInfo>();
+
+// In-memory map of running child processes keyed by job token
+const runningProcesses = new Map<string, ChildProcess>();
 
 export function getDataDir(): string {
   return DATA_DIR;
@@ -133,6 +136,9 @@ export async function runGtopt(token: string): Promise<void> {
       }
     );
 
+    // Register process so it can be stopped via stopJob()
+    runningProcesses.set(token, proc);
+
     let stdout = "";
     let stderr = "";
 
@@ -154,6 +160,9 @@ export async function runGtopt(token: string): Promise<void> {
     });
 
     proc.on("close", async (code) => {
+      // Unregister the process when it exits
+      runningProcesses.delete(token);
+
       if (code === 0) {
         job.status = "completed";
         job.completedAt = new Date().toISOString();
@@ -196,6 +205,7 @@ export async function runGtopt(token: string): Promise<void> {
     });
 
     proc.on("error", async (err) => {
+      runningProcesses.delete(token);
       job.status = "failed";
       job.error = `Failed to start gtopt: ${err.message}`;
       log.error(`Job ${token}: failed to start gtopt: ${err.message}`);
@@ -203,6 +213,50 @@ export async function runGtopt(token: string): Promise<void> {
       resolve();
     });
   });
+}
+
+/**
+ * Stop a running job by sending SIGTERM to its child process.
+ * Returns true if a signal was sent, false if the job was not running.
+ */
+export async function stopJob(token: string): Promise<boolean> {
+  const proc = runningProcesses.get(token);
+  if (!proc) {
+    log.info(`Job ${token}: stop requested but no running process found`);
+    return false;
+  }
+  log.info(`Job ${token}: sending SIGTERM to process pid=${proc.pid}`);
+  proc.kill("SIGTERM");
+  return true;
+}
+
+/**
+ * Read the solver monitor status JSON file for a job.
+ * Checks for sddp_status.json first, then monolithic_status.json.
+ * Returns the parsed JSON object or null if not found.
+ */
+export async function getJobMonitorData(
+  token: string
+): Promise<Record<string, unknown> | null> {
+  const outputDir = getJobOutputDir(token);
+  const candidates = [
+    path.join(outputDir, "sddp_status.json"),
+    path.join(outputDir, "monolithic_status.json"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const raw = await fs.readFile(candidate, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      // Annotate with the solver type derived from the filename
+      data._solver_type = path.basename(candidate).startsWith("sddp")
+        ? "sddp"
+        : "monolithic";
+      return data;
+    } catch {
+      // File not present or not valid JSON yet — try next candidate
+    }
+  }
+  return null;
 }
 
 export async function resolveGtoptBinary(): Promise<string> {
