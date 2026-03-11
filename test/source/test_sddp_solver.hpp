@@ -1813,8 +1813,8 @@ TEST_CASE("SDDPSolver - multi_cut_threshold<0 disables auto-switch")  // NOLINT
 
 /// Create a 2-scene, 3-phase hydro+thermal planning problem with explicit
 /// per-scene probability weights (0.7 and 0.3).
-auto make_2scene_3phase_hydro_planning(double prob1 = 0.7, double prob2 = 0.3)
-    -> Planning
+inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
+                                              double prob2 = 0.3) -> Planning
 {
   constexpr int num_phases = 3;
   constexpr int blocks_per_phase = 4;
@@ -1849,7 +1849,7 @@ auto make_2scene_3phase_hydro_planning(double prob1 = 0.7, double prob2 = 0.3)
     });
   }
 
-  const Simulation simulation = {
+  Simulation simulation = {
       .block_array = std::move(block_array),
       .stage_array = std::move(stage_array),
       .scenario_array =
@@ -1902,55 +1902,65 @@ auto make_2scene_3phase_hydro_planning(double prob1 = 0.7, double prob2 = 0.3)
       },
   };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 80.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_down", .drain = true},
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 200.0,
-      .emin = 0.0,
-      .emax = 200.0,
-      .eini = 100.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 200.0,
+          .emin = 0.0,
+          .emax = 200.0,
+          .eini = 100.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
 
-  const Array<Flow> flow_array = {{
-      .uid = Uid {1},
-      .name = "inflow",
-      .direction = 1,
-      .junction = Uid {1},
-      .discharge = 8.0,
-  }};
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 8.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .conversion_rate = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
 
   const System system = {
       .name = "sddp_2scene_3phase",
@@ -2004,7 +2014,7 @@ TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
   const auto& last = results->back();
   REQUIRE(last.scene_upper_bounds.size() == 2);
   const double expected_ub =
-      0.7 * last.scene_upper_bounds[0] + 0.3 * last.scene_upper_bounds[1];
+      (0.7 * last.scene_upper_bounds[0]) + (0.3 * last.scene_upper_bounds[1]);
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
   SPDLOG_INFO("2-scene weighted UB: {:.4f} (scene0={:.4f}, scene1={:.4f})",
               last.upper_bound,
@@ -2014,7 +2024,7 @@ TEST_CASE("SDDPSolver 2-scene - probability-weighted bounds")  // NOLINT
   // Verify lower bound is also probability-weighted
   REQUIRE(last.scene_lower_bounds.size() == 2);
   const double expected_lb =
-      0.7 * last.scene_lower_bounds[0] + 0.3 * last.scene_lower_bounds[1];
+      (0.7 * last.scene_lower_bounds[0]) + (0.3 * last.scene_lower_bounds[1]);
   CHECK(last.lower_bound == doctest::Approx(expected_lb).epsilon(1e-9));
 }
 
@@ -2087,7 +2097,7 @@ TEST_CASE(
     const auto& last = results->back();
     REQUIRE(last.scene_upper_bounds.size() == 2);
     const double expected_ub =
-        0.7 * last.scene_upper_bounds[0] + 0.3 * last.scene_upper_bounds[1];
+        (0.7 * last.scene_upper_bounds[0]) + (0.3 * last.scene_upper_bounds[1]);
     CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
   }
 }
@@ -2099,50 +2109,60 @@ TEST_CASE("TurbineLP::update_lp - no-op when no efficiency element")  // NOLINT
   // Build a minimal system WITHOUT a ReservoirEfficiency element.
   // update_lp should return 0 (nothing to update).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 50.0,
-  }};
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 30.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 30.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_down", .drain = true},
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 200.0,
-      .emin = 0.0,
-      .emax = 200.0,
-      .eini = 100.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .conversion_rate = 1.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 200.0,
+          .emin = 0.0,
+          .emax = 200.0,
+          .eini = 100.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
@@ -2163,7 +2183,7 @@ TEST_CASE("TurbineLP::update_lp - no-op when no efficiency element")  // NOLINT
 
   Options options;
   options.demand_fail_cost = OptReal {1000.0};
-  OptionsLP options_lp(options);
+  const OptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 
@@ -2184,58 +2204,70 @@ TEST_CASE("FiltrationLP::update_lp is a no-op without segments")  // NOLINT
   // update_lp_coefficients on a system that has filtration without
   // piecewise segments (static slope/constant only).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 50.0,
-  }};
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 30.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 30.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_down", .drain = true},
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 200.0,
-      .emin = 0.0,
-      .emax = 200.0,
-      .eini = 100.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .conversion_rate = 1.0,
-  }};
-  const Array<Filtration> filtration_array = {{
-      .uid = Uid {1},
-      .name = "flt1",
-      .waterway = Uid {1},
-      .reservoir = Uid {1},
-      .slope = 0.01,
-      .constant = 0.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 200.0,
+          .emin = 0.0,
+          .emax = 200.0,
+          .eini = 100.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
+  const Array<Filtration> filtration_array = {
+      {
+          .uid = Uid {1},
+          .name = "flt1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .slope = 0.01,
+          .constant = 0.0,
+      },
+  };
 
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
@@ -2257,7 +2289,7 @@ TEST_CASE("FiltrationLP::update_lp is a no-op without segments")  // NOLINT
 
   Options options;
   options.demand_fail_cost = OptReal {1000.0};
-  OptionsLP options_lp(options);
+  const OptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
 

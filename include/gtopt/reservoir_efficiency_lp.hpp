@@ -97,7 +97,7 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp);
 
-  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+  [[nodiscard]] static bool add_to_output(OutputContext& out);
 
   /**
    * @brief Update the conversion-rate LP coefficient for a given volume
