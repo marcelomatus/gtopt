@@ -787,8 +787,27 @@ $$
 \qquad \forall \; i, s, t, b
 $$
 
-where $a_i$ is the constant term and $b_i$ is the slope (seepage rate per
-unit volume).
+where $a_i$ is the constant term (RHS) and $b_i$ is the slope (seepage rate
+per unit volume).
+
+**Piecewise-linear filtration (plpcenfi.dat segments).**
+When a set of segments $\{(V_k, b_k, c_k)\}_{k=1}^{K}$ is provided, the
+filtration function is defined by a concave envelope:
+
+$$
+\varphi(V) = \min_{k} \bigl\{ c_k + b_k \cdot (V - V_k) \bigr\}
+$$
+
+At each phase, the active segment $k^*$ is selected based on the last known
+reservoir volume $V^{\text{ini}}$ (from the previous phase or the initial
+condition).  The LP constraint is then updated:
+
+- Coefficient on storage variables: $-b_{k^*} / 2$ on both $v_{b-1}$ and $v_b$
+- Right-hand side: $a_{k^*} = c_{k^*} - b_{k^*} \cdot V_{k^*}$
+
+To minimise overhead, `set_coeff` / `set_rhs` calls are dispatched only when
+the new values differ from the previously applied ones.  This mechanism is
+analogous to the piecewise-linear efficiency update for turbines (§5.9).
 
 ### 5.11 Capacity Expansion Constraints
 
@@ -1004,8 +1023,11 @@ mathematical symbols used in this formulation.
 | `reservoir_efficiency_array[].segments[].volume` | $v_i$ | Volume breakpoint (dam³) |
 | `reservoir_efficiency_array[].segments[].slope` | $m_i$ | Marginal efficiency per dam³ |
 | `reservoir_efficiency_array[].segments[].constant` | $c_i$ | Efficiency intercept |
-| `filtration_array[].constant` | $a_i$ | Seepage constant |
-| `filtration_array[].slope` | $b_i$ | Seepage slope |
+| `filtration_array[].constant` | $a_i$ | Default seepage constant |
+| `filtration_array[].slope` | $b_i$ | Default seepage slope |
+| `filtration_array[].segments[].volume` | $V_k$ | Volume breakpoint (dam³) |
+| `filtration_array[].segments[].slope` | $b_k$ | Seepage slope at breakpoint |
+| `filtration_array[].segments[].constant` | $c_k$ | Seepage rate at breakpoint |
 
 ---
 
