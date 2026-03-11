@@ -361,23 +361,28 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return std::nullopt;
   }
 
+  // Transfer ownership of the cloned LP to a shared_ptr captured by value
+  // in the pool task lambda.  This guarantees the clone's lifetime extends
+  // until after pool.get() returns, regardless of when the task is scheduled.
+  auto cloned_sp = std::make_shared<LinearInterface>(std::move(cloned));
+
   // Submit the LP solve to the work pool so that the pool's scheduling and
   // monitoring infrastructure (CPU load, active workers) observe the solve.
   // The calling thread blocks on the future until the solve completes.
-  auto fut = m_pool_->submit([&cloned, opts]() -> std::expected<int, Error>
-                             { return cloned.resolve(opts); });
+  auto fut = m_pool_->submit([cloned_sp, opts]() -> std::expected<int, Error>
+                             { return cloned_sp->resolve(opts); });
 
   bool solved = false;
   if (fut.has_value()) {
     auto r = fut.value().get();
-    solved = r.has_value() && cloned.is_optimal();
+    solved = r.has_value() && cloned_sp->is_optimal();
   } else {
     // Pool submission failed (e.g. pool shut down): fall back to direct solve.
     SPDLOG_WARN(
         "BendersCut::elastic_filter_solve: pool submit failed, "
         "falling back to direct solve");
-    auto r = cloned.resolve(opts);
-    solved = r.has_value() && cloned.is_optimal();
+    auto r = cloned_sp->resolve(opts);
+    solved = r.has_value() && cloned_sp->is_optimal();
   }
 
   if (solved) {
@@ -385,9 +390,9 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     SPDLOG_TRACE(
         "BendersCut::elastic_filter_solve: solved clone via pool "
         "(obj={:.4f}), total_infeasible_cuts={}",
-        cloned.get_obj_value(),
+        cloned_sp->get_obj_value(),
         m_infeasible_cut_count_.load(std::memory_order_relaxed));
-    result.clone = std::move(cloned);
+    result.clone = std::move(*cloned_sp);
     return result;
   }
 

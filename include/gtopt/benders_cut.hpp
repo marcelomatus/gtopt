@@ -267,9 +267,8 @@ public:
   ~BendersCut() = default;
 
   /// Update the work pool used for LP solves.
-  /// Thread-safe: the pointer is plain (not atomic), so callers must ensure
-  /// this is only called from a single thread (e.g. before starting the
-  /// parallel solve loop).
+  /// Must be called from a single thread (e.g. before starting the parallel
+  /// solve loop).  Not safe to call concurrently with elastic_filter_solve().
   void set_pool(AdaptiveWorkPool* pool) noexcept { m_pool_ = pool; }
 
   /// Access the current work pool (may be nullptr).
