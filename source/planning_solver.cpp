@@ -29,20 +29,13 @@ namespace gtopt
 auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
-  WorkPoolConfig pool_config {};
-
-  const double cpu_factor = 1.25;
-  pool_config.max_threads = static_cast<int>(
-      std::lround((cpu_factor * std::thread::hardware_concurrency())));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
-
-  AdaptiveWorkPool pool(pool_config);
-  pool.start();
+  auto pool = make_solver_work_pool();
 
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();
   const auto num_scenes = static_cast<int>(planning_lp.systems().size());
+
+  SPDLOG_INFO("MonolithicSolver: starting {} scene(s)", num_scenes);
 
   std::atomic<int> scenes_done {0};
   std::mutex times_mutex;
@@ -50,7 +43,7 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
   SolverMonitor monitor(api_update_interval);
   if (enable_api && !api_status_file.empty()) {
-    monitor.start(pool, solve_start, "MonolithicMonitor");
+    monitor.start(*pool, solve_start, "MonolithicMonitor");
   }
 
   try {
@@ -62,9 +55,10 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     for (auto&& [scene_index, phase_systems] :
          enumerate<SceneIndex>(planning_lp.systems()))
     {
-      auto result = pool.submit(
+      auto result = pool->submit(
           [&, scene_index]
           {
+            SPDLOG_TRACE("MonolithicSolver: scene {} starting", scene_index);
             const auto t_scene = std::chrono::steady_clock::now();
             auto r = planning_lp.resolve_scene_phases(
                 scene_index, phase_systems, opts);
@@ -77,6 +71,11 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
               scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
             }
             ++scenes_done;
+            SPDLOG_INFO("MonolithicSolver: scene {} done in {:.3f}s ({}/{})",
+                        scene_index,
+                        elapsed,
+                        scenes_done.load(),
+                        num_scenes);
             return r;
           });
       futures.push_back(std::move(result.value()));
@@ -92,6 +91,15 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
     // ── Write monitoring status file ──
     monitor.stop();
+    {
+      const double total_elapsed =
+          std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                        - solve_start)
+              .count();
+      SPDLOG_INFO("MonolithicSolver: all {} scene(s) done in {:.3f}s",
+                  num_scenes,
+                  total_elapsed);
+    }
     if (enable_api && !api_status_file.empty()) {
       const double elapsed = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - solve_start)

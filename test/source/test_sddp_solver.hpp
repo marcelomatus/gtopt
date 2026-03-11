@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
@@ -2338,4 +2339,120 @@ TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
   CHECK(results->size() <= 2);
 
   std::filesystem::remove_all(tmp_dir);
+}
+
+// ─── Solver infrastructure tests ────────────────────────────────────────────
+
+TEST_CASE("make_solver_work_pool creates a working pool")  // NOLINT
+{
+  auto pool = make_solver_work_pool();
+  REQUIRE(pool != nullptr);
+
+  // Submit a simple task and verify it executes
+  auto fut = pool->submit([] { return 42; });
+  REQUIRE(fut.has_value());
+  CHECK(fut->get() == 42);
+
+  // Check statistics are available
+  const auto stats = pool->get_statistics();
+  CHECK(stats.tasks_submitted >= 1);
+}
+
+TEST_CASE("make_solver_work_pool with custom cpu_factor")  // NOLINT
+{
+  // Use a small cpu_factor to verify it parameterises correctly
+  auto pool = make_solver_work_pool(0.5);
+  REQUIRE(pool != nullptr);
+
+  auto fut = pool->submit([] { return 7; });
+  REQUIRE(fut.has_value());
+  CHECK(fut->get() == 7);
+}
+
+TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-3;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  // Every iteration should have non-negative timing
+  for (const auto& ir : *results) {
+    CHECK(ir.forward_pass_s >= 0.0);
+    CHECK(ir.backward_pass_s >= 0.0);
+    CHECK(ir.iteration_s >= 0.0);
+    // iteration_s should be >= forward + backward
+    CHECK(ir.iteration_s
+          >= doctest::Approx(ir.forward_pass_s + ir.backward_pass_s)
+                 .epsilon(0.01));
+  }
+}
+
+TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
+{
+  const auto tmp_dir =
+      std::filesystem::temp_directory_path() / "test_sddp_timing_status";
+  std::filesystem::remove_all(tmp_dir);
+  std::filesystem::create_directories(tmp_dir);
+
+  const auto status_file = (tmp_dir / "sddp_status.json").string();
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = true;
+  sddp_opts.api_status_file = status_file;
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // The status file should exist and contain timing fields
+  CHECK(std::filesystem::exists(status_file));
+  if (std::filesystem::exists(status_file)) {
+    std::ifstream ifs(status_file);
+    std::string content(std::istreambuf_iterator<char>(ifs), {});
+    CHECK(content.find("forward_pass_s") != std::string::npos);
+    CHECK(content.find("backward_pass_s") != std::string::npos);
+    CHECK(content.find("iteration_s") != std::string::npos);
+    CHECK(content.find("elapsed_s") != std::string::npos);
+    CHECK(content.find("realtime") != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE("MonolithicSolver uses work pool from factory")  // NOLINT
+{
+  // Verify that MonolithicSolver works correctly after the refactoring
+  // to use make_solver_work_pool()
+  auto planning = make_single_phase_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
+}
+
+TEST_CASE("MonolithicSolver with 3-phase uses work pool")  // NOLINT
+{
+  // Verify multi-phase monolithic solving after refactoring
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  MonolithicSolver solver;
+  auto result = solver.solve(planning_lp, {});
+  REQUIRE(result.has_value());
+  CHECK(*result == 1);
 }
