@@ -2421,7 +2421,7 @@ TEST_CASE("SDDPSolver API - status file contains timing fields")  // NOLINT
   CHECK(std::filesystem::exists(status_file));
   if (std::filesystem::exists(status_file)) {
     std::ifstream ifs(status_file);
-    std::string content(std::istreambuf_iterator<char>(ifs), {});
+    const std::string content(std::istreambuf_iterator<char>(ifs), {});
     CHECK(content.find("forward_pass_s") != std::string::npos);
     CHECK(content.find("backward_pass_s") != std::string::npos);
     CHECK(content.find("iteration_s") != std::string::npos);
