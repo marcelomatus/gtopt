@@ -154,41 +154,24 @@ std::optional<SDDPSolver::ElasticResult> SDDPSolver::elastic_solve(
     return std::nullopt;
   }
 
-  auto& li = planning_lp().system(scene, phase).linear_interface();
+  const auto& li = planning_lp().system(scene, phase).linear_interface();
   const auto prev = PhaseIndex {static_cast<Index>(phase) - 1};
   const auto& prev_state = m_scene_phase_states_[scene][prev];
 
-  // Clone the LP – modifications to the clone don't touch the original
-  auto cloned = li.clone();
+  // Delegate to the standalone elastic_filter_solve() from benders_cut.hpp
+  auto result = elastic_filter_solve(
+      li, prev_state.outgoing_links, m_options_.elastic_penalty, opts);
 
-  ElasticResult result;
-  result.link_infos.reserve(prev_state.outgoing_links.size());
-
-  bool modified = false;
-  for (const auto& link : prev_state.outgoing_links) {
-    auto info = relax_fixed_state_variable(
-        cloned, link, phase, m_options_.elastic_penalty);
-    modified |= info.relaxed;
-    result.link_infos.push_back(info);
-  }
-
-  if (!modified) {
-    return std::nullopt;
-  }
-
-  // Solve the clone with elastic slack variables
-  auto r = cloned.resolve(opts);
-  if (r.has_value() && cloned.is_optimal()) {
+  if (result.has_value()) {
     SPDLOG_TRACE(
         "SDDP elastic: scene {} phase {} solved via clone "
         "(obj={:.4f})",
         scene,
         phase,
-        cloned.get_obj_value());
-    result.clone = std::move(cloned);
-    return result;
+        result->clone.get_obj_value());
   }
-  return std::nullopt;
+
+  return result;
 }
 
 bool SDDPSolver::check_sentinel_stop() const
@@ -473,8 +456,6 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
 
                 // multi-cut: also add one bound-constraint cut per
                 // state variable whose elastic slack was activated.
-                // The cut implements the bound constraint as a linear
-                // row using the non-zero slack variable solution value.
                 // Auto-switch to multi-cut when:
                 //   threshold == 0 (always), OR
                 //   threshold > 0 and counter > threshold.
@@ -486,81 +467,20 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
                             > m_options_.multi_cut_threshold);
 
                 if (use_multi_cut) {
-                  const auto& dep_sol = elastic_result->clone.get_col_sol();
-                  const auto& links = prev_state.outgoing_links;
-                  const auto& link_infos = elastic_result->link_infos;
-                  // link_infos has exactly one entry per outgoing link
-                  // (built in elastic_solve() from the same link vector).
-                  const std::size_t nlinks = links.size();
+                  auto mc_cuts = build_multi_cuts(*elastic_result,
+                                                  prev_state.outgoing_links,
+                                                  sddp_label("sddp",
+                                                             "multi-cut",
+                                                             "sc",
+                                                             scene,
+                                                             "ph",
+                                                             back_pi,
+                                                             "n",
+                                                             total_cuts));
 
-                  // Minimum slack magnitude to consider a slack "active"
-                  static constexpr double kActiveSlackTol = 1e-6;
-
-                  for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
-                    const auto& info = link_infos[li_idx];
-                    if (!info.relaxed) {
-                      continue;
-                    }
-                    const auto& link = links[li_idx];
-                    const double dep_val = dep_sol[link.dependent_col];
-
-                    // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
-                    if (info.sup_col != ColIndex {unknown_index}) {
-                      const double sup_val = dep_sol[info.sup_col];
-                      if (sup_val > kActiveSlackTol) {
-                        auto ub_cut = SparseRow {
-                            .name = sddp_label("sddp",
-                                               "multi-cut-ub",
-                                               "sc",
-                                               scene,
-                                               "ph",
-                                               back_pi,
-                                               "n",
-                                               total_cuts),
-                            .lowb = -LinearProblem::DblMax,
-                            .uppb = dep_val,
-                        };
-                        ub_cut[link.source_col] = 1.0;
-                        prev_li.add_row(ub_cut);
-                        ++total_cuts;
-                        SPDLOG_TRACE(
-                            "SDDP backward (multi-cut): scene {} phase {} "
-                            "added UB cut source_col≤{:.4f} (sup={:.4f})",
-                            scene,
-                            prev_bp,
-                            dep_val,
-                            sup_val);
-                      }
-                    }
-
-                    // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
-                    if (info.sdn_col != ColIndex {unknown_index}) {
-                      const double sdn_val = dep_sol[info.sdn_col];
-                      if (sdn_val > kActiveSlackTol) {
-                        auto lb_cut = SparseRow {
-                            .name = sddp_label("sddp",
-                                               "multi-cut-lb",
-                                               "sc",
-                                               scene,
-                                               "ph",
-                                               back_pi,
-                                               "n",
-                                               total_cuts),
-                            .lowb = dep_val,
-                            .uppb = LinearProblem::DblMax,
-                        };
-                        lb_cut[link.source_col] = 1.0;
-                        prev_li.add_row(lb_cut);
-                        ++total_cuts;
-                        SPDLOG_TRACE(
-                            "SDDP backward (multi-cut): scene {} phase {} "
-                            "added LB cut source_col≥{:.4f} (sdn={:.4f})",
-                            scene,
-                            prev_bp,
-                            dep_val,
-                            sdn_val);
-                      }
-                    }
+                  for (auto& mc : mc_cuts) {
+                    prev_li.add_row(mc);
+                    ++total_cuts;
                   }
                 }
               }
