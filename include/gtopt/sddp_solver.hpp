@@ -62,6 +62,7 @@
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/benders_cut.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -255,26 +256,14 @@ struct SDDPIterationResult
   std::vector<double> scene_lower_bounds {};
 };
 
-// ─── State variable linkage ─────────────────────────────────────────────────
-
-/**
- * @brief Describes one state-variable linkage between consecutive phases
- *
- * A state variable has a *source* column in phase t (e.g. efin, capainst)
- * and a *dependent* column in phase t+1 (e.g. eini, capainst_ini).  The
- * source column's physical bounds are captured at initialisation time so
- * the elastic filter can relax to the correct domain.
- */
-struct StateVarLink
-{
-  ColIndex source_col {};  ///< Source column in source phase's LP
-  ColIndex dependent_col {};  ///< Dependent column in target phase's LP
-  PhaseIndex source_phase {};  ///< Phase where the source column lives
-  PhaseIndex target_phase {};  ///< Phase where the dependent column lives
-  double trial_value {0.0};  ///< Trial value from the last forward pass
-  double source_low {0.0};  ///< Physical lower bound of source column
-  double source_upp {0.0};  ///< Physical upper bound of source column
-};
+// ─── State variable linkage, elastic filter, and cut functions ──────────────
+// Now provided by <gtopt/benders_cut.hpp> — included above.
+// The following types and functions are available via that header:
+//   StateVarLink, RelaxedVarInfo, ElasticSolveResult, FeasibilityCutResult,
+//   propagate_trial_values(), build_benders_cut(),
+//   relax_fixed_state_variable(), elastic_filter_solve(),
+//   build_feasibility_cut(), build_multi_cuts(), average_benders_cut(),
+//   weighted_average_benders_cut()
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
@@ -303,69 +292,6 @@ struct StoredCut
   /// Coefficient pairs: (column_index, coefficient)
   std::vector<std::pair<int, double>> coefficients {};
 };
-
-// ─── Free-function building blocks ──────────────────────────────────────────
-// These are the modular algorithmic primitives used by SDDPSolver.
-
-/// Result of relaxing one state-variable column via the elastic filter.
-/// Contains the relaxation status and the indices of the penalised slack
-/// columns added to the LP.
-struct RelaxedVarInfo
-{
-  bool relaxed {false};  ///< True if the column was relaxed (was fixed)
-  /// Overshoot slack col (sup > 0 → solution < trial)
-  ColIndex sup_col {unknown_index};
-  /// Undershoot slack col (sdn > 0 → solution > trial)
-  ColIndex sdn_col {unknown_index};
-
-  /// Implicit bool conversion: true iff the column was relaxed.
-  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
-  operator bool() const noexcept { return relaxed; }
-};
-
-/// Propagate trial values: fix dependent columns to source-column solution
-void propagate_trial_values(std::span<StateVarLink> links,
-                            std::span<const double> source_solution,
-                            LinearInterface& target_li) noexcept;
-
-/// Build a Benders optimality cut from reduced costs of dependent columns.
-///
-///   α_{t-1} ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
-///
-/// Returns the cut as a SparseRow ready to add to the source phase.
-[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
-                                     std::span<const StateVarLink> links,
-                                     std::span<const double> reduced_costs,
-                                     double objective_value,
-                                     std::string_view name) -> SparseRow;
-
-/// Relax a single fixed state-variable column to its physical source bounds,
-/// adding penalised slack variables.
-/// Returns a RelaxedVarInfo with the relaxation status and slack column
-/// indices.  Converts to bool (true iff relaxed) for backward compatibility.
-[[nodiscard]] RelaxedVarInfo relax_fixed_state_variable(
-    LinearInterface& li,
-    const StateVarLink& link,
-    PhaseIndex phase,
-    double penalty);
-
-/// Compute an average cut from a collection of cuts (for Expected sharing)
-[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                                       std::string_view name) -> SparseRow;
-
-/// Compute a probability-weighted average cut from a collection of cuts.
-///
-/// Each cut is weighted by the corresponding element in @p weights.
-/// The weights are normalised internally so they need not sum to 1.
-/// If all weights are zero the function returns an empty SparseRow.
-///
-/// @param cuts    Collection of Benders optimality cuts (SparseRow)
-/// @param weights Per-cut probability weights (must be same size as cuts)
-/// @param name    Name for the resulting averaged cut row
-[[nodiscard]] auto weighted_average_benders_cut(
-    const std::vector<SparseRow>& cuts,
-    const std::vector<double>& weights,
-    std::string_view name) -> SparseRow;
 
 // ─── Callback / observer API ────────────────────────────────────────────────
 
@@ -552,14 +478,9 @@ private:
       StrongIndexVector<SceneIndex,
                         StrongIndexVector<PhaseIndex, PhaseStateInfo>>;
 
-  /// Full result of the elastic-filter solve: the solved LP clone plus
-  /// per-link slack column information for multi-cut generation.
-  struct ElasticResult
-  {
-    LinearInterface clone;  ///< Solved elastic clone
-    /// One RelaxedVarInfo per entry in the previous phase's outgoing_links
-    std::vector<RelaxedVarInfo> link_infos {};
-  };
+  /// Type alias for backward compatibility — now uses the public
+  /// ElasticSolveResult from benders_cut.hpp.
+  using ElasticResult = ElasticSolveResult;
 
   void initialize_alpha_variables(SceneIndex scene);
   void collect_state_variable_links(SceneIndex scene);
