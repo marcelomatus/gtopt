@@ -238,9 +238,51 @@
           </div>
           <p id="solverStatusText"></p>
         </div>
+        <div id="solverControls" style="display:none">
+          <button class="btn-danger" onclick="stopCurrentJob()" id="btnStopJob">⏹ Stop Job</button>
+        </div>
         <div id="solverActions" style="display:none">
           <button class="primary" onclick="loadSolverResults()">Load Results</button>
         </div>
+      </div>
+
+      <!-- Live monitoring charts -->
+      <div id="monitorSection" style="display:none">
+        <h3>Live Monitoring</h3>
+        <div class="monitor-grid">
+          <!-- SDDP convergence charts (shown when solver_type=sddp) -->
+          <div id="sddpMonitor" style="display:none">
+            <h4>SDDP Convergence</h4>
+            <div class="chart-row">
+              <div class="chart-box">
+                <canvas id="chartBounds" height="180"></canvas>
+              </div>
+              <div class="chart-box">
+                <canvas id="chartGap" height="180"></canvas>
+              </div>
+            </div>
+          </div>
+          <!-- Monolithic progress (shown when solver_type=monolithic) -->
+          <div id="monoMonitor" style="display:none">
+            <h4>Scene Progress</h4>
+            <div class="chart-box">
+              <canvas id="chartScenes" height="180"></canvas>
+            </div>
+          </div>
+          <!-- CPU / workers (always shown) -->
+          <div id="realtimeMonitor">
+            <h4>Real-time Statistics</h4>
+            <div class="chart-row">
+              <div class="chart-box">
+                <canvas id="chartCpu" height="180"></canvas>
+              </div>
+              <div class="chart-box">
+                <canvas id="chartWorkers" height="180"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="monitorStats" class="monitor-stats"></div>
       </div>
 
       <div class="solver-jobs-section">
