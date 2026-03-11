@@ -211,7 +211,7 @@ void LinearInterface::set_coeff(const RowIndex row,
 #ifdef COIN_USE_CLP
   // OsiClpSolverInterface provides modifyCoefficient() directly
   solver->modifyCoefficient(r, c, value, false);
-#elif defined(COIN_USE_CBC)
+#elifdef COIN_USE_CBC
   // OsiCbcSolverInterface wraps a CLP solver underneath
   auto* real_solver = solver->getRealSolverPtr();
   auto* clp_solver = dynamic_cast<OsiClpSolverInterface*>(real_solver);
@@ -222,7 +222,7 @@ void LinearInterface::set_coeff(const RowIndex row,
         "set_coeff: underlying CBC solver's real solver "
         "is not OsiClpSolverInterface — cannot modify coefficient");
   }
-#elif defined(COIN_USE_CPX)
+#elifdef COIN_USE_CPX
   // OsiCpxSolverInterface provides setCoefficient() which wraps CPXchgcoef
   solver->setCoefficient(r, c, value);
 #else
@@ -241,7 +241,7 @@ double LinearInterface::get_coeff(const RowIndex row,
                                 static_cast<int>(column));
 }
 
-bool LinearInterface::supports_set_coeff() const noexcept
+bool LinearInterface::supports_set_coeff() noexcept
 {
 #if defined(COIN_USE_CLP) || defined(COIN_USE_CBC) || defined(COIN_USE_CPX)
   return true;
