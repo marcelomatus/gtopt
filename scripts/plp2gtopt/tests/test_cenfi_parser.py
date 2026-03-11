@@ -159,3 +159,104 @@ def test_parse_unexpected_eof(tmp_path):
     parser = CenfiParser(f)
     with pytest.raises(ValueError, match="Unexpected end"):
         parser.parse()
+
+
+# ─── Piecewise segment tests ────────────────────────────────────────────────
+
+
+def test_parse_extended_format_with_segments(tmp_path):
+    """Parse the extended format with piecewise-linear segments."""
+    content = (
+        " 1\n'Reservoir1'\n'Dam1'\n 2\n 1  0.0    0.001  2.0\n 2  500.0  0.0002 2.8\n"
+    )
+    f = write_cenfi(tmp_path, content)
+    parser = CenfiParser(f)
+    parser.parse()
+
+    assert parser.num_filtrations == 1
+    entry = parser.filtrations[0]
+    assert entry["name"] == "Reservoir1"
+    assert entry["reservoir"] == "Dam1"
+    # Default slope/constant from first segment
+    assert entry["slope"] == pytest.approx(0.001)
+    assert entry["constant"] == pytest.approx(2.0)
+    # Segments
+    assert len(entry["segments"]) == 2
+    assert entry["segments"][0]["volume"] == pytest.approx(0.0)
+    assert entry["segments"][0]["slope"] == pytest.approx(0.001)
+    assert entry["segments"][0]["constant"] == pytest.approx(2.0)
+    assert entry["segments"][1]["volume"] == pytest.approx(500.0)
+    assert entry["segments"][1]["slope"] == pytest.approx(0.0002)
+    assert entry["segments"][1]["constant"] == pytest.approx(2.8)
+
+
+def test_parse_extended_format_zero_segments(tmp_path):
+    """Parse the extended format with zero segments."""
+    content = " 1\n'PlantX'\n'DamX'\n 0\n"
+    f = write_cenfi(tmp_path, content)
+    parser = CenfiParser(f)
+    parser.parse()
+
+    assert parser.num_filtrations == 1
+    entry = parser.filtrations[0]
+    assert entry["slope"] == pytest.approx(0.0)
+    assert entry["constant"] == pytest.approx(0.0)
+    assert entry["segments"] == []
+
+
+def test_legacy_format_includes_empty_segments(tmp_path):
+    """Legacy format entries always have an empty segments list."""
+    content = " 1\n'Plant'\n'Dam'\n0.001  5.0\n"
+    f = write_cenfi(tmp_path, content)
+    parser = CenfiParser(f)
+    parser.parse()
+
+    entry = parser.filtrations[0]
+    assert entry["segments"] == []
+
+
+def test_mixed_legacy_and_extended(tmp_path):
+    """Parse a file mixing legacy and extended format entries."""
+    content = (
+        " 2\n"
+        "# Legacy entry\n"
+        "'LegacyPlant'\n"
+        "'LegacyDam'\n"
+        "0.001  5.0\n"
+        "# Extended entry\n"
+        "'ExtPlant'\n"
+        "'ExtDam'\n"
+        " 2\n"
+        " 1  0.0    0.002  1.0\n"
+        " 2  1000.0 0.001  3.0\n"
+    )
+    f = write_cenfi(tmp_path, content)
+    parser = CenfiParser(f)
+    parser.parse()
+
+    assert parser.num_filtrations == 2
+    # Legacy entry
+    e0 = parser.filtrations[0]
+    assert e0["slope"] == pytest.approx(0.001)
+    assert e0["constant"] == pytest.approx(5.0)
+    assert e0["segments"] == []
+    # Extended entry
+    e1 = parser.filtrations[1]
+    assert len(e1["segments"]) == 2
+    assert e1["segments"][0]["volume"] == pytest.approx(0.0)
+    assert e1["segments"][1]["volume"] == pytest.approx(1000.0)
+
+
+def test_parse_segment_too_few_fields(tmp_path):
+    """A segment line with too few fields raises ValueError."""
+    content = (
+        " 1\n"
+        "'X'\n"
+        "'Y'\n"
+        " 1\n"
+        " 1  0.0\n"  # Missing slope and constant
+    )
+    f = write_cenfi(tmp_path, content)
+    parser = CenfiParser(f)
+    with pytest.raises(ValueError, match="too few fields"):
+        parser.parse()

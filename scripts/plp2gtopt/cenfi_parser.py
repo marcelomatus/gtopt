@@ -6,17 +6,30 @@ Handles:
 - File parsing and validation
 - Filtration data structure creation
 - Lookup by central name
+- Piecewise-linear segment support (backward-compatible)
 
 File format (plpcenfi.dat - Archivo de Centrales Filtración):
-  # Numero de centrales de filtracion
+
+**Legacy format (single slope/constant pair)**::
+
   N
-  # For each entry:
-  # Nombre de Central (source waterway)
   'CENTRAL_NAME'
-  # Nombre del Embalse (receiving reservoir)
   'EMBALSE_NAME'
-  # Pendiente [m³/s / dam³]  Constante [m³/s]
   slope  constant
+
+**Extended format (piecewise-linear segments)**::
+
+  N
+  'CENTRAL_NAME'
+  'EMBALSE_NAME'
+  num_segments
+  idx  volume  slope  constant
+  idx  volume  slope  constant
+  ...
+
+Detection is automatic: if the line after the reservoir name contains a
+single integer, it is the number of segments; if it contains two or more
+numbers, it is the legacy slope/constant format.
 
 Field definitions:
   CENTRAL_NAME  – Central/waterway name (must match a central in plpcnfce.dat)
@@ -27,8 +40,8 @@ Field definitions:
 The filtration seepage flow per block is modelled as:
   seepage [m³/s] = slope × avg_reservoir_volume [dam³] + constant [m³/s]
 
-where avg_reservoir_volume = (eini + efin) / 2.  This captures the hydrostatic
-head dependence of soil seepage (Darcy's law approximation).
+where avg_reservoir_volume = (eini + efin) / 2.  When piecewise segments are
+present, the active segment is selected based on the current reservoir volume.
 """
 
 from typing import Any, Dict, List, Optional
@@ -50,7 +63,13 @@ class CenfiParser(BaseParser):
         return len(self.filtrations)
 
     def parse(self, parsers: Optional[Dict[str, Any]] = None) -> None:
-        """Parse the plpcenfi.dat file and populate the data structure."""
+        """Parse the plpcenfi.dat file and populate the data structure.
+
+        Supports both the legacy format (slope constant) and the extended
+        format with piecewise-linear segments.  Format detection is
+        automatic based on the field count of the line after the reservoir
+        name.
+        """
         self.validate_file()
 
         lines = self._read_non_empty_lines()
@@ -84,24 +103,65 @@ class CenfiParser(BaseParser):
 
             if idx >= len(lines):
                 raise ValueError(
-                    "Unexpected end of plpcenfi.dat file (slope/constant)."
+                    "Unexpected end of plpcenfi.dat file (slope/constant or segments)."
                 )
 
-            # Slope and constant on the same line
+            # Detect format: legacy (2+ fields) or extended (1 field = num_segments)
             parts = lines[idx].split()
-            if len(parts) < 2:
-                raise ValueError(
-                    f"Filtration slope/constant line has too few fields: {lines[idx]}"
-                )
-            slope = self._parse_float(parts[0])
-            constant = self._parse_float(parts[1])
-            idx += 1
+            slope = 0.0
+            constant = 0.0
+            segments: List[Dict[str, float]] = []
+
+            if len(parts) >= 2:
+                # Legacy format: slope constant on a single line
+                slope = self._parse_float(parts[0])
+                constant = self._parse_float(parts[1])
+                idx += 1
+            elif len(parts) == 1:
+                # Extended format: single integer = num_segments.
+                # If it cannot be parsed as an integer, fall back to
+                # the legacy error (too few fields).
+                try:
+                    num_segments = self._parse_int(parts[0])
+                except ValueError as exc:
+                    raise ValueError(
+                        "Filtration slope/constant line has too few fields:"
+                        f" {lines[idx]}"
+                    ) from exc
+                idx += 1
+                segments = []
+                for _ in range(num_segments):
+                    if idx >= len(lines):
+                        raise ValueError(
+                            "Unexpected end of plpcenfi.dat file (segment data)."
+                        )
+                    seg_parts = lines[idx].split()
+                    if len(seg_parts) < 4:
+                        raise ValueError(
+                            f"Segment line has too few fields: {lines[idx]}"
+                        )
+                    # Format: idx volume slope constant
+                    seg: Dict[str, float] = {
+                        "volume": self._parse_float(seg_parts[1]),
+                        "slope": self._parse_float(seg_parts[2]),
+                        "constant": self._parse_float(seg_parts[3]),
+                    }
+                    segments.append(seg)
+                    idx += 1
+                # Use first segment's values as the default slope/constant
+                if segments:
+                    slope = segments[0]["slope"]
+                    constant = segments[0]["constant"]
+                else:
+                    slope = 0.0
+                    constant = 0.0
 
             entry: Dict[str, Any] = {
                 "name": central_name,
                 "reservoir": reservoir_name,
                 "slope": slope,
                 "constant": constant,
+                "segments": segments,
             }
             self._append(entry)
 
