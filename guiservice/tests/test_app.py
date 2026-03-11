@@ -2487,7 +2487,8 @@ class TestSolveStop:
         http_err.response = mock_resp
         mock_post.side_effect = http_err
         resp = client.post("/api/solve/stop/tok-1")
-        assert resp.status_code == 502
+        # Should propagate the actual status code, not always 502
+        assert resp.status_code == 404
 
     @patch("guiservice.app.http_requests.post")
     def test_stop_generic_exception(self, mock_post, client):

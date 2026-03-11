@@ -1132,8 +1132,9 @@ def stop_solve(token):
     Proxies to POST /api/jobs/:token/stop on the webservice.
 
     Query parameters forwarded to the webservice:
-      mode=soft  (default) — Create the SDDP sentinel file so the solver
-                  finishes the current iteration and saves cuts before stopping.
+      mode=soft  (default) — Write the monitoring API stop-request file
+                  (sddp_stop_request.json) so the SDDP solver finishes the
+                  current iteration and saves cuts before stopping gracefully.
       mode=force — Send SIGTERM to the process immediately (hard stop).
     """
     mode = request.args.get("mode", "soft")
@@ -1161,7 +1162,7 @@ def stop_solve(token):
     except http_requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on stop token=%s status=%s", token, status)
-        return jsonify({"error": f"Webservice error: {status}"}), 502
+        return jsonify({"error": f"Webservice error: {status}"}), status
     except Exception as e:
         app.logger.exception("Unexpected error on stop token=%s", token)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
