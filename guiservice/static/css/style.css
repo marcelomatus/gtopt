@@ -770,3 +770,76 @@ button {
 .topo-popup-body table { border-collapse: collapse; width: 100%; }
 .topo-popup-body td { padding: 2px 4px; }
 .topo-popup-body td:first-child { font-weight: 600; color: var(--text-muted); width: 40%; }
+
+/* ── Solver monitoring ─────────────────────────────────────────────────────── */
+
+.btn-warning {
+  background: #e67e22;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background 0.15s;
+  margin-right: 6px;
+}
+.btn-warning:hover { background: #ca6f1e; }
+
+.btn-danger {
+  background: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.btn-danger:hover { background: #c0392b; }
+
+#monitorSection {
+  margin-top: 1.2rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.monitor-grid { display: flex; flex-direction: column; gap: 1rem; }
+
+.chart-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.chart-box {
+  flex: 1;
+  min-width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+}
+
+.monitor-stats {
+  margin-top: 0.6rem;
+}
+
+.monitor-stats-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  width: auto;
+}
+
+.monitor-stats-table td {
+  padding: 2px 10px 2px 0;
+  vertical-align: top;
+}
+
+.monitor-stats-table td:first-child {
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}

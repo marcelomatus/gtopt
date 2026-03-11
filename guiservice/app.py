@@ -1087,6 +1087,87 @@ def get_job_logs(token):
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
+@app.route("/api/solve/monitor/<token>", methods=["GET"])
+def get_solve_monitor(token):
+    """Poll the solver monitor status for a running job.
+
+    Proxies to GET /api/jobs/:token/monitor on the webservice which reads
+    the solver JSON status file (sddp_status.json or monolithic_status.json)
+    written by the gtopt binary.
+    Returns the parsed JSON or {"available": false} if not yet written.
+    """
+    try:
+        resp = http_requests.get(
+            f"{_webservice_url}/api/jobs/{token}/monitor",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on monitor token=%s", token)
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
+    except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on monitor token=%s", token)
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on monitor token=%s status=%s", token, status)
+        return jsonify({"error": f"Webservice error: {status}"}), 502
+    except Exception as e:
+        app.logger.exception("Unexpected error on monitor token=%s", token)
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/solve/stop/<token>", methods=["POST"])
+def stop_solve(token):
+    """Stop a running solver job.
+
+    Proxies to POST /api/jobs/:token/stop on the webservice.
+
+    Query parameters forwarded to the webservice:
+      mode=soft  (default) — Write the monitoring API stop-request file
+                  (sddp_stop_request.json) so the SDDP solver finishes the
+                  current iteration and saves cuts before stopping gracefully.
+      mode=force — Send SIGTERM to the process immediately (hard stop).
+    """
+    mode = request.args.get("mode", "soft")
+    try:
+        resp = http_requests.post(
+            f"{_webservice_url}/api/jobs/{token}/stop",
+            params={"mode": mode},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json())
+    except http_requests.ConnectionError:
+        app.logger.warning("Webservice connection error on stop token=%s", token)
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot connect to webservice at {_webservice_url}. Is the webservice running?"
+                }
+            ),
+            502,
+        )
+    except http_requests.Timeout:
+        app.logger.warning("Webservice timeout on stop token=%s", token)
+        return jsonify({"error": "Webservice request timed out"}), 504
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        app.logger.warning("Webservice HTTP error on stop token=%s status=%s", token, status)
+        return jsonify({"error": f"Webservice error: {status}"}), status
+    except Exception as e:
+        app.logger.exception("Unexpected error on stop token=%s", token)
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
 @app.route("/api/shutdown", methods=["POST"])
 def shutdown_service():
     """Shut down the guiservice (and its parent gtopt_gui launcher).

@@ -16,6 +16,8 @@ let _selectedColumns = new Set();
 let _resultsCurrentKey = null;
 let solverJobId = null;
 let solverPollTimer = null;
+let monitorPollTimer = null;
+let monitorCharts = {};
 let webserviceUrl = "";
 const SCHEMA_RETRY_BUDGET_MS = 2000;
 const SCHEMA_RETRY_DELAY_MS = 400;
@@ -815,6 +817,14 @@ function startPolling() {
   solverPollTimer = setInterval(pollStatus, 3000);
   // Also poll immediately
   pollStatus();
+  // Start monitor polling (faster cadence)
+  startMonitorPolling();
+}
+
+function stopPolling() {
+  if (solverPollTimer) clearInterval(solverPollTimer);
+  solverPollTimer = null;
+  stopMonitorPolling();
 }
 
 async function pollStatus() {
@@ -829,7 +839,7 @@ async function pollStatus() {
 
     if (!resp.ok) {
       showSolverProgress(true, 100, "Status check failed: " + (data.error || ""), true);
-      clearInterval(solverPollTimer);
+      stopPolling();
       return;
     }
 
@@ -839,20 +849,297 @@ async function pollStatus() {
       showSolverProgress(true, 30, "Job pending…");
     } else if (status === "running") {
       showSolverProgress(true, 60, "Solver is running…");
+      document.getElementById("solverControls").style.display = "block";
     } else if (status === "completed") {
-      clearInterval(solverPollTimer);
-      solverPollTimer = null;
+      stopPolling();
       showSolverProgress(true, 100, "Completed!", false, true);
+      document.getElementById("solverControls").style.display = "none";
       document.getElementById("solverActions").style.display = "block";
+      // Do a final monitor poll to capture the finished state
+      pollMonitor();
     } else if (status === "failed") {
-      clearInterval(solverPollTimer);
-      solverPollTimer = null;
+      stopPolling();
       const errMsg = data.error || "Unknown error";
       showSolverProgress(true, 100, "Failed: " + errMsg, true);
+      document.getElementById("solverControls").style.display = "none";
     }
   } catch (e) {
     // Don't stop polling on transient errors
   }
+}
+
+// ---------------------------------------------------------------------------
+// Stop job
+// ---------------------------------------------------------------------------
+
+async function stopCurrentJob(mode) {
+  if (!solverJobId) return;
+  const isSoft = mode === "soft";
+  const confirmMsg = isSoft
+    ? "Request a graceful stop? The SDDP solver will finish the current iteration and save cuts before stopping."
+    : "Force-stop the job immediately? This sends SIGTERM and cuts will NOT be saved.";
+  if (!confirm(confirmMsg)) return;
+  const params = new URLSearchParams({ mode: isSoft ? "soft" : "force" });
+  const url = `/api/solve/stop/${encodeURIComponent(solverJobId)}?${params}`;
+  try {
+    const resp = await fetch(url, { method: "POST" });
+    const data = await resp.json();
+    if (resp.ok) {
+      const msg = isSoft
+        ? "Graceful stop requested — solver will finish the current iteration…"
+        : "Force-stop signal sent. Waiting for job to terminate…";
+      setSolverStatus(msg);
+    } else {
+      alert("Stop failed: " + (data.error || "Unknown error"));
+    }
+  } catch (e) {
+    alert("Stop failed: " + e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Monitor polling and charts
+// ---------------------------------------------------------------------------
+
+function startMonitorPolling() {
+  if (monitorPollTimer) clearInterval(monitorPollTimer);
+  monitorPollTimer = setInterval(pollMonitor, 2000);
+  pollMonitor();
+}
+
+function stopMonitorPolling() {
+  if (monitorPollTimer) clearInterval(monitorPollTimer);
+  monitorPollTimer = null;
+}
+
+async function pollMonitor() {
+  if (!solverJobId) return;
+  try {
+    const resp = await fetch(`/api/solve/monitor/${encodeURIComponent(solverJobId)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.available) return;
+    renderMonitor(data);
+  } catch (e) {
+    // Ignore transient errors
+  }
+}
+
+function renderMonitor(data) {
+  const section = document.getElementById("monitorSection");
+  if (!section) return;
+  section.style.display = "block";
+
+  const solverType = data._solver_type || "monolithic";
+  document.getElementById("sddpMonitor").style.display = solverType === "sddp" ? "block" : "none";
+  document.getElementById("monoMonitor").style.display = solverType === "monolithic" ? "block" : "none";
+
+  if (solverType === "sddp") {
+    renderSddpCharts(data);
+  } else {
+    renderMonolithicCharts(data);
+  }
+  renderRealtimeCharts(data.realtime || {});
+  renderMonitorStats(data);
+}
+
+function getOrCreateChart(canvasId, config) {
+  if (monitorCharts[canvasId]) {
+    return monitorCharts[canvasId];
+  }
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  const chart = new Chart(canvas.getContext("2d"), config);
+  monitorCharts[canvasId] = chart;
+  return chart;
+}
+
+function destroyMonitorCharts() {
+  for (const [, chart] of Object.entries(monitorCharts)) {
+    chart.destroy();
+  }
+  monitorCharts = {};
+}
+
+function renderSddpCharts(data) {
+  const history = data.history || [];
+  const iters = history.map((h) => h.iteration);
+  const ubs = history.map((h) => h.upper_bound);
+  const lbs = history.map((h) => h.lower_bound);
+
+  // Bounds chart
+  let boundsChart = getOrCreateChart("chartBounds", {
+    type: "line",
+    data: {
+      labels: iters,
+      datasets: [
+        { label: "Upper Bound", data: ubs, borderColor: "#e74c3c", backgroundColor: "transparent", tension: 0.1, pointRadius: 2 },
+        { label: "Lower Bound", data: lbs, borderColor: "#27ae60", backgroundColor: "transparent", tension: 0.1, pointRadius: 2 },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { position: "top" }, title: { display: true, text: "Bounds vs Iteration" } },
+      scales: { x: { title: { display: true, text: "Iteration" } }, y: { title: { display: true, text: "Objective" } } },
+    },
+  });
+  if (boundsChart) {
+    boundsChart.data.labels = iters;
+    boundsChart.data.datasets[0].data = ubs;
+    boundsChart.data.datasets[1].data = lbs;
+    boundsChart.update("none");
+  }
+
+  // Gap chart
+  const gaps = history.map((h) => h.gap * 100);
+  let gapChart = getOrCreateChart("chartGap", {
+    type: "line",
+    data: {
+      labels: iters,
+      datasets: [
+        { label: "Gap (%)", data: gaps, borderColor: "#8e44ad", backgroundColor: "transparent", tension: 0.1, pointRadius: 2 },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { position: "top" }, title: { display: true, text: "Convergence Gap vs Iteration" } },
+      scales: { x: { title: { display: true, text: "Iteration" } }, y: { title: { display: true, text: "Gap (%)" } } },
+    },
+  });
+  if (gapChart) {
+    gapChart.data.labels = iters;
+    gapChart.data.datasets[0].data = gaps;
+    gapChart.update("none");
+  }
+
+  // Per-scene bounds shown in the stats panel (see renderMonitorStats)
+  if (history.length > 0) {
+    const last = history[history.length - 1];
+    const sceneUbs = last.scene_upper_bounds || [];
+    if (sceneUbs.length > 0) {
+      // Per-scene data is rendered as text in monitorStats, not a separate chart
+    }
+  }
+}
+
+function renderMonolithicCharts(data) {
+  const total = data.total_scenes || 0;
+  const done = data.scenes_done || 0;
+  const sceneTimes = data.scene_times || [];
+  const labels = sceneTimes.map((_, i) => `S${i}`);
+
+  let sceneChart = getOrCreateChart("chartScenes", {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Scene time (s)", data: sceneTimes, backgroundColor: "#3498db" },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { position: "top" }, title: { display: true, text: `Scenes: ${done}/${total} done` } },
+      scales: { x: { title: { display: true, text: "Scene" } }, y: { title: { display: true, text: "Time (s)" } } },
+    },
+  });
+  if (sceneChart) {
+    sceneChart.data.labels = labels;
+    sceneChart.data.datasets[0].data = sceneTimes;
+    sceneChart.options.plugins.title.text = `Scenes: ${done}/${total} done`;
+    sceneChart.update("none");
+  }
+}
+
+function renderRealtimeCharts(rt) {
+  const ts = rt.timestamps || [];
+  const cpus = rt.cpu_loads || [];
+  const workers = rt.active_workers || [];
+
+  let cpuChart = getOrCreateChart("chartCpu", {
+    type: "line",
+    data: {
+      labels: ts,
+      datasets: [
+        { label: "CPU Load (%)", data: cpus, borderColor: "#e67e22", backgroundColor: "rgba(230,126,34,0.1)", fill: true, tension: 0.3, pointRadius: 0 },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { position: "top" }, title: { display: true, text: "CPU Load" } },
+      scales: {
+        x: { title: { display: true, text: "Elapsed (s)" }, ticks: { maxTicksLimit: 8 } },
+        y: { title: { display: true, text: "%" }, min: 0, max: 100 },
+      },
+    },
+  });
+  if (cpuChart) {
+    cpuChart.data.labels = ts;
+    cpuChart.data.datasets[0].data = cpus;
+    cpuChart.update("none");
+  }
+
+  let workersChart = getOrCreateChart("chartWorkers", {
+    type: "line",
+    data: {
+      labels: ts,
+      datasets: [
+        { label: "Active Workers", data: workers, borderColor: "#16a085", backgroundColor: "rgba(22,160,133,0.1)", fill: true, tension: 0.3, pointRadius: 0 },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { position: "top" }, title: { display: true, text: "Active Worker Threads" } },
+      scales: {
+        x: { title: { display: true, text: "Elapsed (s)" }, ticks: { maxTicksLimit: 8 } },
+        y: { title: { display: true, text: "Threads" }, min: 0 },
+      },
+    },
+  });
+  if (workersChart) {
+    workersChart.data.labels = ts;
+    workersChart.data.datasets[0].data = workers;
+    workersChart.update("none");
+  }
+}
+
+function renderMonitorStats(data) {
+  const el = document.getElementById("monitorStats");
+  if (!el) return;
+  const solverType = data._solver_type || "monolithic";
+  let html = "<table class='monitor-stats-table'><tbody>";
+  html += `<tr><td>Status</td><td><strong>${escapeHtml(String(data.status || "—"))}</strong></td></tr>`;
+  html += `<tr><td>Elapsed</td><td>${data.elapsed_s != null ? Number(data.elapsed_s).toFixed(1) + " s" : "—"}</td></tr>`;
+  if (solverType === "sddp") {
+    html += `<tr><td>Iteration</td><td>${data.iteration != null ? data.iteration : "—"} / ${data.max_iterations != null ? data.max_iterations : "—"}</td></tr>`;
+    html += `<tr><td>Upper Bound</td><td>${data.upper_bound != null ? Number(data.upper_bound).toFixed(4) : "—"}</td></tr>`;
+    html += `<tr><td>Lower Bound</td><td>${data.lower_bound != null ? Number(data.lower_bound).toFixed(4) : "—"}</td></tr>`;
+    const gap = data.gap != null ? (Number(data.gap) * 100).toFixed(2) + "%" : "—";
+    html += `<tr><td>Gap</td><td>${gap}</td></tr>`;
+    html += `<tr><td>Converged</td><td>${data.converged ? "✔ Yes" : "✖ No"}</td></tr>`;
+    // Per-scene bounds (last iteration)
+    const history = data.history || [];
+    if (history.length > 0) {
+      const last = history[history.length - 1];
+      const sceneUbs = last.scene_upper_bounds || [];
+      const sceneLbs = last.scene_lower_bounds || [];
+      if (sceneUbs.length > 1) {
+        html += "<tr><td colspan='2'><em>Per-scene (last iteration)</em></td></tr>";
+        for (let i = 0; i < sceneUbs.length; i++) {
+          html += `<tr><td>&nbsp;&nbsp;Scene ${i} UB</td><td>${Number(sceneUbs[i]).toFixed(4)}</td></tr>`;
+          html += `<tr><td>&nbsp;&nbsp;Scene ${i} LB</td><td>${Number(sceneLbs[i]).toFixed(4)}</td></tr>`;
+        }
+      }
+    }
+  } else {
+    html += `<tr><td>Scenes Done</td><td>${data.scenes_done != null ? data.scenes_done : "—"} / ${data.total_scenes != null ? data.total_scenes : "—"}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  el.innerHTML = html;
 }
 
 function setSolverStatus(msg) {

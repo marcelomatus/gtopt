@@ -2266,3 +2266,44 @@ TEST_CASE("FiltrationLP::update_lp is a no-op without segments")  // NOLINT
       update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
   CHECK(updated == 0);
 }
+
+TEST_CASE("SDDPSolver API - monitoring API stop-request file")  // NOLINT
+{
+  // Verify that the solver stops gracefully when the monitoring API
+  // stop-request file (sddp_stop_request.json) is created in the tmp dir.
+  const auto tmp_dir =
+      std::filesystem::temp_directory_path() / "test_sddp_api_stop_request";
+  std::filesystem::remove_all(tmp_dir);
+  std::filesystem::create_directories(tmp_dir);
+
+  const auto stop_request_path = tmp_dir / sddp_file::stop_request;
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 100;
+  sddp_opts.convergence_tol = 1e-12;  // very tight — won't converge in 2
+  sddp_opts.api_stop_request_file = stop_request_path.string();
+
+  SDDPSolver sddp(planning_lp, sddp_opts);
+
+  // Create the stop-request file after the first iteration via callback
+  sddp.set_iteration_callback(
+      [&stop_request_path](const SDDPIterationResult& r) -> bool
+      {
+        if (r.iteration >= 1) {
+          std::ofstream ofs(stop_request_path);
+          ofs << R"({"stop_requested":true})" << '\n';
+        }
+        return false;
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  // Should stop after ≤ 2 iterations (file created at end of iter 1;
+  // checked at start of iter 2)
+  CHECK(results->size() <= 2);
+
+  std::filesystem::remove_all(tmp_dir);
+}

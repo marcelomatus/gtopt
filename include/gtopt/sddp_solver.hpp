@@ -105,6 +105,17 @@ constexpr auto scene_cuts_fmt = "scene_{}.csv";
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// Error LP file pattern for infeasible scene/phase
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
+/// Sentinel file name: if this file exists in the output directory, the
+/// SDDP solver stops gracefully after the current iteration and saves cuts.
+/// Created externally (e.g. by the webservice stop endpoint).
+constexpr auto stop_sentinel = "sddp_stop";
+/// Monitoring API stop-request file name: if this file exists, the solver
+/// stops gracefully after the current iteration (same behaviour as the
+/// sentinel file).  Written by the webservice soft-stop endpoint as part of
+/// the bidirectional monitoring API.  Complements rather than replaces the
+/// sentinel mechanism so that external scripts using the raw sentinel still
+/// work.  The solver checks: sentinel_file exists || stop_request file exists.
+constexpr auto stop_request = "sddp_stop_request.json";
 }  // namespace sddp_file
 
 // ─── Elastic filter mode ────────────────────────────────────────────────────
@@ -204,6 +215,14 @@ struct SDDPOptions
   /// "<output_directory>/sddp_status.json" (derived at solve time from the
   /// PlanningLP options).
   std::string api_status_file {};
+
+  /// Path for the monitoring API stop-request file.  When this file exists
+  /// the solver stops gracefully after the current iteration and saves cuts,
+  /// exactly like the sentinel_file mechanism.  The file is written by the
+  /// webservice soft-stop endpoint as part of the bidirectional monitoring
+  /// API.  Use sddp_file::stop_request ("sddp_stop_request.json") as the
+  /// filename in the output directory.  Empty = feature disabled.
+  std::string api_stop_request_file {};
 
   /// Interval at which the background monitoring thread refreshes real-time
   /// workpool statistics (CPU load, active workers) in the status file.
@@ -564,7 +583,11 @@ private:
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
-  /// Check all stop conditions: sentinel file, programmatic stop, callback
+  /// Check whether the monitoring API stop-request file exists
+  [[nodiscard]] bool check_api_stop_request() const;
+
+  /// Check all stop conditions: sentinel file, API stop request, programmatic
+  /// stop, callback
   [[nodiscard]] bool should_stop() const;
 
   /// Apply cut sharing across scenes for a given phase

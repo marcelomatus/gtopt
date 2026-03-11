@@ -376,9 +376,18 @@ bool SDDPSolver::check_sentinel_stop() const
   return std::filesystem::exists(m_options_.sentinel_file);
 }
 
+bool SDDPSolver::check_api_stop_request() const
+{
+  if (m_options_.api_stop_request_file.empty()) {
+    return false;
+  }
+  return std::filesystem::exists(m_options_.api_stop_request_file);
+}
+
 bool SDDPSolver::should_stop() const
 {
-  return m_stop_requested_.load() || check_sentinel_stop();
+  return m_stop_requested_.load() || check_sentinel_stop()
+      || check_api_stop_request();
 }
 
 // ── Coefficient updates ─────────────────────────────────────────────────────

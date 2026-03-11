@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { spawn, execFile } from "child_process";
+import { spawn, execFile, ChildProcess } from "child_process";
 import { createLogger } from "./logger";
 import { listDirRecursive } from "./files";
 
@@ -22,6 +22,9 @@ const GTOPT_BIN =
 
 // In-memory job store (for production, use a database)
 const jobs = new Map<string, JobInfo>();
+
+// In-memory map of running child processes keyed by job token
+const runningProcesses = new Map<string, ChildProcess>();
 
 export function getDataDir(): string {
   return DATA_DIR;
@@ -133,6 +136,10 @@ export async function runGtopt(token: string): Promise<void> {
       }
     );
 
+    // Register process so it can be stopped via stopJob()
+    runningProcesses.set(token, proc);
+    log.info(`Job ${token}: process started pid=${proc.pid ?? "unknown"}`);
+
     let stdout = "";
     let stderr = "";
 
@@ -154,6 +161,9 @@ export async function runGtopt(token: string): Promise<void> {
     });
 
     proc.on("close", async (code) => {
+      // Unregister the process when it exits
+      runningProcesses.delete(token);
+
       if (code === 0) {
         job.status = "completed";
         job.completedAt = new Date().toISOString();
@@ -163,6 +173,10 @@ export async function runGtopt(token: string): Promise<void> {
         job.error = stderr || stdout || `Process exited with code ${code}`;
         log.error(`Job ${token}: gtopt failed with exit code ${code}: ${job.error}`);
       }
+
+      // Remove the stop-request file so it does not interfere with
+      // subsequent hot-start runs in the same output directory.
+      await cleanupStopRequestFile(token);
 
       // Log output directory contents after execution
       try {
@@ -196,6 +210,7 @@ export async function runGtopt(token: string): Promise<void> {
     });
 
     proc.on("error", async (err) => {
+      runningProcesses.delete(token);
       job.status = "failed";
       job.error = `Failed to start gtopt: ${err.message}`;
       log.error(`Job ${token}: failed to start gtopt: ${err.message}`);
@@ -203,6 +218,131 @@ export async function runGtopt(token: string): Promise<void> {
       resolve();
     });
   });
+}
+
+/**
+ * The monitoring API stop-request file name.
+ * Must match `sddp_file::stop_request` in include/gtopt/sddp_solver.hpp.
+ *
+ * When this file exists in the job output directory the SDDP solver stops
+ * gracefully after the current iteration and saves all accumulated Benders
+ * cuts.  The solver checks both the legacy sentinel file and this file
+ * (whichever is found first triggers a soft stop).
+ */
+export const SDDP_STOP_REQUEST_FILE = "sddp_stop_request.json";
+
+/**
+ * Soft-stop a running SDDP job by writing the monitoring API stop-request
+ * file in the job output directory.  The SDDP solver checks for this file
+ * at the start of each iteration; when found it finishes the iteration,
+ * saves all accumulated Benders cuts, and returns normally.
+ *
+ * The stop-request file contains a small JSON object with the timestamp and
+ * the requesting source, useful for debugging.  The C++ solver only tests
+ * file existence, not content.
+ *
+ * The output directory is created if it does not yet exist so that the file
+ * can be written as soon as the solver starts.  Returns true if the file was
+ * written successfully, false otherwise.
+ */
+export async function softStopJob(token: string): Promise<boolean> {
+  const outputDir = getJobOutputDir(token);
+  const stopRequestPath = path.join(outputDir, SDDP_STOP_REQUEST_FILE);
+  try {
+    // Ensure the output directory exists before writing
+    await fs.mkdir(outputDir, { recursive: true });
+    const payload = JSON.stringify(
+      {
+        stop_requested: true,
+        source: "webservice",
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2
+    );
+    await fs.writeFile(stopRequestPath, payload + "\n");
+    log.info(
+      `Job ${token}: wrote monitoring API stop-request to ${stopRequestPath}`
+    );
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn(
+      `Job ${token}: could not write stop-request file ${stopRequestPath}: ${msg}`
+    );
+    return false;
+  }
+}
+
+/**
+ * Remove the monitoring API stop-request file (if present) so it does not
+ * interfere with a subsequent hot-start run of the same job directory.
+ * Called internally when a job transitions to completed or failed.
+ */
+async function cleanupStopRequestFile(token: string): Promise<void> {
+  const stopRequestPath = path.join(
+    getJobOutputDir(token),
+    SDDP_STOP_REQUEST_FILE
+  );
+  try {
+    await fs.unlink(stopRequestPath);
+    log.info(`Job ${token}: removed stop-request file ${stopRequestPath}`);
+  } catch {
+    // File may not exist — that is the normal case; ignore silently
+  }
+}
+
+/**
+ * Stop a running job by sending SIGTERM to its child process (hard stop).
+ * Returns true if a signal was sent successfully, false if the job was not
+ * running or if the signal could not be delivered.
+ */
+export async function stopJob(token: string): Promise<boolean> {
+  const proc = runningProcesses.get(token);
+  if (!proc) {
+    log.info(`Job ${token}: stop requested but no running process found`);
+    return false;
+  }
+  try {
+    log.info(`Job ${token}: sending SIGTERM to process pid=${proc.pid}`);
+    proc.kill("SIGTERM");
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn(`Job ${token}: could not send SIGTERM (pid=${proc.pid}): ${msg}`);
+    return false;
+  }
+}
+
+/**
+ * Read the solver monitor status JSON file for a job.
+ * Checks for sddp_status.json first, then monolithic_status.json.
+ * Returns the parsed JSON object or null if not found.
+ */
+export async function getJobMonitorData(
+  token: string
+): Promise<Record<string, unknown> | null> {
+  const outputDir = getJobOutputDir(token);
+  const candidates = [
+    path.join(outputDir, "sddp_status.json"),
+    path.join(outputDir, "monolithic_status.json"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const raw = await fs.readFile(candidate, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      // Annotate with the solver type derived from the filename
+      data._solver_type = path.basename(candidate).startsWith("sddp")
+        ? "sddp"
+        : "monolithic";
+      return data;
+    } catch (e) {
+      // File not present or not valid JSON yet — try next candidate
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn(`getJobMonitorData: could not parse ${candidate}: ${msg}`);
+    }
+  }
+  return null;
 }
 
 export async function resolveGtoptBinary(): Promise<string> {
