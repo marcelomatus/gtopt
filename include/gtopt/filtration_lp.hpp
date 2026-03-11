@@ -7,6 +7,10 @@
  *
  * The FiltrationLP class provides a linear programming (LP) compatible
  * representation of a Filtration system for optimization problems.
+ *
+ * When the Filtration has piecewise-linear segments, update_lp() selects
+ * the active segment based on the reservoir's current volume (vini from
+ * the previous phase) and updates the LP constraint coefficients and RHS.
  */
 
 #pragma once
@@ -27,6 +31,11 @@ class SystemLP;
  *
  * Provides methods for LP formulation of filtration constraints while
  * maintaining connections to waterways and reservoirs.
+ *
+ * When the Filtration has piecewise-linear segments, update_lp() is
+ * called by the SDDP solver (or monolithic solver between phases) to
+ * re-evaluate the filtration function at the current reservoir volume
+ * and update the constraint coefficients.
  */
 class FiltrationLP : public ObjectLP<Filtration>
 {
@@ -76,27 +85,38 @@ public:
   /**
    * @brief Update reservoir-dependent LP coefficients for this filtration.
    *
-   * Currently a no-op (the filtration slope and constant are fixed
-   * parameters that do not depend on the reservoir volume at run time).
-   * This method exists for interface consistency with TurbineLP::update_lp
-   * and will be extended in the future if volume-dependent filtration rates
-   * are required.
+   * When the Filtration has piecewise-linear segments, selects the active
+   * segment based on the reservoir's current volume (vini from previous
+   * phase) and updates:
+   * - The coefficient on eini/efin columns: -slope * 0.5
+   * - The RHS (row bounds): intercept = constant_i - slope_i * volume_i
    *
-   * @return Always 0 (no coefficients updated)
+   * Only dispatches set_coeff/set_rhs calls when the new value differs
+   * from the previously stored value.
+   *
+   * @return Number of LP coefficients/bounds modified (0 if unchanged)
    */
-  [[nodiscard]] constexpr int update_lp(
-      [[maybe_unused]] SystemLP& sys,
-      [[maybe_unused]] const ScenarioLP& scenario,
-      [[maybe_unused]] const StageLP& stage,
-      [[maybe_unused]] PhaseIndex phase,
-      [[maybe_unused]] int iteration) noexcept
+  [[nodiscard]] int update_lp(SystemLP& sys,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              PhaseIndex phase,
+                              int iteration);
+
+  /// Tracks the volume columns and current LP state for coefficient updates
+  struct FiltrationState
   {
-    return 0;
-  }
+    ColIndex eini_col {};  ///< Stage eini column
+    ColIndex efin_col {};  ///< Stage efin column
+    Real current_slope {0.0};  ///< Current slope in the LP constraint
+    Real current_rhs {0.0};  ///< Current RHS in the LP constraint
+  };
 
 private:
   STBIndexHolder<ColIndex> filtration_cols;
   STBIndexHolder<RowIndex> filtration_rows;
+
+  /// Per-(scenario, stage) state for coefficient tracking
+  IndexHolder2<ScenarioUid, StageUid, FiltrationState> m_states_;
 };
 
 }  // namespace gtopt

@@ -133,4 +133,63 @@ TEST_CASE("Filtration with empty optional fields")
   CHECK(filt.active.has_value() == false);
   CHECK(filt.slope == 0.0);  // null defaults to 0.0
   CHECK(filt.constant == 0.0);  // null defaults to 0.0
+  CHECK(filt.segments.empty());  // null defaults to empty
+}
+
+TEST_CASE("Filtration with piecewise segments JSON")
+{
+  std::string_view json_data = R"({
+    "uid":10,
+    "name":"FILTER_PWL",
+    "waterway":1,
+    "reservoir":2,
+    "slope":0.001,
+    "constant":1.0,
+    "segments":[
+      {"volume":0.0, "slope":0.0003, "constant":0.5},
+      {"volume":500.0, "slope":0.0001, "constant":0.65}
+    ]
+  })";
+
+  const Filtration filt = daw::json::from_json<Filtration>(json_data);
+
+  CHECK(filt.uid == 10);
+  CHECK(filt.name == "FILTER_PWL");
+  CHECK(filt.slope == doctest::Approx(0.001));
+  CHECK(filt.constant == doctest::Approx(1.0));
+  REQUIRE(filt.segments.size() == 2);
+  CHECK(filt.segments[0].volume == doctest::Approx(0.0));
+  CHECK(filt.segments[0].slope == doctest::Approx(0.0003));
+  CHECK(filt.segments[0].constant == doctest::Approx(0.5));
+  CHECK(filt.segments[1].volume == doctest::Approx(500.0));
+  CHECK(filt.segments[1].slope == doctest::Approx(0.0001));
+  CHECK(filt.segments[1].constant == doctest::Approx(0.65));
+}
+
+TEST_CASE("Filtration with segments roundtrip")
+{
+  Filtration filt;
+  filt.uid = 42;
+  filt.name = "roundtrip_test";
+  filt.waterway = Uid {1};
+  filt.reservoir = Uid {2};
+  filt.slope = 0.01;
+  filt.constant = 5.0;
+  filt.segments = {
+      {.volume = 0.0, .slope = 0.002, .constant = 1.0},
+      {.volume = 1000.0, .slope = 0.001, .constant = 3.0},
+  };
+
+  auto json = daw::json::to_json(filt);
+  const Filtration roundtrip = daw::json::from_json<Filtration>(json);
+
+  CHECK(roundtrip.uid == 42);
+  CHECK(roundtrip.name == "roundtrip_test");
+  CHECK(roundtrip.slope == doctest::Approx(0.01));
+  CHECK(roundtrip.constant == doctest::Approx(5.0));
+  REQUIRE(roundtrip.segments.size() == 2);
+  CHECK(roundtrip.segments[0].volume == doctest::Approx(0.0));
+  CHECK(roundtrip.segments[0].slope == doctest::Approx(0.002));
+  CHECK(roundtrip.segments[1].volume == doctest::Approx(1000.0));
+  CHECK(roundtrip.segments[1].constant == doctest::Approx(3.0));
 }

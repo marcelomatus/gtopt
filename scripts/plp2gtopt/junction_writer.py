@@ -13,7 +13,6 @@ Converts central plant data into:
 """
 
 import logging
-import typing
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast, TypedDict
 
@@ -112,8 +111,22 @@ class ReservoirEfficiency(TypedDict):
     segments: List[EfficiencySegment]
 
 
+class FiltrationSegment(TypedDict):
+    """One segment of a piecewise-linear filtration curve."""
+
+    volume: float
+    slope: float
+    constant: float
+
+
 class Filtration(TypedDict):
-    """Represents water seepage from a waterway into a reservoir."""
+    """Represents water seepage from a waterway into a reservoir.
+
+    When ``segments`` is non-empty the piecewise-linear concave envelope
+    is used: ``filtration(V) = min_i { constant_i + slope_i × (V − volume_i) }``.
+    The LP constraint coefficients are updated dynamically based on the
+    reservoir volume.
+    """
 
     uid: int
     name: str
@@ -173,7 +186,7 @@ class JunctionWriter(BaseWriter):
     @property
     def central_parser(self) -> CentralParser:
         """Get the central parser instance."""
-        return typing.cast(CentralParser, self.parser)
+        return cast(CentralParser, self.parser)
 
     def _create_waterway(
         self,
@@ -482,6 +495,19 @@ class JunctionWriter(BaseWriter):
                 "slope": entry["slope"],
                 "constant": entry["constant"],
             }
+
+            # Include piecewise segments when present
+            segments = entry.get("segments", [])
+            if segments:
+                filtration["segments"] = [  # type: ignore[typeddict-unknown-key]
+                    {
+                        "volume": seg["volume"],
+                        "slope": seg["slope"],
+                        "constant": seg["constant"],
+                    }
+                    for seg in segments
+                ]
+
             system["filtration_array"].append(filtration)
             uid_counter += 1
 
