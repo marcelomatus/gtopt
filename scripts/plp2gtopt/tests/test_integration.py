@@ -1062,8 +1062,8 @@ def test_bat_4b_24_lmax_parquet(tmp_path):
 
 # ---------------------------------------------------------------------------
 # plp_min_hydro_ms – multi-stage hydro pasada pura with 2-hydrology stochastic
-# flow. Tests that each PLP scenario maps to exactly one gtopt scene and each
-# PLP stage maps to exactly one gtopt phase.
+# flow. Tests both SDDP mode (one scene per scenario, one phase per stage) and
+# monolithic mode (one scene for all scenarios, one phase for all stages).
 # ---------------------------------------------------------------------------
 
 _PLPMinHydroMs = _CASES_DIR / "plp_min_hydro_ms"
@@ -1164,3 +1164,60 @@ def test_min_hydro_ms_afluent_parquet(tmp_path):
     assert s2["uid:1"].iloc[0] == pytest.approx(80.0 / 200.0)
     assert s2["uid:1"].iloc[1] == pytest.approx(85.0 / 200.0)
     assert s2["uid:1"].iloc[2] == pytest.approx(90.0 / 200.0)
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_monolithic_structure(tmp_path):
+    """plp_min_hydro_ms + --solver mono: one scene (all scenarios), one phase (all stages)."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_mono")
+    opts["hydrologies"] = "0,1"
+    opts["solver_type"] = "mono"
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sim = data["simulation"]
+
+    # sddp_solver_type in options must be "monolithic"
+    assert data["options"]["sddp_solver_type"] == "monolithic"
+
+    # 2 scenarios with equal probability
+    scenarios = sim["scenario_array"]
+    assert len(scenarios) == 2
+    for s in scenarios:
+        assert s["probability_factor"] == pytest.approx(0.5)
+
+    # Monolithic: exactly one scene covering all scenarios
+    scenes = sim["scene_array"]
+    assert len(scenes) == 1
+    assert scenes[0]["uid"] == 1
+    assert scenes[0]["first_scenario"] == 0
+    assert scenes[0]["count_scenario"] == 2
+
+    # 3 PLP stages → 3 gtopt stages
+    stages = sim["stage_array"]
+    assert len(stages) == 3
+
+    # Monolithic: exactly one phase covering all stages
+    phases = sim["phase_array"]
+    assert len(phases) == 1
+    assert phases[0]["uid"] == 1
+    assert phases[0]["first_stage"] == 0
+    assert phases[0]["count_stage"] == 3
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_sddp_options_key(tmp_path):
+    """plp_min_hydro_ms + --solver sddp: options must have sddp_solver_type='sddp'."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_sddp")
+    opts["hydrologies"] = "0,1"
+    opts["solver_type"] = "sddp"
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    assert data["options"]["sddp_solver_type"] == "sddp"
+
+    sim = data["simulation"]
+    # SDDP: one scene per scenario
+    assert len(sim["scene_array"]) == 2
+    # SDDP: one phase per stage
+    assert len(sim["phase_array"]) == 3

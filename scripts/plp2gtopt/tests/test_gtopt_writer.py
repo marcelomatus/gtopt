@@ -40,7 +40,7 @@ class TestGTOptWriterWithRealParser:
         result = writer.to_json(_make_opts(tmp_path))
         assert set(result.keys()) >= {"options", "system", "simulation"}
 
-    def test_to_json_simulation_has_stages_and_blocks(self, tmp_path):
+    def test_to_json_simulation_has_required_arrays(self, tmp_path):
         """simulation block must contain stage_array, block_array, phase_array, scene_array."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
@@ -52,15 +52,40 @@ class TestGTOptWriterWithRealParser:
         assert "block_array" in sim
         assert len(sim["stage_array"]) > 0
         assert len(sim["block_array"]) > 0
-        # phase_array: one phase per stage
+        # phase_array: one phase per stage (sddp default)
         assert "phase_array" in sim
         assert len(sim["phase_array"]) == len(sim["stage_array"])
         for i, phase in enumerate(sim["phase_array"]):
             assert phase["first_stage"] == i
             assert phase["count_stage"] == 1
-        # scene_array: one scene per scenario
+        # scene_array: one scene per scenario (sddp default)
         assert "scene_array" in sim
         assert len(sim["scene_array"]) == len(sim["scenario_array"])
+
+    def test_to_json_simulation_monolithic_single_phase_scene(self, tmp_path):
+        """Monolithic solver: single phase covering all stages, single scene with all scenarios."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["hydrologies"] = "0,1,2"
+        opts["solver_type"] = "mono"
+        result = writer.to_json(opts)
+        sim = result["simulation"]
+
+        num_stages = len(sim["stage_array"])
+        assert num_stages > 0
+
+        # Monolithic: exactly one phase spanning all stages
+        assert len(sim["phase_array"]) == 1
+        assert sim["phase_array"][0]["first_stage"] == 0
+        assert sim["phase_array"][0]["count_stage"] == num_stages
+
+        # Monolithic: exactly one scene containing all 3 scenarios
+        assert len(sim["scene_array"]) == 1
+        assert sim["scene_array"][0]["first_scenario"] == 0
+        assert sim["scene_array"][0]["count_scenario"] == 3
 
     def test_to_json_system_has_generators(self, tmp_path):
         """system block must contain a non-empty generator_array."""
@@ -86,7 +111,7 @@ class TestGTOptWriterWithRealParser:
         assert isinstance(data, dict)
 
     def test_to_json_options_block(self, tmp_path):
-        """options block includes expected keys."""
+        """options block includes expected keys including sddp_solver_type."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
@@ -96,6 +121,19 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts
+        # Default solver type is sddp
+        assert opts["sddp_solver_type"] == "sddp"
+
+    def test_to_json_options_monolithic_solver(self, tmp_path):
+        """options block contains sddp_solver_type=monolithic when requested."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["solver_type"] = "mono"
+        result = writer.to_json(opts)
+        assert result["options"]["sddp_solver_type"] == "monolithic"
 
 
 class TestGTOptWriterProcessMethods:
@@ -107,11 +145,25 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         assert writer.planning["options"]["annual_discount_rate"] == 0.0
 
+    def test_process_options_default_solver_type(self):
+        """process_options defaults to sddp_solver_type='sddp'."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        assert writer.planning["options"]["sddp_solver_type"] == "sddp"
+
+    def test_process_options_monolithic_solver_type(self):
+        """process_options normalizes 'mono' to 'monolithic' in JSON output."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "solver_type": "mono"})
+        assert writer.planning["options"]["sddp_solver_type"] == "monolithic"
+
     def test_process_options_with_discount(self):
         """process_options passes discount_rate through."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "discount_rate": 0.08})
         assert writer.planning["options"]["annual_discount_rate"] == pytest.approx(0.08)
+
+    # ---- SDDP (default) scenario/scene tests --------------------------------
 
     def test_process_scenarios_single_hydrology(self):
         """Single hydrology → probability_factor = 1.0, unique uid=1, one scene."""
@@ -168,6 +220,31 @@ class TestGTOptWriterProcessMethods:
         for i, scene in enumerate(scenes):
             assert scene["first_scenario"] == i
             assert scene["count_scenario"] == 1
+
+    # ---- Monolithic scenario/scene tests ------------------------------------
+
+    def test_process_scenarios_monolithic_two_hydrologies(self):
+        """Monolithic solver: 2 scenarios → 1 scene containing both."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_scenarios({"hydrologies": "0,1", "solver_type": "monolithic"})
+        scenarios = writer.planning["simulation"]["scenario_array"]
+        assert len(scenarios) == 2
+        assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
+        assert scenarios[1]["probability_factor"] == pytest.approx(0.5)
+
+        scenes = writer.planning["simulation"]["scene_array"]
+        assert len(scenes) == 1
+        assert scenes[0]["uid"] == 1
+        assert scenes[0]["first_scenario"] == 0
+        assert scenes[0]["count_scenario"] == 2
+
+    def test_process_scenarios_mono_alias(self):
+        """'mono' is accepted as an alias for 'monolithic'."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_scenarios({"hydrologies": "0,1,2", "solver_type": "mono"})
+        scenes = writer.planning["simulation"]["scene_array"]
+        assert len(scenes) == 1
+        assert scenes[0]["count_scenario"] == 3
 
     def test_process_buses_empty(self):
         """process_buses handles missing bus_parser gracefully."""
