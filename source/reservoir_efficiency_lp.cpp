@@ -105,11 +105,10 @@ auto ReservoirEfficiencyLP::update_conversion_coeff(LinearInterface& li,
 
 // ── Generalized LP coefficient update ───────────────────────────────────────
 
-int update_lp_coefficients(
-    SystemLP& system_lp,
-    const OptionsLP& options,
-    const std::function<Real(const ReservoirLPSId&)>& reservoir_volume,
-    int iteration)
+int update_lp_coefficients(SystemLP& system_lp,
+                           [[maybe_unused]] const OptionsLP& options,
+                           int iteration,
+                           PhaseIndex phase)
 {
   auto& li = system_lp.linear_interface();
 
@@ -120,33 +119,29 @@ int update_lp_coefficients(
           "update_lp_coefficients: set_coeff unsupported by solver, "
           "using static conversion rates (mean efficiency)");
     }
-    // Cannot modify matrix coefficients — turbine keeps the static
+    // Cannot modify matrix coefficients — turbines keep the static
     // conversion_rate set during TurbineLP::add_to_lp().
     return 0;
   }
 
   int total = 0;
 
-  // Iterate over all (scenario, stage) pairs in this SystemLP
+  // Iterate over all (scenario, stage) pairs in this SystemLP and
+  // delegate to per-element update_lp() methods.
   for (auto&& stage : system_lp.phase().stages()) {
     for (auto&& scenario : system_lp.scene().scenarios()) {
-      const auto suid = scenario.uid();
-      const auto tuid = stage.uid();
-
-      // 1. Turbine efficiency updates (ReservoirEfficiencyLP)
-      for (auto& eff : system_lp.elements<ReservoirEfficiencyLP>()) {
-        // Check per-element skip count
-        const auto skip = eff.effective_update_skip(options);
-        if (iteration > 0 && skip > 0 && (iteration % (skip + 1)) != 0) {
-          continue;
-        }
-
-        const auto vol = reservoir_volume(eff.reservoir_sid());
-        total += eff.update_conversion_coeff(li, suid, tuid, vol);
+      // 1. Turbine efficiency updates (via TurbineLP::update_lp)
+      for (auto& turbine : system_lp.elements<TurbineLP>()) {
+        total +=
+            turbine.update_lp(system_lp, scenario, stage, phase, iteration);
       }
 
-      // 2. Future: filtration updates, linearised line-loss updates, etc.
-      //    Add additional update loops here following the same pattern.
+      // 2. Filtration updates (currently a no-op; provided for interface
+      //    consistency — future volume-dependent filtration rates go here)
+      for (auto& filtration : system_lp.elements<FiltrationLP>()) {
+        total +=
+            filtration.update_lp(system_lp, scenario, stage, phase, iteration);
+      }
     }
   }
 
