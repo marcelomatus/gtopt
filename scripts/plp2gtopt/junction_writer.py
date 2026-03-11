@@ -8,6 +8,8 @@ Converts central plant data into:
 - Flows (water discharges)
 - Reservoirs (storage nodes)
 - Turbines (energy conversion points)
+- Filtrations (waterway → reservoir seepage links)
+- ReservoirEfficiencies (volume-dependent turbine efficiency curves)
 """
 
 import typing
@@ -16,6 +18,8 @@ from typing import Any, Dict, List, Optional, cast, TypedDict
 
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
+from .cenfi_parser import CenfiParser
+from .cenre_parser import CenreParser
 from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
 from .manem_parser import ManemParser
@@ -81,6 +85,40 @@ class Turbine(TypedDict):
     conversion_rate: float
 
 
+class EfficiencySegment(TypedDict):
+    """One segment of a piecewise-linear efficiency curve."""
+
+    volume: float
+    slope: float
+    constant: float
+
+
+class ReservoirEfficiency(TypedDict):
+    """Volume-dependent turbine efficiency (PLP rendimiento).
+
+    Maps reservoir volume to turbine conversion rate [MW·s/m³] via a
+    piecewise-linear concave envelope.
+    """
+
+    uid: int
+    name: str
+    turbine: int
+    reservoir: int
+    mean_efficiency: float
+    segments: List[EfficiencySegment]
+
+
+class Filtration(TypedDict):
+    """Represents water seepage from a waterway into a reservoir."""
+
+    uid: int
+    name: str
+    waterway: int
+    reservoir: int
+    slope: float
+    constant: float
+
+
 class HydroSystemOutput(TypedDict):
     """Output structure for hydro system JSON format."""
 
@@ -89,6 +127,8 @@ class HydroSystemOutput(TypedDict):
     flow_array: List[Flow]
     reservoir_array: List[Reservoir]
     turbine_array: List[Turbine]
+    filtration_array: List[Filtration]
+    reservoir_efficiency_array: List[ReservoirEfficiency]
 
 
 class JunctionWriter(BaseWriter):
@@ -101,14 +141,20 @@ class JunctionWriter(BaseWriter):
         aflce_parser: Optional[AflceParser] = None,
         extrac_parser: Optional[ExtracParser] = None,
         manem_parser: Optional[ManemParser] = None,
+        cenre_parser: Optional[CenreParser] = None,
+        cenfi_parser: Optional[CenfiParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
 
         Args:
             central_parser: Parser for central plant data
-            aflce_parser: Parser for flow data
+            stage_parser: Parser for stage data
+            aflce_parser: Parser for inflow data
             extrac_parser: Parser for extraction data
+            manem_parser: Parser for reservoir maintenance schedules
+            cenre_parser: Parser for reservoir efficiency (plpcenre.dat)
+            cenfi_parser: Parser for filtration data (plpcenfi.dat)
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
@@ -116,6 +162,8 @@ class JunctionWriter(BaseWriter):
         self.aflce_parser = aflce_parser
         self.extrac_parser = extrac_parser
         self.manem_parser = manem_parser
+        self.cenre_parser = cenre_parser
+        self.cenfi_parser = cenfi_parser
         self._waterway_counter = 0
 
     @property
@@ -194,6 +242,8 @@ class JunctionWriter(BaseWriter):
             "flow_array": [],
             "reservoir_array": [],
             "turbine_array": [],
+            "filtration_array": [],
+            "reservoir_efficiency_array": [],
         }
 
         # Process central plants
@@ -207,6 +257,14 @@ class JunctionWriter(BaseWriter):
         # Process extraction plants
         if self.extrac_parser and central_parser:
             self._process_extractions(system, central_parser)
+
+        # Process filtration data (plpcenfi.dat)
+        if self.cenfi_parser and central_parser:
+            self._process_filtrations(system, central_parser)
+
+        # Process reservoir efficiency data (plpcenre.dat)
+        if self.cenre_parser and central_parser:
+            self._process_reservoir_efficiencies(system, central_parser)
 
         return [cast(Dict[str, Any], system)]
 
@@ -352,6 +410,147 @@ class JunctionWriter(BaseWriter):
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             system["reservoir_array"].append(reservoir)
+
+    def _process_filtrations(
+        self,
+        system: HydroSystemOutput,
+        central_parser: CentralParser,
+    ) -> None:
+        """Process filtration data into filtration_array elements.
+
+        Each entry in plpcenfi.dat links a central (waterway source) to a
+        receiving reservoir with a slope/constant seepage model.  The
+        waterway uid is resolved from the turbine's generation waterway uid
+        stored in turbine_array; the reservoir uid is resolved from the
+        central number of the reservoir.
+        """
+        if not self.cenfi_parser:
+            return
+
+        # Build a name→waterway uid lookup from the already-created turbines
+        turbine_waterway: Dict[str, int] = {
+            t["name"]: t["waterway"] for t in system["turbine_array"]
+        }
+
+        # Build a name→reservoir uid lookup from the already-created reservoirs
+        reservoir_uid: Dict[str, int] = {
+            r["name"]: r["uid"] for r in system["reservoir_array"]
+        }
+
+        uid_counter = 1
+        for entry in self.cenfi_parser.filtrations:
+            central_name = entry["name"]
+            reservoir_name = entry["reservoir"]
+
+            # Resolve waterway uid
+            ww_uid = turbine_waterway.get(central_name)
+            if ww_uid is None:
+                # Try looking up the central by name to get its generation waterway
+                central = central_parser.get_central_by_name(central_name)
+                if central is None:
+                    print(
+                        f"Warning: Filtration central '{central_name}' not found;"
+                        " skipping."
+                    )
+                    continue
+                # Fallback: use the central number as waterway uid
+                ww_uid = central["number"]
+
+            # Resolve reservoir uid
+            rsv_uid = reservoir_uid.get(reservoir_name)
+            if rsv_uid is None:
+                central = central_parser.get_central_by_name(reservoir_name)
+                if central is None:
+                    print(
+                        f"Warning: Filtration reservoir '{reservoir_name}' not found;"
+                        " skipping."
+                    )
+                    continue
+                rsv_uid = central["number"]
+
+            filtration: Filtration = {
+                "uid": uid_counter,
+                "name": f"filt_{central_name}_{reservoir_name}",
+                "waterway": ww_uid,
+                "reservoir": rsv_uid,
+                "slope": entry["slope"],
+                "constant": entry["constant"],
+            }
+            system["filtration_array"].append(filtration)
+            uid_counter += 1
+
+    def _process_reservoir_efficiencies(
+        self,
+        system: HydroSystemOutput,
+        central_parser: CentralParser,
+    ) -> None:
+        """Process reservoir efficiency data into reservoir_efficiency_array.
+
+        Each entry in plpcenre.dat links a central (turbine) to a reservoir
+        and provides a piecewise-linear efficiency curve (rendimiento) that
+        maps reservoir volume to turbine conversion rate [MW·s/m³].
+        """
+        if not self.cenre_parser:
+            return
+
+        # Build turbine name→uid lookup from already-created turbines
+        turbine_uid: Dict[str, int] = {
+            t["name"]: t["uid"] for t in system["turbine_array"]
+        }
+
+        # Build reservoir name→uid lookup from already-created reservoirs
+        reservoir_uid: Dict[str, int] = {
+            r["name"]: r["uid"] for r in system["reservoir_array"]
+        }
+
+        uid_counter = 1
+        for entry in self.cenre_parser.efficiencies:
+            central_name = entry["name"]
+            reservoir_name = entry["reservoir"]
+
+            # Resolve turbine uid
+            turb_uid = turbine_uid.get(central_name)
+            if turb_uid is None:
+                central = central_parser.get_central_by_name(central_name)
+                if central is None:
+                    print(
+                        f"Warning: Efficiency central '{central_name}' not found;"
+                        " skipping."
+                    )
+                    continue
+                turb_uid = central["number"]
+
+            # Resolve reservoir uid
+            rsv_uid = reservoir_uid.get(reservoir_name)
+            if rsv_uid is None:
+                central = central_parser.get_central_by_name(reservoir_name)
+                if central is None:
+                    print(
+                        f"Warning: Efficiency reservoir '{reservoir_name}' not found;"
+                        " skipping."
+                    )
+                    continue
+                rsv_uid = central["number"]
+
+            segments: List[EfficiencySegment] = [
+                {
+                    "volume": seg["volume"],
+                    "slope": seg["slope"],
+                    "constant": seg["constant"],
+                }
+                for seg in entry["segments"]
+            ]
+
+            efficiency: ReservoirEfficiency = {
+                "uid": uid_counter,
+                "name": f"eff_{central_name}",
+                "turbine": turb_uid,
+                "reservoir": rsv_uid,
+                "mean_efficiency": entry["mean_efficiency"],
+                "segments": segments,
+            }
+            system["reservoir_efficiency_array"].append(efficiency)
+            uid_counter += 1
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""

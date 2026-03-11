@@ -1,0 +1,24 @@
+# Archivo de Rendimiento de Embalses (plpcenre.dat)
+# Numero de Embalses con Rendimiento
+2
+# Nombre de Central
+'Reservoir1'
+# Nombre del Embalse
+'Reservoir1'
+# Rendimiento Medio
+1.530
+# Numero de Tramos
+1
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0002294    1.2558000   1.0E9
+# Nombre de Central
+'TurbineGen'
+# Nombre del Embalse
+'Reservoir1'
+# Rendimiento Medio
+2.100
+# Numero de Tramos
+2
+#Tramo      Volumen     Pendiente    Constante  F.Escala
+     1    0.0000000     0.0003000    1.8000000   1.0E9
+     2  500.0000000     0.0001000    2.1000000   1.0E9

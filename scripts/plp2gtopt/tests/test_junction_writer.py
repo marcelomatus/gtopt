@@ -8,6 +8,8 @@ from ..junction_writer import JunctionWriter
 from ..central_parser import CentralParser
 from ..extrac_parser import ExtracParser
 from ..aflce_parser import AflceParser
+from ..cenre_parser import CenreParser
+from ..cenfi_parser import CenfiParser
 
 # Mocks for parsers
 
@@ -65,6 +67,42 @@ class MockAflceParser(AflceParser):
             if aflce["name"] == name:
                 return aflce
         return None
+
+
+class MockCenreParser(CenreParser):
+    """Mock CenreParser for testing."""
+
+    def __init__(self, efficiencies: List[Dict[str, Any]]):
+        """Initialize with a list of efficiency data."""
+        super().__init__("dummy.dat")
+        self._mock_data = efficiencies
+
+    def get_all(self) -> List[Dict[str, Any]]:
+        """Return all efficiency entries."""
+        return self._mock_data
+
+    @property
+    def efficiencies(self) -> List[Dict[str, Any]]:
+        """Return all efficiency entries."""
+        return self._mock_data
+
+
+class MockCenfiParser(CenfiParser):
+    """Mock CenfiParser for testing."""
+
+    def __init__(self, filtrations: List[Dict[str, Any]]):
+        """Initialize with a list of filtration data."""
+        super().__init__("dummy.dat")
+        self._mock_data = filtrations
+
+    def get_all(self) -> List[Dict[str, Any]]:
+        """Return all filtration entries."""
+        return self._mock_data
+
+    @property
+    def filtrations(self) -> List[Dict[str, Any]]:
+        """Return all filtration entries."""
+        return self._mock_data
 
 
 # Fixtures for parsers
@@ -391,3 +429,156 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
 
     # 2 flows for PlantA and PlantC
     assert len(result["flow_array"]) == 2
+
+
+# ─── Filtration and efficiency tests ────────────────────────────────────────
+
+
+def _make_hydro_parser() -> MockCentralParser:
+    """Return a MockCentralParser with one reservoir and one turbine."""
+    return MockCentralParser(
+        [
+            {
+                "name": "Dam1",
+                "number": 1,
+                "type": "embalse",
+                "bus": 0,
+                "pmin": 0,
+                "pmax": 100,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 0.0,
+                "ser_hid": 0,
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+            {
+                "name": "Turbine1",
+                "number": 2,
+                "type": "serie",
+                "bus": 10,
+                "pmin": 0,
+                "pmax": 80,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 1.5,
+                "ser_hid": 3,
+                "ser_ver": 0,
+                "afluent": 0.0,
+            },
+        ]
+    )
+
+
+def test_filtration_array_populated():
+    """JunctionWriter creates filtration_array from CenfiParser data."""
+    central_parser = _make_hydro_parser()
+    cenfi_parser = MockCenfiParser(
+        [
+            {
+                "name": "Turbine1",
+                "reservoir": "Dam1",
+                "slope": 0.001,
+                "constant": 5.0,
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
+    result = writer.to_json_array()[0]
+
+    assert "filtration_array" in result
+    assert len(result["filtration_array"]) == 1
+    filt = result["filtration_array"][0]
+    assert filt["slope"] == pytest.approx(0.001)
+    assert filt["constant"] == pytest.approx(5.0)
+    assert filt["reservoir"] == 1  # Dam1 uid
+
+
+def test_filtration_array_empty_when_no_parser():
+    """filtration_array is empty when no CenfiParser is provided."""
+    central_parser = _make_hydro_parser()
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    assert "filtration_array" in result
+    assert result["filtration_array"] == []
+
+
+def test_filtration_skips_unknown_central():
+    """_process_filtrations skips entries whose central is not found."""
+    central_parser = _make_hydro_parser()
+    cenfi_parser = MockCenfiParser(
+        [
+            {
+                "name": "NONEXISTENT",
+                "reservoir": "Dam1",
+                "slope": 0.001,
+                "constant": 5.0,
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenfi_parser=cenfi_parser)
+    result = writer.to_json_array()[0]
+    # Unknown central → silently skipped
+    assert result["filtration_array"] == []
+
+
+def test_reservoir_efficiency_array_populated():
+    """JunctionWriter creates reservoir_efficiency_array from CenreParser data."""
+    central_parser = _make_hydro_parser()
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "Turbine1",
+                "reservoir": "Dam1",
+                "mean_efficiency": 1.5,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.0003, "constant": 1.2},
+                    {"volume": 500.0, "slope": 0.0001, "constant": 1.5},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
+    result = writer.to_json_array()[0]
+
+    assert "reservoir_efficiency_array" in result
+    assert len(result["reservoir_efficiency_array"]) == 1
+    eff = result["reservoir_efficiency_array"][0]
+    assert eff["mean_efficiency"] == pytest.approx(1.5)
+    assert eff["reservoir"] == 1  # Dam1 uid
+    assert len(eff["segments"]) == 2
+    assert eff["segments"][0]["slope"] == pytest.approx(0.0003)
+    assert eff["segments"][1]["volume"] == pytest.approx(500.0)
+
+
+def test_reservoir_efficiency_array_empty_when_no_parser():
+    """reservoir_efficiency_array is empty when no CenreParser is provided."""
+    central_parser = _make_hydro_parser()
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    assert "reservoir_efficiency_array" in result
+    assert result["reservoir_efficiency_array"] == []
+
+
+def test_efficiency_skips_unknown_central():
+    """_process_reservoir_efficiencies skips entries whose central is not found."""
+    central_parser = _make_hydro_parser()
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "NONEXISTENT",
+                "reservoir": "Dam1",
+                "mean_efficiency": 1.5,
+                "segments": [],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
+    result = writer.to_json_array()[0]
+    assert result["reservoir_efficiency_array"] == []

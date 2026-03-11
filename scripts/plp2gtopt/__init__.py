@@ -21,6 +21,8 @@ from .battery_parser import BatteryParser
 from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
+from .cenre_parser import CenreParser
+from .cenfi_parser import CenfiParser
 
 __all__ = [
     "convert_plp_case",
@@ -33,4 +35,6 @@ __all__ = [
     "ManbatParser",
     "EssParser",
     "ManessParser",
+    "CenreParser",
+    "CenfiParser",
 ]

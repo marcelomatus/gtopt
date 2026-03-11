@@ -158,12 +158,16 @@ class GTOptWriter:
         aflces = self.parser.parsed_data.get("aflce_parser", None)
         extracs = self.parser.parsed_data.get("extrac_parser", None)
         manems = self.parser.parsed_data.get("manem_parser", None)
+        cenre = self.parser.parsed_data.get("cenre_parser", None)
+        cenfi = self.parser.parsed_data.get("cenfi_parser", None)
         json_junctions = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
             aflce_parser=aflces,
             extrac_parser=extracs,
             manem_parser=manems,
+            cenre_parser=cenre,
+            cenfi_parser=cenfi,
             options=options,
         ).to_json_array()
 
