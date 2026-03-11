@@ -171,7 +171,7 @@ struct FiltrationCoeffs
     return {};
   }
 
-  const FiltrationSegment* best_seg = &segments[0];
+  const FiltrationSegment* best_seg = segments.data();
   auto best_val = std::numeric_limits<Real>::max();
 
   for (const auto& seg : segments) {
@@ -184,7 +184,7 @@ struct FiltrationCoeffs
 
   return {
       .slope = best_seg->slope,
-      .intercept = best_seg->constant - best_seg->slope * best_seg->volume,
+      .intercept = best_seg->constant - (best_seg->slope * best_seg->volume),
   };
 }
 
