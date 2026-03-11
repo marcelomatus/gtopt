@@ -1,0 +1,15 @@
+# Archivo de centrales filtracion (plpcenfi.dat)
+# Numero de centrales de filtracion
+2
+# Nombre de Central
+'Reservoir1'
+# Nombre del Embalse
+'Reservoir1'
+# Pendiente [m3/s/dam3]  Constante [m3/s]
+0.001  5.0
+# Nombre de Central
+'TurbineGen'
+# Nombre del Embalse
+'Reservoir1'
+# Pendiente [m3/s/dam3]  Constante [m3/s]
+0.0005  2.5

@@ -35,6 +35,7 @@
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_reservoir.hpp>
+#include <gtopt/json/json_reservoir_efficiency.hpp>
 #include <gtopt/json/json_simulation.hpp>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/json/json_turbine.hpp>
@@ -60,6 +61,7 @@ using namespace gtopt;
 #include "test_planning_json.hpp"
 #include "test_reserve_provision_json.hpp"
 #include "test_reserve_zone_json.hpp"
+#include "test_reservoir_efficiency_json.hpp"
 #include "test_reservoir_json.hpp"
 #include "test_simulation_json.hpp"
 #include "test_system_json.hpp"
