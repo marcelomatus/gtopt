@@ -9,6 +9,8 @@ from typing import Any, Dict
 from .block_parser import BlockParser
 from .bus_parser import BusParser
 from .central_parser import CentralParser
+from .cenfi_parser import CenfiParser
+from .cenre_parser import CenreParser
 from .cost_parser import CostParser
 from .demand_parser import DemandParser
 from .line_parser import LineParser
@@ -87,3 +89,17 @@ class PLPParser:
                 mp = ManbatParser(manbat_path)
                 mp.parse(self.parsed_data)
                 self.parsed_data["manbat_parser"] = mp
+
+        # Optional hydro efficiency file – plpcenre.dat (Rendimiento de Embalses)
+        cenre_path = self.input_path / "plpcenre.dat"
+        if cenre_path.exists():
+            crp = CenreParser(cenre_path)
+            crp.parse(self.parsed_data)
+            self.parsed_data["cenre_parser"] = crp
+
+        # Optional filtration file – plpcenfi.dat (Centrales Filtración)
+        cenfi_path = self.input_path / "plpcenfi.dat"
+        if cenfi_path.exists():
+            cfp = CenfiParser(cenfi_path)
+            cfp.parse(self.parsed_data)
+            self.parsed_data["cenfi_parser"] = cfp
