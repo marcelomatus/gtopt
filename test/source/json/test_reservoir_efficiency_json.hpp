@@ -94,7 +94,7 @@ TEST_CASE("ReservoirEfficiency daw json test - multiple segments")
   REQUIRE(re.segments[1].volume == doctest::Approx(500.0));
   REQUIRE(re.segments[1].constant == doctest::Approx(4.8));
   REQUIRE(re.sddp_efficiency_update_skip.has_value());
-  CHECK(re.sddp_efficiency_update_skip.value() == 3);
+  CHECK(re.sddp_efficiency_update_skip.value_or(0) == 3);
 }
 
 TEST_CASE("ReservoirEfficiency daw json test - empty segments")
@@ -183,5 +183,5 @@ TEST_CASE("ReservoirEfficiency to_json and from_json round-trip")
   CHECK(roundtrip.segments[0].slope == doctest::Approx(0.0005));
   CHECK(roundtrip.segments[1].volume == doctest::Approx(800.0));
   REQUIRE(roundtrip.sddp_efficiency_update_skip.has_value());
-  CHECK(roundtrip.sddp_efficiency_update_skip.value() == 2);
+  CHECK(roundtrip.sddp_efficiency_update_skip.value_or(0) == 2);
 }

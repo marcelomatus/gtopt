@@ -389,23 +389,34 @@ A water inflow or outflow at a junction.
 
 ### 3.12 Filtration
 
-Linear seepage model from a waterway to an adjacent reservoir.
+Linear seepage model from a waterway to an adjacent reservoir, representing
+water losses due to soil permeability (Darcy's law approximation).  The
+seepage flow through the filtration waterway is constrained to:
 
-| Field       | Type    | Units      | Required | Description |
-|-------------|---------|------------|----------|-------------|
-| `uid`       | integer | —          | Yes      | Unique identifier |
-| `name`      | string  | —          | Yes      | Filtration name |
-| `active`    | boolean | —          | No       | Whether the filtration is active |
-| `waterway`  | integer\|string | — | Yes      | Source waterway UID or name |
-| `reservoir` | integer\|string | — | Yes      | Receiving reservoir UID or name |
-| `slope`     | number  | p.u.       | No       | Seepage rate proportional to waterway flow |
-| `constant`  | number  | m³/s       | No       | Constant seepage rate independent of flow |
+```
+seepage [m³/s] = slope [m³/s/dam³] × avg_reservoir_volume [dam³] + constant [m³/s]
+```
+
+where `avg_reservoir_volume = (eini + efin) / 2`.  This captures the
+hydrostatic-head dependence of seepage.  Corresponds to PLP **plpcenfi.dat**
+(*Centrales Filtración*).
+
+| Field       | Type    | Units        | Required | Description |
+|-------------|---------|--------------|----------|-------------|
+| `uid`       | integer | —            | Yes      | Unique identifier |
+| `name`      | string  | —            | Yes      | Filtration name |
+| `active`    | boolean | —            | No       | Whether the filtration is active |
+| `waterway`  | integer\|string | —    | Yes      | Source waterway UID or name |
+| `reservoir` | integer\|string | —    | Yes      | Receiving reservoir UID or name |
+| `slope`     | number  | m³/s / dam³  | No       | Seepage rate proportional to reservoir volume |
+| `constant`  | number  | m³/s         | No       | Constant seepage rate independent of volume |
 
 ### 3.13 Reservoir Efficiency
 
 Piecewise-linear turbine efficiency as a function of reservoir volume
 (hydraulic head).  Models the PLP "rendimiento" concept: the turbine
 conversion rate varies with the current water level in the reservoir.
+Corresponds to PLP **plpcenre.dat** (*Archivo de Rendimiento de Embalses*).
 
 When the SDDP solver runs, it updates the turbine's conversion-rate LP
 coefficient at each forward-pass iteration using the current reservoir

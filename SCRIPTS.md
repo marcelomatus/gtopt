@@ -169,6 +169,46 @@ and others) and writes:
   `<output-dir>/` (e.g. `Demand/lmax.parquet`, `Generator/pmin.parquet`,
   `Afluent/afluent.parquet`).
 
+### Hydro system conversion
+
+When `plpcnfce.dat` contains reservoir (*embalse*) or series (*serie*)
+centrals, `plp2gtopt` converts the cascaded hydro system into gtopt arrays.
+Two additional **optional** PLP files extend the hydro model:
+
+| PLP file | gtopt array | Description |
+|----------|-------------|-------------|
+| `plpcnfce.dat` | `junction_array`, `waterway_array`, `turbine_array`, `reservoir_array`, `flow_array` | Main hydro topology (required when hydro centrals exist) |
+| `plpcenre.dat` | `reservoir_efficiency_array` | Volume-dependent turbine efficiency (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
+| `plpcenfi.dat` | `filtration_array` | Waterway-to-reservoir seepage (PLP *filtración*): linear model `flow = slope × volume + constant` |
+
+Both `plpcenre.dat` and `plpcenfi.dat` are **optional** — if absent, the
+corresponding arrays are simply not written.  When present and non-empty they
+are silently parsed and appended to the JSON output.
+
+**`plpcenre.dat` format** (*Archivo de Rendimiento de Embalses*):
+
+```
+# Number of entries
+N
+# For each entry:
+'CENTRAL_NAME'     ← turbine (central) name
+'EMBALSE_NAME'     ← reservoir name
+mean_efficiency    ← fallback efficiency [MW·s/m³]
+num_segments       ← number of piecewise-linear segments
+idx  volume  slope  constant  scale  ← one line per segment
+```
+
+**`plpcenfi.dat` format** (*Archivo de Centrales Filtración*):
+
+```
+# Number of entries
+N
+# For each entry:
+'CENTRAL_NAME'     ← waterway source central name
+'EMBALSE_NAME'     ← receiving reservoir name
+slope  constant    ← seepage model [m³/s/dam³] and [m³/s]
+```
+
 ### Basic usage
 
 ```bash

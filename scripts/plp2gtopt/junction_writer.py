@@ -12,6 +12,7 @@ Converts central plant data into:
 - ReservoirEfficiencies (volume-dependent turbine efficiency curves)
 """
 
+import logging
 import typing
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast, TypedDict
@@ -25,6 +26,9 @@ from .aflce_parser import AflceParser
 from .manem_parser import ManemParser
 from .manem_writer import ManemWriter
 from .stage_parser import StageParser
+
+
+_logger = logging.getLogger(__name__)
 
 
 class Waterway(TypedDict, total=False):
@@ -352,17 +356,19 @@ class JunctionWriter(BaseWriter):
             upstream_name = extraction["name"]
             upstream_central = central_parser.get_central_by_name(upstream_name)
             if not upstream_central:
-                print(
-                    f"Warning: Upstream central '{upstream_name}' not found in central parser."
+                _logger.warning(
+                    "Upstream central '%s' not found in central parser.",
+                    upstream_name,
                 )
                 continue
 
             downstream_name = extraction["downstream"]
             downstream_central = central_parser.get_central_by_name(downstream_name)
             if not downstream_central:
-                print(
-                    f"Warning: Downstream central '{downstream_name}' "
-                    "not found for extraction '{upstream_name}'"
+                _logger.warning(
+                    "Downstream central '%s' not found for extraction '%s'.",
+                    downstream_name,
+                    upstream_name,
                 )
 
                 continue  # Skip invalid downstream
@@ -448,9 +454,9 @@ class JunctionWriter(BaseWriter):
                 # Try looking up the central by name to get its generation waterway
                 central = central_parser.get_central_by_name(central_name)
                 if central is None:
-                    print(
-                        f"Warning: Filtration central '{central_name}' not found;"
-                        " skipping."
+                    _logger.warning(
+                        "Filtration central '%s' not found; skipping.",
+                        central_name,
                     )
                     continue
                 # Fallback: use the central number as waterway uid
@@ -461,9 +467,9 @@ class JunctionWriter(BaseWriter):
             if rsv_uid is None:
                 central = central_parser.get_central_by_name(reservoir_name)
                 if central is None:
-                    print(
-                        f"Warning: Filtration reservoir '{reservoir_name}' not found;"
-                        " skipping."
+                    _logger.warning(
+                        "Filtration reservoir '%s' not found; skipping.",
+                        reservoir_name,
                     )
                     continue
                 rsv_uid = central["number"]
@@ -513,9 +519,9 @@ class JunctionWriter(BaseWriter):
             if turb_uid is None:
                 central = central_parser.get_central_by_name(central_name)
                 if central is None:
-                    print(
-                        f"Warning: Efficiency central '{central_name}' not found;"
-                        " skipping."
+                    _logger.warning(
+                        "Efficiency central '%s' not found; skipping.",
+                        central_name,
                     )
                     continue
                 turb_uid = central["number"]
@@ -525,9 +531,9 @@ class JunctionWriter(BaseWriter):
             if rsv_uid is None:
                 central = central_parser.get_central_by_name(reservoir_name)
                 if central is None:
-                    print(
-                        f"Warning: Efficiency reservoir '{reservoir_name}' not found;"
-                        " skipping."
+                    _logger.warning(
+                        "Efficiency reservoir '%s' not found; skipping.",
+                        reservoir_name,
                     )
                     continue
                 rsv_uid = central["number"]
