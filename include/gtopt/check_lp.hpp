@@ -6,8 +6,9 @@
  * @copyright BSD-3-Clause
  *
  * Provides run_check_lp_diagnostic() which looks for the gtopt_check_lp
- * script on PATH and, if found, runs it with --analyze-only --no-color on the
- * given LP file, returning the captured output for logging.
+ * script on PATH and, if found, spawns it directly via @c posix_spawn (no
+ * shell) with @c --analyze-only @c --no-color, returning the captured output
+ * for logging.
  */
 
 #pragma once
@@ -20,10 +21,11 @@ namespace gtopt
 /**
  * @brief Run gtopt_check_lp on an LP file and return the diagnostic output.
  *
- * Searches PATH for the @c gtopt_check_lp binary.  If found, executes:
+ * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
+ * directly (without invoking a shell) via @c posix_spawn with:
  * @code
  *   gtopt_check_lp --analyze-only --no-color --timeout <timeout_seconds>
- * <lp_file>
+ *   <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or
  * the file does not exist, an empty string is returned so callers can skip
