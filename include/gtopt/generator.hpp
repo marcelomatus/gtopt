@@ -80,6 +80,7 @@ struct Generator
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Generator name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional generator type tag (e.g. "thermal", "hydro", "solar")
 
   SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
 

@@ -54,6 +54,7 @@ struct Line
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Line name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional line type tag (e.g. "ac", "dc", "transformer")
 
   SingleId bus_a {unknown_uid};  ///< Sending-end (from) bus ID
   SingleId bus_b {unknown_uid};  ///< Receiving-end (to) bus ID
