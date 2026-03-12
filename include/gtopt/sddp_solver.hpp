@@ -280,6 +280,28 @@ struct SDDPIterationResult
   std::vector<double> scene_lower_bounds {};
 };
 
+// ─── Utility free functions (independently testable) ─────────────────────────
+
+/// Compute normalised per-scene probability weights.
+///
+/// For each scene: weight = sum of scenario probability_factors if positive,
+/// else 1.0.  Infeasible scenes (scene_feasible[si]==0) get weight 0.
+/// Weights are normalised to sum to 1 across feasible scenes.
+/// Falls back to equal weights when no positive probabilities are found.
+///
+/// @param scenes         The scene objects from SimulationLP
+/// @param scene_feasible Per-scene feasibility flag (0 = infeasible);
+///                       output size equals scene_feasible.size()
+/// @returns Normalised weight vector of size scene_feasible.size()
+[[nodiscard]] std::vector<double> compute_scene_weights(
+    std::span<const SceneLP> scenes,
+    std::span<const uint8_t> scene_feasible) noexcept;
+
+/// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
+/// Always returns a non-negative value.
+[[nodiscard]] double compute_convergence_gap(double upper_bound,
+                                             double lower_bound) noexcept;
+
 // ─── State variable linkage, elastic filter, and cut functions ──────────────
 // Now provided by <gtopt/benders_cut.hpp> — included above.
 // The following types and functions are available via that header:
@@ -323,6 +345,24 @@ struct StoredCut
 /// If the callback returns `true`, the solver stops after this iteration.
 using SDDPIterationCallback =
     std::function<bool(const SDDPIterationResult& result)>;
+
+/// Outcome of running the forward pass across all scenes
+struct ForwardPassOutcome
+{
+  std::vector<double> scene_upper_bounds {};
+  std::vector<uint8_t> scene_feasible {};
+  int scenes_solved {0};
+  bool has_feasibility_issue {false};
+  double elapsed_s {0.0};
+};
+
+/// Outcome of running the backward pass across all scenes
+struct BackwardPassOutcome
+{
+  int total_cuts {0};
+  bool has_feasibility_issue {false};
+  double elapsed_s {0.0};
+};
 
 // ─── SDDPSolver ─────────────────────────────────────────────────────────────
 
@@ -609,6 +649,53 @@ private:
   void share_cuts_for_phase(
       PhaseIndex phase,
       const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts);
+
+  /// Validate that the simulation has ≥2 phases and ≥1 scene.
+  [[nodiscard]] auto validate_inputs() const -> std::optional<Error>;
+
+  /// Bootstrap-solve + initialize α variables, state links, and hot-start.
+  /// Called once (guarded by m_initialized_).
+  [[nodiscard]] auto initialize_solver() -> std::expected<void, Error>;
+
+  /// Reset live-query atomics to their start-of-solve values.
+  void reset_live_state() noexcept;
+
+  /// Run the forward pass for all scenes in parallel.
+  /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
+  [[nodiscard]] auto run_forward_pass_all_scenes(int iter,
+                                                 AdaptiveWorkPool& pool,
+                                                 const SolverOptions& opts)
+      -> std::expected<ForwardPassOutcome, Error>;
+
+  /// Run the backward pass for all feasible scenes in parallel.
+  [[nodiscard]] auto run_backward_pass_all_scenes(
+      std::span<const uint8_t> scene_feasible,
+      AdaptiveWorkPool& pool,
+      const SolverOptions& opts) -> BackwardPassOutcome;
+
+  /// Compute and fill ir.upper_bound, ir.lower_bound, ir.scene_lower_bounds.
+  void compute_iteration_bounds(SDDPIterationResult& ir,
+                                std::span<const uint8_t> scene_feasible,
+                                std::span<const double> weights) const;
+
+  /// Apply cut-sharing across scenes for all phases generated in this
+  /// iteration.  @param cuts_before is m_stored_cuts_.size() BEFORE this
+  /// iteration's backward pass.
+  void apply_cut_sharing_for_iteration(std::size_t cuts_before);
+
+  /// Compute gap, update convergence flag, update live-query atomics, log.
+  void finalize_iteration_result(SDDPIterationResult& ir, int iter);
+
+  /// Write the monitoring API status file if API is enabled.
+  void maybe_write_api_status(const std::string& status_file,
+                              const std::vector<SDDPIterationResult>& results,
+                              std::chrono::steady_clock::time_point solve_start,
+                              const SolverMonitor& monitor) const;
+
+  /// Save cuts (combined + per-scene) after an iteration, handling infeasible
+  /// scene renaming.
+  void save_cuts_for_iteration(int iter,
+                               std::span<const uint8_t> scene_feasible);
 
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
   [[nodiscard]] PlanningLP& planning_lp() noexcept
