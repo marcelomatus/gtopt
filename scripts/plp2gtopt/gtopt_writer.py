@@ -23,6 +23,7 @@ from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
 from .battery_writer import BatteryWriter
+from .index_utils import parse_index_range, parse_stages_phase
 
 
 class GTOptWriter:
@@ -81,14 +82,19 @@ class GTOptWriter:
         self.planning["options"] = planning_opts
 
     def process_stage_blocks(self, options):
-        """Calculate first_block and count_block for stages.
+        """Calculate first_block and count_block for stages, and build phase_array.
 
-        For ``solver_type='sddp'`` (default), one gtopt phase is created per
-        PLP stage so that SDDP can manage per-phase state variables.
+        Phase assignment priority (highest to lowest):
 
-        For ``solver_type='monolithic'`` (or ``'mono'``), a single phase that
-        spans all stages is created, matching the monolithic solver's
-        expectation of one operational horizon.
+        1. **``stages_phase``** (explicit): A parsed ``--stages-phase`` spec
+           (list-of-lists of 1-based PLP stage indices) fully controls the
+           mapping regardless of ``solver_type``.
+        2. **``solver_type='monolithic'``**: A single phase spanning all stages.
+        3. **``solver_type='sddp'``** (default): One phase per PLP stage.
+
+        The ``--stages-phase`` option accepts a string like
+        ``"1:4,5,6,7,8,9,10,..."`` (see :func:`~.index_utils.parse_stages_phase`
+        for the full syntax).
         """
         stage_parser = self.parser.parsed_data.get("stage_parser", [])
         block_parser = self.parser.parsed_data.get("block_parser", [])
@@ -112,31 +118,62 @@ class GTOptWriter:
         ).to_json_array(stages)
 
         num_stages = len(self.planning["simulation"]["stage_array"])
-        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+        stages_phase_spec = options.get("stages_phase", None)
 
-        if solver_type == "monolithic":
-            # One phase covering all stages
-            self.planning["simulation"]["phase_array"] = [
-                {
-                    "uid": 1,
-                    "first_stage": 0,
-                    "count_stage": num_stages,
-                }
-            ]
+        if stages_phase_spec:
+            # Explicit stages-phase mapping: parse the spec and build phases.
+            # The spec uses 1-based PLP stage indices; convert to 0-based
+            # first_stage for gtopt.
+            phase_groups = (
+                stages_phase_spec
+                if isinstance(stages_phase_spec, list)
+                else parse_stages_phase(stages_phase_spec, num_stages)
+            )
+            phase_array = []
+            for uid, group in enumerate(phase_groups, start=1):
+                # group is a list of 1-based stage indices; convert to
+                # 0-based and find the first and count for the contiguous run.
+                first_stage_0 = group[0] - 1
+                phase_array.append(
+                    {
+                        "uid": uid,
+                        "first_stage": first_stage_0,
+                        "count_stage": len(group),
+                    }
+                )
+            self.planning["simulation"]["phase_array"] = phase_array
         else:
-            # SDDP: one phase per PLP stage, enabling per-stage state
-            # variables (Stochastic Dual Dynamic Programming).
-            self.planning["simulation"]["phase_array"] = [
-                {
-                    "uid": i + 1,
-                    "first_stage": i,
-                    "count_stage": 1,
-                }
-                for i in range(num_stages)
-            ]
+            solver_type = self._normalize_solver_type(
+                options.get("solver_type", "sddp")
+            )
+            if solver_type == "monolithic":
+                # One phase covering all stages
+                self.planning["simulation"]["phase_array"] = [
+                    {
+                        "uid": 1,
+                        "first_stage": 0,
+                        "count_stage": num_stages,
+                    }
+                ]
+            else:
+                # SDDP: one phase per PLP stage, enabling per-stage state
+                # variables (Stochastic Dual Dynamic Programming).
+                self.planning["simulation"]["phase_array"] = [
+                    {
+                        "uid": i + 1,
+                        "first_stage": i,
+                        "count_stage": 1,
+                    }
+                    for i in range(num_stages)
+                ]
 
     def process_scenarios(self, options):
         """Process scenario data to include block and stage information.
+
+        Hydrology indices in the ``hydrologies`` option follow the Fortran
+        (1-based) convention: ``"1"`` means the first hydrology column in the
+        PLP data file.  Internally, each hydrology is converted to a 0-based
+        array index (used by :class:`~.aflce_writer.AflceWriter`).
 
         All PLP scenarios are considered equally probable unless explicit
         ``probability_factors`` are provided.  When no explicit weights are
@@ -152,8 +189,10 @@ class GTOptWriter:
         map to individual gtopt scenarios but are grouped into a **single**
         gtopt scene so the monolithic solver processes them together.
         """
-        hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
-        num_scenarios = len(hydrologies)
+        # Support range syntax like "1,2,5-10,11"; default "1" = first hydrology
+        hydro_spec = options.get("hydrologies", "1")
+        hydrologies_1based = parse_index_range(hydro_spec)
+        num_scenarios = len(hydrologies_1based)
 
         # Always use 1/N equal probability unless explicitly overridden.
         probability_factors = options.get("probability_factors", None)
@@ -165,13 +204,17 @@ class GTOptWriter:
             ]
 
         scenarios = []
-        for i, (hydro_idx, factor) in enumerate(zip(hydrologies, probability_factors)):
+        for i, (hydro_1based, factor) in enumerate(
+            zip(hydrologies_1based, probability_factors)
+        ):
             uid = i + 1  # Unique 1-based UID per PLP scenario
+            # Convert Fortran 1-based hydrology index to 0-based internal index
+            hydro_0based = hydro_1based - 1
             scenarios.append(
                 {
                     "uid": uid,
                     "probability_factor": factor,
-                    "hydrology": hydro_idx,
+                    "hydrology": hydro_0based,
                 }
             )
         self.planning["simulation"]["scenario_array"] = scenarios
