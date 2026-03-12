@@ -104,6 +104,7 @@ void System::expand_batteries()
   auto gen_uid = next_uid(generator_array);
   auto dem_uid = next_uid(demand_array);
   auto conv_uid = next_uid(converter_array);
+  auto bus_uid = next_uid(bus_array);
 
   for (auto& battery : battery_array) {
     if (!battery.bus.has_value()) {
@@ -114,7 +115,46 @@ void System::expand_batteries()
     const auto dem_name = battery.name + "_dem";
     const auto conv_name = battery.name + "_conv";
 
-    // Discharge generator: power injected into the bus
+    // Determine charge bus: internal (coupled mode) or external (standalone)
+    SingleId charge_bus = *battery.bus;
+
+    if (battery.source_generator.has_value()) {
+      // Generation-coupled mode: create internal bus for the charge path
+      const auto int_bus_name = battery.name + "_int_bus";
+      bus_array.push_back(Bus {
+          .uid = bus_uid,
+          .name = int_bus_name,
+      });
+      charge_bus = SingleId {Uid {bus_uid}};
+      bus_uid++;
+
+      // Find the referenced source generator and set its bus to the internal
+      // bus, overwriting any previously set bus value.
+      const auto& src_id = *battery.source_generator;
+      auto it =
+          std::ranges::find_if(generator_array,
+                               [&src_id](const Generator& g) noexcept
+                               {
+                                 if (std::holds_alternative<Uid>(src_id)) {
+                                   return g.uid == std::get<Uid>(src_id);
+                                 }
+                                 return g.name == std::get<Name>(src_id);
+                               });
+      if (it != generator_array.end()) {
+        it->bus = charge_bus;
+      } else {
+        SPDLOG_WARN(
+            std::format("Battery '{}': source_generator '{}' not found in "
+                        "generator_array",
+                        battery.name,
+                        std::holds_alternative<Name>(src_id)
+                            ? std::get<Name>(src_id)
+                            : std::to_string(std::get<Uid>(src_id))));
+      }
+      battery.source_generator.reset();
+    }
+
+    // Discharge generator: power injected into the external bus
     generator_array.push_back(Generator {
         .uid = gen_uid++,
         .name = gen_name,
@@ -123,11 +163,11 @@ void System::expand_batteries()
         .capacity = battery.pmax_discharge,
     });
 
-    // Charge demand: power absorbed from the bus
+    // Charge demand: power absorbed from the charge bus
     demand_array.push_back(Demand {
         .uid = dem_uid++,
         .name = dem_name,
-        .bus = *battery.bus,
+        .bus = charge_bus,
         .capacity = battery.pmax_charge,
     });
 
