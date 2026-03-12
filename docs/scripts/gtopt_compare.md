@@ -1,4 +1,4 @@
-# gtopt-compare — DC OPF Validation Tool
+# gtopt_compare — DC OPF Validation Tool
 
 Validates gtopt solver results by comparing them against **pandapower's DC
 Optimal Power Flow** reference implementation.
@@ -8,7 +8,7 @@ Optimal Power Flow** reference implementation.
 ## Overview
 
 After solving a case with gtopt, it is important to verify that the solution is
-correct.  `gtopt-compare` rebuilds the same network in pandapower, runs
+correct.  `gtopt_compare` rebuilds the same network in pandapower, runs
 its DC OPF solver, and compares the results against gtopt's output CSV files.
 
 This tool is primarily used for:
@@ -52,16 +52,16 @@ pip install -e "./scripts[dev]"
 
 ```bash
 # Compare gtopt output for the IEEE 4-bus case
-gtopt-compare --case ieee_4b_ori --gtopt-output output/
+gtopt_compare --case ieee_4b_ori --gtopt-output output/
 
 # Compare the IEEE 30-bus case with custom tolerances
-gtopt-compare --case ieee30b --gtopt-output output/ --tol 0.5 --tol-lmp 0.05
+gtopt_compare --case ieee30b --gtopt-output output/ --tol 0.5 --tol-lmp 0.05
 
 # Save the pandapower network for reuse
-gtopt-compare --case case57 --save-pandapower-file case57_pp.json
+gtopt_compare --case case57 --save-pandapower-file case57_pp.json
 
 # Load a previously saved network (skip rebuild)
-gtopt-compare --case case57 --pandapower-file case57_pp.json --gtopt-output output/
+gtopt_compare --case case57 --pandapower-file case57_pp.json --gtopt-output output/
 ```
 
 ---
@@ -168,12 +168,12 @@ pp2gtopt -n ieee30b -o ieee30b.json
 gtopt ieee30b.json
 
 # Step 3: Validate against pandapower
-gtopt-compare --case ieee30b --gtopt-output output/
+gtopt_compare --case ieee30b --gtopt-output output/
 # Expected: PASS (all differences within default tolerances)
 
 # Step 4 (optional): Save pandapower network for faster re-runs
-gtopt-compare --case ieee30b --save-pandapower-file ieee30b_pp.json
-gtopt-compare --case ieee30b --pandapower-file ieee30b_pp.json --gtopt-output output/
+gtopt_compare --case ieee30b --save-pandapower-file ieee30b_pp.json
+gtopt_compare --case ieee30b --pandapower-file ieee30b_pp.json --gtopt-output output/
 ```
 
 ---

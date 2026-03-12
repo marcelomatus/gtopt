@@ -18,7 +18,7 @@ This project includes comprehensive documentation for different use cases:
 - **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
 - **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
-- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt-diagram](docs/scripts/gtopt-diagram.md))
+- **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt_diagram](docs/scripts/gtopt_diagram.md))
 - **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
@@ -263,7 +263,7 @@ for interoperability:
 
 | Tool | Language | Role with gtopt |
 |------|----------|-----------------|
-| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt-compare` validates gtopt results against pandapower on standard IEEE test cases |
+| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates gtopt results against pandapower on standard IEEE test cases |
 | **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
 | **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/MATHEMATICAL_FORMULATION.md)) |
 | **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to gtopt |
@@ -275,7 +275,7 @@ power system analysis, including AC/DC power flow and DC optimal power flow.
 
 - **`pp2gtopt`**: converts a pandapower network (JSON) to a gtopt case,
   enabling direct use of any pandapower network in gtopt.
-- **`gtopt-compare`**: validates gtopt dispatch results against pandapower
+- **`gtopt_compare`**: validates gtopt dispatch results against pandapower
   DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
   `bat_4b_24`).
 
