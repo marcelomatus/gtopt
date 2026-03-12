@@ -919,8 +919,21 @@ fail if total coverage drops below that threshold.
 
 #### PLP file formats and Fortran field order
 
-All parsers match the PLP Fortran READ statements (source of truth in
-`marcelomatus/plp_storage` repo, `CEN65/src/` directory).
+> **When analysing any PLP file format**, always consult the authoritative
+> Fortran source in the PLP storage repository:
+>
+> **https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src**
+>
+> Each `.dat` file has a corresponding `lee*.f` reader subroutine (e.g.
+> `leefilemb.f` reads `plpfilemb.dat`, `leemanem.f` reads `plpmanem.dat`).
+> The Fortran `READ` statements are the source of truth for field order, unit
+> conventions, and any special handling.  Use `web_fetch` with the raw URL
+> `https://raw.githubusercontent.com/marcelomatus/plp_storage/main/CEN65/src/<file>.f`
+> to retrieve any `.f` file whenever you need to implement or verify a PLP
+> parser.
+
+All parsers match the PLP Fortran READ statements (source of truth at
+https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src).
 
 | PLP file | Fortran subroutine | Fields per data line |
 |----------|-------------------|---------------------|
@@ -928,6 +941,7 @@ All parsers match the PLP Fortran READ statements (source of truth in
 | `plpcenbat.dat` | `LeeCenBat` (genpdbaterias.f) | `BatInd BatNom`, `NIny`, `NomBatIny FPC` ×N, `BatBar FPD BatEMin BatEMax` |
 | `plpmanbat.dat` | `LeeManBat` (genpdbaterias.f) | `IBind EMin EMax` (3 fields per block) |
 | `plpmaness.dat` | `LeeManEss` (genpdess.f) | `IBind Emin Emax DCMin DCMax [DCMod]` (5-6 fields per block) |
+| `plpfilemb.dat` | `LeeFilEmb` (leefilemb.f) | Per filtration: `'NomEmb'`, `FiltProm`, `FiltNTramo`, then `Ind Vol_Mm3 Slope Const` ×N, then `'NomCen'`; Vol×1000→dam³, Slope/1000→/dam³ |
 
 **Important**: In `plpess.dat` the Fortran READ order is `nd, nc` (discharge
 efficiency first, then charge efficiency).  Some PLP data file comments label
@@ -940,6 +954,7 @@ the columns as "nc nd" but the Fortran reads nd first.
 | `plpmanbat.dat` | `BatEMin(IBat,IBind)`, `BatEMax(IBat,IBind)` | Battery `emin`/`emax` schedules (absolute energy values) |
 | `plpmaness.dat` | `Ess%Emin`, `Ess%Emax` | Battery `emin`/`emax` schedules |
 | `plpmaness.dat` | `Ess%DCMin`, `Ess%DCMax` | Generator `pmax` + Demand `lmax` schedules |
+| `plpfilemb.dat` | `FiltParam(PFiltPend)`, `FiltParam(PFiltConst)` | `Filtration.segments` (slope/constant LP coefficients updated via `FiltrationLP::update_lp`) |
 
 When maintenance is present, the battery_writer:
 - Writes `Battery/emin.parquet` and `Battery/emax.parquet` with per-block
