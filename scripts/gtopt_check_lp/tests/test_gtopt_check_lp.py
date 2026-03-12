@@ -12,11 +12,17 @@ import pytest
 from gtopt_check_lp.gtopt_check_lp import (
     NeosClient,
     _build_parser,
+    _default_config_path,
+    _find_latest_error_lp,
+    _load_config,
     _parse_coinor_infeasibility,
+    _read_git_email,
+    _save_config,
     analyze_lp_file,
     check_lp,
     format_static_report,
     main,
+    run_all_solvers,
     run_local_coinor,
     run_local_cplex,
     run_local_glpk,
@@ -167,16 +173,207 @@ class TestFormatStaticReport:
         assert "x1" in clean
 
 
+# ── Config file ───────────────────────────────────────────────────────────────
+
+
+class TestConfigFile:
+    """Tests for config file load/save helpers."""
+
+    def test_default_config_path(self):
+        """Default config path is ~/.gtopt_check_lp."""
+        p = _default_config_path()
+        assert p.name == ".gtopt_check_lp"
+        assert p.parent == Path.home()
+
+    def test_load_config_missing_file_returns_defaults(self, tmp_path):
+        """When the file does not exist, defaults are returned."""
+        cfg = _load_config(tmp_path / "nonexistent.ini")
+        assert cfg["solver"] == "all"
+        assert cfg["timeout"] == "120"
+        assert cfg["email"] == ""
+
+    def test_save_and_reload_config(self, tmp_path):
+        """Save a config then reload it and verify round-trip."""
+        path = tmp_path / ".gtopt_check_lp"
+        data = {
+            "email": "test@example.com",
+            "solver": "coinor",
+            "timeout": "60",
+            "neos_url": "https://neos-server.org:3333",
+            "color": "never",
+        }
+        _save_config(path, data)
+        assert path.exists()
+        loaded = _load_config(path)
+        assert loaded["email"] == "test@example.com"
+        assert loaded["solver"] == "coinor"
+        assert loaded["timeout"] == "60"
+        assert loaded["color"] == "never"
+
+    def test_save_config_creates_parent_dirs(self, tmp_path):
+        """_save_config creates missing parent directories."""
+        path = tmp_path / "deep" / "nested" / ".gtopt_check_lp"
+        _save_config(
+            path,
+            {
+                "email": "a@b.com",
+                "solver": "all",
+                "timeout": "120",
+                "neos_url": "",
+                "color": "auto",
+            },
+        )
+        assert path.exists()
+
+    def test_load_config_partial_overrides_defaults(self, tmp_path):
+        """Config file with only some keys still returns defaults for missing ones."""
+        path = tmp_path / ".gtopt_check_lp"
+        path.write_text("[gtopt_check_lp]\nemail = x@y.com\n", encoding="utf-8")
+        cfg = _load_config(path)
+        assert cfg["email"] == "x@y.com"
+        assert cfg["solver"] == "all"  # default
+        assert cfg["timeout"] == "120"  # default
+
+    def test_read_git_email_returns_string(self):
+        """_read_git_email always returns a string (empty when git absent/unconfigured)."""
+        result = _read_git_email()
+        assert isinstance(result, str)
+
+    def test_main_show_config(self, tmp_path):
+        """--show-config prints active config and exits 0."""
+        cfg_file = tmp_path / ".gtopt_check_lp"
+        _save_config(
+            cfg_file,
+            {
+                "email": "show@test.com",
+                "solver": "all",
+                "timeout": "120",
+                "neos_url": "",
+                "color": "auto",
+            },
+        )
+        rc = main(["--show-config", "--config", str(cfg_file), "--no-color"])
+        assert rc == 0
+
+    def test_main_init_config_non_tty(self, tmp_path, monkeypatch):
+        """--init-config writes config file even when stdin is not a TTY."""
+        cfg_file = tmp_path / ".gtopt_check_lp"
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        rc = main(["--init-config", "--config", str(cfg_file), "--no-color"])
+        assert rc == 0
+        assert cfg_file.exists()
+
+    def test_main_no_setup_skips_wizard(self, tmp_path):
+        """--no-setup prevents interactive setup when config is absent."""
+        cfg_file = tmp_path / ".gtopt_check_lp"
+        # Should not hang waiting for input; just skip setup and proceed to parse error
+        rc = main(
+            [
+                str(_BAD_BOUNDS),
+                "--analyze-only",
+                "--config",
+                str(cfg_file),
+                "--no-setup",
+            ]
+        )
+        assert rc == 0
+
+
+# ── _find_latest_error_lp ─────────────────────────────────────────────────────
+
+
+class TestFindLatestErrorLp:
+    """Tests for _find_latest_error_lp()."""
+
+    def test_returns_none_when_no_error_lp(self, tmp_path):
+        """Returns None when no error*.lp files exist."""
+        assert _find_latest_error_lp([tmp_path]) is None
+
+    def test_finds_single_error_lp(self, tmp_path):
+        """Returns the only error*.lp file found."""
+        p = tmp_path / "error_0.lp"
+        p.write_text("Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n", encoding="utf-8")
+        found = _find_latest_error_lp([tmp_path])
+        assert found == p
+
+    def test_returns_most_recent(self, tmp_path):
+        """Returns the most recently modified error*.lp when multiple exist."""
+        import time
+
+        old = tmp_path / "error_0.lp"
+        new = tmp_path / "error_1.lp"
+        old.write_text("Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n", encoding="utf-8")
+        time.sleep(0.05)
+        new.write_text("Minimize\n obj: y\nBounds\n 0 <= y\nEnd\n", encoding="utf-8")
+        found = _find_latest_error_lp([tmp_path])
+        assert found == new
+
+    def test_main_last_flag_no_file(self, tmp_path, monkeypatch):
+        """--last returns exit code 1 when no error*.lp exists."""
+        monkeypatch.chdir(tmp_path)
+        rc = main(["--last", "--no-setup", "--no-color"])
+        assert rc == 1
+
+    def test_main_last_flag_with_file(self, tmp_path, monkeypatch):
+        """--last auto-detects error*.lp and analyzes it."""
+        lp = tmp_path / "error_0.lp"
+        lp.write_text(
+            "Minimize\n obj: x\nSubject To\n c1: x >= 1\nBounds\n 0 <= x\nEnd\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        rc = main(["--last", "--analyze-only", "--no-setup", "--no-color"])
+        assert rc == 0
+
+
+# ── run_all_solvers ───────────────────────────────────────────────────────────
+
+
+class TestRunAllSolvers:
+    """Tests for run_all_solvers()."""
+
+    def test_no_solvers_no_email_returns_hint(self):
+        """When no solver is available and no email, returns helpful hint."""
+        with patch("shutil.which", return_value=None):
+            ok, name, out = run_all_solvers(
+                _BAD_BOUNDS, email="", neos_url="", timeout=5
+            )
+        assert not ok
+        assert name == "all"
+        assert (
+            "coinor" in out.lower() or "apt" in out.lower() or "install" in out.lower()
+        )
+
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_coinor_included_in_all(self):
+        """run_all_solvers includes COIN-OR output when clp/cbc is on PATH."""
+        ok, name, out = run_all_solvers(
+            _MY_SMALL_BAD, email="", neos_url="", timeout=10
+        )
+        assert ok
+        assert name == "all"
+        assert "COIN-OR" in out
+
+    def test_check_lp_solver_all(self):
+        """check_lp() with solver='all' returns 0 (no solver available is acceptable)."""
+        rc = check_lp(_BAD_BOUNDS, solver="all", analyze_only=False, timeout=5)
+        assert rc == 0
+
+
 # ── CLI parser ────────────────────────────────────────────────────────────────
 
 
 class TestCLIParser:
     """Tests for the argparse CLI."""
 
-    def test_default_timeout_is_10(self):
+    def test_default_timeout_is_none(self):
+        """CLI --timeout defaults to None; the effective default (120 s) comes from config."""
         parser = _build_parser()
         args = parser.parse_args(["dummy.lp"])
-        assert args.timeout == 10
+        assert args.timeout is None
 
     def test_timeout_override(self):
         parser = _build_parser()
@@ -189,15 +386,47 @@ class TestCLIParser:
         assert args.analyze_only is True
 
     def test_solver_choices(self):
+        """'all' is now a valid solver choice and is the default in config."""
         parser = _build_parser()
-        for choice in ("auto", "cplex", "highs", "coinor", "glpk", "neos"):
+        for choice in ("all", "auto", "cplex", "highs", "coinor", "glpk", "neos"):
             args = parser.parse_args(["dummy.lp", "--solver", choice])
             assert args.solver == choice
 
-    def test_solver_url_default(self):
+    def test_solver_default_is_none(self):
+        """CLI --solver defaults to None; the effective default ('all') comes from config."""
         parser = _build_parser()
         args = parser.parse_args(["dummy.lp"])
-        assert "neos-server.org" in args.solver_url
+        assert args.solver is None
+
+    def test_solver_url_default_is_none(self):
+        """CLI --solver-url defaults to None; effective default comes from config."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp"])
+        assert args.solver_url is None
+
+    def test_last_flag(self):
+        """--last flag sets args.last to True."""
+        parser = _build_parser()
+        args = parser.parse_args(["--last"])
+        assert args.last is True
+
+    def test_init_config_flag(self):
+        """--init-config flag sets args.init_config to True."""
+        parser = _build_parser()
+        args = parser.parse_args(["--init-config"])
+        assert args.init_config is True
+
+    def test_no_setup_flag(self):
+        """--no-setup flag sets args.no_setup to True."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp", "--no-setup"])
+        assert args.no_setup is True
+
+    def test_show_config_flag(self):
+        """--show-config flag sets args.show_config to True."""
+        parser = _build_parser()
+        args = parser.parse_args(["--show-config"])
+        assert args.show_config is True
 
 
 # ── check_lp integration ─────────────────────────────────────────────────────
