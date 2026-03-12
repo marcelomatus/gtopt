@@ -159,6 +159,33 @@ install(
   PATTERN "gtopt_guisrv.bat" EXCLUDE  # Handled separately below
 )
 
+# Install the gtopt_diagram Python package alongside the guiservice.
+# app.py looks for gtopt_diagram in share/gtopt/scripts/ so that the
+# topology view works in both the installed and source-tree layouts.
+# The scripts/gtopt_diagram package uses only the standard library at
+# import time (graphviz/pyvis/cairosvg are optional CLI-only deps), so
+# no extra pip dependencies are required beyond what requirements.txt
+# already lists (numpy, pandas, pyarrow).
+set(_gtopt_diagram_src "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gtopt_diagram")
+if(EXISTS "${_gtopt_diagram_src}/gtopt_diagram.py")
+  install(
+    DIRECTORY "${_gtopt_diagram_src}/"
+    DESTINATION share/gtopt/scripts/gtopt_diagram
+    FILES_MATCHING
+    PATTERN "*.py"
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.pyc" EXCLUDE
+    PATTERN "tests" EXCLUDE
+  )
+  message(STATUS "gtopt_diagram will be installed to share/gtopt/scripts/gtopt_diagram")
+else()
+  message(WARNING
+    "scripts/gtopt_diagram/gtopt_diagram.py not found relative to guiservice – "
+    "topology view in the GUI will be unavailable unless gtopt-scripts "
+    "is installed separately (pip install ./scripts)."
+  )
+endif()
+
 # Install the gtopt_gui launcher script (Unix-like systems)
 if(UNIX)
   install(
