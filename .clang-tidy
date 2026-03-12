@@ -42,6 +42,7 @@
 #                                  (enabled) takes the opposite, preferred stance
 #   illegal-initializer-type    – Clang-specific; no violations in codebase
 Checks: "*,\
+  misc-include-cleaner,\
   -altera-*,\
   -boost-use-ranges,\
   -bugprone-derived-method-shadowing-base-method,\
