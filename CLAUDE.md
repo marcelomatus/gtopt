@@ -399,21 +399,33 @@ cmake -S all -B build \
 cmake --build build -j$(nproc)
 ```
 
-> **⚠️ Before committing C++ code**, always run **clang-tidy** over the
-> modified files to catch static-analysis issues early.  Use the following
-> one-liner from the repo root (requires a configured build directory):
+> **⚠️ Before committing ANY code**, always format and lint the changed files:
+>
+> **C++ files** — run from the repo root (requires a configured build directory):
 >
 > ```bash
-> # Run clang-tidy on modified C++ files only (fast, incremental)
+> # Step 1 — clang-format (REQUIRED before every C++ commit)
+> git diff --name-only --diff-filter=d HEAD \
+>   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
+>   | xargs -r clang-format -i
+>
+> # Step 2 — clang-tidy static analysis (fast, incremental)
 > git diff --name-only --diff-filter=d HEAD \
 >   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
 >   | xargs -r clang-tidy -p build --warnings-as-errors='*'
 > ```
 >
-> Fix any warnings before committing.  If a warning is a false positive,
-> add an inline `// NOLINT(check-name)` with a justification comment.
-> See the "clang-tidy suppressions in tests" section below for accepted
-> patterns.
+> **Python files** — run from the repo root before every Python commit:
+>
+> ```bash
+> # Step 1 — ruff format (REQUIRED before every Python commit)
+> ruff format scripts/ guiservice/
+> ```
+>
+> Fix any clang-tidy warnings before committing C++ code.  If a warning is a
+> false positive, add an inline `// NOLINT(check-name)` with a justification
+> comment.  See the "clang-tidy suppressions in tests" section below for
+> accepted patterns.
 
 ## Code Style Guidelines
 
@@ -517,21 +529,22 @@ It is **independent** of the root `pyproject.toml`.
 
 > **⚠️ Mandatory pre-commit checklist for Python code**:
 > Before committing **any** Python changes to `scripts/` or `guiservice/`,
-> always run **all four** of the following — CI will fail if any of them fail.
-> **This includes any new files you create** — run linters on every `.py` file
+> always run the following — CI will fail on any violation.
+> **This includes any new files you create** — run on every `.py` file
 > in the affected package before committing:
 >
 > ```bash
-> # --- scripts/ ---
+> # Step 1 — format (REQUIRED, same command the CI autoformat uses)
+> ruff format scripts/ guiservice/
+>
+> # Step 2 — lint, type-check (scripts/)
 > cd scripts
-> ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 > ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 > pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 > mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt \
 >   --ignore-missing-imports
 >
-> # --- guiservice/ ---
-> ruff format guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+> # Step 3 — lint, type-check (guiservice/, run from repo root)
 > ruff check  guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
 > pylint --jobs=0 --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
 > mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py --ignore-missing-imports
