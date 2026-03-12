@@ -31,7 +31,9 @@ std::string ConstraintParser::strip_comments(std::string_view input)
         ++i;
       }
       // Replace comment with whitespace to preserve line structure
-      result += ' ';
+      if (i < input.size()) {
+        result += ' ';
+      }
       continue;
     }
     if (input[i] == '/' && i + 1 < input.size() && input[i + 1] == '/') {
@@ -39,7 +41,9 @@ std::string ConstraintParser::strip_comments(std::string_view input)
       while (i < input.size() && input[i] != '\n') {
         ++i;
       }
-      result += ' ';
+      if (i < input.size()) {
+        result += ' ';
+      }
       continue;
     }
     result += input[i];
