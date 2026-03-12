@@ -75,6 +75,9 @@ struct MainOptions
   std::optional<bool> fast_parsing {};
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
+  /** @brief Save debug LP files to the log directory (monolithic: one per
+   * scene/phase; SDDP: one per iteration/scene/phase) */
+  std::optional<bool> lp_debug {};
 
   // ---- tracing / diagnostics ----
   /** @brief Path to a file for SPDLOG_TRACE output (enables trace-level

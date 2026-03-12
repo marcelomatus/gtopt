@@ -10,9 +10,11 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <future>
 #include <mutex>
 #include <vector>
 
+#include <gtopt/lp_debug_utils.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -48,6 +50,37 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
   try {
     using future_t = std::future<std::expected<void, Error>>;
+
+    // Write LP debug files synchronously before solving (so they capture the
+    // pre-solve LP state), then submit compression tasks asynchronously to
+    // the pool so that compression runs in parallel with the solve.
+    std::vector<std::future<std::string>> compress_futures;
+    if (lp_debug && !lp_debug_directory.empty()) {
+      std::filesystem::create_directories(lp_debug_directory);
+      const auto lp_stem =
+          (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
+      const bool do_compress = lp_debug_use_compression(lp_debug_compression);
+
+      for (const auto& phase_systems : planning_lp.systems()) {
+        for (const auto& system : phase_systems) {
+          const auto written = system.write_lp(lp_stem);
+          if (do_compress && !written.empty()) {
+            // Submit compression as an async task while the solve runs
+            auto fut =
+                pool->submit([written] { return gzip_lp_file(written); });
+            if (fut.has_value()) {
+              compress_futures.push_back(std::move(*fut));
+            } else {
+              (void)gzip_lp_file(written);
+            }
+          }
+        }
+      }
+      spdlog::info("MonolithicSolver: wrote {} LP debug file(s) to {}_*.lp{}",
+                   planning_lp.systems().size(),
+                   lp_stem,
+                   do_compress ? " (compressing async)" : "");
+    }
 
     std::vector<future_t> futures;
     futures.reserve(planning_lp.systems().size());
@@ -87,6 +120,11 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         monitor.stop();
         return std::unexpected(std::move(result.error()));
       }
+    }
+
+    // Wait for any outstanding async compression tasks
+    for (auto& f : compress_futures) {
+      (void)f.get();
     }
 
     // ── Write monitoring status file ──
@@ -184,6 +222,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 
     // Logging and API
     sddp_opts.log_directory = std::string(options.log_directory());
+    sddp_opts.lp_debug = options.lp_debug();
+    sddp_opts.lp_debug_compression = std::string(options.output_compression());
     sddp_opts.enable_api = options.sddp_api_enabled();
     if (!output_dir.empty()) {
       sddp_opts.api_status_file =
@@ -208,6 +248,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
         (std::filesystem::path(output_dir_m) / "monolithic_status.json")
             .string();
   }
+  solver->lp_debug = options.lp_debug();
+  solver->lp_debug_directory = std::string(options.log_directory());
+  solver->lp_debug_compression = std::string(options.output_compression());
   return solver;
 }
 

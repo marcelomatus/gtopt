@@ -258,6 +258,15 @@ public:
     return m_options_.lp_presolve;
   }
 
+  /**
+   * @brief Gets the LP debug flag, using default if not set
+   * @return Whether to save debug LP files to the log directory
+   */
+  [[nodiscard]] constexpr auto lp_debug() const
+  {
+    return m_options_.lp_debug.value_or(false);
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr auto default_sddp_solver_type = "monolithic";
