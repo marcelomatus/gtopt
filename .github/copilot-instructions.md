@@ -443,7 +443,8 @@ cmake --build build -j$(nproc)
 >   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
 >   | xargs -r clang-format -i
 >
-> # Step 2 — clang-tidy static analysis (fast, incremental)
+> # Step 2 — clang-tidy (REQUIRED before every C++ commit in agent sessions)
+> # Requires a configured build directory (run setup_sandbox.sh --build first).
 > git diff --name-only --diff-filter=d HEAD \
 >   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
 >   | xargs -r clang-tidy -p build --warnings-as-errors='*'
@@ -456,10 +457,10 @@ cmake --build build -j$(nproc)
 > ruff format scripts/ guiservice/
 > ```
 >
-> Fix any clang-tidy warnings before committing C++ code.  If a warning is a
-> false positive, add an inline `// NOLINT(check-name)` with a justification
-> comment.  See the "clang-tidy suppressions in test code" section below for
-> accepted patterns.
+> **Both steps are mandatory in agent sessions.** Fix all clang-tidy warnings
+> before committing C++ code.  If a warning is a false positive, add an inline
+> `// NOLINT(check-name)` with a justification comment.  See the
+> "clang-tidy suppressions in test code" section below for accepted patterns.
 
 The CI **auto-formats** every push on non-main branches and commits a fixup.
 Format violations are warnings only, not CI failures.
