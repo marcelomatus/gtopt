@@ -282,7 +282,13 @@ public:
    * @brief Write LP formulation to file
    * @param filename Output file path
    */
-  void write_lp(const std::string& filename) const;
+  /**
+   * @brief Writes the LP problem to a file.
+   * @param filename Base file name (phase/scene labels and .lp extension
+   *                 are appended automatically).
+   * @return The full path of the written file (with .lp extension).
+   */
+  std::string write_lp(const std::string& filename) const;
 
   /**
    * @brief Resolves the linear programming problem
