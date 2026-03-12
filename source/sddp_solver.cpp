@@ -22,7 +22,7 @@
 #include <utility>
 
 #include <gtopt/check_lp.hpp>
-#include <gtopt/lp_debug_utils.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -302,29 +302,14 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     // Update volume-dependent coefficients (turbine efficiency, etc.)
     update_coefficients_for_phase(scene, phase, iteration);
 
-    // If lp_debug is enabled, write LP file (pre-solve state) synchronously,
-    // then submit gzip compression as a fire-and-forget async task so that
-    // compression runs in parallel with the upcoming resolve.
-    if (m_options_.lp_debug && !m_options_.log_directory.empty()) {
-      std::filesystem::create_directories(m_options_.log_directory);
-      const auto dbg_file =
+    // If lp_debug is enabled, write LP file (pre-solve state) then optionally
+    // submit gzip compression as a fire-and-forget async task.
+    if (m_options_.lp_debug) {
+      const auto dbg_stem =
           (std::filesystem::path(m_options_.log_directory)
            / std::format(sddp_file::debug_lp_fmt, iteration, scene, phase))
               .string();
-      li.write_lp(dbg_file);
-      spdlog::debug("SDDP: saved debug LP to {}.lp", dbg_file);
-      if (lp_debug_use_compression(m_options_.lp_debug_compression)) {
-        const auto full_path = dbg_file + ".lp";
-        if (m_pool_ != nullptr) {
-          // Fire-and-forget: compress while the phase is being solved.
-          // Discard the future intentionally — the pool destructor ensures
-          // all tasks complete before the pool is destroyed.
-          [[maybe_unused]] auto compress_fut =
-              m_pool_->submit([full_path] { return gzip_lp_file(full_path); });
-        } else {
-          (void)gzip_lp_file(full_path);
-        }
-      }
+      m_lp_debug_writer_.write(li, dbg_stem);
     }
 
     // Solve this phase via the work pool
@@ -1479,6 +1464,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   auto pool = make_solver_work_pool();
   m_benders_cut_.set_pool(pool.get());
   m_pool_ = pool.get();
+  m_lp_debug_writer_ = LpDebugWriter(
+      m_options_.log_directory, m_options_.lp_debug_compression, m_pool_);
 
   reset_live_state();
 
@@ -1561,8 +1548,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   }
 
   monitor.stop();
+  m_lp_debug_writer_.drain();
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
+  m_lp_debug_writer_ = {};
 
   return results;
 }

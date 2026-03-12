@@ -66,6 +66,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
@@ -759,6 +760,10 @@ private:
   /// while solve() is running; reset to nullptr when solve() returns.
   /// Used by resolve_via_pool() and resolve_clone_via_pool().
   AdaptiveWorkPool* m_pool_ {nullptr};
+
+  /// LP debug writer — active when lp_debug is enabled and log_directory is
+  /// set.  Initialised at the start of solve() and drained at the end.
+  LpDebugWriter m_lp_debug_writer_ {};
 
   // ── Monitoring API (SolverMonitor owns the background thread) ──
 
