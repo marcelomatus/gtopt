@@ -38,11 +38,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "guiservice/requirements.txt"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-guiservice-${{ hashFiles('guiservice/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-guiservice-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Install lint dependencies
         run: |
@@ -71,11 +76,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "guiservice/requirements.txt"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-guiservice-${{ hashFiles('guiservice/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-guiservice-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Install dependencies
         run: |
@@ -123,11 +133,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "guiservice/requirements.txt"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-guiservice-${{ hashFiles('guiservice/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-guiservice-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Configure guiservice with CMake
         run: |

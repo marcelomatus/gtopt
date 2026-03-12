@@ -272,6 +272,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--num-apertures",
+        dest="num_apertures",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "number of SDDP backward-pass apertures (hydrological realisations "
+            "to solve per phase per iteration). 0 disables apertures, -1 uses "
+            "all available scenarios, N > 0 uses the first N scenarios. "
+            "When omitted, the gtopt default (0 = disabled) is used."
+        ),
+    )
+    parser.add_argument(
         "--stages-phase",
         dest="stages_phase",
         metavar="SPEC",
@@ -349,6 +362,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "use_kirchhoff": args.use_kirchhoff,
         "solver_type": args.solver_type,
         "stages_phase": args.stages_phase,
+        "num_apertures": args.num_apertures,
     }
     if args.reserve_fail_cost is not None:
         opts["reserve_fail_cost"] = args.reserve_fail_cost

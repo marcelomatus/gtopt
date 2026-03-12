@@ -91,6 +91,10 @@ struct SddpOptions
   /** @brief Forward-pass infeasibility count threshold for switching from
    *         single-cut to multi-cut (default: 10; 0 = never auto-switch) */
   OptInt sddp_multi_cut_threshold {};
+  /** @brief Number of apertures (hydrological realisations) for the backward
+   *         pass. 0 = disabled (default); -1 = all scenarios; N > 0 = first N
+   */
+  OptInt sddp_num_apertures {};
 
   void merge(SddpOptions&& opts)
   {
@@ -108,6 +112,7 @@ struct SddpOptions
     merge_opt(sddp_sentinel_file, std::move(opts.sddp_sentinel_file));
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
     merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
+    merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
 
     auto _ = std::move(opts);
   }

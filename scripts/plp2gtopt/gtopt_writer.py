@@ -54,7 +54,12 @@ class GTOptWriter:
         return "sddp"
 
     def process_options(self, options):
-        """Process options data to include input and output paths."""
+        """Process options data to include input and output paths.
+
+        SDDP-specific settings (solver type, aperture count, …) are grouped
+        under the ``sddp_options`` nested key so that the gtopt C++ JSON
+        parser maps them correctly to ``Options::sddp_options``.
+        """
         if not options:
             options = {}
         discount_rate = options.get("discount_rate", 0.0)
@@ -62,6 +67,13 @@ class GTOptWriter:
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "gzip")
         solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+
+        # Build the nested sddp_options block (maps to Options::sddp_options).
+        sddp_opts: dict = {"sddp_solver_type": solver_type}
+        num_apertures = options.get("num_apertures")
+        if num_apertures is not None:
+            sddp_opts["sddp_num_apertures"] = int(num_apertures)
+
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
@@ -74,7 +86,7 @@ class GTOptWriter:
             "demand_fail_cost": options.get("demand_fail_cost", 1000),
             "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
-            "sddp_solver_type": solver_type,
+            "sddp_options": sddp_opts,
         }
         if "reserve_fail_cost" in options:
             planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
