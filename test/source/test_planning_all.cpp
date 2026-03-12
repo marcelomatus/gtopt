@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/constraint_parser.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
@@ -22,3 +23,4 @@ using namespace gtopt;
 #include "test_ieee4b_ori_planning.hpp"
 #include "test_ieee9b_ori_planning.hpp"
 #include "test_unified_battery_planning.hpp"
+#include "test_user_constraint_planning.hpp"

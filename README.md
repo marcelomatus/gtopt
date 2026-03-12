@@ -17,6 +17,7 @@ This project includes comprehensive documentation for different use cases:
 - **[BUILDING.md](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[USAGE.md](USAGE.md)** - Complete command-line reference, examples, and advanced usage patterns
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
+- **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
 - **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt-diagram](docs/scripts/gtopt-diagram.md))
 - **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing

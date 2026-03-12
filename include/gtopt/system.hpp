@@ -38,6 +38,7 @@
 #include <gtopt/reservoir.hpp>
 #include <gtopt/reservoir_efficiency.hpp>
 #include <gtopt/turbine.hpp>
+#include <gtopt/user_constraint.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 
@@ -89,6 +90,12 @@ struct System
   Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
   Array<ReservoirEfficiency>
       reservoir_efficiency_array {};  ///< Volume-dependent turbine efficiency
+
+  // ── User constraints ────────────────────────────────────────────────────
+  Array<UserConstraint>
+      user_constraint_array {};  ///< User-defined LP constraints
+  OptName
+      user_constraint_file {};  ///< External JSON file with constraint array
 
   /**
    * @brief Merges another system into this one

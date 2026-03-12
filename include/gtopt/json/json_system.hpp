@@ -28,6 +28,7 @@
 #include <gtopt/json/json_reservoir.hpp>
 #include <gtopt/json/json_reservoir_efficiency.hpp>
 #include <gtopt/json/json_turbine.hpp>
+#include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/json/json_waterway.hpp>
 #include <gtopt/system.hpp>
 
@@ -66,7 +67,11 @@ struct json_data_contract<System>
       json_array_null<"turbine_array", Array<Turbine>, Turbine>,
       json_array_null<"reservoir_efficiency_array",
                       Array<ReservoirEfficiency>,
-                      ReservoirEfficiency>>;
+                      ReservoirEfficiency>,
+      json_array_null<"user_constraint_array",
+                      Array<UserConstraint>,
+                      UserConstraint>,
+      json_string_null<"user_constraint_file", OptName>>;
 
   [[nodiscard]] constexpr static auto to_json_data(System const& system)
   {
@@ -88,7 +93,9 @@ struct json_data_contract<System>
                                  system.reservoir_array,
                                  system.filtration_array,
                                  system.turbine_array,
-                                 system.reservoir_efficiency_array);
+                                 system.reservoir_efficiency_array,
+                                 system.user_constraint_array,
+                                 system.user_constraint_file);
   }
 };
 }  // namespace daw::json
