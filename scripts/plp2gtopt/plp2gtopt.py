@@ -12,8 +12,9 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from plp2gtopt.plp_parser import PLPParser
+from plp2gtopt.excel_writer import build_plp_excel
 from plp2gtopt.gtopt_writer import GTOptWriter
+from plp2gtopt.plp_parser import PLPParser
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,9 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         options: Conversion options dict with keys:
             input_dir, output_dir, output_file, last_stage, last_time,
             compression, hydrologies, probability_factors, discount_rate,
-            management_factor, zip_output (optional, default False).
+            management_factor, zip_output (optional, default False),
+            excel_output (optional, default False),
+            excel_file (optional, defaults to output_file with .xlsx suffix).
 
     Raises:
         RuntimeError: If any step of the conversion fails.
@@ -117,6 +120,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             f"Details: Input directory does not exist: '{input_dir}'"
         )
 
+    excel_output = options.get("excel_output", False)
+
     try:
         t0 = time.monotonic()
 
@@ -125,25 +130,50 @@ def convert_plp_case(options: dict[str, Any]) -> None:
         parser = PLPParser(options)
         parser.parse_all()
 
-        # Convert to GTOPT format and write output
-        logger.info("Writing GTOPT output to: %s", options["output_file"])
+        # Convert to GTOPT format (writes Parquet time-series to output_dir)
         writer = GTOptWriter(parser)
-        writer.write(options)
+        output_dir = Path(options.get("output_dir", "output"))
+
+        if excel_output:
+            # Excel mode: build planning dict (writes Parquet to output_dir),
+            # then produce the Excel workbook.  The JSON is NOT written.
+            logger.info("Building planning data for Excel output...")
+            planning = writer.to_json(options)
+
+            excel_file = options.get("excel_file")
+            if excel_file is None:
+                # Default: place .xlsx next to output_dir (its parent) with
+                # output_dir.name as the stem.  E.g. output_dir=/tmp/mycase
+                # → excel_file=/tmp/mycase.xlsx
+                excel_file = output_dir.parent / (output_dir.name + ".xlsx")
+            else:
+                excel_file = Path(excel_file)
+
+            logger.info("Writing igtopt Excel workbook to: %s", excel_file)
+            build_plp_excel(planning, output_dir, excel_file, options)
+        else:
+            # Normal mode: write JSON + Parquet
+            logger.info("Writing GTOPT output to: %s", options["output_file"])
+            writer.write(options)
 
         elapsed = time.monotonic() - t0
 
         # Log conversion statistics
         _log_stats(writer.planning, elapsed)
 
-        output_file = Path(options["output_file"])
-        logger.info("Conversion successful! Output written to %s", output_file)
+        if excel_output:
+            logger.info(
+                "Conversion successful! Excel workbook written to %s", excel_file
+            )
+        else:
+            output_file = Path(options["output_file"])
+            logger.info("Conversion successful! Output written to %s", output_file)
 
-        # Optionally create a ZIP archive
-        if options.get("zip_output", False):
-            output_dir = Path(options["output_dir"])
-            zip_path = output_file.with_suffix(".zip")
-            create_zip_output(output_file, output_dir, zip_path)
-            print(f"ZIP archive created: {zip_path}")
+            # Optionally create a ZIP archive (JSON+Parquet mode only)
+            if options.get("zip_output", False):
+                zip_path = output_file.with_suffix(".zip")
+                create_zip_output(output_file, output_dir, zip_path)
+                print(f"ZIP archive created: {zip_path}")
 
     except RuntimeError:
         raise

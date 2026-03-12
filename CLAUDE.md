@@ -24,7 +24,14 @@ and Python utility scripts.
 >
 > ```bash
 > bash tools/setup_sandbox.sh          # install deps only
-> bash tools/setup_sandbox.sh --build  # install deps + build + test
+> bash tools/setup_sandbox.sh --build  # install deps + build + test (PREFERRED)
+> ```
+>
+> **Use `--build` in agent sessions** — it builds the project and saves
+> `tools/compile_commands.json` so clang-tidy can be run on any file
+> without rebuilding:
+> ```bash
+> clang-tidy -p tools/compile_commands.json source/my_file.cpp
 > ```
 >
 > The script is idempotent — safe to run again if something was missed.
@@ -410,10 +417,12 @@ cmake --build build -j$(nproc)
 >   | xargs -r clang-format -i
 >
 > # Step 2 — clang-tidy (REQUIRED before every C++ commit in agent sessions)
-> # Requires a configured build directory (run setup_sandbox.sh --build first).
+> # Uses tools/compile_commands.json (saved by setup_sandbox.sh --build).
+> # If tools/compile_commands.json does not exist, run:
+> #   bash tools/setup_sandbox.sh --build
 > git diff --name-only --diff-filter=d HEAD \
 >   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
->   | xargs -r clang-tidy -p build --warnings-as-errors='*'
+>   | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
 > ```
 >
 > **Python files** — run from the repo root before every Python commit:
@@ -421,6 +430,15 @@ cmake --build build -j$(nproc)
 > ```bash
 > # Step 1 — ruff format (REQUIRED before every Python commit)
 > ruff format scripts/ guiservice/
+>
+> # Step 2 — ruff check (REQUIRED before every Python commit)
+> cd scripts && ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+>
+> # Step 3 — pylint (REQUIRED; must score 10.00/10 with no warnings)
+> cd scripts && pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+>
+> # Step 4 — mypy (REQUIRED; no errors allowed)
+> cd scripts && mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt --ignore-missing-imports
 > ```
 >
 > **Both steps are mandatory in agent sessions.** Fix all clang-tidy warnings

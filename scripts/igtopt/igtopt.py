@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import pathlib
+import re
 import sys
 import time
 import warnings
@@ -139,6 +140,117 @@ examples:
   # List sheets derived from C++ headers (no file written)
   igtopt --make-template --list-sheets
 """
+
+
+def _array_name_to_cname(array_name: str) -> str:
+    """Convert a snake_case_array sheet name to its CamelCase element type.
+
+    Examples
+    --------
+    >>> _array_name_to_cname("demand_array")
+    'Demand'
+    >>> _array_name_to_cname("generator_profile_array")
+    'GeneratorProfile'
+    """
+    if array_name.endswith("_array"):
+        base = array_name[:-6]  # strip "_array"
+    else:
+        base = array_name
+    # Convert snake_case to CamelCase
+    camel = re.sub(r"_([a-z])", lambda m: m.group(1).upper(), base)
+    return camel[0].upper() + camel[1:] if camel else camel
+
+
+def _build_name_to_uid_maps(xls: dict) -> dict[str, dict[str, str]]:
+    """Build element-name → ``uid:N`` column-name mappings from all array sheets.
+
+    Iterates every sheet that is not a dot-sheet, not an ``@``-sheet, and not
+    the ``options`` sheet.  For sheets whose DataFrame has both ``uid`` and
+    ``name`` columns, it builds a mapping ``{element_name: "uid:<uid>"}`` and
+    stores it under the corresponding CamelCase type key (e.g. ``"Demand"``).
+
+    This mapping is used by :func:`_resolve_at_sheet_columns` to rename
+    human-readable element-name columns (e.g. ``"LAJA"``) back to the
+    ``uid:N`` format expected by the gtopt C++ binary.
+
+    Args:
+        xls: Dict of ``{sheet_name: DataFrame}`` from ``pd.read_excel()``.
+
+    Returns:
+        Dict mapping CamelCase type names to ``{element_name: "uid:N"}`` maps.
+        Only types for which a non-empty mapping could be built are included.
+    """
+    result: dict[str, dict[str, str]] = {}
+    for sheet_name, df in xls.items():
+        if sheet_name.startswith(".") or "@" in sheet_name or sheet_name == "options":
+            continue
+        if "uid" not in df.columns or "name" not in df.columns:
+            continue
+        cname = _array_name_to_cname(sheet_name)
+        name_map: dict[str, str] = {}
+        collision = False
+        for _, row in df.iterrows():
+            try:
+                uid = int(row["uid"])
+                name = str(row["name"])
+                if name and name != "nan":
+                    uid_col = f"uid:{uid}"
+                    if name in name_map and name_map[name] != uid_col:
+                        # Two elements share a name – disable resolution for
+                        # this entire type to avoid ambiguous column mapping.
+                        collision = True
+                        logging.warning(
+                            "Duplicate element name '%s' in sheet '%s'; "
+                            "name-based column resolution disabled for this type.",
+                            name,
+                            sheet_name,
+                        )
+                        break
+                    name_map[name] = uid_col
+            except (ValueError, TypeError):
+                pass
+        if name_map and not collision:
+            result[cname] = name_map
+    return result
+
+
+def _resolve_at_sheet_columns(
+    df: pd.DataFrame,
+    name_to_uid: dict[str, str],
+) -> pd.DataFrame:
+    """Rename element-name columns to ``uid:N`` format in a time-series DataFrame.
+
+    Index-like columns (``scenario``, ``stage``, ``block``) are left unchanged.
+    Columns already in ``uid:N`` format are also left unchanged.  Any column
+    whose name matches a key in *name_to_uid* is renamed to the corresponding
+    ``uid:N`` value.
+
+    Args:
+        df:           DataFrame from an ``@``-sheet (e.g. ``Demand@lmax``).
+        name_to_uid:  Mapping ``{element_name: "uid:N"}`` for the element type.
+
+    Returns:
+        DataFrame with element-name columns renamed to ``uid:N`` format.
+        The original DataFrame is not modified (a copy is returned only when
+        renaming is actually needed).
+    """
+    _INDEX_COLS = frozenset({"scenario", "stage", "block"})
+    rename_map: dict[str, str] = {}
+    for col in df.columns:
+        if col in _INDEX_COLS:
+            continue
+        if col.startswith("uid:"):
+            continue  # already in uid:N format
+        target = name_to_uid.get(col)
+        if target is not None:
+            rename_map[col] = target
+    if rename_map:
+        logging.info(
+            "Resolving element names to uid columns: %s",
+            ", ".join(f"{k}→{v}" for k, v in rename_map.items()),
+        )
+        return df.rename(columns=rename_map)
+    return df
 
 
 def df_to_file(df, input_path, cname, fname, input_format, compression):
@@ -283,11 +395,14 @@ def log_conversion_stats(
     logging.info("  Generator profs : %d", counts.get("generator_profile_array", 0))
     logging.info("  Demands         : %d", counts.get("demand_array", 0))
     logging.info("  Lines           : %d", counts.get("line_array", 0))
-    logging.info("  Batteries       : %d", counts.get("batterie_array", 0))
+    logging.info("  Batteries       : %d", counts.get("battery_array", 0))
     logging.info("  Converters      : %d", counts.get("converter_array", 0))
     logging.info("  Junctions       : %d", counts.get("junction_array", 0))
+    logging.info("  Waterways       : %d", counts.get("waterway_array", 0))
     logging.info("  Reservoirs      : %d", counts.get("reservoir_array", 0))
     logging.info("  Turbines        : %d", counts.get("turbine_array", 0))
+    logging.info("  Filtrations     : %d", counts.get("filtration_array", 0))
+    logging.info("  Res. effics     : %d", counts.get("reservoir_efficiency_array", 0))
     logging.info("=== Simulation statistics ===")
     logging.info("  Blocks          : %d", counts.get("block_array", 0))
     logging.info("  Stages          : %d", counts.get("stage_array", 0))
@@ -337,6 +452,9 @@ def _run(args) -> int:
             continue
 
         xls = pd.read_excel(str(filepath), sheet_name=None, engine="openpyxl")
+        # Build element-name → uid:N maps from array sheets in this workbook.
+        # Used below to resolve human-readable column names in @-sheets.
+        name_to_uid_maps = _build_name_to_uid_maps(xls)
         for sheet_name, df in xls.items():
             if sheet_name[0] == ".":
                 logging.info("skipping sheet %s", sheet_name)
@@ -344,8 +462,13 @@ def _run(args) -> int:
 
             if "@" in sheet_name:
                 [cname, fname] = sheet_name.split("@")
+                # Resolve element-name columns (e.g. "LAJA") to uid:N format
+                # (e.g. "uid:5") if a mapping is available for this type.
+                resolved_df = _resolve_at_sheet_columns(
+                    df, name_to_uid_maps.get(cname, {})
+                )
                 input_file = df_to_file(
-                    df,
+                    resolved_df,
                     args.input_directory,
                     cname,
                     fname,
