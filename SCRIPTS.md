@@ -17,6 +17,8 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
 - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
 - [gtopt-compare](#gtopt-compare) · [full docs](docs/scripts/gtopt-compare.md)
+- [sddp-monitor](#sddp-monitor)
+- [gtopt-field-extractor](#gtopt-field-extractor)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
@@ -30,7 +32,8 @@ pip install ./scripts
 ```
 
 This registers the `gtopt-diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
-`cvs2parquet`, and `ts2gtopt commands on your `PATH`.  An editable install is useful during
+`cvs2parquet`, `ts2gtopt`, `gtopt-compare`, `sddp-monitor`, and
+`gtopt-field-extractor` commands on your `PATH`.  An editable install is useful during
 development:
 
 ```bash
@@ -43,6 +46,23 @@ Optional extras unlock additional output formats:
 pip install -e "./scripts[dev,diagram]"
 # adds: graphviz, pyvis, cairosvg
 ```
+
+### Package organisation
+
+Each command-line tool lives in its own Python package directory under
+`scripts/`:
+
+| Package directory | Command | Description |
+|-------------------|---------|-------------|
+| `gtopt_compare/` | `gtopt-compare` | pandapower ↔ gtopt comparison |
+| `cvs2parquet/` | `cvs2parquet` | CSV → Parquet converter |
+| `gtopt_diagram/` | `gtopt-diagram` | Network topology / planning diagrams |
+| `gtopt_field_extractor/` | `gtopt-field-extractor` | C++ header field metadata extractor |
+| `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
+| `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
+| `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
+| `sddp_monitor/` | `sddp-monitor` | SDDP solver live monitoring dashboard |
+| `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
 
 ### Dependencies
 
@@ -221,8 +241,17 @@ plp2gtopt -i plp_case_dir -o gtopt_case_dir
 # Limit conversion to the first 5 stages
 plp2gtopt -i input/ -s 5
 
-# Two hydrology scenarios with 60/40 probability split
+# Single hydrology (1-based, default)
+plp2gtopt -i input/ -y 1
+
+# Two hydrology scenarios (1-based) with 60/40 probability split
 plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
+
+# Range selector: hydrologies 1, 2, and 5 through 10
+plp2gtopt -i input/ -y 1,2,5-10
+
+# Group PLP stages 1–4 into phase 1, then one stage per phase after
+plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
 
 # Apply a 10% annual discount rate
 plp2gtopt -i input/ -d 0.10
@@ -230,6 +259,57 @@ plp2gtopt -i input/ -d 0.10
 # Verbose debug output
 plp2gtopt -i input/ -l DEBUG
 ```
+
+### Hydrology index format (`-y` / `--hydrologies`)
+
+Hydrology indices follow the **Fortran 1-based convention**: index `1` refers
+to the first hydrology column in the PLP data files.  The argument accepts
+comma-separated values and ranges:
+
+| Syntax | Meaning |
+|--------|---------|
+| `1` | First hydrology only (default) |
+| `1,2` | Hydrologies 1 and 2 |
+| `1,2,5-10` | Hydrologies 1, 2, and 5 through 10 |
+| `1,2,5-10,11` | Hydrologies 1, 2, 5-10, and 11 |
+
+The internal 0-based index stored in the output JSON (`"hydrology"` field in
+`scenario_array`) is automatically computed as `input_index - 1`.
+
+### Phase layout (`--stages-phase`)
+
+By default, phase assignment is controlled by `--solver`:
+- `sddp` (default): one phase per PLP stage
+- `mono` / `monolithic`: one phase covering all stages
+
+The `--stages-phase` option overrides this with an explicit mapping.  Tokens
+are comma-separated and use 1-based PLP stage indices:
+
+| Token | Meaning |
+|-------|---------|
+| `N` | Single stage N as one phase |
+| `N:M` | Stages N through M (inclusive) as one phase |
+| `...` | (trailing) auto-expand one stage per phase for remaining stages |
+
+```bash
+# Stages 1-4 as phase 1, stages 5-10 each as their own phase,
+# then one stage per phase for any remaining stages
+plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
+
+# Group all stages into two phases: 1-12 and 13-24
+plp2gtopt -i input/ --stages-phase '1:12,13:24'
+```
+
+### Block-to-hour map (`indhor.csv`)
+
+When the PLP input directory contains `indhor.csv`, `plp2gtopt` reads it and
+writes a normalised `BlockHourMap/block_hour_map.parquet` file alongside the
+other Parquet outputs.  A `"block_hour_map"` key is added to the simulation
+section of the output JSON so that post-processing tools (e.g. `ts2gtopt`)
+can reconstruct hourly time-series from block-granularity solver output.
+
+The `indhor.csv` format has columns:
+`Año, Mes, Dia, Hora, Bloque` (all integers; `Hora` is 1-based 1-24).
 
 ### ZIP output (`-z` / `--zip`)
 
@@ -312,8 +392,10 @@ Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 | `-m, --management-factor F` | `0.0` | Demand management factor |
 | `-t, --last-time T` | all | Stop at time T |
 | `-c, --compression ALG` | `gzip` | Parquet compression (`gzip`, `snappy`, `brotli`, `none`) |
-| `-y, --hydrologies H1[,H2,…]` | `0` | Hydrology scenario indices |
+| `-y, --hydrologies H1[,H2,…]` | `1` | Hydrology scenario indices (1-based Fortran convention; accepts ranges e.g. `1,2,5-10`) |
 | `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per scenario |
+| `--stages-phase SPEC` | (solver default) | Explicit phase layout; comma-separated stage indices/ranges with optional `...` wildcard |
+| `--solver TYPE` | `sddp` | Simulation structure: `sddp` (one phase/scene per stage/scenario) or `mono`/`monolithic` (single phase and scene) |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `-V, --version` | — | Print version and exit |
 
@@ -678,6 +760,50 @@ Options:
   --interval-hours H     Duration of each input observation in hours (auto-detected by default)
   --verify               Print energy-conservation ratios after projection
   -v, --verbose          Enable verbose logging
+```
+
+---
+
+## sddp-monitor
+
+Interactive **SDDP solver monitoring dashboard**.  Polls the JSON status file
+written by the gtopt SDDP solver and displays live charts in two figure windows:
+
+- **Figure 1** – Real-time charts: CPU load (%) and active worker threads vs wall-clock seconds.
+- **Figure 2** – Iteration-indexed charts: objective upper/lower bounds per scene and convergence
+  gap vs iteration number.
+
+```bash
+# Monitor the default output/sddp_status.json
+sddp-monitor
+
+# Specify a custom status file and polling interval
+sddp-monitor --status-file /path/to/sddp_status.json --poll 2.0
+
+# Headless mode (print to stdout, no GUI window)
+sddp-monitor --no-gui
+```
+
+The tool exits when the solver reports "converged" or when you press Ctrl-C.
+
+---
+
+## gtopt-field-extractor
+
+Extracts **field metadata** from gtopt C++ headers and generates Markdown or
+HTML documentation tables.  Parses `///< Description [units]` comments on
+struct member declarations and produces a table with columns:
+`Field`, `C++ Type`, `JSON Type`, `Units`, `Required`, `Description`.
+
+```bash
+# Dump all element tables to stdout as Markdown
+gtopt-field-extractor
+
+# Write full HTML reference to a file
+gtopt-field-extractor --format html --output INPUT_DATA_API.html
+
+# Extract only Generator and Demand elements
+gtopt-field-extractor --elements Generator Demand
 ```
 
 ---

@@ -33,7 +33,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
         "input_dir": input_dir,
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
-        "hydrologies": "0",
+        "hydrologies": "1",
     }
 
 
@@ -552,7 +552,7 @@ def test_min_hydro_parse():
 def test_min_hydro_conversion_two_scenarios(tmp_path):
     """plp_min_hydro: convert with 2 hydrologies produces 2 balanced scenarios."""
     opts = _make_opts(_PLPMinHydro, tmp_path, "plp_min_hydro")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -571,7 +571,7 @@ def test_min_hydro_conversion_two_scenarios(tmp_path):
 def test_min_hydro_json_structure(tmp_path):
     """plp_min_hydro: JSON output has correct generator and profile arrays."""
     opts = _make_opts(_PLPMinHydro, tmp_path, "plp_min_hydro")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -599,7 +599,7 @@ def test_min_hydro_afluent_parquet(tmp_path):
     """plp_min_hydro: Afluent/afluent.parquet contains normalised per-scenario flows."""
 
     opts = _make_opts(_PLPMinHydro, tmp_path, "plp_min_hydro")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
     afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
@@ -1095,7 +1095,7 @@ def test_min_hydro_ms_parse():
 def test_min_hydro_ms_scene_phase_structure(tmp_path):
     """plp_min_hydro_ms: one scene per PLP scenario, one phase per PLP stage."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -1135,7 +1135,7 @@ def test_min_hydro_ms_scene_phase_structure(tmp_path):
 def test_min_hydro_ms_afluent_parquet(tmp_path):
     """plp_min_hydro_ms: afluent parquet has unique scenario UIDs across 3 stages."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     convert_plp_case(opts)
 
     afluent_path = Path(opts["output_dir"]) / "Afluent" / "afluent.parquet"
@@ -1170,7 +1170,7 @@ def test_min_hydro_ms_afluent_parquet(tmp_path):
 def test_min_hydro_ms_monolithic_structure(tmp_path):
     """plp_min_hydro_ms + --solver mono: one scene (all scenarios), one phase (all stages)."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_mono")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     opts["solver_type"] = "mono"
     convert_plp_case(opts)
 
@@ -1209,7 +1209,7 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
 def test_min_hydro_ms_sddp_options_key(tmp_path):
     """plp_min_hydro_ms + --solver sddp: options must have sddp_solver_type='sddp'."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_sddp")
-    opts["hydrologies"] = "0,1"
+    opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
     convert_plp_case(opts)
 

@@ -35,7 +35,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
         "input_dir": input_dir,
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
-        "hydrologies": "0",
+        "hydrologies": "1",
         "last_stage": -1,
         "last_time": -1,
         "compression": "gzip",
@@ -242,7 +242,7 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
         opts = {
             "output_dir": str(tmp_path),
             "output_file": str(tmp_path / "out.json"),
-            "hydrologies": "0",
+            "hydrologies": "1",
             "discount_rate": 0.0,
         }
 
@@ -396,7 +396,7 @@ def test_build_options_defaults():
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
     assert opts["compression"] == "gzip"
-    assert opts["hydrologies"] == "0"
+    assert opts["hydrologies"] == "1"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)
     assert opts["management_factor"] == pytest.approx(0.0)
