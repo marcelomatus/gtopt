@@ -12,17 +12,50 @@
  * @ref Converter that links it to a discharge @ref Generator and a charge
  * @ref Demand.
  *
- * ### Unified battery definition (recommended)
+ * ### Standalone battery (unified definition)
  *
- * When the optional `bus` field is set, the system automatically generates
- * the associated Generator (discharge path), Demand (charge path), and
- * Converter during preprocessing — no separate elements are needed:
+ * When the optional `bus` field is set (without `source_generator`), the
+ * system automatically generates the associated Generator (discharge path),
+ * Demand (charge path), and Converter during preprocessing — no separate
+ * elements are needed.  Both charge and discharge connect to the same
+ * external bus:
  *
  * ```json
  * {
  *   "uid": 1,
  *   "name": "bess1",
  *   "bus": 3,
+ *   "input_efficiency": 0.95,
+ *   "output_efficiency": 0.95,
+ *   "emin": 0,
+ *   "emax": 100,
+ *   "capacity": 100,
+ *   "pmax_charge": 60,
+ *   "pmax_discharge": 60,
+ *   "gcost": 0
+ * }
+ * ```
+ *
+ * ### Generation-coupled battery (hybrid / behind-the-meter)
+ *
+ * When both `bus` and `source_generator` are set, the battery is in
+ * *generation-coupled* mode: the `source_generator` directly feeds the
+ * battery charge path through an auto-created internal bus.
+ * `System::expand_batteries()` will:
+ *  - Create an internal bus (name = battery.name + "_int_bus")
+ *  - Connect the discharge Generator to the external `bus`
+ *  - Connect the charge Demand to the internal bus
+ *  - Set the `source_generator`'s bus to the internal bus
+ *
+ * The `source_generator` should have no `bus` set, or its `bus` will be
+ * overwritten with the internal bus.
+ *
+ * ```json
+ * {
+ *   "uid": 1,
+ *   "name": "bess1",
+ *   "bus": 3,
+ *   "source_generator": "solar1",
  *   "input_efficiency": 0.95,
  *   "output_efficiency": 0.95,
  *   "emin": 0,
@@ -84,6 +117,10 @@ namespace gtopt
  * only needs to define a single Battery object.  This approach follows the
  * convention used by PyPSA `StorageUnit` and pandapower `storage`.
  *
+ * When `source_generator` is also set, the battery operates in
+ * *generation-coupled* mode: a dedicated internal bus is created for the
+ * charge path so that the source generator feeds the battery directly.
+ *
  * @see Converter for the generator/demand coupling
  * @see BatteryLP for the LP formulation
  */
@@ -93,10 +130,22 @@ struct Battery
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (default: active)
 
-  /// Bus connection for the unified battery definition.
+  /// External bus connection for the unified battery definition.
   /// When set, System::expand_batteries() auto-generates a discharge
-  /// Generator, a charge Demand, and a linking Converter for this bus.
+  /// Generator, a charge Demand, and a linking Converter.
   OptSingleId bus {};
+
+  /// Optional reference to a co-located generator that directly charges the
+  /// battery (generation-coupled / hybrid battery configuration).
+  /// When set together with `bus`, expand_batteries() creates an internal
+  /// bus so that:
+  ///  - The discharge Generator connects to the external `bus`
+  ///  - The charge Demand connects to the internal bus
+  ///  - The source generator's bus is set to the internal bus
+  /// The source generator's own `bus` field is overwritten.
+  /// Without `source_generator` the battery is standalone: both charge
+  /// and discharge connect to the same external `bus`.
+  OptSingleId source_generator {};
 
   OptTRealFieldSched
       input_efficiency {};  ///< Charging (round-trip in) efficiency [p.u.]
