@@ -21,6 +21,7 @@
 #include <span>
 #include <utility>
 
+#include <gtopt/check_lp.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -343,7 +344,14 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                / std::format(sddp_file::error_lp_fmt, scene, phase))
                   .string();
           li.write_lp(err_file);
-          SPDLOG_WARN("SDDP: saved infeasible LP to {}.lp", err_file);
+          spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
+          // Run gtopt-check-lp static analysis and log the diagnostic.
+          if (const auto diag = run_check_lp_diagnostic(err_file);
+              !diag.empty())
+          {
+            spdlog::error(
+                "LP infeasibility diagnostic for {}.lp:\n{}", err_file, diag);
+          }
         }
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,

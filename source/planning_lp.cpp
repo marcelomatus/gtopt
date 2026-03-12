@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <ranges>
 
+#include <gtopt/check_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/solver_options.hpp>
@@ -27,7 +28,7 @@ void PlanningLP::write_lp(const std::string& filename) const
     for (auto&& phase_systems : m_systems_) {
       for (auto&& system : phase_systems) {
         try {
-          system.write_lp(filename);
+          [[maybe_unused]] auto _ = system.write_lp(filename);
         } catch (const std::exception& e) {
           SPDLOG_ERROR(
               std::format("Failed to write LP for system: {}", e.what()));
@@ -66,7 +67,13 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
           (std::filesystem::path(log_dir)
            / std::format("error_{}_{}", scene_index, phase_index))
               .string();
-      system_sp.write_lp(filename);
+      const auto lp_file = system_sp.write_lp(filename);
+      spdlog::error("  Infeasible LP written to: {}", lp_file);
+
+      // Run gtopt-check-lp static analysis and log the diagnostic.
+      if (const auto diag = run_check_lp_diagnostic(lp_file); !diag.empty()) {
+        spdlog::error("LP infeasibility diagnostic for {}:\n{}", lp_file, diag);
+      }
 
       auto error = std::move(result.error());
       error.message += std::format(
