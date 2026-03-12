@@ -11,7 +11,7 @@ Detection priority (set by the including CMakeLists.txt):
 1. ``COMPARE_PANDAPOWER_PROGRAM`` — path explicitly set by the user.
    Invoked as::
 
-     gtopt-compare --case <name> --gtopt-output <dir>
+     gtopt_compare --case <name> --gtopt-output <dir>
 
 2. ``COMPARE_PANDAPOWER_PYTHON`` + ``COMPARE_PANDAPOWER_SCRIPTS_DIR`` — Python
    interpreter and path to the ``scripts/`` source directory.  The test is run
@@ -43,7 +43,7 @@ External pandapower network files:
 
    Save a network file with::
 
-     gtopt-compare --case <name> --save-pandapower-file \\
+     gtopt_compare --case <name> --save-pandapower-file \\
          ${CASES_DIR}/<case>/pandapower_net.json
 
 Required variables (set before including this file):
