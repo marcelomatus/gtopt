@@ -214,7 +214,10 @@ def _save_config(config_path: Path, cfg: dict[str, str]) -> None:
             )
             parser.write(fh)
     except OSError as exc:
-        print(f"Warning: could not write config file {config_path}: {exc}", file=sys.stderr)
+        print(
+            f"Warning: could not write config file {config_path}: {exc}",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +289,7 @@ def print_solver_status(use_color: bool = True) -> None:
             "  CPLEX is a commercial solver; download from "
             "https://www.ibm.com/products/ilog-cplex-optimization-studio"
         )
-        print(
-            "  HiGHS Python: pip install highspy"
-        )
+        print("  HiGHS Python: pip install highspy")
 
 
 # ---------------------------------------------------------------------------
@@ -361,9 +362,7 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
 
     current_solver = cfg.get("solver", "all")
     solver_choices = ("all", "auto", "cplex", "highs", "coinor", "glpk", "neos")
-    solver_hint = (
-        "  Preferred solver " + _c_local(_CYAN, str(list(solver_choices)))
-    )
+    solver_hint = "  Preferred solver " + _c_local(_CYAN, str(list(solver_choices)))
     solver = _prompt(solver_hint, current_solver)
     if solver not in solver_choices:
         print(f"  Unknown solver '{solver}', using 'all'")
@@ -1723,10 +1722,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--config",
         default=None,
         metavar="FILE",
-        help=(
-            "Path to the configuration file "
-            "(default: ~/.gtopt_check_lp)."
-        ),
+        help=("Path to the configuration file (default: ~/.gtopt_check_lp)."),
     )
 
     parser.add_argument(
@@ -1821,11 +1817,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # ── Merge CLI overrides into effective config ─────────────────────────────
     effective_email = args.email if args.email is not None else cfg.get("email", "")
-    effective_solver = args.solver if args.solver is not None else cfg.get("solver", "auto")
+    effective_solver = (
+        args.solver if args.solver is not None else cfg.get("solver", "auto")
+    )
     effective_timeout_str = cfg.get("timeout", "120")
-    effective_timeout = args.timeout if args.timeout is not None else int(effective_timeout_str)
+    effective_timeout = (
+        args.timeout if args.timeout is not None else int(effective_timeout_str)
+    )
     effective_neos_url = (
-        args.solver_url if args.solver_url is not None else cfg.get("neos_url", _NEOS_DEFAULT_URL)
+        args.solver_url
+        if args.solver_url is not None
+        else cfg.get("neos_url", _NEOS_DEFAULT_URL)
     )
 
     # ── Resolve LP file ───────────────────────────────────────────────────────
