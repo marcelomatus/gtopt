@@ -92,7 +92,7 @@ struct json_data_contract<Battery>
                         jvtl_TRealFieldSched>,  ///< Annual derating factor
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
       json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
-      json_number_null<"vol_scale", OptReal>  ///< Energy scaling factor
+      json_number_null<"energy_scale", OptReal>  ///< Energy scaling factor
       >;
 
   /**
@@ -129,7 +129,7 @@ struct json_data_contract<Battery>
                                  battery.annual_derating,
                                  battery.use_state_variable,
                                  battery.daily_cycle,
-                                 battery.vol_scale);
+                                 battery.energy_scale);
   }
 };
 }  // namespace daw::json
