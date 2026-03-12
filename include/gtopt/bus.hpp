@@ -42,6 +42,7 @@ struct Bus
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)
+  OptName type {};  ///< Optional bus type tag (e.g. "pq", "pv", "slack")
   OptReal voltage {};  ///< Nominal voltage level [kV]
   OptReal reference_theta {};  ///< Fixed voltage angle for reference bus [rad]
   OptBool use_kirchhoff {};  ///< Override global Kirchhoff setting for this bus

@@ -45,6 +45,13 @@ public:
     return load_cols.at({scenario.uid(), stage.uid()});
   }
 
+  [[nodiscard]]
+  constexpr const auto& fail_cols_at(const ScenarioLP& scenario,
+                                     const StageLP& stage) const
+  {
+    return fail_cols.at({scenario.uid(), stage.uid()});
+  }
+
 private:
   OptTBRealSched lmax;
   OptTRealSched lossfactor;

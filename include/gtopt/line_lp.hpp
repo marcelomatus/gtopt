@@ -72,6 +72,18 @@ public:
 
   bool add_to_output(OutputContext& out) const;
 
+  [[nodiscard]] constexpr const auto& flowp_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return flowp_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr const auto& flown_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return flown_cols.at({scenario.uid(), stage.uid()});
+  }
+
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;

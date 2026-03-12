@@ -18,6 +18,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_parser.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/pampl_parser.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -28,5 +29,6 @@ using namespace gtopt;
 #include "test_linear_interface.hpp"
 #include "test_linear_parser.hpp"
 #include "test_linear_problem.hpp"
+#include "test_pampl_parser.hpp"
 #include "test_sparse_col.hpp"
 #include "test_sparse_row.hpp"

@@ -17,6 +17,7 @@ struct json_data_contract<Bus>
       json_member_list<json_number<"uid", Uid>,
                        json_string<"name", Name>,
                        json_variant_null<"active", OptActive, jvtl_Active>,
+                       json_string_null<"type", OptName>,
                        json_number_null<"voltage", OptReal>,
                        json_number_null<"reference_theta", OptReal>,
                        json_bool_null<"use_kirchhoff", OptBool>>;
@@ -26,6 +27,7 @@ struct json_data_contract<Bus>
     return std::forward_as_tuple(bus.uid,
                                  bus.name,
                                  bus.active,
+                                 bus.type,
                                  bus.voltage,
                                  bus.reference_theta,
                                  bus.use_kirchhoff);

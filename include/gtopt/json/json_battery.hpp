@@ -36,6 +36,7 @@ struct json_data_contract<Battery>
       json_string<"name", Name>,  ///< Battery name
       json_variant_null<"active", OptActive, jvtl_Active>,  ///< Activation
                                                             ///< status
+      json_string_null<"type", OptName>,  ///< Optional battery type tag
       json_variant_null<"bus",
                         OptSingleId,
                         jvtl_SingleId>,  ///< Bus (unified definition)
@@ -105,6 +106,7 @@ struct json_data_contract<Battery>
     return std::forward_as_tuple(battery.uid,
                                  battery.name,
                                  battery.active,
+                                 battery.type,
                                  battery.bus,
                                  battery.source_generator,
                                  battery.input_efficiency,

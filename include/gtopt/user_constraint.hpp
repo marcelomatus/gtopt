@@ -41,6 +41,7 @@ struct UserConstraint
   Name name {};  ///< Human-readable constraint name
   OptBool active {};  ///< Activation status (default: active)
   Name expression {};  ///< Constraint expression in AMPL-inspired syntax
+  OptName description {};  ///< Optional free-text description of the constraint
 };
 
 }  // namespace gtopt
