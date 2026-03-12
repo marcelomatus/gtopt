@@ -13,6 +13,7 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/constraint_parser.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_parser.hpp>
@@ -23,6 +24,7 @@
 
 using namespace gtopt;
 
+#include "test_constraint_parser.hpp"
 #include "test_linear_interface.hpp"
 #include "test_linear_parser.hpp"
 #include "test_linear_problem.hpp"

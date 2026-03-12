@@ -1,0 +1,396 @@
+/**
+ * @file      test_constraint_parser.hpp
+ * @brief     Unit tests for the ConstraintParser class
+ * @date      Wed Mar 12 03:00:00 2026
+ * @author    copilot
+ * @copyright BSD-3-Clause
+ *
+ * Tests for parsing AMPL-inspired constraint expressions with element
+ * references and domain specifications.
+ */
+
+#include <doctest/doctest.h>
+#include <gtopt/constraint_parser.hpp>
+
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+TEST_SUITE("ConstraintParser")
+{
+  // ── Basic constraints ──────────────────────────────────────────────────
+
+  TEST_CASE("Parse simple generator constraint")
+  {
+    auto expr = ConstraintParser::parse(R"(generator("G1").generation <= 100)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "generator");
+    CHECK(expr.terms[0].element->element_id == "G1");
+    CHECK(expr.terms[0].element->attribute == "generation");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Parse two-element sum constraint")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("TORO").generation + generator("uid:23").generation <= 300, for(stage in {4,5,6}, block in 1..30))");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(300.0));
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "generator");
+    CHECK(expr.terms[0].element->element_id == "TORO");
+    CHECK(expr.terms[0].element->attribute == "generation");
+
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_type == "generator");
+    CHECK(expr.terms[1].element->element_id == "uid:23");
+    CHECK(expr.terms[1].element->attribute == "generation");
+  }
+
+  TEST_CASE("Parse constraint with coefficients")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(2.5 * generator("G1").generation - 1.5 * demand("D1").load >= 50)");
+
+    CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(50.0));
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "generator");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_type == "demand");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.5));
+  }
+
+  TEST_CASE("Parse equality constraint")
+  {
+    auto expr = ConstraintParser::parse(R"(generator("G1").generation = 100)");
+
+    CHECK(expr.constraint_type == ConstraintType::EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "generator");
+  }
+
+  // ── Domain specifications ──────────────────────────────────────────────
+
+  TEST_CASE("Parse constraint with for clause - explicit set")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(stage in {1,2,3}))");
+
+    CHECK_FALSE(expr.domain.stages.is_all);
+    REQUIRE(expr.domain.stages.values.size() == 3);
+    CHECK(expr.domain.stages.values[0] == 1);
+    CHECK(expr.domain.stages.values[1] == 2);
+    CHECK(expr.domain.stages.values[2] == 3);
+
+    // Unspecified dimensions default to all
+    CHECK(expr.domain.scenarios.is_all);
+    CHECK(expr.domain.blocks.is_all);
+  }
+
+  TEST_CASE("Parse constraint with for clause - all keyword")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(stage in all, block in all))");
+
+    CHECK(expr.domain.stages.is_all);
+    CHECK(expr.domain.blocks.is_all);
+    CHECK(expr.domain.scenarios.is_all);
+  }
+
+  TEST_CASE("Parse constraint with scenario domain")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(scenario in {1,2}))");
+
+    CHECK_FALSE(expr.domain.scenarios.is_all);
+    REQUIRE(expr.domain.scenarios.values.size() == 2);
+    CHECK(expr.domain.scenarios.values[0] == 1);
+    CHECK(expr.domain.scenarios.values[1] == 2);
+  }
+
+  TEST_CASE("Parse for clause with = in for clause")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(stage = 1, block = 5))");
+
+    REQUIRE(expr.domain.stages.values.size() == 1);
+    CHECK(expr.domain.stages.values[0] == 1);
+    REQUIRE(expr.domain.blocks.values.size() == 1);
+    CHECK(expr.domain.blocks.values[0] == 5);
+  }
+
+  TEST_CASE("Parse for clause with all three dimensions")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(scenario in {1,2}, stage in 3..5, block in all))");
+
+    CHECK_FALSE(expr.domain.scenarios.is_all);
+    REQUIRE(expr.domain.scenarios.values.size() == 2);
+    CHECK_FALSE(expr.domain.stages.is_all);
+    REQUIRE(expr.domain.stages.values.size() == 3);
+    CHECK(expr.domain.stages.values[0] == 3);
+    CHECK(expr.domain.stages.values[2] == 5);
+    CHECK(expr.domain.blocks.is_all);
+  }
+
+  TEST_CASE("Parse for clause with mixed range and values in braces")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation <= 100, for(block in {1, 3..5, 8, 10..12}))");
+
+    CHECK_FALSE(expr.domain.blocks.is_all);
+    // 1 + (3,4,5) + 8 + (10,11,12) = 8 values
+    REQUIRE(expr.domain.blocks.values.size() == 8);
+    CHECK(expr.domain.blocks.values[0] == 1);
+    CHECK(expr.domain.blocks.values[1] == 3);
+    CHECK(expr.domain.blocks.values[4] == 8);
+    CHECK(expr.domain.blocks.values[7] == 12);
+  }
+
+  // ── Range constraints ──────────────────────────────────────────────────
+
+  TEST_CASE("Parse range constraint")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(10 <= generator("G1").generation <= 200)");
+
+    CHECK(expr.constraint_type == ConstraintType::RANGE);
+    CHECK(expr.lower_bound.value_or(0.0) == doctest::Approx(10.0));
+    CHECK(expr.upper_bound.value_or(0.0) == doctest::Approx(200.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+  }
+
+  TEST_CASE("Parse GEQ range constraint")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(200 >= generator("G1").generation >= 10)");
+
+    CHECK(expr.constraint_type == ConstraintType::RANGE);
+    CHECK(expr.lower_bound.value_or(0.0) == doctest::Approx(10.0));
+    CHECK(expr.upper_bound.value_or(0.0) == doctest::Approx(200.0));
+  }
+
+  // ── All element types ──────────────────────────────────────────────────
+
+  TEST_CASE("Parse line flow constraint")
+  {
+    auto expr = ConstraintParser::parse(R"(line("L1_2").flow <= 300)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "line");
+    CHECK(expr.terms[0].element->element_id == "L1_2");
+    CHECK(expr.terms[0].element->attribute == "flow");
+  }
+
+  TEST_CASE("Parse battery energy constraint")
+  {
+    auto expr = ConstraintParser::parse(R"(battery("BESS1").energy <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "battery");
+    CHECK(expr.terms[0].element->element_id == "BESS1");
+    CHECK(expr.terms[0].element->attribute == "energy");
+  }
+
+  TEST_CASE("Parse demand fail constraint")
+  {
+    auto expr = ConstraintParser::parse(R"(demand("D1").fail <= 10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "demand");
+    CHECK(expr.terms[0].element->attribute == "fail");
+  }
+
+  TEST_CASE("Parse demand load and fail in same expression")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(demand("D1").load + demand("D1").fail = 100)");
+
+    CHECK(expr.constraint_type == ConstraintType::EQUAL);
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->attribute == "load");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->attribute == "fail");
+  }
+
+  // ── UID references ─────────────────────────────────────────────────────
+
+  TEST_CASE("Parse mixed name and uid references")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("TORO").generation + demand("uid:10").load <= 500)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "TORO");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_id == "uid:10");
+    CHECK(expr.terms[1].element->element_type == "demand");
+  }
+
+  // ── Multi-term expressions ─────────────────────────────────────────────
+
+  TEST_CASE("Parse three-element sum constraint")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation + generator("G2").generation + generator("G3").generation <= 500)");
+
+    REQUIRE(expr.terms.size() == 3);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_id == "G2");
+    REQUIRE(expr.terms[2].element.has_value());
+    CHECK(expr.terms[2].element->element_id == "G3");
+  }
+
+  TEST_CASE("Parse mixed-type multi-element expression")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(2 * generator("G1").generation - demand("D1").load + line("L1").flow >= 0)");
+
+    CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
+    REQUIRE(expr.terms.size() == 3);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.0));
+    CHECK(expr.terms[0].element->element_type == "generator");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+    CHECK(expr.terms[1].element->element_type == "demand");
+    REQUIRE(expr.terms[2].element.has_value());
+    CHECK(expr.terms[2].coefficient == doctest::Approx(1.0));
+    CHECK(expr.terms[2].element->element_type == "line");
+  }
+
+  // ── Variables on both sides ────────────────────────────────────────────
+
+  TEST_CASE("Parse with variables on both sides of >=")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation >= demand("D1").load)");
+
+    CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(0.0));
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+    CHECK(expr.terms[1].element->element_id == "D1");
+  }
+
+  TEST_CASE("Parse constraint with constant on both sides")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(generator("G1").generation + 10 <= 50)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    // 50 - 10 = 40
+    CHECK(expr.rhs == doctest::Approx(40.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+  }
+
+  // ── Whitespace and formatting ──────────────────────────────────────────
+
+  TEST_CASE("Parse with extra whitespace")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(   generator( "G1" ) . generation   <=   100   )");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+  }
+
+  TEST_CASE("Parse with no whitespace")
+  {
+    auto expr = ConstraintParser::parse(R"(generator("G1").generation<=100)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+  }
+
+  // ── Named constraint ───────────────────────────────────────────────────
+
+  TEST_CASE("Parse with named constraint")
+  {
+    auto expr = ConstraintParser::parse("my_limit",
+                                        R"(generator("G1").generation <= 100)");
+
+    CHECK(expr.name == "my_limit");
+  }
+
+  // ── Error paths ────────────────────────────────────────────────────────
+
+  TEST_CASE("Error: empty expression")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse("")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: missing constraint operator")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(generator("G1").generation 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: invalid element type")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(foo("G1").generation <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: unterminated string")
+  {
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(generator("G1).generation <= 100)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("Error: invalid for clause dimension")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"(generator("G1").generation <= 100, for(week in {1}))")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: missing attribute")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(generator("G1") <= 100)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("Error: number after star is not element type")
+  {
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(2 * 3 <= 100)")),
+        std::invalid_argument);
+  }
+}

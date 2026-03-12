@@ -184,6 +184,12 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(turbine_array, std::move(sys.turbine_array));
   gtopt::merge(reservoir_efficiency_array,
                std::move(sys.reservoir_efficiency_array));
+
+  gtopt::merge(user_constraint_array, std::move(sys.user_constraint_array));
+
+  if (sys.user_constraint_file.has_value()) {
+    user_constraint_file = std::move(sys.user_constraint_file);
+  }
 }
 
 }  // namespace gtopt

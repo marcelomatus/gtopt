@@ -66,4 +66,5 @@ using namespace gtopt;
 #include "test_simulation_json.hpp"
 #include "test_system_json.hpp"
 #include "test_turbine_json.hpp"
+#include "test_user_constraint_json.hpp"
 #include "test_waterway_json.hpp"
