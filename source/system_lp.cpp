@@ -253,11 +253,12 @@ void SystemLP::write_out() const
   oc.write();
 }
 
-void SystemLP::write_lp(const std::string& filename) const
+std::string SystemLP::write_lp(const std::string& filename) const
 {
   const auto fname = as_label(filename, phase().index(), scene().index());
 
   linear_interface().write_lp(fname);
+  return fname + ".lp";
 }
 
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
