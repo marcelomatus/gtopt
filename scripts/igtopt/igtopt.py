@@ -55,13 +55,10 @@ _SYSTEM_SHEETS = frozenset(
         "junction_array",
         "waterway_array",
         "flow_array",
-        "outflow_array",
         "reservoir_array",
         "filtration_array",
         "turbine_array",
-        "emission_zone_array",
-        "generator_emission_array",
-        "demand_emissions",
+        "reservoir_efficiency_array",
     }
 )
 

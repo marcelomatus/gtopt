@@ -673,12 +673,45 @@ The [gtopt Excel template](../templates/gtopt_template.xlsx) provides a
 ready-to-use workbook with pre-configured sheets for all gtopt planning
 elements. It includes:
 
-- An `options` sheet with common settings pre-filled
-- Empty `block_array`, `stage_array`, and `scenario_array` sheets with headers
-- All 20 system sheets with column headers
+- A `.introduction` sheet with an overview of the tool, a directory of all
+  sheets, and usage instructions
+- An `options` sheet with all supported option keys pre-filled (one per row)
+  and a description / default value in adjacent columns
+- All simulation sheets (`block_array`, `stage_array`, `scenario_array`,
+  `phase_array`, `scene_array`) with column headers and inline help text
+- All 17 system sheets with column headers, per-column type hints, and
+  required/optional markers
 - Example `Demand@lmax` and `GeneratorProfile@profile` time-series sheets
 
 Start from this template and fill in your data to build a complete case.
+
+### Regenerating the Template
+
+The template is generated automatically from the gtopt C++ JSON headers by
+`scripts/make_igtopt_template.py`.  Run this tool after adding new JSON elements
+to the C++ source to produce an up-to-date workbook:
+
+```bash
+# Regenerate docs/templates/gtopt_template.xlsx (default output)
+python scripts/make_igtopt_template.py
+
+# Write to a custom path
+python scripts/make_igtopt_template.py -o /tmp/my_template.xlsx
+
+# Print the sheet list parsed from C++ headers without writing a file
+python scripts/make_igtopt_template.py --list-sheets
+```
+
+The tool reads `include/gtopt/json/json_system.hpp` and
+`include/gtopt/json/json_simulation.hpp` to determine which arrays are part of
+the JSON schema, so adding a new C++ element and re-running this script
+produces a template that already contains the new sheet.
+
+> **Keeping igtopt in sync**: after adding a new JSON array to the C++ code,
+> also update the `_SYSTEM_SHEETS` or `_SIMULATION_SHEETS` frozensets in
+> `scripts/igtopt/igtopt.py` to match `json_system.hpp` / `json_simulation.hpp`.
+> The sheet list output by `make_igtopt_template.py --list-sheets` shows the
+> current canonical set.
 
 ---
 
@@ -794,3 +827,5 @@ python -m pytest igtopt/tests/ -m integration -q
 - [gtopt-compare.md](gtopt-compare.md) — Validating gtopt results
   against pandapower DC OPF
 - [plp2gtopt.md](plp2gtopt.md) — Converting PLP cases to gtopt format
+- [`scripts/make_igtopt_template.py`](../../scripts/make_igtopt_template.py) —
+  Tool that reads C++ JSON headers and regenerates the Excel template
