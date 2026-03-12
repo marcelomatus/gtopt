@@ -17,8 +17,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
-
 from .indhor_parser import IndhorParser
 from .base_writer import BaseWriter
 
@@ -52,10 +50,14 @@ class IndhorWriter(BaseWriter):
         Returns the relative path string (suitable for the JSON
         ``block_hour_map`` key), or ``None`` when there is no data.
         """
-        if self.indhor_parser is None or self.indhor_parser.is_empty:
+        if (
+            self.indhor_parser is None
+            or self.indhor_parser.df is None
+            or self.indhor_parser.df.empty
+        ):
             return None
 
-        df: pd.DataFrame = self.indhor_parser.df  # type: ignore[assignment]
+        df = self.indhor_parser.df
         output_dir.mkdir(parents=True, exist_ok=True)
 
         compression = self.get_compression()
