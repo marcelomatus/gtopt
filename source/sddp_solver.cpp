@@ -62,6 +62,62 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   return ElasticFilterMode::FeasibilityCut;
 }
 
+// ─── Free utility functions ──────────────────────────────────────────────────
+
+std::vector<double> compute_scene_weights(
+    std::span<const SceneLP> scenes,
+    std::span<const uint8_t> scene_feasible,
+    int num_scenes) noexcept
+{
+  std::vector<double> weights(static_cast<std::size_t>(num_scenes), 0.0);
+  double total = 0.0;
+
+  for (int si = 0; si < num_scenes; ++si) {
+    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+      continue;  // Infeasible → weight stays 0
+    }
+    if (std::cmp_less(si, scenes.size())) {
+      for (const auto& sc : scenes[static_cast<std::size_t>(si)].scenarios()) {
+        weights[static_cast<std::size_t>(si)] += sc.probability_factor();
+      }
+    }
+    if (weights[static_cast<std::size_t>(si)] <= 0.0) {
+      weights[static_cast<std::size_t>(si)] = 1.0;  // fallback equal weight
+    }
+    total += weights[static_cast<std::size_t>(si)];
+  }
+
+  if (total > 0.0) {
+    for (auto& w : weights) {
+      w /= total;
+    }
+  } else {
+    // All infeasible or zero probability → equal weight among feasible
+    int feasible_count = 0;
+    for (int si = 0; si < num_scenes; ++si) {
+      if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+        ++feasible_count;
+      }
+    }
+    if (feasible_count > 0) {
+      const double eq_w = 1.0 / static_cast<double>(feasible_count);
+      for (int si = 0; si < num_scenes; ++si) {
+        if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+          weights[static_cast<std::size_t>(si)] = eq_w;
+        }
+      }
+    }
+  }
+
+  return weights;
+}
+
+double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
+{
+  const double denom = std::max(1.0, std::abs(upper_bound));
+  return (upper_bound - lower_bound) / denom;
+}
+
 // ─── Free-function building blocks ──────────────────────────────────────────
 // Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
 
@@ -1024,30 +1080,29 @@ void SDDPSolver::write_api_status(
   SolverMonitor::write_status(json, status_file);
 }
 
-// ── Main solve loop ─────────────────────────────────────────────────────────
+// ─── Private helper method implementations ───────────────────────────────────
 
-auto SDDPSolver::solve(const SolverOptions& lp_opts)
-    -> std::expected<std::vector<SDDPIterationResult>, Error>
+auto SDDPSolver::validate_inputs() const -> std::optional<Error>
 {
   const auto& sim = planning_lp().simulation();
-
   if (sim.scenes().empty()) {
-    return std::unexpected(Error {
+    return Error {
         .code = ErrorCode::InvalidInput,
         .message = "No scenes in simulation",
-    });
+    };
   }
   if (sim.phases().size() < 2) {
-    return std::unexpected(Error {
+    return Error {
         .code = ErrorCode::InvalidInput,
         .message = "SDDP requires at least 2 phases",
-    });
+    };
   }
+  return std::nullopt;
+}
 
-  const auto num_scenes = static_cast<Index>(sim.scenes().size());
-  const auto num_phases = static_cast<Index>(sim.phases().size());
-
-  // Bootstrap: solve all phases to establish baseline and state links
+auto SDDPSolver::initialize_solver(const SolverOptions& /*lp_opts*/)
+    -> std::expected<void, Error>
+{
   if (auto r = planning_lp().resolve(); !r.has_value()) {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
@@ -1056,98 +1111,359 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     });
   }
 
-  if (!m_initialized_) {
-    m_scene_phase_states_.resize(num_scenes);
-    m_scene_cuts_.resize(num_scenes);
+  if (m_initialized_) {
+    return {};
+  }
 
-    // Initialize per-(scene, phase) infeasibility counters to 0
-    m_infeasibility_counter_.resize(num_scenes);
-    for (Index si = 0; si < num_scenes; ++si) {
-      m_infeasibility_counter_[SceneIndex {si}].resize(num_phases, 0);
+  const auto& sim = planning_lp().simulation();
+  const auto num_scenes = static_cast<Index>(sim.scenes().size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
+
+  m_scene_phase_states_.resize(num_scenes);
+  m_scene_cuts_.resize(num_scenes);
+  m_infeasibility_counter_.resize(num_scenes);
+  for (Index si = 0; si < num_scenes; ++si) {
+    m_infeasibility_counter_[SceneIndex {si}].resize(num_phases, 0);
+  }
+
+  for (Index si = 0; si < num_scenes; ++si) {
+    const auto scene = SceneIndex {si};
+    initialize_alpha_variables(scene);
+    collect_state_variable_links(scene);
+  }
+
+  if (!m_options_.cuts_input_file.empty()) {
+    auto result = load_cuts(m_options_.cuts_input_file);
+    if (result.has_value()) {
+      SPDLOG_INFO("SDDP hot-start: loaded {} cuts", *result);
+    } else {
+      SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
+                  result.error().message);
     }
-
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto scene = SceneIndex {si};
-      initialize_alpha_variables(scene);
-      collect_state_variable_links(scene);
-    }
-
-    // Load saved cuts for hot-start if a file is provided
-    if (!m_options_.cuts_input_file.empty()) {
-      auto load_result = load_cuts(m_options_.cuts_input_file);
-      if (load_result.has_value()) {
-        SPDLOG_INFO("SDDP hot-start: loaded {} cuts", *load_result);
-      } else {
-        SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
-                    load_result.error().message);
-      }
-    } else if (!m_options_.cuts_output_file.empty()) {
-      // Try loading from the cut directory (per-scene files).
-      // Error files (error_scene_N.csv) from previous infeasible runs
-      // are automatically skipped.
-      const auto cut_dir =
-          std::filesystem::path(m_options_.cuts_output_file).parent_path();
-      if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
-        auto load_result = load_scene_cuts_from_directory(cut_dir.string());
-        if (load_result.has_value() && *load_result > 0) {
-          SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {}",
-                      *load_result,
-                      cut_dir.string());
-        }
-      }
-    }
-
-    m_initialized_ = true;
-
-    // Apply initial reservoir efficiency coefficients using eini volumes.
-    // This updates the turbine conversion-rate coefficients from the static
-    // value set by TurbineLP::add_to_lp() to the piecewise-linear efficiency
-    // evaluated at each reservoir's initial volume.
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto scene = SceneIndex {si};
-      for (Index pi = 0; pi < num_phases; ++pi) {
-        const auto phase = PhaseIndex {pi};
-        update_coefficients_for_phase(scene, phase, 0);
+  } else if (!m_options_.cuts_output_file.empty()) {
+    const auto cut_dir =
+        std::filesystem::path(m_options_.cuts_output_file).parent_path();
+    if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
+      auto result = load_scene_cuts_from_directory(cut_dir.string());
+      if (result.has_value() && *result > 0) {
+        SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {}",
+                    *result,
+                    cut_dir.string());
       }
     }
   }
 
-  // Set up work pool for parallel scene processing
-  auto pool = make_solver_work_pool();
+  m_initialized_ = true;
 
-  // Wire the pool into the BendersCut member so that elastic-filter LP solves
-  // are submitted to the pool (rather than run synchronously on the caller).
-  m_benders_cut_.set_pool(pool.get());
+  for (Index si = 0; si < num_scenes; ++si) {
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      update_coefficients_for_phase(SceneIndex {si}, PhaseIndex {pi}, 0);
+    }
+  }
 
-  // Make the pool available to helper methods (resolve_via_pool, etc.)
-  m_pool_ = pool.get();
+  return {};
+}
 
-  std::vector<SDDPIterationResult> results;
-  results.reserve(m_options_.max_iterations);
-
-  // Reset live-query atomics before starting
+void SDDPSolver::reset_live_state() noexcept
+{
   m_current_iteration_.store(0);
   m_current_gap_.store(1.0);
   m_current_lb_.store(0.0);
   m_current_ub_.store(0.0);
   m_converged_.store(false);
+}
 
-  // ── Monitoring API setup ──
+auto SDDPSolver::run_forward_pass_all_scenes(int iter,
+                                             AdaptiveWorkPool& pool,
+                                             const SolverOptions& opts)
+    -> std::expected<ForwardPassOutcome, Error>
+{
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  const auto fwd_start = std::chrono::steady_clock::now();
+  std::vector<std::future<std::expected<double, Error>>> futures;
+  futures.reserve(num_scenes);
+
+  for (Index si = 0; si < num_scenes; ++si) {
+    const auto scene = SceneIndex {si};
+    auto fut = pool.submit([this, scene, iter, &opts]
+                           { return forward_pass(scene, iter, opts); });
+    futures.push_back(std::move(fut.value()));
+  }
+
+  ForwardPassOutcome out;
+  out.scene_upper_bounds.resize(num_scenes, 0.0);
+  out.scene_feasible.resize(num_scenes, 1);
+
+  for (Index si = 0; si < num_scenes; ++si) {
+    auto fwd = futures[static_cast<std::size_t>(si)].get();
+    if (!fwd.has_value()) {
+      SPDLOG_WARN("SDDP forward: scene {} failed: {}", si, fwd.error().message);
+      out.has_feasibility_issue = true;
+      out.scene_feasible[static_cast<std::size_t>(si)] = 0;
+      continue;
+    }
+    out.scene_upper_bounds[static_cast<std::size_t>(si)] = *fwd;
+    ++out.scenes_solved;
+  }
+
+  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                                - fwd_start)
+                      .count();
+
+  if (out.scenes_solved == 0) {
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message = "SDDP: all scenes infeasible in forward pass",
+    });
+  }
+
+  return out;
+}
+
+auto SDDPSolver::run_backward_pass_all_scenes(
+    std::span<const uint8_t> scene_feasible,
+    AdaptiveWorkPool& pool,
+    const SolverOptions& opts) -> BackwardPassOutcome
+{
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  const auto bwd_start = std::chrono::steady_clock::now();
+  std::vector<std::future<std::expected<int, Error>>> futures;
+  futures.reserve(num_scenes);
+
+  for (Index si = 0; si < num_scenes; ++si) {
+    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+      continue;
+    }
+    const auto scene = SceneIndex {si};
+    auto fut = (m_options_.num_apertures != 0)
+        ? pool.submit([this, scene, &opts]
+                      { return backward_pass_with_apertures(scene, opts); })
+        : pool.submit([this, scene, &opts]
+                      { return backward_pass(scene, opts); });
+    futures.push_back(std::move(fut.value()));
+  }
+
+  BackwardPassOutcome out;
+  for (auto& fut : futures) {
+    auto bwd = fut.get();
+    if (!bwd.has_value()) {
+      SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
+      out.has_feasibility_issue = true;
+      continue;
+    }
+    out.total_cuts += *bwd;
+  }
+
+  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                                - bwd_start)
+                      .count();
+  return out;
+}
+
+void SDDPSolver::compute_iteration_bounds(
+    SDDPIterationResult& ir,
+    std::span<const uint8_t> scene_feasible,
+    std::span<const double> weights) const
+{
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+
+  double weighted_upper = 0.0;
+  for (Index si = 0; si < num_scenes; ++si) {
+    weighted_upper += weights[static_cast<std::size_t>(si)]
+        * ir.scene_upper_bounds[static_cast<std::size_t>(si)];
+  }
+  ir.upper_bound = weighted_upper;
+
+  ir.scene_lower_bounds.resize(num_scenes, 0.0);
+  double weighted_lower = 0.0;
+  for (Index si = 0; si < num_scenes; ++si) {
+    if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
+      continue;
+    }
+    const double lb_si = planning_lp()
+                             .system(SceneIndex {si}, PhaseIndex {0})
+                             .linear_interface()
+                             .get_obj_value();
+    ir.scene_lower_bounds[static_cast<std::size_t>(si)] = lb_si;
+    weighted_lower += weights[static_cast<std::size_t>(si)] * lb_si;
+  }
+  ir.lower_bound = weighted_lower;
+}
+
+void SDDPSolver::apply_cut_sharing_for_iteration(std::size_t cuts_before)
+{
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+  const auto num_phases =
+      static_cast<Index>(planning_lp().simulation().phases().size());
+
+  if (m_options_.cut_sharing == CutSharingMode::None || num_scenes <= 1) {
+    return;
+  }
+
+  for (Index pi = 0; pi < num_phases - 1; ++pi) {
+    StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+    scene_cuts.resize(num_scenes);
+
+    for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
+      const auto& sc = m_stored_cuts_[ci];
+      if (sc.phase != static_cast<int>(pi)) {
+        continue;
+      }
+      auto row = SparseRow {
+          .name = sc.name,
+          .lowb = sc.rhs,
+          .uppb = LinearProblem::DblMax,
+      };
+      for (const auto& [col, coeff] : sc.coefficients) {
+        row[ColIndex {col}] = coeff;
+      }
+      if (sc.scene >= 0 && sc.scene < num_scenes) {
+        scene_cuts[SceneIndex {sc.scene}].push_back(std::move(row));
+      }
+    }
+
+    share_cuts_for_phase(PhaseIndex {pi}, scene_cuts);
+  }
+}
+
+void SDDPSolver::finalize_iteration_result(SDDPIterationResult& ir, int iter)
+{
+  ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
+  ir.converged = (ir.gap < m_options_.convergence_tol);
+
+  m_current_iteration_.store(iter);
+  m_current_gap_.store(ir.gap);
+  m_current_lb_.store(ir.lower_bound);
+  m_current_ub_.store(ir.upper_bound);
+  m_converged_.store(ir.converged);
+
+  SPDLOG_TRACE(
+      "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} "
+      "infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
+      iter,
+      ir.lower_bound,
+      ir.upper_bound,
+      ir.gap,
+      ir.cuts_added,
+      ir.infeasible_cuts_added,
+      ir.forward_pass_s,
+      ir.backward_pass_s,
+      ir.iteration_s,
+      ir.converged ? " [CONVERGED]" : "");
+
+  SPDLOG_INFO("SDDP iter {}: gap={:.6f} ({:.3f}s){}",
+              iter,
+              ir.gap,
+              ir.iteration_s,
+              ir.converged ? " [CONVERGED]" : "");
+}
+
+void SDDPSolver::maybe_write_api_status(
+    const std::string& status_file,
+    const std::vector<SDDPIterationResult>& results,
+    std::chrono::steady_clock::time_point solve_start,
+    const SolverMonitor& monitor) const
+{
+  if (!m_options_.enable_api || status_file.empty()) {
+    return;
+  }
+  const double elapsed = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - solve_start)
+                             .count();
+  write_api_status(status_file, results, elapsed, monitor);
+}
+
+void SDDPSolver::save_cuts_for_iteration(
+    int iter, std::span<const uint8_t> scene_feasible)
+{
+  if (m_options_.cuts_output_file.empty()) {
+    return;
+  }
+
+  auto result = save_cuts(m_options_.cuts_output_file);
+  if (!result.has_value()) {
+    SPDLOG_WARN("SDDP: could not save cuts at iter {}: {}",
+                iter,
+                result.error().message);
+  }
+
+  const auto cut_dir =
+      std::filesystem::path(m_options_.cuts_output_file).parent_path();
+  if (cut_dir.empty()) {
+    return;
+  }
+
+  auto scene_result = save_all_scene_cuts(cut_dir.string());
+  if (!scene_result.has_value()) {
+    SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                iter,
+                scene_result.error().message);
+  }
+
+  const auto num_scenes =
+      static_cast<Index>(planning_lp().simulation().scenes().size());
+  for (Index si = 0; si < num_scenes; ++si) {
+    if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
+      continue;
+    }
+    const auto scene_file =
+        cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
+    const auto error_file =
+        cut_dir / std::format(sddp_file::error_scene_cuts_fmt, si);
+    std::error_code ec;
+    if (std::filesystem::exists(scene_file, ec)) {
+      std::filesystem::rename(scene_file, error_file, ec);
+      if (!ec) {
+        SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
+                     si,
+                     error_file.string());
+      }
+    }
+  }
+}
+
+// ── Main solve loop ─────────────────────────────────────────────────────────
+
+auto SDDPSolver::solve(const SolverOptions& lp_opts)
+    -> std::expected<std::vector<SDDPIterationResult>, Error>
+{
+  // Validate preconditions
+  if (auto err = validate_inputs()) {
+    return std::unexpected(std::move(*err));
+  }
+
+  // Bootstrap LP + initialize α vars, state links, hot-start cuts
+  if (auto err = initialize_solver(lp_opts); !err.has_value()) {
+    return std::unexpected(std::move(err.error()));
+  }
+
+  // Set up work pool for parallel scene processing
+  auto pool = make_solver_work_pool();
+  m_benders_cut_.set_pool(pool.get());
+  m_pool_ = pool.get();
+
+  reset_live_state();
+
+  // Monitoring setup
   const auto solve_start = std::chrono::steady_clock::now();
-
-  // Determine the status file path
-  const std::string status_file = m_options_.api_status_file;
-
-  // Start the background monitoring thread via SolverMonitor (local, RAII)
+  const std::string& status_file = m_options_.api_status_file;
   SolverMonitor monitor(m_options_.api_update_interval);
   if (m_options_.enable_api && !status_file.empty()) {
     monitor.start(*pool, solve_start, "SDDPMonitor");
   }
 
+  std::vector<SDDPIterationResult> results;
+  results.reserve(m_options_.max_iterations);
+
   for (int iter = 1; iter <= m_options_.max_iterations; ++iter) {
     const auto iter_start = std::chrono::steady_clock::now();
 
-    // ── Check all stop conditions (sentinel, programmatic, callback) ──
     if (should_stop()) {
       SPDLOG_INFO("SDDP: stop requested, halting after {} iterations",
                   iter - 1);
@@ -1157,278 +1473,56 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     SDDPIterationResult ir {
         .iteration = iter,
     };
-
-    // Reset the elastic-filter (infeasible-cut) counter for this iteration
     m_benders_cut_.reset_infeasible_cut_count();
 
-    // ── Forward pass for all scenes (parallel) ──
-    const auto fwd_start = std::chrono::steady_clock::now();
-    std::vector<std::future<std::expected<double, Error>>> fwd_futures;
-    fwd_futures.reserve(num_scenes);
-
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto scene = SceneIndex {si};
-      auto fut = pool->submit([this, scene, iter, &lp_opts]
-                              { return forward_pass(scene, iter, lp_opts); });
-      fwd_futures.push_back(std::move(fut.value()));
-    }
-
-    int scenes_solved = 0;
-    std::vector<uint8_t> scene_feasible(num_scenes, 1);
-    ir.scene_upper_bounds.resize(num_scenes, 0.0);
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto fwd = fwd_futures[si].get();
-      if (!fwd.has_value()) {
-        // If a scene is infeasible, log warning and continue with others
-        SPDLOG_WARN(
-            "SDDP forward: scene {} failed: {}", si, fwd.error().message);
-        ir.feasibility_issue = true;
-        scene_feasible[si] = 0;
-        continue;
-      }
-      ir.scene_upper_bounds[si] = *fwd;
-      ++scenes_solved;
-    }
-    ir.forward_pass_s = std::chrono::duration<double>(
-                            std::chrono::steady_clock::now() - fwd_start)
-                            .count();
-
-    if (scenes_solved == 0) {
+    // ── Forward pass ──
+    auto fwd = run_forward_pass_all_scenes(iter, *pool, lp_opts);
+    if (!fwd.has_value()) {
       monitor.stop();
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = "SDDP: all scenes infeasible in forward pass",
-      });
+      return std::unexpected(std::move(fwd.error()));
+    }
+    ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
+    ir.forward_pass_s = fwd->elapsed_s;
+    if (fwd->has_feasibility_issue) {
+      ir.feasibility_issue = true;
     }
 
-    // ── Compute scene probability weights for expectation ──
-    // Each scene's probability = sum of its scenario probability_factors.
-    // Infeasible scenes are excluded (weight = 0).
-    // Weights are normalised to sum to 1 across feasible scenes.
+    // ── Scene weights and bounds ──
     const auto& scenes = planning_lp().simulation().scenes();
-    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
-    double total_scene_prob = 0.0;
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0U) {
-        continue;
-      }
-      if (std::cmp_less(si, scenes.size())) {
-        for (const auto& sc : scenes[si].scenarios()) {
-          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
-        }
-      }
-      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
-        // No explicit probability — use equal weight
-        scene_probs[static_cast<std::size_t>(si)] = 1.0;
-      }
-      total_scene_prob += scene_probs[static_cast<std::size_t>(si)];
-    }
-    // Normalise
-    if (total_scene_prob > 0.0) {
-      for (auto& p : scene_probs) {
-        p /= total_scene_prob;
-      }
-    } else {
-      // Fall back to equal weights if no probability information
-      const double equal_w = 1.0 / static_cast<double>(scenes_solved);
-      for (Index si = 0; si < num_scenes; ++si) {
-        if (scene_feasible[si] != 0U) {
-          scene_probs[static_cast<std::size_t>(si)] = equal_w;
-        }
-      }
-    }
+    const auto num_scenes_total = static_cast<int>(fwd->scene_feasible.size());
+    const auto weights =
+        compute_scene_weights(scenes, fwd->scene_feasible, num_scenes_total);
+    compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
-    // ── Upper bound = probability-weighted expected forward cost ──
-    double weighted_upper = 0.0;
-    for (Index si = 0; si < num_scenes; ++si) {
-      weighted_upper +=
-          scene_probs[static_cast<std::size_t>(si)] * ir.scene_upper_bounds[si];
-    }
-    ir.upper_bound = weighted_upper;
-
-    // ── Lower bound = probability-weighted phase-0 objective ──
-    double weighted_lower = 0.0;
-    ir.scene_lower_bounds.resize(num_scenes, 0.0);
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0U) {
-        continue;
-      }
-      const double lb_si = planning_lp()
-                               .system(SceneIndex {si}, PhaseIndex {0})
-                               .linear_interface()
-                               .get_obj_value();
-      ir.scene_lower_bounds[si] = lb_si;
-      weighted_lower += scene_probs[static_cast<std::size_t>(si)] * lb_si;
-    }
-    ir.lower_bound = weighted_lower;
-
-    // ── Backward pass for all scenes (parallel) ──
-    const auto bwd_start = std::chrono::steady_clock::now();
-    // Collect cuts per scene per phase for sharing
-    using phase_cuts_t = StrongIndexVector<SceneIndex, std::vector<SparseRow>>;
-    std::vector<phase_cuts_t> per_phase_scene_cuts(num_phases);
-    for (auto& pc : per_phase_scene_cuts) {
-      pc.resize(num_scenes);
-    }
-
-    std::vector<std::future<std::expected<int, Error>>> bwd_futures;
-    bwd_futures.reserve(num_scenes);
-
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_feasible[si] == 0U) {
-        continue;  // Skip infeasible scenes in backward pass
-      }
-      const auto scene = SceneIndex {si};
-      auto fut = (m_options_.num_apertures != 0)
-          ? pool->submit(
-                [this, scene, &lp_opts]
-                { return backward_pass_with_apertures(scene, lp_opts); })
-          : pool->submit([this, scene, &lp_opts]
-                         { return backward_pass(scene, lp_opts); });
-      bwd_futures.push_back(std::move(fut.value()));
-    }
-
-    int total_cuts = 0;
-    for (auto& ibwd : bwd_futures) {
-      auto bwd = ibwd.get();
-      if (!bwd.has_value()) {
-        // If a scene is infeasible in backward pass, keep solving others
-        SPDLOG_WARN("SDDP backward: failed: {}", bwd.error().message);
-        ir.feasibility_issue = true;
-        continue;
-      }
-      total_cuts += *bwd;
-    }
-    ir.cuts_added = total_cuts;
+    // ── Backward pass ──
+    const auto cuts_before = m_stored_cuts_.size();
+    auto bwd =
+        run_backward_pass_all_scenes(fwd->scene_feasible, *pool, lp_opts);
+    ir.cuts_added = bwd.total_cuts;
     ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
-    ir.backward_pass_s = std::chrono::duration<double>(
-                             std::chrono::steady_clock::now() - bwd_start)
-                             .count();
+    ir.backward_pass_s = bwd.elapsed_s;
+    if (bwd.has_feasibility_issue) {
+      ir.feasibility_issue = true;
+    }
     ir.iteration_s = std::chrono::duration<double>(
                          std::chrono::steady_clock::now() - iter_start)
                          .count();
 
-    // ── Cut sharing between scenes ──
-    if (m_options_.cut_sharing != CutSharingMode::None && num_scenes > 1) {
-      const auto cuts_before = m_stored_cuts_.size() - total_cuts;
-      for (Index pi = 0; pi < num_phases - 1; ++pi) {
-        StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
-        scene_cuts.resize(num_scenes);
+    // ── Cut sharing ──
+    apply_cut_sharing_for_iteration(cuts_before);
 
-        for (size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
-          const auto& sc = m_stored_cuts_[ci];
-          if (sc.phase == pi) {
-            // Reconstruct the SparseRow
-            auto row = SparseRow {
-                .name = sc.name,
-                .lowb = sc.rhs,
-                .uppb = LinearProblem::DblMax,
-            };
-            for (const auto& [col, coeff] : sc.coefficients) {
-              row[ColIndex {col}] = coeff;
-            }
-            if (sc.scene >= 0 && sc.scene < num_scenes) {
-              scene_cuts[SceneIndex {sc.scene}].push_back(std::move(row));
-            }
-          }
-        }
-
-        share_cuts_for_phase(PhaseIndex {pi}, scene_cuts);
-      }
-    }
-
-    // Convergence check
-    const auto denom = std::max(1.0, std::abs(ir.upper_bound));
-    ir.gap = (ir.upper_bound - ir.lower_bound) / denom;
-    ir.converged = (ir.gap < m_options_.convergence_tol);
-
-    // ── Update live-query atomics for API consumers ──
-    m_current_iteration_.store(iter);
-    m_current_gap_.store(ir.gap);
-    m_current_lb_.store(ir.lower_bound);
-    m_current_ub_.store(ir.upper_bound);
-    m_converged_.store(ir.converged);
-
-    SPDLOG_TRACE(
-        "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} cuts={} "
-        "infeas_cuts={} scenes={} "
-        "fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
-        iter,
-        ir.lower_bound,
-        ir.upper_bound,
-        ir.gap,
-        ir.cuts_added,
-        ir.infeasible_cuts_added,
-        num_scenes,
-        ir.forward_pass_s,
-        ir.backward_pass_s,
-        ir.iteration_s,
-        ir.converged ? " [CONVERGED]" : "");
-
-    // Log a brief INFO summary every iteration (non-trace)
-    SPDLOG_INFO("SDDP iter {}: gap={:.6f} ({:.3f}s){}",
-                iter,
-                ir.gap,
-                ir.iteration_s,
-                ir.converged ? " [CONVERGED]" : "");
-
+    // ── Convergence + live-query update ──
+    finalize_iteration_result(ir, iter);
     results.push_back(ir);
 
-    // ── Write monitoring API status file ──
-    if (m_options_.enable_api && !status_file.empty()) {
-      const auto now = std::chrono::steady_clock::now();
-      const double elapsed =
-          std::chrono::duration<double>(now - solve_start).count();
-      write_api_status(status_file, results, elapsed, monitor);
-    }
+    // ── Monitoring API and cut persistence ──
+    maybe_write_api_status(status_file, results, solve_start, monitor);
+    save_cuts_for_iteration(iter, fwd->scene_feasible);
 
-    // ── Save cuts incrementally after each iteration ──
-    if (!m_options_.cuts_output_file.empty()) {
-      // Save combined cuts to the main file
-      auto save_result = save_cuts(m_options_.cuts_output_file);
-      if (!save_result.has_value()) {
-        SPDLOG_WARN("SDDP: could not save cuts at iter {}: {}",
-                    iter,
-                    save_result.error().message);
-      }
-      // Also save per-scene files to prevent lock contention on re-load
-      const auto cut_dir =
-          std::filesystem::path(m_options_.cuts_output_file).parent_path();
-      if (!cut_dir.empty()) {
-        auto scene_result = save_all_scene_cuts(cut_dir.string());
-        if (!scene_result.has_value()) {
-          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                      iter,
-                      scene_result.error().message);
-        }
-        // Rename cut files for infeasible scenes with "error_" prefix
-        for (Index si = 0; si < num_scenes; ++si) {
-          if (scene_feasible[si] == 0U) {
-            const auto scene_file =
-                cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
-            const auto error_file =
-                cut_dir / std::format(sddp_file::error_scene_cuts_fmt, si);
-            std::error_code ec;
-            if (std::filesystem::exists(scene_file, ec)) {
-              std::filesystem::rename(scene_file, error_file, ec);
-              if (!ec) {
-                SPDLOG_TRACE(
-                    "SDDP: renamed cut file for infeasible scene {} to {}",
-                    si,
-                    error_file.string());
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // ── Invoke iteration callback (may request stop) ──
-    if (m_iteration_callback_) {
-      if (m_iteration_callback_(ir)) {
-        SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
-        break;
-      }
+    // ── Iteration callback ──
+    if (m_iteration_callback_ && m_iteration_callback_(ir)) {
+      SPDLOG_INFO("SDDP: callback requested stop at iter {}", iter);
+      break;
     }
 
     if (ir.converged) {
@@ -1436,12 +1530,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     }
   }
 
-  // Stop the monitoring thread before returning (SolverMonitor is local;
-  // its jthread destructor will join, but stop() ensures prompt exit).
   monitor.stop();
-
-  // Detach the pool from the BendersCut member and the solver — the pool
-  // is a local variable and will be destroyed when solve() returns.
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
 
