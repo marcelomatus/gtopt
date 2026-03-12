@@ -24,6 +24,7 @@ from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
 from .battery_writer import BatteryWriter
 from .index_utils import parse_index_range, parse_stages_phase
+from .indhor_writer import IndhorWriter
 
 
 class GTOptWriter:
@@ -242,6 +243,32 @@ class GTOptWriter:
             ]
         self.planning["simulation"]["scene_array"] = scenes
 
+    def process_indhor(self, options):
+        """Write block-to-hour map from indhor.csv if present, and record in JSON.
+
+        When the PLP input directory contains ``indhor.csv``, plp_parser will
+        have created an ``IndhorParser`` in ``parsed_data["indhor_parser"]``.
+        This method writes the data to ``BlockHourMap/block_hour_map.parquet``
+        and adds ``"block_hour_map"`` to the simulation section so that
+        post-processing tools can reconstruct hourly time-series from
+        block-level solver output.
+
+        The ``block_hour_map`` value is the stem path (without file extension)
+        relative to the output directory; gtopt resolves the actual format
+        (parquet or csv) from the ``input_format`` option.
+        """
+        indhor_parser = self.parser.parsed_data.get("indhor_parser", None)
+        if indhor_parser is None or indhor_parser.is_empty:
+            return
+
+        output_dir = Path(options["output_dir"]) if options else Path("results")
+        block_hour_dir = output_dir / IndhorWriter.SUBDIR
+
+        writer = IndhorWriter(indhor_parser, options)
+        rel_path = writer.to_parquet(block_hour_dir)
+        if rel_path:
+            self.planning["simulation"]["block_hour_map"] = rel_path
+
     def process_generator_profiles(self, options):
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", [])
@@ -415,6 +442,7 @@ class GTOptWriter:
 
         self.process_options(options)
         self.process_stage_blocks(options)
+        self.process_indhor(options)
         self.process_scenarios(options)
         self.process_buses()
         self.process_lines(options)

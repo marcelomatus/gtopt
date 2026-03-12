@@ -21,7 +21,7 @@ def _make_opts(tmp_path: Path, case_name: str = "test") -> dict:
     return {
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
-        "hydrologies": "0",
+        "hydrologies": "1",
         "discount_rate": 0.0,
         "last_stage": -1,
         "compression": "gzip",
@@ -69,7 +69,7 @@ class TestGTOptWriterWithRealParser:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
-        opts["hydrologies"] = "0,1,2"
+        opts["hydrologies"] = "1,2,3"
         opts["solver_type"] = "mono"
         result = writer.to_json(opts)
         sim = result["simulation"]
@@ -172,7 +172,7 @@ class TestGTOptWriterProcessMethods:
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 1
         assert scenarios[0]["probability_factor"] == pytest.approx(1.0)
-        assert scenarios[0]["hydrology"] == 2
+        assert scenarios[0]["hydrology"] == 1
         assert scenarios[0]["uid"] == 1
 
         scenes = writer.planning["simulation"]["scene_array"]
@@ -204,7 +204,7 @@ class TestGTOptWriterProcessMethods:
         """Explicit probability_factors are parsed as floats, 3 unique UIDs, 3 scenes."""
         writer = GTOptWriter(MagicMock())
         writer.process_scenarios(
-            {"hydrologies": "0,1,2", "probability_factors": "0.2,0.5,0.3"}
+            {"hydrologies": "1,2,3", "probability_factors": "0.2,0.5,0.3"}
         )
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 3
@@ -226,7 +226,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_monolithic_two_hydrologies(self):
         """Monolithic solver: 2 scenarios → 1 scene containing both."""
         writer = GTOptWriter(MagicMock())
-        writer.process_scenarios({"hydrologies": "0,1", "solver_type": "monolithic"})
+        writer.process_scenarios({"hydrologies": "1,2", "solver_type": "monolithic"})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
         assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
@@ -241,7 +241,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_mono_alias(self):
         """'mono' is accepted as an alias for 'monolithic'."""
         writer = GTOptWriter(MagicMock())
-        writer.process_scenarios({"hydrologies": "0,1,2", "solver_type": "mono"})
+        writer.process_scenarios({"hydrologies": "1,2,3", "solver_type": "mono"})
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
         assert scenes[0]["count_scenario"] == 3
@@ -283,3 +283,63 @@ class TestGTOptWriterProcessMethods:
         writer = GTOptWriter(mock_parser)
         writer.process_battery({})  # should not raise, and not add any arrays
         assert "battery_array" not in writer.planning["system"]
+
+
+class TestSimulationWriter:
+    """Unit tests for the standalone SimulationWriter."""
+
+    _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
+
+    def test_build_returns_required_keys(self, tmp_path):
+        from plp2gtopt.simulation_writer import SimulationWriter
+        from plp2gtopt.plp_parser import PLPParser
+
+        parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
+        parser.parse_all()
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        sim = SimulationWriter(parser.parsed_data, opts).build()
+        for key in (
+            "block_array",
+            "stage_array",
+            "phase_array",
+            "scenario_array",
+            "scene_array",
+        ):
+            assert key in sim
+
+    def test_sddp_one_phase_per_stage(self, tmp_path):
+        from plp2gtopt.simulation_writer import SimulationWriter
+        from plp2gtopt.plp_parser import PLPParser
+
+        parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
+        parser.parse_all()
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        sim = SimulationWriter(parser.parsed_data, opts).build()
+        assert len(sim["phase_array"]) == len(sim["stage_array"])
+
+    def test_monolithic_one_phase(self, tmp_path):
+        from plp2gtopt.simulation_writer import SimulationWriter
+        from plp2gtopt.plp_parser import PLPParser
+
+        parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
+        parser.parse_all()
+        opts = {
+            "output_dir": tmp_path,
+            "hydrologies": "1",
+            "solver_type": "monolithic",
+        }
+        sim = SimulationWriter(parser.parsed_data, opts).build()
+        assert len(sim["phase_array"]) == 1
+        assert sim["phase_array"][0]["count_stage"] == len(sim["stage_array"])
+
+    def test_stages_phase_spec(self, tmp_path):
+        from plp2gtopt.simulation_writer import SimulationWriter
+        from plp2gtopt.plp_parser import PLPParser
+
+        parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
+        parser.parse_all()
+        # plp_min_1bus has 1 stage
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "stages_phase": "1"}
+        sim = SimulationWriter(parser.parsed_data, opts).build()
+        assert len(sim["phase_array"]) == 1
+        assert sim["phase_array"][0]["first_stage"] == 0

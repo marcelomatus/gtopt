@@ -44,8 +44,17 @@ examples:
   # Limit conversion to the first 5 stages
   plp2gtopt -i input/ -s 5
 
-  # Two hydrology scenarios with explicit probability weights
+  # Single hydrology (1-based, default)
+  plp2gtopt -i input/ -y 1
+
+  # Two hydrology scenarios (1-based) with explicit probability weights
   plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
+
+  # Range selector: hydrologies 1, 2, and 5 through 10
+  plp2gtopt -i input/ -y 1,2,5-10
+
+  # Group PLP stages 1–4 into phase 1, then one stage per phase after
+  plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
 
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
@@ -231,8 +240,10 @@ def make_parser() -> argparse.ArgumentParser:
         "--hydrologies",
         dest="hydrologies",
         metavar="H1[,H2,…]",
-        default="0",
-        help="comma-separated hydrology scenario indices (default: %(default)s)",
+        default="1",
+        help="Hydrology scenario indices using 1-based (Fortran) convention. "
+        "Accepts comma-separated values and ranges, e.g. '1', '1,2', '1,2,5-10,11'. "
+        "(default: %(default)s)",
     )
     parser.add_argument(
         "-p",
@@ -258,6 +269,23 @@ def make_parser() -> argparse.ArgumentParser:
             "'mono'/'monolithic' produces a single scene with all scenarios and "
             "a single phase with all stages (for the monolithic solver). "
             "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--stages-phase",
+        dest="stages_phase",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Map PLP stages to gtopt phases using 1-based stage indices. "
+            "Format: comma-separated tokens where each token is a single stage N "
+            "or a range N:M, and the trailing token '...' auto-expands one stage "
+            "per phase until all stages are covered. "
+            "Example: '1:4,5,6,7,8,9,10,...' assigns stages 1-4 to phase 1, "
+            "stages 5-10 each to their own phase, then one stage per phase for "
+            "any remaining stages. "
+            "When omitted, the phase layout is controlled by --solver. "
+            "(default: not set)"
         ),
     )
     parser.add_argument(
@@ -320,6 +348,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
         "solver_type": args.solver_type,
+        "stages_phase": args.stages_phase,
     }
     if args.reserve_fail_cost is not None:
         opts["reserve_fail_cost"] = args.reserve_fail_cost
