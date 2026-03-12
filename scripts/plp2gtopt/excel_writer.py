@@ -599,7 +599,11 @@ def build_plp_excel(
                 _add_timeseries_sheet(ws, at_sheet_name, df, styles, get_column_letter)
                 ts_count += 1
                 _logger.debug("Added @-sheet: %s (%d rows)", at_sheet_name, len(df))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                # Intentionally broad: Parquet/Arrow/openpyxl can raise many
+                # unrelated exception types (ArrowInvalid, OSError, ValueError,
+                # UnsupportedOperation, etc.) and we must not crash the entire
+                # Excel export just because one @-sheet's data is unreadable.
                 _logger.warning("Could not read parquet file %s: %s", parquet_file, exc)
 
         _logger.info("Added %d time-series @-sheets from %s", ts_count, output_dir)

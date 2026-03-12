@@ -9,6 +9,7 @@
 #   --configure      Also run cmake configure after deps are installed
 #   --build          Also run cmake --build after configure (implies --configure)
 #   --build-type T   CMake build type: Debug (default) | Release | RelWithDebInfo
+#   --no-save-ccjson Skip saving compile_commands.json to tools/ after build
 #   --help           Show this help and exit
 #
 # What this script does (in the same order as .github/workflows/ubuntu.yml):
@@ -21,6 +22,11 @@
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
 #   5. (Optional) cmake configure — uses whichever compiler was installed.
 #   6. (Optional) cmake --build + ctest.
+#   7. (Optional) After a successful build, copy compile_commands.json to
+#      tools/compile_commands.json in the repository.  This allows agents
+#      to run clang-tidy on individual files without rebuilding:
+#        clang-tidy -p tools/compile_commands.json source/my_file.cpp
+#      Use --no-save-ccjson to skip this step.
 #
 # Environment:
 #   REPO_ROOT   Path to the repository root (default: directory containing this
@@ -35,6 +41,11 @@
 #     repository is unreachable, GCC 14 is used as a fallback.  Both produce
 #     a fully working build; the summary at the end reports which was chosen.
 #   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
+#   • compile_commands.json is saved to tools/ after every successful build
+#     so that clang-tidy can be run on demand without rebuilding.
+#     Committed to the repo so agents start with a usable compile DB.
+#       clang-tidy -p tools/compile_commands.json source/my_file.cpp
+
 
 set -euo pipefail
 
@@ -49,6 +60,7 @@ DO_CONFIGURE=false
 DO_BUILD=false
 BUILD_TYPE=Debug
 CLANG_VERSION=21
+SAVE_CCJSON=true
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -57,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --configure)    DO_CONFIGURE=true ;;
     --build)        DO_CONFIGURE=true; DO_BUILD=true ;;
     --build-type)   shift; BUILD_TYPE="$1" ;;
+    --no-save-ccjson) SAVE_CCJSON=false ;;
     --help|-h)
       sed -n '2,/^# Notes:/p' "$0" | sed 's/^# \?//'
       exit 0 ;;
@@ -234,6 +247,16 @@ if $DO_BUILD; then
   log "Running tests..."
   (cd build && ctest --output-on-failure -j"$(nproc)")
   ok "All tests passed"
+
+  # Save compile_commands.json to tools/ so clang-tidy can be run on demand
+  # without rebuilding.  Commit it so agent sessions work without a build:
+  #   clang-tidy -p tools/compile_commands.json source/my_file.cpp
+  if $SAVE_CCJSON && [[ -f build/compile_commands.json ]]; then
+    log "Saving compile_commands.json → tools/compile_commands.json..."
+    cp build/compile_commands.json tools/compile_commands.json
+    ok "compile_commands.json saved — run clang-tidy without rebuilding:"
+    ok "  clang-tidy -p tools/compile_commands.json source/my_file.cpp"
+  fi
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
@@ -250,6 +273,9 @@ echo "${COMPILER_LINE}"
 echo " ccache       : $(ccache --version 2>/dev/null | head -1)"
 if $DO_BUILD; then
   echo " Build        : build/"
+  if $SAVE_CCJSON && [[ -f tools/compile_commands.json ]]; then
+    echo " compile_commands: tools/compile_commands.json (clang-tidy ready)"
+  fi
 fi
 if ! $CLANG_INSTALLED; then
   echo ""
