@@ -706,14 +706,16 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 > **⚠️ Mandatory pre-commit checklist for Python code**:
 > Before committing **any** Python changes, always run **all four** checks
 > for the affected sub-package.  CI will fail on any violation.
+> **This applies to every new `.py` file you create** — run all four tools
+> before committing, including on new modules and their tests:
 >
 > ```bash
 > # --- scripts/ (run from scripts/ directory) ---
 > cd scripts
-> ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> ruff check  gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
-> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
-> mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+> ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+> ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
+> mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt \
 >   --ignore-missing-imports
 >
 > # --- guiservice/ (run from repo root) ---
@@ -736,16 +738,16 @@ pip install -r scripts/requirements-dev.txt   # dev+test deps
 
 # Format scripts/ (in-place)
 cd scripts
-ruff format gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
 # Lint scripts/ with ruff
-ruff check gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt
+ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
 # Lint scripts/ with pylint (must score 10.00/10)
-pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
 # Type-check scripts/
-mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt \
+mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt \
   --ignore-missing-imports
 
 # Run all script tests (from scripts/ directory)
