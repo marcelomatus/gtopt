@@ -536,11 +536,11 @@ flow constraints.
 
 ### Step 10: Validate Against pandapower (Optional)
 
-If you have the `gtopt-compare` script installed:
+If you have the `gtopt_compare` script installed:
 
 ```bash
 cd scripts
-gtopt-compare --case ieee_case57 --gtopt-output ../output/
+gtopt_compare --case ieee_case57 --gtopt-output ../output/
 ```
 
 This runs pandapower's DC OPF on the same network and compares:
@@ -880,7 +880,7 @@ python -m pytest igtopt/tests/ -m integration -q
   formulation that gtopt assembles from igtopt's output
 - [pp2gtopt.md](pp2gtopt.md) — Converting pandapower cases to gtopt (an
   alternative input path)
-- [gtopt-compare.md](gtopt-compare.md) — Validating gtopt results
+- [gtopt_compare.md](gtopt_compare.md) — Validating gtopt results
   against pandapower DC OPF
 - [plp2gtopt.md](plp2gtopt.md) — Converting PLP cases to gtopt format
 - [`scripts/make_igtopt_template.py`](../../scripts/make_igtopt_template.py) —

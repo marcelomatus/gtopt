@@ -345,7 +345,7 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
                   .string();
           li.write_lp(err_file);
           spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
-          // Run gtopt-check-lp static analysis and log the diagnostic.
+          // Run gtopt_check_lp static analysis and log the diagnostic.
           if (const auto diag = run_check_lp_diagnostic(err_file);
               !diag.empty())
           {

@@ -1229,7 +1229,7 @@ DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
 > pandapower is a Python-based power system analysis tool supporting AC and
 > DC power flow, optimal power flow (OPF), and short-circuit analysis. It
 > is used by gtopt's `pp2gtopt` converter to import pandapower network
-> models into gtopt format, and by the `gtopt-compare` validation script to
+> models into gtopt format, and by the `gtopt_compare` validation script to
 > provide a reference DC OPF solution for benchmarking gtopt results on
 > standard IEEE test cases (4-bus, 9-bus, 14-bus, 30-bus, 57-bus).
 
