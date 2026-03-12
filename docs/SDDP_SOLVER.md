@@ -267,7 +267,53 @@ for phase = T-1 down to 1:
             (clone + elastic + cut to phase-2, etc.)
 ```
 
-### 4.4 Convergence Check
+### 4.4 Backward Pass with Apertures
+
+When `num_apertures ≠ 0`, the backward pass uses **apertures** (also called
+hydrological openings in PLP) to compute the expected future-cost cut.
+Instead of using the cached forward-pass solution to build a single Benders
+cut, the solver solves the phase LP once per aperture, each time with
+different stochastic parameters (flow/inflow values), and averages the
+resulting cuts:
+
+```
+for phase = T-1 down to 1:
+    for ap = 0 to num_apertures-1:
+        clone the phase LP
+        update flow bounds for aperture scenario ap
+        solve clone via work pool
+        if optimal:
+            build Benders cut from clone's reduced costs
+            store cut with probability weight
+
+    if no apertures produced a valid cut:
+        skip this phase
+
+    compute expected cut = probability-weighted average of aperture cuts
+    add expected cut to phase-1 LP
+    store cut for persistence
+
+    if phase > 1:
+        re-solve phase-1 LP via work pool
+```
+
+**Configuration**:
+- `num_apertures = 0` — disabled (default, uses standard backward pass)
+- `num_apertures = -1` — use all available scenarios as apertures
+- `num_apertures = N > 0` — use the first N scenarios (capped at total)
+
+**PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
+called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
+all hydrological realizations for each stage, solves each one, and computes
+the expected cut weighted by scenario probabilities.  The gtopt implementation
+follows the same pattern: clone the LP, update flow bounds, solve, collect
+cuts, and compute the probability-weighted average.
+
+**Note**: Apertures only update flow column bounds (affluent/inflow values).
+Other stochastic parameters (demand, generator profiles) are not updated.
+State variable bounds remain fixed at the forward-pass trial values.
+
+### 4.5 Convergence Check
 
 ```
 LB = average of phase-0 objectives across scenes
@@ -276,13 +322,13 @@ gap = (UB - LB) / max(1, |UB|)
 converged = (gap < convergence_tol)
 ```
 
-### 4.5 Cut Sharing (Optional)
+### 4.6 Cut Sharing (Optional)
 
 After the backward pass, cuts from all scenes are optionally shared.  In
 `expected` mode, an average cut is computed and added to all scenes.  In
 `max` mode, every cut from every scene is added to all other scenes.
 
-### 4.6 LP Coefficient Updates
+### 4.7 LP Coefficient Updates
 
 Before solving each phase in the forward pass, the solver calls the
 **generalized coefficient update hook** `update_lp_coefficients()`.  This
@@ -321,21 +367,21 @@ coefficient modification (`supports_set_coeff()` returns `false`), the
 static `conversion_rate` from the Turbine element is used unchanged and
 a warning is logged.
 
-### 4.7 Sentinel File Stop
+### 4.8 Sentinel File Stop
 
 The solver checks for a **sentinel file** (configurable via
 `sentinel_file` in `SDDPOptions`) at the beginning of each iteration.  If
 the file exists, the solver stops gracefully after saving all accumulated
 cuts.  This is analogous to PLP's `userstop` mechanism.
 
-### 4.8 Incremental Cut Saving
+### 4.9 Incremental Cut Saving
 
 Cuts are saved to the output file after **every iteration** (not just at
 the end).  This ensures that if the solver is interrupted — whether by the
 sentinel file, a time limit, or an external signal — the accumulated cuts
 are available for a subsequent hot-start run.
 
-### 4.9 Solver API for Monitoring and Control
+### 4.10 Solver API for Monitoring and Control
 
 The `SDDPSolver` exposes a thread-safe API designed for GUI integration,
 external monitoring tools, and programmatic control of the solve process:
