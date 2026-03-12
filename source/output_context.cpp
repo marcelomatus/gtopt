@@ -411,6 +411,7 @@ OutputContext::OutputContext(const SystemContext& psc,
     , col_cost_span(linear_interface.get_col_cost())
     , row_dual_span(linear_interface.get_row_dual())
     , block_cost_factors(psc.block_icost_factors())
+    , discount_block_cost_factors(psc.block_discount_icost_factors())
     , stage_cost_factors(psc.stage_icost_factors())
     , scenario_stage_cost_factors(psc.scenario_stage_icost_factors())
     , stb_prelude(make_stb_prelude(psc.stb_uids()))

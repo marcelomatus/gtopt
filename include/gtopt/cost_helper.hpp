@@ -187,6 +187,22 @@ public:
   [[nodiscard]] block_factor_matrix_t block_icost_factors() const;
 
   /**
+   * @brief Calculates discount-only inverse cost factors for blocks.
+   *
+   * Returns a `block_factor_matrix_t` where every entry equals
+   * `scale_obj / discount[t]`, regardless of scenario probability and
+   * block duration.  Used to scale dual values of "raw/unitless" user
+   * constraints where the physical units have no probability or duration
+   * component.
+   *
+   * Formula: scale_objective / discount[t]   (same for all s, b in stage t)
+   *
+   * @return Matrix of discount-only inverse cost factors by
+   * scenario/stage/block
+   */
+  [[nodiscard]] block_factor_matrix_t block_discount_icost_factors() const;
+
+  /**
    * @brief Calculates inverse cost factors for stages (1/cost_factor)
    *
    * Computes the inverse of the cost factors used to scale dual prices,
