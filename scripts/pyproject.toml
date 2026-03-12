@@ -28,14 +28,15 @@ dependencies = [
 ]
 
 [project.scripts]
-gtopt-compare      = "gtopt_compare.main:main"
-cvs2parquet        = "cvs2parquet.cvs2parquet:main"
-gtopt-diagram      = "gtopt_diagram:main"
-igtopt             = "igtopt.igtopt:main"
-plp2gtopt          = "plp2gtopt.main:main"
-pp2gtopt           = "pp2gtopt.main:main"
-ts2gtopt           = "ts2gtopt.main:main"
-sddp-monitor       = "sddp_monitor:main"
+gtopt-compare        = "gtopt_compare.main:main"
+cvs2parquet          = "cvs2parquet.cvs2parquet:main"
+gtopt-diagram        = "gtopt_diagram:main"
+igtopt               = "igtopt.igtopt:main"
+make-igtopt-template = "make_igtopt_template:main"
+plp2gtopt            = "plp2gtopt.main:main"
+pp2gtopt             = "pp2gtopt.main:main"
+ts2gtopt             = "ts2gtopt.main:main"
+sddp-monitor         = "sddp_monitor:main"
 
 
 [project.optional-dependencies]
@@ -59,7 +60,7 @@ where = ["."]
 include = ["gtopt_compare*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
 
 [tool.setuptools]
-py-modules = ["gtopt_diagram", "gtopt_field_extractor", "sddp_monitor"]
+py-modules = ["gtopt_diagram", "gtopt_field_extractor", "make_igtopt_template", "sddp_monitor"]
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["gtopt_compare", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
-omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py", "make_igtopt_template.py"]
 
 [tool.coverage.report]
 show_missing = true

@@ -14,6 +14,7 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 - [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
 - [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
 - [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx)
+- [make-igtopt-template](#make-igtopt-template) — Regenerate Excel template from C++ headers
 - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
 - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
 - [gtopt-compare](#gtopt-compare) · [full docs](docs/scripts/gtopt-compare.md)
@@ -30,7 +31,7 @@ pip install ./scripts
 ```
 
 This registers the `gtopt-diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
-`cvs2parquet`, and `ts2gtopt commands on your `PATH`.  An editable install is useful during
+`make-igtopt-template`, `cvs2parquet`, and `ts2gtopt` commands on your `PATH`.  An editable install is useful during
 development:
 
 ```bash
@@ -493,26 +494,28 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 | Sheet name | Description |
 |------------|-------------|
 | `options` | Key/value pairs written to the JSON `options` block (two columns: `option`, `value`) |
-| `bus_array` | Electrical buses (`uid`, `name`, optional `reference_theta`, `kv`) |
-| `generator_array` | Generators (`uid`, `name`, `bus`, `gcost`, `pmax`, `capacity`, …) |
-| `demand_array` | Demands (`uid`, `name`, `bus`, `lmax`, …) |
-| `line_array` | Transmission lines (`uid`, `name`, `bus_a`, `bus_b`, `reactance`, `tmax_ab`, `tmax_ba`, …) |
-| `batterie_array` | Batteries – scalar definition or unified (`bus`, `pmax_charge`, `pmax_discharge`, …) |
-| `converter_array` | Generator–demand converters for battery charge/discharge paths |
-| `generator_profile_array` | Generator capacity factors (`uid`, `name`, `generator`, `profile`) |
-| `demand_profile_array` | Demand scaling profiles |
-| `reserve_zone_array` | Spinning-reserve zones |
-| `reserve_provision_array` | Generator–zone reserve provision links |
-| `block_array` | Time blocks (`uid`, `duration`) |
-| `stage_array` | Investment stages (`uid`, `first_block`, `count_block`, `active`) |
+| `block_array` | Time blocks (`uid`, `name`, `duration`) |
+| `stage_array` | Investment stages (`uid`, `first_block`, `count_block`, `discount_factor`) |
 | `scenario_array` | Scenarios (`uid`, `probability_factor`) |
-| `junction_array` | Hydraulic junctions |
-| `waterway_array` | Water channels between junctions |
-| `reservoir_array` | Storage lakes |
-| `turbine_array` | Hydro turbines |
-| `flow_array` | External inflows at junctions |
-| `outflow_array` | Minimum required outflow at junctions |
-| `filtration_array` | Water seepage from waterways |
+| `phase_array` | SDDP phases (`uid`, `first_stage`, `count_stage`) — leave empty for monolithic solver |
+| `scene_array` | SDDP scenes (`uid`, `first_scenario`, `count_scenario`) — leave empty for monolithic solver |
+| `bus_array` | Electrical buses (`uid`, `name`, `voltage`, `reference_theta`, `use_kirchhoff`) |
+| `generator_array` | Generators (`uid`, `name`, `bus`, `gcost`, `pmax`, `capacity`, …) |
+| `generator_profile_array` | Generator capacity factors (`uid`, `name`, `generator`, `profile`, `scost`) |
+| `demand_array` | Demands (`uid`, `name`, `bus`, `lmax`, `fcost`, …) |
+| `demand_profile_array` | Demand scaling profiles (`uid`, `name`, `demand`, `profile`, `scost`) |
+| `line_array` | Transmission lines (`uid`, `name`, `bus_a`, `bus_b`, `reactance`, `tmax_ab`, `tmax_ba`, …) |
+| `battery_array` | Batteries (`uid`, `name`, `bus`, `emin`, `emax`, `pmax_charge`, `pmax_discharge`, …) |
+| `converter_array` | Battery charge/discharge converter links (`uid`, `name`, `battery`, `generator`, `demand`) |
+| `reserve_zone_array` | Spinning-reserve zones (`uid`, `name`, `urreq`, `drreq`) |
+| `reserve_provision_array` | Generator–zone reserve provision links (`uid`, `name`, `generator`, `reserve_zones`) |
+| `junction_array` | Hydraulic junctions (`uid`, `name`, `drain`) |
+| `waterway_array` | Water channels between junctions (`uid`, `name`, `junction_a`, `junction_b`, `fmax`) |
+| `flow_array` | External inflows/outflows at junctions (`uid`, `name`, `junction`, `discharge`, `direction`) |
+| `reservoir_array` | Storage lakes/dams (`uid`, `name`, `junction`, `emin`, `emax`, `ecost`) |
+| `filtration_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`) |
+| `turbine_array` | Hydro turbines (`uid`, `name`, `waterway`, `generator`, `conversion_rate`) |
+| `reservoir_efficiency_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_efficiency`) |
 
 #### Time-series sheets (`@` convention)
 
@@ -570,6 +573,41 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 | `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `-V, --version` | — | Print version and exit |
+
+---
+
+## make-igtopt-template
+
+Generates the [gtopt Excel template](docs/templates/gtopt_template.xlsx) by
+reading the gtopt C++ JSON header files (`include/gtopt/json/`).  Re-running
+this script after adding a new JSON element to the C++ source automatically
+produces an up-to-date workbook.
+
+```bash
+# Regenerate docs/templates/gtopt_template.xlsx (default output)
+make-igtopt-template
+
+# Write to a custom path
+make-igtopt-template -o /tmp/my_template.xlsx
+
+# Print the sheet list that would be generated (no file written)
+make-igtopt-template --list-sheets
+```
+
+The generated workbook contains:
+
+- A `.introduction` sheet with an overview and sheet directory
+- An `options` sheet listing all supported option keys with descriptions
+- All simulation sheets (block, stage, scenario, phase, scene)
+- All 17 system sheets with column headers, type hints, and required/optional
+  markers
+- Example `Demand@lmax` and `GeneratorProfile@profile` time-series sheets
+
+The tool is also available directly as a Python module:
+
+```bash
+python scripts/make_igtopt_template.py [--header-dir DIR] [-o FILE] [--list-sheets]
+```
 
 ---
 
