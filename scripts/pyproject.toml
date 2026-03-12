@@ -36,6 +36,7 @@ plp2gtopt          = "plp2gtopt.main:main"
 pp2gtopt           = "pp2gtopt.main:main"
 ts2gtopt           = "ts2gtopt.main:main"
 sddp-monitor       = "sddp_monitor:main"
+gtopt-field-extractor = "gtopt_field_extractor:main"
 
 
 [project.optional-dependencies]
@@ -56,10 +57,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*"]
-
-[tool.setuptools]
-py-modules = ["gtopt_diagram", "gtopt_field_extractor", "sddp_monitor"]
+include = ["gtopt_compare*", "cvs2parquet*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "ts2gtopt*", "gtopt_diagram*", "sddp_monitor*", "gtopt_field_extractor*"]
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +69,7 @@ python_files = "test_*.py"
 testpaths = [
     "gtopt_compare/tests",
     "cvs2parquet/tests",
-    "gtopt_diagram_tests",
+    "gtopt_diagram/tests",
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
@@ -84,8 +82,8 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gtopt_compare", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
-omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*", "gtopt_diagram.py", "gtopt_field_extractor.py"]
+source = ["gtopt_compare", "cvs2parquet", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt", "gtopt_diagram", "sddp_monitor", "gtopt_field_extractor"]
+omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
 show_missing = true
@@ -101,7 +99,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt"]
+known_first_party = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "igtopt", "plp2gtopt", "pp2gtopt", "ts2gtopt", "sddp_monitor", "gtopt_field_extractor"]
 
 [tool.ruff]
 line-length = 88
