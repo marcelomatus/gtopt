@@ -85,9 +85,10 @@ ConstraintParser::Token ConstraintParser::Lexer::scan_number()
 
 ConstraintParser::Token ConstraintParser::Lexer::scan_string()
 {
+  const char quote = m_input_[m_pos_];  // remember opening quote (" or ')
   ++m_pos_;  // skip opening quote
   std::string result;
-  while (m_pos_ < m_input_.size() && m_input_[m_pos_] != '"') {
+  while (m_pos_ < m_input_.size() && m_input_[m_pos_] != quote) {
     if (m_input_[m_pos_] == '\\' && m_pos_ + 1 < m_input_.size()) {
       ++m_pos_;  // skip backslash
     }
@@ -221,6 +222,7 @@ ConstraintParser::Token ConstraintParser::Lexer::next()
           .value = ",",
       };
     case '"':
+    case '\'':
       return scan_string();
     default:
       break;

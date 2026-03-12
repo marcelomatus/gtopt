@@ -16,6 +16,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint_lp.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
@@ -135,6 +136,16 @@ constexpr auto create_linear_interface(auto& collections,
     for (auto&& scenario : scene.scenarios()) {
       add_to_lp(collections, system_context, scenario, stage, lp);
     }
+  }
+
+  // Apply user-defined constraints to the LP before flattening.
+  // The constraints are stored in the System object (accessible via the
+  // SystemLP that owns this system_context).
+  const auto& user_constraints =
+      system_context.system().system().user_constraint_array;
+  if (!user_constraints.empty()) {
+    add_user_constraints_to_lp(
+        user_constraints, system_context, phase, scene, lp);
   }
 
   // Convert and store the flattened LP representation
