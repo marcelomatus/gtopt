@@ -14,7 +14,7 @@
 #include <mutex>
 #include <vector>
 
-#include <gtopt/lp_debug_utils.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -51,35 +51,24 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   try {
     using future_t = std::future<std::expected<void, Error>>;
 
-    // Write LP debug files synchronously before solving (so they capture the
-    // pre-solve LP state), then submit compression tasks asynchronously to
-    // the pool so that compression runs in parallel with the solve.
-    std::vector<std::future<std::string>> compress_futures;
-    if (lp_debug && !lp_debug_directory.empty()) {
+    LpDebugWriter lp_writer(lp_debug ? lp_debug_directory : std::string {},
+                            lp_debug_compression,
+                            pool.get());
+    if (lp_writer.is_active()) {
       std::filesystem::create_directories(lp_debug_directory);
       const auto lp_stem =
           (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
-      const bool do_compress = lp_debug_use_compression(lp_debug_compression);
-
       for (const auto& phase_systems : planning_lp.systems()) {
         for (const auto& system : phase_systems) {
-          const auto written = system.write_lp(lp_stem);
-          if (do_compress && !written.empty()) {
-            // Submit compression as an async task while the solve runs
-            auto fut =
-                pool->submit([written] { return gzip_lp_file(written); });
-            if (fut.has_value()) {
-              compress_futures.push_back(std::move(*fut));
-            } else {
-              (void)gzip_lp_file(written);
-            }
-          }
+          lp_writer.compress_async(system.write_lp(lp_stem));
         }
       }
-      spdlog::info("MonolithicSolver: wrote {} LP debug file(s) to {}_*.lp{}",
-                   planning_lp.systems().size(),
+      spdlog::info("MonolithicSolver: wrote LP debug file(s) to {}_*.lp{}",
                    lp_stem,
-                   do_compress ? " (compressing async)" : "");
+                   (lp_debug_compression.empty()
+                    || lp_debug_compression == "uncompressed")
+                       ? ""
+                       : " (compressing async)");
     }
 
     std::vector<future_t> futures;
@@ -122,10 +111,8 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       }
     }
 
-    // Wait for any outstanding async compression tasks
-    for (auto& f : compress_futures) {
-      (void)f.get();
-    }
+    // Drain LP compression tasks (run in parallel with solve)
+    lp_writer.drain();
 
     // ── Write monitoring status file ──
     monitor.stop();
