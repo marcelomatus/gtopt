@@ -85,4 +85,30 @@ bool FlowLP::add_to_output(OutputContext& out) const
   return true;
 }
 
+bool FlowLP::update_aperture_bounds(LinearInterface& li,
+                                    const ScenarioLP& base_scenario,
+                                    const ScenarioLP& aperture_scenario,
+                                    const StageLP& stage) const
+{
+  if (!is_active(stage)) {
+    return true;
+  }
+
+  const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+  const auto it = flow_cols.find(st_key);
+  if (it == flow_cols.end()) {
+    return true;  // no columns registered for this (scenario, stage)
+  }
+
+  const auto& fcols = it->second;
+  for (const auto& [block_uid, col] : fcols) {
+    const auto new_val =
+        discharge.at(aperture_scenario.uid(), stage.uid(), block_uid);
+    li.set_col_low(col, new_val);
+    li.set_col_upp(col, new_val);
+  }
+
+  return true;
+}
+
 }  // namespace gtopt
