@@ -1,4 +1,5 @@
 name: Scripts
+# uv package cache added to all jobs (actions/cache@v4 → ~/.cache/uv)
 
 on:
   push:
