@@ -32,6 +32,12 @@ struct StorageOptions
   /// 24/stage_duration and close each stage with efin==eini. Implies
   /// use_state_variable=false.
   bool daily_cycle {false};
+
+  /// Energy (volume) scale factor: the LP energy variable is divided by this
+  /// value so that the LP works in scaled units (physical_energy /
+  /// energy_scale). Default 1.0 = no scaling. For reservoirs the default is
+  /// 1000 (dam³→Mm³).
+  double energy_scale {1.0};
 };
 
 template<typename Object>
@@ -104,6 +110,12 @@ public:
     const bool effective_usv =
         opts.daily_cycle ? false : opts.use_state_variable;
 
+    // Energy scale factor: LP variable = physical_energy / energy_scale.
+    // Default 1.0 = no scaling.  For reservoirs typically 1000 (dam³→Mm³).
+    const double energy_scale =
+        opts.energy_scale > 0.0 ? opts.energy_scale : 1.0;
+    m_vol_scale_ = energy_scale;
+
     // Daily-cycle scaling is only meaningful when the stage is longer than
     // 24 h AND the average block duration exceeds 1 h.  Below those thresholds
     // the stage already represents sub-daily operation and no scaling is
@@ -118,17 +130,25 @@ public:
         stage.uid() == sc.simulation().stages().back().uid();
     const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
 
+    // The objective cost is per physical energy unit; since the LP variable
+    // is physical/energy_scale, multiply the coefficient by energy_scale so
+    // that cost = (ecost * energy_scale) * x = ecost * physical_energy.
     const auto stage_ecost = sc.scenario_stage_ecost(  //
                                  scenario,
                                  stage,
                                  ecost.at(stage.uid()).value_or(0.0))
-        / stage.duration();
+        / stage.duration() * energy_scale;
 
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
 
+    // Physical bounds; will be divided by energy_scale for LP variable bounds.
     const auto [stage_emax, stage_emin] =
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
+
+    // LP variable bounds in scaled units.
+    const double lp_emax = stage_emax / energy_scale;
+    const double lp_emin = stage_emin / energy_scale;
 
     // Determine the initial-energy column (vicol / eini):
     //   • No previous stage (first stage of phase 0): create a fresh eini col.
@@ -143,10 +163,11 @@ public:
     ColIndex eicol;
     if (prev_stage == nullptr) {
       // First stage of the first phase – create the initial energy column.
+      // eini bounds are in LP (scaled) units.
       eicol = lp.add_col({
           .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
-          .lowb = storage().eini.value_or(stage_emin),
-          .uppb = storage().eini.value_or(stage_emax),
+          .lowb = storage().eini.value_or(stage_emin) / energy_scale,
+          .uppb = storage().eini.value_or(stage_emax) / energy_scale,
       });
     } else if (prev_phase == nullptr) {
       // Same phase – the previous stage's efin column serves as eini here
@@ -157,8 +178,8 @@ public:
       // Create a new eini column for this phase's LP.
       eicol = lp.add_col({
           .name = sc.lp_label(scenario, stage, cname, "eini", uid()),
-          .lowb = stage_emin,
-          .uppb = stage_emax,
+          .lowb = lp_emin,
+          .uppb = lp_emax,
       });
       if (effective_usv) {
         // Link as DependentVariable of the previous phase's efin StateVariable
@@ -201,11 +222,13 @@ public:
           }
               .equal(0);
 
+      // Energy LP variable is in scaled units (physical / energy_scale).
       const auto ec = lp.add_col({
           .name = erow.name,
-          .lowb =
-              !is_last_block ? stage_emin : storage().efin.value_or(stage_emin),
-          .uppb = stage_emax,
+          .lowb = !is_last_block
+              ? lp_emin
+              : storage().efin.value_or(stage_emin) / energy_scale,
+          .uppb = lp_emax,
           .cost = stage_ecost,
       });
 
@@ -214,15 +237,17 @@ public:
       erow[prev_vc] = -(1 - (hour_loss * block.duration() * dc_stage_scale));
       erow[ec] = 1;
 
+      // Flow coefficients are divided by energy_scale so that flow [m³/s]
+      // × duration [h] × (conversion / energy_scale) = LP_energy_change.
       const auto fout_col = fout_cols.at(buid);
       const auto finp_col = finp_cols.at(buid);
       erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-          * block.duration() * dc_stage_scale;
+          * block.duration() * dc_stage_scale / energy_scale;
 
       // if the input and output are the same, we only need one entry
       if (fout_col != finp_col) {
         erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-            * block.duration() * dc_stage_scale;
+            * block.duration() * dc_stage_scale / energy_scale;
       }
 
       if (drain_cost) {
@@ -234,12 +259,15 @@ public:
         });
 
         dcols[buid] = dcol;
-        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale;
+        erow[dcol] = flow_conversion_rate * block.duration() * dc_stage_scale
+            / energy_scale;
       }
 
       erows[buid] = lp.add_row(std::move(erow));
 
-      // adding the capacity constraint
+      // Capacity constraint: capacity_col [physical units] >= ec [scaled units]
+      // requires coefficient -energy_scale so the constraint in physical units
+      // is: capacity >= ec * energy_scale (= physical energy).
       if (capacity_col) {
         auto crow =
             SparseRow {
@@ -248,7 +276,7 @@ public:
             }
                 .greater_equal(0);
         crow[*capacity_col] = 1;
-        crow[ec] = -1;
+        crow[ec] = -energy_scale;
 
         crows[buid] = lp.add_row(std::move(crow));
       }
@@ -285,17 +313,23 @@ public:
           lp.add_row(std::move(close_row));
     }
 
-    // storing the indices for this scenario and stage
+    // Store the combined dual correction factor:
+    //   dual_physical = dual_LP * (dc_stage_scale / energy_scale)
+    // This corrects both the daily-cycle time-scaling and the energy scaling.
+    // When both are 1.0 the factor is 1.0 and the map entry is skipped.
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
+    const double dual_scale = dc_stage_scale / energy_scale;
+    if (dual_scale != 1.0) {
+      output_dual_scale[st_key] = dual_scale;
+    }
+
+    // storing the indices for this scenario and stage
     eini_cols[st_key] = eicol;
     efin_cols[st_key] = prev_vc;
     energy_rows[st_key] = std::move(erows);
     energy_cols[st_key] = std::move(ecols);
     if (drain_cost) {
       drain_cols[st_key] = std::move(dcols);
-    }
-    if (use_daily_cycle) {
-      daily_cycle_scale[st_key] = dc_stage_scale;
     }
 
     if (!crows.empty()) {
@@ -310,14 +344,31 @@ public:
   {
     const auto pid = id();
 
-    out.add_col_sol(cname, "eini", pid, eini_cols);
-    out.add_col_cost(cname, "eini", pid, eini_cols);
-    out.add_col_sol(cname, "efin", pid, efin_cols);
-    out.add_col_cost(cname, "efin", pid, efin_cols);
+    // Primal outputs: LP variable is in scaled units (physical/m_vol_scale_).
+    // Multiply by m_vol_scale_ to recover physical energy/volume.
+    if (m_vol_scale_ != 1.0) {
+      const auto scale = m_vol_scale_;
+      const auto rescale = [scale](auto v) { return v * scale; };
+      out.add_col_sol(cname, "eini", pid, eini_cols, rescale);
+      out.add_col_cost(cname, "eini", pid, eini_cols, rescale);
+      out.add_col_sol(cname, "efin", pid, efin_cols, rescale);
+      out.add_col_cost(cname, "efin", pid, efin_cols, rescale);
+      out.add_col_sol(cname, "volumen", pid, energy_cols, rescale);
+      out.add_col_cost(cname, "volumen", pid, energy_cols, rescale);
+    } else {
+      out.add_col_sol(cname, "eini", pid, eini_cols);
+      out.add_col_cost(cname, "eini", pid, eini_cols);
+      out.add_col_sol(cname, "efin", pid, efin_cols);
+      out.add_col_cost(cname, "efin", pid, efin_cols);
+      out.add_col_sol(cname, "volumen", pid, energy_cols);
+      out.add_col_cost(cname, "volumen", pid, energy_cols);
+    }
 
-    out.add_col_sol(cname, "volumen", pid, energy_cols);
-    out.add_col_cost(cname, "volumen", pid, energy_cols);
-    out.add_row_dual(cname, "volumen", pid, energy_rows, daily_cycle_scale);
+    // Dual output: output_dual_scale = dc_stage_scale / energy_scale.
+    // This corrects both the daily-cycle time-scaling (dc_stage_scale) and the
+    // energy variable scaling (1/energy_scale).  When neither applies the map
+    // is empty and the flat() function defaults to 1.0 (no correction).
+    out.add_row_dual(cname, "volumen", pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, "capacity", pid, capacity_rows);
 
@@ -342,7 +393,13 @@ private:
   STIndexHolder<ColIndex> eini_cols;
   STIndexHolder<ColIndex> efin_cols;
 
-  STIndexHolder<double> daily_cycle_scale;
+  /// Combined dual correction: dc_stage_scale / energy_scale.
+  /// Empty map entry defaults to 1.0 (no correction needed).
+  STIndexHolder<double> output_dual_scale;
+
+  /// Energy scale factor cached from the last add_to_lp call.
+  /// Used in add_to_output to rescale primal solution values.
+  double m_vol_scale_ {1.0};
 };
 
 }  // namespace gtopt
