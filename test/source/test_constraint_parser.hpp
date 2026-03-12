@@ -26,9 +26,10 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(100.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "generator");
-    CHECK(expr.terms[0].element->element_id == "G1");
-    CHECK(expr.terms[0].element->attribute == "generation");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
+    CHECK(ref0.element_id == "G1");
+    CHECK(ref0.attribute == "generation");
     CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
   }
 
@@ -42,14 +43,16 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "generator");
-    CHECK(expr.terms[0].element->element_id == "TORO");
-    CHECK(expr.terms[0].element->attribute == "generation");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
+    CHECK(ref0.element_id == "TORO");
+    CHECK(ref0.attribute == "generation");
 
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_type == "generator");
-    CHECK(expr.terms[1].element->element_id == "uid:23");
-    CHECK(expr.terms[1].element->attribute == "generation");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_type == "generator");
+    CHECK(ref1.element_id == "uid:23");
+    CHECK(ref1.attribute == "generation");
   }
 
   TEST_CASE("Parse constraint with coefficients")
@@ -62,10 +65,12 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "generator");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
     CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_type == "demand");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_type == "demand");
     CHECK(expr.terms[1].coefficient == doctest::Approx(-1.5));
   }
 
@@ -77,7 +82,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(100.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "generator");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
   }
 
   // ── Domain specifications ──────────────────────────────────────────────
@@ -170,7 +176,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.upper_bound.value_or(0.0) == doctest::Approx(200.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
   }
 
   TEST_CASE("Parse GEQ range constraint")
@@ -191,9 +198,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "line");
-    CHECK(expr.terms[0].element->element_id == "L1_2");
-    CHECK(expr.terms[0].element->attribute == "flow");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "line");
+    CHECK(ref0.element_id == "L1_2");
+    CHECK(ref0.attribute == "flow");
   }
 
   TEST_CASE("Parse battery energy constraint")
@@ -202,9 +210,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "battery");
-    CHECK(expr.terms[0].element->element_id == "BESS1");
-    CHECK(expr.terms[0].element->attribute == "energy");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "battery");
+    CHECK(ref0.element_id == "BESS1");
+    CHECK(ref0.attribute == "energy");
   }
 
   TEST_CASE("Parse demand fail constraint")
@@ -213,8 +222,9 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "demand");
-    CHECK(expr.terms[0].element->attribute == "fail");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "demand");
+    CHECK(ref0.attribute == "fail");
   }
 
   TEST_CASE("Parse demand load and fail in same expression")
@@ -225,9 +235,11 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.constraint_type == ConstraintType::EQUAL);
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->attribute == "load");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.attribute == "load");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->attribute == "fail");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.attribute == "fail");
   }
 
   // ── UID references ─────────────────────────────────────────────────────
@@ -239,10 +251,12 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "TORO");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "TORO");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_id == "uid:10");
-    CHECK(expr.terms[1].element->element_type == "demand");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_id == "uid:10");
+    CHECK(ref1.element_type == "demand");
   }
 
   // ── Multi-term expressions ─────────────────────────────────────────────
@@ -254,11 +268,14 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 3);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_id == "G2");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_id == "G2");
     REQUIRE(expr.terms[2].element.has_value());
-    CHECK(expr.terms[2].element->element_id == "G3");
+    const auto& ref2 = expr.terms[2].element.value_or(ElementRef {});
+    CHECK(ref2.element_id == "G3");
   }
 
   TEST_CASE("Parse mixed-type multi-element expression")
@@ -269,14 +286,17 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
     REQUIRE(expr.terms.size() == 3);
     REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(expr.terms[0].coefficient == doctest::Approx(2.0));
-    CHECK(expr.terms[0].element->element_type == "generator");
+    CHECK(ref0.element_type == "generator");
     REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
     CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
-    CHECK(expr.terms[1].element->element_type == "demand");
+    CHECK(ref1.element_type == "demand");
     REQUIRE(expr.terms[2].element.has_value());
+    const auto& ref2 = expr.terms[2].element.value_or(ElementRef {});
     CHECK(expr.terms[2].coefficient == doctest::Approx(1.0));
-    CHECK(expr.terms[2].element->element_type == "line");
+    CHECK(ref2.element_type == "line");
   }
 
   // ── Variables on both sides ────────────────────────────────────────────
@@ -290,10 +310,12 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(0.0));
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
     REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
     CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
-    CHECK(expr.terms[1].element->element_id == "D1");
+    CHECK(ref1.element_id == "D1");
   }
 
   TEST_CASE("Parse constraint with constant on both sides")
@@ -306,7 +328,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(40.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
   }
 
   // ── Whitespace and formatting ──────────────────────────────────────────
@@ -320,7 +343,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(100.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
   }
 
   TEST_CASE("Parse with no whitespace")
@@ -330,7 +354,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
   }
 
   // ── Named constraint ───────────────────────────────────────────────────
@@ -404,9 +429,10 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(200.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "generator");
-    CHECK(expr.terms[0].element->element_id == "uid:3");
-    CHECK(expr.terms[0].element->attribute == "generation");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
+    CHECK(ref0.element_id == "uid:3");
+    CHECK(ref0.attribute == "generation");
   }
 
   TEST_CASE("Parse demand with bare numeric UID")
@@ -417,9 +443,10 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.rhs == doctest::Approx(50.0));
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "demand");
-    CHECK(expr.terms[0].element->element_id == "uid:7");
-    CHECK(expr.terms[0].element->attribute == "load");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "demand");
+    CHECK(ref0.element_id == "uid:7");
+    CHECK(ref0.attribute == "load");
   }
 
   TEST_CASE("Parse mixed name and numeric UID references")
@@ -429,9 +456,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "G1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_id == "uid:5");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_id == "uid:5");
   }
 
   TEST_CASE("Parse coefficient with numeric UID")
@@ -441,7 +470,8 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "uid:1");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "uid:1");
     CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
   }
 
@@ -453,9 +483,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "converter");
-    CHECK(expr.terms[0].element->element_id == "CV1");
-    CHECK(expr.terms[0].element->attribute == "charge");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "converter");
+    CHECK(ref0.element_id == "CV1");
+    CHECK(ref0.attribute == "charge");
   }
 
   TEST_CASE("Parse reservoir element")
@@ -464,9 +495,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "reservoir");
-    CHECK(expr.terms[0].element->element_id == "RES1");
-    CHECK(expr.terms[0].element->attribute == "volume");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "reservoir");
+    CHECK(ref0.element_id == "RES1");
+    CHECK(ref0.attribute == "volume");
   }
 
   TEST_CASE("Parse bus element")
@@ -475,9 +507,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "bus");
-    CHECK(expr.terms[0].element->element_id == "B1");
-    CHECK(expr.terms[0].element->attribute == "theta");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "bus");
+    CHECK(ref0.element_id == "B1");
+    CHECK(ref0.attribute == "theta");
   }
 
   TEST_CASE("Parse waterway element")
@@ -486,9 +519,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "waterway");
-    CHECK(expr.terms[0].element->element_id == "uid:2");
-    CHECK(expr.terms[0].element->attribute == "flow");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "waterway");
+    CHECK(ref0.element_id == "uid:2");
+    CHECK(ref0.attribute == "flow");
   }
 
   TEST_CASE("Parse turbine element")
@@ -497,9 +531,10 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "turbine");
-    CHECK(expr.terms[0].element->element_id == "T1");
-    CHECK(expr.terms[0].element->attribute == "generation");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "turbine");
+    CHECK(ref0.element_id == "T1");
+    CHECK(ref0.attribute == "generation");
   }
 
   // ── Extended attributes ───────────────────────────────────────────────
@@ -509,8 +544,9 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(line("L1").flowp <= 150)");
 
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "line");
-    CHECK(expr.terms[0].element->attribute == "flowp");
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "line");
+    CHECK(ref0.attribute == "flowp");
   }
 
   TEST_CASE("Parse battery with charge and discharge attributes")
@@ -519,8 +555,12 @@ TEST_SUITE("ConstraintParser")
         R"(battery("B1").charge + battery("B1").discharge <= 100)");
 
     REQUIRE(expr.terms.size() == 2);
-    CHECK(expr.terms[0].element->attribute == "charge");
-    CHECK(expr.terms[1].element->attribute == "discharge");
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref0.attribute == "charge");
+    CHECK(ref1.attribute == "discharge");
   }
 
   // ── sum() aggregation ─────────────────────────────────────────────────
@@ -535,13 +575,14 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 1);
     CHECK_FALSE(expr.terms[0].element.has_value());
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->element_type == "generator");
-    CHECK_FALSE(expr.terms[0].sum_ref->all_elements);
-    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
-    CHECK(expr.terms[0].sum_ref->element_ids[0] == "G1");
-    CHECK(expr.terms[0].sum_ref->element_ids[1] == "G2");
-    CHECK(expr.terms[0].sum_ref->element_ids[2] == "G3");
-    CHECK(expr.terms[0].sum_ref->attribute == "generation");
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.element_type == "generator");
+    CHECK_FALSE(sref0.all_elements);
+    REQUIRE(sref0.element_ids.size() == 3);
+    CHECK(sref0.element_ids[0] == "G1");
+    CHECK(sref0.element_ids[1] == "G2");
+    CHECK(sref0.element_ids[2] == "G3");
+    CHECK(sref0.attribute == "generation");
     CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
   }
 
@@ -552,10 +593,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->element_type == "generator");
-    CHECK(expr.terms[0].sum_ref->all_elements);
-    CHECK(expr.terms[0].sum_ref->element_ids.empty());
-    CHECK(expr.terms[0].sum_ref->attribute == "generation");
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.element_type == "generator");
+    CHECK(sref0.all_elements);
+    CHECK(sref0.element_ids.empty());
+    CHECK(sref0.attribute == "generation");
   }
 
   TEST_CASE("Parse sum with coefficient")
@@ -565,10 +607,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
     CHECK(expr.terms[0].coefficient == doctest::Approx(0.5));
-    CHECK(expr.terms[0].sum_ref->element_type == "demand");
-    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 2);
-    CHECK(expr.terms[0].sum_ref->attribute == "load");
+    CHECK(sref0.element_type == "demand");
+    REQUIRE(sref0.element_ids.size() == 2);
+    CHECK(sref0.attribute == "load");
   }
 
   TEST_CASE("Parse sum with numeric UIDs")
@@ -578,10 +621,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
-    CHECK(expr.terms[0].sum_ref->element_ids[0] == "uid:1");
-    CHECK(expr.terms[0].sum_ref->element_ids[1] == "uid:2");
-    CHECK(expr.terms[0].sum_ref->element_ids[2] == "uid:3");
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    REQUIRE(sref0.element_ids.size() == 3);
+    CHECK(sref0.element_ids[0] == "uid:1");
+    CHECK(sref0.element_ids[1] == "uid:2");
+    CHECK(sref0.element_ids[2] == "uid:3");
   }
 
   TEST_CASE("Parse sum with mixed name and numeric UIDs")
@@ -591,10 +635,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
-    CHECK(expr.terms[0].sum_ref->element_ids[0] == "G1");
-    CHECK(expr.terms[0].sum_ref->element_ids[1] == "uid:2");
-    CHECK(expr.terms[0].sum_ref->element_ids[2] == "uid:3");
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    REQUIRE(sref0.element_ids.size() == 3);
+    CHECK(sref0.element_ids[0] == "G1");
+    CHECK(sref0.element_ids[1] == "uid:2");
+    CHECK(sref0.element_ids[2] == "uid:3");
   }
 
   TEST_CASE("Parse sum plus single element")
@@ -604,9 +649,11 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->element_type == "generator");
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.element_type == "generator");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_type == "demand");
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_type == "demand");
   }
 
   TEST_CASE("Parse sum subtraction")
@@ -629,7 +676,8 @@ TEST_SUITE("ConstraintParser")
 
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->all_elements);
+    const auto& sref0 = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sref0.all_elements);
     CHECK_FALSE(expr.domain.blocks.is_all);
     REQUIRE(expr.domain.blocks.values.size() == 12);
     CHECK(expr.domain.blocks.values[0] == 1);
@@ -646,7 +694,9 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
     CHECK(expr.rhs == doctest::Approx(100.0));
     REQUIRE(expr.terms.size() == 1);
-    CHECK(expr.terms[0].element->element_id == "G1");
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
   }
 
   TEST_CASE("Parse expression with double-slash comment")
@@ -679,10 +729,14 @@ TEST_SUITE("ConstraintParser")
         R"(converter("CV1").discharge - battery("B1").energy <= 0)");
 
     REQUIRE(expr.terms.size() == 2);
-    CHECK(expr.terms[0].element->element_type == "converter");
-    CHECK(expr.terms[0].element->attribute == "discharge");
-    CHECK(expr.terms[1].element->element_type == "battery");
-    CHECK(expr.terms[1].element->attribute == "energy");
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "converter");
+    CHECK(ref0.attribute == "discharge");
+    CHECK(ref1.element_type == "battery");
+    CHECK(ref1.attribute == "energy");
     // RHS term moved to LHS with negation
     CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
   }
@@ -698,6 +752,8 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.lower_bound.value_or(0.0) == doctest::Approx(50.0));
     CHECK(expr.upper_bound.value_or(0.0) == doctest::Approx(250.0));
     REQUIRE(expr.terms.size() == 1);
-    CHECK(expr.terms[0].element->element_id == "uid:1");
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "uid:1");
   }
 }
