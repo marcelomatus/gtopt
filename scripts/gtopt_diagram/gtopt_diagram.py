@@ -3,7 +3,7 @@
 gtopt_diagram.py — Generate electrical, hydro and planning-structure diagrams
 from gtopt JSON planning files.
 
-This module is installed as the ``gtopt-diagram`` command-line tool.
+This module is installed as the ``gtopt_diagram`` command-line tool.
 See ``DIAGRAM_TOOL.md`` for the full user guide.
 
 Diagram types (--diagram-type)
@@ -60,35 +60,35 @@ Dependencies
 Usage examples
 --------------
     # Auto mode (default) — picks right strategy automatically
-    gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg       # <100 → none
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+smart threshold
+    gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg       # <100 → none
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+smart threshold
 
     # Topology-only (no generators) — clean network view
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
 
     # Force explicit aggregation
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate type --voltage-threshold 220 --compact -o case2y_hv.svg
 
     # Global summary (one node per generator type)
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate global --compact -o case2y_global.svg
 
     # Hydro cascade only
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --subsystem hydro -o case2y_hydro.svg
 
     # Interactive HTML for exploration
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate type --voltage-threshold 100 --compact \\
         --format html -o case2y.html
 
     # Planning structure
-    gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
         --diagram-type planning -o case2y_planning.svg
 
     # Mermaid snippet for GitHub Markdown
-    gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
+    gtopt_diagram cases/ieee_9b/ieee_9b.json --format mermaid
 """
 
 from __future__ import annotations
@@ -2656,7 +2656,7 @@ def _auto_layout(model: GraphModel, subsystem: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0912,PLR0915
     parser = argparse.ArgumentParser(
-        prog="gtopt-diagram",
+        prog="gtopt_diagram",
         description=(
             "Generate electrical, hydro, and planning-structure diagrams "
             "from a gtopt JSON planning file."
@@ -2706,28 +2706,28 @@ Other reduction options:
 
 Examples:
   # Auto mode (default) — picks the right aggregation for case size
-  gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg          # <100: none
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+smart threshold
+  gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg          # <100: none
+  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+smart threshold
 
   # Topology-only (no generators) — clean network diagram
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
 
   # Interactive HTML — explore with physics simulation
-  gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
+  gtopt_diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
 
   # Force explicit mode
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
       --aggregate type --voltage-threshold 220 --format html -o case2y.html
 
   # Show only hydro generators in 2-hop neighbourhood of a bus
-  gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
       --filter-type hydro --focus-bus Chapo220 --focus-hops 3 --format svg
 
   # Planning structure from a real case
-  gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
+  gtopt_diagram cases/c0/system_c0.json --diagram-type planning --format html
 
   # Mermaid snippet for GitHub Markdown
-  gtopt-diagram cases/bat_4b/bat_4b.json --format mermaid
+  gtopt_diagram cases/bat_4b/bat_4b.json --format mermaid
         """),
     )
     parser.add_argument(
