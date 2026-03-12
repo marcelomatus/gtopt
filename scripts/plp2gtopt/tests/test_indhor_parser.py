@@ -1,8 +1,9 @@
-"""Tests for IndhorParser."""
+"""Tests for IndhorParser and IndhorWriter."""
 
 import pytest
 import pandas as pd
 from plp2gtopt.indhor_parser import IndhorParser
+from plp2gtopt.indhor_writer import IndhorWriter
 
 _SAMPLE_CSV = (
     "Año,Mes,Dia,Hora,Bloque\n"
@@ -61,12 +62,9 @@ def test_is_empty_before_parse(tmp_path):
 
 
 def test_indhor_written_to_json(tmp_path):
-    """GTOptWriter adds block_hour_map to simulation when indhor.csv present."""
-    from plp2gtopt.indhor_parser import IndhorParser as IP
-    from plp2gtopt.indhor_writer import IndhorWriter
-
+    """IndhorWriter writes parquet and returns correct relative path."""
     p = _write_csv(tmp_path)
-    ip = IP(p)
+    ip = IndhorParser(p)
     ip.parse()
 
     out_dir = tmp_path / "BlockHourMap"

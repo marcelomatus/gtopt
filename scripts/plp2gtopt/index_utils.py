@@ -59,14 +59,8 @@ def parse_index_range(spec: str) -> List[int]:
                     f"Invalid index {part!r} in specification {spec!r}"
                 ) from exc
 
-    # Sort and deduplicate while preserving first occurrence order for ranges
-    seen: set[int] = set()
-    unique: List[int] = []
-    for v in result:
-        if v not in seen:
-            seen.add(v)
-            unique.append(v)
-    return unique
+    # Deduplicate and sort (docstring guarantees sorted output)
+    return sorted(set(result))
 
 
 def parse_stages_phase(spec: str, num_stages: int) -> List[List[int]]:
