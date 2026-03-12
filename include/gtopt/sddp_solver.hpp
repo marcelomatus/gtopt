@@ -556,6 +556,45 @@ private:
   [[nodiscard]] std::optional<ElasticResult> elastic_solve(
       SceneIndex scene, PhaseIndex phase, const SolverOptions& opts);
 
+  // ── Refactored helper methods ──
+
+  /// Store a cut for sharing and persistence (thread-safe).
+  /// Writes to both per-scene storage and shared storage.
+  void store_cut(SceneIndex scene, PhaseIndex src_phase, const SparseRow& cut);
+
+  /// Resolve an LP via the work pool.  Falls back to direct resolve if the
+  /// pool is not available.  Avoids naked direct resolve() calls.
+  [[nodiscard]] auto resolve_via_pool(LinearInterface& li,
+                                      const SolverOptions& opts)
+      -> std::expected<int, Error>;
+
+  /// Resolve a cloned LP via the work pool.  The clone is moved into a
+  /// shared_ptr for the pool task, then moved back after completion.
+  [[nodiscard]] auto resolve_clone_via_pool(LinearInterface& clone,
+                                            const SolverOptions& opts)
+      -> std::expected<int, Error>;
+
+  /// Iterative feasibility backpropagation: propagate from start_phase
+  /// backward to phase 0 using elastic filter and cuts.
+  /// Returns the number of additional cuts added.
+  [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene,
+                                               Index start_phase,
+                                               int total_cuts,
+                                               const SolverOptions& opts)
+      -> std::expected<int, Error>;
+
+  /// Solve all apertures for a single phase and return the
+  /// probability-weighted expected cut, or nullopt if all failed.
+  [[nodiscard]] auto solve_apertures_for_phase(
+      SceneIndex scene,
+      PhaseIndex phase,
+      const PhaseStateInfo& src_state,
+      const ScenarioLP& base_scenario,
+      std::span<const ScenarioLP> all_scenarios,
+      int n_aps,
+      int total_cuts,
+      const SolverOptions& opts) -> std::optional<SparseRow>;
+
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
@@ -617,6 +656,11 @@ private:
   /// Constructed with null pool; updated in solve() once the pool is created.
   /// Used by elastic_solve() to submit elastic-filter LP solves to the pool.
   BendersCut m_benders_cut_;
+
+  /// Non-owning pointer to the work pool created in solve().  Set to non-null
+  /// while solve() is running; reset to nullptr when solve() returns.
+  /// Used by resolve_via_pool() and resolve_clone_via_pool().
+  AdaptiveWorkPool* m_pool_ {nullptr};
 
   // ── Monitoring API (SolverMonitor owns the background thread) ──
 
