@@ -83,6 +83,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
+      .energy_scale = battery().energy_scale.value_or(1.0),
   };
   if (!StorageBase::add_to_lp(cname,
                               sc,

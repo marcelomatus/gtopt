@@ -192,6 +192,11 @@ struct Battery
   /// decoupled stage/phase behaviour (use_state_variable forced false).
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
+
+  /// Energy scale factor: the LP energy variable is divided by this value so
+  /// that the LP works in scaled units (physical_energy / energy_scale).
+  /// Default is 1 (no scaling) for batteries whose energy is already in MWh.
+  OptReal energy_scale {1.0};
 };
 
 }  // namespace gtopt
