@@ -1000,13 +1000,13 @@ class TestComparePlpCli:
 class TestMainArgParsing:
     def test_missing_case_exits(self):
         with pytest.raises(SystemExit):
-            with patch.object(sys, "argv", ["gtopt-compare", "--gtopt-output", "/tmp"]):
+            with patch.object(sys, "argv", ["gtopt_compare", "--gtopt-output", "/tmp"]):
                 main()
 
     def test_missing_output_exits(self):
         """--gtopt-output is required when not using --save-pandapower-file alone."""
         with pytest.raises(SystemExit):
-            with patch.object(sys, "argv", ["gtopt-compare", "--case", "s1b"]):
+            with patch.object(sys, "argv", ["gtopt_compare", "--case", "s1b"]):
                 main()
 
     def test_invalid_case_exits(self):

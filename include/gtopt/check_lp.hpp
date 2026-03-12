@@ -1,11 +1,11 @@
 /**
  * @file      check_lp.hpp
- * @brief     Utility for running gtopt-check-lp diagnostics on error LP files
+ * @brief     Utility for running gtopt_check_lp diagnostics on error LP files
  * @date      2026-03-12
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Provides run_check_lp_diagnostic() which looks for the gtopt-check-lp
+ * Provides run_check_lp_diagnostic() which looks for the gtopt_check_lp
  * script on PATH and, if found, runs it with --analyze-only --no-color on the
  * given LP file, returning the captured output for logging.
  */
@@ -18,11 +18,11 @@ namespace gtopt
 {
 
 /**
- * @brief Run gtopt-check-lp on an LP file and return the diagnostic output.
+ * @brief Run gtopt_check_lp on an LP file and return the diagnostic output.
  *
- * Searches PATH for the @c gtopt-check-lp binary.  If found, executes:
+ * Searches PATH for the @c gtopt_check_lp binary.  If found, executes:
  * @code
- *   gtopt-check-lp --analyze-only --no-color --timeout <timeout_seconds>
+ *   gtopt_check_lp --analyze-only --no-color --timeout <timeout_seconds>
  * <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or

@@ -443,11 +443,11 @@ class TestNeosClient:
 
 
 class TestSubprocessRun:
-    """End-to-end: run gtopt-check-lp (or python -m) on the test LP files."""
+    """End-to-end: run gtopt_check_lp (or python -m) on the test LP files."""
 
     @pytest.mark.integration
     def test_bad_bounds_subprocess(self):
-        """Run gtopt-check-lp on bad_bounds.lp and check for conflict message."""
+        """Run gtopt_check_lp on bad_bounds.lp and check for conflict message."""
         result = subprocess.run(
             [
                 sys.executable,
@@ -497,7 +497,7 @@ class TestSubprocessRun:
         reason="COIN-OR clp/cbc not available",
     )
     def test_coinor_solver_subprocess(self):
-        """Run gtopt-check-lp --solver coinor on my_small_bad.lp."""
+        """Run gtopt_check_lp --solver coinor on my_small_bad.lp."""
         result = subprocess.run(
             [
                 sys.executable,

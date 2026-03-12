@@ -13,7 +13,7 @@ After inclusion the following cache variables are set (each may already
 have been set by the user via ``-D``):
 
 ``COMPARE_PANDAPOWER_PROGRAM``
-  Path to the installed ``gtopt-compare`` entry-point (from
+  Path to the installed ``gtopt_compare`` entry-point (from
   ``pip install -e scripts/``).
 
 ``COMPARE_PANDAPOWER_PYTHON``
@@ -36,7 +36,7 @@ Detection priority (first match wins)
 2. Source-tree module: ``scripts/gtopt_compare/__init__.py`` exists and
    ``pandapower`` is importable.  Sets ``COMPARE_PANDAPOWER_PYTHON`` and
    ``COMPARE_PANDAPOWER_SCRIPTS_DIR``.
-3. ``find_program(gtopt-compare)`` – installed binary found on PATH.
+3. ``find_program(gtopt_compare)`` – installed binary found on PATH.
 4. Fallback: any Python3 interpreter with ``pandapower`` importable.
 
 #]=======================================================================]
@@ -105,12 +105,12 @@ if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
   endif()
 endif()
 
-# ---- Priority 3: installed gtopt-compare binary ----
+# ---- Priority 3: installed gtopt_compare binary ----
 if(NOT COMPARE_PANDAPOWER_PROGRAM AND NOT COMPARE_PANDAPOWER_PYTHON)
-  find_program(_pp_found_binary gtopt-compare)
+  find_program(_pp_found_binary gtopt_compare)
   if(_pp_found_binary)
     set(COMPARE_PANDAPOWER_PROGRAM "${_pp_found_binary}")
-    message(STATUS "Found gtopt-compare command: ${COMPARE_PANDAPOWER_PROGRAM}")
+    message(STATUS "Found gtopt_compare command: ${COMPARE_PANDAPOWER_PROGRAM}")
   endif()
   unset(_pp_found_binary)
 endif()

@@ -1,4 +1,4 @@
-# gtopt-diagram — Network & Planning Diagram Tool
+# gtopt_diagram — Network & Planning Diagram Tool
 
 Generates **electrical network topology, hydro cascade, and planning
 time-structure diagrams** from any gtopt JSON planning file.  Supports multiple
@@ -10,7 +10,7 @@ modes.
 ## Overview
 
 Visualising a power system case is essential for debugging, presentation, and
-validation.  `gtopt-diagram` reads a standard gtopt JSON planning file and
+validation.  `gtopt_diagram` reads a standard gtopt JSON planning file and
 produces publication-quality diagrams showing:
 
 - **Topology diagrams**: buses, generators (with type-specific icons), demands,
@@ -30,7 +30,7 @@ thresholds to keep diagrams readable.
 The tool is part of the gtopt scripts package:
 
 ```bash
-# Basic install (registers gtopt-diagram on PATH)
+# Basic install (registers gtopt_diagram on PATH)
 pip install ./scripts
 
 # With optional diagram-rendering dependencies
@@ -51,7 +51,7 @@ brew install graphviz
 After installation:
 
 ```bash
-gtopt-diagram --help
+gtopt_diagram --help
 ```
 
 ### Dependencies
@@ -155,7 +155,7 @@ to the same HV bus pair are de-duplicated.
 
 ```bash
 # Keep only buses ≥ 220 kV
-gtopt-diagram large_case.json --voltage-threshold 220 -o hv_topo.svg
+gtopt_diagram large_case.json --voltage-threshold 220 -o hv_topo.svg
 ```
 
 > Auto mode applies this automatically when the case has ≥ 1000 elements,
@@ -167,10 +167,10 @@ Show only generators of selected types:
 
 ```bash
 # Only hydro generators
-gtopt-diagram case.json --filter-type hydro -o hydro_only.svg
+gtopt_diagram case.json --filter-type hydro -o hydro_only.svg
 
 # Only solar and wind, aggregated per bus
-gtopt-diagram case.json --filter-type solar wind --aggregate bus -o renewables.svg
+gtopt_diagram case.json --filter-type solar wind --aggregate bus -o renewables.svg
 ```
 
 ### Geographic focus (`--focus-bus`, `--focus-hops`)
@@ -179,10 +179,10 @@ Show only buses and elements within N line-hops of named buses:
 
 ```bash
 # 2-hop neighbourhood of bus 'Chapo220'
-gtopt-diagram case.json --focus-bus Chapo220 -o chapo_area.svg
+gtopt_diagram case.json --focus-bus Chapo220 -o chapo_area.svg
 
 # 3-hop with hydro filter
-gtopt-diagram case.json --focus-bus LagVerde220 --focus-hops 3 \
+gtopt_diagram case.json --focus-bus LagVerde220 --focus-hops 3 \
     --filter-type hydro -o lagverde_hydro.svg
 ```
 
@@ -192,7 +192,7 @@ Within each bus (or bus+type group), keep only the top-N generators by `pmax`,
 summarising the rest:
 
 ```bash
-gtopt-diagram case.json --top-gens 2 -o top2.svg
+gtopt_diagram case.json --top-gens 2 -o top2.svg
 ```
 
 ### Hard node cap (`--max-nodes N`)
@@ -201,7 +201,7 @@ If the estimated node count exceeds N, the aggregation mode is automatically
 upgraded: `none → bus → type → global`:
 
 ```bash
-gtopt-diagram case.json --max-nodes 80 -o compact.svg
+gtopt_diagram case.json --max-nodes 80 -o compact.svg
 ```
 
 ### Compact labels (`--compact`)
@@ -209,7 +209,7 @@ gtopt-diagram case.json --max-nodes 80 -o compact.svg
 Suppress pmax / gcost / reactance detail labels — show only names and counts:
 
 ```bash
-gtopt-diagram case.json --aggregate type --compact -o compact.svg
+gtopt_diagram case.json --aggregate type --compact -o compact.svg
 ```
 
 ### Hide isolated nodes (`--hide-isolated`)
@@ -218,7 +218,7 @@ Remove nodes that have no connections (e.g. buses with all generators filtered
 out):
 
 ```bash
-gtopt-diagram case.json --filter-type hydro --hide-isolated -o hydro_clean.svg
+gtopt_diagram case.json --filter-type hydro --hide-isolated -o hydro_clean.svg
 ```
 
 ### Topology-only view (`--no-generators`)
@@ -226,7 +226,7 @@ gtopt-diagram case.json --filter-type hydro --hide-isolated -o hydro_clean.svg
 Omit all generator nodes for a clean bus/line/demand view:
 
 ```bash
-gtopt-diagram case.json --no-generators -o topo_only.svg
+gtopt_diagram case.json --no-generators -o topo_only.svg
 ```
 
 ---
@@ -275,19 +275,19 @@ Reduction options:
 
 ```bash
 # Auto mode selects 'none' (15 elements < 100 threshold)
-gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
 
 # Interactive HTML with physics simulation
-gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
+gtopt_diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
 
 # Mermaid snippet for embedding in GitHub Markdown
-gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
+gtopt_diagram cases/ieee_9b/ieee_9b.json --format mermaid
 ```
 
 ### Battery case — 4-bus with converter links
 
 ```bash
-gtopt-diagram cases/bat_4b/bat_4b.json -o bat4b.svg
+gtopt_diagram cases/bat_4b/bat_4b.json -o bat4b.svg
 ```
 
 Shows battery–converter–generator/demand charge/discharge links.
@@ -295,7 +295,7 @@ Shows battery–converter–generator/demand charge/discharge links.
 ### Planning time structure
 
 ```bash
-gtopt-diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
+gtopt_diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
 ```
 
 Shows the scenario → phase → stage → block hierarchy and the objective function.
@@ -304,31 +304,31 @@ Shows the scenario → phase → stage → block hierarchy and the objective fun
 
 ```bash
 # Auto mode picks type + smart threshold (345 kV; 16 buses remain)
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
 
 # Network topology only (no generators)
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --no-generators -o case2y_topo.svg
 
 # HV backbone ≥ 220 kV, no generators
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --no-generators --voltage-threshold 220 -o case2y_hv_topo.svg
 
 # Global summary — fastest overview
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --aggregate global --subsystem electrical --compact -o case2y_global.svg
 
 # Hydro cascade only
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --subsystem hydro -o case2y_hydro.svg
 
 # Interactive HTML for exploration
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --aggregate type --voltage-threshold 100 --compact \
     --format html -o case2y_interactive.html
 
 # Focus on a local area (3 hops from a specific bus)
-gtopt-diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
     --focus-bus "AltaRapel" --focus-hops 3 --aggregate type \
     --format html -o case2y_focus.html
 ```
