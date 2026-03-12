@@ -521,6 +521,25 @@ ConstraintTerm ConstraintParser::Parser::parse_sum_expr(double sign)
   if (m_current_.type == TokenType::IDENT && m_current_.value == "all") {
     sum_ref.all_elements = true;
     advance();
+    // Optional: , type="value"
+    if (m_current_.type == TokenType::COMMA) {
+      advance();
+      if (m_current_.type == TokenType::IDENT && m_current_.value == "type") {
+        advance();
+        expect(TokenType::EQ);
+        if (m_current_.type != TokenType::STRING) {
+          throw std::invalid_argument(std::format(
+              "Expected quoted string after 'type=' in sum(), got '{}'",
+              m_current_.value));
+        }
+        sum_ref.type_filter = std::move(m_current_.value);
+        advance();
+      } else {
+        throw std::invalid_argument(std::format(
+            "Expected 'type=...' after comma in sum(all,...), got '{}'",
+            m_current_.value));
+      }
+    }
   } else {
     // Parse comma-separated string or number list
     while (true) {

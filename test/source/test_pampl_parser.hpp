@@ -186,21 +186,22 @@ constraint gen_limit:
 
   TEST_CASE("Missing semicolon throws")
   {
-    CHECK_THROWS_AS(PamplParser::parse("generator('G1').generation <= 100"),
-                    std::invalid_argument);
+    CHECK_THROWS_AS(
+        (void)PamplParser::parse("generator('G1').generation <= 100"),
+        std::invalid_argument);
   }
 
   TEST_CASE("Missing constraint name after 'constraint' keyword throws")
   {
-    CHECK_THROWS_AS(
-        PamplParser::parse("constraint : generator('G1').generation <= 100;"),
-        std::invalid_argument);
+    CHECK_THROWS_AS((void)PamplParser::parse(
+                        "constraint : generator('G1').generation <= 100;"),
+                    std::invalid_argument);
   }
 
   TEST_CASE("'inactive' without 'constraint' keyword throws")
   {
-    CHECK_THROWS_AS(
-        PamplParser::parse("inactive oops: generator('G1').generation <= 100;"),
-        std::invalid_argument);
+    CHECK_THROWS_AS((void)PamplParser::parse(
+                        "inactive oops: generator('G1').generation <= 100;"),
+                    std::invalid_argument);
   }
 }

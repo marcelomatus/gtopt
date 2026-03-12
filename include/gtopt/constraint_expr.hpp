@@ -40,8 +40,8 @@
  *
  * sum_expr     := 'sum' '(' element_type '(' string_list ')' '.'
  *                 attribute ')'
- *              |  'sum' '(' element_type '(' 'all' ')' '.'
- *                 attribute ')'
+ *              |  'sum' '(' element_type '(' 'all' [',''type''=''string'] ')'
+ * '.' attribute ')'
  *
  * string_list  := string (',' string)*
  *
@@ -109,6 +109,8 @@ struct ElementRef
  *
  * Represents `sum(element_type("id1","id2",...).attribute)` or
  * `sum(element_type(all).attribute)` — the AMPL-style `sum{g in SET}`.
+ * An optional `type_filter` restricts the sum to elements whose `type` field
+ * matches the given string (case-sensitive).
  *
  * Examples:
  *   - sum(generator("G1","G2").generation)
@@ -117,12 +119,17 @@ struct ElementRef
  *   - sum(generator(all).generation)
  *       → {element_type="generator", element_ids={},
  *          all_elements=true, attribute="generation"}
+ *   - sum(generator(all, type="hydro").generation)
+ *       → {element_type="generator", element_ids={},
+ *          all_elements=true, type_filter="hydro", attribute="generation"}
  */
 struct SumElementRef
 {
   std::string element_type {};  ///< "generator", "demand", "line", etc.
   std::vector<std::string> element_ids {};  ///< Element names/UIDs to sum
   bool all_elements {false};  ///< true = sum over all elements of the type
+  std::optional<std::string>
+      type_filter {};  ///< Optional type tag filter (matches element.type)
   std::string attribute {};  ///< LP attribute to aggregate
 };
 

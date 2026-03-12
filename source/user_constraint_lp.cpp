@@ -30,6 +30,7 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/storage_lp.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/user_constraint_lp.hpp>
@@ -58,9 +59,12 @@ namespace
   if (element_id.starts_with("uid:")) {
     const std::string_view digits = std::string_view {element_id}.substr(4);
     Uid val {};
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto [ptr, ec] =
         std::from_chars(digits.data(), digits.data() + digits.size(), val);
-    if (ec == std::errc {} && ptr == digits.data() + digits.size()) {
+    const bool ok = ec == std::errc {} && ptr == digits.data() + digits.size();
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    if (ok) {
       return val;
     }
     // fall through to name if parse fails
@@ -74,9 +78,13 @@ namespace
                      [](unsigned char c) { return std::isdigit(c) != 0; }))
   {
     Uid val {};
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto [ptr, ec] = std::from_chars(
         element_id.data(), element_id.data() + element_id.size(), val);
-    if (ec == std::errc {} && ptr == element_id.data() + element_id.size()) {
+    const bool ok =
+        ec == std::errc {} && ptr == element_id.data() + element_id.size();
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    if (ok) {
       return val;
     }
   }
@@ -276,35 +284,62 @@ void collect_sum_cols(const SystemContext& sc,
 
   if (sum_ref.all_elements) {
     // Iterate over every element of the named type
-    if (sum_ref.element_type == "generator") {
+    // NOLINT(bugprone-branch-clone): each branch targets a different C++ type
+    // (GeneratorLP, DemandLP, etc.)
+    if (sum_ref.element_type == "generator") {  // NOLINT(bugprone-branch-clone)
       for (const auto& gen : sc.elements<GeneratorLP>()) {
+        if (sum_ref.type_filter
+            && gen.object().type.value_or("") != *sum_ref.type_filter)
+        {
+          continue;
+        }
         add_one(std::to_string(static_cast<int>(gen.uid())));
       }
     } else if (sum_ref.element_type == "demand") {
       for (const auto& dem : sc.elements<DemandLP>()) {
+        if (sum_ref.type_filter
+            && dem.object().type.value_or("") != *sum_ref.type_filter)
+        {
+          continue;
+        }
         add_one(std::to_string(static_cast<int>(dem.uid())));
       }
     } else if (sum_ref.element_type == "line") {
       for (const auto& ln : sc.elements<LineLP>()) {
+        if (sum_ref.type_filter
+            && ln.object().type.value_or("") != *sum_ref.type_filter)
+        {
+          continue;
+        }
         add_one(std::to_string(static_cast<int>(ln.uid())));
       }
     } else if (sum_ref.element_type == "battery") {
       for (const auto& bat : sc.elements<BatteryLP>()) {
+        if (sum_ref.type_filter
+            && bat.object().type.value_or("") != *sum_ref.type_filter)
+        {
+          continue;
+        }
         add_one(std::to_string(static_cast<int>(bat.uid())));
       }
     } else if (sum_ref.element_type == "reservoir") {
+      // NOLINT(bugprone-branch-clone): reservoir/waterway/turbine/converter
+      // don't have a `type` field
       for (const auto& res : sc.elements<ReservoirLP>()) {
         add_one(std::to_string(static_cast<int>(res.uid())));
       }
-    } else if (sum_ref.element_type == "waterway") {
+    } else if (sum_ref.element_type
+               == "waterway") {  // NOLINT(bugprone-branch-clone)
       for (const auto& ww : sc.elements<WaterwayLP>()) {
         add_one(std::to_string(static_cast<int>(ww.uid())));
       }
-    } else if (sum_ref.element_type == "turbine") {
+    } else if (sum_ref.element_type
+               == "turbine") {  // NOLINT(bugprone-branch-clone)
       for (const auto& t : sc.elements<TurbineLP>()) {
         add_one(std::to_string(static_cast<int>(t.uid())));
       }
-    } else if (sum_ref.element_type == "converter") {
+    } else if (sum_ref.element_type
+               == "converter") {  // NOLINT(bugprone-branch-clone)
       for (const auto& c : sc.elements<ConverterLP>()) {
         add_one(std::to_string(static_cast<int>(c.uid())));
       }
@@ -418,7 +453,7 @@ void add_constraint_rows(const ConstraintExpr& expr,
         }
 
         apply_constraint_bounds(row, expr);
-        lp.add_row(std::move(row));
+        [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
       }
     }
   }
@@ -429,6 +464,7 @@ void add_constraint_rows(const ConstraintExpr& expr,
 // ── Public function
 // ───────────────────────────────────────────────────────────
 
+// NOLINTNEXTLINE(misc-use-internal-linkage): declared in user_constraint_lp.hpp
 void add_user_constraints_to_lp(const std::vector<UserConstraint>& constraints,
                                 SystemContext& sc,
                                 const PhaseLP& phase,
