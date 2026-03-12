@@ -12,6 +12,7 @@ import zipfile
 import pandas as pd
 import pytest
 
+import igtopt.igtopt as _igtopt_mod  # for access to non-exported symbols
 from igtopt.igtopt import (
     _run as _igtopt_run,
     create_zip_output,
@@ -896,3 +897,96 @@ def test_igtopt_bat4b24_gtopt_matches_pandapower(gtopt_bin, tmp_path):
 
     passed = compare_fn(case_dir / "output", tol_mw=1.0, tol_lmp=0.5)
     assert passed, "bat4b24: pandapower comparison FAILED (see printed table above)"
+
+
+# ---------------------------------------------------------------------------
+# split_in_columns
+# ---------------------------------------------------------------------------
+
+
+class TestSplitInColumns:
+    """Tests for split_in_columns()."""
+
+    def test_wraps_long_list(self):
+        """A list of 10 items produces multiple lines."""
+        items = [str(i) for i in range(10)]
+        result = _igtopt_mod.split_in_columns(items)
+        assert isinstance(result, str)
+        lines = result.splitlines()
+        assert len(lines) >= 2
+
+    def test_single_item(self):
+        """A single-item list renders correctly."""
+        result = _igtopt_mod.split_in_columns(["one"])
+        assert "one" in result
+
+    def test_empty_list(self):
+        """An empty list does not crash and returns a string."""
+        result = _igtopt_mod.split_in_columns([])
+        assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# _try_parse_json
+# ---------------------------------------------------------------------------
+
+
+class TestTryParseJson:
+    """Tests for _try_parse_json()."""
+
+    def test_parses_integer(self):
+        assert _igtopt_mod._try_parse_json("42") == 42
+
+    def test_parses_float(self):
+        assert _igtopt_mod._try_parse_json("3.14") == pytest.approx(3.14)
+
+    def test_parses_bool_true(self):
+        assert _igtopt_mod._try_parse_json("true") is True
+
+    def test_parses_bool_false(self):
+        assert _igtopt_mod._try_parse_json("false") is False
+
+    def test_parses_null(self):
+        assert _igtopt_mod._try_parse_json("null") is None
+
+    def test_parses_json_array(self):
+        assert _igtopt_mod._try_parse_json("[1, 2, 3]") == [1, 2, 3]
+
+    def test_returns_string_on_plain_text(self):
+        result = _igtopt_mod._try_parse_json("hello world")
+        assert result == "hello world"
+
+    def test_non_string_returns_as_is(self):
+        """Non-string values are returned unchanged (not parsed)."""
+        assert _igtopt_mod._try_parse_json(42) == 42
+        assert _igtopt_mod._try_parse_json(3.14) == pytest.approx(3.14)
+
+
+# ---------------------------------------------------------------------------
+# df_to_opts
+# ---------------------------------------------------------------------------
+
+
+class TestDfToOpts:
+    """Tests for df_to_opts()."""
+
+    def test_basic_options(self):
+        """Parses option/value columns correctly."""
+        df = pd.DataFrame(
+            {"option": ["solver_type", "scale_objective"], "value": ["sddp", 1000.0]}
+        )
+        result = _igtopt_mod.df_to_opts(df, {})
+        assert result.get("solver_type") == "sddp"
+        assert result.get("scale_objective") == pytest.approx(1000.0)
+
+    def test_numeric_option_preserved(self):
+        """Numeric values are preserved as-is (not re-parsed)."""
+        df = pd.DataFrame({"option": ["annual_discount_rate"], "value": [0.1]})
+        result = _igtopt_mod.df_to_opts(df, {})
+        assert result.get("annual_discount_rate") == pytest.approx(0.1)
+
+    def test_existing_options_overridden_by_explicit(self):
+        """Values from the explicit options dict override df values for same key."""
+        df = pd.DataFrame({"option": ["input_directory"], "value": ["from_df"]})
+        result = _igtopt_mod.df_to_opts(df, {"input_directory": "explicit"})
+        assert result.get("input_directory") == "explicit"
