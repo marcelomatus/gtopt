@@ -73,9 +73,8 @@ namespace
 
   // Bare integer string (purely decimal, no letters)
   if (!element_id.empty()
-      && std::all_of(element_id.begin(),
-                     element_id.end(),
-                     [](unsigned char c) { return std::isdigit(c) != 0; }))
+      && std::ranges::all_of(
+          element_id, [](unsigned char c) { return std::isdigit(c) != 0; }))
   {
     Uid val {};
     // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -418,7 +417,8 @@ void add_constraint_rows(const ConstraintExpr& expr,
                          const SystemContext& sc,
                          const PhaseLP& phase,
                          const SceneLP& scene,
-                         LinearProblem& lp)
+                         LinearProblem& lp,
+                         STBIndexHolder<RowIndex>& row_state)
 {
   const auto& domain = expr.domain;
 
@@ -431,6 +431,9 @@ void add_constraint_rows(const ConstraintExpr& expr,
       if (!in_range(domain.scenarios, static_cast<int>(scenario.uid()))) {
         continue;
       }
+
+      BIndexHolder<RowIndex> block_rows;
+      map_reserve(block_rows, stage.blocks().size());
 
       for (auto&& block : stage.blocks()) {
         if (!in_range(domain.blocks, static_cast<int>(block.uid()))) {
@@ -481,7 +484,12 @@ void add_constraint_rows(const ConstraintExpr& expr,
         }
 
         apply_constraint_bounds(row, expr);
-        [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
+        const auto row_idx = lp.add_row(std::move(row));
+        block_rows[block.uid()] = row_idx;
+      }
+
+      if (!block_rows.empty()) {
+        row_state[{scenario.uid(), stage.uid()}] = std::move(block_rows);
       }
     }
   }
@@ -493,12 +501,16 @@ void add_constraint_rows(const ConstraintExpr& expr,
 // ───────────────────────────────────────────────────────────
 
 // NOLINTNEXTLINE(misc-use-internal-linkage): declared in user_constraint_lp.hpp
-void add_user_constraints_to_lp(const std::vector<UserConstraint>& constraints,
-                                SystemContext& sc,
-                                const PhaseLP& phase,
-                                const SceneLP& scene,
-                                LinearProblem& lp)
+[[nodiscard]] std::vector<UserConstraintState> add_user_constraints_to_lp(
+    const std::vector<UserConstraint>& constraints,
+    SystemContext& sc,
+    const PhaseLP& phase,
+    const SceneLP& scene,
+    LinearProblem& lp)
 {
+  std::vector<UserConstraintState> states;
+  states.reserve(constraints.size());
+
   for (const auto& uc : constraints) {
     if (!uc.active.value_or(true)) {
       SPDLOG_DEBUG(
@@ -514,10 +526,50 @@ void add_user_constraints_to_lp(const std::vector<UserConstraint>& constraints,
 
     try {
       const auto expr = ConstraintParser::parse(uc.name, uc.expression);
-      add_constraint_rows(expr, uc.name, sc, phase, scene, lp);
+
+      UserConstraintState state;
+      state.uid = uc.uid;
+      state.name = uc.name;
+      state.scale_type =
+          parse_constraint_scale_type(uc.constraint_type.value_or("power"));
+
+      add_constraint_rows(expr, uc.name, sc, phase, scene, lp, state.rows);
+
+      if (!state.rows.empty()) {
+        states.push_back(std::move(state));
+      }
     } catch (const std::exception& ex) {
       SPDLOG_ERROR(std::format(
           "user_constraint '{}': parse/apply error: {}", uc.name, ex.what()));
+    }
+  }
+
+  return states;
+}
+
+// NOLINTNEXTLINE(misc-use-internal-linkage): declared in user_constraint_lp.hpp
+void add_user_constraints_to_output(
+    const std::vector<UserConstraintState>& uc_states, OutputContext& out)
+{
+  static constexpr std::string_view cname = "UserConstraint";
+  static constexpr std::string_view row_name = "constraint";
+
+  for (const auto& state : uc_states) {
+    if (state.rows.empty()) {
+      continue;
+    }
+
+    const Id pid {state.uid, state.name};
+
+    if (state.scale_type == ConstraintScaleType::Raw) {
+      // Raw / unitless constraints: scale by discount factor only
+      // (scale_obj / discount[t]), no probability and no block duration.
+      out.add_row_dual_raw(cname, row_name, pid, state.rows);
+    } else {
+      // Power and Energy constraints: standard block_cost_factors scaling
+      // (scale_obj / (prob × discount × Δt)).
+      // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
+      out.add_row_dual(cname, row_name, pid, state.rows);
     }
   }
 }

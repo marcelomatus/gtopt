@@ -233,6 +233,28 @@ public:
             field_name(id), std::move(values), std::move(valid), &stb_prelude);
   }
 
+  /// add_row_dual using discount-only scaling (`scale_obj / discount[t]`).
+  /// Used by user constraints with `constraint_type = "raw"` or `"unitless"`:
+  /// the dual value has no physical unit so probability and block duration
+  /// are NOT removed — only the stage discount factor is inverted.
+  template<typename Operation = std::identity>
+  constexpr void add_row_dual_raw(std::string_view cname,
+                                  std::string_view row_name,
+                                  const Id& id,
+                                  const STBIndexHolder<RowIndex>& holder,
+                                  Operation op = {})
+  {
+    return add_field(cname,
+                     row_name,
+                     "dual",
+                     id,
+                     holder,
+                     row_dual_span,
+                     &stb_prelude,
+                     op,
+                     discount_block_cost_factors);
+  }
+
   ///
   template<typename Operation = std::identity>
   constexpr void add_col_sol(std::string_view cname,
@@ -356,6 +378,7 @@ private:
   RowDualSpan row_dual_span;
 
   block_factor_matrix_t block_cost_factors;
+  block_factor_matrix_t discount_block_cost_factors;
   stage_factor_matrix_t stage_cost_factors;
   scenario_stage_factor_matrix_t scenario_stage_cost_factors;
 

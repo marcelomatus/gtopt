@@ -41,6 +41,7 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <gtopt/user_constraint_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -337,6 +338,7 @@ private:
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
+  std::vector<UserConstraintState> m_user_constraint_states_ {};
 };
 
 }  // namespace gtopt
