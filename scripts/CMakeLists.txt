@@ -165,6 +165,7 @@ set(_SCRIPT_MODULES
   cvs2parquet
   gtopt_diagram
   gtopt_field_extractor
+  gtopt_check_lp
   igtopt
   plp2gtopt
   pp2gtopt
@@ -180,7 +181,7 @@ foreach(_mod IN LISTS _SCRIPT_MODULES)
   list(APPEND _SCRIPT_COV_ARGS  "--cov=${SCRIPTS_DIR}/${_mod}")
 endforeach()
 # Add test dirs for packages that have tests/ subdirectories.
-foreach(_mod IN ITEMS gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt)
+foreach(_mod IN ITEMS gtopt_compare cvs2parquet gtopt_diagram gtopt_check_lp igtopt plp2gtopt pp2gtopt ts2gtopt)
   list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/${_mod}/tests")
 endforeach()
 
@@ -329,7 +330,7 @@ set_tests_properties(scripts-install-deps PROPERTIES
 # Tests are independent and run in parallel via CTest (``ctest -L unit``).
 
 # Packages with no integration-marked tests: straightforward directory scan.
-foreach(_pkg IN ITEMS gtopt_compare cvs2parquet pp2gtopt)
+foreach(_pkg IN ITEMS gtopt_compare cvs2parquet gtopt_check_lp pp2gtopt)
   add_pytest_unit_test(
     scripts-${_pkg}-unit
     DIR      "${SCRIPTS_DIR}/${_pkg}/tests"
