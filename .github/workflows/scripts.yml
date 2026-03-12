@@ -202,8 +202,8 @@ jobs:
           echo "✓ plp2gtopt found on PATH after cmake --install"
           pp2gtopt --version
           echo "✓ pp2gtopt found on PATH after cmake --install"
-          gtopt-diagram --help > /dev/null
-          echo "✓ gtopt-diagram found on PATH after cmake --install"
+          gtopt_diagram --help > /dev/null
+          echo "✓ gtopt_diagram found on PATH after cmake --install"
           ts2gtopt --help > /dev/null
           echo "✓ ts2gtopt found on PATH after cmake --install"
 

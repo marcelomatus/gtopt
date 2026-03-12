@@ -10,15 +10,15 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 ## Table of Contents
 
 - [Installation](#installation)
-- [gtopt-diagram](#gtopt-diagram) · [full docs](docs/scripts/gtopt-diagram.md)
+- [gtopt_diagram](#gtopt_diagram) · [full docs](docs/scripts/gtopt_diagram.md)
 - [plp2gtopt](#plp2gtopt) · [full docs](docs/scripts/plp2gtopt.md)
 - [pp2gtopt](#pp2gtopt) · [full docs](docs/scripts/pp2gtopt.md)
 - [igtopt](#igtopt) · [full docs](docs/scripts/igtopt.md) · [Excel template](docs/templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
 - [cvs2parquet](#cvs2parquet) · [full docs](docs/scripts/cvs2parquet.md)
 - [ts2gtopt](#ts2gtopt) · [full docs](docs/scripts/ts2gtopt.md)
-- [gtopt-compare](#gtopt-compare) · [full docs](docs/scripts/gtopt-compare.md)
-- [sddp-monitor](#sddp-monitor)
-- [gtopt-field-extractor](#gtopt-field-extractor)
+- [gtopt_compare](#gtopt_compare) · [full docs](docs/scripts/gtopt_compare.md)
+- [sddp_monitor](#sddp_monitor)
+- [gtopt_field_extractor](#gtopt_field_extractor)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
@@ -31,9 +31,9 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers the `gtopt-diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
-`cvs2parquet`, `ts2gtopt`, `gtopt-compare`, `sddp-monitor`,
-`gtopt-field-extractor`, and other commands on your `PATH`.  An editable install is useful during
+This registers the `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `igtopt`,
+`cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `sddp_monitor`,
+`gtopt_field_extractor`, and other commands on your `PATH`.  An editable install is useful during
 development:
 
 ```bash
@@ -54,14 +54,14 @@ Each command-line tool lives in its own Python package directory under
 
 | Package directory | Command | Description |
 |-------------------|---------|-------------|
-| `gtopt_compare/` | `gtopt-compare` | pandapower ↔ gtopt comparison |
+| `gtopt_compare/` | `gtopt_compare` | pandapower ↔ gtopt comparison |
 | `cvs2parquet/` | `cvs2parquet` | CSV → Parquet converter |
-| `gtopt_diagram/` | `gtopt-diagram` | Network topology / planning diagrams |
-| `gtopt_field_extractor/` | `gtopt-field-extractor` | C++ header field metadata extractor |
+| `gtopt_diagram/` | `gtopt_diagram` | Network topology / planning diagrams |
+| `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
 | `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
 | `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
 | `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
-| `sddp_monitor/` | `sddp-monitor` | SDDP solver live monitoring dashboard |
+| `sddp_monitor/` | `sddp_monitor` | SDDP solver live monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
 
 ### Dependencies
@@ -73,15 +73,15 @@ Each command-line tool lives in its own Python package directory under
 | `pyarrow` | Parquet read/write |
 | `openpyxl` | Excel file support (`igtopt`) |
 | `pandapower` | Power system network data (`pp2gtopt`) |
-| `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt-diagram`) |
-| `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt-diagram`) |
-| `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt-diagram`) |
+| `graphviz` *(optional)* | SVG/PNG/PDF rendering (`gtopt_diagram`) |
+| `pyvis` *(optional)* | Interactive HTML diagrams (`gtopt_diagram`) |
+| `cairosvg` *(optional)* | High-res PNG/PDF export (`gtopt_diagram`) |
 
 ---
 
-## gtopt-diagram
+## gtopt_diagram
 
-> **[→ Full documentation](docs/scripts/gtopt-diagram.md)**
+> **[→ Full documentation](docs/scripts/gtopt_diagram.md)**
 
 Generates **network topology and planning-structure diagrams** from a gtopt
 JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
@@ -92,19 +92,19 @@ aggregation modes.
 
 ```bash
 # Auto mode (default) – picks the best aggregation for your case size
-gtopt-diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
+gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg
 
 # Interactive HTML with physics simulation
-gtopt-diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
+gtopt_diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
 
 # Mermaid Markdown snippet (no extra dependencies)
-gtopt-diagram cases/ieee_9b/ieee_9b.json --format mermaid
+gtopt_diagram cases/ieee_9b/ieee_9b.json --format mermaid
 
 # Network-only: no generator nodes (clean topology view)
-gtopt-diagram large_case.json --no-generators -o topo.svg
+gtopt_diagram large_case.json --no-generators -o topo.svg
 
 # Planning time-structure diagram
-gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
+gtopt_diagram cases/c0/system_c0.json --diagram-type planning --format html
 ```
 
 ### Output formats (`--format`)
@@ -132,16 +132,16 @@ gtopt-diagram cases/c0/system_c0.json --diagram-type planning --format html
 
 ```bash
 # Keep only buses ≥ 220 kV (lump low-voltage buses into HV neighbours)
-gtopt-diagram large_case.json --voltage-threshold 220 -o hv_topo.svg
+gtopt_diagram large_case.json --voltage-threshold 220 -o hv_topo.svg
 
 # Show only hydro generators within 3 hops of a specific bus
-gtopt-diagram large_case.json --filter-type hydro --focus-bus Chapo220 --focus-hops 3
+gtopt_diagram large_case.json --filter-type hydro --focus-bus Chapo220 --focus-hops 3
 
 # Hard node-count cap: escalate aggregation until ≤ 50 nodes remain
-gtopt-diagram large_case.json --max-nodes 50 -o compact.svg
+gtopt_diagram large_case.json --max-nodes 50 -o compact.svg
 
 # Keep only the top-2 generators per bus by pmax
-gtopt-diagram large_case.json --top-gens 2 -o top2.svg
+gtopt_diagram large_case.json --top-gens 2 -o top2.svg
 ```
 
 ### All options
@@ -790,7 +790,7 @@ Options:
 
 ---
 
-## sddp-monitor
+## sddp_monitor
 
 Interactive **SDDP solver monitoring dashboard**.  Polls the JSON status file
 written by the gtopt SDDP solver and displays live charts in two figure windows:
@@ -801,20 +801,20 @@ written by the gtopt SDDP solver and displays live charts in two figure windows:
 
 ```bash
 # Monitor the default output/sddp_status.json
-sddp-monitor
+sddp_monitor
 
 # Specify a custom status file and polling interval
-sddp-monitor --status-file /path/to/sddp_status.json --poll 2.0
+sddp_monitor --status-file /path/to/sddp_status.json --poll 2.0
 
 # Headless mode (print to stdout, no GUI window)
-sddp-monitor --no-gui
+sddp_monitor --no-gui
 ```
 
 The tool exits when the solver reports "converged" or when you press Ctrl-C.
 
 ---
 
-## gtopt-field-extractor
+## gtopt_field_extractor
 
 Extracts **field metadata** from gtopt C++ headers and generates Markdown or
 HTML documentation tables.  Parses `///< Description [units]` comments on
@@ -823,13 +823,13 @@ struct member declarations and produces a table with columns:
 
 ```bash
 # Dump all element tables to stdout as Markdown
-gtopt-field-extractor
+gtopt_field_extractor
 
 # Write full HTML reference to a file
-gtopt-field-extractor --format html --output INPUT_DATA_API.html
+gtopt_field_extractor --format html --output INPUT_DATA_API.html
 
 # Extract only Generator and Demand elements
-gtopt-field-extractor --elements Generator Demand
+gtopt_field_extractor --elements Generator Demand
 ```
 
 ---

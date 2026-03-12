@@ -3,7 +3,7 @@ Scripts
 -------
 
 CMake configuration for installing and testing the gtopt Python scripts:
-gtopt-compare, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
+gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt.
 
 The scripts/ directory is a self-contained Python package with its own
 ``pyproject.toml``, ``requirements.txt``, and ``requirements-dev.txt``, so
@@ -566,7 +566,7 @@ install(CODE "
     message(FATAL_ERROR \"pip install failed (exit code \${_pip_rc})\")
   endif()
   message(STATUS \"Scripts installed to \${CMAKE_INSTALL_PREFIX}/bin: \"
-    \"gtopt-compare, cvs2parquet, gtopt-diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
+    \"gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, ts2gtopt\")
 
   # Record the installed entry-point paths in a manifest file so that
   # `cmake --build build --target uninstall` can remove them.  pip installs
@@ -575,9 +575,9 @@ install(CODE "
   # this auxiliary manifest to fill that gap.
   set(_scripts_manifest \"${CMAKE_CURRENT_BINARY_DIR}/scripts_install_manifest.txt\")
   set(_entry_points
-    gtopt-compare
+    gtopt_compare
     cvs2parquet
-    gtopt-diagram
+    gtopt_diagram
     igtopt
     plp2gtopt
     pp2gtopt
