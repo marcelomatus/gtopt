@@ -78,6 +78,57 @@ TEST_CASE("UserConstraint JSON round-trip")
   CHECK(roundtrip.active.value_or(false) == true);
   CHECK(roundtrip.expression == R"(line("L1").flow <= 200)");
   CHECK(roundtrip.description.value_or("") == "Maximum flow on line L1");
+  CHECK_FALSE(roundtrip.constraint_type.has_value());
+}
+
+TEST_CASE("UserConstraint constraint_type field — power")
+{
+  using namespace gtopt;
+
+  std::string_view json_data = R"({
+    "uid": 10,
+    "name": "gen_limit",
+    "expression": "generator(\"G1\").generation <= 100",
+    "constraint_type": "power"
+  })";
+
+  const auto uc = daw::json::from_json<UserConstraint>(json_data);
+  REQUIRE(uc.constraint_type.has_value());
+  CHECK(uc.constraint_type.value_or("") == "power");
+}
+
+TEST_CASE("UserConstraint constraint_type field — energy")
+{
+  using namespace gtopt;
+
+  std::string_view json_data = R"({
+    "uid": 11,
+    "name": "energy_limit",
+    "expression": "battery(\"B1\").energy <= 100",
+    "constraint_type": "energy"
+  })";
+
+  const auto uc = daw::json::from_json<UserConstraint>(json_data);
+  REQUIRE(uc.constraint_type.has_value());
+  CHECK(uc.constraint_type.value_or("") == "energy");
+}
+
+TEST_CASE("UserConstraint constraint_type round-trip")
+{
+  using namespace gtopt;
+
+  const UserConstraint uc {
+      .uid = 20,
+      .name = "energy_cap",
+      .expression = "battery(\"bat\").energy <= 500",
+      .constraint_type = "energy",
+  };
+
+  auto json = daw::json::to_json(uc);
+  const auto rt = daw::json::from_json<UserConstraint>(json);
+
+  REQUIRE(rt.constraint_type.has_value());
+  CHECK(rt.constraint_type.value_or("") == "energy");
 }
 
 TEST_CASE("UserConstraint description field — absent is nullopt")
@@ -92,6 +143,7 @@ TEST_CASE("UserConstraint description field — absent is nullopt")
 
   const auto uc = daw::json::from_json<UserConstraint>(json_data);
   CHECK_FALSE(uc.description.has_value());
+  CHECK_FALSE(uc.constraint_type.has_value());
 }
 
 TEST_CASE("System JSON with user_constraint_array")
