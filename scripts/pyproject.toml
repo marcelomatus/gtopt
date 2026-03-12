@@ -6,7 +6,7 @@
 #   pip install -e ./scripts       # editable install from repo root
 #   pip install -e .               # editable install from inside scripts/
 #
-# The console-script entry-points (gtopt-compare, cvs2parquet, gtopt-diagram,
+# The console-script entry-points (gtopt_compare, cvs2parquet, gtopt_diagram,
 # igtopt, plp2gtopt, pp2gtopt, ts2gtopt) are registered here so they land on
 # PATH alongside the gtopt binary.
 
@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (gtopt-compare, cvs2parquet, gtopt-diagram, gtopt-check-lp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -28,15 +28,15 @@ dependencies = [
 ]
 
 [project.scripts]
-gtopt-compare         = "gtopt_compare.main:main"
+gtopt_compare         = "gtopt_compare.main:main"
 cvs2parquet           = "cvs2parquet.cvs2parquet:main"
-gtopt-diagram         = "gtopt_diagram:main"
-gtopt-field-extractor = "gtopt_field_extractor:main"
-gtopt-check-lp        = "gtopt_check_lp.gtopt_check_lp:main"
+gtopt_diagram         = "gtopt_diagram:main"
+gtopt_field_extractor = "gtopt_field_extractor:main"
+gtopt_check_lp        = "gtopt_check_lp.gtopt_check_lp:main"
 igtopt                = "igtopt.igtopt:main"
 plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
-sddp-monitor          = "sddp_monitor:main"
+sddp_monitor          = "sddp_monitor:main"
 ts2gtopt              = "ts2gtopt.main:main"
 
 
