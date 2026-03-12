@@ -27,8 +27,8 @@ namespace gtopt
 
 FiltrationLP::FiltrationLP(const Filtration& pfiltration, InputContext& ic)
     : ObjectLP<Filtration>(pfiltration)
-    , m_slope_sched_(ic, ClassName, id(), std::move(pfiltration.slope))
-    , m_constant_sched_(ic, ClassName, id(), std::move(pfiltration.constant))
+    , m_slope_sched_(ic, ClassName, id(), std::move(filtration().slope))
+    , m_constant_sched_(ic, ClassName, id(), std::move(filtration().constant))
 {
 }
 
