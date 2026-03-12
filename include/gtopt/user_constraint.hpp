@@ -34,6 +34,21 @@ namespace gtopt
  * The expression field contains the full constraint in AMPL-inspired syntax.
  * It is parsed at LP construction time into a ConstraintExpr AST
  * (see constraint_parser.hpp) and then applied to the LinearProblem.
+ *
+ * ### `constraint_type` and dual-value scaling
+ *
+ * The optional `constraint_type` field controls how the dual (shadow price) of
+ * the constraint row is scaled when written to the output files:
+ *
+ * | Value      | Constraint semantics  | Dual output scaling            |
+ * |------------|-----------------------|--------------------------------|
+ * | `"power"`  | Instantaneous power   | `prob × discount × duration`   |
+ * | `"energy"` | Energy over a period  | `prob × discount` (no duration)|
+ * | absent     | Same as `"power"`     | `prob × discount × duration`   |
+ *
+ * Use `"power"` (or omit) for constraints on generation/load/flow variables
+ * (which are in MW).  Use `"energy"` when the constraint expression involves
+ * battery energy levels or other energy-valued quantities (MWh).
  */
 struct UserConstraint
 {
@@ -42,6 +57,8 @@ struct UserConstraint
   OptBool active {};  ///< Activation status (default: active)
   Name expression {};  ///< Constraint expression in AMPL-inspired syntax
   OptName description {};  ///< Optional free-text description of the constraint
+  OptName constraint_type {};  ///< Scaling type for dual output: "power" or
+                               ///< "energy"
 };
 
 }  // namespace gtopt

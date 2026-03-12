@@ -123,11 +123,13 @@ constexpr auto add_to_lp(auto& collections,
   return count;
 }
 
-constexpr auto create_linear_interface(auto& collections,
-                                       SystemContext& system_context,
-                                       const PhaseLP& phase,
-                                       const SceneLP& scene,
-                                       const auto& flat_opts)
+constexpr auto create_linear_interface(
+    auto& collections,
+    SystemContext& system_context,
+    const PhaseLP& phase,
+    const SceneLP& scene,
+    const auto& flat_opts,
+    std::vector<UserConstraintState>& uc_states)
 {
   LinearProblem lp;
   // Process all active stages in phase
@@ -141,10 +143,11 @@ constexpr auto create_linear_interface(auto& collections,
   // Apply user-defined constraints to the LP before flattening.
   // The constraints are stored in the System object (accessible via the
   // SystemLP that owns this system_context).
+  // The returned states hold row indices for later dual-value output.
   const auto& user_constraints =
       system_context.system().system().user_constraint_array;
   if (!user_constraints.empty()) {
-    add_user_constraints_to_lp(
+    uc_states = add_user_constraints_to_lp(
         user_constraints, system_context, phase, scene, lp);
   }
 
@@ -218,8 +221,12 @@ namespace gtopt
 {
 void SystemLP::create_lp(const FlatOptions& flat_opts)
 {
-  m_linear_interface_ = create_linear_interface(
-      collections(), system_context(), phase(), scene(), flat_opts);
+  m_linear_interface_ = create_linear_interface(collections(),
+                                                system_context(),
+                                                phase(),
+                                                scene(),
+                                                flat_opts,
+                                                m_user_constraint_states_);
 }
 
 SystemLP::SystemLP(const System& system,
@@ -259,6 +266,11 @@ void SystemLP::write_out() const
   if (count <= 0) {
     SPDLOG_WARN("No elements added to output");
     return;
+  }
+
+  // Write dual values for user-defined constraints (if any were added).
+  if (!m_user_constraint_states_.empty()) {
+    add_user_constraints_to_output(m_user_constraint_states_, oc);
   }
 
   oc.write();

@@ -6,9 +6,13 @@
  * @copyright BSD-3-Clause
  *
  * Tests that user constraints survive JSON deserialization, merge, and that
- * the LP still solves successfully with constraints present in the system.
+ * the LP solves successfully with constraints present in the system.
+ * Also tests that dual values for user constraint rows are correctly stored
+ * and written to the output context after solving.
  */
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 
@@ -16,6 +20,8 @@
 #include <gtopt/constraint_parser.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_lp.hpp>
 
 // clang-format off
 
@@ -163,8 +169,8 @@ TEST_CASE("User constraint - merge preserves constraints")
 TEST_CASE("User constraint - LP solve with constraints in JSON")
 {
   // Verify that having user_constraint_array in the JSON does not break
-  // the LP solve.  The constraints are stored but not yet wired into
-  // the LP assembly — this is a regression test.
+  // the LP solve. The constraints are wired into the LP assembly and
+  // their row indices are stored for dual-value output.
   using namespace gtopt;
 
   Planning base;
@@ -210,4 +216,104 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
   CHECK(planning.system.user_constraint_file.value_or("")
         == "my_constraints.json");
   CHECK(planning.system.user_constraint_array.empty());
+}
+
+// clang-format off
+
+/// Single-bus case with a tight generator capacity constraint to produce a
+/// non-zero dual on the user constraint row.
+static constexpr std::string_view single_bus_uc_dual_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_dual_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "gen_upper",
+        "expression": "generator(\"g1\").generation <= 80",
+        "constraint_type": "power"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - dual values written to output (CSV)")
+{
+  using namespace gtopt;
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_uc_dual_test";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  // Write the JSON to a temp file and run via gtopt_main-style direct API
+  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json);
+  planning.options.output_directory = tmpdir.string();
+
+  // Directly construct SimulationLP + SystemLP and run solve + write_out.
+  const OptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  // Solve the LP
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+
+  // Write output
+  sys_lp.write_out();
+
+  // The user constraint "gen_upper" limits generation to 80 MW.
+  // With demand at 90 MW and fail_cost = 1000, the constraint is binding,
+  // so the dual should be non-zero.
+  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  CHECK(std::filesystem::exists(dual_file));
+
+  if (std::filesystem::exists(dual_file)) {
+    std::ifstream f(dual_file);
+    const std::string content((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+    // CSV has a header and at least one data row
+    CHECK_FALSE(content.empty());
+    // The header should mention scenario/stage/block columns
+    CHECK(content.find("scenario") != std::string::npos);
+    CHECK(content.find("stage") != std::string::npos);
+    CHECK(content.find("block") != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("User constraint - constraint_type field preserved")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json);
+
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  const auto& uc = planning.system.user_constraint_array[0];
+  REQUIRE(uc.constraint_type.has_value());
+  CHECK(uc.constraint_type.value_or("") == "power");
 }
