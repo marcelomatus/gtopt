@@ -4,25 +4,23 @@
 import pathlib
 import subprocess
 import sys
-from io import StringIO
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gtopt_check_lp.gtopt_check_lp import (
-    LPStats,
     NeosClient,
-    VariableBounds,
     _build_parser,
+    _parse_coinor_infeasibility,
     analyze_lp_file,
     check_lp,
     format_static_report,
+    main,
+    run_local_coinor,
     run_local_cplex,
     run_local_glpk,
     run_local_highs_binary,
-    main,
 )
 
 # ── Case directories ─────────────────────────────────────────────────────────
@@ -192,7 +190,7 @@ class TestCLIParser:
 
     def test_solver_choices(self):
         parser = _build_parser()
-        for choice in ("auto", "cplex", "highs", "glpk", "neos"):
+        for choice in ("auto", "cplex", "highs", "coinor", "glpk", "neos"):
             args = parser.parse_args(["dummy.lp", "--solver", choice])
             assert args.solver == choice
 
@@ -286,8 +284,92 @@ class TestLocalSolverStubs:
         assert not ok
         assert "glpsol" in msg.lower()
 
+    def test_coinor_not_found(self):
+        with patch("shutil.which", return_value=None):
+            ok, msg = run_local_coinor(Path("dummy.lp"))
+        assert not ok
+        assert "clp" in msg.lower() or "cbc" in msg.lower()
 
-# ── NEOS client (mocked) ──────────────────────────────────────────────────────
+
+# ── COIN-OR (CLP / CBC) tests ─────────────────────────────────────────────────
+
+
+class TestCoinOR:
+    """Tests for the COIN-OR CLP/CBC runner."""
+
+    def test_parse_coinor_infeasibility_detects_primal(self):
+        """_parse_coinor_infeasibility finds the 'PrimalInfeasible' line."""
+        output = (
+            "Coin LP version 1.17.9\n"
+            "Presolve determined that the problem was infeasible with tolerance of 1e-08\n"
+            "0  Obj 0 Primal inf 9.9999999 (1)\n"
+            "Primal infeasible - objective value 10\n"
+            "PrimalInfeasible objective 10 - 1 iterations time 0.002\n"
+        )
+        findings = _parse_coinor_infeasibility(output)
+        assert any("infeasible" in f.lower() for f in findings)
+
+    def test_parse_coinor_infeasibility_bad_bounds(self):
+        """_parse_coinor_infeasibility finds 'bad bound pairs' message."""
+        output = (
+            "1 bad bound pairs or bad objectives were found - first at C0\n"
+            "Primal infeasible - objective value 5\n"
+        )
+        findings = _parse_coinor_infeasibility(output)
+        assert len(findings) == 2
+        assert any("bad bound" in f.lower() for f in findings)
+
+    def test_parse_coinor_infeasibility_empty(self):
+        """_parse_coinor_infeasibility returns empty list for feasible output."""
+        output = "Optimal - objective value 10\n1 iterations time 0.002\n"
+        findings = _parse_coinor_infeasibility(output)
+        assert not findings
+
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_coinor_infeasible_detected(self):
+        """CLP/CBC correctly identifies my_small_bad.lp as infeasible."""
+        ok, output = run_local_coinor(_MY_SMALL_BAD, timeout=10)
+        assert ok, f"run_local_coinor returned failure: {output}"
+        assert any(kw in output.lower() for kw in ("infeasible", "primalinfeasible")), (
+            f"Expected infeasibility in output:\n{output}"
+        )
+
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_coinor_bad_bounds_detected(self):
+        """CLP/CBC reports 'bad bound pairs' for bad_bounds.lp."""
+        ok, output = run_local_coinor(_BAD_BOUNDS, timeout=10)
+        assert ok, f"run_local_coinor returned failure: {output}"
+        assert any(kw in output.lower() for kw in ("infeasible", "bad bound")), (
+            f"Expected infeasibility in output:\n{output}"
+        )
+
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_coinor_feasible_not_flagged(self):
+        """CLP/CBC does not report infeasibility for a feasible LP."""
+        ok, output = run_local_coinor(_FEASIBLE_SMALL, timeout=10)
+        assert ok, f"run_local_coinor returned failure: {output}"
+        findings = _parse_coinor_infeasibility(output)
+        assert not findings, (
+            f"Feasible LP should have no infeasibility findings but got: {findings}"
+        )
+
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_check_lp_coinor_solver(self):
+        """check_lp() with --solver coinor returns 0 and includes COIN-OR output."""
+        rc = check_lp(_MY_SMALL_BAD, solver="coinor", timeout=10)
+        assert rc == 0
 
 
 class TestNeosClient:
@@ -308,9 +390,7 @@ class TestNeosClient:
         assert client.ping() is False
 
     def test_submit_returns_job_number(self, tmp_path):
-        lp = _write_lp(
-            tmp_path, "test.lp", "Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n"
-        )
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n")
         client = NeosClient()
         mock_proxy = MagicMock()
         mock_proxy.submitJob.return_value = (12345, "secret")
@@ -320,9 +400,7 @@ class TestNeosClient:
         assert pwd == "secret"
 
     def test_submit_error_response(self, tmp_path):
-        lp = _write_lp(
-            tmp_path, "test.lp", "Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n"
-        )
+        lp = _write_lp(tmp_path, "test.lp", "Minimize\n obj: x\nBounds\n 0 <= x\nEnd\n")
         client = NeosClient()
         mock_proxy = MagicMock()
         mock_proxy.submitJob.return_value = (-1, "error message")
@@ -382,6 +460,7 @@ class TestSubprocessRun:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         assert result.returncode == 0
         combined = result.stdout + result.stderr
@@ -402,9 +481,43 @@ class TestSubprocessRun:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         assert result.returncode == 0
         combined = result.stdout + result.stderr
         # The constraint conflict is not detectable without a solver,
         # but the script should at least report problem statistics.
-        assert "Static Analysis" in combined or "Minimize" in combined or "x1" in combined
+        assert (
+            "Static Analysis" in combined or "Minimize" in combined or "x1" in combined
+        )
+
+    @pytest.mark.integration
+    @pytest.mark.skipif(
+        not (__import__("shutil").which("clp") or __import__("shutil").which("cbc")),
+        reason="COIN-OR clp/cbc not available",
+    )
+    def test_coinor_solver_subprocess(self):
+        """Run gtopt-check-lp --solver coinor on my_small_bad.lp."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gtopt_check_lp.gtopt_check_lp",
+                str(_MY_SMALL_BAD),
+                "--solver",
+                "coinor",
+                "--no-color",
+                "--timeout",
+                "10",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        # CLP/CBC output should confirm infeasibility
+        assert any(
+            kw in combined.lower() for kw in ("infeasible", "coin-or", "clp", "cbc")
+        ), f"Expected COIN-OR infeasibility output:\n{combined}"

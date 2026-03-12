@@ -249,11 +249,12 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
                 local_max = max(abs_coeffs)
                 local_min = min(abs_coeffs)
                 stats.max_abs_coeff = max(stats.max_abs_coeff, local_max)
-                if local_min < stats.min_abs_nonzero_coeff:
-                    stats.min_abs_nonzero_coeff = local_min
+                stats.min_abs_nonzero_coeff = min(
+                    stats.min_abs_nonzero_coeff, local_min
+                )
                 if local_max >= _LARGE_COEFF_THRESHOLD:
                     stats.large_coeff_constraints.append(name)
-                if local_min <= _SMALL_COEFF_THRESHOLD and local_min > 0.0:
+                if 0.0 < local_min <= _SMALL_COEFF_THRESHOLD:
                     stats.small_coeff_constraints.append(name)
 
     # ---- Parse variables mentioned in objective/constraints ---------------
@@ -269,7 +270,11 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
         # Check for section header
         matched_section = None
         for key, sec in sections_start.items():
-            if lower == key or lower.startswith(key + " ") or lower.startswith(key + ":"):
+            if (
+                lower == key
+                or lower.startswith(key + " ")
+                or lower.startswith(key + ":")
+            ):
                 matched_section = sec
                 break
 
@@ -309,17 +314,13 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
                 stats.n_constraints += 1
                 # Collect variable names
                 all_var_names.update(
-                    v
-                    for v in _VAR_RE.findall(line)
-                    if not re.match(r"^[eE]$", v)
+                    v for v in _VAR_RE.findall(line) if not re.match(r"^[eE]$", v)
                 )
             elif current_con_name:
                 # Continuation of current constraint
                 current_con_expr += " " + line
                 all_var_names.update(
-                    v
-                    for v in _VAR_RE.findall(line)
-                    if not re.match(r"^[eE]$", v)
+                    v for v in _VAR_RE.findall(line) if not re.match(r"^[eE]$", v)
                 )
 
         elif section == "bounds":
@@ -408,9 +409,7 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
 
             # Collect any variable names
             all_var_names.update(
-                v
-                for v in _VAR_RE.findall(line)
-                if not re.match(r"^[eE]$", v)
+                v for v in _VAR_RE.findall(line) if not re.match(r"^[eE]$", v)
             )
 
         elif section == "general":
@@ -501,13 +500,9 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
 
     # Issues
     if not stats.has_issues():
-        lines.append(
-            f"\n{_c(_GREEN, '✓ No obvious static infeasibilities detected.')}"
-        )
+        lines.append(f"\n{_c(_GREEN, '✓ No obvious static infeasibilities detected.')}")
     else:
-        lines.append(
-            f"\n{_c(_BOLD, _c(_RED, '⚠ Potential infeasibility causes:'))}"
-        )
+        lines.append(f"\n{_c(_BOLD, _c(_RED, '⚠ Potential infeasibility causes:'))}")
 
         if stats.infeasible_bounds:
             lines.append(
@@ -517,9 +512,7 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
             for vb in stats.infeasible_bounds[:20]:
                 lines.append(f"    • {vb.name}: lb={vb.lb:g}  >  ub={vb.ub:g}")
             if len(stats.infeasible_bounds) > 20:
-                lines.append(
-                    f"    … and {len(stats.infeasible_bounds) - 20} more"
-                )
+                lines.append(f"    … and {len(stats.infeasible_bounds) - 20} more")
 
         if stats.empty_constraints:
             lines.append(
@@ -529,21 +522,26 @@ def format_static_report(lp_path: Path, stats: LPStats) -> str:
             for name in stats.empty_constraints[:10]:
                 lines.append(f"    • {name}")
             if len(stats.empty_constraints) > 10:
-                lines.append(
-                    f"    … and {len(stats.empty_constraints) - 10} more"
-                )
+                lines.append(f"    … and {len(stats.empty_constraints) - 10} more")
 
         if stats.duplicate_constraint_names:
-            lines.append(
-                f"\n  {_c(_YELLOW, f'Duplicate constraint names ({len(stats.duplicate_constraint_names)}):')} "
+            dup_label = _c(
+                _YELLOW,
+                f"Duplicate constraint names "
+                f"({len(stats.duplicate_constraint_names)}):",
             )
+            lines.append(f"\n  {dup_label}")
             for name in stats.duplicate_constraint_names[:10]:
                 lines.append(f"    • {name}")
 
         if stats.large_coeff_constraints:
+            large_label = _c(
+                _YELLOW,
+                f"Constraints with very large coefficients"
+                f" (≥ {_LARGE_COEFF_THRESHOLD:.0e}):",
+            )
             lines.append(
-                f"\n  {_c(_YELLOW, f'Constraints with very large coefficients (≥ {_LARGE_COEFF_THRESHOLD:.0e}):')} "
-                f"({len(stats.large_coeff_constraints)} constraints)"
+                f"\n  {large_label} ({len(stats.large_coeff_constraints)} constraints)"
             )
             for name in stats.large_coeff_constraints[:10]:
                 lines.append(f"    • {name}")
@@ -618,7 +616,7 @@ def run_local_cplex(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
     finally:
         try:
             Path(script_path).unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             pass
 
 
@@ -668,7 +666,7 @@ def run_local_highs_python(lp_path: Path) -> tuple[bool, str]:
     Returns ``(success, output)``.
     """
     try:
-        import highspy  # type: ignore[import]  # noqa: PLC0415
+        import highspy  # noqa: PLC0415
     except ImportError:
         return False, "highspy Python package not installed."
 
@@ -695,12 +693,12 @@ def run_local_highs_python(lp_path: Path) -> tuple[bool, str]:
                 lines.append(f"  Infeasible constraints ({len(iis.row_index)}):")
                 for ri in iis.row_index:
                     lines.append(f"    • row index {ri}")
-        except (AttributeError, Exception) as exc:  # noqa: BLE001
+        except (AttributeError, Exception) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             lines.append(f"  IIS not available: {exc}")
             lines.append(f"  Solution status info: {info}")
 
         return True, "\n".join(lines)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         return False, f"highspy error: {exc}"
 
 
@@ -886,7 +884,7 @@ class NeosClient:
         try:
             msg = self._get_proxy().ping()
             return "NEOS" in str(msg)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             return False
 
     def submit_lp(
@@ -909,9 +907,9 @@ class NeosClient:
             if isinstance(result, (list, tuple)) and len(result) == 2:
                 job_number, password = result
                 if isinstance(job_number, int) and job_number > 0:
-                    return job_number, password
-                return None, f"NEOS returned error: {result}"
-            return None, f"Unexpected NEOS response: {result}"
+                    return job_number, str(password)
+                return None, f"NEOS returned error: {result!r}"
+            return None, f"Unexpected NEOS response: {result!r}"
         except xmlrpc.client.Fault as exc:
             return None, f"NEOS XML-RPC fault: {exc}"
         except OSError as exc:
@@ -933,7 +931,7 @@ class NeosClient:
         while time.monotonic() < deadline:
             try:
                 status = str(proxy.getJobStatus(job_number, password))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                 return False, f"Error polling NEOS: {exc}"
 
             if status != last_status:
@@ -943,15 +941,15 @@ class NeosClient:
             if status == "Done":
                 try:
                     raw = proxy.getFinalResults(job_number, password)
-                    # getFinalResults may return bytes or a Binary object
-                    if hasattr(raw, "data"):
+                    # getFinalResults may return bytes or an xmlrpc.client.Binary object
+                    if isinstance(raw, xmlrpc.client.Binary):
                         output = raw.data.decode("utf-8", errors="replace")
                     elif isinstance(raw, bytes):
                         output = raw.decode("utf-8", errors="replace")
                     else:
                         output = str(raw)
                     return True, output
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                     return False, f"Error retrieving NEOS results: {exc}"
 
             if status in ("Error", "Unknown"):
@@ -959,7 +957,10 @@ class NeosClient:
 
             time.sleep(poll_interval)
 
-        return False, f"Timed out waiting for NEOS job {job_number} after {self.timeout}s."
+        return (
+            False,
+            f"Timed out waiting for NEOS job {job_number} after {self.timeout}s.",
+        )
 
     def submit_and_wait(
         self, lp_path: Path, email: str, poll_interval: float = 5.0
@@ -995,11 +996,17 @@ class NeosClient:
 def _detect_local_solvers() -> list[str]:
     """Return names of local solvers that are available on PATH."""
     available = []
-    for name, binary in [("CPLEX", "cplex"), ("HiGHS", "highs"), ("GLPK", "glpsol")]:
+    for name, binary in [
+        ("CPLEX", "cplex"),
+        ("HiGHS", "highs"),
+        ("CLP (COIN-OR)", "clp"),
+        ("CBC (COIN-OR)", "cbc"),
+        ("GLPK", "glpsol"),
+    ]:
         if shutil.which(binary):
             available.append(name)
     try:
-        import highspy  # type: ignore[import]  # noqa: F401, PLC0415
+        import highspy  # noqa: F401, PLC0415  # pylint: disable=unused-import
 
         if "HiGHS" not in available:
             available.append("HiGHS (Python)")
@@ -1019,20 +1026,20 @@ def run_iis(
     email: str,
     neos_url: str,
     timeout: int,
-) -> Optional[tuple[bool, str, str]]:
+) -> tuple[bool, str, str]:
     """
     Try to find the IIS using the requested strategy.
 
-    Returns ``(success, solver_name, output)`` or None if no solver was tried.
+    Returns ``(success, solver_name, output)``.
     """
     solver_lower = solver.lower()
     tried: list[tuple[str, Any]] = []
 
-    def _try_cplex() -> Optional[tuple[bool, str, str]]:
+    def _try_cplex() -> tuple[bool, str, str]:
         ok, out = run_local_cplex(lp_path, timeout=timeout)
         return (ok, "CPLEX (local)", out)
 
-    def _try_highs() -> Optional[tuple[bool, str, str]]:
+    def _try_highs() -> tuple[bool, str, str]:
         # Prefer Python bindings (more info) over binary
         ok, out = run_local_highs_python(lp_path)
         if ok:
@@ -1040,11 +1047,15 @@ def run_iis(
         ok, out = run_local_highs_binary(lp_path, timeout=timeout)
         return (ok, "HiGHS (binary)", out)
 
-    def _try_glpk() -> Optional[tuple[bool, str, str]]:
+    def _try_coinor() -> tuple[bool, str, str]:
+        ok, out = run_local_coinor(lp_path, timeout=timeout)
+        return (ok, "COIN-OR (clp/cbc)", out)
+
+    def _try_glpk() -> tuple[bool, str, str]:
         ok, out = run_local_glpk(lp_path, timeout=timeout)
         return (ok, "GLPK", out)
 
-    def _try_neos() -> Optional[tuple[bool, str, str]]:
+    def _try_neos() -> tuple[bool, str, str]:
         if not email:
             return (
                 False,
@@ -1059,13 +1070,23 @@ def run_iis(
         return _try_cplex()
     if solver_lower == "highs":
         return _try_highs()
+    if solver_lower in ("coinor", "clp", "cbc"):
+        return _try_coinor()
     if solver_lower == "glpk":
         return _try_glpk()
     if solver_lower == "neos":
         return _try_neos()
 
     # auto: try local solvers in order, fall back to NEOS
-    for label, fn in [("CPLEX", _try_cplex), ("HiGHS", _try_highs), ("GLPK", _try_glpk)]:
+    # COIN-OR (clp/cbc) is placed after CPLEX/HiGHS since it doesn't provide
+    # IIS, but placed before GLPK because it is the solver gtopt uses
+    # internally and will always be available on gtopt-enabled systems.
+    for label, fn in [
+        ("CPLEX", _try_cplex),
+        ("HiGHS", _try_highs),
+        ("COIN-OR", _try_coinor),
+        ("GLPK", _try_glpk),
+    ]:
         ok, solver_name, out = fn()
         if ok:
             return (True, solver_name, out)
@@ -1137,22 +1158,18 @@ def check_lp(
         print("\n  No local solvers found on PATH.")
 
     if solver != "auto" or available or email:
-        print(f"\n  Running IIS analysis (solver={solver}) …")
-        result = run_iis(lp_path, solver, email, neos_url, timeout)
-        if result is not None:
-            ok, solver_name, out = result
-            iis_report = _format_iis_report(solver_name, ok, out)
-            print(iis_report)
-            report_parts.append(iis_report)
-        else:
-            msg = "  (No IIS analysis performed.)"
-            print(msg)
-            report_parts.append(msg)
+        print(f"\n  Running solver analysis (solver={solver}) …")
+        ok, solver_name, out = run_iis(lp_path, solver, email, neos_url, timeout)
+        iis_report = _format_iis_report(solver_name, ok, out)
+        print(iis_report)
+        report_parts.append(iis_report)
     else:
         hint = (
             f"\n{_c(_YELLOW, 'Tip:')} "
-            "Install a local solver (CPLEX, HiGHS, or GLPK) or provide\n"
-            "  --email <address> to submit to the NEOS server for IIS analysis."
+            "Install a local solver (CPLEX, HiGHS, CLP/CBC, or GLPK) or provide\n"
+            "  --email <address> to submit to the NEOS server for IIS analysis.\n"
+            "  CLP/CBC (coinor-clp / coinor-cbc) are usually available on\n"
+            "  systems where gtopt is installed: sudo apt install coinor-clp coinor-cbc"
         )
         print(hint)
         report_parts.append(hint)
@@ -1198,13 +1215,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "Analyze an infeasible LP file generated by gtopt.\n\n"
             "Performs static analysis (bound conflicts, empty constraints,\n"
             "numerical range) and optionally finds the IIS using a local\n"
-            "solver (CPLEX, HiGHS, GLPK) or the NEOS online server."
+            "solver (CPLEX, HiGHS, COIN-OR CLP/CBC, GLPK) or the NEOS\n"
+            "online server."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  gtopt-check-lp error_0.lp\n"
             "  gtopt-check-lp error_0.lp --analyze-only\n"
+            "  gtopt-check-lp error_0.lp --solver coinor\n"
             "  gtopt-check-lp error_0.lp --solver highs\n"
             "  gtopt-check-lp error_0.lp --solver neos --email user@example.com\n"
             "  gtopt-check-lp error_0.lp --output report.txt\n"
@@ -1223,10 +1242,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--solver",
         default="auto",
-        choices=["auto", "cplex", "highs", "glpk", "neos"],
+        choices=["auto", "cplex", "highs", "coinor", "glpk", "neos"],
         help=(
-            "IIS solver to use.  'auto' tries local solvers first, "
-            "then NEOS (default: auto)."
+            "Infeasibility solver to use.  'coinor' runs CLP or CBC (same\n"
+            "solver family as gtopt itself).  'auto' tries local solvers\n"
+            "in order (CPLEX → HiGHS → COIN-OR → GLPK) then NEOS\n"
+            "(default: auto)."
         ),
     )
 
