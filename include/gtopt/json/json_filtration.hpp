@@ -26,17 +26,17 @@ struct json_data_contract<FiltrationSegment>
 template<>
 struct json_data_contract<Filtration>
 {
-  using type =
-      json_member_list<json_number<"uid", Uid>,
-                       json_string<"name", Name>,
-                       json_variant_null<"active", OptActive, jvtl_Active>,
-                       json_variant<"waterway", SingleId>,
-                       json_variant<"reservoir", SingleId>,
-                       json_number_null<"slope", Real>,
-                       json_number_null<"constant", Real>,
-                       json_array_null<"segments",
-                                       std::vector<FiltrationSegment>,
-                                       FiltrationSegment>>;
+  using type = json_member_list<
+      json_number<"uid", Uid>,
+      json_string<"name", Name>,
+      json_variant_null<"active", OptActive, jvtl_Active>,
+      json_variant<"waterway", SingleId>,
+      json_variant<"reservoir", SingleId>,
+      json_variant_null<"slope", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"constant", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_array_null<"segments",
+                      std::vector<FiltrationSegment>,
+                      FiltrationSegment>>;
 
   static constexpr auto to_json_data(Filtration const& filtration)
   {

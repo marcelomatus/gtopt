@@ -1,0 +1,24 @@
+# Archivo de Filtraciones de Embalses (plpfilemb.dat)
+# Numero Embalses con filtraciones
+2
+# Nombre de embalse
+'Reservoir1'
+# Filtraciones medias [m3/s]
+5.0
+# Numero de Tramos
+1
+#Tramo    Vol[10e6 m3]    Pendiente       Constante
+     1     0.0            0.16131527      2.189179627
+# Nombre de la Central aguas abajo
+'Central1'
+# Nombre de embalse
+'Reservoir2'
+# Filtraciones medias [m3/s]
+12.5
+# Numero de Tramos
+2
+#Tramo    Vol[10e6 m3]    Pendiente       Constante
+     1     0.0            0.003000        1.8
+     2     500.0          0.001000        4.8
+# Nombre de la Central aguas abajo
+'Central2'
