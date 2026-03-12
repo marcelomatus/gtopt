@@ -11,6 +11,7 @@ from .bus_parser import BusParser
 from .central_parser import CentralParser
 from .cenfi_parser import CenfiParser
 from .cenre_parser import CenreParser
+from .filemb_parser import FilembParser
 from .cost_parser import CostParser
 from .demand_parser import DemandParser
 from .line_parser import LineParser
@@ -104,6 +105,14 @@ class PLPParser:
             cfp = CenfiParser(cenfi_path)
             cfp.parse(self.parsed_data)
             self.parsed_data["cenfi_parser"] = cfp
+
+        # Primary PLP filtration model – plpfilemb.dat (Filtraciones de Embalses)
+        # Takes precedence over plpcenfi.dat when both are present.
+        filemb_path = self.input_path / "plpfilemb.dat"
+        if filemb_path.exists():
+            fmp = FilembParser(filemb_path)
+            fmp.parse(self.parsed_data)
+            self.parsed_data["filemb_parser"] = fmp
 
         # Optional: indhor.csv block-to-hour mapping
         indhor_path = self.input_path / "indhor.csv"
