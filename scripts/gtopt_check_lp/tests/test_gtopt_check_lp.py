@@ -604,7 +604,16 @@ class TestCoinOR:
 class TestNeosClient:
     """Tests for NeosClient with mocked XML-RPC."""
 
-    def test_ping_success(self):
+    def test_ping_success_neos_response(self):
+        """The real NEOS server returns 'NeosServer is alive\\n'."""
+        client = NeosClient()
+        mock_proxy = MagicMock()
+        mock_proxy.ping.return_value = "NeosServer is alive\n"
+        client._proxy = mock_proxy  # noqa: SLF001
+        assert client.ping() is True
+
+    def test_ping_success_legacy_response(self):
+        """Accept any message that contains 'alive' (case-insensitive)."""
         client = NeosClient()
         mock_proxy = MagicMock()
         mock_proxy.ping.return_value = "NEOS server is alive"
@@ -666,6 +675,19 @@ class TestNeosClient:
         )
         assert not ok
         assert "e-mail" in msg.lower() or "email" in msg.lower()
+
+    def test_xml_template_uses_post_not_commands(self):
+        """XML template must use <post> (not <commands>) and <comments> (not <comment>)."""
+        from gtopt_check_lp.gtopt_check_lp import _NEOS_LP_CPLEX_XML  # noqa: PLC0415
+
+        xml = _NEOS_LP_CPLEX_XML.format(
+            email="test@example.com", lp_content="Minimize\n obj: x\nEnd", version="1"
+        )
+        assert "<post>" in xml
+        assert "<commands>" not in xml
+        assert "<comments>" in xml
+        assert "<comment>" not in xml
+        assert "<client>" not in xml
 
 
 # ── Integration: run the script as a subprocess ───────────────────────────────
