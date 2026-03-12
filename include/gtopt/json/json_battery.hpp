@@ -39,6 +39,9 @@ struct json_data_contract<Battery>
       json_variant_null<"bus",
                         OptSingleId,
                         jvtl_SingleId>,  ///< Bus (unified definition)
+      json_variant_null<"source_generator",
+                        OptSingleId,
+                        jvtl_SingleId>,  ///< Source generator for coupled mode
       json_variant_null<"input_efficiency",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Input efficiency schedule
@@ -103,6 +106,7 @@ struct json_data_contract<Battery>
                                  battery.name,
                                  battery.active,
                                  battery.bus,
+                                 battery.source_generator,
                                  battery.input_efficiency,
                                  battery.output_efficiency,
                                  battery.annual_loss,

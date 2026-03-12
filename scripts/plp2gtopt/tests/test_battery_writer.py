@@ -577,3 +577,118 @@ def test_no_maintenance_no_parquet(tmp_path):
     assert not pmax_path.exists()
     emin_path = tmp_path / "Battery" / "emin.parquet"
     assert not emin_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# source_generator — generation-coupled battery mode
+# ---------------------------------------------------------------------------
+
+
+def test_battery_cenbat_injection_sets_source_generator(tmp_path):
+    """plpcenbat.dat with injection central produces source_generator in battery.
+
+    When NIny > 0, the first injection central name is set as source_generator,
+    enabling generation-coupled mode in System::expand_batteries().
+    """
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n 1     BESS1\n 1\n SOLAR1     0.95\n 3     0.95     0.0     200.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # source_generator is set to the first injection central name
+    assert b.get("source_generator") == "SOLAR1"
+    # Unified fields are still present (no DC maintenance)
+    assert "bus" in b
+    assert b["input_efficiency"] == pytest.approx(0.95)  # FPC from injection
+
+
+def test_battery_cenbat_no_injection_no_source_generator(tmp_path):
+    """plpcenbat.dat with NIny=0 (standalone) does not set source_generator."""
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n 1     BESS1\n 0\n 3     0.95     0.0     200.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # No injection centrals → no source_generator
+    assert b.get("source_generator") is None
+    assert "bus" in b  # still unified
+
+
+def test_ess_dcmod1_sets_source_generator(tmp_path):
+    """ESS with dcmod=1 and cenpc produces source_generator in battery.
+
+    When dcmod=1, the cenpc (primary charge central) is set as
+    source_generator, enabling generation-coupled mode in
+    System::expand_batteries().
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  1  SOLAR1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # source_generator is set to cenpc name
+    assert b.get("source_generator") == "SOLAR1"
+    # Unified fields present (no DC maintenance)
+    assert "bus" in b
+    assert "pmax_discharge" in b
+
+
+def test_ess_dcmod0_no_source_generator(tmp_path):
+    """ESS with dcmod=0 (standalone) does not set source_generator."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b.get("source_generator") is None
+
+
+def test_ess_dcmod1_empty_cenpc_no_source_generator(tmp_path):
+    """ESS with dcmod=1 but empty cenpc does not set source_generator."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # cenpc is empty → no source_generator
+    assert b.get("source_generator") is None
+
+
+def test_source_generator_not_set_in_dc_maintenance(tmp_path):
+    """source_generator is not set for entries with DC-maintenance (legacy path)."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  1  SOLAR1\n",
+    )
+    mp = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n2\n1  0.0  200.0  0.0  40.0  1\n2  0.0  180.0  0.0  35.0  1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # DC-maintenance path → no unified fields → no source_generator in battery
+    assert "bus" not in b
+    assert "source_generator" not in b

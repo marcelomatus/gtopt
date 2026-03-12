@@ -148,7 +148,8 @@ class BatteryWriter(BaseWriter):
 
           number, name, bus, busc, nc, nd, emin, emax,
           pmax_charge, pmax_discharge, annual_loss, has_maintenance,
-          man_stages, man_pmax_charge, man_pmax_discharge.
+          man_stages, man_pmax_charge, man_pmax_discharge,
+          source_generator.
 
         Priority:
         1. plpess.dat entries matched to BAT centrals (ESS model)
@@ -179,6 +180,14 @@ class BatteryWriter(BaseWriter):
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
 
+                # When dcmod=1 and cenpc is set, the battery is
+                # generation-coupled (the cenpc generator directly charges
+                # the battery via an internal bus created by
+                # expand_batteries()).
+                dcmod = item.get("dcmod", 0)
+                cenpc = item.get("cenpc", "")
+                source_gen = cenpc if dcmod == 1 and cenpc else None
+
                 entries.append(
                     {
                         "number": uid,
@@ -194,6 +203,7 @@ class BatteryWriter(BaseWriter):
                         "annual_loss": mloss * 12,
                         "has_maintenance": man is not None,
                         "man_data": man,
+                        "source_generator": source_gen,
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
@@ -215,6 +225,11 @@ class BatteryWriter(BaseWriter):
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
 
+                # When injection centrals (NIny > 0) are present, the first
+                # injection central is the source generator that directly
+                # charges the battery (generation-coupled mode).
+                source_gen = injections[0]["name"] if injections else None
+
                 entries.append(
                     {
                         "number": uid,
@@ -230,6 +245,7 @@ class BatteryWriter(BaseWriter):
                         "annual_loss": 0.0,
                         "has_maintenance": man is not None,
                         "man_data": man,
+                        "source_generator": source_gen,
                     }
                 )
 
@@ -244,6 +260,11 @@ class BatteryWriter(BaseWriter):
         fields (``bus``, ``pmax_charge``, ``pmax_discharge``, ``gcost``)
         are included so that ``System::expand_batteries()`` auto-generates
         the discharge Generator, charge Demand, and linking Converter.
+
+        When ``source_generator`` is set on the entry (generation-coupled
+        battery), it is included in the JSON so that
+        ``System::expand_batteries()`` creates an internal bus for the charge
+        path and connects the source generator to it.
 
         Entries with DC-maintenance (``man_data`` containing ``dcmax``)
         omit the ``bus`` field; the caller must create separate Generator,
@@ -274,6 +295,10 @@ class BatteryWriter(BaseWriter):
                 bat["pmax_charge"] = entry["pmax_charge"]
                 bat["pmax_discharge"] = entry["pmax_discharge"]
                 bat["gcost"] = 0.0
+                # Generation-coupled mode: include source_generator reference
+                source_gen = entry.get("source_generator")
+                if source_gen:
+                    bat["source_generator"] = source_gen
             batteries.append(bat)
         return batteries
 

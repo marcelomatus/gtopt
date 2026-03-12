@@ -155,6 +155,29 @@ exists, the ESS path takes priority; otherwise the battery path is used.
 | `plpcenbat.dat` | `BatteryParser` | Battery central definition (alternative to ESS) |
 | `plpmanbat.dat` | `ManbatParser` | Maintenance schedule for batteries (energy bounds per block) |
 
+### Generation-coupled battery (`source_generator`)
+
+When a battery (BESS or ESS) is coupled to a co-located generation asset
+(e.g. a solar plant that directly charges the battery), plp2gtopt sets the
+`source_generator` field on the battery JSON element.
+
+- **`plpess.dat`** — when `DCMod = 1` and `CenCarga` (cenpc) is non-empty,
+  that central is set as `source_generator`.
+- **`plpcenbat.dat`** — when `NIny > 0` (injection centrals present), the
+  first injection central name is set as `source_generator`.
+
+`System::expand_batteries()` then creates an internal bus for the charge path
+so that:
+- The **discharge Generator** connects to the external battery bus.
+- The **charge Demand** connects to the internal bus.
+- The **source generator** is rewired to the internal bus.
+
+This models the configuration where a renewable plant (solar, wind) feeds
+directly into the battery rather than exporting to the grid bus.
+
+For standalone batteries (no injection central, `DCMod = 0`), both charge
+and discharge connect to the same external bus.
+
 ### Field order notes
 
 - In `plpess.dat`, the Fortran READ order is

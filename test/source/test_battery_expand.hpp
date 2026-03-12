@@ -239,3 +239,166 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
             system.demand_array[1].capacity.value_or(RealFieldSched {0.0}))
         == 30.0);
 }
+
+TEST_CASE(
+    "expand_batteries with source_generator creates internal bus")  // NOLINT
+{
+  System system;
+  system.name = "CoupledBatteryTest";
+
+  // External bus
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  // Source generator (solar plant) — no bus set initially
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "solar1",
+          .gcost = 0.0,
+          .capacity = 60.0,
+      },
+  };
+
+  // Generation-coupled battery: bus + source_generator both set
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .source_generator = Name {"solar1"},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 200.0,
+          .pmax_charge = 60.0,
+          .pmax_discharge = 60.0,
+          .gcost = 0.0,
+          .capacity = 200.0,
+      },
+  };
+
+  system.expand_batteries();
+
+  // Internal bus was created
+  REQUIRE(system.bus_array.size() == 2);
+  const auto& int_bus = system.bus_array.back();
+  CHECK(int_bus.name == "bat1_int_bus");
+  const Uid int_bus_uid = int_bus.uid;
+
+  // Discharge generator connects to external bus
+  REQUIRE(system.generator_array.size() == 2);
+  const auto& disc_gen = system.generator_array.back();
+  CHECK(disc_gen.name == "bat1_gen");
+  REQUIRE(std::holds_alternative<Uid>(disc_gen.bus));
+  CHECK(std::get<Uid>(disc_gen.bus) == Uid {1});
+
+  // Source generator bus was set to internal bus
+  const auto& src_gen = system.generator_array.front();
+  CHECK(src_gen.name == "solar1");
+  REQUIRE(std::holds_alternative<Uid>(src_gen.bus));
+  CHECK(std::get<Uid>(src_gen.bus) == int_bus_uid);
+
+  // Charge demand connects to internal bus
+  REQUIRE(system.demand_array.size() == 1);
+  const auto& chg_dem = system.demand_array.back();
+  CHECK(chg_dem.name == "bat1_dem");
+  REQUIRE(std::holds_alternative<Uid>(chg_dem.bus));
+  CHECK(std::get<Uid>(chg_dem.bus) == int_bus_uid);
+
+  // Converter was created
+  REQUIRE(system.converter_array.size() == 1);
+  CHECK(system.converter_array.back().name == "bat1_conv");
+
+  // Battery fields were cleared (idempotent)
+  CHECK_FALSE(system.battery_array[0].bus.has_value());
+  CHECK_FALSE(system.battery_array[0].source_generator.has_value());
+}
+
+TEST_CASE(
+    "expand_batteries source_generator with existing bus is overridden")  // NOLINT
+{
+  System system;
+  system.name = "OverrideBusTest";
+
+  system.bus_array = {
+      {.uid = Uid {1}, .name = "ext_bus"},
+      {.uid = Uid {2}, .name = "other_bus"},
+  };
+
+  // Source generator with a pre-existing bus (should be overridden)
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "solar1",
+          .bus = Uid {2},  // will be overridden
+          .gcost = 0.0,
+          .capacity = 50.0,
+      },
+  };
+
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .source_generator = Name {"solar1"},
+          .pmax_charge = 50.0,
+          .pmax_discharge = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  system.expand_batteries();
+
+  // An internal bus was created (uid=3 since 1 and 2 already existed)
+  REQUIRE(system.bus_array.size() == 3);
+  const auto& int_bus = system.bus_array.back();
+  CHECK(int_bus.name == "bat1_int_bus");
+  const Uid int_bus_uid = int_bus.uid;
+
+  // Source generator bus was overridden to internal bus
+  const auto& src_gen = system.generator_array.front();
+  CHECK(src_gen.name == "solar1");
+  REQUIRE(std::holds_alternative<Uid>(src_gen.bus));
+  CHECK(std::get<Uid>(src_gen.bus) == int_bus_uid);
+
+  // Charge demand is on internal bus
+  REQUIRE(system.demand_array.size() == 1);
+  REQUIRE(std::holds_alternative<Uid>(system.demand_array.back().bus));
+  CHECK(std::get<Uid>(system.demand_array.back().bus) == int_bus_uid);
+
+  // Discharge generator is on external bus
+  REQUIRE(std::holds_alternative<Uid>(system.generator_array.back().bus));
+  CHECK(std::get<Uid>(system.generator_array.back().bus) == Uid {1});
+}
+
+TEST_CASE("expand_batteries source_generator not found logs warning")  // NOLINT
+{
+  System system;
+  system.name = "MissingSourceGenTest";
+
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  // Battery references a non-existent source generator
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .source_generator = Name {"nonexistent"},
+          .pmax_charge = 50.0,
+          .pmax_discharge = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // Should not throw — just log a warning
+  REQUIRE_NOTHROW(system.expand_batteries());
+
+  // Internal bus is still created
+  CHECK(system.bus_array.size() == 2);
+  // Discharge generator + charge demand are still created
+  CHECK(system.generator_array.size() == 1);
+  CHECK(system.demand_array.size() == 1);
+  CHECK(system.converter_array.size() == 1);
+}

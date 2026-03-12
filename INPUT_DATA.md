@@ -237,19 +237,49 @@ A transmission line connecting two buses.
 
 A battery energy storage system (BESS).
 
-#### Unified definition (recommended)
+#### Standalone battery (unified definition)
 
-When the optional `bus` field is set, the system auto-generates a discharge
-Generator, a charge Demand, and a linking Converter during preprocessing.
-Only a single Battery element is needed — no separate Converter, Generator,
-or Demand definitions required. This follows conventions used by
-[PyPSA StorageUnit](https://pypsa.readthedocs.io/en/latest/components.html#storage-unit)
-and [pandapower storage](https://pandapower.readthedocs.io/en/latest/elements/storage.html).
+When the optional `bus` field is set (without `source_generator`), the system
+auto-generates a discharge Generator, a charge Demand, and a linking Converter
+during preprocessing. Both charge and discharge connect to the same external
+bus. Only a single Battery element is needed — no separate Converter,
+Generator, or Demand definitions required.
 
 ```json
 {
   "uid": 1, "name": "bess1",
   "bus": 3,
+  "input_efficiency": 0.95, "output_efficiency": 0.95,
+  "emin": 0, "emax": 200,
+  "pmax_charge": 60, "pmax_discharge": 60,
+  "gcost": 0,
+  "capacity": 200
+}
+```
+
+#### Generation-coupled battery (hybrid / behind-the-meter)
+
+When both `bus` and `source_generator` are set, the battery operates in
+*generation-coupled* mode: the referenced generator directly charges the
+battery through an auto-created internal bus. This models a solar or wind
+plant that sits "behind" the battery (e.g. a DC-coupled or AC-coupled
+hybrid system).
+
+`System::expand_batteries()` will:
+- Create an internal bus (name = `<battery.name>_int_bus`)
+- Connect the **discharge Generator** to the external `bus`
+- Connect the **charge Demand** to the internal bus
+- Rewire the **source generator** to the internal bus
+
+The `source_generator` value is the UID or name of a Generator element
+already defined in `generator_array`. Its own `bus` field is overwritten
+with the internal bus.
+
+```json
+{
+  "uid": 1, "name": "bess1",
+  "bus": 3,
+  "source_generator": "solar1",
   "input_efficiency": 0.95, "output_efficiency": 0.95,
   "emin": 0, "emax": 200,
   "pmax_charge": 60, "pmax_discharge": 60,
@@ -268,7 +298,8 @@ be defined manually (see §3.6 Converter).
 | `uid`               | integer             | —            | Yes      | Unique identifier |
 | `name`              | string              | —            | Yes      | Battery name |
 | `active`            | boolean             | —            | No       | Whether the battery is active |
-| `bus`               | integer\|string     | —            | No       | Bus connection (enables unified definition) |
+| `bus`               | integer\|string     | —            | No       | Bus connection (enables unified / coupled definition) |
+| `source_generator`  | integer\|string     | —            | No       | Source generator for generation-coupled mode (battery name or UID) |
 | `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
 | `output_efficiency` | number\|array\|string| p.u.        | No       | Discharging efficiency |
 | `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate |
