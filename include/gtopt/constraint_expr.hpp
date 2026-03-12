@@ -40,8 +40,9 @@
  *
  * sum_expr     := 'sum' '(' element_type '(' string_list ')' '.'
  *                 attribute ')'
- *              |  'sum' '(' element_type '(' 'all' [',''type''=''string'] ')'
- * '.' attribute ')'
+ *              |  'sum' '(' element_type '(' 'all' [ ',' 'type' '=' string ]
+ * ')'
+ *                 '.' attribute ')'
  *
  * string_list  := string (',' string)*
  *

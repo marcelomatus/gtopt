@@ -325,21 +325,49 @@ void collect_sum_cols(const SystemContext& sc,
     } else if (sum_ref.element_type == "reservoir") {
       // NOLINT(bugprone-branch-clone): reservoir/waterway/turbine/converter
       // don't have a `type` field
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
       for (const auto& res : sc.elements<ReservoirLP>()) {
         add_one(std::to_string(static_cast<int>(res.uid())));
       }
     } else if (sum_ref.element_type
                == "waterway") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
       for (const auto& ww : sc.elements<WaterwayLP>()) {
         add_one(std::to_string(static_cast<int>(ww.uid())));
       }
     } else if (sum_ref.element_type
                == "turbine") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
       for (const auto& t : sc.elements<TurbineLP>()) {
         add_one(std::to_string(static_cast<int>(t.uid())));
       }
     } else if (sum_ref.element_type
                == "converter") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
       for (const auto& c : sc.elements<ConverterLP>()) {
         add_one(std::to_string(static_cast<int>(c.uid())));
       }
