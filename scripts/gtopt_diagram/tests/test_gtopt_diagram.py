@@ -127,7 +127,7 @@ class TestTopologyBuilder:
         builder = gd.TopologyBuilder(_IEEE9_JSON, opts=fo)
         model = builder.build()
         gen_nodes = [n for n in model.nodes if n.kind == "gen"]
-        assert gen_nodes == []
+        assert not gen_nodes
 
     def test_subsystem_electrical(self):
         builder = gd.TopologyBuilder(_IEEE9_JSON, subsystem="electrical")
@@ -190,8 +190,8 @@ class TestModelToVisjs:
         )
         model = builder.build()
         result = gd.model_to_visjs(model)
-        assert result["nodes"] == []
-        assert result["edges"] == []
+        assert not result["nodes"]
+        assert not result["edges"]
 
 
 # ---------------------------------------------------------------------------
