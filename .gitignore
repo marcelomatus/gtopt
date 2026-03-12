@@ -4,6 +4,9 @@
 .DS_Store
 .cache
 compile_commands.json
+# Exception: tools/compile_commands.json is committed intentionally so agents
+# can run clang-tidy without rebuilding (saved by setup_sandbox.sh --build).
+!tools/compile_commands.json
 CMakeCache.txt
 /CMakeFiles
 TAGS
