@@ -119,13 +119,9 @@ def parse_stages_phase(spec: str, num_stages: int) -> List[List[int]]:
             try:
                 s, e = int(parts[0]), int(parts[1])
             except ValueError as exc:
-                raise ValueError(
-                    f"Invalid stage range {tok!r} in {spec!r}"
-                ) from exc
+                raise ValueError(f"Invalid stage range {tok!r} in {spec!r}") from exc
             if s > e:
-                raise ValueError(
-                    f"Stage range start {s} > end {e} in {spec!r}"
-                )
+                raise ValueError(f"Stage range start {s} > end {e} in {spec!r}")
             if s < 1 or e > num_stages:
                 raise ValueError(
                     f"Stage range {tok!r} out of bounds (1–{num_stages}) in {spec!r}"
