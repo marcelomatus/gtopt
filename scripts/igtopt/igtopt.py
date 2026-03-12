@@ -14,6 +14,12 @@ from itertools import zip_longest
 import numpy as np
 import pandas as pd
 
+from igtopt.template_builder import (
+    _find_repo_root,
+    _build_workbook,
+    _list_sheets,
+)
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 try:
@@ -123,6 +129,15 @@ examples:
 
   # Show debug log messages
   igtopt system.xlsx -l DEBUG
+
+  # Generate the igtopt Excel template from C++ JSON headers
+  igtopt --make-template
+
+  # Write template to a custom path
+  igtopt --make-template -j /tmp/my_template.xlsx
+
+  # List sheets derived from C++ headers (no file written)
+  igtopt --make-template --list-sheets
 """
 
 
@@ -286,6 +301,12 @@ def log_conversion_stats(
     logging.info("  Elapsed         : %.3fs", elapsed)
 
 
+# ---------------------------------------------------------------------------
+# Template generation (igtopt --make-template)
+# ---------------------------------------------------------------------------
+
+
+# JSON-type category strings shown in help rows
 def _run(args) -> int:
     t_start = time.monotonic()
 
@@ -391,7 +412,7 @@ def _run(args) -> int:
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """CLI entry point: parse arguments and run igtopt conversion."""
     try:
         parser = argparse.ArgumentParser(
@@ -402,7 +423,7 @@ def main() -> None:
         )
         parser.add_argument(
             dest="filenames",
-            nargs="+",
+            nargs="*",  # changed from "+" to allow --make-template with no XLSX
             metavar="XLSX",
             help="Excel workbook(s) to convert to gtopt input data",
         )
@@ -503,13 +524,75 @@ def main() -> None:
             action="version",
             version=f"%(prog)s {__version__}",
         )
+        # Template generation options
+        parser.add_argument(
+            "-T",
+            "--make-template",
+            action="store_true",
+            default=False,
+            help=(
+                "generate the gtopt igtopt Excel template from C++ JSON headers "
+                "instead of converting a workbook; see also --header-dir, --list-sheets"
+            ),
+        )
+        parser.add_argument(
+            "--header-dir",
+            metavar="DIR",
+            help=(
+                "path to include/gtopt/ (auto-detected from the repo root if omitted); "
+                "only used with --make-template"
+            ),
+        )
+        parser.add_argument(
+            "--list-sheets",
+            action="store_true",
+            default=False,
+            help=(
+                "print the list of sheets derived from C++ headers and exit; "
+                "only used with --make-template"
+            ),
+        )
 
-        args = parser.parse_args()
+        args = parser.parse_args(argv)
 
         logging.basicConfig(
             level=getattr(logging, args.log_level),
             format="%(asctime)s %(levelname)s %(message)s",
         )
+
+        # --make-template mode: generate the Excel template and exit
+        if args.make_template or args.list_sheets:
+            repo_root = _find_repo_root(pathlib.Path(__file__).parent)
+            if args.header_dir:
+                header_dir = pathlib.Path(args.header_dir)
+            else:
+                header_dir = repo_root / "include" / "gtopt"
+
+            if not header_dir.is_dir():
+                logging.error(
+                    "header directory '%s' not found; "
+                    "use --header-dir to specify the path to include/gtopt/",
+                    header_dir,
+                )
+                sys.exit(1)
+
+            if args.list_sheets:
+                _list_sheets(header_dir)
+                return
+
+            if args.json_file:
+                output_path = pathlib.Path(args.json_file)
+            else:
+                output_path = repo_root / "docs" / "templates" / "gtopt_template.xlsx"
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            _build_workbook(output_path, header_dir)
+            logging.info("Template written to %s", output_path)
+            return
+
+        # Normal conversion mode: require at least one XLSX file
+        if not args.filenames:
+            parser.error("at least one XLSX file is required (or use --make-template)")
 
         if not args.json_file:
             args.json_file = pathlib.Path(args.filenames[0]).with_suffix(".json")

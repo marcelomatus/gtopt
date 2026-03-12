@@ -48,7 +48,7 @@ def load_status(path: Path) -> dict[str, Any] | None:
     """Load and parse the SDDP status JSON file.  Returns None on any error."""
     try:
         text = path.read_text(encoding="utf-8")
-        return json.loads(text)  # type: ignore[no-any-return]
+        return json.loads(text)
     except (OSError, json.JSONDecodeError):
         return None
 
