@@ -228,6 +228,25 @@ struct SDDPOptions
   /// Interval at which the background monitoring thread refreshes real-time
   /// workpool statistics (CPU load, active workers) in the status file.
   std::chrono::milliseconds api_update_interval {500};
+
+  /// Number of apertures (hydrological realisations) to solve in each
+  /// backward-pass phase.  Each aperture clones the phase LP and updates
+  /// the flow column bounds to the corresponding scenario's discharge values,
+  /// then solves the clone to obtain an independent Benders cut.  The final
+  /// cut added to the previous phase is the probability-weighted average of
+  /// all aperture cuts (expected cut).
+  ///
+  ///  0  – disabled; use the cached forward-pass solution (default, current
+  ///       behaviour).
+  /// -1  – use all available scenarios as apertures (one-to-one mapping).
+  ///  N > 0 – use the first N scenarios as apertures (capped at the total
+  ///          number of scenarios defined in the simulation).
+  ///
+  /// Note: apertures only update flow column bounds (affluent values).
+  /// Other stochastic parameters (demand, generator profiles) are not
+  /// updated.  State variable bounds remain fixed at the forward-pass
+  /// trial values.
+  int num_apertures {0};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -496,6 +515,30 @@ private:
       -> std::expected<double, Error>;
 
   [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
+      -> std::expected<int, Error>;
+
+  /**
+   * @brief Backward pass with apertures (hydrological realisations).
+   *
+   * For each phase in the backward pass (from last to first), this method
+   * solves the phase LP once per aperture.  Each aperture corresponds to
+   * one of the available simulation scenarios; the flow column bounds are
+   * updated to the aperture scenario's discharge values before solving.
+   * The probability-weighted average of all aperture cuts (expected cut) is
+   * then added to the previous phase's LP.
+   *
+   * Apertures use the same state-variable trial values as the original
+   * forward pass (only the flow bounds change).  If a specific aperture LP
+   * is infeasible the aperture is skipped and its probability weight is
+   * discarded.
+   *
+   * Falls back to the regular backward_pass() if num_apertures is 0 or no
+   * scenarios are available.
+   *
+   * Uses the work pool for parallel aperture solves when available.
+   */
+  [[nodiscard]] auto backward_pass_with_apertures(SceneIndex scene,
+                                                  const SolverOptions& opts)
       -> std::expected<int, Error>;
 
   /// Update volume-dependent LP coefficients (turbine efficiency, etc.)

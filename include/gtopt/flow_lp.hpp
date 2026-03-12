@@ -15,6 +15,7 @@
 
 #include <gtopt/flow.hpp>
 #include <gtopt/junction_lp.hpp>
+#include <gtopt/linear_interface.hpp>
 
 namespace gtopt
 {
@@ -53,6 +54,28 @@ public:
   {
     return flow_cols.at({scenario.uid(), stage.uid()});
   }
+
+  /**
+   * @brief Update flow column bounds in a cloned LP for an aperture scenario.
+   *
+   * During the SDDP backward pass with apertures, the flow columns that were
+   * originally fixed to the base scenario's discharge values are updated to
+   * reflect the aperture scenario's discharge values.  This allows each
+   * aperture to represent a different hydrological realisation while sharing
+   * the same LP structure.
+   *
+   * @param li                The cloned LinearInterface to modify (in-place).
+   * @param base_scenario     The scenario used when the LP was originally
+   *                          built (identifies which column indices to use).
+   * @param aperture_scenario The scenario whose discharge values to apply.
+   * @param stage             The stage for which to update the bounds.
+   * @return true on success; false if no columns are registered for the
+   *         (base_scenario, stage) pair (element inactive for that stage).
+   */
+  [[nodiscard]] bool update_aperture_bounds(LinearInterface& li,
+                                            const ScenarioLP& base_scenario,
+                                            const ScenarioLP& aperture_scenario,
+                                            const StageLP& stage) const;
 
 private:
   STBRealSched discharge;

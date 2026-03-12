@@ -1,4 +1,5 @@
 name: Scripts
+# uv package cache added to all jobs (actions/cache@v4 → ~/.cache/uv)
 
 on:
   push:
@@ -40,11 +41,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "scripts/pyproject.toml"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -108,11 +114,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "scripts/pyproject.toml"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
@@ -159,11 +170,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "scripts/pyproject.toml"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
 
       # Pre-install runtime deps before cmake configure so that cmake's
       # find_program(PYTHON_EXECUTABLE) picks the same Python whose packages
@@ -311,11 +327,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "scripts/pyproject.toml"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
 
       - name: Install dev dependencies
         run: uv pip install --system -e "./scripts[dev]"

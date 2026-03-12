@@ -188,20 +188,26 @@ fi
 # find_program(PYTHON_EXECUTABLE) picks the same Python that already has all
 # packages, reducing the scripts-install-deps CTest fixture from ~35 s to ~3 s.
 if $INSTALL_PYTHON; then
-  if command -v uv &>/dev/null; then
-    log "Pre-installing Python scripts dev dependencies..."
-    uv pip install --system -q -e "./scripts[dev]" graphviz
-    ok "Python scripts dev dependencies installed"
-  else
-    warn "uv not found – skipping Python scripts pre-install (CTest fixture" \
-         "will install them on first run, taking ~35 s)"
+  # Ensure uv is available (install it via pip if missing)
+  if ! command -v uv &>/dev/null; then
+    log "uv not found — installing via pip..."
+    pip install uv -q
+    ok "uv installed"
   fi
+  log "Pre-installing Python scripts dev dependencies..."
+  uv pip install --system -q -e "./scripts[dev]" graphviz
+  ok "Python scripts dev dependencies installed"
 fi
 
 # ── Steps 5–6: Configure and build (optional) ─────────────────────────────────
 if $DO_CONFIGURE; then
   # Determine the cmake prefix path – always conda for Arrow in sandboxes
   CMAKE_PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(conda info --base)"
+
+  # CPM package cache – reuse downloaded CMake packages across repeated runs.
+  # Matches the CPM_SOURCE_CACHE env variable used by ubuntu.yml CI.
+  CPM_CACHE="${HOME}/.cache/cpm_modules"
+  mkdir -p "${CPM_CACHE}"
 
   log "Configuring cmake (${BUILD_TYPE}, ${CC}/${CXX})..."
   CMAKE_ARGS=(
@@ -211,6 +217,7 @@ if $DO_CONFIGURE; then
     "-DCMAKE_CXX_COMPILER=${CXX}"
     -DCMAKE_C_COMPILER_LAUNCHER=ccache
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    "-DCPM_SOURCE_CACHE=${CPM_CACHE}"
   )
   if [[ -n "${CMAKE_PREFIX_ARG}" ]]; then
     CMAKE_ARGS+=("${CMAKE_PREFIX_ARG}")
@@ -266,10 +273,12 @@ if ! $DO_CONFIGURE; then
   if [[ -n "$PREFIX_HINT" ]]; then
     echo "    -DCMAKE_C_COMPILER_LAUNCHER=ccache \\"
     echo "    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \\"
+    echo "    -DCPM_SOURCE_CACHE=\${HOME}/.cache/cpm_modules \\"
     echo "    ${PREFIX_HINT}"
   else
     echo "    -DCMAKE_C_COMPILER_LAUNCHER=ccache \\"
-    echo "    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    echo "    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \\"
+    echo "    -DCPM_SOURCE_CACHE=\${HOME}/.cache/cpm_modules"
   fi
   echo "  cmake --build build -j\$(nproc)"
   echo "  cd build && ctest --output-on-failure"

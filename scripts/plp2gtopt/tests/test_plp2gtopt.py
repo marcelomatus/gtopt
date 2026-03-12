@@ -531,3 +531,24 @@ def test_main_zip_creates_archive(tmp_path):
     input_dir_name = out_dir.name
     data_files = [n for n in names if not n.endswith(".json")]
     assert all(n.startswith(f"{input_dir_name}/") for n in data_files)
+
+
+def test_build_options_num_apertures():
+    """build_options() maps --num-apertures to num_apertures key."""
+    args = make_parser().parse_args(["--num-apertures", "5"])
+    opts = build_options(args)
+    assert opts["num_apertures"] == 5
+
+
+def test_build_options_num_apertures_all():
+    """build_options() maps --num-apertures -1 to num_apertures=-1 (all scenarios)."""
+    args = make_parser().parse_args(["--num-apertures", "-1"])
+    opts = build_options(args)
+    assert opts["num_apertures"] == -1
+
+
+def test_build_options_num_apertures_default():
+    """build_options() defaults num_apertures to None when not specified."""
+    args = make_parser().parse_args([])
+    opts = build_options(args)
+    assert opts["num_apertures"] is None

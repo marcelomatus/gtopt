@@ -1177,8 +1177,8 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sim = data["simulation"]
 
-    # sddp_solver_type in options must be "monolithic"
-    assert data["options"]["sddp_solver_type"] == "monolithic"
+    # sddp_solver_type in options must be "monolithic" (nested in sddp_options)
+    assert data["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
 
     # 2 scenarios with equal probability
     scenarios = sim["scenario_array"]
@@ -1214,10 +1214,51 @@ def test_min_hydro_ms_sddp_options_key(tmp_path):
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    assert data["options"]["sddp_solver_type"] == "sddp"
+    assert data["options"]["sddp_options"]["sddp_solver_type"] == "sddp"
 
     sim = data["simulation"]
     # SDDP: one scene per scenario
     assert len(sim["scene_array"]) == 2
     # SDDP: one phase per stage
     assert len(sim["phase_array"]) == 3
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_num_apertures(tmp_path):
+    """plp_min_hydro_ms + --num-apertures: sddp_num_apertures exported to sddp_options."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures")
+    opts["hydrologies"] = "1,2"
+    opts["solver_type"] = "sddp"
+    opts["num_apertures"] = 2
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sddp = data["options"]["sddp_options"]
+    assert sddp["sddp_solver_type"] == "sddp"
+    assert sddp["sddp_num_apertures"] == 2
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_num_apertures_all(tmp_path):
+    """plp_min_hydro_ms + --num-apertures -1: use all scenarios as apertures."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures_all")
+    opts["hydrologies"] = "1,2"
+    opts["solver_type"] = "sddp"
+    opts["num_apertures"] = -1
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    assert data["options"]["sddp_options"]["sddp_num_apertures"] == -1
+
+
+@pytest.mark.integration
+def test_min_hydro_ms_no_apertures_by_default(tmp_path):
+    """plp_min_hydro_ms without --num-apertures: sddp_num_apertures absent in output."""
+    opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_no_apertures")
+    opts["hydrologies"] = "1,2"
+    opts["solver_type"] = "sddp"
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sddp = data["options"].get("sddp_options", {})
+    assert "sddp_num_apertures" not in sddp
