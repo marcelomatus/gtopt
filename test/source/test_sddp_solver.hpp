@@ -12,6 +12,7 @@
  *  5. Cut persistence (save/load)
  *  6. Multi-scene SDDP solving
  *  7. Solver interface integration (monolithic vs SDDP dispatch)
+ *  8. Simple 2-phase linear Benders cut and aperture tests
  */
 
 #include <cmath>
@@ -3049,4 +3050,323 @@ TEST_CASE("BendersCut - set_pool updates pool reference")  // NOLINT
 
   bc.set_pool(nullptr);
   CHECK(bc.pool() == nullptr);
+}
+
+// ─── Simple 2-phase linear test helpers ─────────────────────────────────────
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Create a minimal 2-phase hydro+thermal planning problem.
+///
+/// - 1 bus
+/// - 1 hydro generator (20 MW, $5/MWh)
+/// - 1 thermal generator (100 MW, $50/MWh)
+/// - 1 demand (30 MW constant)
+/// - 1 reservoir (capacity 100 dam³, starts at 50 dam³, inflow 5 dam³/h)
+/// - 2 phases, each with 1 stage of 4 blocks (1 hour each)
+///
+/// This is the simplest possible SDDP test case with a state variable
+/// (reservoir volume) linking the two phases via Benders cuts.
+auto make_2phase_linear_planning() -> Planning
+{
+  constexpr int num_phases = 2;
+  constexpr int blocks_per_phase = 4;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+
+  Array<Block> block_array;
+  block_array.reserve(total_blocks);
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = 1.0,
+    });
+  }
+
+  Array<Stage> stage_array = {
+      Stage {
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = blocks_per_phase,
+      },
+      Stage {
+          .uid = Uid {2},
+          .first_block = blocks_per_phase,
+          .count_block = blocks_per_phase,
+      },
+  };
+
+  Array<Phase> phase_array = {
+      Phase {
+          .uid = Uid {1},
+          .first_stage = 0,
+          .count_stage = 1,
+      },
+      Phase {
+          .uid = Uid {2},
+          .first_stage = 1,
+          .count_stage = 1,
+      },
+  };
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 20.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 30.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 50.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .fmin = -500.0,
+          .fmax = +500.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 5.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .probability_factor = 1.0,
+              },
+          },
+      .phase_array = std::move(phase_array),
+  };
+
+  Options options;
+  options.demand_fail_cost = OptReal {1000.0};
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = OptName {"csv"};
+  options.output_compression = OptName {"uncompressed"};
+
+  System system = {
+      .name = "sddp_linear_2phase",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = std::move(system),
+  };
+}
+
+/// Create a 2-phase planning with 2 scenarios for aperture testing.
+/// Each scenario has a different inflow (5 and 15 dam³/h).
+auto make_2phase_2scenario_planning() -> Planning
+{
+  auto planning = make_2phase_linear_planning();
+
+  // Add second scenario
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {2},
+      .probability_factor = 0.5,
+  });
+  // Set first scenario probability
+  planning.simulation.scenario_array[0].probability_factor = OptReal {0.5};
+
+  // Add second flow with different discharge for scenario 2
+  planning.system.flow_array.push_back(Flow {
+      .uid = Uid {2},
+      .name = "inflow_dry",
+      .direction = 1,
+      .junction = Uid {1},
+      .discharge = 15.0,
+  });
+
+  return planning;
+}
+
+}  // namespace
+
+// ─── Simple 2-phase linear SDDP tests ──────────────────────────────────────
+
+TEST_CASE("SDDPSolver - 2-phase linear converges")  // NOLINT
+{
+  auto planning = make_2phase_linear_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.convergence_tol = 1e-4;
+  sddp_opts.enable_api = false;
+
+  SDDPSolver sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  CHECK_FALSE(results->empty());
+
+  SUBCASE("converges within allowed iterations")
+  {
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("Benders cuts were generated")
+  {
+    // At least one cut should have been added in the backward pass
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(total_cuts > 0);
+  }
+
+  SUBCASE("stored cuts match total cuts added")
+  {
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(sddp.num_stored_cuts() == total_cuts);
+  }
+
+  SUBCASE("lower bound approaches upper bound")
+  {
+    const auto& last = results->back();
+    CHECK(last.lower_bound > 0.0);
+    CHECK(last.upper_bound > 0.0);
+    CHECK(last.gap < 1e-4);
+  }
+}
+
+TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
+{
+  auto planning = make_2phase_2scenario_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.enable_api = false;
+
+  SUBCASE("apertures disabled (baseline)")
+  {
+    sddp_opts.num_apertures = 0;
+    SDDPSolver sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+  }
+
+  SUBCASE("apertures enabled with -1 (all scenarios)")
+  {
+    sddp_opts.num_apertures = -1;
+    SDDPSolver sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+
+    // At least one cut should be generated
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(total_cuts > 0);
+  }
+
+  SUBCASE("apertures enabled with explicit count")
+  {
+    sddp_opts.num_apertures = 2;
+    SDDPSolver sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+
+    int total_cuts = 0;
+    for (const auto& r : *results) {
+      total_cuts += r.cuts_added;
+    }
+    CHECK(total_cuts > 0);
+  }
 }
