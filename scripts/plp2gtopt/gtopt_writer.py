@@ -328,6 +328,7 @@ class GTOptWriter:
         manems = self.parser.parsed_data.get("manem_parser", None)
         cenre = self.parser.parsed_data.get("cenre_parser", None)
         cenfi = self.parser.parsed_data.get("cenfi_parser", None)
+        filemb = self.parser.parsed_data.get("filemb_parser", None)
         json_junctions = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -336,6 +337,7 @@ class GTOptWriter:
             manem_parser=manems,
             cenre_parser=cenre,
             cenfi_parser=cenfi,
+            filemb_parser=filemb,
             options=options,
         ).to_json_array()
 
