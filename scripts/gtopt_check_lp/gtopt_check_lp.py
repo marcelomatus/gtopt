@@ -27,35 +27,53 @@ tool helps diagnose the cause by performing several complementary analyses:
    NEOS online optimization server (https://neos-server.org) using the
    CPLEX LP solver via its XML-RPC API, and waits for the results.
 
+Configuration
+-------------
+User preferences (e-mail, preferred solver, timeout, color) are stored in
+``~/.gtopt_check_lp`` (INI format).  On the first run the tool will prompt
+for these values interactively (when stdin is a TTY) and suggest solver
+installation commands for any missing open-source solvers.
+
+Run ``gtopt-check-lp --init-config`` at any time to create or update the
+configuration file.
+
 Usage
 -----
 ::
 
     gtopt-check-lp problem.lp
+    gtopt-check-lp --last                       # auto-find newest error*.lp
     gtopt-check-lp problem.lp --analyze-only
     gtopt-check-lp problem.lp --solver coinor
     gtopt-check-lp problem.lp --use-neos --email user@example.com
     gtopt-check-lp problem.lp --output report.txt --verbose
+    gtopt-check-lp --init-config                # create/update config file
+    gtopt-check-lp --show-config                # print active configuration
 
 Options
 -------
+``--last``
+    Automatically find and analyze the most recently modified ``error*.lp``
+    file in the current directory (or its ``logs/`` / ``output/`` subdirectory).
+
 ``--analyze-only``
     Perform only the static analysis; do not invoke any solver.
 
 ``--solver {auto,cplex,highs,coinor,glpk,neos}``
     Select the IIS/infeasibility solver.  Default: ``auto`` (tries local
     solvers in order: CPLEX → HiGHS → COIN-OR → GLPK, then falls back to
-    NEOS if ``--email`` is provided).
+    NEOS if ``--email`` is provided).  Defaults to the value in the config file.
 
 ``--email EMAIL``
     E-mail address for the NEOS server submission (required for NEOS).
+    Defaults to the value in the config file.
 
 ``--solver-url URL``
     XML-RPC endpoint for a NEOS-compatible server.
     Default: ``https://neos-server.org:3333``.
 
 ``--timeout SECONDS``
-    Maximum time to wait for a solver result (default: 10 s).
+    Maximum time to wait for a solver result (default: 120 s from config).
 
 ``--output FILE``
     Write the full analysis report to *FILE* in addition to stdout.
@@ -65,6 +83,19 @@ Options
 
 ``--verbose``, ``-v``
     Enable verbose / debug logging.
+
+``--config FILE``
+    Path to the configuration file (default: ``~/.gtopt_check_lp``).
+
+``--init-config``
+    Run the interactive configuration wizard and exit.
+
+``--no-setup``
+    Skip the first-run interactive setup even when no config file is found.
+    Useful in automated pipelines.
+
+``--show-config``
+    Print the active configuration (file values + CLI overrides) and exit.
 
 ``--version``
     Print the package version and exit.
@@ -77,7 +108,9 @@ Exit codes
 """
 
 import argparse
+import configparser
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -100,6 +133,296 @@ except ImportError:
     __version__ = "dev"
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Config file
+# ---------------------------------------------------------------------------
+
+_CONFIG_SECTION = "gtopt_check_lp"
+_CONFIG_DEFAULTS: dict[str, str] = {
+    "email": "",
+    "solver": "all",
+    "timeout": "120",
+    "neos_url": "https://neos-server.org:3333",
+    "color": "auto",
+}
+
+
+def _default_config_path() -> Path:
+    """Return the default config file path: ``~/.gtopt_check_lp``."""
+    return Path.home() / ".gtopt_check_lp"
+
+
+def _read_git_email() -> str:
+    """
+    Read the user e-mail from the git global configuration.
+
+    Returns an empty string when git is not installed or no email is set.
+    """
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        return ""
+    try:
+        result = subprocess.run(
+            [git_bin, "config", "--global", "user.email"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def _load_config(config_path: Path) -> dict[str, str]:
+    """
+    Load the config file at *config_path*.
+
+    Returns a dict with keys from :data:`_CONFIG_DEFAULTS`.  Missing keys are
+    filled with the defaults.  Returns defaults when the file is absent.
+    """
+    cfg = dict(_CONFIG_DEFAULTS)
+    if not config_path.exists():
+        return cfg
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(config_path, encoding="utf-8")
+    except configparser.Error as exc:
+        log.warning("Could not read config file %s: %s", config_path, exc)
+        return cfg
+
+    if parser.has_section(_CONFIG_SECTION):
+        for key in _CONFIG_DEFAULTS:
+            if parser.has_option(_CONFIG_SECTION, key):
+                cfg[key] = parser.get(_CONFIG_SECTION, key)
+    return cfg
+
+
+def _save_config(config_path: Path, cfg: dict[str, str]) -> None:
+    """Write *cfg* to *config_path* in INI format."""
+    parser = configparser.ConfigParser()
+    parser[_CONFIG_SECTION] = cfg
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with config_path.open("w", encoding="utf-8") as fh:
+            fh.write(
+                "# gtopt_check_lp configuration\n"
+                "# Generated by gtopt-check-lp --init-config\n"
+                "# Edit this file to set your defaults.\n\n"
+            )
+            parser.write(fh)
+    except OSError as exc:
+        print(f"Warning: could not write config file {config_path}: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Solver installation hints
+# ---------------------------------------------------------------------------
+
+_SOLVER_BINARIES = [
+    ("cplex", "CPLEX", None),
+    ("highs", "HiGHS", "sudo apt install highs"),
+    ("clp", "COIN-OR CLP", "sudo apt install coinor-clp"),
+    ("cbc", "COIN-OR CBC", "sudo apt install coinor-cbc"),
+    ("glpsol", "GLPK", "sudo apt install glpk-utils"),
+]
+
+
+def _get_solver_status() -> list[tuple[str, str, bool, Optional[str]]]:
+    """
+    Return installation status for every known solver.
+
+    Each entry is ``(binary, label, installed, apt_hint)`` where *apt_hint*
+    is the ``sudo apt install …`` command to install the solver (or ``None``
+    when no hint is available / CPLEX commercial).
+    """
+    status = []
+    for binary, label, hint in _SOLVER_BINARIES:
+        installed = shutil.which(binary) is not None
+        if binary == "highs" and not installed:
+            # Check for highspy Python package as well
+            try:
+                import highspy  # noqa: F401, PLC0415  # pylint: disable=unused-import
+
+                installed = True
+                hint = None
+            except ImportError:
+                pass
+        status.append((binary, label, installed, hint))
+    return status
+
+
+def print_solver_status(use_color: bool = True) -> None:
+    """
+    Print a table of available and missing solvers with installation hints.
+
+    Called during interactive setup and with ``--init-config``.
+    """
+
+    def _c_local(code: str, text: str) -> str:
+        return f"{code}{text}{_RESET}" if use_color else text
+
+    print(_c_local(_BOLD, "\nSolver availability:"))
+    any_missing = False
+    for _binary, label, installed, hint in _get_solver_status():
+        if installed:
+            mark = _c_local(_GREEN, "✓")
+            print(f"  {mark} {label}")
+        else:
+            mark = _c_local(_RED, "✗")
+            print(f"  {mark} {label}  (not found on PATH)")
+            any_missing = True
+
+    if any_missing:
+        print()
+        print(_c_local(_YELLOW, "  To install missing open-source solvers:"))
+        for _binary, label, installed, hint in _get_solver_status():
+            if not installed and hint:
+                print(f"    {hint}   # {label}")
+        print()
+        print(
+            "  CPLEX is a commercial solver; download from "
+            "https://www.ibm.com/products/ilog-cplex-optimization-studio"
+        )
+        print(
+            "  HiGHS Python: pip install highspy"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Interactive first-run setup
+# ---------------------------------------------------------------------------
+
+
+def _prompt(prompt_text: str, default: str = "") -> str:
+    """
+    Prompt the user for input, showing a default if provided.
+
+    Falls back to the default silently when stdin is not a TTY
+    (e.g. in automated pipelines).
+    """
+    if not sys.stdin.isatty():
+        return default
+    if default:
+        full_prompt = f"{prompt_text} [{default}]: "
+    else:
+        full_prompt = f"{prompt_text}: "
+    try:
+        answer = input(full_prompt).strip()
+        return answer if answer else default
+    except (EOFError, KeyboardInterrupt):
+        return default
+
+
+def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str, str]:
+    """
+    Run the interactive first-run setup wizard.
+
+    Reads the git email as a proposed default, checks solver availability,
+    and writes the resulting config to *config_path*.
+
+    Returns the final config dict.
+    """
+
+    def _c_local(code: str, text: str) -> str:
+        return f"{code}{text}{_RESET}" if use_color else text
+
+    print()
+    print(_c_local(_BOLD, "─── gtopt-check-lp first-run setup ───"))
+    print(
+        "\nThis tool analyzes infeasible LP files generated by gtopt."
+        "\nLet's configure it for your system."
+    )
+
+    # Load existing config or start from defaults
+    cfg = _load_config(config_path)
+
+    # ── Email ──────────────────────────────────────────────────────────────
+    git_email = _read_git_email()
+    current_email = cfg.get("email", "")
+    proposed_email = current_email or git_email
+
+    print()
+    if git_email and not current_email:
+        print(f"  Found git user.email: {_c_local(_CYAN, git_email)}")
+    elif current_email:
+        print(f"  Current email: {_c_local(_CYAN, current_email)}")
+
+    email = _prompt(
+        "  E-mail address (used for NEOS server submissions)", proposed_email
+    )
+    cfg["email"] = email
+
+    # ── Solver ─────────────────────────────────────────────────────────────
+    print()
+    print_solver_status(use_color=use_color)
+
+    current_solver = cfg.get("solver", "all")
+    solver_choices = ("all", "auto", "cplex", "highs", "coinor", "glpk", "neos")
+    solver_hint = (
+        "  Preferred solver " + _c_local(_CYAN, str(list(solver_choices)))
+    )
+    solver = _prompt(solver_hint, current_solver)
+    if solver not in solver_choices:
+        print(f"  Unknown solver '{solver}', using 'all'")
+        solver = "all"
+    cfg["solver"] = solver
+
+    # ── Timeout ────────────────────────────────────────────────────────────
+    current_timeout = cfg.get("timeout", "120")
+    timeout_str = _prompt("  Default solver timeout in seconds", current_timeout)
+    try:
+        int(timeout_str)
+        cfg["timeout"] = timeout_str
+    except ValueError:
+        print(f"  Invalid timeout '{timeout_str}', keeping {current_timeout}")
+        cfg["timeout"] = current_timeout
+
+    # ── Color ──────────────────────────────────────────────────────────────
+    current_color = cfg.get("color", "auto")
+    color = _prompt("  Color output ('auto', 'always', 'never')", current_color)
+    if color not in ("auto", "always", "never"):
+        color = "auto"
+    cfg["color"] = color
+
+    # ── Save ───────────────────────────────────────────────────────────────
+    _save_config(config_path, cfg)
+    print()
+    print(f"  {_c_local(_GREEN, '✓')} Configuration saved to: {config_path}")
+    print()
+
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Find the latest error LP file
+# ---------------------------------------------------------------------------
+
+
+def _find_latest_error_lp(search_dirs: Optional[list[Path]] = None) -> Optional[Path]:
+    """
+    Find the most recently modified ``error*.lp`` file.
+
+    Searches *search_dirs* (default: current directory and its ``logs/``
+    subdirectory) and returns the :class:`Path` of the newest file, or
+    ``None`` if no error LP is found.
+    """
+    if search_dirs is None:
+        cwd = Path.cwd()
+        search_dirs = [cwd, cwd / "logs", cwd / "output"]
+
+    candidates: list[Path] = []
+    for d in search_dirs:
+        if d.is_dir():
+            candidates.extend(d.glob("error*.lp"))
+
+    if not candidates:
+        return None
+
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
 
 # ---------------------------------------------------------------------------
 # ANSI helpers
@@ -1020,6 +1343,75 @@ def _detect_local_solvers() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def run_all_solvers(
+    lp_path: Path,
+    email: str,
+    neos_url: str,
+    timeout: int,
+) -> tuple[bool, str, str]:
+    """
+    Run **every** available solver and combine their diagnoses into one report.
+
+    Local solvers that are installed (CPLEX → HiGHS → COIN-OR → GLPK) are
+    each executed independently, and the NEOS server is also tried when
+    *email* is provided.  Results from all solvers are concatenated into a
+    single output, clearly labelled per solver.
+
+    Returns ``(any_success, "all", combined_output)`` where *any_success* is
+    ``True`` when at least one solver ran without error.
+    """
+    sections: list[str] = []
+    any_success = False
+
+    def _section(label: str, ok: bool, out: str) -> None:
+        nonlocal any_success
+        sep = "─" * max(4, 68 - len(label) - 4)
+        header = f"┌── {label} {sep}"
+        if ok:
+            any_success = True
+        sections.append(f"{header}\n{out.rstrip()}")
+
+    # ── Local solvers ───────────────────────────────────────────────────────
+    for binary, label, _installed, _hint in _SOLVER_BINARIES:
+        if binary == "cplex" and shutil.which("cplex"):
+            ok, out = run_local_cplex(lp_path, timeout=timeout)
+            _section("CPLEX (local)", ok, out)
+        elif binary == "highs":
+            # Prefer Python bindings
+            ok, out = run_local_highs_python(lp_path)
+            if ok:
+                _section("HiGHS (Python)", ok, out)
+            elif shutil.which("highs"):
+                ok, out = run_local_highs_binary(lp_path, timeout=timeout)
+                _section("HiGHS (binary)", ok, out)
+        elif binary == "clp" and (shutil.which("clp") or shutil.which("cbc")):
+            ok, out = run_local_coinor(lp_path, timeout=timeout)
+            _section("COIN-OR (clp/cbc)", ok, out)
+        elif binary == "cbc":
+            pass  # handled together with clp above
+        elif binary == "glpsol" and shutil.which("glpsol"):
+            ok, out = run_local_glpk(lp_path, timeout=timeout)
+            _section("GLPK", ok, out)
+
+    # ── NEOS ────────────────────────────────────────────────────────────────
+    if email:
+        client = NeosClient(url=neos_url, timeout=timeout)
+        ok, out = client.submit_and_wait(lp_path, email)
+        _section("NEOS (CPLEX)", ok, out)
+
+    if not sections:
+        hint = (
+            "No local solvers found on PATH and no --email provided for NEOS.\n"
+            "Install open-source solvers with:\n"
+            "  sudo apt install coinor-clp coinor-cbc glpk-utils highs\n"
+            "or provide --email <address> to use the NEOS server."
+        )
+        return False, "all", hint
+
+    combined = "\n\n".join(sections)
+    return any_success, "all", combined
+
+
 def run_iis(
     lp_path: Path,
     solver: str,
@@ -1076,6 +1468,8 @@ def run_iis(
         return _try_glpk()
     if solver_lower == "neos":
         return _try_neos()
+    if solver_lower == "all":
+        return run_all_solvers(lp_path, email, neos_url, timeout)
 
     # auto: try local solvers in order, fall back to NEOS
     # COIN-OR (clp/cbc) is placed after CPLEX/HiGHS since it doesn't provide
@@ -1114,7 +1508,7 @@ def check_lp(
     lp_path: Path,
     *,
     analyze_only: bool = False,
-    solver: str = "auto",
+    solver: str = "all",
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
     timeout: int = 10,
@@ -1216,7 +1610,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "Performs static analysis (bound conflicts, empty constraints,\n"
             "numerical range) and optionally finds the IIS using a local\n"
             "solver (CPLEX, HiGHS, COIN-OR CLP/CBC, GLPK) or the NEOS\n"
-            "online server."
+            "online server.\n\n"
+            "Configuration is stored in ~/.gtopt_check_lp (INI format).\n"
+            "Run --init-config to create or update the configuration."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -1227,10 +1623,32 @@ def _build_parser() -> argparse.ArgumentParser:
             "  gtopt-check-lp error_0.lp --solver highs\n"
             "  gtopt-check-lp error_0.lp --solver neos --email user@example.com\n"
             "  gtopt-check-lp error_0.lp --output report.txt\n"
+            "  gtopt-check-lp --last                  # auto-find latest error*.lp\n"
+            "  gtopt-check-lp --init-config           # create/update config file\n"
         ),
     )
 
-    parser.add_argument("lp_file", metavar="LP_FILE", help="Path to the LP file.")
+    parser.add_argument(
+        "lp_file",
+        metavar="LP_FILE",
+        nargs="?",
+        default=None,
+        help=(
+            "Path to the LP file.  Omit when using --last to auto-detect "
+            "the newest error*.lp file in the current directory."
+        ),
+    )
+
+    parser.add_argument(
+        "--last",
+        action="store_true",
+        default=False,
+        help=(
+            "Automatically find and analyze the most recently modified "
+            "error*.lp file in the current directory (or its logs/ / "
+            "output/ subdirectory).  Overrides LP_FILE when both are given."
+        ),
+    )
 
     parser.add_argument(
         "--analyze-only",
@@ -1241,26 +1659,29 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--solver",
-        default="auto",
+        default=None,
         choices=["auto", "cplex", "highs", "coinor", "glpk", "neos"],
         help=(
             "Infeasibility solver to use.  'coinor' runs CLP or CBC (same\n"
             "solver family as gtopt itself).  'auto' tries local solvers\n"
-            "in order (CPLEX → HiGHS → COIN-OR → GLPK) then NEOS\n"
-            "(default: auto)."
+            "in order (CPLEX → HiGHS → COIN-OR → GLPK) then NEOS.\n"
+            "Defaults to the value in the config file (auto)."
         ),
     )
 
     parser.add_argument(
         "--email",
-        default="",
+        default=None,
         metavar="EMAIL",
-        help="E-mail address for NEOS server submissions (required for NEOS).",
+        help=(
+            "E-mail address for NEOS server submissions (required for NEOS).\n"
+            "Defaults to the value in the config file."
+        ),
     )
 
     parser.add_argument(
         "--solver-url",
-        default=_NEOS_DEFAULT_URL,
+        default=None,
         metavar="URL",
         help=(
             f"XML-RPC endpoint for a NEOS-compatible server "
@@ -1271,9 +1692,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=10,
+        default=None,
         metavar="SECONDS",
-        help="Maximum time to wait for a solver result (default: 10 s).",
+        help="Maximum time to wait for a solver result (default: 120 s).",
     )
 
     parser.add_argument(
@@ -1299,6 +1720,43 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--config",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Path to the configuration file "
+            "(default: ~/.gtopt_check_lp)."
+        ),
+    )
+
+    parser.add_argument(
+        "--init-config",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the interactive configuration wizard to create or update "
+            "~/.gtopt_check_lp, then exit."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-setup",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the interactive first-run setup even when no config file "
+            "exists.  Useful for automated pipelines."
+        ),
+    )
+
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        default=False,
+        help="Print the active configuration (from file + CLI overrides) and exit.",
+    )
+
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -1312,26 +1770,89 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    # Configure logging
+    # ── Config file path ────────────────────────────────────────────────────
+    config_path = Path(args.config) if args.config else _default_config_path()
+
+    # ── Logging ─────────────────────────────────────────────────────────────
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="%(levelname)s: %(message)s",
     )
 
-    # Configure color output
-    global _USE_COLOR  # noqa: PLW0603
-    _USE_COLOR = not args.no_color and sys.stdout.isatty()
+    # ── --init-config: run wizard and exit ───────────────────────────────────
+    if args.init_config:
+        # Determine color early so the wizard is colorful when appropriate
+        global _USE_COLOR  # noqa: PLW0603
+        _USE_COLOR = not args.no_color and sys.stdout.isatty()
+        run_interactive_setup(config_path, use_color=_USE_COLOR)
+        return 0
 
-    lp_path = Path(args.lp_file)
+    # ── Load config ──────────────────────────────────────────────────────────
+    config_exists = config_path.exists()
+    cfg = _load_config(config_path)
+
+    # ── Color (resolve before any output) ────────────────────────────────────
+    color_setting = cfg.get("color", "auto")
+    if args.no_color or color_setting == "never":
+        _USE_COLOR = False
+    elif color_setting == "always":
+        _USE_COLOR = True
+    else:
+        _USE_COLOR = sys.stdout.isatty()
+
+    # ── First-run setup ──────────────────────────────────────────────────────
+    if not config_exists and not args.no_setup and sys.stdin.isatty():
+        print(
+            _c(
+                _YELLOW,
+                f"No config file found at {config_path}.",
+            )
+        )
+        print("Running first-time setup…")
+        cfg = run_interactive_setup(config_path, use_color=_USE_COLOR)
+
+    # ── --show-config ────────────────────────────────────────────────────────
+    if args.show_config:
+        print(_c(_BOLD, f"\nActive configuration ({config_path}):"))
+        for key, val in cfg.items():
+            print(f"  {key} = {val!r}")
+        print_solver_status(use_color=_USE_COLOR)
+        return 0
+
+    # ── Merge CLI overrides into effective config ─────────────────────────────
+    effective_email = args.email if args.email is not None else cfg.get("email", "")
+    effective_solver = args.solver if args.solver is not None else cfg.get("solver", "auto")
+    effective_timeout_str = cfg.get("timeout", "120")
+    effective_timeout = args.timeout if args.timeout is not None else int(effective_timeout_str)
+    effective_neos_url = (
+        args.solver_url if args.solver_url is not None else cfg.get("neos_url", _NEOS_DEFAULT_URL)
+    )
+
+    # ── Resolve LP file ───────────────────────────────────────────────────────
+    if args.last:
+        lp_path = _find_latest_error_lp()
+        if lp_path is None:
+            print(
+                _c(_RED, "Error: --last specified but no error*.lp file found."),
+                file=sys.stderr,
+            )
+            return 1
+        print(f"Auto-selected LP file: {_c(_BOLD, str(lp_path))}")
+    elif args.lp_file is not None:
+        lp_path = Path(args.lp_file)
+    else:
+        parser.print_help()
+        return 1
+
     output_file = Path(args.output) if args.output else None
 
     return check_lp(
         lp_path,
         analyze_only=args.analyze_only,
-        solver=args.solver,
-        email=args.email,
-        neos_url=args.solver_url,
-        timeout=args.timeout,
+        solver=effective_solver,
+        email=effective_email,
+        neos_url=effective_neos_url,
+        timeout=effective_timeout,
         output_file=output_file,
     )
 
