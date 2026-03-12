@@ -6,11 +6,15 @@
  * @copyright BSD-3-Clause
  *
  * Implements the linear programming formulation for filtration systems.
- * When piecewise-linear segments are present, the LP constraint
- * coefficients are updated dynamically based on the reservoir volume.
+ * Per-stage slope/constant schedules (from plpmanfi.dat Parquet files) are
+ * read at construction time and applied directly as LP matrix coefficients
+ * during add_to_lp() for each stage.  When piecewise-linear segments are
+ * present, the LP constraint coefficients are updated dynamically based on
+ * the reservoir volume via update_lp().
  */
 
 #include <gtopt/filtration_lp.hpp>
+#include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -20,6 +24,14 @@
 
 namespace gtopt
 {
+
+FiltrationLP::FiltrationLP(const Filtration& pfiltration, InputContext& ic)
+    : ObjectLP<Filtration>(pfiltration)
+    , m_slope_sched_(ic, ClassName, id(), std::move(pfiltration.slope))
+    , m_constant_sched_(ic, ClassName, id(), std::move(pfiltration.constant))
+{
+}
+
 bool FiltrationLP::add_to_lp(const SystemContext& sc,
                              const ScenarioLP& scenario,
                              const StageLP& stage,
@@ -39,10 +51,10 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
   // Determine effective slope and intercept (RHS).
-  // When piecewise segments are present, evaluate at the reservoir's
-  // initial volume to select the active segment.
-  Real effective_slope = slope();
-  Real effective_rhs = constant();
+  // Priority: piecewise segments (volume-dependent) > per-stage schedule >
+  // scalar default 0.0.
+  Real effective_slope = m_slope_sched_.at(stage.uid()).value_or(0.0);
+  Real effective_rhs = m_constant_sched_.at(stage.uid()).value_or(0.0);
 
   if (!filtration().segments.empty()) {
     const auto eini_vol = reservoir.reservoir().eini.value_or(0.0);
