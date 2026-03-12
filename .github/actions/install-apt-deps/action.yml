@@ -43,19 +43,31 @@ runs:
       run: |
         DISTRO=$(lsb_release --id --short | tr 'A-Z' 'a-z')
         CODENAME=$(lsb_release --codename --short)
-        wget -q "https://packages.apache.org/artifactory/arrow/${DISTRO}/apache-arrow-apt-source-latest-${CODENAME}.deb"
+        # Retry wget — packages.apache.org is intermittently unreachable.
+        for attempt in 1 2 3; do
+          wget -q "https://packages.apache.org/artifactory/arrow/${DISTRO}/apache-arrow-apt-source-latest-${CODENAME}.deb" \
+            && break
+          echo "Attempt $attempt/3: wget failed, retrying in 15s..."
+          sleep 15
+        done
         sudo apt-get install -y -q --no-install-recommends \
           "./apache-arrow-apt-source-latest-${CODENAME}.deb"
         # Update only the newly added Arrow source (avoids re-fetching all Ubuntu
         # package lists; a full apt-get update is not needed here).
         ARROW_SRC=$(find /etc/apt/sources.list.d -name 'apache-arrow.*' -print -quit 2>/dev/null || true)
-        if [ -n "$ARROW_SRC" ]; then
-          sudo apt-get update -q \
-            -o "Dir::Etc::sourcelist=${ARROW_SRC}" \
-            -o "Dir::Etc::sourceparts=-"
-        else
-          sudo apt-get update -q
-        fi
+        # Retry apt-get update — the Arrow repo may be transiently unreachable.
+        for attempt in 1 2 3; do
+          if [ -n "$ARROW_SRC" ]; then
+            sudo apt-get update -q \
+              -o "Dir::Etc::sourcelist=${ARROW_SRC}" \
+              -o "Dir::Etc::sourceparts=-" \
+              && break
+          else
+            sudo apt-get update -q && break
+          fi
+          echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
+          sleep 15
+        done
 
     - name: install Arrow and Parquet (cached)
       uses: awalsh128/cache-apt-pkgs-action@latest

@@ -576,6 +576,28 @@ A generator's contribution to reserve zones.
 
 ---
 
+### 3.18 User Constraint
+
+User-defined linear constraints applied to the LP formulation.
+See **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** for the full syntax
+reference and examples.
+
+| Field         | Type            | Unit  | Required | Description |
+|---------------|-----------------|-------|----------|-------------|
+| `uid`         | integer         | —     | Yes      | Unique identifier |
+| `name`        | string          | —     | Yes      | Human-readable constraint name |
+| `active`      | boolean         | —     | No       | Activation flag (default: true) |
+| `expression`  | string          | —     | Yes      | Constraint expression in AMPL-inspired syntax |
+
+**System-level fields:**
+
+| Field                    | Type            | Description |
+|--------------------------|-----------------|-------------|
+| `user_constraint_array`  | array           | Inline array of UserConstraint objects |
+| `user_constraint_file`   | string          | Path to external JSON file with constraint array |
+
+---
+
 ## 4. External Data Files
 
 When a field value is a **string** instead of a number, it refers to an
