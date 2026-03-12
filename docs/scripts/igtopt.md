@@ -177,11 +177,67 @@ system sheets are:
 | `reservoir_array` | uid, name, junction | Hydro reservoirs |
 | `turbine_array` | uid, name, waterway, generator | Hydro turbines |
 | `flow_array` | uid, name, junction | Inflows / evaporation |
-| `filtration_array` | uid, name, waterway, reservoir | Water seepage |
+| `filtration_array` | uid, name, waterway, reservoir, slope, constant, segments | Water seepage (piecewise-linear model) |
 | `outflow_array` | uid, name, junction | Water outflows |
 | `emission_zone_array` | uid, name | Emission zones |
 | `generator_emission_array` | uid, name, generator, emission_zone | Generator emissions |
 | `demand_emissions` | uid, name, demand, emission_zone | Demand emissions |
+
+#### `filtration_array` — Piecewise-Linear Seepage Model
+
+Filtration models water seepage from a waterway into an adjacent reservoir.
+The seepage flow is computed from a piecewise-linear function of the reservoir's
+average volume (the primary PLP model, implemented in `plpfilemb.dat`):
+
+```
+seepage [m³/s] = slope_k × V_avg [dam³] + constant_k
+```
+
+where the active segment `k` is selected at each phase based on the current
+reservoir volume (concave envelope — the segment that gives the minimum value).
+
+| Column | Type | Required | Description |
+|--------|------|----------|-------------|
+| `uid` | integer | ✓ | Unique identifier |
+| `name` | string | ✓ | Element name |
+| `active` | integer | — | 1 = active (default), 0 = inactive |
+| `waterway` | uid or name | ✓ | Source waterway that loses water |
+| `reservoir` | uid or name | ✓ | Destination reservoir that receives water |
+| `slope` | number \| array \| filename | — | Seepage slope [m³/s per dam³]; accepts per-stage schedule |
+| `constant` | number \| array \| filename | — | Constant seepage [m³/s]; accepts per-stage schedule |
+| `segments` | JSON array | — | Piecewise-linear curve (see below) |
+
+**`segments` column format** (PLP `plpfilemb.dat` model):
+
+Enter a JSON array of objects, one per segment, directly in the cell:
+
+```json
+[
+  {"volume": 0,      "slope": 0.00016132, "constant": 2.18918},
+  {"volume": 500000, "slope": 0.00010000, "constant": 4.80000}
+]
+```
+
+| Segment field | Unit | Description |
+|---------------|------|-------------|
+| `volume` | dam³ | Volume breakpoint (convert from PLP Mm³: multiply by 1000) |
+| `slope` | m³/s per dam³ | Seepage slope (convert from PLP /Mm³: divide by 1000) |
+| `constant` | m³/s | Seepage rate at this breakpoint (no unit conversion needed) |
+
+When `segments` is present, `FiltrationLP::update_lp()` selects the active
+segment at each SDDP iteration/phase and updates the LP constraint coefficients
+(the slope on the `eini`/`efin` volume columns and the constant RHS) directly in
+the LP matrix — no LP bound update, analogous to `reservoir_efficiency_array`.
+
+When `segments` is absent, the scalar `slope` and `constant` values (or their
+per-stage schedules) are applied directly.
+
+**Example `filtration_array` sheet:**
+
+| uid | name | waterway | reservoir | slope | constant | segments |
+|-----|------|----------|-----------|-------|----------|----------|
+| 1 | filt_embalse1 | ww_emb1 | embalse1 | | | [{"volume":0,"slope":0.00016132,"constant":2.18918},{"volume":500000,"slope":0.0001,"constant":4.8}] |
+| 2 | filt_embalse2 | ww_emb2 | embalse2 | 0.00005 | 1.2 | |
 
 ### 5.4 Time-Series Sheets (`@` Sheets)
 
