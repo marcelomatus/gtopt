@@ -490,7 +490,11 @@ def test_igtopt_bat4b24_battery_unified_definition(tmp_path):
 @pytest.mark.integration
 @pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
 def test_igtopt_bat4b24_demand_lmax_parquet(tmp_path):
-    """Demand@lmax sheet must create Demand/lmax.parquet with 24 rows."""
+    """Demand@lmax sheet must create Demand/lmax.parquet with 24 rows.
+
+    Columns whose names match elements in demand_array (e.g. 'd3', 'd4') are
+    resolved to ``uid:N`` format so the gtopt C++ binary can find them.
+    """
     import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
 
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
@@ -499,25 +503,36 @@ def test_igtopt_bat4b24_demand_lmax_parquet(tmp_path):
 
     table = pq.read_table(str(lmax_path))
     assert table.num_rows == 24, f"Expected 24 rows, got {table.num_rows}"
-    # Must have scenario, stage, block index columns + one column per demand
+    # Must have scenario, stage, block index columns + one column per demand.
+    # Element names ('d3', 'd4') are resolved to uid:N format by igtopt.
     assert "scenario" in table.column_names
     assert "stage" in table.column_names
     assert "block" in table.column_names
-    assert "d3" in table.column_names
-    assert "d4" in table.column_names
+    # d3 has uid=1, d4 has uid=2 in bat4b24's demand_array
+    assert "uid:1" in table.column_names, (
+        f"'uid:1' not found – name-to-uid resolution failed. Got: {table.column_names}"
+    )
+    assert "uid:2" in table.column_names, (
+        f"'uid:2' not found – name-to-uid resolution failed. Got: {table.column_names}"
+    )
 
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
 def test_igtopt_bat4b24_demand_lmax_profile_values(tmp_path):
-    """Demand lmax parquet must contain the correct 24-hour demand profiles."""
+    """Demand lmax parquet must contain the correct 24-hour demand profiles.
+
+    After name-to-uid resolution, 'd3' (uid=1) → 'uid:1' and
+    'd4' (uid=2) → 'uid:2'.
+    """
     import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
 
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
     lmax_path = tmp_path / "bat4b24" / "Demand" / "lmax.parquet"
     table = pq.read_table(str(lmax_path))
-    d3_vals = table.column("d3").to_pylist()
-    d4_vals = table.column("d4").to_pylist()
+    # After name-to-uid resolution: d3 (uid=1) → uid:1, d4 (uid=2) → uid:2
+    d3_vals = table.column("uid:1").to_pylist()
+    d4_vals = table.column("uid:2").to_pylist()
 
     # Reference values from bat_4b_24.json
     _D3_LMAX = [
@@ -580,7 +595,11 @@ def test_igtopt_bat4b24_demand_lmax_profile_values(tmp_path):
 @pytest.mark.integration
 @pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
 def test_igtopt_bat4b24_generator_profile_parquet(tmp_path):
-    """GeneratorProfile@profile sheet must create GeneratorProfile/profile.parquet."""
+    """GeneratorProfile@profile sheet must create GeneratorProfile/profile.parquet.
+
+    The column name 'gp_solar' (element name) is resolved to 'uid:1' via the
+    generator_profile_array name-to-uid mapping.
+    """
     import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
 
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
@@ -590,19 +609,26 @@ def test_igtopt_bat4b24_generator_profile_parquet(tmp_path):
     table = pq.read_table(str(profile_path))
     assert table.num_rows == 24, f"Expected 24 rows, got {table.num_rows}"
     assert "block" in table.column_names
-    assert "gp_solar" in table.column_names
+    # 'gp_solar' has uid=1 in generator_profile_array → resolved to 'uid:1'
+    assert "uid:1" in table.column_names, (
+        f"'uid:1' not found – name-to-uid resolution failed. Got: {table.column_names}"
+    )
 
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
 def test_igtopt_bat4b24_solar_profile_values(tmp_path):
-    """Solar profile parquet must match the reference 24-hour profile."""
+    """Solar profile parquet must match the reference 24-hour profile.
+
+    After name-to-uid resolution, 'gp_solar' (uid=1) → 'uid:1'.
+    """
     import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
 
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
     profile_path = tmp_path / "bat4b24" / "GeneratorProfile" / "profile.parquet"
     table = pq.read_table(str(profile_path))
-    vals = table.column("gp_solar").to_pylist()
+    # gp_solar has uid=1 in generator_profile_array → resolved to uid:1
+    vals = table.column("uid:1").to_pylist()
 
     # Reference profile from bat_4b_24.json
     _SOLAR_PROFILE = [
@@ -1156,3 +1182,419 @@ class TestFiltrationSegments:
         assert segs[1]["volume"] == pytest.approx(500000.0)
         assert segs[1]["slope"] == pytest.approx(0.0001)
         assert segs[1]["constant"] == pytest.approx(4.8)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for name-to-uid column resolution helpers
+# ---------------------------------------------------------------------------
+
+
+class TestArrayNameToCname:
+    """Tests for _array_name_to_cname()."""
+
+    def test_simple_names(self):
+        """Single-word arrays convert correctly."""
+        from igtopt.igtopt import _array_name_to_cname
+
+        assert _array_name_to_cname("demand_array") == "Demand"
+        assert _array_name_to_cname("bus_array") == "Bus"
+        assert _array_name_to_cname("generator_array") == "Generator"
+        assert _array_name_to_cname("line_array") == "Line"
+        assert _array_name_to_cname("battery_array") == "Battery"
+        assert _array_name_to_cname("reservoir_array") == "Reservoir"
+        assert _array_name_to_cname("turbine_array") == "Turbine"
+        assert _array_name_to_cname("junction_array") == "Junction"
+        assert _array_name_to_cname("waterway_array") == "Waterway"
+        assert _array_name_to_cname("filtration_array") == "Filtration"
+        assert _array_name_to_cname("converter_array") == "Converter"
+
+    def test_compound_names(self):
+        """Multi-word snake_case arrays convert to CamelCase correctly."""
+        from igtopt.igtopt import _array_name_to_cname
+
+        assert _array_name_to_cname("generator_profile_array") == "GeneratorProfile"
+        assert _array_name_to_cname("demand_profile_array") == "DemandProfile"
+        assert _array_name_to_cname("reserve_zone_array") == "ReserveZone"
+        assert _array_name_to_cname("reserve_provision_array") == "ReserveProvision"
+        assert (
+            _array_name_to_cname("reservoir_efficiency_array") == "ReservoirEfficiency"
+        )
+
+    def test_no_array_suffix(self):
+        """Name without _array suffix uses the whole string."""
+        from igtopt.igtopt import _array_name_to_cname
+
+        assert _array_name_to_cname("demand") == "Demand"
+
+
+class TestBuildNameToUidMaps:
+    """Tests for _build_name_to_uid_maps()."""
+
+    def test_basic_mapping(self):
+        """Builds name→uid:N map from a simple demand_array DataFrame."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "demand_array": pd.DataFrame(
+                {"uid": [1, 2], "name": ["LAJA", "ANTUCO"], "bus": [1, 2]}
+            )
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert "Demand" in maps
+        assert maps["Demand"]["LAJA"] == "uid:1"
+        assert maps["Demand"]["ANTUCO"] == "uid:2"
+
+    def test_compound_type_mapping(self):
+        """Builds map for generator_profile_array → GeneratorProfile."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "generator_profile_array": pd.DataFrame(
+                {"uid": [1], "name": ["gp_solar"], "generator": ["g1"]}
+            )
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert "GeneratorProfile" in maps
+        assert maps["GeneratorProfile"]["gp_solar"] == "uid:1"
+
+    def test_skips_dot_sheets(self):
+        """Dot-sheets (e.g. .introduction) are ignored."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            ".introduction": pd.DataFrame({"uid": [1], "name": ["x"]}),
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert not maps
+
+    def test_skips_at_sheets(self):
+        """@-sheets are ignored when building name maps."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "Demand@lmax": pd.DataFrame({"stage": [1], "block": [1], "LAJA": [100.0]}),
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert not maps
+
+    def test_skips_options_sheet(self):
+        """options sheet is always skipped."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "options": pd.DataFrame({"uid": [1], "name": ["x"]}),
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert not maps
+
+    def test_skips_missing_uid_column(self):
+        """Sheets without uid column are skipped."""
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "demand_array": pd.DataFrame({"name": ["LAJA"], "bus": [1]}),
+        }
+        maps = _build_name_to_uid_maps(xls)
+        assert not maps
+
+    def test_duplicate_names_omitted(self):
+        """A type with duplicate element names is omitted entirely.
+
+        When element 1 and 3 share name "DUP" but element 2 has unique name
+        "UNIQUE", the entire Demand type must be omitted – not just the colliding
+        pair – to prevent partial/inconsistent column resolution.
+        """
+        from igtopt.igtopt import _build_name_to_uid_maps
+
+        xls = {
+            "demand_array": pd.DataFrame(
+                {"uid": [1, 2, 3], "name": ["DUP", "UNIQUE", "DUP"]}
+            )
+        }
+        maps = _build_name_to_uid_maps(xls)
+        # Entire Demand type must be absent – 'UNIQUE' must not leak through
+        assert "Demand" not in maps
+
+
+class TestResolveAtSheetColumns:
+    """Tests for _resolve_at_sheet_columns()."""
+
+    def test_renames_element_name_columns(self):
+        """Element-name columns are renamed to uid:N format."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame({"stage": [1], "block": [1], "LAJA": [100.0]})
+        result = _resolve_at_sheet_columns(df, {"LAJA": "uid:1"})
+        assert "uid:1" in result.columns
+        assert "LAJA" not in result.columns
+
+    def test_preserves_index_columns(self):
+        """scenario, stage, block columns are never renamed."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame(
+            {"scenario": [1], "stage": [1], "block": [1], "LAJA": [100.0]}
+        )
+        result = _resolve_at_sheet_columns(df, {"scenario": "uid:0", "LAJA": "uid:1"})
+        assert "scenario" in result.columns
+        assert "stage" in result.columns
+        assert "block" in result.columns
+
+    def test_preserves_existing_uid_columns(self):
+        """Columns already in uid:N format are left unchanged."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame({"stage": [1], "block": [1], "uid:1": [100.0]})
+        result = _resolve_at_sheet_columns(df, {"uid:1": "uid:99"})
+        assert "uid:1" in result.columns
+
+    def test_returns_original_when_no_match(self):
+        """Returns the original DataFrame when no columns need renaming."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame({"stage": [1], "block": [1], "uid:1": [100.0]})
+        result = _resolve_at_sheet_columns(df, {"LAJA": "uid:1"})
+        assert result is df  # same object, no copy made
+
+    def test_empty_name_map(self):
+        """Empty name_to_uid map returns the original DataFrame unchanged."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame({"stage": [1], "block": [1], "LAJA": [100.0]})
+        result = _resolve_at_sheet_columns(df, {})
+        assert result is df
+
+    def test_multiple_columns_renamed(self):
+        """Multiple element-name columns are all renamed correctly."""
+        from igtopt.igtopt import _resolve_at_sheet_columns
+
+        df = pd.DataFrame(
+            {"stage": [1], "block": [1], "LAJA": [100.0], "ANTUCO": [200.0]}
+        )
+        result = _resolve_at_sheet_columns(df, {"LAJA": "uid:1", "ANTUCO": "uid:2"})
+        assert "uid:1" in result.columns
+        assert "uid:2" in result.columns
+        assert "LAJA" not in result.columns
+        assert "ANTUCO" not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# igtopt roundtrip for reservoir_efficiency_array (with segments)
+# ---------------------------------------------------------------------------
+
+
+class TestReservoirEfficiencyRoundtrip:
+    """Tests that reservoir_efficiency_array with segments survives igtopt roundtrip."""
+
+    def _make_xlsx(self, tmp_path: pathlib.Path, segments_json: str) -> pathlib.Path:
+        """Build a minimal xlsx with a reservoir_efficiency_array sheet."""
+        pytest.importorskip("openpyxl")
+        import openpyxl
+
+        xlsx_path = tmp_path / "res_eff.xlsx"
+        wb = openpyxl.Workbook()
+
+        ws_opts = wb.active
+        ws_opts.title = "options"
+        ws_opts.append(["option", "value"])
+        ws_opts.append(["use_single_bus", True])
+
+        ws_block = wb.create_sheet("block_array")
+        ws_block.append(["uid", "duration"])
+        ws_block.append([1, 1.0])
+
+        ws_stage = wb.create_sheet("stage_array")
+        ws_stage.append(["uid", "first_block", "count_block"])
+        ws_stage.append([1, 1, 1])
+
+        ws_scen = wb.create_sheet("scenario_array")
+        ws_scen.append(["uid", "probability_factor"])
+        ws_scen.append([1, 1.0])
+
+        ws_bus = wb.create_sheet("bus_array")
+        ws_bus.append(["uid", "name"])
+        ws_bus.append([1, "b1"])
+
+        ws_gen = wb.create_sheet("generator_array")
+        ws_gen.append(["uid", "name", "bus", "pmax"])
+        ws_gen.append([1, "turb_gen", 1, 50.0])
+
+        ws_junc = wb.create_sheet("junction_array")
+        ws_junc.append(["uid", "name"])
+        ws_junc.append([1, "j1"])
+        ws_junc.append([2, "j2"])
+
+        ws_ww = wb.create_sheet("waterway_array")
+        ws_ww.append(["uid", "name", "junction_a", "junction_b"])
+        ws_ww.append([1, "ww1", 1, 2])
+
+        ws_res = wb.create_sheet("reservoir_array")
+        ws_res.append(["uid", "name", "junction"])
+        ws_res.append([1, "res1", 2])
+
+        ws_turb = wb.create_sheet("turbine_array")
+        ws_turb.append(["uid", "name", "waterway", "generator", "conversion_rate"])
+        ws_turb.append([1, "t1", 1, 1, 1.5])
+
+        ws_re = wb.create_sheet("reservoir_efficiency_array")
+        ws_re.append(
+            ["uid", "name", "turbine", "reservoir", "mean_efficiency", "segments"]
+        )
+        ws_re.append([1, "re_colbun", 1, 1, 1.53, segments_json])
+
+        wb.save(xlsx_path)
+        return xlsx_path
+
+    def _run(self, xlsx_path: pathlib.Path, tmp_path: pathlib.Path) -> dict:
+        """Run igtopt on xlsx_path and return parsed JSON dict."""
+        args = argparse.Namespace(
+            filenames=[str(xlsx_path)],
+            json_file=tmp_path / "res_eff.json",
+            input_directory=tmp_path / "res_eff",
+            input_format="parquet",
+            name="res_eff",
+            compression="gzip",
+            skip_nulls=True,
+            parse_unexpected_sheets=False,
+            pretty=False,
+            zip=False,
+        )
+        rc = _igtopt_run(args)
+        assert rc == 0, "igtopt._run() failed"
+        return json.loads((tmp_path / "res_eff.json").read_text())
+
+    def test_reservoir_efficiency_roundtrip_single_segment(self, tmp_path):
+        """reservoir_efficiency_array with one segment roundtrips correctly."""
+        pytest.importorskip("openpyxl")
+        segs = '[{"volume":0.0,"slope":0.0002294,"constant":1.2558}]'
+        xlsx = self._make_xlsx(tmp_path, segs)
+        data = self._run(xlsx, tmp_path)
+
+        re_arr = data["system"].get("reservoir_efficiency_array", [])
+        assert len(re_arr) == 1
+        re = re_arr[0]
+        assert re["uid"] == 1
+        assert re["name"] == "re_colbun"
+        assert re["mean_efficiency"] == pytest.approx(1.53)
+        segs_parsed = re["segments"]
+        assert isinstance(segs_parsed, list)
+        assert len(segs_parsed) == 1
+        assert segs_parsed[0]["volume"] == pytest.approx(0.0)
+        assert segs_parsed[0]["slope"] == pytest.approx(0.0002294)
+        assert segs_parsed[0]["constant"] == pytest.approx(1.2558)
+
+    def test_reservoir_efficiency_roundtrip_multi_segment(self, tmp_path):
+        """reservoir_efficiency_array with multiple segments roundtrips correctly."""
+        pytest.importorskip("openpyxl")
+        segs = (
+            '[{"volume":0.0,"slope":0.0003,"constant":1.1},'
+            '{"volume":500.0,"slope":0.0001,"constant":1.5},'
+            '{"volume":1000.0,"slope":0.00005,"constant":1.8}]'
+        )
+        xlsx = self._make_xlsx(tmp_path, segs)
+        data = self._run(xlsx, tmp_path)
+
+        re = data["system"]["reservoir_efficiency_array"][0]
+        segs_parsed = re["segments"]
+        assert len(segs_parsed) == 3
+        assert segs_parsed[1]["volume"] == pytest.approx(500.0)
+        assert segs_parsed[2]["slope"] == pytest.approx(0.00005)
+
+    def test_reservoir_efficiency_sddp_update_skip(self, tmp_path):
+        """sddp_efficiency_update_skip field is preserved in roundtrip."""
+        pytest.importorskip("openpyxl")
+        import openpyxl
+
+        xlsx_path = tmp_path / "re_skip.xlsx"
+        wb = openpyxl.Workbook()
+        ws_opts = wb.active
+        ws_opts.title = "options"
+        ws_opts.append(["option", "value"])
+
+        for sheet_data in [
+            ("block_array", [["uid", "duration"], [1, 1.0]]),
+            ("stage_array", [["uid", "first_block", "count_block"], [1, 1, 1]]),
+            ("scenario_array", [["uid", "probability_factor"], [1, 1.0]]),
+            ("bus_array", [["uid", "name"], [1, "b1"]]),
+            ("generator_array", [["uid", "name", "bus", "pmax"], [1, "g1", 1, 10.0]]),
+            ("junction_array", [["uid", "name"], [1, "j1"], [2, "j2"]]),
+            (
+                "waterway_array",
+                [["uid", "name", "junction_a", "junction_b"], [1, "ww1", 1, 2]],
+            ),
+            ("reservoir_array", [["uid", "name", "junction"], [1, "res1", 2]]),
+            (
+                "turbine_array",
+                [
+                    ["uid", "name", "waterway", "generator", "conversion_rate"],
+                    [1, "t1", 1, 1, 1.2],
+                ],
+            ),
+        ]:
+            ws = wb.create_sheet(sheet_data[0])
+            for row in sheet_data[1]:
+                ws.append(row)
+
+        ws_re = wb.create_sheet("reservoir_efficiency_array")
+        ws_re.append(
+            [
+                "uid",
+                "name",
+                "turbine",
+                "reservoir",
+                "mean_efficiency",
+                "sddp_efficiency_update_skip",
+            ]
+        )
+        ws_re.append([1, "re1", 1, 1, 1.4, 5])
+        wb.save(xlsx_path)
+
+        args = argparse.Namespace(
+            filenames=[str(xlsx_path)],
+            json_file=tmp_path / "re_skip.json",
+            input_directory=tmp_path / "re_skip",
+            input_format="parquet",
+            name="re_skip",
+            compression="gzip",
+            skip_nulls=True,
+            parse_unexpected_sheets=False,
+            pretty=False,
+            zip=False,
+        )
+        rc = _igtopt_run(args)
+        assert rc == 0
+        data = json.loads((tmp_path / "re_skip.json").read_text())
+        re = data["system"]["reservoir_efficiency_array"][0]
+        assert re["sddp_efficiency_update_skip"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Name-to-uid end-to-end via bat4b24 workbook
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _BAT4B24_XLSX.exists(), reason="bat4b24.xlsx not present")
+def test_name_to_uid_resolution_end_to_end(tmp_path):
+    """Element-name columns in @-sheets are resolved to uid:N in the Parquet output.
+
+    The bat4b24.xlsx uses element names ('d3', 'd4', 'gp_solar') as column
+    headers in its @-sheets.  After igtopt processes them, the Parquet files
+    must use 'uid:N' format so the gtopt C++ binary can read them.
+    """
+    import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
+
+    _run_igtopt(_BAT4B24_XLSX, tmp_path)
+
+    # Demand: d3→uid:1, d4→uid:2
+    lmax = pq.read_table(str(tmp_path / "bat4b24" / "Demand" / "lmax.parquet"))
+    assert "uid:1" in lmax.column_names, "d3 not resolved to uid:1"
+    assert "uid:2" in lmax.column_names, "d4 not resolved to uid:2"
+    assert "d3" not in lmax.column_names, "element name 'd3' still present"
+    assert "d4" not in lmax.column_names, "element name 'd4' still present"
+
+    # GeneratorProfile: gp_solar→uid:1
+    prof = pq.read_table(
+        str(tmp_path / "bat4b24" / "GeneratorProfile" / "profile.parquet")
+    )
+    assert "uid:1" in prof.column_names, "gp_solar not resolved to uid:1"
+    assert "gp_solar" not in prof.column_names, "element name 'gp_solar' still present"
