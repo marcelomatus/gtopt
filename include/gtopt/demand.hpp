@@ -85,7 +85,8 @@ struct Demand
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Descriptive name
   OptActive active {};  ///< Activation status (default: active)
-  OptName type {};  ///< Optional demand type tag (e.g. "residential", "industrial")
+  OptName
+      type {};  ///< Optional demand type tag (e.g. "residential", "industrial")
 
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]

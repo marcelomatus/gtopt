@@ -129,7 +129,8 @@ struct Battery
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable battery name
   OptActive active {};  ///< Activation status (default: active)
-  OptName type {};  ///< Optional battery type tag (e.g. "li-ion", "flow", "pumped")
+  OptName
+      type {};  ///< Optional battery type tag (e.g. "li-ion", "flow", "pumped")
 
   /// External bus connection for the unified battery definition.
   /// When set, System::expand_batteries() auto-generates a discharge
