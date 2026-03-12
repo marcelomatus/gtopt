@@ -28,7 +28,7 @@ void PlanningLP::write_lp(const std::string& filename) const
     for (auto&& phase_systems : m_systems_) {
       for (auto&& system : phase_systems) {
         try {
-          system.write_lp(filename);
+          [[maybe_unused]] auto _ = system.write_lp(filename);
         } catch (const std::exception& e) {
           SPDLOG_ERROR(
               std::format("Failed to write LP for system: {}", e.what()));

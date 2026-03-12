@@ -6,14 +6,13 @@
  * @copyright BSD-3-Clause
  */
 
-#include <gtopt/check_lp.hpp>
-
 #include <array>
 #include <cstdio>
 #include <filesystem>
 #include <format>
 #include <string>
 
+#include <gtopt/check_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -36,13 +35,13 @@ namespace
     return {};
   }
 
-  std::string path_str {path_env};
+  const std::string path_str {path_env};
   std::size_t start = 0;
 
   while (start < path_str.size()) {
     const auto end = path_str.find(':', start);
-    const auto len = (end == std::string::npos) ? (path_str.size() - start)
-                                                 : (end - start);
+    const auto len =
+        (end == std::string::npos) ? (path_str.size() - start) : (end - start);
     const std::filesystem::path candidate =
         std::filesystem::path(path_str.substr(start, len)) / name;
     std::error_code ec;
@@ -59,8 +58,8 @@ namespace
 
 }  // namespace
 
-std::string run_check_lp_diagnostic(
-    const std::string& lp_file, int timeout_seconds)
+std::string run_check_lp_diagnostic(const std::string& lp_file,
+                                    int timeout_seconds)
 {
   // Ensure the LP file path has the .lp extension.
   const std::string lp_path =
@@ -86,7 +85,7 @@ std::string run_check_lp_diagnostic(
   // budget; the inner --timeout is the Python-level budget used when the
   // analyse-only flag alone is insufficient.
   const std::string cmd = std::format(
-      "timeout {} \"{}\" --analyze-only --no-color --timeout {} \"{}\" 2>&1",
+      R"(timeout {} "{}" --analyze-only --no-color --timeout {} "{}" 2>&1)",
       timeout_seconds,
       bin,
       timeout_seconds,

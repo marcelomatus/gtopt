@@ -288,7 +288,7 @@ public:
    *                 are appended automatically).
    * @return The full path of the written file (with .lp extension).
    */
-  std::string write_lp(const std::string& filename) const;
+  [[nodiscard]] std::string write_lp(const std::string& filename) const;
 
   /**
    * @brief Resolves the linear programming problem
