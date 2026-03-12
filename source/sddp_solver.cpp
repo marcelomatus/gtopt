@@ -66,9 +66,9 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 
 std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
-    std::span<const uint8_t> scene_feasible,
-    int num_scenes) noexcept
+    std::span<const uint8_t> scene_feasible) noexcept
 {
+  const auto num_scenes = static_cast<int>(scene_feasible.size());
   std::vector<double> weights(static_cast<std::size_t>(num_scenes), 0.0);
   double total = 0.0;
 
@@ -1100,8 +1100,7 @@ auto SDDPSolver::validate_inputs() const -> std::optional<Error>
   return std::nullopt;
 }
 
-auto SDDPSolver::initialize_solver(const SolverOptions& /*lp_opts*/)
-    -> std::expected<void, Error>
+auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
 {
   if (auto r = planning_lp().resolve(); !r.has_value()) {
     return std::unexpected(Error {
@@ -1439,7 +1438,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   }
 
   // Bootstrap LP + initialize α vars, state links, hot-start cuts
-  if (auto err = initialize_solver(lp_opts); !err.has_value()) {
+  if (auto err = initialize_solver(); !err.has_value()) {
     return std::unexpected(std::move(err.error()));
   }
 
@@ -1489,9 +1488,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Scene weights and bounds ──
     const auto& scenes = planning_lp().simulation().scenes();
-    const auto num_scenes_total = static_cast<int>(fwd->scene_feasible.size());
-    const auto weights =
-        compute_scene_weights(scenes, fwd->scene_feasible, num_scenes_total);
+    const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
     compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
     // ── Backward pass ──
