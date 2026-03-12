@@ -12,12 +12,14 @@
 #include <string_view>
 #include <vector>
 
+#include <fcntl.h>  // O_CLOEXEC for pipe2()
+
 // POSIX process-spawning without a command processor (replaces popen/system).
 #include <gtopt/check_lp.hpp>
 #include <spawn.h>  // posix_spawn, posix_spawn_file_actions_t
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>  // waitpid
-#include <unistd.h>  // pipe, read, close, STDOUT_FILENO, STDERR_FILENO, environ
+#include <unistd.h>  // pipe2, read, close, STDOUT_FILENO, STDERR_FILENO, environ
 
 namespace gtopt
 {
@@ -47,7 +49,7 @@ namespace
     const auto len = (end == std::string_view::npos)
         ? (path_view.size() - start)
         : (end - start);
-    std::filesystem::path candidate =
+    const std::filesystem::path candidate =
         std::filesystem::path(path_view.substr(start, len)) / name;
     std::error_code ec;
     if (std::filesystem::is_regular_file(candidate, ec)) {
@@ -167,18 +169,26 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
 
   if (!timeout_bin.empty()) {
     exec_bin = timeout_bin;
-    arg_strings = {timeout_bin,
-                   timeout_str,
-                   bin,
-                   "--analyze-only",
-                   "--no-color",
-                   "--timeout",
-                   timeout_str,
-                   lp_path};
+    arg_strings = {
+        timeout_bin,
+        timeout_str,
+        bin,
+        "--analyze-only",
+        "--no-color",
+        "--timeout",
+        timeout_str,
+        lp_path,
+    };
   } else {
     exec_bin = bin;
     arg_strings = {
-        bin, "--analyze-only", "--no-color", "--timeout", timeout_str, lp_path};
+        bin,
+        "--analyze-only",
+        "--no-color",
+        "--timeout",
+        timeout_str,
+        lp_path,
+    };
   }
 
   SPDLOG_DEBUG("check_lp: spawning: {}", exec_bin);
@@ -194,11 +204,11 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
 
   // Create a pipe: read_fd (parent reads) ← write_fd (child writes).
   std::array<int, 2> pipefd {};
-  if (::pipe(pipefd.data()) != 0) {
-    SPDLOG_DEBUG("check_lp: pipe() failed");
+  if (::pipe2(pipefd.data(), O_CLOEXEC) != 0) {
+    SPDLOG_DEBUG("check_lp: pipe2() failed");
     return {};
   }
-  UniqueFd read_fd {pipefd[0]};
+  const UniqueFd read_fd {pipefd[0]};
   UniqueFd write_fd {pipefd[1]};
 
   // Wire child stdout + stderr to the write end of the pipe.
