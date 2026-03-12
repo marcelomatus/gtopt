@@ -120,7 +120,7 @@ private:
   class Parser
   {
   public:
-    explicit Parser(Lexer lexer) noexcept;
+    explicit Parser(Lexer lexer);
     [[nodiscard]] ConstraintExpr parse_constraint();
 
   private:

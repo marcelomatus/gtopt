@@ -250,7 +250,7 @@ ConstraintParser::Token ConstraintParser::Lexer::peek()
 
 // ── Parser implementation ─────────────────────────────────────────────────
 
-ConstraintParser::Parser::Parser(Lexer lexer) noexcept
+ConstraintParser::Parser::Parser(Lexer lexer)
     : m_lexer_(lexer)
 {
   advance();
