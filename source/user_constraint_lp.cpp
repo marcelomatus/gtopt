@@ -564,9 +564,9 @@ void add_user_constraints_to_output(
     // block_cost_factors scaling (scale_obj / (prob × discount × duration)),
     // which converts the LP dual back to physical units.  The constraint_type
     // field is informational:
-    //   "power"  (or absent) → dual is in $/MW  (marginal cost of 1 MW of
-    //   capacity) "energy"             → dual is in $/MWh (marginal cost of 1
-    //   MWh of energy)
+    //   "power"  (or absent) → dual is in $/MW  (constraint on a power
+    //   variable) "energy"             → dual is in $/MWh (constraint on an
+    //   energy variable)
     out.add_row_dual(cname, row_name, pid, state.rows);
   }
 }

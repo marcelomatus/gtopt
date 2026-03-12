@@ -169,7 +169,7 @@ TEST_CASE("User constraint - merge preserves constraints")
 TEST_CASE("User constraint - LP solve with constraints in JSON")
 {
   // Verify that having user_constraint_array in the JSON does not break
-  // the LP solve. The constraints are wired into the LP assembly and
+  // the LP solve.  The constraints are wired into the LP assembly and
   // their row indices are stored for dual-value output.
   using namespace gtopt;
 
@@ -315,5 +315,5 @@ TEST_CASE("User constraint - constraint_type field preserved")
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
   REQUIRE(uc.constraint_type.has_value());
-  CHECK(uc.constraint_type.value_or("") == "power");
+  CHECK(*uc.constraint_type == "power");
 }
