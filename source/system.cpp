@@ -130,10 +130,10 @@ void System::expand_batteries()
 
       // Find the referenced source generator and set its bus to the internal
       // bus, overwriting any previously set bus value.
-      const auto& src_id = *battery.source_generator;
+      const auto src_id = *battery.source_generator;  // captured by value
       auto it =
           std::ranges::find_if(generator_array,
-                               [&src_id](const Generator& g) noexcept
+                               [src_id](const Generator& g)
                                {
                                  if (std::holds_alternative<Uid>(src_id)) {
                                    return g.uid == std::get<Uid>(src_id);
@@ -143,13 +143,12 @@ void System::expand_batteries()
       if (it != generator_array.end()) {
         it->bus = charge_bus;
       } else {
-        SPDLOG_WARN(
-            std::format("Battery '{}': source_generator '{}' not found in "
-                        "generator_array",
-                        battery.name,
-                        std::holds_alternative<Name>(src_id)
-                            ? std::get<Name>(src_id)
-                            : std::to_string(std::get<Uid>(src_id))));
+        const auto src_label = std::visit(
+            [](const auto& v) { return std::format("{}", v); }, src_id);
+        SPDLOG_WARN(std::format(
+            "Battery '{}': source_generator '{}' not found in generator_array",
+            battery.name,
+            src_label));
       }
       battery.source_generator.reset();
     }
