@@ -74,6 +74,12 @@ public:
     return eini_cols.at({scenario.uid(), stage.uid()});
   }
 
+  [[nodiscard]] constexpr const auto& energy_cols_at(const ScenarioLP& scenario,
+                                                     const StageLP& stage) const
+  {
+    return energy_cols.at({scenario.uid(), stage.uid()});
+  }
+
   template<typename SystemContextT>
   bool add_to_lp(std::string_view cname,
                  SystemContextT& sc,
