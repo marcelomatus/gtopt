@@ -12,12 +12,17 @@
  *
  * ### Supported element types and attributes
  *
- * | Element type | Attributes                       |
- * |-------------|----------------------------------|
- * | generator   | generation, cost                 |
- * | demand      | load, fail                       |
- * | line        | flow                             |
- * | battery     | energy                           |
+ * | Element type | Attributes                                    |
+ * |-------------|-----------------------------------------------|
+ * | generator   | generation, cost                              |
+ * | demand      | load, fail                                    |
+ * | line        | flow, flowp, flown, lossp, lossn              |
+ * | battery     | energy, charge, discharge                     |
+ * | converter   | charge, discharge                             |
+ * | reservoir   | volume                                        |
+ * | bus         | theta                                         |
+ * | waterway    | flow                                          |
+ * | turbine     | generation                                    |
  *
  * ### Grammar (pseudo-BNF)
  *
@@ -28,11 +33,21 @@
  * expr         := term (('+' | '-') term)*
  *
  * term         := [number '*'] element_ref
+ *              |  [number '*'] sum_expr
  *              |  ['-'] number
  *
  * element_ref  := element_type '(' string ')' '.' attribute
  *
+ * sum_expr     := 'sum' '(' element_type '(' string_list ')' '.'
+ *                 attribute ')'
+ *              |  'sum' '(' element_type '(' 'all' ')' '.'
+ *                 attribute ')'
+ *
+ * string_list  := string (',' string)*
+ *
  * element_type := 'generator' | 'demand' | 'line' | 'battery'
+ *              |  'converter' | 'reservoir' | 'bus'
+ *              |  'waterway'  | 'turbine'
  *
  * attribute    := IDENT
  *
@@ -53,6 +68,9 @@
  *
  * index_value  := number
  *              |  number '..' number
+ *
+ * comment      := '#' <any>* EOL
+ *              |  '//' <any>* EOL
  * ```
  */
 
@@ -81,9 +99,31 @@ namespace gtopt
  */
 struct ElementRef
 {
-  std::string element_type {};  ///< "generator", "demand", "line", "battery"
+  std::string element_type {};  ///< "generator", "demand", "line", etc.
   std::string element_id {};  ///< name or "uid:N" reference
   std::string attribute {};  ///< LP attribute: "generation", "load", etc.
+};
+
+/**
+ * @brief Aggregation over multiple elements of the same type
+ *
+ * Represents `sum(element_type("id1","id2",...).attribute)` or
+ * `sum(element_type(all).attribute)` — the AMPL-style `sum{g in SET}`.
+ *
+ * Examples:
+ *   - sum(generator("G1","G2").generation)
+ *       → {element_type="generator", element_ids={"G1","G2"},
+ *          all_elements=false, attribute="generation"}
+ *   - sum(generator(all).generation)
+ *       → {element_type="generator", element_ids={},
+ *          all_elements=true, attribute="generation"}
+ */
+struct SumElementRef
+{
+  std::string element_type {};  ///< "generator", "demand", "line", etc.
+  std::vector<std::string> element_ids {};  ///< Element names/UIDs to sum
+  bool all_elements {false};  ///< true = sum over all elements of the type
+  std::string attribute {};  ///< LP attribute to aggregate
 };
 
 /**
@@ -115,13 +155,17 @@ struct ConstraintDomain
 /**
  * @brief A single term in a constraint expression
  *
- * Either a coefficient × element reference (variable term) or a
- * standalone coefficient (constant term, element = std::nullopt).
+ * Either:
+ *   - coefficient × element reference (single variable term)
+ *   - coefficient × sum reference (aggregation term)
+ *   - standalone coefficient (constant term, both nullopt)
  */
 struct ConstraintTerm
 {
   double coefficient {1.0};  ///< Scalar multiplier
-  std::optional<ElementRef> element {};  ///< Element ref (nullopt = constant)
+  std::optional<ElementRef> element {};  ///< Single element (nullopt = none)
+  std::optional<SumElementRef>
+      sum_ref {};  ///< Sum aggregation (nullopt = none)
 };
 
 /**

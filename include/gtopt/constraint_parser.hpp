@@ -11,16 +11,21 @@
  * ### Example usage
  *
  * ```cpp
+ * // Single element references
  * auto expr = ConstraintParser::parse(
  *     "gen_limit",
  *     R"(generator("TORO").generation + generator("uid:23").generation <= 300,
  *        for(stage in {4,5,6}, block in 1..30))");
  *
- * // expr.terms[0].element->element_id == "TORO"
- * // expr.terms[1].element->element_id == "uid:23"
- * // expr.rhs == 300.0
- * // expr.domain.stages.values == {4, 5, 6}
- * // expr.domain.blocks.values == {1, 2, ..., 30}
+ * // AMPL-style sum aggregation
+ * auto sum_expr = ConstraintParser::parse(
+ *     "total_gen",
+ *     R"(sum(generator("G1","G2","G3").generation) <= 500)");
+ *
+ * // Sum over all elements of a type
+ * auto all_expr = ConstraintParser::parse(
+ *     "system_cap",
+ *     R"(sum(generator(all).generation) <= 1000)");
  * ```
  */
 
@@ -38,7 +43,9 @@ namespace gtopt
  * @brief Parser for AMPL-inspired user constraint expressions
  *
  * Provides static parse() methods that tokenize and parse a constraint
- * expression string into a ConstraintExpr AST.
+ * expression string into a ConstraintExpr AST.  Supports comments
+ * (`#` or `//` to end-of-line), element references, sum aggregation,
+ * and domain clauses.
  */
 class ConstraintParser
 {
@@ -99,7 +106,7 @@ private:
     [[nodiscard]] Token peek();
 
   private:
-    void skip_whitespace() noexcept;
+    void skip_whitespace_and_comments() noexcept;
     [[nodiscard]] Token scan_number();
     [[nodiscard]] Token scan_string();
     [[nodiscard]] Token scan_ident();
@@ -125,12 +132,16 @@ private:
     [[nodiscard]] std::vector<ConstraintTerm> parse_expr();
     [[nodiscard]] ConstraintTerm parse_term(bool negate);
     [[nodiscard]] ElementRef parse_element_ref(std::string type_name);
+    [[nodiscard]] ConstraintTerm parse_sum_expr(double sign);
     [[nodiscard]] ConstraintDomain parse_for_clause();
     [[nodiscard]] IndexRange parse_index_set();
 
     Lexer m_lexer_;
     Token m_current_;
   };
+
+  /// @brief Strip comments from expression before parsing
+  [[nodiscard]] static std::string strip_comments(std::string_view input);
 };
 
 }  // namespace gtopt

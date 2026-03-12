@@ -30,6 +30,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     name: unit-tests
 
     steps:
@@ -97,6 +98,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     name: integration-tests
     needs: test
 
@@ -148,6 +150,7 @@ jobs:
 
   cmake-install:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     name: cmake-install
     needs: test
 
@@ -301,6 +304,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     name: lint
 
     steps:

@@ -393,4 +393,311 @@ TEST_SUITE("ConstraintParser")
         static_cast<void>(ConstraintParser::parse(R"(2 * 3 <= 100)")),
         std::invalid_argument);
   }
+
+  // ── Bare numeric UID identification ──────────────────────────────────
+
+  TEST_CASE("Parse generator with bare numeric UID")
+  {
+    auto expr = ConstraintParser::parse(R"(generator(3).generation <= 200)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(200.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "generator");
+    CHECK(expr.terms[0].element->element_id == "uid:3");
+    CHECK(expr.terms[0].element->attribute == "generation");
+  }
+
+  TEST_CASE("Parse demand with bare numeric UID")
+  {
+    auto expr = ConstraintParser::parse(R"(demand(7).load >= 50)");
+
+    CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(50.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "demand");
+    CHECK(expr.terms[0].element->element_id == "uid:7");
+    CHECK(expr.terms[0].element->attribute == "load");
+  }
+
+  TEST_CASE("Parse mixed name and numeric UID references")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator("G1").generation + generator(5).generation <= 300)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "G1");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_id == "uid:5");
+  }
+
+  TEST_CASE("Parse coefficient with numeric UID")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(2.5 * generator(1).generation <= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_id == "uid:1");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
+  }
+
+  // ── New element types ─────────────────────────────────────────────────
+
+  TEST_CASE("Parse converter element")
+  {
+    auto expr = ConstraintParser::parse(R"(converter("CV1").charge <= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "converter");
+    CHECK(expr.terms[0].element->element_id == "CV1");
+    CHECK(expr.terms[0].element->attribute == "charge");
+  }
+
+  TEST_CASE("Parse reservoir element")
+  {
+    auto expr = ConstraintParser::parse(R"(reservoir("RES1").volume >= 1000)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "reservoir");
+    CHECK(expr.terms[0].element->element_id == "RES1");
+    CHECK(expr.terms[0].element->attribute == "volume");
+  }
+
+  TEST_CASE("Parse bus element")
+  {
+    auto expr = ConstraintParser::parse(R"(bus("B1").theta <= 3.14)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "bus");
+    CHECK(expr.terms[0].element->element_id == "B1");
+    CHECK(expr.terms[0].element->attribute == "theta");
+  }
+
+  TEST_CASE("Parse waterway element")
+  {
+    auto expr = ConstraintParser::parse(R"(waterway(2).flow <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "waterway");
+    CHECK(expr.terms[0].element->element_id == "uid:2");
+    CHECK(expr.terms[0].element->attribute == "flow");
+  }
+
+  TEST_CASE("Parse turbine element")
+  {
+    auto expr = ConstraintParser::parse(R"(turbine("T1").generation <= 80)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "turbine");
+    CHECK(expr.terms[0].element->element_id == "T1");
+    CHECK(expr.terms[0].element->attribute == "generation");
+  }
+
+  // ── Extended attributes ───────────────────────────────────────────────
+
+  TEST_CASE("Parse line with flowp attribute")
+  {
+    auto expr = ConstraintParser::parse(R"(line("L1").flowp <= 150)");
+
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "line");
+    CHECK(expr.terms[0].element->attribute == "flowp");
+  }
+
+  TEST_CASE("Parse battery with charge and discharge attributes")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(battery("B1").charge + battery("B1").discharge <= 100)");
+
+    REQUIRE(expr.terms.size() == 2);
+    CHECK(expr.terms[0].element->attribute == "charge");
+    CHECK(expr.terms[1].element->attribute == "discharge");
+  }
+
+  // ── sum() aggregation ─────────────────────────────────────────────────
+
+  TEST_CASE("Parse sum with explicit element list")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator("G1","G2","G3").generation) <= 500)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(500.0));
+    REQUIRE(expr.terms.size() == 1);
+    CHECK_FALSE(expr.terms[0].element.has_value());
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->element_type == "generator");
+    CHECK_FALSE(expr.terms[0].sum_ref->all_elements);
+    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
+    CHECK(expr.terms[0].sum_ref->element_ids[0] == "G1");
+    CHECK(expr.terms[0].sum_ref->element_ids[1] == "G2");
+    CHECK(expr.terms[0].sum_ref->element_ids[2] == "G3");
+    CHECK(expr.terms[0].sum_ref->attribute == "generation");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Parse sum over all generators")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(sum(generator(all).generation) <= 1000)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->element_type == "generator");
+    CHECK(expr.terms[0].sum_ref->all_elements);
+    CHECK(expr.terms[0].sum_ref->element_ids.empty());
+    CHECK(expr.terms[0].sum_ref->attribute == "generation");
+  }
+
+  TEST_CASE("Parse sum with coefficient")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(0.5 * sum(demand("D1","D2").load) <= 200)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].coefficient == doctest::Approx(0.5));
+    CHECK(expr.terms[0].sum_ref->element_type == "demand");
+    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 2);
+    CHECK(expr.terms[0].sum_ref->attribute == "load");
+  }
+
+  TEST_CASE("Parse sum with numeric UIDs")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(sum(generator(1, 2, 3).generation) <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
+    CHECK(expr.terms[0].sum_ref->element_ids[0] == "uid:1");
+    CHECK(expr.terms[0].sum_ref->element_ids[1] == "uid:2");
+    CHECK(expr.terms[0].sum_ref->element_ids[2] == "uid:3");
+  }
+
+  TEST_CASE("Parse sum with mixed name and numeric UIDs")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator("G1", 2, "uid:3").generation) <= 500)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    REQUIRE(expr.terms[0].sum_ref->element_ids.size() == 3);
+    CHECK(expr.terms[0].sum_ref->element_ids[0] == "G1");
+    CHECK(expr.terms[0].sum_ref->element_ids[1] == "uid:2");
+    CHECK(expr.terms[0].sum_ref->element_ids[2] == "uid:3");
+  }
+
+  TEST_CASE("Parse sum plus single element")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator("G1","G2").generation) + demand("D1").load <= 1000)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->element_type == "generator");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_type == "demand");
+  }
+
+  TEST_CASE("Parse sum subtraction")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator(all).generation) - sum(demand(all).load) = 0)");
+
+    CHECK(expr.constraint_type == ConstraintType::EQUAL);
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    REQUIRE(expr.terms[1].sum_ref.has_value());
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Parse sum with domain clause")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator(all).generation) <= 500, for(block in 1..12))");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->all_elements);
+    CHECK_FALSE(expr.domain.blocks.is_all);
+    REQUIRE(expr.domain.blocks.values.size() == 12);
+    CHECK(expr.domain.blocks.values[0] == 1);
+    CHECK(expr.domain.blocks.values[11] == 12);
+  }
+
+  // ── Comment support ───────────────────────────────────────────────────
+
+  TEST_CASE("Parse expression with hash comment")
+  {
+    auto expr = ConstraintParser::parse(
+        "generator(\"G1\").generation <= 100 # limit gen output");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    CHECK(expr.terms[0].element->element_id == "G1");
+  }
+
+  TEST_CASE("Parse expression with double-slash comment")
+  {
+    auto expr = ConstraintParser::parse(
+        "generator(\"G1\").generation <= 100 // limit gen output");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+  }
+
+  TEST_CASE("Parse multiline expression with comments")
+  {
+    auto expr = ConstraintParser::parse(
+        "# Limit total generation\n"
+        "generator(\"G1\").generation  # first gen\n"
+        "+ generator(\"G2\").generation  // second gen\n"
+        "<= 300");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(300.0));
+    REQUIRE(expr.terms.size() == 2);
+  }
+
+  // ── Cross-element constraints with new types ──────────────────────────
+
+  TEST_CASE("Parse cross-element constraint with converter and battery")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(converter("CV1").discharge - battery("B1").energy <= 0)");
+
+    REQUIRE(expr.terms.size() == 2);
+    CHECK(expr.terms[0].element->element_type == "converter");
+    CHECK(expr.terms[0].element->attribute == "discharge");
+    CHECK(expr.terms[1].element->element_type == "battery");
+    CHECK(expr.terms[1].element->attribute == "energy");
+    // RHS term moved to LHS with negation
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Parse range constraint with numeric UID")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(50 <= generator(1).generation <= 250)");
+
+    CHECK(expr.constraint_type == ConstraintType::RANGE);
+    REQUIRE(expr.lower_bound.has_value());
+    REQUIRE(expr.upper_bound.has_value());
+    CHECK(expr.lower_bound.value_or(0.0) == doctest::Approx(50.0));
+    CHECK(expr.upper_bound.value_or(0.0) == doctest::Approx(250.0));
+    REQUIRE(expr.terms.size() == 1);
+    CHECK(expr.terms[0].element->element_id == "uid:1");
+  }
 }

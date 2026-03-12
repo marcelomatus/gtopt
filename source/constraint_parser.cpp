@@ -16,6 +16,37 @@
 namespace gtopt
 {
 
+// ── Comment stripping ───────────────────────────────────────────────────────
+
+std::string ConstraintParser::strip_comments(std::string_view input)
+{
+  std::string result;
+  result.reserve(input.size());
+
+  for (std::size_t i = 0; i < input.size(); ++i) {
+    // Line comment: # or //
+    if (input[i] == '#') {
+      // Skip to end of line
+      while (i < input.size() && input[i] != '\n') {
+        ++i;
+      }
+      // Replace comment with whitespace to preserve line structure
+      result += ' ';
+      continue;
+    }
+    if (input[i] == '/' && i + 1 < input.size() && input[i + 1] == '/') {
+      // Skip to end of line
+      while (i < input.size() && input[i] != '\n') {
+        ++i;
+      }
+      result += ' ';
+      continue;
+    }
+    result += input[i];
+  }
+  return result;
+}
+
 // ── Lexer implementation ────────────────────────────────────────────────────
 
 ConstraintParser::Lexer::Lexer(std::string_view input) noexcept
@@ -23,7 +54,7 @@ ConstraintParser::Lexer::Lexer(std::string_view input) noexcept
 {
 }
 
-void ConstraintParser::Lexer::skip_whitespace() noexcept
+void ConstraintParser::Lexer::skip_whitespace_and_comments() noexcept
 {
   while (m_pos_ < m_input_.size()
          && std::isspace(static_cast<unsigned char>(m_input_[m_pos_])) != 0)
@@ -86,7 +117,7 @@ ConstraintParser::Token ConstraintParser::Lexer::scan_ident()
 
 ConstraintParser::Token ConstraintParser::Lexer::next()
 {
-  skip_whitespace();
+  skip_whitespace_and_comments();
 
   if (m_pos_ >= m_input_.size()) {
     return Token {
@@ -250,7 +281,8 @@ bool ConstraintParser::Parser::match(TokenType type)
 bool ConstraintParser::Parser::is_element_type(const std::string& name)
 {
   return name == "generator" || name == "demand" || name == "line"
-      || name == "battery";
+      || name == "battery" || name == "converter" || name == "reservoir"
+      || name == "bus" || name == "waterway" || name == "turbine";
 }
 
 ConstraintExpr ConstraintParser::Parser::parse_constraint()
@@ -298,7 +330,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // Extract lower bound from lhs_terms
     for (const auto& term : lhs_terms) {
-      if (term.element.has_value()) {
+      if (term.element.has_value() || term.sum_ref.has_value()) {
         throw std::invalid_argument(
             "Range constraint bounds must be constants");
       }
@@ -307,7 +339,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // Extract upper bound from rhs2_terms
     for (const auto& term : rhs2_terms) {
-      if (term.element.has_value()) {
+      if (term.element.has_value() || term.sum_ref.has_value()) {
         throw std::invalid_argument(
             "Range constraint bounds must be constants");
       }
@@ -319,7 +351,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     double mid_const = 0.0;
     std::vector<ConstraintTerm> var_terms;
     for (auto& term : rhs_terms) {
-      if (term.element.has_value()) {
+      if (term.element.has_value() || term.sum_ref.has_value()) {
         var_terms.push_back(std::move(term));
       } else {
         mid_const += term.coefficient;
@@ -342,7 +374,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // LHS terms stay as-is
     for (auto& term : lhs_terms) {
-      if (term.element.has_value()) {
+      if (term.element.has_value() || term.sum_ref.has_value()) {
         all_terms.push_back(std::move(term));
       } else {
         rhs_const -= term.coefficient;  // move constant to RHS
@@ -351,7 +383,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
 
     // RHS terms get negated and moved to LHS
     for (auto& term : rhs_terms) {
-      if (term.element.has_value()) {
+      if (term.element.has_value() || term.sum_ref.has_value()) {
         term.coefficient = -term.coefficient;
         all_terms.push_back(std::move(term));
       } else {
@@ -410,14 +442,24 @@ ConstraintTerm ConstraintParser::Parser::parse_term(bool negate)
   ConstraintTerm term;
   const double sign = negate ? -1.0 : 1.0;
 
+  // Check for sum(...) aggregation
+  if (m_current_.type == TokenType::IDENT && m_current_.value == "sum") {
+    return parse_sum_expr(sign);
+  }
+
   if (m_current_.type == TokenType::NUMBER) {
-    // Could be: number, number * element_ref, or just a coefficient
+    // Could be: number, number * element_ref, number * sum(...), or constant
     const double num = std::stod(m_current_.value);
     advance();
 
     if (m_current_.type == TokenType::STAR) {
-      // number * element_ref
+      // number * element_ref  or  number * sum(...)
       advance();
+      if (m_current_.type == TokenType::IDENT && m_current_.value == "sum") {
+        // number * sum(...)
+        auto sum_term = parse_sum_expr(sign * num);
+        return sum_term;
+      }
       if (m_current_.type == TokenType::IDENT
           && is_element_type(m_current_.value))
       {
@@ -425,8 +467,9 @@ ConstraintTerm ConstraintParser::Parser::parse_term(bool negate)
         term.coefficient = sign * num;
         term.element = std::move(ref);
       } else {
-        throw std::invalid_argument(std::format(
-            "Expected element type after '*', got '{}'", m_current_.value));
+        throw std::invalid_argument(
+            std::format("Expected element type or 'sum' after '*', got '{}'",
+                        m_current_.value));
       }
     } else {
       // Standalone number (constant term)
@@ -441,10 +484,77 @@ ConstraintTerm ConstraintParser::Parser::parse_term(bool negate)
     term.coefficient = sign;
     term.element = std::move(ref);
   } else {
-    throw std::invalid_argument(std::format(
-        "Expected number or element reference, got '{}'", m_current_.value));
+    throw std::invalid_argument(
+        std::format("Expected number, element reference, or 'sum', got '{}'",
+                    m_current_.value));
   }
 
+  return term;
+}
+
+ConstraintTerm ConstraintParser::Parser::parse_sum_expr(double sign)
+{
+  // Current token is 'sum', advance past it
+  advance();
+  expect(TokenType::LPAREN);
+
+  // Expect: element_type ( id_list ) . attribute )
+  if (m_current_.type != TokenType::IDENT || !is_element_type(m_current_.value))
+  {
+    throw std::invalid_argument(std::format(
+        "Expected element type in sum(), got '{}'", m_current_.value));
+  }
+
+  SumElementRef sum_ref;
+  sum_ref.element_type = std::move(m_current_.value);
+  advance();
+
+  expect(TokenType::LPAREN);
+
+  // Parse element list: "id1", "id2", ...  or  3, 5, ...  or  all
+  if (m_current_.type == TokenType::IDENT && m_current_.value == "all") {
+    sum_ref.all_elements = true;
+    advance();
+  } else {
+    // Parse comma-separated string or number list
+    while (true) {
+      if (m_current_.type == TokenType::STRING) {
+        // Quoted name: "G1" or "uid:3"
+        sum_ref.element_ids.push_back(std::move(m_current_.value));
+        advance();
+      } else if (m_current_.type == TokenType::NUMBER) {
+        // Bare numeric UID: 3 → stored as "uid:3"
+        sum_ref.element_ids.push_back("uid:" + m_current_.value);
+        advance();
+      } else {
+        throw std::invalid_argument(std::format(
+            "Expected element name (quoted) or numeric UID in sum(), got '{}'",
+            m_current_.value));
+      }
+
+      if (m_current_.type == TokenType::COMMA) {
+        advance();
+      } else {
+        break;
+      }
+    }
+  }
+
+  expect(TokenType::RPAREN);
+  expect(TokenType::DOT);
+
+  if (m_current_.type != TokenType::IDENT) {
+    throw std::invalid_argument(std::format(
+        "Expected attribute name after '.', got '{}'", m_current_.value));
+  }
+  sum_ref.attribute = std::move(m_current_.value);
+  advance();
+
+  expect(TokenType::RPAREN);
+
+  ConstraintTerm term;
+  term.coefficient = sign;
+  term.sum_ref = std::move(sum_ref);
   return term;
 }
 
@@ -453,16 +563,23 @@ ElementRef ConstraintParser::Parser::parse_element_ref(std::string type_name)
   ElementRef ref;
   ref.element_type = std::move(type_name);
 
-  // Expect: ( "id" ) . attribute
+  // Expect: ( "id" ) . attribute  or  ( number ) . attribute
   advance();  // skip element type identifier
   expect(TokenType::LPAREN);
 
-  if (m_current_.type != TokenType::STRING) {
+  if (m_current_.type == TokenType::STRING) {
+    // Quoted name: generator("G1") or generator("uid:3")
+    ref.element_id = std::move(m_current_.value);
+    advance();
+  } else if (m_current_.type == TokenType::NUMBER) {
+    // Bare numeric UID: generator(3) → stored as "uid:3"
+    ref.element_id = "uid:" + m_current_.value;
+    advance();
+  } else {
     throw std::invalid_argument(std::format(
-        "Expected quoted string for element ID, got '{}'", m_current_.value));
+        "Expected element name (quoted string) or numeric UID, got '{}'",
+        m_current_.value));
   }
-  ref.element_id = std::move(m_current_.value);
-  advance();
 
   expect(TokenType::RPAREN);
   expect(TokenType::DOT);
@@ -634,7 +751,10 @@ ConstraintExpr ConstraintParser::parse(std::string_view name,
     throw std::invalid_argument("Empty constraint expression");
   }
 
-  const Lexer lexer(expression);
+  // Strip comments before tokenizing
+  const std::string cleaned = strip_comments(expression);
+
+  const Lexer lexer(cleaned);
   Parser parser(lexer);
   auto result = parser.parse_constraint();
   result.name = std::string {name};

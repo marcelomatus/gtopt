@@ -27,6 +27,7 @@ jobs:
     # even if the clang installation step has a transient failure.
     continue-on-error: true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +100,7 @@ jobs:
     # even if the ruff installation step has a transient failure.
     continue-on-error: true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
