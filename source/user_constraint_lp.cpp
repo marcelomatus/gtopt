@@ -530,7 +530,8 @@ void add_constraint_rows(const ConstraintExpr& expr,
       UserConstraintState state;
       state.uid = uc.uid;
       state.name = uc.name;
-      state.constraint_type = uc.constraint_type;
+      state.scale_type =
+          parse_constraint_scale_type(uc.constraint_type.value_or("power"));
 
       add_constraint_rows(expr, uc.name, sc, phase, scene, lp, state.rows);
 
@@ -560,14 +561,16 @@ void add_user_constraints_to_output(
 
     const Id pid {state.uid, state.name};
 
-    // Both "power" and "energy" constraint types use standard
-    // block_cost_factors scaling (scale_obj / (prob × discount × duration)),
-    // which converts the LP dual back to physical units.  The constraint_type
-    // field is informational:
-    //   "power"  (or absent) → dual is in $/MW  (constraint on a power
-    //   variable) "energy"             → dual is in $/MWh (constraint on an
-    //   energy variable)
-    out.add_row_dual(cname, row_name, pid, state.rows);
+    if (state.scale_type == ConstraintScaleType::Raw) {
+      // Raw / unitless constraints: scale by discount factor only
+      // (scale_obj / discount[t]), no probability and no block duration.
+      out.add_row_dual_raw(cname, row_name, pid, state.rows);
+    } else {
+      // Power and Energy constraints: standard block_cost_factors scaling
+      // (scale_obj / (prob × discount × Δt)).
+      // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
+      out.add_row_dual(cname, row_name, pid, state.rows);
+    }
   }
 }
 

@@ -35,6 +35,30 @@ auto CostHelper::block_icost_factors() const -> block_factor_matrix_t
   return factors;
 }
 
+auto CostHelper::block_discount_icost_factors() const -> block_factor_matrix_t
+{
+  const auto active_scenarios =
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_scenarios_.get()));
+  const auto active_stages =
+      std::ranges::to<std::vector>(enumerate_active<Index>(m_stages_.get()));
+
+  const auto scale_obj = m_options_.get().scale_objective();
+
+  block_factor_matrix_t factors(active_scenarios.size(), active_stages.size());
+
+  for (auto&& [si, scenario] : active_scenarios) {
+    for (auto&& [ti, stage] : active_stages) {
+      // Discount-only factor: scale_obj / discount[t]
+      // The same value for all scenarios and blocks within the same stage.
+      const double factor = scale_obj / stage.discount_factor();
+      factors[si][ti] =
+          to_vector(stage.blocks(), [factor](const auto&) { return factor; });
+    }
+  }
+
+  return factors;
+}
+
 auto CostHelper::stage_icost_factors(double probability) const
     -> stage_factor_matrix_t
 {

@@ -317,3 +317,105 @@ TEST_CASE("User constraint - constraint_type field preserved")
   REQUIRE(uc.constraint_type.has_value());
   CHECK(*uc.constraint_type == "power");
 }
+
+// clang-format off
+
+/// Same single-bus case but with constraint_type = "raw" to test
+/// discount-only dual scaling.
+static constexpr std::string_view single_bus_uc_raw_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.1,
+    "use_lp_names": true,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_raw_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 2,
+        "name": "gen_upper_raw",
+        "expression": "generator(\"g1\").generation <= 80",
+        "constraint_type": "raw"
+      },
+      {
+        "uid": 3,
+        "name": "gen_upper_unitless",
+        "expression": "generator(\"g1\").generation <= 80",
+        "constraint_type": "unitless"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - raw/unitless type produces output CSV")
+{
+  using namespace gtopt;
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_uc_raw_test";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  auto planning = daw::json::from_json<Planning>(single_bus_uc_raw_json);
+  planning.options.output_directory = tmpdir.string();
+
+  const OptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+
+  sys_lp.write_out();
+
+  // Both "raw" and "unitless" constraints should produce the dual output file.
+  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  CHECK(std::filesystem::exists(dual_file));
+
+  if (std::filesystem::exists(dual_file)) {
+    std::ifstream f(dual_file);
+    const std::string content((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+    CHECK_FALSE(content.empty());
+    CHECK(content.find("scenario") != std::string::npos);
+    // Both constraints (uid 2 and uid 3) should have their own column
+    CHECK(content.find("uid:2") != std::string::npos);
+    CHECK(content.find("uid:3") != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("User constraint - parse_constraint_scale_type from constraint_type")
+{
+  using namespace gtopt;
+
+  // "raw" → Raw
+  CHECK(parse_constraint_scale_type("raw") == ConstraintScaleType::Raw);
+  // "unitless" → Raw
+  CHECK(parse_constraint_scale_type("unitless") == ConstraintScaleType::Raw);
+  // "power" → Power (default)
+  CHECK(parse_constraint_scale_type("power") == ConstraintScaleType::Power);
+  // absent/empty → Power
+  CHECK(parse_constraint_scale_type("") == ConstraintScaleType::Power);
+  // "energy" → Energy
+  CHECK(parse_constraint_scale_type("energy") == ConstraintScaleType::Energy);
+}
