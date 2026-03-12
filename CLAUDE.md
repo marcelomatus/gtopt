@@ -671,9 +671,24 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 > Scripts sub-package details are in `.github/copilot-instructions.md` → "Python Scripts Sub-Package".
 > PLP file formats and maintenance mappings are in `.github/copilot-instructions.md` → "Key facts for plp2gtopt".
 
+### Reading PLP Fortran source code
+
+> **When analysing any PLP file format**, always consult the authoritative
+> Fortran source code in the PLP storage repository:
+>
+> **https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src**
+>
+> Each `.dat` file has a corresponding `lee*.f` reader subroutine (e.g.
+> `leefilemb.f` reads `plpfilemb.dat`, `leemanem.f` reads `plpmanem.dat`).
+> The Fortran `READ` statements are the source of truth for field order, unit
+> conventions, and any special handling (sign clipping, unit conversions, etc.).
+> Use `web_fetch` or `web_search` to retrieve the relevant `.f` file whenever
+> you need to implement or verify a PLP parser.
+
 ### PLP maintenance file formats (plpmanbat.dat / plpmaness.dat)
 
-The parsers match the PLP Fortran READ statements:
+The parsers match the PLP Fortran READ statements
+(see `https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src`):
 
 - **`plpmanbat.dat`** (`LeeManBat` in `genpdbaterias.f`): 3 fields per data line:
   `IBind EMin EMax` (block index, min energy MWh, max energy MWh).
@@ -685,6 +700,14 @@ The parsers match the PLP Fortran READ statements:
 
 - **`plpess.dat`** field order is `Nombre nd nc mloss Emax DCMax [DCMod] [CenCarga]`
   (Fortran reads discharge efficiency `nd` first, charge efficiency `nc` second).
+
+- **`plpfilemb.dat`** (`LeeFilEmb` in `leefilemb.f`): primary PLP filtration model.
+  Per filtration: `'NomEmb'` (source reservoir), `FiltProm` (mean m³/s), `FiltNTramo`
+  (number of segments), then for each segment: `Ind  Vol_Mm3  Slope_m3s/Mm3  Const_m3s`,
+  then `'NomCen'` (receiving central).  Unit conversions applied by PLP Fortran:
+  `Vol_dam3 = Vol_Mm3 × 1000`, `Slope_dam3 = Slope_Mm3 / 1000`.
+  Maps to `Filtration.segments` in gtopt; `FilembParser` implements this in
+  `scripts/plp2gtopt/filemb_parser.py`.
 
 ### What gtopt optimizes
 
