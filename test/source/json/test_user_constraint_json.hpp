@@ -14,6 +14,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/user_constraint.hpp>
 
 TEST_CASE("UserConstraint JSON deserialization")
 {
@@ -226,4 +227,57 @@ TEST_CASE("System JSON round-trip preserves user constraints")
         == "Test description");
   REQUIRE(roundtrip.user_constraint_file.has_value());
   CHECK(roundtrip.user_constraint_file.value_or("") == "external.json");
+}
+
+TEST_CASE("UserConstraint constraint_type field — raw")
+{
+  using namespace gtopt;
+
+  std::string_view json_data = R"({
+    "uid": 30,
+    "name": "raw_limit",
+    "expression": "generator(\"G1\").generation <= 100",
+    "constraint_type": "raw"
+  })";
+
+  const auto uc = daw::json::from_json<UserConstraint>(json_data);
+  REQUIRE(uc.constraint_type.has_value());
+  CHECK(*uc.constraint_type == "raw");
+  CHECK(parse_constraint_scale_type(*uc.constraint_type)
+        == ConstraintScaleType::Raw);
+}
+
+TEST_CASE("UserConstraint constraint_type field — unitless")
+{
+  using namespace gtopt;
+
+  std::string_view json_data = R"({
+    "uid": 31,
+    "name": "unitless_limit",
+    "expression": "generator(\"G1\").generation <= 100",
+    "constraint_type": "unitless"
+  })";
+
+  const auto uc = daw::json::from_json<UserConstraint>(json_data);
+  REQUIRE(uc.constraint_type.has_value());
+  CHECK(*uc.constraint_type == "unitless");
+  CHECK(parse_constraint_scale_type(*uc.constraint_type)
+        == ConstraintScaleType::Raw);
+}
+
+TEST_CASE("parse_constraint_scale_type — all valid values")
+{
+  using namespace gtopt;
+
+  // Default / empty → Power
+  CHECK(parse_constraint_scale_type("") == ConstraintScaleType::Power);
+  CHECK(parse_constraint_scale_type("power") == ConstraintScaleType::Power);
+  CHECK(parse_constraint_scale_type("unknown") == ConstraintScaleType::Power);
+
+  // Energy
+  CHECK(parse_constraint_scale_type("energy") == ConstraintScaleType::Energy);
+
+  // Raw (both accepted aliases)
+  CHECK(parse_constraint_scale_type("raw") == ConstraintScaleType::Raw);
+  CHECK(parse_constraint_scale_type("unitless") == ConstraintScaleType::Raw);
 }

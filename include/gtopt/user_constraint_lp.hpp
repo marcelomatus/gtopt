@@ -9,25 +9,11 @@
  * `UserConstraint` objects into rows in a `LinearProblem` **before** it is
  * flattened into the internal solver structure.
  *
- * The function is called from `SystemLP`'s internal `create_linear_interface`
- * helper after all element LP rows and columns have been added.
- *
- * ### Element ID resolution
- *
- * Element IDs in constraint expressions are resolved using
- * `SystemContext::get_element<T>()`:
- *
- * | Expression form   | Resolved as            |
- * |-------------------|------------------------|
- * | `"G1"`            | Name lookup            |
- * | `"uid:3"`         | UID 3 lookup           |
- * | `3` (bare int)    | UID 3 lookup           |
- *
  * ### Dual-value output
  *
  * `add_user_constraints_to_lp()` returns a vector of `UserConstraintState`
  * objects, one per active constraint that successfully added at least one row.
- * Each state holds the constraint UID/name, the optional `constraint_type`,
+ * Each state holds the constraint UID/name, the resolved `ConstraintScaleType`,
  * and the per-(scenario, stage, block) row indices.
  *
  * After the LP is solved, pass the returned states to
@@ -36,12 +22,12 @@
  * `"constraint"`, yielding
  * `output/UserConstraint/constraint_dual.{csv,parquet}`.
  *
- * Both `"power"` and `"energy"` constraint types use the same
- * `block_cost_factors` scaling (`scale_obj / (prob × discount × duration)`),
- * which converts the LP dual back to physical units.  The `constraint_type`
- * field is informational only:
- *  - `"power"` (or absent): dual is in $/MW — constraint is on a power variable
- *  - `"energy"`: dual is in $/MWh — constraint is on an energy variable
+ * Dual scaling per `ConstraintScaleType`:
+ *  - `Power`  (default) → `scale_obj / (prob × discount × Δt)` — same as demand
+ * rows
+ *  - `Energy`           → `scale_obj / (prob × discount × Δt)` — same scaling,
+ * unit $/MWh
+ *  - `Raw`              → `scale_obj / discount` — discount factor only
  */
 
 #pragma once
@@ -73,7 +59,8 @@ struct UserConstraintState
 {
   Uid uid {};  ///< Constraint UID (from UserConstraint)
   Name name {};  ///< Constraint name (from UserConstraint)
-  OptName constraint_type {};  ///< Scaling hint: "power" (default) or "energy"
+  ConstraintScaleType scale_type {ConstraintScaleType::Power};  ///< Resolved
+                                                                ///< scale type
   STBIndexHolder<RowIndex>
       rows {};  ///< Row indices per (scenario, stage, block)
 };
@@ -83,13 +70,13 @@ struct UserConstraintState
  *
  * For each active `UserConstraint` in @p constraints:
  *  1. Parses `uc.expression` into a `ConstraintExpr` AST.
- *  2. Iterates over every (scenario, stage, block) combination that falls
- *     inside the expression's domain restriction (`for(...)` clause).
- *  3. Resolves each term's LP column by name or UID via @p sc.
- *  4. Adds one `SparseRow` per (scenario, stage, block) to @p lp.
- *  5. Saves the resulting `RowIndex` in the returned `UserConstraintState`.
- *
- * Skips any term whose LP variable cannot be resolved (logs a warning).
+ *  2. Resolves `uc.constraint_type` to a `ConstraintScaleType` enum
+ *     (defaulting to `Power` when absent).
+ *  3. Iterates over every (scenario, stage, block) combination that falls
+ *     inside the expression's domain restriction.
+ *  4. Resolves each term's LP column by name or UID via @p sc.
+ *  5. Adds one `SparseRow` per (scenario, stage, block) to @p lp.
+ *  6. Saves the resulting `RowIndex` in the returned `UserConstraintState`.
  *
  * @param constraints   The user constraint definitions.
  * @param sc            System context (provides element lookup + labels).
@@ -110,9 +97,15 @@ struct UserConstraintState
  * @brief Write dual (shadow-price) values for user constraints to output.
  *
  * For each `UserConstraintState` in @p uc_states, calls `out.add_row_dual()`
- * to write the per-(scenario, stage, block) dual values.  The output goes to
- * `output/UserConstraint/constraint_dual.{csv,parquet}` with one column per
- * user constraint (identified by `uid:N` or `name:N` depending on options).
+ * (or the discount-only variant for `Raw`) to write per-(scenario,stage,block)
+ * dual values.  The output goes to
+ * `output/UserConstraint/constraint_dual.{csv,parquet}`.
+ *
+ * Scaling selected by `UserConstraintState::scale_type`:
+ *  - `Power`  → `out.add_row_dual(...)` — uses `block_cost_factors`
+ *  - `Energy` → `out.add_row_dual(...)` — uses `block_cost_factors`
+ *  - `Raw`    → `out.add_row_dual_raw(...)` — uses
+ * `discount_block_cost_factors`
  *
  * @param uc_states     States returned by `add_user_constraints_to_lp`.
  * @param out           Output context to write to.
