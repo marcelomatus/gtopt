@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <limits>
+
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -114,7 +116,7 @@ public:
     // Default 1.0 = no scaling.  For reservoirs typically 1000 (dam³→Mm³).
     const double energy_scale =
         opts.energy_scale > 0.0 ? opts.energy_scale : 1.0;
-    m_vol_scale_ = energy_scale;
+    m_energy_scale_ = energy_scale;
 
     // Daily-cycle scaling is only meaningful when the stage is longer than
     // 24 h AND the average block duration exceeds 1 h.  Below those thresholds
@@ -316,10 +318,11 @@ public:
     // Store the combined dual correction factor:
     //   dual_physical = dual_LP * (dc_stage_scale / energy_scale)
     // This corrects both the daily-cycle time-scaling and the energy scaling.
-    // When both are 1.0 the factor is 1.0 and the map entry is skipped.
+    // When the factor is effectively 1.0, no entry is stored; downstream
+    // flat() defaults to 1.0 for absent keys (no correction applied).
     const auto st_key = std::pair {scenario.uid(), stage.uid()};
     const double dual_scale = dc_stage_scale / energy_scale;
-    if (dual_scale != 1.0) {
+    if (std::abs(dual_scale - 1.0) > std::numeric_limits<double>::epsilon()) {
       output_dual_scale[st_key] = dual_scale;
     }
 
@@ -344,10 +347,13 @@ public:
   {
     const auto pid = id();
 
-    // Primal outputs: LP variable is in scaled units (physical/m_vol_scale_).
-    // Multiply by m_vol_scale_ to recover physical energy/volume.
-    if (m_vol_scale_ != 1.0) {
-      const auto scale = m_vol_scale_;
+    // Primal outputs: LP variable is in scaled units
+    // (physical/m_energy_scale_). Multiply by m_energy_scale_ to recover
+    // physical energy/volume.
+    if (std::abs(m_energy_scale_ - 1.0)
+        > std::numeric_limits<double>::epsilon())
+    {
+      const auto scale = m_energy_scale_;
       const auto rescale = [scale](auto v) { return v * scale; };
       out.add_col_sol(cname, "eini", pid, eini_cols, rescale);
       out.add_col_cost(cname, "eini", pid, eini_cols, rescale);
@@ -393,13 +399,15 @@ private:
   STIndexHolder<ColIndex> eini_cols;
   STIndexHolder<ColIndex> efin_cols;
 
-  /// Combined dual correction: dc_stage_scale / energy_scale.
-  /// Empty map entry defaults to 1.0 (no correction needed).
+  /// Combined dual correction factor per (scenario, stage):
+  ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]
+  /// When a key is absent, downstream flat() defaults to 1.0 (no correction).
   STIndexHolder<double> output_dual_scale;
 
   /// Energy scale factor cached from the last add_to_lp call.
-  /// Used in add_to_output to rescale primal solution values.
-  double m_vol_scale_ {1.0};
+  /// Equals StorageOptions::energy_scale; used in add_to_output to rescale
+  /// primal solution values back to physical units.
+  double m_energy_scale_ {1.0};
 };
 
 }  // namespace gtopt
