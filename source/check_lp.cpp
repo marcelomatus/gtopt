@@ -72,15 +72,15 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
     return {};
   }
 
-  // Locate the gtopt-check-lp binary on PATH.
-  const std::string bin = find_on_path("gtopt-check-lp");
+  // Locate the gtopt_check_lp binary on PATH.
+  const std::string bin = find_on_path("gtopt_check_lp");
   if (bin.empty()) {
-    SPDLOG_DEBUG("check_lp: gtopt-check-lp not found on PATH");
+    SPDLOG_DEBUG("check_lp: gtopt_check_lp not found on PATH");
     return {};
   }
 
   // Build the command:
-  //   timeout <N> gtopt-check-lp --analyze-only --no-color --timeout <N> <file>
+  //   timeout <N> gtopt_check_lp --analyze-only --no-color --timeout <N> <file>
   // The outer `timeout` ensures the process is killed if it exceeds the
   // budget; the inner --timeout is the Python-level budget used when the
   // analyse-only flag alone is insufficient.
