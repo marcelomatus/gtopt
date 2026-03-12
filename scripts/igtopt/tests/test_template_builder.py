@@ -264,3 +264,41 @@ class TestMakeTemplateCli:
                 ]
             )
         assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# filtration_array sheet content
+# ---------------------------------------------------------------------------
+
+
+class TestFiltrationArraySheet:
+    """Tests that the generated template has correct filtration_array columns."""
+
+    def test_filtration_array_sheet_exists(self, generated_workbook):
+        """Generated workbook contains a filtration_array sheet."""
+        assert "filtration_array" in generated_workbook.sheetnames
+
+    def test_filtration_array_has_segments_column(self, generated_workbook):
+        """filtration_array sheet header row includes 'segments'."""
+        ws = generated_workbook["filtration_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "segments" in headers
+
+    def test_filtration_array_has_slope_column(self, generated_workbook):
+        """filtration_array sheet header row includes 'slope'."""
+        ws = generated_workbook["filtration_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "slope" in headers
+
+    def test_filtration_array_has_constant_column(self, generated_workbook):
+        """filtration_array sheet header row includes 'constant'."""
+        ws = generated_workbook["filtration_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "constant" in headers
+
+    def test_filtration_array_core_columns(self, generated_workbook):
+        """filtration_array sheet header contains all required columns."""
+        ws = generated_workbook["filtration_array"]
+        headers = {cell.value for cell in next(ws.iter_rows(max_row=1))}
+        required = {"uid", "name", "waterway", "reservoir"}
+        assert required.issubset(headers), f"Missing columns: {required - headers}"

@@ -790,7 +790,7 @@ $$
 where $a_i$ is the constant term (RHS) and $b_i$ is the slope (seepage rate
 per unit volume).
 
-**Piecewise-linear filtration (plpcenfi.dat segments).**
+**Piecewise-linear filtration (plpfilemb.dat / plpcenfi.dat segments).**
 When a set of segments $\{(V_k, b_k, c_k)\}_{k=1}^{K}$ is provided, the
 filtration function is defined by a concave envelope:
 
@@ -800,7 +800,7 @@ $$
 
 At each phase, the active segment $k^*$ is selected based on the last known
 reservoir volume $V^{\text{ini}}$ (from the previous phase or the initial
-condition).  The LP constraint is then updated:
+condition).  The LP constraint is then updated directly in the LP matrix:
 
 - Coefficient on storage variables: $-b_{k^*} / 2$ on both $v_{b-1}$ and $v_b$
 - Right-hand side: $a_{k^*} = c_{k^*} - b_{k^*} \cdot V_{k^*}$
@@ -808,6 +808,14 @@ condition).  The LP constraint is then updated:
 To minimise overhead, `set_coeff` / `set_rhs` calls are dispatched only when
 the new values differ from the previously applied ones.  This mechanism is
 analogous to the piecewise-linear efficiency update for turbines (§5.9).
+
+The primary PLP source for this model is `plpfilemb.dat` (Fortran subroutine
+`LeeFilEmb` in `leefilemb.f`), parsed by `FilembParser` in
+`scripts/plp2gtopt/filemb_parser.py`.  Volume breakpoints are stored in dam³
+(convert from PLP Mm³ by multiplying by 1000); slopes are in m³/s per dam³
+(convert from PLP /Mm³ by dividing by 1000); constants are in m³/s (no
+conversion).  The legacy `plpcenfi.dat` file is also supported via
+`CenfiParser`; `plpfilemb.dat` takes precedence when both are present.
 
 ### 5.11 Capacity Expansion Constraints
 
