@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-import gtopt_diagram as gd
+from gtopt_diagram import gtopt_diagram as gd
 
 # ---------------------------------------------------------------------------
 # Helpers

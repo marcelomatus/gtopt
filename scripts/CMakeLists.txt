@@ -38,7 +38,7 @@ Build targets
   ``-DENABLE_SCRIPTS_STATIC_ANALYSIS=ON`` is set (default: OFF).
 
 ``scripts-ruff``
-  Run ruff check over gtopt_compare, cvs2parquet, gtopt_diagram.py, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
+  Run ruff check over gtopt_compare, cvs2parquet, gtopt_diagram, igtopt, plp2gtopt, pp2gtopt, and ts2gtopt;
   exit non-zero on any lint violation.
 
 ``scripts-mypy``
@@ -155,7 +155,7 @@ set(SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # _SCRIPT_MODULES   – directory-based package names (no path prefix, no .py).
 #                     Used verbatim for pylint and mypy invocations.
 # _SCRIPT_SOURCES   – full paths for ruff format/check (directories + the
-#                     single-file gtopt_diagram.py module).
+#                     package directories).
 # _SCRIPT_TEST_DIRS – full paths to each package's tests/ subdirectory,
 #                     used for pytest unit-test and coverage invocations.
 # _SCRIPT_COV_ARGS  – --cov=<path> arguments for the pytest-cov plugin.
@@ -163,9 +163,12 @@ set(SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(_SCRIPT_MODULES
   gtopt_compare
   cvs2parquet
+  gtopt_diagram
+  gtopt_field_extractor
   igtopt
   plp2gtopt
   pp2gtopt
+  sddp_monitor
   ts2gtopt
 )
 
@@ -174,14 +177,12 @@ set(_SCRIPT_TEST_DIRS)
 set(_SCRIPT_COV_ARGS)
 foreach(_mod IN LISTS _SCRIPT_MODULES)
   list(APPEND _SCRIPT_SOURCES   "${SCRIPTS_DIR}/${_mod}")
-  list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/${_mod}/tests")
   list(APPEND _SCRIPT_COV_ARGS  "--cov=${SCRIPTS_DIR}/${_mod}")
 endforeach()
-# gtopt_diagram.py is a single-file module; handled separately.
-list(APPEND _SCRIPT_SOURCES  "${SCRIPTS_DIR}/gtopt_diagram.py")
-list(APPEND _SCRIPT_COV_ARGS "--cov=${SCRIPTS_DIR}/gtopt_diagram.py")
-# gtopt_diagram_tests lives outside the package directory.
-list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/gtopt_diagram_tests")
+# Add test dirs for packages that have tests/ subdirectories.
+foreach(_mod IN ITEMS gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt)
+  list(APPEND _SCRIPT_TEST_DIRS "${SCRIPTS_DIR}/${_mod}/tests")
+endforeach()
 
 # ---- Install runtime deps from requirements.txt ----
 
@@ -221,11 +222,9 @@ add_custom_target(scripts-check-format
 # ---- Lint (pylint) ----
 
 add_custom_target(scripts-lint
-  # pylint takes the module name without the .py extension for single-file modules.
   COMMAND ${PYTHON_EXECUTABLE} -m pylint
     --jobs=0
     ${_SCRIPT_MODULES}
-    gtopt_diagram
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running pylint static analysis"
   DEPENDS scripts-install
@@ -243,10 +242,8 @@ add_custom_target(scripts-ruff
 # ---- Type check (mypy) ----
 
 add_custom_target(scripts-mypy
-  # mypy requires the .py extension for single-file modules (unlike pylint).
   COMMAND ${PYTHON_EXECUTABLE} -m mypy
     ${_SCRIPT_MODULES}
-    gtopt_diagram.py
     --ignore-missing-imports
   WORKING_DIRECTORY "${SCRIPTS_DIR}"
   COMMENT "Running mypy static type checking"
@@ -359,10 +356,10 @@ add_pytest_unit_test(
   FIXTURE_REQUIRED scripts-deps
 )
 
-# gtopt_diagram: standalone test directory (lives outside the package dir).
+# gtopt_diagram: tests now live inside the package directory.
 add_pytest_unit_test(
   scripts-gtopt_diagram-unit
-  DIR      "${SCRIPTS_DIR}/gtopt_diagram_tests"
+  DIR      "${SCRIPTS_DIR}/gtopt_diagram/tests"
   FIXTURE_REQUIRED scripts-deps
 )
 
@@ -494,7 +491,6 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     COMMAND ${PYTHON_EXECUTABLE} -m pylint
       --jobs=0
       ${_SCRIPT_MODULES}
-      gtopt_diagram
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
 
@@ -503,7 +499,6 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
     NAME scripts-mypy
     COMMAND ${PYTHON_EXECUTABLE} -m mypy
       ${_SCRIPT_MODULES}
-      gtopt_diagram.py
       --ignore-missing-imports
     WORKING_DIRECTORY "${SCRIPTS_DIR}"
   )
