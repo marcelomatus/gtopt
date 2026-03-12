@@ -109,10 +109,8 @@ int update_lp_coefficients(SystemLP& system_lp,
                            int iteration,
                            PhaseIndex phase)
 {
-  auto& li = system_lp.linear_interface();
-
   // Check solver capability once
-  if (!li.supports_set_coeff()) {
+  if (!LinearInterface::supports_set_coeff()) {
     if (iteration == 0) {
       SPDLOG_WARN(
           "update_lp_coefficients: set_coeff unsupported by solver, "

@@ -19,7 +19,6 @@
 #include <fstream>
 #include <ranges>
 #include <span>
-#include <thread>
 #include <utility>
 
 #include <gtopt/sddp_solver.hpp>
