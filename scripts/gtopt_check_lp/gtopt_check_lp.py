@@ -109,6 +109,7 @@ Exit codes
 
 import argparse
 import configparser
+import http.client
 import logging
 import re
 import shutil
@@ -1167,26 +1168,47 @@ _NEOS_LP_CPLEX_XML = """\
 <category>lp</category>
 <solver>CPLEX</solver>
 <inputMethod>LP</inputMethod>
-<client>gtopt_check_lp</client>
 <email>{email}</email>
 <LP><![CDATA[
 {lp_content}
 ]]></LP>
-<commands><![CDATA[
+<post><![CDATA[
 conflict
 display conflict all
-]]></commands>
-<comment><![CDATA[
+]]></post>
+<comments><![CDATA[
 LP infeasibility analysis submitted by gtopt_check_lp {version}
-]]></comment>
+]]></comments>
 </document>
 """
+
+
+class _TimeoutTransport(xmlrpc.client.SafeTransport):
+    """HTTPS XML-RPC transport with a configurable per-call socket timeout."""
+
+    def __init__(self, timeout: int) -> None:
+        super().__init__()
+        self._timeout = timeout
+
+    def make_connection(  # type: ignore[override]
+        self, host: str
+    ) -> http.client.HTTPSConnection:
+        """Create an HTTPS connection with a socket timeout.
+
+        The parent ``SafeTransport.make_connection`` returns an untyped
+        ``http.client.HTTPConnection``; we narrow the return type to
+        ``HTTPSConnection`` and set the socket timeout before returning.
+        """
+        conn = super().make_connection(host)
+        conn.timeout = self._timeout
+        return conn
 
 
 class NeosClient:
     """
     Client for the NEOS optimization server XML-RPC API.
 
+    The NEOS XML-RPC endpoint is ``https://neos-server.org:3333``.
     See https://neos-server.org/neos/xml-rpc.html for the API reference.
     """
 
@@ -1197,14 +1219,20 @@ class NeosClient:
 
     def _get_proxy(self) -> xmlrpc.client.ServerProxy:
         if self._proxy is None:
-            self._proxy = xmlrpc.client.ServerProxy(self.url)
+            transport = _TimeoutTransport(timeout=self.timeout)
+            self._proxy = xmlrpc.client.ServerProxy(self.url, transport=transport)
         return self._proxy
 
     def ping(self) -> bool:
-        """Return True if the NEOS server is reachable."""
+        """Return True if the NEOS server is reachable.
+
+        The NEOS XML-RPC ``ping()`` call returns ``"NeosServer is alive\\n"``.
+        We accept any response that contains "alive" (case-insensitive) so the
+        check stays robust against minor server-message changes.
+        """
         try:
             msg = self._get_proxy().ping()
-            return "NEOS" in str(msg)
+            return "alive" in str(msg).lower()
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             return False
 
