@@ -62,7 +62,7 @@ TEST_CASE("UserConstraint JSON round-trip")
 {
   using namespace gtopt;
 
-  UserConstraint uc {
+  const UserConstraint uc {
       .uid = 42,
       .name = "flow_limit",
       .active = true,
