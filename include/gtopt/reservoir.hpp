@@ -88,7 +88,9 @@ struct Reservoir
       +10'000.0};  ///< Maximum net flow into the reservoir junction [m³/s]
 
   OptReal vol_scale {
-      1.0};  ///< Multiplicative scaling factor for volume units [dimensionless]
+      1000.0};  ///< Volume scale factor: LP variable = physical_volume /
+                ///< vol_scale. Default 1000 converts dam³ → Mm³ for better LP
+                ///< numerics [dimensionless]
   OptReal flow_conversion_rate {
       0.0036};  ///< Converts m³/s × hours into dam³ [dam³/(m³/s·h)]
 
