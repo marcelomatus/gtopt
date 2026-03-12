@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <ranges>
 #include <span>
 #include <thread>
 #include <utility>
@@ -244,8 +245,8 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     // Update volume-dependent coefficients (turbine efficiency, etc.)
     update_coefficients_for_phase(scene, phase, iteration);
 
-    // Solve this phase
-    auto result = li.resolve(opts);
+    // Solve this phase via the work pool
+    auto result = resolve_via_pool(li, opts);
 
     if (!result.has_value() || !li.is_optimal()) {
       // Clone the LP, apply elastic filter, and solve the clone.
@@ -328,6 +329,203 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
   return total_opex;
 }
 
+// ── Helper: store a cut for sharing and persistence (thread-safe) ───────────
+
+void SDDPSolver::store_cut(SceneIndex scene,
+                           PhaseIndex src_phase,
+                           const SparseRow& cut)
+{
+  StoredCut stored {
+      .phase = static_cast<int>(src_phase),
+      .scene = static_cast<int>(scene),
+      .name = cut.name,
+      .rhs = cut.lowb,
+  };
+  for (const auto& [col, coeff] : cut.cmap) {
+    stored.coefficients.emplace_back(static_cast<int>(col), coeff);
+  }
+  // Per-scene storage: no lock needed (each scene writes its own vector)
+  m_scene_cuts_[scene].push_back(stored);
+  // Shared storage: needs lock for cut sharing and combined persistence
+  const std::scoped_lock lock(m_cuts_mutex_);
+  m_stored_cuts_.push_back(std::move(stored));
+}
+
+// ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
+
+auto SDDPSolver::resolve_via_pool(LinearInterface& li,
+                                  const SolverOptions& opts)
+    -> std::expected<int, Error>
+{
+  if (m_pool_ == nullptr) {
+    // No pool available — fall back to direct solve
+    return li.resolve(opts);
+  }
+
+  auto fut = m_pool_->submit([&li, opts] { return li.resolve(opts); });
+  if (fut.has_value()) {
+    return fut->get();
+  }
+  // Pool submission failed — fall back to direct solve
+  SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
+  return li.resolve(opts);
+}
+
+// ── Helper: resolve a clone via the work pool ───────────────────────────────
+
+auto SDDPSolver::resolve_clone_via_pool(LinearInterface& clone,
+                                        const SolverOptions& opts)
+    -> std::expected<int, Error>
+{
+  if (m_pool_ == nullptr) {
+    return clone.resolve(opts);
+  }
+
+  // Submit resolve to the pool.  The clone reference is safe because we
+  // call future.get() synchronously before this scope exits.
+  auto fut = m_pool_->submit([&clone, opts] { return clone.resolve(opts); });
+  if (fut.has_value()) {
+    return fut->get();
+  }
+  // Pool submission failed — fall back to direct solve
+  SPDLOG_WARN(
+      "resolve_clone_via_pool: pool submit failed, falling back to direct");
+  return clone.resolve(opts);
+}
+
+// ── Helper: iterative feasibility backpropagation ───────────────────────────
+
+auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
+                                           Index start_phase,
+                                           int total_cuts,
+                                           const SolverOptions& opts)
+    -> std::expected<int, Error>
+{
+  auto& phase_states = m_scene_phase_states_[scene];
+  int cuts_added = 0;
+
+  // Iterate backward from start_phase to phase 0
+  for (const auto back_pi :
+       std::views::iota(0, start_phase + 1) | std::views::reverse)
+  {
+    const auto back_phase = PhaseIndex {back_pi};
+
+    if (back_pi > 0) {
+      SPDLOG_WARN(
+          "SDDP backward: scene {} phase {} infeasible after "
+          "cut, backpropagating to phase {}",
+          scene,
+          back_phase,
+          back_pi - 1);
+    }
+
+    // Clone the LP, apply elastic filter, solve the clone.
+    // The original LP is never modified by the elastic filter.
+    auto elastic_result = elastic_solve(scene, back_phase, opts);
+    if (elastic_result.has_value()) {
+      if (back_pi > 0) {
+        // Build a feasibility-like cut for the previous phase
+        const auto prev_bp = PhaseIndex {back_pi - 1};
+        auto& prev_li = planning_lp().system(scene, prev_bp).linear_interface();
+        const auto& prev_state = phase_states[prev_bp];
+
+        if (m_options_.elastic_filter_mode
+            == ElasticFilterMode::BackpropagateBounds)
+        {
+          // PLP mechanism: instead of building a feasibility cut,
+          // propagate the elastic-clone dependent-column solution
+          // values back as updated bounds on the source columns in
+          // the previous phase.  This forces the previous phase to
+          // produce a trial point that is known feasible for the
+          // current phase, avoiding further infeasibility without
+          // adding a cut row.
+          const auto& dep_sol = elastic_result->clone.get_col_sol();
+          for (const auto& link : prev_state.outgoing_links) {
+            const double feasible_val = dep_sol[link.dependent_col];
+            prev_li.set_col_low(link.source_col, feasible_val);
+            prev_li.set_col_upp(link.source_col, feasible_val);
+          }
+          SPDLOG_TRACE(
+              "SDDP backward (BackpropagateBounds): scene {} phase {} "
+              "bounds updated to elastic trial values",
+              scene,
+              prev_bp);
+        } else {
+          // single-cut or multi-cut mode:
+          // Always add the regular Benders feasibility cut.
+          auto feas_cut =
+              build_benders_cut(prev_state.alpha_col,
+                                prev_state.outgoing_links,
+                                elastic_result->clone.get_col_cost(),
+                                elastic_result->clone.get_obj_value(),
+                                sddp_label("sddp",
+                                           "single-cut",
+                                           "sc",
+                                           scene,
+                                           "ph",
+                                           back_pi,
+                                           "n",
+                                           total_cuts + cuts_added));
+
+          prev_li.add_row(feas_cut);
+          ++cuts_added;
+
+          // multi-cut: also add one bound-constraint cut per
+          // state variable whose elastic slack was activated.
+          // Auto-switch to multi-cut when:
+          //   threshold == 0 (always), OR
+          //   threshold > 0 and counter > threshold.
+          const bool use_multi_cut =
+              (m_options_.elastic_filter_mode == ElasticFilterMode::MultiCut)
+              || (m_options_.multi_cut_threshold == 0)
+              || (m_options_.multi_cut_threshold > 0
+                  && m_infeasibility_counter_[scene][back_phase]
+                      > m_options_.multi_cut_threshold);
+
+          if (use_multi_cut) {
+            auto mc_cuts =
+                build_multi_cuts(*elastic_result,
+                                 prev_state.outgoing_links,
+                                 sddp_label("sddp",
+                                            "multi-cut",
+                                            "sc",
+                                            scene,
+                                            "ph",
+                                            back_pi,
+                                            "n",
+                                            total_cuts + cuts_added));
+
+            for (auto& mc : mc_cuts) {
+              prev_li.add_row(mc);
+              ++cuts_added;
+            }
+          }
+        }
+
+        // Re-solve the previous phase with updated cuts or bounds
+        auto r3 = resolve_via_pool(prev_li, opts);
+        if (r3.has_value() && prev_li.is_optimal()) {
+          break;  // Feasibility restored
+        }
+        // Continue backpropagating to back_pi - 1
+      } else {
+        break;  // Restored at phase 0
+      }
+    } else if (back_pi == 0) {
+      // Phase 0 with no elastic filter available = scene infeasible
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message =
+              std::format("SDDP: scene {} is infeasible (backpropagated to "
+                          "phase 0)",
+                          scene),
+      });
+    }
+  }
+
+  return cuts_added;
+}
+
 // ── Backward pass with iterative feasibility backpropagation ────────────────
 
 auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
@@ -338,7 +536,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
   auto& phase_states = m_scene_phase_states_[scene];
   int total_cuts = 0;
 
-  for (Index pi = num_phases - 1; pi >= 1; --pi) {
+  // Iterate backward from last phase to phase 1 using ranges
+  for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
     const auto phase = PhaseIndex {pi};
     const auto src_phase = PhaseIndex {pi - 1};
     auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
@@ -357,23 +556,7 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
         sddp_label(
             "sddp", "single-cut", "sc", scene, "ph", pi, "n", total_cuts));
 
-    // Store the cut for sharing and persistence (thread-safe)
-    {
-      StoredCut stored {
-          .phase = static_cast<int>(src_phase),
-          .scene = static_cast<int>(scene),
-          .name = cut.name,
-          .rhs = cut.lowb,
-      };
-      for (const auto& [col, coeff] : cut.cmap) {
-        stored.coefficients.emplace_back(static_cast<int>(col), coeff);
-      }
-      // Per-scene storage: no lock needed (each scene writes its own vector)
-      m_scene_cuts_[scene].push_back(stored);
-      // Shared storage: needs lock for cut sharing and combined persistence
-      const std::scoped_lock lock(m_cuts_mutex_);
-      m_stored_cuts_.push_back(std::move(stored));
-    }
+    store_cut(scene, src_phase, cut);
 
     src_li.add_row(cut);
     ++total_cuts;
@@ -387,124 +570,14 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
     // If adding the cut makes phase k infeasible, build a feasibility
     // cut for phase k-1, continuing all the way to phase 0 if necessary.
     if (pi > 1) {
-      auto r = src_li.resolve(opts);
+      auto r = resolve_via_pool(src_li, opts);
       if (!r.has_value() || !src_li.is_optimal()) {
-        // Iterative feasibility backpropagation
-        for (Index back_pi = pi - 1; back_pi >= 0; --back_pi) {
-          const auto back_phase = PhaseIndex {back_pi};
-
-          if (back_pi > 0) {
-            SPDLOG_WARN(
-                "SDDP backward: scene {} phase {} infeasible after "
-                "cut, backpropagating to phase {}",
-                scene,
-                back_phase,
-                back_pi - 1);
-          }
-
-          // Clone the LP, apply elastic filter, solve the clone.
-          // The original LP is never modified by the elastic filter.
-          auto elastic_result = elastic_solve(scene, back_phase, opts);
-          if (elastic_result.has_value()) {
-            if (back_pi > 0) {
-              // Build a feasibility-like cut for the previous phase
-              const auto prev_bp = PhaseIndex {back_pi - 1};
-              auto& prev_li =
-                  planning_lp().system(scene, prev_bp).linear_interface();
-              const auto& prev_state = phase_states[prev_bp];
-
-              if (m_options_.elastic_filter_mode
-                  == ElasticFilterMode::BackpropagateBounds)
-              {
-                // PLP mechanism: instead of building a feasibility cut,
-                // propagate the elastic-clone dependent-column solution
-                // values back as updated bounds on the source columns in
-                // the previous phase.  This forces the previous phase to
-                // produce a trial point that is known feasible for the
-                // current phase, avoiding further infeasibility without
-                // adding a cut row.
-                const auto& dep_sol = elastic_result->clone.get_col_sol();
-                for (const auto& link : prev_state.outgoing_links) {
-                  const double feasible_val = dep_sol[link.dependent_col];
-                  prev_li.set_col_low(link.source_col, feasible_val);
-                  prev_li.set_col_upp(link.source_col, feasible_val);
-                }
-                SPDLOG_TRACE(
-                    "SDDP backward (BackpropagateBounds): scene {} phase {} "
-                    "bounds updated to elastic trial values",
-                    scene,
-                    prev_bp);
-              } else {
-                // single-cut or multi-cut mode:
-                // Always add the regular Benders feasibility cut.
-                auto feas_cut =
-                    build_benders_cut(prev_state.alpha_col,
-                                      prev_state.outgoing_links,
-                                      elastic_result->clone.get_col_cost(),
-                                      elastic_result->clone.get_obj_value(),
-                                      sddp_label("sddp",
-                                                 "single-cut",
-                                                 "sc",
-                                                 scene,
-                                                 "ph",
-                                                 back_pi,
-                                                 "n",
-                                                 total_cuts));
-
-                prev_li.add_row(feas_cut);
-                ++total_cuts;
-
-                // multi-cut: also add one bound-constraint cut per
-                // state variable whose elastic slack was activated.
-                // Auto-switch to multi-cut when:
-                //   threshold == 0 (always), OR
-                //   threshold > 0 and counter > threshold.
-                const bool use_multi_cut = (m_options_.elastic_filter_mode
-                                            == ElasticFilterMode::MultiCut)
-                    || (m_options_.multi_cut_threshold == 0)
-                    || (m_options_.multi_cut_threshold > 0
-                        && m_infeasibility_counter_[scene][back_phase]
-                            > m_options_.multi_cut_threshold);
-
-                if (use_multi_cut) {
-                  auto mc_cuts = build_multi_cuts(*elastic_result,
-                                                  prev_state.outgoing_links,
-                                                  sddp_label("sddp",
-                                                             "multi-cut",
-                                                             "sc",
-                                                             scene,
-                                                             "ph",
-                                                             back_pi,
-                                                             "n",
-                                                             total_cuts));
-
-                  for (auto& mc : mc_cuts) {
-                    prev_li.add_row(mc);
-                    ++total_cuts;
-                  }
-                }
-              }
-
-              // Re-solve the previous phase with updated cuts or bounds
-              auto r3 = prev_li.resolve(opts);
-              if (r3.has_value() && prev_li.is_optimal()) {
-                break;  // Feasibility restored
-              }
-              // Continue backpropagating to back_pi - 1
-            } else {
-              break;  // Restored at phase 0
-            }
-          } else if (back_pi == 0) {
-            // Phase 0 with no elastic filter available = scene infeasible
-            return std::unexpected(Error {
-                .code = ErrorCode::SolverError,
-                .message = std::format(
-                    "SDDP: scene {} is infeasible (backpropagated to "
-                    "phase 0)",
-                    scene),
-            });
-          }
+        auto bp_result =
+            feasibility_backpropagate(scene, pi - 1, total_cuts, opts);
+        if (!bp_result.has_value()) {
+          return std::unexpected(std::move(bp_result.error()));
         }
+        total_cuts += *bp_result;
       }
     }
   }
@@ -1046,6 +1119,9 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // are submitted to the pool (rather than run synchronously on the caller).
   m_benders_cut_.set_pool(pool.get());
 
+  // Make the pool available to helper methods (resolve_via_pool, etc.)
+  m_pool_ = pool.get();
+
   std::vector<SDDPIterationResult> results;
   results.reserve(m_options_.max_iterations);
 
@@ -1364,9 +1440,10 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   // its jthread destructor will join, but stop() ensures prompt exit).
   monitor.stop();
 
-  // Detach the pool from the BendersCut member — the pool is a local
-  // variable and will be destroyed when solve() returns.
+  // Detach the pool from the BendersCut member and the solver — the pool
+  // is a local variable and will be destroyed when solve() returns.
   m_benders_cut_.set_pool(nullptr);
+  m_pool_ = nullptr;
 
   return results;
 }
@@ -1440,65 +1517,23 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
   }
   const auto& base_scenario = scene_scenarios.front();
 
-  for (Index pi = num_phases - 1; pi >= 1; --pi) {
+  // Iterate backward from last phase to phase 1 using ranges
+  for (const auto pi : std::views::iota(1, num_phases) | std::views::reverse) {
     const auto phase = PhaseIndex {pi};
     const auto src_phase = PhaseIndex {pi - 1};
     auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
     const auto& src_state = phase_states[src_phase];
-    const auto& phase_lp = phases[phase];
-    auto& sys = planning_lp().system(scene, phase);
-    const auto& phase_li = sys.linear_interface();
 
-    // Solve each aperture: clone the phase LP, update flow bounds for the
-    // aperture scenario, solve, and collect the Benders cut.
-    std::vector<SparseRow> aperture_cuts;
-    std::vector<double> aperture_weights;
-    double total_weight = 0.0;
+    auto expected_cut = solve_apertures_for_phase(scene,
+                                                  phase,
+                                                  src_state,
+                                                  base_scenario,
+                                                  all_scenarios,
+                                                  n_aps,
+                                                  total_cuts,
+                                                  opts);
 
-    for (int ap = 0; ap < n_aps; ++ap) {
-      const auto& aperture_scenario = all_scenarios[ap];
-      const double weight = aperture_scenario.probability_factor();
-
-      // Clone the phase LP (state variables already fixed from forward pass)
-      auto clone = phase_li.clone();
-
-      // Update flow column bounds for this aperture's scenario
-      auto& flow_collection = std::get<Collection<FlowLP>>(sys.collections());
-      for (auto& flow_lp : flow_collection.elements()) {
-        for (const auto& stage : phase_lp.stages()) {
-          [[maybe_unused]] const auto ok = flow_lp.update_aperture_bounds(
-              clone, base_scenario, aperture_scenario, stage);
-        }
-      }
-
-      // Solve the clone
-      auto result = clone.resolve(opts);
-      if (!result.has_value() || !clone.is_optimal()) {
-        SPDLOG_DEBUG(
-            "SDDP aperture: scene {} phase {} aperture {} infeasible "
-            "(status {}), skipping",
-            scene,
-            phase,
-            ap,
-            clone.get_status());
-        continue;
-      }
-
-      // Build a Benders cut from the clone's reduced costs
-      const auto cut_name = sddp_label(
-          "sddp", "aper-cut", "sc", scene, "ph", pi, "ap", ap, "n", total_cuts);
-      auto cut = build_benders_cut(src_state.alpha_col,
-                                   src_state.outgoing_links,
-                                   clone.get_col_cost(),
-                                   clone.get_obj_value(),
-                                   cut_name);
-
-      aperture_cuts.push_back(std::move(cut));
-      aperture_weights.push_back(weight > 0.0 ? weight : 1.0);
-      total_weight += aperture_weights.back();
-    }
-
-    if (aperture_cuts.empty()) {
+    if (!expected_cut.has_value()) {
       SPDLOG_WARN(
           "SDDP aperture: scene {} phase {} — all apertures infeasible, "
           "skipping cut for this phase",
@@ -1507,52 +1542,21 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
       continue;
     }
 
-    // Normalise weights
-    if (total_weight > 0.0) {
-      for (auto& w : aperture_weights) {
-        w /= total_weight;
-      }
-    }
-
-    // Compute the probability-weighted expected cut
-    const auto expected_name = sddp_label(
-        "sddp", "expected-aper", "sc", scene, "ph", pi, "n", total_cuts);
-    auto expected_cut = weighted_average_benders_cut(
-        aperture_cuts, aperture_weights, expected_name);
-
-    // Store the expected cut for sharing and persistence
-    {
-      StoredCut stored {
-          .phase = static_cast<int>(src_phase),
-          .scene = static_cast<int>(scene),
-          .name = expected_cut.name,
-          .rhs = expected_cut.lowb,
-      };
-      for (const auto& [col, coeff] : expected_cut.cmap) {
-        stored.coefficients.emplace_back(static_cast<int>(col), coeff);
-      }
-      m_scene_cuts_[scene].push_back(stored);
-      const std::scoped_lock lock(m_cuts_mutex_);
-      m_stored_cuts_.push_back(std::move(stored));
-    }
+    store_cut(scene, src_phase, *expected_cut);
 
     // Add the expected cut to the source phase LP
-    src_li.add_row(expected_cut);
+    src_li.add_row(*expected_cut);
     ++total_cuts;
 
-    SPDLOG_TRACE(
-        "SDDP aperture: scene {} cut for phase {} rhs={:.4f} "
-        "({} apertures, {:.0f}% coverage)",
-        scene,
-        src_phase,
-        expected_cut.lowb,
-        aperture_cuts.size(),
-        100.0 * total_weight);
+    SPDLOG_TRACE("SDDP aperture: scene {} cut for phase {} rhs={:.4f}",
+                 scene,
+                 src_phase,
+                 expected_cut->lowb);
 
     // Re-solve source phase after adding the cut (same as regular backward
     // pass) to propagate feasibility.
     if (pi > 1) {
-      auto r = src_li.resolve(opts);
+      auto r = resolve_via_pool(src_li, opts);
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP aperture: scene {} phase {} infeasible after adding "
@@ -1564,6 +1568,88 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
   }
 
   return total_cuts;
+}
+
+// ── Helper: solve all apertures for a single phase ──────────────────────────
+
+auto SDDPSolver::solve_apertures_for_phase(
+    SceneIndex scene,
+    PhaseIndex phase,
+    const PhaseStateInfo& src_state,
+    const ScenarioLP& base_scenario,
+    std::span<const ScenarioLP> all_scenarios,
+    int n_aps,
+    int total_cuts,
+    const SolverOptions& opts) -> std::optional<SparseRow>
+{
+  const auto pi = static_cast<Index>(phase);
+  auto& sys = planning_lp().system(scene, phase);
+  const auto& phase_li = sys.linear_interface();
+  const auto& phase_lp = planning_lp().simulation().phases()[phase];
+
+  std::vector<SparseRow> aperture_cuts;
+  std::vector<double> aperture_weights;
+  double total_weight = 0.0;
+
+  for (int ap = 0; ap < n_aps; ++ap) {
+    const auto& aperture_scenario = all_scenarios[ap];
+    const double weight = aperture_scenario.probability_factor();
+
+    // Clone the phase LP (state variables already fixed from forward pass)
+    auto clone = phase_li.clone();
+
+    // Update flow column bounds for this aperture's scenario
+    auto& flow_collection = std::get<Collection<FlowLP>>(sys.collections());
+    for (auto& flow_lp : flow_collection.elements()) {
+      for (const auto& stage : phase_lp.stages()) {
+        [[maybe_unused]] const auto ok = flow_lp.update_aperture_bounds(
+            clone, base_scenario, aperture_scenario, stage);
+      }
+    }
+
+    // Solve the clone via the work pool
+    auto result = resolve_clone_via_pool(clone, opts);
+    if (!result.has_value() || !clone.is_optimal()) {
+      SPDLOG_DEBUG(
+          "SDDP aperture: scene {} phase {} aperture {} infeasible "
+          "(status {}), skipping",
+          scene,
+          phase,
+          ap,
+          clone.get_status());
+      continue;
+    }
+
+    // Build a Benders cut from the clone's reduced costs
+    const auto cut_name = sddp_label(
+        "sddp", "aper-cut", "sc", scene, "ph", pi, "ap", ap, "n", total_cuts);
+    auto cut = build_benders_cut(src_state.alpha_col,
+                                 src_state.outgoing_links,
+                                 clone.get_col_cost(),
+                                 clone.get_obj_value(),
+                                 cut_name);
+
+    aperture_cuts.push_back(std::move(cut));
+    aperture_weights.push_back(weight > 0.0 ? weight : 1.0);
+    total_weight += aperture_weights.back();
+  }
+
+  if (aperture_cuts.empty()) {
+    return std::nullopt;
+  }
+
+  // Normalise weights
+  if (total_weight > 0.0) {
+    for (auto& w : aperture_weights) {
+      w /= total_weight;
+    }
+  }
+
+  // Compute the probability-weighted expected cut
+  const auto expected_name = sddp_label(
+      "sddp", "expected-aper", "sc", scene, "ph", pi, "n", total_cuts);
+  return weighted_average_benders_cut(
+      aperture_cuts, aperture_weights, expected_name);
 }
 
 }  // namespace gtopt
