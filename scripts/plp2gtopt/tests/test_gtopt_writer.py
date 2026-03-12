@@ -9,6 +9,7 @@ import pytest
 from plp2gtopt.central_parser import CentralParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.plp_parser import PLPParser
+from plp2gtopt.simulation_writer import SimulationWriter
 
 _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
 _PLPMin1Bus = _CASES_DIR / "plp_min_1bus"
@@ -291,9 +292,6 @@ class TestSimulationWriter:
     _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
 
     def test_build_returns_required_keys(self, tmp_path):
-        from plp2gtopt.simulation_writer import SimulationWriter
-        from plp2gtopt.plp_parser import PLPParser
-
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
         opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
@@ -308,9 +306,6 @@ class TestSimulationWriter:
             assert key in sim
 
     def test_sddp_one_phase_per_stage(self, tmp_path):
-        from plp2gtopt.simulation_writer import SimulationWriter
-        from plp2gtopt.plp_parser import PLPParser
-
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
         opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
@@ -318,9 +313,6 @@ class TestSimulationWriter:
         assert len(sim["phase_array"]) == len(sim["stage_array"])
 
     def test_monolithic_one_phase(self, tmp_path):
-        from plp2gtopt.simulation_writer import SimulationWriter
-        from plp2gtopt.plp_parser import PLPParser
-
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
         opts = {
@@ -333,9 +325,6 @@ class TestSimulationWriter:
         assert sim["phase_array"][0]["count_stage"] == len(sim["stage_array"])
 
     def test_stages_phase_spec(self, tmp_path):
-        from plp2gtopt.simulation_writer import SimulationWriter
-        from plp2gtopt.plp_parser import PLPParser
-
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
         # plp_min_1bus has 1 stage
