@@ -3381,7 +3381,7 @@ TEST_CASE(
   // 3 feasible scenes, no SceneLP objects (uses fallback weight=1)
   const std::vector<uint8_t> feasible {1, 1, 1};
   const std::vector<SceneLP> scenes {};  // empty → uses fallback 1.0 per scene
-  const auto w = compute_scene_weights(scenes, feasible, 3);
+  const auto w = compute_scene_weights(scenes, feasible);
   REQUIRE(w.size() == 3);
   CHECK(w[0] == doctest::Approx(1.0 / 3.0));
   CHECK(w[1] == doctest::Approx(1.0 / 3.0));
@@ -3393,7 +3393,7 @@ TEST_CASE("compute_scene_weights - one scene infeasible")  // NOLINT
   // scene 1 infeasible → weight must be 0, remaining two share probability
   const std::vector<uint8_t> feasible {1, 0, 1};
   const std::vector<SceneLP> scenes {};
-  const auto w = compute_scene_weights(scenes, feasible, 3);
+  const auto w = compute_scene_weights(scenes, feasible);
   REQUIRE(w.size() == 3);
   CHECK(w[1] == doctest::Approx(0.0));
   CHECK(w[0] == doctest::Approx(0.5));
@@ -3405,7 +3405,7 @@ TEST_CASE(
 {
   const std::vector<uint8_t> feasible {0, 0, 0};
   const std::vector<SceneLP> scenes {};
-  const auto w = compute_scene_weights(scenes, feasible, 3);
+  const auto w = compute_scene_weights(scenes, feasible);
   REQUIRE(w.size() == 3);
   CHECK(w[0] == doctest::Approx(0.0));
   CHECK(w[1] == doctest::Approx(0.0));
@@ -3417,7 +3417,7 @@ TEST_CASE(
 {
   const std::vector<uint8_t> feasible {0, 1, 0};
   const std::vector<SceneLP> scenes {};
-  const auto w = compute_scene_weights(scenes, feasible, 3);
+  const auto w = compute_scene_weights(scenes, feasible);
   REQUIRE(w.size() == 3);
   CHECK(w[0] == doctest::Approx(0.0));
   CHECK(w[1] == doctest::Approx(1.0));

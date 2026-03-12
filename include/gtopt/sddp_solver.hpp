@@ -289,14 +289,13 @@ struct SDDPIterationResult
 /// Weights are normalised to sum to 1 across feasible scenes.
 /// Falls back to equal weights when no positive probabilities are found.
 ///
-/// @param scenes       The scene objects from SimulationLP
-/// @param scene_feasible  Per-scene feasibility flag (0 = infeasible)
-/// @param num_scenes   Total number of scenes
-/// @returns Normalised weight vector of size num_scenes
+/// @param scenes         The scene objects from SimulationLP
+/// @param scene_feasible Per-scene feasibility flag (0 = infeasible);
+///                       output size equals scene_feasible.size()
+/// @returns Normalised weight vector of size scene_feasible.size()
 [[nodiscard]] std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
-    std::span<const uint8_t> scene_feasible,
-    int num_scenes) noexcept;
+    std::span<const uint8_t> scene_feasible) noexcept;
 
 /// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
 /// Always returns a non-negative value.
@@ -656,8 +655,7 @@ private:
 
   /// Bootstrap-solve + initialize α variables, state links, and hot-start.
   /// Called once (guarded by m_initialized_).
-  [[nodiscard]] auto initialize_solver(const SolverOptions& lp_opts)
-      -> std::expected<void, Error>;
+  [[nodiscard]] auto initialize_solver() -> std::expected<void, Error>;
 
   /// Reset live-query atomics to their start-of-solve values.
   void reset_live_state() noexcept;
