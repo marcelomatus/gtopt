@@ -2632,8 +2632,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto result =
-      build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas_cut");
+  auto result = build_feasibility_cut(
+      li, alpha_col, links, 1e6, SolverOptions {}, "feas_cut");
   REQUIRE(result.has_value());
   if (result) {
     CHECK(result->cut.name == "feas_cut");
@@ -2672,8 +2672,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto result =
-      build_feasibility_cut(li, ColIndex {10}, links, 1e6, {}, "none");
+  auto result = build_feasibility_cut(
+      li, ColIndex {10}, links, 1e6, SolverOptions {}, "none");
   CHECK_FALSE(result.has_value());
 }
 
@@ -3024,7 +3024,8 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   BendersCut bc;
   CHECK(bc.infeasible_cut_count() == 0);
 
-  auto result = bc.build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas");
+  auto result = bc.build_feasibility_cut(
+      li, alpha_col, links, 1e6, SolverOptions {}, "feas");
   REQUIRE(result.has_value());
   if (result) {
     CHECK(result->cut.name == "feas");
