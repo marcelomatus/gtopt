@@ -362,7 +362,7 @@ auto SDDPSolver::resolve_via_pool(LinearInterface& li,
     return li.resolve(opts);
   }
 
-  auto fut = m_pool_->submit([&li, opts] { return li.resolve(opts); });
+  auto fut = m_pool_->submit([&li, &opts] { return li.resolve(opts); });
   if (fut.has_value()) {
     return fut->get();
   }
@@ -383,7 +383,7 @@ auto SDDPSolver::resolve_clone_via_pool(LinearInterface& clone,
 
   // Submit resolve to the pool.  The clone reference is safe because we
   // call future.get() synchronously before this scope exits.
-  auto fut = m_pool_->submit([&clone, opts] { return clone.resolve(opts); });
+  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); });
   if (fut.has_value()) {
     return fut->get();
   }
