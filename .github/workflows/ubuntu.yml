@@ -67,6 +67,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     name: build
 
@@ -289,6 +290,7 @@ jobs:
   # ---------------------------------------------------------------------------
   clang-tidy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     name: clang-tidy
     if: inputs.run_clang_tidy == true
 
@@ -338,6 +340,7 @@ jobs:
 
   webservice:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
 
     steps:
@@ -400,6 +403,7 @@ jobs:
 
   install-and-test-gtopt-websrv:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
 
     steps:
@@ -514,6 +518,7 @@ jobs:
 
   test-integrated-gtopt-gui:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
 
     steps:
