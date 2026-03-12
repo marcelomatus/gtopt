@@ -120,11 +120,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up uv cache
-        uses: astral-sh/setup-uv@v5
+      - name: Cache uv packages
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "scripts/pyproject.toml"
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-scripts-${{ hashFiles('scripts/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-scripts-
+
+      - name: Install uv
+        run: pip install uv
 
       # Pre-install all scripts dev dependencies so that the scripts-install-deps
       # CTest fixture finds every package already present and only needs to verify
