@@ -990,3 +990,169 @@ class TestDfToOpts:
         df = pd.DataFrame({"option": ["input_directory"], "value": ["from_df"]})
         result = _igtopt_mod.df_to_opts(df, {"input_directory": "explicit"})
         assert result.get("input_directory") == "explicit"
+
+
+# ---------------------------------------------------------------------------
+# Filtration with piecewise-linear segments
+# ---------------------------------------------------------------------------
+
+
+class TestFiltrationSegments:
+    """Tests for filtration_array with piecewise-linear segments support."""
+
+    def test_df_to_str_filtration_segments_string_parsed(self):
+        """segments column with a JSON-encoded string is parsed to a list."""
+        segments_json = (
+            '[{"volume":0,"slope":0.00016132,"constant":2.18918},'
+            '{"volume":500000,"slope":0.0001,"constant":4.8}]'
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "uid": 1,
+                    "name": "filt1",
+                    "waterway": 1,
+                    "reservoir": 2,
+                    "segments": segments_json,
+                }
+            ]
+        )
+        result = json.loads(df_to_str(df, skip_nulls=True))
+        assert len(result) == 1
+        segs = result[0]["segments"]
+        assert isinstance(segs, list)
+        assert len(segs) == 2
+        assert segs[0]["volume"] == pytest.approx(0.0)
+        assert segs[0]["slope"] == pytest.approx(0.00016132)
+        assert segs[0]["constant"] == pytest.approx(2.18918)
+        assert segs[1]["volume"] == pytest.approx(500000.0)
+        assert segs[1]["slope"] == pytest.approx(0.0001)
+        assert segs[1]["constant"] == pytest.approx(4.8)
+
+    def test_df_to_str_filtration_no_segments_omitted_when_null(self):
+        """When segments is NaN/None it is omitted from JSON output."""
+        import numpy as np
+
+        df = pd.DataFrame(
+            [
+                {
+                    "uid": 1,
+                    "name": "filt1",
+                    "waterway": 1,
+                    "reservoir": 2,
+                    "slope": 0.00005,
+                    "constant": 1.2,
+                    "segments": np.nan,
+                }
+            ]
+        )
+        result = json.loads(df_to_str(df, skip_nulls=True))
+        assert len(result) == 1
+        rec = result[0]
+        assert "segments" not in rec
+        assert rec["slope"] == pytest.approx(0.00005)
+        assert rec["constant"] == pytest.approx(1.2)
+
+    def test_df_to_str_filtration_slope_as_schedule_array(self):
+        """slope column accepts a JSON array (per-stage schedule)."""
+        df = pd.DataFrame(
+            [
+                {
+                    "uid": 1,
+                    "name": "filt1",
+                    "waterway": 1,
+                    "reservoir": 2,
+                    "slope": "[0.0001, 0.0002]",
+                    "constant": "[1.0, 1.5]",
+                }
+            ]
+        )
+        result = json.loads(df_to_str(df, skip_nulls=True))
+        rec = result[0]
+        assert rec["slope"] == [pytest.approx(0.0001), pytest.approx(0.0002)]
+        assert rec["constant"] == [pytest.approx(1.0), pytest.approx(1.5)]
+
+    def test_igtopt_filtration_array_with_segments(self, tmp_path):
+        """igtopt converts a filtration_array sheet with segments to valid JSON."""
+        pytest.importorskip("openpyxl")
+        import openpyxl
+
+        segments_json = (
+            '[{"volume":0,"slope":0.00016132,"constant":2.18918},'
+            '{"volume":500000,"slope":0.0001,"constant":4.8}]'
+        )
+        xlsx_path = tmp_path / "hydro_filt.xlsx"
+        wb = openpyxl.Workbook()
+        # options sheet (required by igtopt)
+        ws_opts = wb.active
+        ws_opts.title = "options"
+        ws_opts.append(["option", "value"])
+        ws_opts.append(["use_single_bus", True])
+
+        # minimal simulation sheets
+        ws_block = wb.create_sheet("block_array")
+        ws_block.append(["uid", "duration"])
+        ws_block.append([1, 1.0])
+
+        ws_stage = wb.create_sheet("stage_array")
+        ws_stage.append(["uid", "first_block", "count_block"])
+        ws_stage.append([1, 1, 1])
+
+        ws_scen = wb.create_sheet("scenario_array")
+        ws_scen.append(["uid", "probability_factor"])
+        ws_scen.append([1, 1.0])
+
+        # minimal system sheets
+        ws_bus = wb.create_sheet("bus_array")
+        ws_bus.append(["uid", "name"])
+        ws_bus.append([1, "b1"])
+
+        ws_junc = wb.create_sheet("junction_array")
+        ws_junc.append(["uid", "name"])
+        ws_junc.append([1, "j1"])
+        ws_junc.append([2, "j2"])
+
+        ws_ww = wb.create_sheet("waterway_array")
+        ws_ww.append(["uid", "name", "junction_a", "junction_b"])
+        ws_ww.append([1, "ww1", 1, 2])
+
+        ws_res = wb.create_sheet("reservoir_array")
+        ws_res.append(["uid", "name", "junction"])
+        ws_res.append([2, "embalse1", 2])
+
+        ws_filt = wb.create_sheet("filtration_array")
+        ws_filt.append(["uid", "name", "waterway", "reservoir", "segments"])
+        ws_filt.append([1, "filt1", 1, 2, segments_json])
+
+        wb.save(xlsx_path)
+
+        args = argparse.Namespace(
+            filenames=[str(xlsx_path)],
+            json_file=tmp_path / "hydro_filt.json",
+            input_directory=tmp_path / "hydro_filt",
+            input_format="parquet",
+            name="hydro_filt",
+            compression="gzip",
+            skip_nulls=True,
+            parse_unexpected_sheets=False,
+            pretty=False,
+            zip=False,
+        )
+        rc = _igtopt_run(args)
+        assert rc == 0
+
+        data = json.loads((tmp_path / "hydro_filt.json").read_text())
+        filt_array = data["system"]["filtration_array"]
+        assert len(filt_array) == 1
+        filt = filt_array[0]
+        assert filt["uid"] == 1
+        assert filt["name"] == "filt1"
+        segs = filt["segments"]
+        assert isinstance(segs, list)
+        assert len(segs) == 2
+        assert segs[0]["volume"] == pytest.approx(0.0)
+        assert segs[0]["slope"] == pytest.approx(0.00016132)
+        assert segs[0]["constant"] == pytest.approx(2.18918)
+        assert segs[1]["volume"] == pytest.approx(500000.0)
+        assert segs[1]["slope"] == pytest.approx(0.0001)
+        assert segs[1]["constant"] == pytest.approx(4.8)

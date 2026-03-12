@@ -860,23 +860,33 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         (
             "slope",
-            _J_NUM,
+            _J_SCHED,
             False,
-            "Linear filtration coefficient [m³/s per hm³]",
+            "Seepage slope [m³/s per dam³] — scalar, per-stage array, or filename. "
+            "Used when segments is empty or as the initial value before the "
+            "first volume-dependent update.",
             None,
         ),
         (
             "constant",
-            _J_NUM,
+            _J_SCHED,
             False,
-            "Constant filtration flow [m³/s] independent of reservoir level",
+            "Constant seepage rate [m³/s] — scalar, per-stage array, or filename. "
+            "Used when segments is empty or as the initial value before the "
+            "first volume-dependent update.",
             None,
         ),
         (
             "segments",
             "JSON array",
             False,
-            "Piecewise-linear segments: JSON array of {volume, slope, constant} objects",
+            "Piecewise-linear filtration curve (plpfilemb.dat model): JSON array "
+            "of {volume [dam³], slope [m³/s per dam³], constant [m³/s]} objects. "
+            "When present, the active segment is selected at each phase based on "
+            "the current reservoir volume and the LP constraint coefficients "
+            "(slope on eini/efin and the RHS) are updated directly in the LP. "
+            'Example: [{"volume":0,"slope":0.00016,"constant":2.19},'
+            '{"volume":500000,"slope":0.0001,"constant":4.8}]',
             None,
         ),
     ],
