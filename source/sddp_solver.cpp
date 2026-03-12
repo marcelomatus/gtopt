@@ -1203,8 +1203,12 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
         continue;  // Skip infeasible scenes in backward pass
       }
       const auto scene = SceneIndex {si};
-      auto fut = pool->submit([this, scene, &lp_opts]
-                              { return backward_pass(scene, lp_opts); });
+      auto fut = (m_options_.num_apertures != 0)
+          ? pool->submit(
+                [this, scene, &lp_opts]
+                { return backward_pass_with_apertures(scene, lp_opts); })
+          : pool->submit([this, scene, &lp_opts]
+                         { return backward_pass(scene, lp_opts); });
       bwd_futures.push_back(std::move(fut.value()));
     }
 
@@ -1399,6 +1403,167 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
           m_last_results_.empty() ? 0 : m_last_results_.back().iteration,
           m_last_results_.empty() ? 1.0 : m_last_results_.back().gap),
   });
+}
+
+// ── Aperture backward pass
+// ────────────────────────────────────────────────────
+
+auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
+                                              const SolverOptions& opts)
+    -> std::expected<int, Error>
+{
+  const auto& simulation = planning_lp().simulation();
+  const auto& all_scenarios = simulation.scenarios();
+  const auto num_all_scenarios = static_cast<int>(all_scenarios.size());
+
+  // Determine the effective aperture count
+  const int n_aps = (m_options_.num_apertures < 0)
+      ? num_all_scenarios
+      : std::min(m_options_.num_apertures, num_all_scenarios);
+
+  if (n_aps <= 0 || num_all_scenarios == 0) {
+    // Fall back to standard backward pass (no apertures)
+    return backward_pass(scene, opts);
+  }
+
+  const auto& phases = simulation.phases();
+  const auto num_phases = static_cast<Index>(phases.size());
+  auto& phase_states = m_scene_phase_states_[scene];
+  int total_cuts = 0;
+
+  // Get the base scenario for this scene (the scenario used when building the
+  // LP). We use the first scenario in the scene's scenario list.
+  const auto& scene_lp = simulation.scenes()[scene];
+  const auto& scene_scenarios = scene_lp.scenarios();
+  if (scene_scenarios.empty()) {
+    return backward_pass(scene, opts);
+  }
+  const auto& base_scenario = scene_scenarios.front();
+
+  for (Index pi = num_phases - 1; pi >= 1; --pi) {
+    const auto phase = PhaseIndex {pi};
+    const auto src_phase = PhaseIndex {pi - 1};
+    auto& src_li = planning_lp().system(scene, src_phase).linear_interface();
+    const auto& src_state = phase_states[src_phase];
+    const auto& phase_lp = phases[phase];
+    auto& sys = planning_lp().system(scene, phase);
+    const auto& phase_li = sys.linear_interface();
+
+    // Solve each aperture: clone the phase LP, update flow bounds for the
+    // aperture scenario, solve, and collect the Benders cut.
+    std::vector<SparseRow> aperture_cuts;
+    std::vector<double> aperture_weights;
+    double total_weight = 0.0;
+
+    for (int ap = 0; ap < n_aps; ++ap) {
+      const auto& aperture_scenario = all_scenarios[ap];
+      const double weight = aperture_scenario.probability_factor();
+
+      // Clone the phase LP (state variables already fixed from forward pass)
+      auto clone = phase_li.clone();
+
+      // Update flow column bounds for this aperture's scenario
+      auto& flow_collection = std::get<Collection<FlowLP>>(sys.collections());
+      for (auto& flow_lp : flow_collection.elements()) {
+        for (const auto& stage : phase_lp.stages()) {
+          [[maybe_unused]] const auto ok = flow_lp.update_aperture_bounds(
+              clone, base_scenario, aperture_scenario, stage);
+        }
+      }
+
+      // Solve the clone
+      auto result = clone.resolve(opts);
+      if (!result.has_value() || !clone.is_optimal()) {
+        SPDLOG_DEBUG(
+            "SDDP aperture: scene {} phase {} aperture {} infeasible "
+            "(status {}), skipping",
+            scene,
+            phase,
+            ap,
+            clone.get_status());
+        continue;
+      }
+
+      // Build a Benders cut from the clone's reduced costs
+      const auto cut_name = sddp_label(
+          "sddp", "aper-cut", "sc", scene, "ph", pi, "ap", ap, "n", total_cuts);
+      auto cut = build_benders_cut(src_state.alpha_col,
+                                   src_state.outgoing_links,
+                                   clone.get_col_cost(),
+                                   clone.get_obj_value(),
+                                   cut_name);
+
+      aperture_cuts.push_back(std::move(cut));
+      aperture_weights.push_back(weight > 0.0 ? weight : 1.0);
+      total_weight += aperture_weights.back();
+    }
+
+    if (aperture_cuts.empty()) {
+      SPDLOG_WARN(
+          "SDDP aperture: scene {} phase {} — all apertures infeasible, "
+          "skipping cut for this phase",
+          scene,
+          phase);
+      continue;
+    }
+
+    // Normalise weights
+    if (total_weight > 0.0) {
+      for (auto& w : aperture_weights) {
+        w /= total_weight;
+      }
+    }
+
+    // Compute the probability-weighted expected cut
+    const auto expected_name = sddp_label(
+        "sddp", "expected-aper", "sc", scene, "ph", pi, "n", total_cuts);
+    auto expected_cut = weighted_average_benders_cut(
+        aperture_cuts, aperture_weights, expected_name);
+
+    // Store the expected cut for sharing and persistence
+    {
+      StoredCut stored {
+          .phase = static_cast<int>(src_phase),
+          .scene = static_cast<int>(scene),
+          .name = expected_cut.name,
+          .rhs = expected_cut.lowb,
+      };
+      for (const auto& [col, coeff] : expected_cut.cmap) {
+        stored.coefficients.emplace_back(static_cast<int>(col), coeff);
+      }
+      m_scene_cuts_[scene].push_back(stored);
+      const std::scoped_lock lock(m_cuts_mutex_);
+      m_stored_cuts_.push_back(std::move(stored));
+    }
+
+    // Add the expected cut to the source phase LP
+    src_li.add_row(expected_cut);
+    ++total_cuts;
+
+    SPDLOG_TRACE(
+        "SDDP aperture: scene {} cut for phase {} rhs={:.4f} "
+        "({} apertures, {:.0f}% coverage)",
+        scene,
+        src_phase,
+        expected_cut.lowb,
+        aperture_cuts.size(),
+        100.0 * total_weight);
+
+    // Re-solve source phase after adding the cut (same as regular backward
+    // pass) to propagate feasibility.
+    if (pi > 1) {
+      auto r = src_li.resolve(opts);
+      if (!r.has_value() || !src_li.is_optimal()) {
+        SPDLOG_WARN(
+            "SDDP aperture: scene {} phase {} infeasible after adding "
+            "expected cut (skipping further backpropagation)",
+            scene,
+            src_phase);
+      }
+    }
+  }
+
+  return total_cuts;
 }
 
 }  // namespace gtopt

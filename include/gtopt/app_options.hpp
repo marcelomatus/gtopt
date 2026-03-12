@@ -164,7 +164,11 @@ template<typename T>
        "penalty coefficient for SDDP elastic slack variables (default: 1e6)")  //
       ("sddp-elastic-mode",
        po::value<std::string>(),
-       "SDDP elastic filter mode: 'cut' (default) or 'backpropagate'");
+       "SDDP elastic filter mode: 'cut' (default) or 'backpropagate'")  //
+      ("sddp-num-apertures",
+       po::value<int>(),
+       "SDDP backward-pass apertures: 0=disabled (default), -1=all scenarios, "
+       "N=first N scenarios");
   return desc;
 }
 
@@ -205,7 +209,8 @@ inline void apply_cli_options(
     const std::optional<int>& sddp_max_iterations = {},
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
-    const std::optional<std::string>& sddp_elastic_mode = {})
+    const std::optional<std::string>& sddp_elastic_mode = {},
+    const std::optional<int>& sddp_num_apertures = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -274,6 +279,10 @@ inline void apply_cli_options(
   if (sddp_elastic_mode) {
     planning.options.sddp_options.sddp_elastic_mode = sddp_elastic_mode.value();
   }
+
+  if (sddp_num_apertures) {
+    planning.options.sddp_options.sddp_num_apertures = sddp_num_apertures;
+  }
 }
 
 /**
@@ -305,7 +314,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_max_iterations,
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
-                    opts.sddp_elastic_mode);
+                    opts.sddp_elastic_mode,
+                    opts.sddp_num_apertures);
 }
 
 /**
@@ -371,6 +381,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
+      .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .lp_algorithm = [&]() -> std::optional<int>
       {
         if (const auto raw = get_opt<std::string>(vm, "lp-algorithm")) {

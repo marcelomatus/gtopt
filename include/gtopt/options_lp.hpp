@@ -436,6 +436,11 @@ public:
         default_sddp_multi_cut_threshold);
   }
 
+  [[nodiscard]] constexpr auto sddp_num_apertures() const
+  {
+    return m_options_.sddp_options.sddp_num_apertures.value_or(0);
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;

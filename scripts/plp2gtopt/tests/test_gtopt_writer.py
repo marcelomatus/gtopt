@@ -112,7 +112,7 @@ class TestGTOptWriterWithRealParser:
         assert isinstance(data, dict)
 
     def test_to_json_options_block(self, tmp_path):
-        """options block includes expected keys including sddp_solver_type."""
+        """options block includes expected keys including sddp_options."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
@@ -122,8 +122,8 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts
-        # Default solver type is sddp
-        assert opts["sddp_solver_type"] == "sddp"
+        # Default solver type is sddp (nested inside sddp_options)
+        assert opts["sddp_options"]["sddp_solver_type"] == "sddp"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
         """options block contains sddp_solver_type=monolithic when requested."""
@@ -134,7 +134,7 @@ class TestGTOptWriterWithRealParser:
         opts = _make_opts(tmp_path)
         opts["solver_type"] = "mono"
         result = writer.to_json(opts)
-        assert result["options"]["sddp_solver_type"] == "monolithic"
+        assert result["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
 
 
 class TestGTOptWriterProcessMethods:
@@ -147,16 +147,39 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["options"]["annual_discount_rate"] == 0.0
 
     def test_process_options_default_solver_type(self):
-        """process_options defaults to sddp_solver_type='sddp'."""
+        """process_options defaults to sddp_solver_type='sddp' (nested in sddp_options)."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["sddp_solver_type"] == "sddp"
+        assert writer.planning["options"]["sddp_options"]["sddp_solver_type"] == "sddp"
 
     def test_process_options_monolithic_solver_type(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "solver_type": "mono"})
-        assert writer.planning["options"]["sddp_solver_type"] == "monolithic"
+        assert (
+            writer.planning["options"]["sddp_options"]["sddp_solver_type"]
+            == "monolithic"
+        )
+
+    def test_process_options_num_apertures(self):
+        """process_options writes sddp_num_apertures inside sddp_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "num_apertures": 5})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["sddp_num_apertures"] == 5
+
+    def test_process_options_num_apertures_all(self):
+        """process_options writes sddp_num_apertures=-1 for 'all scenarios'."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "num_apertures": -1})
+        assert writer.planning["options"]["sddp_options"]["sddp_num_apertures"] == -1
+
+    def test_process_options_no_apertures_by_default(self):
+        """sddp_num_apertures is absent when num_apertures not supplied."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert "sddp_num_apertures" not in sddp
 
     def test_process_options_with_discount(self):
         """process_options passes discount_rate through."""
