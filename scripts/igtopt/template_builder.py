@@ -1318,10 +1318,11 @@ _EXAMPLES: dict[str, list[dict[str, Any]]] = {
 
 def _find_repo_root(start: pathlib.Path) -> pathlib.Path:
     """Walk up the directory tree to find the repository root."""
-    for parent in [start.resolve(), *start.resolve().parents]:
+    resolved = start.resolve()
+    for parent in [resolved, *resolved.parents]:
         if (parent / "include" / "gtopt").is_dir():
             return parent
-    return start.resolve()
+    return resolved
 
 
 # Regex to extract json_member field names from JSON headers
