@@ -98,6 +98,13 @@ public:
   std::string api_status_file {};
   /// Interval between background monitoring samples.
   std::chrono::milliseconds api_update_interval {500};
+  /// When true, write LP debug files to lp_debug_directory before solving.
+  bool lp_debug {false};
+  /// Directory for LP debug files (used when lp_debug is true).
+  std::string lp_debug_directory {};
+  /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
+  /// Empty or "uncompressed" means no compression; any other value uses gzip.
+  std::string lp_debug_compression {};
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;
