@@ -23,6 +23,21 @@
  * ```
  * This is equivalent to the PLP "filtraciones" model (plpcenfi.dat).
  *
+ * ### Per-stage slope/constant schedules (PLP plpmanfi.dat)
+ *
+ * `slope` and `constant` accept the same "number | array | filename" syntax
+ * used by other schedule fields:
+ * - **Scalar** – same value for all stages (legacy behaviour).
+ * - **Array** – one value per stage index.
+ * - **Filename** – Parquet/CSV table in `input_directory/Filtration/`.
+ *
+ * When per-stage schedules are used, the LP matrix coefficients for each
+ * stage are set to the stage-specific values directly in the LP (not via
+ * LP bounds), analogous to how `ReservoirEfficiency` updates the turbine
+ * conversion-rate coefficient.  If `segments` is also present, the
+ * piecewise-linear volume-dependent update takes precedence (via
+ * `FiltrationLP::update_lp`).
+ *
  * ### JSON Example
  * ```json
  * {
@@ -38,6 +53,12 @@
  *   ]
  * }
  * ```
+ *
+ * Per-stage schedule (from plpmanfi.dat):
+ * ```json
+ * { "uid": 1, "name": "filt1", "waterway": 1, "reservoir": 1,
+ *   "slope": "slope", "constant": "constant" }
+ * ```
  */
 
 #pragma once
@@ -46,6 +67,7 @@
 #include <limits>
 #include <vector>
 
+#include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/single_id.hpp>
 
@@ -74,11 +96,15 @@ struct FiltrationSegment
  *   `filtration_flow = slope × V_avg + intercept`
  * where `V_avg = (eini + efin) / 2` is the average reservoir volume.
  *
- * When `segments` is empty, the static `slope` and `constant` fields are
- * used directly (backward compatible with the single-pair plpcenfi.dat
- * format).  When `segments` is non-empty, the active segment is selected
- * based on the reservoir volume and the LP coefficients are updated
- * dynamically (via FiltrationLP::update_lp).
+ * `slope` and `constant` accept per-stage schedules (scalar, array, or
+ * filename pointing to a Parquet/CSV table in `input_directory/Filtration/`).
+ * This is the PLP plpmanfi.dat model: the LP matrix coefficients (slope on
+ * eini/efin columns) and the RHS (constant) are set directly in the LP for
+ * each stage, not via LP bounds.
+ *
+ * When `segments` is non-empty, the piecewise-linear volume-dependent update
+ * (via FiltrationLP::update_lp) takes precedence and overrides any per-stage
+ * schedule values for the active-segment coefficient.
  *
  * @see Waterway for the source channel
  * @see Reservoir for the receiving storage
@@ -92,13 +118,22 @@ struct Filtration
 
   SingleId waterway {unknown_uid};  ///< ID of the source waterway
   SingleId reservoir {unknown_uid};  ///< ID of the receiving reservoir
-  Real slope {0.0};  ///< Default seepage slope [m³/s / dam³] (used when
-                     ///< segments is empty)
-  Real constant {0.0};  ///< Default constant seepage rate [m³/s] (used when
-                        ///< segments is empty)
+
+  /// Seepage slope [m³/s / dam³] – scalar, per-stage array, or filename.
+  /// When `segments` is empty, this provides the LP coefficient on V_avg.
+  /// Accepts the same "number | array | filename" syntax as other schedule
+  /// fields (e.g. Reservoir::emin).  The default is 0.0.
+  OptTRealFieldSched slope {};
+
+  /// Constant seepage rate [m³/s] – scalar, per-stage array, or filename.
+  /// When `segments` is empty, this provides the LP RHS (constant term).
+  /// Accepts the same "number | array | filename" syntax.  Default is 0.0.
+  OptTRealFieldSched constant {};
 
   /// Piecewise-linear segments for volume-dependent filtration rate.
-  /// When non-empty, overrides the static slope/constant fields.
+  /// When non-empty, the active segment is selected per-phase based on the
+  /// current reservoir volume and the LP coefficients are updated
+  /// dynamically (via FiltrationLP::update_lp).
   /// Slopes should be in decreasing order (concave envelope).
   std::vector<FiltrationSegment> segments {};
 };

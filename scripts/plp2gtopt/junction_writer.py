@@ -22,6 +22,7 @@ from .cenfi_parser import CenfiParser
 from .cenre_parser import CenreParser
 from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
+from .filemb_parser import FilembParser
 from .manem_parser import ManemParser
 from .manem_writer import ManemWriter
 from .stage_parser import StageParser
@@ -119,14 +120,8 @@ class FiltrationSegment(TypedDict):
     constant: float
 
 
-class Filtration(TypedDict):
-    """Represents water seepage from a waterway into a reservoir.
-
-    When ``segments`` is non-empty the piecewise-linear concave envelope
-    is used: ``filtration(V) = min_i { constant_i + slope_i × (V − volume_i) }``.
-    The LP constraint coefficients are updated dynamically based on the
-    reservoir volume.
-    """
+class _FiltrationRequired(TypedDict):
+    """Required fields for Filtration (always present)."""
 
     uid: int
     name: str
@@ -134,6 +129,24 @@ class Filtration(TypedDict):
     reservoir: int
     slope: float
     constant: float
+
+
+class Filtration(_FiltrationRequired, total=False):
+    """Represents water seepage from a waterway into a reservoir.
+
+    When ``segments`` is non-empty the piecewise-linear concave envelope
+    is used: ``filtration(V) = slope_i × V + constant_i`` where the active
+    segment is selected based on the current reservoir volume.  The LP
+    constraint coefficients (slope on eini/efin columns and the constant RHS)
+    are updated dynamically by FiltrationLP.
+
+    ``slope`` and ``constant`` may be a scalar, an inline array (per-stage
+    schedule), or a filename string referencing a Parquet schedule file.
+    When ``segments`` is present these fields hold the mean/fallback values
+    used before the first volume-dependent update.
+    """
+
+    segments: List[FiltrationSegment]
 
 
 class HydroSystemOutput(TypedDict):
@@ -160,6 +173,7 @@ class JunctionWriter(BaseWriter):
         manem_parser: Optional[ManemParser] = None,
         cenre_parser: Optional[CenreParser] = None,
         cenfi_parser: Optional[CenfiParser] = None,
+        filemb_parser: Optional[FilembParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -172,6 +186,9 @@ class JunctionWriter(BaseWriter):
             manem_parser: Parser for reservoir maintenance schedules
             cenre_parser: Parser for reservoir efficiency (plpcenre.dat)
             cenfi_parser: Parser for filtration data (plpcenfi.dat)
+            filemb_parser: Parser for primary PLP filtration model
+                (plpfilemb.dat); takes precedence over cenfi_parser when
+                both are present.
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
@@ -181,6 +198,7 @@ class JunctionWriter(BaseWriter):
         self.manem_parser = manem_parser
         self.cenre_parser = cenre_parser
         self.cenfi_parser = cenfi_parser
+        self.filemb_parser = filemb_parser
         self._waterway_counter = 0
 
     @property
@@ -275,8 +293,10 @@ class JunctionWriter(BaseWriter):
         if self.extrac_parser and central_parser:
             self._process_extractions(system, central_parser)
 
-        # Process filtration data (plpcenfi.dat)
-        if self.cenfi_parser and central_parser:
+        # Process filtration data (plpfilemb.dat takes precedence over plpcenfi.dat)
+        if self.filemb_parser and central_parser:
+            self._process_filtrations_filemb(system, central_parser)
+        elif self.cenfi_parser and central_parser:
             self._process_filtrations(system, central_parser)
 
         # Process reservoir efficiency data (plpcenre.dat)
@@ -499,7 +519,110 @@ class JunctionWriter(BaseWriter):
             # Include piecewise segments when present
             segments = entry.get("segments", [])
             if segments:
-                filtration["segments"] = [  # type: ignore[typeddict-unknown-key]
+                filtration["segments"] = [
+                    {
+                        "volume": seg["volume"],
+                        "slope": seg["slope"],
+                        "constant": seg["constant"],
+                    }
+                    for seg in segments
+                ]
+
+            system["filtration_array"].append(filtration)
+            uid_counter += 1
+
+    def _process_filtrations_filemb(
+        self,
+        system: HydroSystemOutput,
+        central_parser: CentralParser,
+    ) -> None:
+        """Process filtrations from plpfilemb.dat (primary PLP filtration model).
+
+        Each entry in plpfilemb.dat provides:
+        - ``embalse``: source reservoir name (filtered reservoir)
+        - ``central``: receiving central name (destination of filtrated water)
+        - ``mean_filtration``: mean flow [m³/s], used as initial slope fallback
+        - ``segments``: piecewise-linear filtration curve (volume→slope/constant)
+
+        A new filtration waterway is created from the source reservoir's
+        junction to the receiving central's junction.  The source reservoir
+        uid drives the volume-dependent LP update, exactly as described in
+        the PLP Fortran subroutine ``LeeFilEmb`` / ``GenPDFilAi``.
+
+        This method is called instead of ``_process_filtrations`` when
+        ``filemb_parser`` is available.
+        """
+        if not self.filemb_parser:
+            return
+
+        # Build a name→uid lookup from already-created reservoirs and junctions
+        reservoir_uid: Dict[str, int] = {
+            r["name"]: r["uid"] for r in system["reservoir_array"]
+        }
+
+        # Build central name→number lookup for receiving centrals
+        central_number: Dict[str, int] = {}
+        for central_entry in central_parser.centrals:
+            central_number[str(central_entry["name"])] = int(central_entry["number"])
+
+        uid_counter = 1
+        for entry in self.filemb_parser.filtrations:
+            embalse_name = entry["embalse"]
+            receiving_name = entry["central"]
+            segments = entry.get("segments", [])
+
+            # Resolve source reservoir uid (NomEmb → gtopt reservoir)
+            rsv_uid = reservoir_uid.get(embalse_name)
+            if rsv_uid is None:
+                embalse_central = central_parser.get_central_by_name(embalse_name)
+                if embalse_central is None:
+                    _logger.warning(
+                        "Filemb embalse '%s' not found; skipping.", embalse_name
+                    )
+                    continue
+                rsv_uid = embalse_central["number"]
+
+            # Resolve receiving central junction id (NomCen → gtopt junction)
+            rcv_id = central_number.get(receiving_name)
+            if rcv_id is None:
+                _logger.warning(
+                    "Filemb receiving central '%s' not found; skipping.",
+                    receiving_name,
+                )
+                continue
+
+            # Create a new filtration waterway from source reservoir's junction
+            # to receiving central's junction (matching PLP GenPDFilAi behaviour)
+            filt_waterway = self._create_waterway(
+                f"filt_{embalse_name}",
+                rsv_uid,
+                rcv_id,
+            )
+            if filt_waterway is None:
+                _logger.warning(
+                    "Filemb filtration waterway for '%s'→'%s' could not be created"
+                    " (source == target?); skipping.",
+                    embalse_name,
+                    receiving_name,
+                )
+                continue
+            system["waterway_array"].append(filt_waterway)
+
+            # Use first segment's values as the default slope/constant
+            default_slope = segments[0]["slope"] if segments else 0.0
+            default_constant = segments[0]["constant"] if segments else 0.0
+
+            filtration: Filtration = {
+                "uid": uid_counter,
+                "name": f"filt_{embalse_name}_{receiving_name}",
+                "waterway": filt_waterway["uid"],
+                "reservoir": rsv_uid,
+                "slope": default_slope,
+                "constant": default_constant,
+            }
+
+            if segments:
+                filtration["segments"] = [
                     {
                         "volume": seg["volume"],
                         "slope": seg["slope"],

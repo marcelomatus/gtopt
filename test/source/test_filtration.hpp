@@ -16,8 +16,9 @@ TEST_CASE("Filtration construction and default values")
 
   CHECK(filtration.waterway == SingleId {unknown_uid});
   CHECK(filtration.reservoir == SingleId {unknown_uid});
-  CHECK(filtration.slope == 0.0);
-  CHECK(filtration.constant == 0.0);
+  // slope and constant are OptTRealFieldSched — default is nullopt (→ 0.0)
+  CHECK_FALSE(filtration.slope.has_value());
+  CHECK_FALSE(filtration.constant.has_value());
 }
 
 TEST_CASE("Filtration attribute assignment")
@@ -39,8 +40,10 @@ TEST_CASE("Filtration attribute assignment")
 
   CHECK(std::get<Uid>(filtration.waterway) == Uid {6001});
   CHECK(std::get<Uid>(filtration.reservoir) == Uid {9001});
-  CHECK(filtration.slope == doctest::Approx(0.15));
-  CHECK(filtration.constant == doctest::Approx(2.5));
+  CHECK(std::get<Real>(filtration.slope.value_or(TRealFieldSched {0.0}))
+        == doctest::Approx(0.15));
+  CHECK(std::get<Real>(filtration.constant.value_or(TRealFieldSched {0.0}))
+        == doctest::Approx(2.5));
 }
 
 TEST_CASE("Filtration with zero slope")
@@ -52,8 +55,10 @@ TEST_CASE("Filtration with zero slope")
   filtration.slope = 0.0;
   filtration.constant = 5.0;
 
-  CHECK(filtration.slope == 0.0);
-  CHECK(filtration.constant == doctest::Approx(5.0));
+  CHECK(std::get<Real>(filtration.slope.value_or(TRealFieldSched {0.0}))
+        == 0.0);
+  CHECK(std::get<Real>(filtration.constant.value_or(TRealFieldSched {0.0}))
+        == doctest::Approx(5.0));
 }
 
 TEST_CASE("FiltrationLP - basic filtration constraint")
@@ -480,6 +485,161 @@ TEST_CASE("FiltrationLP - piecewise segments LP constraint")
 
   const System system = {
       .name = "PiecewiseFiltrationTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .filtration_array = filtration_array,
+      .turbine_array = turbine_array,
+  };
+
+  const OptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+TEST_CASE("FiltrationLP - per-stage slope/constant schedule")
+{
+  // Test that slope and constant can be provided as per-stage arrays
+  // (simulating what plpmanfi.dat Parquet files would provide).
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 60.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_upstream",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_downstream",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .conversion_rate = 1.0,
+      },
+  };
+
+  // Filtration with per-stage slope/constant (as inline vectors).
+  // Stage 1 (uid=1): slope=0.001, constant=1.0
+  // Stage 2 (uid=2): slope=0.002, constant=2.0
+  const Array<Filtration> filtration_array = {
+      {
+          .uid = Uid {1},
+          .name = "filt1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .slope = TRealFieldSched {std::vector<Real> {0.001, 0.002}},
+          .constant = TRealFieldSched {std::vector<Real> {1.0, 2.0}},
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .first_block = 1,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "PerStageFiltrationTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,

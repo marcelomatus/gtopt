@@ -8,6 +8,11 @@
  * The FiltrationLP class provides a linear programming (LP) compatible
  * representation of a Filtration system for optimization problems.
  *
+ * Per-stage slope/constant schedules (from plpmanfi.dat Parquet files)
+ * are read at construction time and applied directly to the LP matrix
+ * coefficients and RHS during add_to_lp() — analogous to how
+ * ReservoirEfficiency updates the turbine conversion-rate coefficient.
+ *
  * When the Filtration has piecewise-linear segments, update_lp() selects
  * the active segment based on the reservoir's current volume (vini from
  * the previous phase) and updates the LP constraint coefficients and RHS.
@@ -17,6 +22,7 @@
 
 #include <gtopt/filtration.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/schedule.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -32,25 +38,22 @@ class SystemLP;
  * Provides methods for LP formulation of filtration constraints while
  * maintaining connections to waterways and reservoirs.
  *
- * When the Filtration has piecewise-linear segments, update_lp() is
- * called by the SDDP solver (or monolithic solver between phases) to
- * re-evaluate the filtration function at the current reservoir volume
- * and update the constraint coefficients.
+ * Per-stage slope/constant schedules are applied directly as LP matrix
+ * coefficients during add_to_lp() for each stage.  When the Filtration
+ * also has piecewise-linear segments, update_lp() is called by the SDDP
+ * solver (or monolithic solver between phases) to re-evaluate the
+ * filtration function at the current reservoir volume and override the
+ * constraint coefficients.
  */
 class FiltrationLP : public ObjectLP<Filtration>
 {
 public:
   static constexpr LPClassName ClassName {"Filtration", "fil"};
 
-  /// Constructs a FiltrationLP from a Filtration and input context
-  /// @param pfiltration The filtration system to wrap
-  /// @param ic Input context for LP construction
-  [[nodiscard]]
-  explicit constexpr FiltrationLP(const Filtration& pfiltration,
-                                  [[maybe_unused]] InputContext& ic) noexcept
-      : ObjectLP<Filtration>(pfiltration)
-  {
-  }
+  /// Constructs a FiltrationLP from a Filtration and input context.
+  /// Initialises per-stage slope/constant schedules from the filtration
+  /// object's `slope` and `constant` FieldSched fields.
+  explicit FiltrationLP(const Filtration& pfiltration, InputContext& ic);
 
   [[nodiscard]] constexpr auto&& filtration(this auto&& self) noexcept
   {
@@ -64,15 +67,6 @@ public:
   [[nodiscard]] constexpr auto waterway_sid() const noexcept
   {
     return WaterwayLPSId {filtration().waterway};
-  }
-
-  [[nodiscard]] constexpr auto slope() const noexcept
-  {
-    return filtration().slope;
-  }
-  [[nodiscard]] constexpr auto constant() const noexcept
-  {
-    return filtration().constant;
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
@@ -114,6 +108,11 @@ public:
 private:
   STBIndexHolder<ColIndex> filtration_cols;
   STBIndexHolder<RowIndex> filtration_rows;
+
+  /// Per-stage slope schedule (from Filtration::slope FieldSched)
+  OptTRealSched m_slope_sched_;
+  /// Per-stage constant schedule (from Filtration::constant FieldSched)
+  OptTRealSched m_constant_sched_;
 
   /// Per-(scenario, stage) state for coefficient tracking
   IndexHolder2<ScenarioUid, StageUid, FiltrationState> m_states_;
