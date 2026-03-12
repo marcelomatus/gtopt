@@ -194,9 +194,9 @@ struct Battery
   OptBool daily_cycle {};
 
   /// Energy scale factor: the LP energy variable is divided by this value so
-  /// that the LP works in scaled units (physical_energy / vol_scale).
+  /// that the LP works in scaled units (physical_energy / energy_scale).
   /// Default is 1 (no scaling) for batteries whose energy is already in MWh.
-  OptReal vol_scale {1.0};
+  OptReal energy_scale {1.0};
 };
 
 }  // namespace gtopt
