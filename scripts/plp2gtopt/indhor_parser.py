@@ -103,9 +103,8 @@ class IndhorParser:
         This aggregates across all days, so it captures the typical daily
         hour assignment for each block.  Note: PLP ``Hora`` is 1-based (1-24).
         """
-        if self.is_empty:
+        if self._df is None or self._df.empty:
             return {}
-        assert self._df is not None
         result: Dict[int, List[int]] = {}
         for block, group in self._df.groupby("block"):
             hours = sorted(group["hour"].unique().tolist())
@@ -114,7 +113,6 @@ class IndhorParser:
 
     def to_dict_list(self) -> List[Dict[str, Any]]:
         """Return the parsed data as a list of row dicts."""
-        if self.is_empty:
+        if self._df is None or self._df.empty:
             return []
-        assert self._df is not None
         return self._df.to_dict(orient="records")
