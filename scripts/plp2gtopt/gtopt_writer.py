@@ -23,6 +23,8 @@ from .line_writer import LineWriter
 from .junction_writer import JunctionWriter
 from .aflce_writer import AflceWriter
 from .battery_writer import BatteryWriter
+from .index_utils import parse_index_range, parse_stages_phase
+from .indhor_writer import IndhorWriter
 
 
 class GTOptWriter:
@@ -40,6 +42,17 @@ class GTOptWriter:
             "simulation": {},
         }
 
+    @staticmethod
+    def _normalize_solver_type(solver_type: str) -> str:
+        """Normalize solver type string.
+
+        Accepts 'sddp', 'mono', or 'monolithic'; returns either 'sddp' or
+        'monolithic' (the values understood by the gtopt C++ solver).
+        """
+        if solver_type in ("mono", "monolithic"):
+            return "monolithic"
+        return "sddp"
+
     def process_options(self, options):
         """Process options data to include input and output paths."""
         if not options:
@@ -48,6 +61,7 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "gzip")
+        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
@@ -60,6 +74,7 @@ class GTOptWriter:
             "demand_fail_cost": options.get("demand_fail_cost", 1000),
             "scale_objective": options.get("scale_objective", 1000),
             "annual_discount_rate": discount_rate,
+            "sddp_solver_type": solver_type,
         }
         if "reserve_fail_cost" in options:
             planning_opts["reserve_fail_cost"] = options["reserve_fail_cost"]
@@ -68,7 +83,20 @@ class GTOptWriter:
         self.planning["options"] = planning_opts
 
     def process_stage_blocks(self, options):
-        """Calculate first_block and count_block for stages."""
+        """Calculate first_block and count_block for stages, and build phase_array.
+
+        Phase assignment priority (highest to lowest):
+
+        1. **``stages_phase``** (explicit): A parsed ``--stages-phase`` spec
+           (list-of-lists of 1-based PLP stage indices) fully controls the
+           mapping regardless of ``solver_type``.
+        2. **``solver_type='monolithic'``**: A single phase spanning all stages.
+        3. **``solver_type='sddp'``** (default): One phase per PLP stage.
+
+        The ``--stages-phase`` option accepts a string like
+        ``"1:4,5,6,7,8,9,10,..."`` (see :func:`~.index_utils.parse_stages_phase`
+        for the full syntax).
+        """
         stage_parser = self.parser.parsed_data.get("stage_parser", [])
         block_parser = self.parser.parsed_data.get("block_parser", [])
 
@@ -90,28 +118,156 @@ class GTOptWriter:
             stage_parser=stage_parser, block_parser=block_parser, options=options
         ).to_json_array(stages)
 
-    def process_scenarios(self, options):
-        """Process scenario data to include block and stage information."""
-        hydrologies = [int(h) for h in options.get("hydrologies", "0").split(",")]
-        probability_factors = options.get("probability_factors", None)
+        num_stages = len(self.planning["simulation"]["stage_array"])
+        stages_phase_spec = options.get("stages_phase", None)
 
+        if stages_phase_spec:
+            # Explicit stages-phase mapping: parse the spec and build phases.
+            # The spec uses 1-based PLP stage indices; convert to 0-based
+            # first_stage for gtopt.
+            phase_groups = (
+                stages_phase_spec
+                if isinstance(stages_phase_spec, list)
+                else parse_stages_phase(stages_phase_spec, num_stages)
+            )
+            phase_array = []
+            for uid, group in enumerate(phase_groups, start=1):
+                # group is a list of 1-based stage indices; convert to
+                # 0-based and find the first and count for the contiguous run.
+                first_stage_0 = group[0] - 1
+                phase_array.append(
+                    {
+                        "uid": uid,
+                        "first_stage": first_stage_0,
+                        "count_stage": len(group),
+                    }
+                )
+            self.planning["simulation"]["phase_array"] = phase_array
+        else:
+            solver_type = self._normalize_solver_type(
+                options.get("solver_type", "sddp")
+            )
+            if solver_type == "monolithic":
+                # One phase covering all stages
+                self.planning["simulation"]["phase_array"] = [
+                    {
+                        "uid": 1,
+                        "first_stage": 0,
+                        "count_stage": num_stages,
+                    }
+                ]
+            else:
+                # SDDP: one phase per PLP stage, enabling per-stage state
+                # variables (Stochastic Dual Dynamic Programming).
+                self.planning["simulation"]["phase_array"] = [
+                    {
+                        "uid": i + 1,
+                        "first_stage": i,
+                        "count_stage": 1,
+                    }
+                    for i in range(num_stages)
+                ]
+
+    def process_scenarios(self, options):
+        """Process scenario data to include block and stage information.
+
+        Hydrology indices in the ``hydrologies`` option follow the Fortran
+        (1-based) convention: ``"1"`` means the first hydrology column in the
+        PLP data file.  Internally, each hydrology is converted to a 0-based
+        array index (used by :class:`~.aflce_writer.AflceWriter`).
+
+        All PLP scenarios are considered equally probable unless explicit
+        ``probability_factors`` are provided.  When no explicit weights are
+        given, each exported scenario receives probability ``1/N`` where *N*
+        is the number of exported hydrologies.  When ``probability_factors``
+        is provided, those explicit weights are used instead.
+
+        For ``solver_type='sddp'`` (default), each PLP hydrology becomes its
+        own gtopt scenario **and** its own gtopt scene (one-to-one mapping),
+        so the SDDP solver processes each scenario independently.
+
+        For ``solver_type='monolithic'`` (or ``'mono'``), all PLP hydrologies
+        map to individual gtopt scenarios but are grouped into a **single**
+        gtopt scene so the monolithic solver processes them together.
+        """
+        # Support range syntax like "1,2,5-10,11"; default "1" = first hydrology
+        hydro_spec = options.get("hydrologies", "1")
+        hydrologies_1based = parse_index_range(hydro_spec)
+        num_scenarios = len(hydrologies_1based)
+
+        # Always use 1/N equal probability unless explicitly overridden.
+        probability_factors = options.get("probability_factors", None)
         if probability_factors is None or len(probability_factors) == 0:
-            probability_factors = [1.0 / len(hydrologies)] * len(hydrologies)
+            probability_factors = [1.0 / num_scenarios] * num_scenarios
         else:
             probability_factors = [
                 float(factor) for factor in probability_factors.split(",")
             ]
 
         scenarios = []
-        for hydro_idx, factor in zip(hydrologies, probability_factors):
+        for i, (hydro_1based, factor) in enumerate(
+            zip(hydrologies_1based, probability_factors)
+        ):
+            uid = i + 1  # Unique 1-based UID per PLP scenario
+            # Convert Fortran 1-based hydrology index to 0-based internal index
+            hydro_0based = hydro_1based - 1
             scenarios.append(
                 {
-                    "uid": 1,
+                    "uid": uid,
                     "probability_factor": factor,
-                    "hydrology": hydro_idx,
+                    "hydrology": hydro_0based,
                 }
             )
         self.planning["simulation"]["scenario_array"] = scenarios
+
+        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+
+        if solver_type == "monolithic":
+            # One scene with all scenarios grouped together
+            scenes = [
+                {
+                    "uid": 1,
+                    "first_scenario": 0,
+                    "count_scenario": num_scenarios,
+                }
+            ]
+        else:
+            # SDDP: one scene per scenario (first_scenario = 0-based index)
+            scenes = [
+                {
+                    "uid": i + 1,
+                    "first_scenario": i,
+                    "count_scenario": 1,
+                }
+                for i in range(num_scenarios)
+            ]
+        self.planning["simulation"]["scene_array"] = scenes
+
+    def process_indhor(self, options):
+        """Write block-to-hour map from indhor.csv if present, and record in JSON.
+
+        When the PLP input directory contains ``indhor.csv``, plp_parser will
+        have created an ``IndhorParser`` in ``parsed_data["indhor_parser"]``.
+        This method writes the data to ``BlockHourMap/block_hour_map.parquet``
+        and adds ``"block_hour_map"`` to the simulation section so that
+        post-processing tools can reconstruct hourly time-series from
+        block-level solver output.
+
+        The ``block_hour_map`` value is the stem path (without file extension)
+        relative to the output directory; gtopt resolves the actual format
+        (parquet or csv) from the ``input_format`` option.
+        """
+        indhor_parser = self.parser.parsed_data.get("indhor_parser", None)
+        if indhor_parser is None or indhor_parser.is_empty:
+            return
+
+        output_dir = Path(options["output_dir"]) if options else Path("results")
+        block_hour_dir = output_dir / IndhorWriter.SUBDIR
+
+        writer = IndhorWriter(indhor_parser, options)
+        rel_path = writer.to_parquet(block_hour_dir)
+        if rel_path:
+            self.planning["simulation"]["block_hour_map"] = rel_path
 
     def process_generator_profiles(self, options):
         """Process generator profile data to include block and stage information."""
@@ -286,6 +442,7 @@ class GTOptWriter:
 
         self.process_options(options)
         self.process_stage_blocks(options)
+        self.process_indhor(options)
         self.process_scenarios(options)
         self.process_buses()
         self.process_lines(options)

@@ -326,8 +326,8 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram igtopt plp2gtopt pp2gtopt ts2gtopt
+        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
       - name: mypy
         working-directory: scripts
-        run: mypy gtopt_compare cvs2parquet gtopt_diagram.py igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports
+        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt --ignore-missing-imports

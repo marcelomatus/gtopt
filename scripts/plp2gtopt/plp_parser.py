@@ -24,6 +24,7 @@ from .battery_parser import BatteryParser
 from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
+from .indhor_parser import IndhorParser
 
 
 class PLPParser:
@@ -103,3 +104,10 @@ class PLPParser:
             cfp = CenfiParser(cenfi_path)
             cfp.parse(self.parsed_data)
             self.parsed_data["cenfi_parser"] = cfp
+
+        # Optional: indhor.csv block-to-hour mapping
+        indhor_path = self.input_path / "indhor.csv"
+        if indhor_path.exists():
+            indhor = IndhorParser(indhor_path)
+            indhor.parse()
+            self.parsed_data["indhor_parser"] = indhor
