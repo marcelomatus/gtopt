@@ -289,17 +289,20 @@ TEST_CASE(
   REQUIRE(system.generator_array.size() == 2);
   const auto& disc_gen = system.generator_array.back();
   CHECK(disc_gen.name == "bat1_gen");
+  REQUIRE(std::holds_alternative<Uid>(disc_gen.bus));
   CHECK(std::get<Uid>(disc_gen.bus) == Uid {1});
 
   // Source generator bus was set to internal bus
   const auto& src_gen = system.generator_array.front();
   CHECK(src_gen.name == "solar1");
+  REQUIRE(std::holds_alternative<Uid>(src_gen.bus));
   CHECK(std::get<Uid>(src_gen.bus) == int_bus_uid);
 
   // Charge demand connects to internal bus
   REQUIRE(system.demand_array.size() == 1);
   const auto& chg_dem = system.demand_array.back();
   CHECK(chg_dem.name == "bat1_dem");
+  REQUIRE(std::holds_alternative<Uid>(chg_dem.bus));
   CHECK(std::get<Uid>(chg_dem.bus) == int_bus_uid);
 
   // Converter was created
@@ -356,13 +359,16 @@ TEST_CASE(
   // Source generator bus was overridden to internal bus
   const auto& src_gen = system.generator_array.front();
   CHECK(src_gen.name == "solar1");
+  REQUIRE(std::holds_alternative<Uid>(src_gen.bus));
   CHECK(std::get<Uid>(src_gen.bus) == int_bus_uid);
 
   // Charge demand is on internal bus
   REQUIRE(system.demand_array.size() == 1);
+  REQUIRE(std::holds_alternative<Uid>(system.demand_array.back().bus));
   CHECK(std::get<Uid>(system.demand_array.back().bus) == int_bus_uid);
 
   // Discharge generator is on external bus
+  REQUIRE(std::holds_alternative<Uid>(system.generator_array.back().bus));
   CHECK(std::get<Uid>(system.generator_array.back().bus) == Uid {1});
 }
 
