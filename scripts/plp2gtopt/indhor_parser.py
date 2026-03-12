@@ -9,6 +9,7 @@ time-series from block-level gtopt solver output.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -69,6 +70,9 @@ class IndhorParser:
                 df = pd.read_csv(self.file_path, encoding=enc)
                 break
             except UnicodeDecodeError:
+                logging.getLogger(__name__).debug(
+                    "indhor.csv: encoding '%s' failed, trying next", enc
+                )
                 continue
         if df is None:
             raise ValueError(

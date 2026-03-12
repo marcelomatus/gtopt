@@ -141,7 +141,7 @@ class SimulationWriter:
 
         scenarios: List[Dict[str, Any]] = []
         for i, (hydro_1based, factor) in enumerate(
-            zip(hydrologies_1based, probability_factors)
+            zip(hydrologies_1based, probability_factors, strict=True)
         ):
             scenarios.append(
                 {
