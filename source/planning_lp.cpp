@@ -70,7 +70,7 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       const auto lp_file = system_sp.write_lp(filename);
       spdlog::error("  Infeasible LP written to: {}", lp_file);
 
-      // Run gtopt-check-lp static analysis and log the diagnostic.
+      // Run gtopt_check_lp static analysis and log the diagnostic.
       if (const auto diag = run_check_lp_diagnostic(lp_file); !diag.empty()) {
         spdlog::error("LP infeasibility diagnostic for {}:\n{}", lp_file, diag);
       }
