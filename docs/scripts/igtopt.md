@@ -168,7 +168,7 @@ system sheets are:
 | `demand_array` | uid, name, bus, lmax | Loads / demands |
 | `demand_profile_array` | uid, name, demand | Time-varying demand scaling |
 | `line_array` | uid, name, bus_a, bus_b, reactance, tmax_ab, tmax_ba | Transmission lines |
-| `battery_array` | uid, name, bus, emax, pmax_charge, pmax_discharge | Energy storage (unified) |
+| `battery_array` | uid, name, bus, emax, pmax_charge, pmax_discharge, [source_generator] | Energy storage (unified; `source_generator` for generation-coupled mode) |
 | `converter_array` | uid, name, battery, generator, demand | Battery ↔ generator/demand coupling |
 | `reserve_zone_array` | uid, name, urreq, drreq | Spinning reserve zones |
 | `reserve_provision_array` | uid, name, generator, reserve_zone, urmax | Reserve contributions |

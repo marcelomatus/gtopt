@@ -121,8 +121,19 @@ struct System
    * - A Converter linking battery, generator, and demand
    *   (name = battery.name + "_conv")
    *
-   * After expansion, the `bus` field on the battery is cleared so that
-   * re-expansion is idempotent.
+   * ### Standalone battery (bus only)
+   * Both the discharge Generator and charge Demand are connected to the
+   * external `bus`. This is the default mode.
+   *
+   * ### Generation-coupled battery (bus + source_generator)
+   * When `source_generator` is also set, an internal bus is created
+   * (name = battery.name + "_int_bus"):
+   * - The discharge Generator connects to the external `bus`
+   * - The charge Demand connects to the internal bus
+   * - The source generator's `bus` is set to the internal bus
+   *
+   * After expansion, both `bus` and `source_generator` fields on the battery
+   * are cleared so that re-expansion is idempotent.
    *
    * This is called automatically by PlanningLP before LP construction.
    */
