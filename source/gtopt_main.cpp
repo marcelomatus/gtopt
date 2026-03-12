@@ -22,6 +22,8 @@
 #include <gtopt/error.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -315,6 +317,59 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     // Update the planning options
     //
     apply_cli_options(my_planning, opts);
+
+    //
+    // Load user constraints from external file (if specified)
+    //
+    if (const auto& uc_file = my_planning.system.user_constraint_file) {
+      const auto filepath = std::filesystem::path {*uc_file};
+      const auto ext = filepath.extension().string();
+
+      try {
+        // Determine next UID to avoid collisions with inline constraints
+        const auto& existing = my_planning.system.user_constraint_array;
+        Uid next_uid = Uid {1};
+        for (const auto& uc : existing) {
+          if (uc.uid >= next_uid) {
+            next_uid = Uid {static_cast<int>(uc.uid) + 1};
+          }
+        }
+
+        std::vector<UserConstraint> loaded;
+        if (ext == ".pampl") {
+          loaded = PamplParser::parse_file(filepath.string(), next_uid);
+          spdlog::info(
+              std::format("Loaded {} user constraint(s) from PAMPL file '{}'",
+                          loaded.size(),
+                          filepath.string()));
+        } else {
+          // Default: treat as JSON array of UserConstraint
+          auto file_content = daw::read_file(filepath.string());
+          if (!file_content) {
+            return std::unexpected(std::format(
+                "Cannot read user_constraint_file '{}'", filepath.string()));
+          }
+          loaded =
+              daw::json::from_json<std::vector<UserConstraint>>(*file_content);
+          spdlog::info(
+              std::format("Loaded {} user constraint(s) from JSON file '{}'",
+                          loaded.size(),
+                          filepath.string()));
+        }
+
+        // Append loaded constraints to the planning system
+        auto& arr = my_planning.system.user_constraint_array;
+        arr.insert(arr.end(),
+                   std::make_move_iterator(loaded.begin()),
+                   std::make_move_iterator(loaded.end()));
+
+      } catch (const std::exception& ex) {
+        return std::unexpected(
+            std::format("Error loading user_constraint_file '{}': {}",
+                        filepath.string(),
+                        ex.what()));
+      }
+    }
 
     //
     // Write JSON output if requested

@@ -756,4 +756,92 @@ TEST_SUITE("ConstraintParser")
     const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(ref0.element_id == "uid:1");
   }
+
+  // ── Single-quote string literals ──────────────────────────────────────────
+
+  TEST_CASE("Single-quote element id is accepted")
+  {
+    // generator('G1') must parse identically to generator("G1")
+    auto expr = ConstraintParser::parse(R"(generator('G1').generation <= 100)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_type == "generator");
+    CHECK(ref0.element_id == "G1");
+    CHECK(ref0.attribute == "generation");
+  }
+
+  TEST_CASE("Mixed single- and double-quote element ids")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(generator('G1').generation + generator("G2").generation <= 300)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "G1");
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_id == "G2");
+  }
+
+  TEST_CASE("Single-quote uid: reference")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(generator('uid:5').generation <= 200)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].element.has_value());
+    const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(ref0.element_id == "uid:5");
+  }
+
+  // ── type_filter in sum() ───────────────────────────────────────────────────
+
+  TEST_CASE("sum(all, type=) parses type_filter")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(generator(all, type="hydro").generation) <= 500)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(500.0));
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sr = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sr.element_type == "generator");
+    CHECK(sr.all_elements == true);
+    REQUIRE(sr.type_filter.has_value());
+    CHECK(sr.type_filter.value_or("") == "hydro");
+    CHECK(sr.attribute == "generation");
+  }
+
+  TEST_CASE("sum(all) without type_filter has nullopt type_filter")
+  {
+    auto expr =
+        ConstraintParser::parse(R"(sum(generator(all).generation) <= 1000)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sr = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sr.all_elements == true);
+    CHECK_FALSE(sr.type_filter.has_value());
+  }
+
+  TEST_CASE("sum(all, type=) with single-quote type value")
+  {
+    auto expr = ConstraintParser::parse(
+        R"(sum(demand(all, type='industrial').load) >= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    const auto& sr = expr.terms[0].sum_ref.value_or(SumElementRef {});
+    CHECK(sr.element_type == "demand");
+    CHECK(sr.all_elements == true);
+    REQUIRE(sr.type_filter.has_value());
+    CHECK(sr.type_filter.value_or("") == "industrial");
+    CHECK(sr.attribute == "load");
+  }
 }

@@ -67,6 +67,7 @@ TEST_CASE("UserConstraint JSON round-trip")
       .name = "flow_limit",
       .active = true,
       .expression = R"(line("L1").flow <= 200)",
+      .description = "Maximum flow on line L1",
   };
 
   auto json = daw::json::to_json(uc);
@@ -76,6 +77,21 @@ TEST_CASE("UserConstraint JSON round-trip")
   CHECK(roundtrip.name == "flow_limit");
   CHECK(roundtrip.active.value_or(false) == true);
   CHECK(roundtrip.expression == R"(line("L1").flow <= 200)");
+  CHECK(roundtrip.description.value_or("") == "Maximum flow on line L1");
+}
+
+TEST_CASE("UserConstraint description field — absent is nullopt")
+{
+  using namespace gtopt;
+
+  std::string_view json_data = R"({
+    "uid": 7,
+    "name": "no_desc",
+    "expression": "generator(\"G1\").generation <= 100"
+  })";
+
+  const auto uc = daw::json::from_json<UserConstraint>(json_data);
+  CHECK_FALSE(uc.description.has_value());
 }
 
 TEST_CASE("System JSON with user_constraint_array")
@@ -143,6 +159,7 @@ TEST_CASE("System JSON round-trip preserves user constraints")
           .name = "test_constraint",
           .active = true,
           .expression = R"(generator("g1").generation <= 100)",
+          .description = "Test description",
       },
   };
   sys.user_constraint_file = "external.json";
@@ -153,6 +170,8 @@ TEST_CASE("System JSON round-trip preserves user constraints")
   REQUIRE(roundtrip.user_constraint_array.size() == 1);
   CHECK(roundtrip.user_constraint_array[0].uid == 1);
   CHECK(roundtrip.user_constraint_array[0].name == "test_constraint");
+  CHECK(roundtrip.user_constraint_array[0].description.value_or("")
+        == "Test description");
   REQUIRE(roundtrip.user_constraint_file.has_value());
   CHECK(roundtrip.user_constraint_file.value_or("") == "external.json");
 }

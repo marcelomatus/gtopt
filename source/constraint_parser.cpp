@@ -85,9 +85,10 @@ ConstraintParser::Token ConstraintParser::Lexer::scan_number()
 
 ConstraintParser::Token ConstraintParser::Lexer::scan_string()
 {
+  const char quote = m_input_[m_pos_];  // remember opening quote (" or ')
   ++m_pos_;  // skip opening quote
   std::string result;
-  while (m_pos_ < m_input_.size() && m_input_[m_pos_] != '"') {
+  while (m_pos_ < m_input_.size() && m_input_[m_pos_] != quote) {
     if (m_input_[m_pos_] == '\\' && m_pos_ + 1 < m_input_.size()) {
       ++m_pos_;  // skip backslash
     }
@@ -221,6 +222,7 @@ ConstraintParser::Token ConstraintParser::Lexer::next()
           .value = ",",
       };
     case '"':
+    case '\'':
       return scan_string();
     default:
       break;
@@ -519,6 +521,25 @@ ConstraintTerm ConstraintParser::Parser::parse_sum_expr(double sign)
   if (m_current_.type == TokenType::IDENT && m_current_.value == "all") {
     sum_ref.all_elements = true;
     advance();
+    // Optional: , type="value"
+    if (m_current_.type == TokenType::COMMA) {
+      advance();
+      if (m_current_.type == TokenType::IDENT && m_current_.value == "type") {
+        advance();
+        expect(TokenType::EQ);
+        if (m_current_.type != TokenType::STRING) {
+          throw std::invalid_argument(std::format(
+              "Expected quoted string after 'type=' in sum(), got '{}'",
+              m_current_.value));
+        }
+        sum_ref.type_filter = std::move(m_current_.value);
+        advance();
+      } else {
+        throw std::invalid_argument(std::format(
+            "Expected 'type=...' after comma in sum(all,...), got '{}'",
+            m_current_.value));
+      }
+    }
   } else {
     // Parse comma-separated string or number list
     while (true) {

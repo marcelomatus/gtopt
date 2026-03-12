@@ -22,11 +22,13 @@ struct json_data_contract<UserConstraint>
   using type = json_member_list<json_number<"uid", Uid>,
                                 json_string<"name", Name>,
                                 json_bool_null<"active", OptBool>,
-                                json_string<"expression", Name>>;
+                                json_string<"expression", Name>,
+                                json_string_null<"description", OptName>>;
 
   [[nodiscard]] constexpr static auto to_json_data(UserConstraint const& uc)
   {
-    return std::forward_as_tuple(uc.uid, uc.name, uc.active, uc.expression);
+    return std::forward_as_tuple(
+        uc.uid, uc.name, uc.active, uc.expression, uc.description);
   }
 };
 
