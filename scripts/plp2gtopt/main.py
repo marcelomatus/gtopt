@@ -26,8 +26,10 @@ Convert a PLP (PLPMAX/PLPOPT) case directory to gtopt JSON format.
 
 Reads the standard PLP data files (plpblo.dat, plpbar.dat, plpcosce.dat,
 plpcnfce.dat, plpcnfli.dat, plpdem.dat, plpeta.dat, …) from INPUT_DIR and
-writes a self-contained gtopt JSON file together with Parquet time-series
-files to OUTPUT_DIR.
+writes either:
+  - (default) a self-contained gtopt JSON file + Parquet time-series files, or
+  - (with -E) an igtopt-compatible Excel workbook that can later be converted
+    using: igtopt <workbook>.xlsx
 """
 
 _EPILOG = """
@@ -37,6 +39,9 @@ examples:
 
   # Specify directories explicitly
   plp2gtopt -i /data/plp_case -o /data/gtopt_case
+
+  # Generate an igtopt Excel workbook instead of JSON + Parquet
+  plp2gtopt -E -i plp_case -o gtopt_case -x plp_case.xlsx
 
   # Generate a ZIP archive compatible with gtopt_guisrv / gtopt_websrv
   plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
@@ -314,6 +319,30 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-E",
+        "--excel-output",
+        dest="excel_output",
+        action="store_true",
+        default=False,
+        help=(
+            "produce an igtopt-compatible Excel workbook instead of the "
+            "JSON + Parquet files. The workbook can later be converted with: "
+            "igtopt <workbook>.xlsx"
+        ),
+    )
+    parser.add_argument(
+        "-x",
+        "--excel-file",
+        dest="excel_file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "output Excel workbook path when -E/--excel-output is used "
+            "(default: <output-file>.xlsx)"
+        ),
+    )
+    parser.add_argument(
         "-l",
         "--log-level",
         default="INFO",
@@ -354,6 +383,8 @@ def build_options(args: argparse.Namespace) -> dict:
         "discount_rate": args.discount_rate,
         "management_factor": args.management_factor,
         "zip_output": args.zip_output,
+        "excel_output": args.excel_output,
+        "excel_file": args.excel_file,
         "name": name,
         "sys_version": args.sys_version,
         "demand_fail_cost": args.demand_fail_cost,
