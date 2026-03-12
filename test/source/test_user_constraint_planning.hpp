@@ -113,9 +113,9 @@ TEST_CASE("User constraint - parse expressions from Planning JSON")
     CHECK(expr.rhs == doctest::Approx(300.0));
     REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_id == "g1");
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).element_id == "g1");
     REQUIRE(expr.terms[1].element.has_value());
-    CHECK(expr.terms[1].element->element_id == "g2");
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).element_id == "g2");
   }
 
   SUBCASE("Parse flow_bound expression")
@@ -126,7 +126,7 @@ TEST_CASE("User constraint - parse expressions from Planning JSON")
     CHECK(expr.name == "flow_bound");
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "line");
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type == "line");
     CHECK(expr.domain.stages.is_all);
     CHECK(expr.domain.blocks.is_all);
   }

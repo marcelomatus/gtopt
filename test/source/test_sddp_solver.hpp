@@ -2632,8 +2632,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto result =
-      build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas_cut");
+  auto result = build_feasibility_cut(
+      li, alpha_col, links, 1e6, SolverOptions {}, "feas_cut");
   REQUIRE(result.has_value());
   if (result) {
     CHECK(result->cut.name == "feas_cut");
@@ -2672,8 +2672,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto result =
-      build_feasibility_cut(li, ColIndex {10}, links, 1e6, {}, "none");
+  auto result = build_feasibility_cut(
+      li, ColIndex {10}, links, 1e6, SolverOptions {}, "none");
   CHECK_FALSE(result.has_value());
 }
 
@@ -3024,7 +3024,8 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   BendersCut bc;
   CHECK(bc.infeasible_cut_count() == 0);
 
-  auto result = bc.build_feasibility_cut(li, alpha_col, links, 1e6, {}, "feas");
+  auto result = bc.build_feasibility_cut(
+      li, alpha_col, links, 1e6, SolverOptions {}, "feas");
   REQUIRE(result.has_value());
   if (result) {
     CHECK(result->cut.name == "feas");
@@ -3369,4 +3370,79 @@ TEST_CASE("SDDPSolver - 2-phase with apertures converges")  // NOLINT
     }
     CHECK(total_cuts > 0);
   }
+}
+
+// ─── Unit tests for free utility functions
+// ────────────────────────────────────
+
+TEST_CASE(
+    "compute_scene_weights - all scenes feasible, equal probability")  // NOLINT
+{
+  // 3 feasible scenes, no SceneLP objects (uses fallback weight=1)
+  const std::vector<uint8_t> feasible {1, 1, 1};
+  const std::vector<SceneLP> scenes {};  // empty → uses fallback 1.0 per scene
+  const auto w = compute_scene_weights(scenes, feasible);
+  REQUIRE(w.size() == 3);
+  CHECK(w[0] == doctest::Approx(1.0 / 3.0));
+  CHECK(w[1] == doctest::Approx(1.0 / 3.0));
+  CHECK(w[2] == doctest::Approx(1.0 / 3.0));
+}
+
+TEST_CASE("compute_scene_weights - one scene infeasible")  // NOLINT
+{
+  // scene 1 infeasible → weight must be 0, remaining two share probability
+  const std::vector<uint8_t> feasible {1, 0, 1};
+  const std::vector<SceneLP> scenes {};
+  const auto w = compute_scene_weights(scenes, feasible);
+  REQUIRE(w.size() == 3);
+  CHECK(w[1] == doctest::Approx(0.0));
+  CHECK(w[0] == doctest::Approx(0.5));
+  CHECK(w[2] == doctest::Approx(0.5));
+}
+
+TEST_CASE(
+    "compute_scene_weights - all scenes infeasible returns zeros")  // NOLINT
+{
+  const std::vector<uint8_t> feasible {0, 0, 0};
+  const std::vector<SceneLP> scenes {};
+  const auto w = compute_scene_weights(scenes, feasible);
+  REQUIRE(w.size() == 3);
+  CHECK(w[0] == doctest::Approx(0.0));
+  CHECK(w[1] == doctest::Approx(0.0));
+  CHECK(w[2] == doctest::Approx(0.0));
+}
+
+TEST_CASE(
+    "compute_scene_weights - single feasible scene gets weight 1")  // NOLINT
+{
+  const std::vector<uint8_t> feasible {0, 1, 0};
+  const std::vector<SceneLP> scenes {};
+  const auto w = compute_scene_weights(scenes, feasible);
+  REQUIRE(w.size() == 3);
+  CHECK(w[0] == doctest::Approx(0.0));
+  CHECK(w[1] == doctest::Approx(1.0));
+  CHECK(w[2] == doctest::Approx(0.0));
+}
+
+TEST_CASE("compute_convergence_gap - basic gap")  // NOLINT
+{
+  CHECK(compute_convergence_gap(100.0, 90.0) == doctest::Approx(0.1));
+}
+
+TEST_CASE(
+    "compute_convergence_gap - zero upper bound uses denominator 1")  // NOLINT
+{
+  // denom = max(1.0, |0.0|) = 1.0
+  CHECK(compute_convergence_gap(0.0, -1.0) == doctest::Approx(1.0));
+}
+
+TEST_CASE("compute_convergence_gap - converged returns zero gap")  // NOLINT
+{
+  CHECK(compute_convergence_gap(50.0, 50.0) == doctest::Approx(0.0));
+}
+
+TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
+{
+  // denom = max(1.0, 1000.0) = 1000.0 → gap = 10/1000 = 0.01
+  CHECK(compute_convergence_gap(1000.0, 990.0) == doctest::Approx(0.01));
 }
