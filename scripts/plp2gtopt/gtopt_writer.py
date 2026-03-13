@@ -235,7 +235,9 @@ class GTOptWriter:
                     idsim_parser.get_index(i, 1)
                     for i in range(idsim_parser.num_simulations)
                 ]
-                hydro_indices_1based = [h for h in hydro_indices_1based if h is not None]
+                hydro_indices_1based = [
+                    h for h in hydro_indices_1based if h is not None
+                ]
             else:
                 # No plpidsim.dat → use all hydrology columns from plpaflce.dat
                 aflce = self.parser.parsed_data.get("aflce_parser")
