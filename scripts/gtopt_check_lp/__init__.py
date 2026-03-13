@@ -20,6 +20,7 @@ Sub-modules
 """
 
 from ._ai import AiOptions, query_ai
+from ._compress import as_plain_lp, is_compressed, read_lp_text, resolve_lp_path
 from ._config import (
     default_config_path,
     load_config,
@@ -51,13 +52,17 @@ __all__ = [
     "NeosClient",
     "VariableBounds",
     "analyze_lp_file",
+    "as_plain_lp",
     "check_lp",
     "default_config_path",
     "detect_local_solvers",
     "format_static_report",
+    "is_compressed",
     "load_config",
     "main",
     "query_ai",
+    "read_lp_text",
+    "resolve_lp_path",
     "run_all_solvers",
     "run_interactive_setup",
     "run_iis",

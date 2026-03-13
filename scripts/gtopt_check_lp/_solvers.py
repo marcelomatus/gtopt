@@ -22,6 +22,7 @@ import threading
 from pathlib import Path
 
 from . import _colors as col
+from ._compress import as_plain_lp
 from ._neos import NeosClient
 
 log = logging.getLogger(__name__)
@@ -96,6 +97,8 @@ def run_local_cplex(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
     """
     Run the local ``cplex`` binary to identify the infeasible conflict.
 
+    Accepts plain or gzip-compressed LP files.
+
     Returns ``(success, output)`` where *success* is True when CPLEX was
     found and executed without crashing.
     """
@@ -103,24 +106,25 @@ def run_local_cplex(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
     if cplex_bin is None:
         return False, "cplex binary not found on PATH."
 
-    script = _cplex_script(lp_path)
     log.debug("Running CPLEX from: %s", cplex_bin)
 
     script_path = ""
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".cplex_cmds", delete=False, encoding="utf-8"
-        ) as tf:
-            tf.write(script)
-            script_path = tf.name
+        with as_plain_lp(lp_path) as plain_path:
+            script = _cplex_script(plain_path)
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cplex_cmds", delete=False, encoding="utf-8"
+            ) as tf:
+                tf.write(script)
+                script_path = tf.name
 
-        result = subprocess.run(
-            [cplex_bin, "-f", script_path],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+            result = subprocess.run(
+                [cplex_bin, "-f", script_path],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
         return True, result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         return False, f"CPLEX timed out after {timeout}s."
@@ -140,6 +144,8 @@ def run_local_highs_binary(lp_path: Path, timeout: int = 120) -> tuple[bool, str
     """
     Run the ``highs`` binary to solve the LP and report infeasibility info.
 
+    Accepts plain or gzip-compressed LP files.
+
     Returns ``(success, output)``.
     """
     highs_bin = shutil.which("highs")
@@ -148,21 +154,22 @@ def run_local_highs_binary(lp_path: Path, timeout: int = 120) -> tuple[bool, str
 
     log.debug("Running HiGHS from: %s", highs_bin)
     try:
-        result = subprocess.run(
-            [
-                highs_bin,
-                "--model_file",
-                str(lp_path),
-                "--presolve",
-                "off",
-                "--solver",
-                "simplex",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        with as_plain_lp(lp_path) as plain_path:
+            result = subprocess.run(
+                [
+                    highs_bin,
+                    "--model_file",
+                    str(plain_path),
+                    "--presolve",
+                    "off",
+                    "--solver",
+                    "simplex",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
         return True, result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         return False, f"HiGHS timed out after {timeout}s."
@@ -178,6 +185,9 @@ def run_local_highs_binary(lp_path: Path, timeout: int = 120) -> tuple[bool, str
 def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]:
     """
     Use the ``highspy`` Python package to find the IIS (if installed).
+
+    Accepts plain or gzip-compressed LP files.  When the file is compressed
+    it is first decompressed to a temporary plain ``.lp`` file.
 
     Runs in a background thread so that the *timeout* (in seconds) is
     respected even if highspy blocks internally.
@@ -197,12 +207,12 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
 
     result_holder: list[tuple[bool, str]] = []
 
-    def _run() -> None:  # noqa: PLR0912
+    def _run(plain_lp_path: Path) -> None:  # noqa: PLR0912
         lines: list[str] = []
         try:
             h = highspy.Highs()
             h.silent()
-            h.readModel(str(lp_path))
+            h.readModel(str(plain_lp_path))
             h.run()
             model_status = str(h.getModelStatus())
             lines.append(f"HiGHS model status: {model_status}")
@@ -260,9 +270,10 @@ def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             result_holder.append((False, f"highspy error: {exc}"))
 
-    worker = threading.Thread(target=_run, daemon=True)
-    worker.start()
-    worker.join(timeout=timeout)
+    with as_plain_lp(lp_path) as plain_path:
+        worker = threading.Thread(target=_run, args=(plain_path,), daemon=True)
+        worker.start()
+        worker.join(timeout=timeout)
     if worker.is_alive():
         log.debug("highspy timed out after %ds", timeout)
         return False, f"highspy timed out after {timeout}s."
@@ -309,6 +320,8 @@ def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
     """
     Run CLP or CBC (COIN-OR) to analyse the LP file for infeasibility.
 
+    Accepts plain or gzip-compressed LP files.
+
     Tries ``clp`` first (pure LP, lighter) and falls back to ``cbc``.
 
     Returns ``(success, output)`` where *success* is True when at least one
@@ -316,44 +329,42 @@ def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
     """
     results: list[str] = []
 
-    for binary_name, extra_args in [
-        ("clp", ["statistics", "solve"]),
-        ("cbc", ["statistics", "solve"]),
-    ]:
-        binary = shutil.which(binary_name)
-        if binary is None:
-            continue
+    with as_plain_lp(lp_path) as plain_path:
+        for binary_name, extra_args in [
+            ("clp", ["statistics", "solve"]),
+            ("cbc", ["statistics", "solve"]),
+        ]:
+            binary = shutil.which(binary_name)
+            if binary is None:
+                continue
 
-        log.debug("Running COIN-OR %s from: %s", binary_name.upper(), binary)
-        try:
-            proc = subprocess.run(
-                [binary, str(lp_path)] + extra_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-            raw = proc.stdout + proc.stderr
-            findings = parse_coinor_infeasibility(raw)
+            log.debug("Running COIN-OR %s from: %s", binary_name.upper(), binary)
+            try:
+                proc = subprocess.run(
+                    [binary, str(plain_path)] + extra_args,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                raw = proc.stdout + proc.stderr
+                findings = parse_coinor_infeasibility(raw)
 
-            section_lines = [f"--- {binary_name.upper()} output ---", raw]
-            if findings:
-                section_lines.insert(1, "\nKey infeasibility findings:")
-                section_lines[2:2] = [f"  ✗ {f}" for f in findings]
-                section_lines.append("")
-            results.append("\n".join(section_lines))
+                section_lines = [f"--- {binary_name.upper()} output ---", raw]
+                if findings:
+                    section_lines.insert(1, "\nKey infeasibility findings:")
+                    section_lines[2:2] = [f"  ✗ {f}" for f in findings]
+                    section_lines.append("")
+                results.append("\n".join(section_lines))
 
-        except subprocess.TimeoutExpired:
-            results.append(
-                f"--- {binary_name.upper()} ---\n"
-                f"{binary_name.upper()} timed out after {timeout}s."
-            )
-        except OSError as exc:
-            log.debug("Failed to run %s: %s", binary_name, exc)
-            continue
-
-        if results:
-            break
+            except subprocess.TimeoutExpired:
+                results.append(
+                    f"--- {binary_name.upper()} ---\n"
+                    f"{binary_name.upper()} timed out after {timeout}s."
+                )
+            except OSError as exc:
+                log.debug("Failed to run %s: %s", binary_name, exc)
+                continue
 
     if not results:
         return False, "Neither clp nor cbc binary found on PATH."
@@ -369,6 +380,8 @@ def run_local_coinor(lp_path: Path, timeout: int = 10) -> tuple[bool, str]:
 def run_local_glpk(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
     """
     Run ``glpsol`` (GLPK) to confirm LP infeasibility.
+
+    Accepts plain or gzip-compressed LP files.
 
     GLPK does not support IIS finding directly, but confirms infeasibility
     and reports which constraints are violated at termination.
@@ -386,13 +399,14 @@ def run_local_glpk(lp_path: Path, timeout: int = 120) -> tuple[bool, str]:
 
     log.debug("Running GLPK from: %s", glpsol_bin)
     try:
-        result = subprocess.run(
-            [glpsol_bin, "--lp", str(lp_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        with as_plain_lp(lp_path) as plain_path:
+            result = subprocess.run(
+                [glpsol_bin, "--lp", str(plain_path)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
         return True, result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         return False, f"glpsol timed out after {timeout}s."
