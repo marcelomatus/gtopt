@@ -25,6 +25,7 @@ from .aflce_writer import AflceWriter
 from .battery_writer import BatteryWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
+from .aperture_writer import build_aperture_array, write_aperture_afluents
 
 
 class GTOptWriter:
@@ -255,6 +256,97 @@ class GTOptWriter:
             ]
         self.planning["simulation"]["scene_array"] = scenes
 
+    def process_apertures(self, options):
+        """Build aperture_array from parsed PLP aperture index files.
+
+        When ``plpidap2.dat`` (or ``plpidape.dat``) is present, the aperture
+        definitions are converted to a gtopt ``aperture_array`` where each
+        aperture references a ``source_scenario`` by UID.
+
+        If the aperture references hydrologies that are *not* in the
+        forward-scenario set, an ``aperture_directory`` is created with the
+        extra affluent Parquet files, and the ``sddp_aperture_directory``
+        option is set accordingly.
+
+        This method also sets ``sddp_num_apertures`` automatically when the
+        PLP aperture files are present and the user didn't explicitly set it.
+        """
+        if not options:
+            return
+
+        idap2_parser = self.parser.parsed_data.get("idap2_parser", None)
+        idape_parser = self.parser.parsed_data.get("idape_parser", None)
+
+        if idap2_parser is None and idape_parser is None:
+            return
+
+        # Build map: 0-based hydrology index → gtopt scenario UID
+        scenarios = self.planning["simulation"].get("scenario_array", [])
+        scenario_hydro_map: dict = {}
+        forward_hydros: set = set()
+        for scen in scenarios:
+            hydro_0based = scen.get("hydrology")
+            if hydro_0based is not None:
+                scenario_hydro_map[hydro_0based] = scen["uid"]
+                forward_hydros.add(hydro_0based)
+
+        num_stages = len(self.planning["simulation"].get("stage_array", []))
+
+        aperture_array = build_aperture_array(
+            idap2_parser=idap2_parser,
+            scenario_hydro_map=scenario_hydro_map,
+            num_stages=num_stages,
+        )
+
+        if not aperture_array:
+            return
+
+        self.planning["simulation"]["aperture_array"] = aperture_array
+
+        # Determine which aperture hydros are NOT in the forward set
+        aperture_hydros_0based: list = []
+        if idap2_parser is not None:
+            for entry in idap2_parser.items:
+                for h in entry["indices"]:
+                    aperture_hydros_0based.append(h - 1)
+        if idape_parser is not None:
+            for entry in idape_parser.items:
+                for h in entry["indices"]:
+                    aperture_hydros_0based.append(h - 1)
+
+        extra_hydros = set(aperture_hydros_0based) - forward_hydros
+
+        # Write aperture-specific affluent data if needed
+        if extra_hydros:
+            output_dir = Path(options.get("output_dir", ""))
+            aperture_dir = output_dir / "apertures"
+            aperture_dir.mkdir(parents=True, exist_ok=True)
+
+            aflce_parser = self.parser.parsed_data.get("aflce_parser", None)
+            central_parser = self.parser.parsed_data.get("central_parser", None)
+            block_parser = self.parser.parsed_data.get("block_parser", None)
+
+            write_aperture_afluents(
+                aflce_parser=aflce_parser,
+                central_parser=central_parser,
+                block_parser=block_parser,
+                aperture_hydros=sorted(extra_hydros),
+                forward_hydros=forward_hydros,
+                output_dir=aperture_dir,
+                options=options,
+            )
+
+            # Set aperture_directory in sddp_options
+            sddp_opts = self.planning["options"].get("sddp_options", {})
+            sddp_opts["sddp_aperture_directory"] = str(aperture_dir)
+            self.planning["options"]["sddp_options"] = sddp_opts
+
+        # Auto-set num_apertures from PLP data when not explicitly configured
+        sddp_opts = self.planning["options"].get("sddp_options", {})
+        if "sddp_num_apertures" not in sddp_opts:
+            sddp_opts["sddp_num_apertures"] = len(aperture_array)
+            self.planning["options"]["sddp_options"] = sddp_opts
+
     def process_indhor(self, options):
         """Write block-to-hour map from indhor.csv if present, and record in JSON.
 
@@ -458,6 +550,7 @@ class GTOptWriter:
         self.process_stage_blocks(options)
         self.process_indhor(options)
         self.process_scenarios(options)
+        self.process_apertures(options)
         self.process_buses()
         self.process_lines(options)
         self.process_centrals(options)
