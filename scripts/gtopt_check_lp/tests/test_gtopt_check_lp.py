@@ -665,6 +665,182 @@ class TestMain:
         assert args.ai_provider == "openai"
 
 
+# ── Quiet mode ────────────────────────────────────────────────────────────────
+
+
+class TestQuietMode:
+    """Tests for the --quiet / quiet=True non-failing mode."""
+
+    def test_quiet_flag_parsed(self):
+        """--quiet and -q are accepted by the argument parser."""
+        parser = _build_parser()
+        assert parser.parse_args(["dummy.lp", "--quiet"]).quiet is True
+        assert parser.parse_args(["dummy.lp", "-q"]).quiet is True
+        assert parser.parse_args(["dummy.lp"]).quiet is False
+
+    def test_no_neos_flag_parsed(self):
+        """--no-neos is accepted by the argument parser."""
+        parser = _build_parser()
+        assert parser.parse_args(["dummy.lp", "--no-neos"]).no_neos is True
+        assert parser.parse_args(["dummy.lp"]).no_neos is False
+
+    def test_quiet_missing_file_returns_0(self, capsys):
+        """In quiet mode, a missing LP file produces a warning and returns 0."""
+        rc = check_lp(Path("/nonexistent/nope.lp"), quiet=True)
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "Warning" in err or "not found" in err.lower()
+
+    def test_quiet_feasible_lp_returns_0(self):
+        """Quiet mode on a valid feasible LP still returns 0."""
+        rc = check_lp(_FEASIBLE_SMALL, quiet=True, ai=AiOptions(enabled=False))
+        assert rc == 0
+
+    def test_quiet_bad_bounds_returns_0(self):
+        """Quiet mode on a bad-bounds LP returns 0 and runs static analysis."""
+        rc = check_lp(_BAD_BOUNDS, quiet=True, ai=AiOptions(enabled=False))
+        assert rc == 0
+
+    def test_quiet_always_runs_solver_step(self, capsys):
+        """Quiet mode runs the solver step even when solver='auto' and no email."""
+        with patch("gtopt_check_lp.gtopt_check_lp.run_iis") as mock_iis:
+            mock_iis.return_value = (False, "all", "no solvers")
+            rc = check_lp(
+                _BAD_BOUNDS,
+                solver="auto",
+                email="",
+                quiet=True,
+                ai=AiOptions(enabled=False),
+            )
+        assert rc == 0
+        mock_iis.assert_called_once()
+
+    def test_normal_mode_skips_solver_when_auto_no_email(self, capsys):
+        """Normal mode skips solver analysis when solver='auto', no local solver, no email."""
+        with patch(
+            "gtopt_check_lp.gtopt_check_lp.detect_local_solvers", return_value=[]
+        ):
+            with patch("gtopt_check_lp.gtopt_check_lp.run_iis") as mock_iis:
+                rc = check_lp(
+                    _BAD_BOUNDS,
+                    solver="auto",
+                    email="",
+                    quiet=False,
+                    ai=AiOptions(enabled=False),
+                )
+        assert rc == 0
+        mock_iis.assert_not_called()
+
+    def test_quiet_solver_exception_is_warning(self, capsys):
+        """In quiet mode, an unexpected solver exception produces a warning, not a crash."""
+        with patch(
+            "gtopt_check_lp.gtopt_check_lp.run_iis",
+            side_effect=RuntimeError("boom"),
+        ):
+            rc = check_lp(
+                _BAD_BOUNDS,
+                quiet=True,
+                ai=AiOptions(enabled=False),
+            )
+        assert rc == 0
+
+    def test_quiet_ai_exception_is_warning(self, capsys):
+        """In quiet mode, an unexpected AI exception produces a warning, not a crash."""
+        with patch(
+            "gtopt_check_lp.gtopt_check_lp._run_ai_diagnostics",
+            side_effect=RuntimeError("ai exploded"),
+        ):
+            rc = check_lp(
+                _BAD_BOUNDS,
+                quiet=True,
+                ai=AiOptions(enabled=True, provider="claude"),
+            )
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "Warning" in err or "AI" in err
+
+    def test_no_neos_suppresses_email(self):
+        """--no-neos causes check_lp to pass empty email even when email is set."""
+        with patch("gtopt_check_lp.gtopt_check_lp.run_iis") as mock_iis:
+            mock_iis.return_value = (True, "COIN-OR (clp/cbc)", "ok")
+            check_lp(
+                _BAD_BOUNDS,
+                email="user@example.com",
+                no_neos=True,
+                quiet=True,
+                ai=AiOptions(enabled=False),
+            )
+        _, kwargs = mock_iis.call_args
+        assert kwargs.get("email", "SENTINEL") == ""
+
+    def test_main_quiet_missing_file_returns_0(self):
+        """main() --quiet on a missing file exits 0."""
+        rc = main(["/no/such/quiet.lp", "--quiet", "--no-ai"])
+        assert rc == 0
+
+    def test_main_quiet_bad_bounds_returns_0(self):
+        """main() --quiet on a bad-bounds LP exits 0."""
+        rc = main([str(_BAD_BOUNDS), "--quiet", "--no-ai"])
+        assert rc == 0
+
+    def test_main_quiet_skips_interactive_setup(self, tmp_path):
+        """main() --quiet never runs the interactive setup wizard."""
+        fake_config = tmp_path / "fake.conf"
+        with patch("gtopt_check_lp.gtopt_check_lp.run_interactive_setup") as mock_setup:
+            main(
+                [
+                    str(_BAD_BOUNDS),
+                    "--quiet",
+                    "--no-ai",
+                    "--config",
+                    str(fake_config),
+                ]
+            )
+        mock_setup.assert_not_called()
+
+    @pytest.mark.integration
+    def test_quiet_subprocess_exits_zero(self):
+        """Subprocess: --quiet on bad_bounds.lp always exits 0."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gtopt_check_lp.gtopt_check_lp",
+                str(_BAD_BOUNDS),
+                "--quiet",
+                "--no-color",
+                "--no-ai",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0
+
+    @pytest.mark.integration
+    def test_quiet_missing_file_subprocess_exits_zero(self):
+        """Subprocess: --quiet on a missing file always exits 0."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gtopt_check_lp.gtopt_check_lp",
+                "/no/such/file.lp",
+                "--quiet",
+                "--no-color",
+                "--no-ai",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        assert "Warning" in combined or "not found" in combined.lower()
+
+
 # ── Local solver stubs ────────────────────────────────────────────────────────
 
 
