@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .plp2gtopt import convert_plp_case
+from .info_display import display_plp_info
 
 try:
     from importlib.metadata import version as _pkg_version, PackageNotFoundError
@@ -388,6 +389,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--info",
+        dest="show_info",
+        action="store_true",
+        default=False,
+        help=(
+            "display a summary of the PLP case (buses, generators, stages, "
+            "available hydrology classes, simulation-to-hydrology mapping from "
+            "plpidsim.dat, aperture structure from plpidap2.dat) and exit. "
+            "Use this to discover which -y / -a values to pass. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -452,6 +466,16 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    if args.show_info:
+        display_plp_info(
+            {
+                "input_dir": args.input_dir,
+                "last_stage": args.last_stage,
+                "hydrologies": args.hydrologies,
+            }
+        )
+        return
+
     try:
         convert_plp_case(build_options(args))
     except (RuntimeError, FileNotFoundError) as exc:
@@ -459,7 +483,8 @@ def main():
             print(
                 f"error: {exc}\n"
                 "Usage: plp2gtopt -i <input_dir> -o <output_dir> [options]\n"
-                "Run 'plp2gtopt -h' for the full list of options.",
+                "Run 'plp2gtopt -h' for the full list of options, "
+                "or 'plp2gtopt --info -i <input_dir>' to inspect a case.",
                 file=sys.stderr,
             )
             sys.exit(1)
