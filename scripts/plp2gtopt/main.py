@@ -94,12 +94,20 @@ def make_parser() -> argparse.ArgumentParser:
         epilog=_EPILOG,
     )
     parser.add_argument(
+        "positional_input",
+        nargs="?",
+        type=Path,
+        default=None,
+        metavar="INPUT_DIR",
+        help="directory containing PLP input files (same as -i)",
+    )
+    parser.add_argument(
         "-i",
         "--input-dir",
         type=Path,
         metavar="DIR",
-        default=Path("input"),
-        help="directory containing PLP input files (default: %(default)s)",
+        default=None,
+        help="directory containing PLP input files (default: input)",
     )
     parser.add_argument(
         "-o",
@@ -410,15 +418,28 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_input_dir(args: argparse.Namespace) -> Path:
+    """Resolve input directory from positional and/or -i arguments.
+
+    Priority: -i flag > positional argument > default 'input'.
+    """
+    if args.input_dir is not None:
+        return args.input_dir
+    if args.positional_input is not None:
+        return args.positional_input
+    return Path("input")
+
+
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
+    input_dir = _resolve_input_dir(args)
     output_file = args.output_file
     if output_file is None:
         output_file = Path(args.output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
     opts = {
-        "input_dir": args.input_dir,
+        "input_dir": input_dir,
         "output_dir": args.output_dir,
         "output_file": output_file,
         "last_stage": args.last_stage,
@@ -461,19 +482,31 @@ def main():
     parser = make_parser()
     args = parser.parse_args()
 
+    # Reconcile positional and -i input dir
+    args.input_dir = _resolve_input_dir(args)
+
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
     if args.show_info:
-        display_plp_info(
-            {
-                "input_dir": args.input_dir,
-                "last_stage": args.last_stage,
-                "hydrologies": args.hydrologies,
-            }
-        )
+        try:
+            display_plp_info(
+                {
+                    "input_dir": args.input_dir,
+                    "last_stage": args.last_stage,
+                    "hydrologies": args.hydrologies,
+                }
+            )
+        except (RuntimeError, FileNotFoundError, OSError) as exc:
+            print(
+                f"error: {exc}\n"
+                "Usage: plp2gtopt --info -i <input_dir>\n"
+                "       plp2gtopt --info <input_dir>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         return
 
     try:
@@ -482,9 +515,9 @@ def main():
         if no_args:
             print(
                 f"error: {exc}\n"
-                "Usage: plp2gtopt -i <input_dir> -o <output_dir> [options]\n"
+                "Usage: plp2gtopt [INPUT_DIR] -o <output_dir> [options]\n"
                 "Run 'plp2gtopt -h' for the full list of options, "
-                "or 'plp2gtopt --info -i <input_dir>' to inspect a case.",
+                "or 'plp2gtopt --info <input_dir>' to inspect a case.",
                 file=sys.stderr,
             )
             sys.exit(1)

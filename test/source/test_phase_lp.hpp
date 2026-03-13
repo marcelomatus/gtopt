@@ -219,3 +219,65 @@ TEST_CASE("PhaseLP construction from simulation")
   CHECK(phase_lp.stages().size() == 1);  // Only one active stage in range
   CHECK(phase_lp.duration() == doctest::Approx(1.0));
 }
+
+TEST_CASE("Phase aperture_set field")
+{
+  SUBCASE("default aperture_set is empty")
+  {
+    const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
+    CHECK(phase.aperture_set.empty());
+  }
+
+  SUBCASE("aperture_set with values")
+  {
+    const Phase phase {
+        .uid = 1,
+        .first_stage = 0,
+        .count_stage = 3,
+        .aperture_set = {1, 2, 5},
+    };
+    REQUIRE(phase.aperture_set.size() == 3);
+    CHECK(phase.aperture_set[0] == 1);
+    CHECK(phase.aperture_set[1] == 2);
+    CHECK(phase.aperture_set[2] == 5);
+  }
+}
+
+TEST_CASE("PhaseLP aperture_set accessor")
+{
+  const OptionsLP options;
+  std::vector<Stage> stages = {
+      Stage {
+          .uid = 1,
+          .active = true,
+          .first_block = 0,
+          .count_block = 1,
+          .discount_factor = std::nullopt,
+      },
+  };
+  std::vector<Block> blocks = {
+      Block {.duration = 1.0},
+  };
+
+  SUBCASE("empty aperture_set")
+  {
+    const Phase phase {.uid = 1, .first_stage = 0, .count_stage = 1};
+    const PhaseLP phase_lp(phase, options, stages, blocks);
+    CHECK(phase_lp.aperture_set().empty());
+  }
+
+  SUBCASE("non-empty aperture_set")
+  {
+    const Phase phase {
+        .uid = 1,
+        .first_stage = 0,
+        .count_stage = 1,
+        .aperture_set = {3, 7, 11},
+    };
+    const PhaseLP phase_lp(phase, options, stages, blocks);
+    REQUIRE(phase_lp.aperture_set().size() == 3);
+    CHECK(phase_lp.aperture_set()[0] == 3);
+    CHECK(phase_lp.aperture_set()[1] == 7);
+    CHECK(phase_lp.aperture_set()[2] == 11);
+  }
+}
