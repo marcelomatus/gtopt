@@ -53,6 +53,12 @@ struct Phase
    */
   Size count_stage {std::dynamic_extent};
 
+  /// Optional set of aperture UIDs to use in this phase's SDDP backward pass.
+  /// When empty, all apertures from the global `aperture_array` are used.
+  /// When non-empty, only the listed aperture UIDs participate in the
+  /// backward-pass cut computation for this phase.
+  Array<Uid> aperture_set {};
+
   /// Class name constant used for serialisation/deserialisation
   static constexpr std::string_view class_name = "phase";
 

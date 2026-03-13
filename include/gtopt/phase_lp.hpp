@@ -147,6 +147,12 @@ public:
     return static_cast<Index>(m_phase_.count_stage);
   }
 
+  /// @return Per-phase aperture UIDs (empty = use all global apertures)
+  [[nodiscard]] constexpr const auto& aperture_set() const noexcept
+  {
+    return m_phase_.aperture_set;
+  }
+
 private:
   Phase m_phase_ {};  ///< The underlying Phase object
   PhaseIndex m_index_ {unknown_index};

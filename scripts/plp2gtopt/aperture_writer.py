@@ -123,6 +123,89 @@ def build_aperture_array(
     return aperture_array
 
 
+def build_phase_aperture_sets(
+    idap2_parser: Any,
+    aperture_array: List[Dict[str, Any]],
+    phase_array: List[Dict[str, Any]],
+    num_stages: int,
+) -> None:
+    """Populate ``aperture_set`` on each phase from per-stage PLP aperture data.
+
+    PLP's ``plpidap2.dat`` stores aperture indices **per stage**.  Since each
+    gtopt phase maps to one or more PLP stages, this function computes the
+    union of all aperture hydrology indices across the stages in each phase
+    and maps them to the corresponding aperture UIDs from ``aperture_array``.
+
+    The function modifies ``phase_array`` **in place**, adding an
+    ``"aperture_set"`` key to each phase dict.  If all phases share the same
+    aperture set (the common case for single-year problems), ``aperture_set``
+    is left empty (meaning "use all apertures") to keep the JSON compact.
+
+    Parameters
+    ----------
+    idap2_parser
+        Parsed ``plpidap2.dat`` data, or ``None``.
+    aperture_array : list of dict
+        The global aperture definitions (output of :func:`build_aperture_array`).
+    phase_array : list of dict
+        The phase definitions to update in place.
+    num_stages : int
+        Number of output stages.
+    """
+    if idap2_parser is None or not aperture_array or not phase_array:
+        return
+
+    # Build a mapping: 1-based hydrology index → aperture UID
+    # We need to reconstruct which hydro each aperture references.
+    # build_aperture_array assigns UIDs sequentially from unique_hydros,
+    # so we rebuild the same unique_hydros list to create the reverse map.
+    seen: set = set()
+    unique_hydros: list = []
+    for entry in idap2_parser.items:
+        if 1 <= entry["stage"] <= num_stages:
+            for h in entry["indices"]:
+                if h not in seen:
+                    seen.add(h)
+                    unique_hydros.append(h)
+    if not unique_hydros and idap2_parser.items:
+        for h in idap2_parser.items[0]["indices"]:
+            if h not in seen:
+                seen.add(h)
+                unique_hydros.append(h)
+
+    hydro_to_aperture_uid: Dict[int, int] = {}
+    for ap_idx, hydro_1based in enumerate(unique_hydros):
+        hydro_to_aperture_uid[hydro_1based] = ap_idx + 1
+
+    # For each phase, collect the union of aperture hydros across its stages
+    # (PLP stages are 1-based; phase["first_stage"] is 0-based).
+    phase_sets: List[List[int]] = []
+    for phase in phase_array:
+        first_stage_0 = phase["first_stage"]
+        count = phase["count_stage"]
+        phase_hydros: set = set()
+        for stage_0 in range(first_stage_0, first_stage_0 + count):
+            plp_stage = stage_0 + 1  # convert to 1-based PLP stage
+            if plp_stage > num_stages:
+                break
+            aps = idap2_parser.get_apertures(plp_stage)
+            if aps:
+                phase_hydros.update(aps)
+        # Map hydro indices to aperture UIDs
+        ap_uids = sorted(
+            hydro_to_aperture_uid[h] for h in phase_hydros if h in hydro_to_aperture_uid
+        )
+        phase_sets.append(ap_uids)
+
+    # Only add aperture_set if phases differ; otherwise leave empty
+    all_ap_uids = sorted(hydro_to_aperture_uid.values())
+    all_same = all(s == all_ap_uids for s in phase_sets)
+
+    if not all_same:
+        for phase, ap_set in zip(phase_array, phase_sets):
+            phase["aperture_set"] = ap_set
+
+
 def write_aperture_afluents(
     aflce_parser: Any,
     central_parser: Any,

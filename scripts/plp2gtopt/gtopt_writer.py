@@ -25,7 +25,11 @@ from .aflce_writer import AflceWriter
 from .battery_writer import BatteryWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
-from .aperture_writer import build_aperture_array, write_aperture_afluents
+from .aperture_writer import (
+    build_aperture_array,
+    build_phase_aperture_sets,
+    write_aperture_afluents,
+)
 
 
 class GTOptWriter:
@@ -399,6 +403,15 @@ class GTOptWriter:
         if "sddp_num_apertures" not in sddp_opts:
             sddp_opts["sddp_num_apertures"] = len(aperture_array)
             self.planning["options"]["sddp_options"] = sddp_opts
+
+        # Populate per-phase aperture_set from stage-indexed PLP data
+        phase_array = self.planning["simulation"].get("phase_array", [])
+        build_phase_aperture_sets(
+            idap2_parser=idap2_parser,
+            aperture_array=aperture_array,
+            phase_array=phase_array,
+            num_stages=num_stages,
+        )
 
     def process_indhor(self, options):
         """Write block-to-hour map from indhor.csv if present, and record in JSON.

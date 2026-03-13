@@ -61,6 +61,7 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/aperture.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/error.hpp>
@@ -637,13 +638,16 @@ private:
 
   /// Solve all apertures for a single phase and return the
   /// probability-weighted expected cut, or nullopt if all failed.
+  /// When @p phase_apertures is non-empty, only those aperture UIDs are used;
+  /// otherwise all apertures from @p aperture_defs participate.
   [[nodiscard]] auto solve_apertures_for_phase(
       SceneIndex scene,
       PhaseIndex phase,
       const PhaseStateInfo& src_state,
       const ScenarioLP& base_scenario,
       std::span<const ScenarioLP> all_scenarios,
-      int n_aps,
+      std::span<const Aperture> aperture_defs,
+      std::span<const Uid> phase_apertures,
       int total_cuts,
       const SolverOptions& opts) -> std::optional<SparseRow>;
 

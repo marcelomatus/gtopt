@@ -118,6 +118,15 @@ public:
     return m_stage_array_;
   }
 
+  /**
+   * @brief Gets the aperture definitions from the underlying Simulation
+   * @return Const reference to the aperture_array
+   */
+  [[nodiscard]] constexpr const auto& apertures() const noexcept
+  {
+    return m_simulation_.get().aperture_array;
+  }
+
   [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
   {
     if (stage.index() == StageIndex {0}) {
