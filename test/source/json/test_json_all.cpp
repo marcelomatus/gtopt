@@ -58,6 +58,7 @@ using namespace gtopt;
 #include "test_line_json.hpp"
 #include "test_optimization_json.hpp"
 #include "test_options_json.hpp"
+#include "test_phase_json.hpp"
 #include "test_planning_json.hpp"
 #include "test_reserve_provision_json.hpp"
 #include "test_reserve_zone_json.hpp"
