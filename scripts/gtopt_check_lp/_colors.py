@@ -9,12 +9,12 @@ _CYAN = "\033[36m"
 _RESET = "\033[0m"
 
 # Public aliases (no underscore) for use outside this module.
-BOLD   = _BOLD
-RED    = _RED
+BOLD = _BOLD
+RED = _RED
 YELLOW = _YELLOW
-GREEN  = _GREEN
-CYAN   = _CYAN
-RESET  = _RESET
+GREEN = _GREEN
+CYAN = _CYAN
+RESET = _RESET
 
 # Module-level flag; set once by the CLI before any output is produced.
 USE_COLOR = True
