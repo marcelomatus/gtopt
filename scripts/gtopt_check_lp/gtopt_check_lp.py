@@ -178,8 +178,8 @@ _CONFIG_DEFAULTS: dict[str, str] = {
 
 
 def _default_config_path() -> Path:
-    """Return the default config file path: ``~/.gtopt_check_lp``."""
-    return Path.home() / ".gtopt_check_lp"
+    """Return the default config file path: ``~/.gtopt_check_lp.conf``."""
+    return Path.home() / ".gtopt_check_lp.conf"
 
 
 def _read_git_email() -> str:
@@ -253,25 +253,31 @@ def _save_config(config_path: Path, cfg: dict[str, str]) -> None:
 # AI provider constants and helpers
 # ---------------------------------------------------------------------------
 
-_AI_PROVIDERS = ("claude", "openai")
+_AI_PROVIDERS = ("claude", "openai", "deepseek", "github")
 _AI_DEFAULT_PROVIDER = "claude"
 
 _AI_DEFAULT_MODEL: dict[str, str] = {
     "claude": "claude-opus-4-5",
     "openai": "gpt-4o",
+    "deepseek": "deepseek-chat",
+    "github": "gpt-4o",
 }
 
 _AI_INFEASIBILITY_PROMPT = """\
 You are an expert in linear programming and mathematical optimization.
 I will provide you with an infeasibility report from the gtopt LP solver tool.
+The report includes output from multiple linear solvers (such as CPLEX, HiGHS,
+COIN-OR CLP/CBC, and GLPK) that have analyzed the same infeasible LP problem.
 
-Please analyze the report and:
+Please analyze the combined report and:
 1. Identify the specific variable(s) or constraint(s) causing the infeasibility
    (column or row names if present).
 2. Explain the root cause of the infeasibility in plain terms.
 3. Suggest concrete steps to fix the problem.
 4. If the report includes IIS (Irreducible Infeasible Subsystem) output from
    a solver (CPLEX, HiGHS, CLP/CBC, GLPK), focus on those constraints first.
+5. Cross-reference findings from the different solvers to identify the most
+   likely cause of infeasibility.
 
 Be concise but precise.  Use the variable and constraint names from the report.
 
@@ -354,6 +360,10 @@ def query_ai(
         return _query_claude(full_prompt, effective_model, api_key, timeout)
     if provider == "openai":
         return _query_openai(full_prompt, effective_model, api_key, timeout)
+    if provider == "deepseek":
+        return _query_deepseek(full_prompt, effective_model, api_key, timeout)
+    if provider == "github":
+        return _query_github(full_prompt, effective_model, api_key, timeout)
 
     return False, f"Provider '{provider}' is not yet implemented."
 
@@ -403,6 +413,68 @@ def _query_openai(
         )
 
     url = "https://api.openai.com/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "content-type": "application/json",
+    }
+    return _http_post_json(url, payload, headers, timeout)
+
+
+def _query_deepseek(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """Call the DeepSeek Chat API (OpenAI-compatible)."""
+    key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+    if not key:
+        return (
+            False,
+            "No API key found for DeepSeek.  Set the DEEPSEEK_API_KEY environment "
+            "variable or pass --ai-key KEY.",
+        )
+
+    url = "https://api.deepseek.com/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "content-type": "application/json",
+    }
+    return _http_post_json(url, payload, headers, timeout)
+
+
+def _query_github(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """Call the GitHub Copilot AI API (OpenAI-compatible).
+
+    Uses the ``OPENAI_API_BASE`` environment variable (defaults to
+    ``https://api.githubcopilot.com``) and ``OPENAI_API_KEY`` for
+    authentication.
+    """
+    key = api_key or os.environ.get("OPENAI_API_KEY", "")
+    if not key:
+        return (
+            False,
+            "No API key found for GitHub AI.  Set the OPENAI_API_KEY environment "
+            "variable or pass --ai-key KEY.",
+        )
+
+    base_url = os.environ.get(
+        "OPENAI_API_BASE", "https://api.githubcopilot.com"
+    ).rstrip("/")
+    url = f"{base_url}/chat/completions"
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -620,6 +692,41 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     if color not in ("auto", "always", "never"):
         color = "auto"
     cfg["color"] = color
+
+    # ── AI settings ────────────────────────────────────────────────────────
+    print()
+    print(_c_local(_BOLD, "AI diagnostics:"))
+    print(
+        "\n  When an API key is available, gtopt_check_lp can send the LP"
+        "\n  infeasibility report to an AI provider for an expert diagnosis."
+        "\n  Supported providers: " + ", ".join(_AI_PROVIDERS)
+    )
+
+    current_ai_enabled = cfg.get("ai_enabled", "true")
+    ai_enabled_str = _prompt(
+        "  Enable AI diagnostics by default ('true' or 'false')", current_ai_enabled
+    )
+    if ai_enabled_str.lower() not in ("true", "false", "1", "0", "yes", "no"):
+        ai_enabled_str = "true"
+    cfg["ai_enabled"] = ai_enabled_str
+
+    current_ai_provider = cfg.get("ai_provider", _AI_DEFAULT_PROVIDER)
+    provider_choices_str = _c_local(_CYAN, str(list(_AI_PROVIDERS)))
+    ai_provider = _prompt(
+        f"  Preferred AI provider {provider_choices_str}", current_ai_provider
+    )
+    if ai_provider not in _AI_PROVIDERS:
+        print(f"  Unknown provider '{ai_provider}', using '{_AI_DEFAULT_PROVIDER}'")
+        ai_provider = _AI_DEFAULT_PROVIDER
+    cfg["ai_provider"] = ai_provider
+
+    default_model = _AI_DEFAULT_MODEL.get(ai_provider, "")
+    current_ai_model = cfg.get("ai_model", "")
+    ai_model = _prompt(
+        f"  AI model override (leave blank for default: {default_model!r})",
+        current_ai_model,
+    )
+    cfg["ai_model"] = ai_model
 
     # ── Save ───────────────────────────────────────────────────────────────
     _save_config(config_path, cfg)
@@ -1427,6 +1534,8 @@ _NEOS_LP_CPLEX_XML = """\
 {lp_content}
 ]]></LP>
 <post><![CDATA[
+set preprocessing presolve 0
+optimize
 conflict
 display conflict all
 ]]></post>
