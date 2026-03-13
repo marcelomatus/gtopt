@@ -156,7 +156,11 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
   // and removes any shell-injection surface.
   //
   // Effective command:
-  //   timeout <N> gtopt_check_lp --analyze-only --no-color --timeout <N> <file>
+  //   timeout <N> gtopt_check_lp --quiet --no-color --timeout <N> <file>
+  //
+  // --quiet ensures the child never blocks for user input and always exits
+  // with code 0 (tries every available solver, falls back to NEOS if an
+  // e-mail is configured, warns on failures instead of erroring out).
   //
   // The outer `timeout` (GNU coreutils) kills the child if it exceeds the
   // budget; the inner --timeout is the Python-level budget.
@@ -173,7 +177,7 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
         timeout_bin,
         timeout_str,
         bin,
-        "--analyze-only",
+        "--quiet",
         "--no-color",
         "--timeout",
         timeout_str,
@@ -183,7 +187,7 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
     exec_bin = bin;
     arg_strings = {
         bin,
-        "--analyze-only",
+        "--quiet",
         "--no-color",
         "--timeout",
         timeout_str,

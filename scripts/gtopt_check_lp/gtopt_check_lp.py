@@ -22,9 +22,10 @@ tool helps diagnose the cause by performing several complementary analyses:
    - COIN-OR CBC  (``cbc`` binary)
    - GLPK         (``glpsol`` binary)
 
-3. **NEOS server** — if no local solver is available, submits the LP to the
-   NEOS online optimization server (https://neos-server.org) using CPLEX via
-   its XML-RPC API, and waits for the conflict-analysis results.
+3. **NEOS server** — if no local solver is available and an e-mail is
+   configured, submits the LP to the NEOS online optimization server
+   (https://neos-server.org) using CPLEX via its XML-RPC API, and waits
+   for the conflict-analysis results.
 
 Configuration
 -------------
@@ -36,6 +37,24 @@ open-source solvers.
 Run ``gtopt_check_lp --init-config`` at any time to create or update the
 configuration file.
 
+Quiet mode (``--quiet``)
+------------------------
+In quiet mode the tool:
+
+* **Never fails** — always exits with code 0.
+* **Never prompts** — skips the interactive first-run setup wizard even when
+  no config file is present; prints a warning instead.
+* **Tries every available solver** — uses all local solvers, then falls back
+  to NEOS if an e-mail is configured.  If neither is available it prints a
+  warning with installation hints.
+* **Handles NEOS gracefully** — if NEOS is unreachable or returns an error,
+  prints a warning and continues with the static-analysis results.
+* **Handles AI gracefully** — if the AI provider is not configured or the
+  call fails, prints a warning and continues.
+
+Quiet mode is used by the ``gtopt`` binary to run the diagnostic after an
+infeasibility event without risking a stall or a non-zero exit code.
+
 Usage
 -----
 ::
@@ -43,8 +62,10 @@ Usage
     gtopt_check_lp problem.lp
     gtopt_check_lp --last                       # auto-find newest error*.lp
     gtopt_check_lp problem.lp --analyze-only
+    gtopt_check_lp problem.lp --quiet           # non-failing, used by gtopt
     gtopt_check_lp problem.lp --solver coinor
-    gtopt_check_lp problem.lp --use-neos --email user@example.com
+    gtopt_check_lp problem.lp --no-neos --solver coinor
+    gtopt_check_lp problem.lp --email user@example.com
     gtopt_check_lp problem.lp --output report.txt --verbose
     gtopt_check_lp --init-config                # create/update config file
 """
@@ -209,6 +230,8 @@ def check_lp(
     timeout: int = 5,
     output_file: Optional[Path] = None,
     ai: Optional[AiOptions] = None,
+    quiet: bool = False,
+    no_neos: bool = False,
 ) -> int:
     """
     Run the full infeasibility analysis pipeline on *lp_path*.
@@ -233,14 +256,39 @@ def check_lp(
     ai:
         :class:`AiOptions` controlling the optional AI diagnostics step.
         ``None`` is equivalent to ``AiOptions()`` (enabled, Claude).
+    quiet:
+        When True, the function **never fails**: it always returns 0.
+        In quiet mode:
+
+        * Missing or unreadable LP files produce a warning instead of an
+          error, and the function returns 0.
+        * The solver analysis step always runs (even when ``solver="auto"``
+          and no local solvers are available).
+        * If local solvers are unavailable and *email* is configured, NEOS
+          is tried automatically.  NEOS failures (unreachable, timeout, or
+          missing e-mail) produce a warning rather than an error.
+        * AI failures produce a warning rather than an exception.
+        * Static-analysis exceptions produce a warning and return 0.
+    no_neos:
+        When True, skip NEOS submissions even if an e-mail is configured.
 
     Returns
     -------
-    0 on success, 1 on fatal error.
+    0 on success (or always in quiet mode), 1 on fatal error.
     """
     ai_opts = ai if ai is not None else AiOptions()
 
+    # Suppress NEOS by clearing the email when requested.  Using a local
+    # variable avoids shadowing the caller's `email` parameter.
+    filtered_email = "" if no_neos else email
+
     if not lp_path.exists():
+        if quiet:
+            print(
+                _c(_YELLOW, f"Warning: LP file not found: {lp_path}"),
+                file=sys.stderr,
+            )
+            return 0
         print(_c(_RED, f"Error: file not found: {lp_path}"), file=sys.stderr)
         return 1
 
@@ -252,7 +300,14 @@ def check_lp(
 
     try:
         stats = analyze_lp_file(lp_path)
-    except FileNotFoundError as exc:
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        # `except Exception` does NOT catch KeyboardInterrupt/SystemExit.
+        if quiet:
+            print(
+                _c(_YELLOW, f"Warning: static analysis failed: {exc}"),
+                file=sys.stderr,
+            )
+            return 0
         print(_c(_RED, f"Error: {exc}"), file=sys.stderr)
         return 1
 
@@ -272,35 +327,80 @@ def check_lp(
     else:
         print("\n  No local solvers found on PATH.")
 
-    if solver != "auto" or available or email:
+    # Determine whether to run the solver step.
+    # Quiet mode always runs it so the user gets whatever analysis is possible.
+    run_solver_step = quiet or solver != "auto" or available or filtered_email
+
+    if run_solver_step:
         print(f"\n  Running solver analysis (solver={solver}) …")
-        ok, solver_name, out = run_iis(
-            lp_path, solver=solver, email=email, neos_url=neos_url, timeout=timeout
-        )
+
+        # In quiet mode, catch any unexpected exception from the solver layer.
+        # Note: `except Exception` does NOT catch KeyboardInterrupt/SystemExit
+        # (they are BaseException subclasses), so Ctrl-C still terminates the
+        # process even in quiet mode.
+        try:
+            ok, solver_name, out = run_iis(
+                lp_path,
+                solver=solver,
+                email=filtered_email,
+                neos_url=neos_url,
+                timeout=timeout,
+            )
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            if quiet:
+                ok, solver_name, out = False, "error", f"Solver error: {exc}"
+            else:
+                raise
+
         iis_report = _format_iis_report(solver_name, ok, out)
         print(iis_report)
         report_parts.append(iis_report)
+
+        # Quiet mode: when no local solver and no NEOS email, give targeted advice.
+        if quiet and not available and not filtered_email:
+            neos_hint = (
+                f"\n{_c(_YELLOW, 'Note (quiet mode):')} "
+                "No local solvers found and NEOS e-mail is not configured.\n"
+                "  The static analysis above may still pinpoint the issue.\n"
+                "  To enable IIS analysis:\n"
+                "    • Install a local solver:  "
+                "sudo apt install coinor-clp coinor-cbc\n"
+                "    • Or set a NEOS e-mail:    "
+                "gtopt_check_lp --init-config"
+            )
+            print(neos_hint)
+            report_parts.append(neos_hint)
     else:
         hint = (
             f"\n{_c(_YELLOW, 'Tip:')} "
             "Install a local solver (CPLEX, HiGHS, CLP/CBC, or GLPK) or provide\n"
             "  --email <address> to submit to the NEOS server for IIS analysis.\n"
             "  CLP/CBC (coinor-clp / coinor-cbc) are usually available on\n"
-            "  systems where gtopt is installed: sudo apt install coinor-clp coinor-cbc"
+            "  systems where gtopt is installed: "
+            "sudo apt install coinor-clp coinor-cbc"
         )
         print(hint)
         report_parts.append(hint)
 
     # 3 ── AI diagnostics ─────────────────────────────────────────────────────
     if ai_opts.enabled:
-        _run_ai_diagnostics(
-            report_parts,
-            provider=ai_opts.provider,
-            model=ai_opts.model or None,
-            prompt_template=ai_opts.prompt or _AI_INFEASIBILITY_PROMPT,
-            api_key=ai_opts.key or None,
-            timeout=ai_opts.timeout,
-        )
+        try:
+            _run_ai_diagnostics(
+                report_parts,
+                provider=ai_opts.provider,
+                model=ai_opts.model or None,
+                prompt_template=ai_opts.prompt or _AI_INFEASIBILITY_PROMPT,
+                api_key=ai_opts.key or None,
+                timeout=ai_opts.timeout,
+            )
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            if quiet:
+                print(
+                    _c(_YELLOW, f"  Warning: AI diagnostics failed: {exc}"),
+                    file=sys.stderr,
+                )
+            else:
+                raise
 
     if output_file:
         _write_report(output_file, report_parts)
@@ -383,9 +483,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  gtopt_check_lp error_0.lp\n"
             "  gtopt_check_lp error_0.lp --analyze-only\n"
+            "  gtopt_check_lp error_0.lp --quiet\n"
             "  gtopt_check_lp error_0.lp --solver coinor\n"
             "  gtopt_check_lp error_0.lp --solver highs\n"
             "  gtopt_check_lp error_0.lp --solver neos --email user@example.com\n"
+            "  gtopt_check_lp error_0.lp --no-neos --solver coinor\n"
             "  gtopt_check_lp error_0.lp --output report.txt\n"
             "  gtopt_check_lp --last                  # auto-find latest error*.lp\n"
             "  gtopt_check_lp --init-config           # create/update config file\n"
@@ -417,6 +519,34 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Perform only static analysis; do not invoke any solver.",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help=(
+            "Quiet (non-failing) mode, used by the gtopt binary.\n"
+            "Tries every available analysis step without ever exiting with a\n"
+            "non-zero code or blocking for user input:\n"
+            "  • Skips the interactive first-run setup wizard.\n"
+            "  • Warns instead of failing when the LP file is missing.\n"
+            "  • Always runs the solver step, even when solver='auto' and no\n"
+            "    local solvers are found.\n"
+            "  • Falls back to NEOS if an e-mail is configured; warns if not.\n"
+            "  • NEOS connection failures produce a warning, not an error.\n"
+            "  • AI failures produce a warning, not an exception.\n"
+            "Implies --no-setup."
+        ),
+    )
+    parser.add_argument(
+        "--no-neos",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip NEOS remote submissions even when an e-mail is configured.\n"
+            "Useful in air-gapped or offline environments."
+        ),
     )
     parser.add_argument(
         "--solver",
@@ -604,10 +734,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     _col.USE_COLOR = _USE_COLOR
 
     # ── First-run setup ───────────────────────────────────────────────────────
-    if not config_exists and not args.no_setup and sys.stdin.isatty():
+    # Quiet mode always skips interactive setup (it must never block).
+    skip_setup = args.no_setup or args.quiet
+    if not config_exists and not skip_setup and sys.stdin.isatty():
         print(_c(_YELLOW, f"No config file found at {config_path}."))
         print("Running first-time setup…")
         cfg = run_interactive_setup(config_path, use_color=_USE_COLOR)
+    elif not config_exists and args.quiet:
+        print(
+            _c(
+                _YELLOW,
+                f"Warning: no config file at {config_path}; "
+                "using defaults (quiet mode).",
+            ),
+            file=sys.stderr,
+        )
 
     # ── --show-config ─────────────────────────────────────────────────────────
     if args.show_config:
@@ -653,6 +794,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.last:
         lp_path = _find_latest_error_lp()
         if lp_path is None:
+            if args.quiet:
+                print(
+                    _c(
+                        _YELLOW,
+                        "Warning: --last specified but no error*.lp file found "
+                        "(quiet mode).",
+                    ),
+                    file=sys.stderr,
+                )
+                return 0
             print(
                 _c(_RED, "Error: --last specified but no error*.lp file found."),
                 file=sys.stderr,
@@ -675,6 +826,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         neos_url=effective_neos_url,
         timeout=effective_timeout,
         output_file=output_file,
+        quiet=args.quiet,
+        no_neos=args.no_neos,
         ai=AiOptions(
             enabled=effective_ai_enabled,
             provider=effective_ai_provider,
