@@ -186,9 +186,7 @@ def write_aperture_afluents(
             for row_idx, blk_num in enumerate(central_block_nums):
                 block_num_to_row[int(blk_num)] = row_idx
 
-        num_hydro_cols: int = (
-            flow_matrix.shape[1] if len(flow_matrix.shape) > 1 else 0
-        )
+        num_hydro_cols: int = flow_matrix.shape[1] if len(flow_matrix.shape) > 1 else 0
 
         # One scenario column per extra hydrology
         stage_col: List[int] = []
