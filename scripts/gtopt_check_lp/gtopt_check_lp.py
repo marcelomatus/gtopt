@@ -73,10 +73,30 @@ Options
     Default: ``https://neos-server.org:3333``.
 
 ``--timeout SECONDS``
-    Maximum time to wait for a solver result (default: 120 s from config).
+    Maximum time to wait for a solver result (default: 5 s from config).
 
 ``--output FILE``
     Write the full analysis report to *FILE* in addition to stdout.
+
+``--ai`` / ``--no-ai``
+    Enable or disable AI diagnostics (default: enabled when an API key is
+    found in the environment).  When enabled, the combined static + solver
+    report is sent to the configured AI provider for an expert explanation
+    of the infeasibility cause, the specific column/row responsible, and
+    suggested fixes.
+
+``--ai-provider {claude,openai}``
+    AI provider to use (default: ``claude``).  Requires an API key in the
+    environment: ``ANTHROPIC_API_KEY`` (Claude) or ``OPENAI_API_KEY`` (OpenAI).
+
+``--ai-model MODEL``
+    Override the default model (e.g. ``claude-opus-4-5``, ``gpt-4o``).
+
+``--ai-prompt PROMPT``
+    Override the built-in infeasibility prompt.  Must contain ``{report}``.
+
+``--ai-key KEY``
+    API key override.  Defaults to ``ANTHROPIC_API_KEY`` / ``OPENAI_API_KEY``.
 
 ``--no-color``
     Disable ANSI color codes in the output (auto-detected for non-TTY).
@@ -110,13 +130,18 @@ Exit codes
 import argparse
 import configparser
 import http.client
+import json
 import logging
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 import xmlrpc.client
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -142,9 +167,13 @@ _CONFIG_SECTION = "gtopt_check_lp"
 _CONFIG_DEFAULTS: dict[str, str] = {
     "email": "",
     "solver": "all",
-    "timeout": "120",
+    "timeout": "5",
     "neos_url": "https://neos-server.org:3333",
     "color": "auto",
+    "ai_enabled": "true",
+    "ai_provider": "claude",
+    "ai_model": "",
+    "ai_prompt": "",
 }
 
 
@@ -218,6 +247,212 @@ def _save_config(config_path: Path, cfg: dict[str, str]) -> None:
             f"Warning: could not write config file {config_path}: {exc}",
             file=sys.stderr,
         )
+
+
+# ---------------------------------------------------------------------------
+# AI provider constants and helpers
+# ---------------------------------------------------------------------------
+
+_AI_PROVIDERS = ("claude", "openai")
+_AI_DEFAULT_PROVIDER = "claude"
+
+_AI_DEFAULT_MODEL: dict[str, str] = {
+    "claude": "claude-opus-4-5",
+    "openai": "gpt-4o",
+}
+
+_AI_INFEASIBILITY_PROMPT = """\
+You are an expert in linear programming and mathematical optimization.
+I will provide you with an infeasibility report from the gtopt LP solver tool.
+
+Please analyze the report and:
+1. Identify the specific variable(s) or constraint(s) causing the infeasibility
+   (column or row names if present).
+2. Explain the root cause of the infeasibility in plain terms.
+3. Suggest concrete steps to fix the problem.
+4. If the report includes IIS (Irreducible Infeasible Subsystem) output from
+   a solver (CPLEX, HiGHS, CLP/CBC, GLPK), focus on those constraints first.
+
+Be concise but precise.  Use the variable and constraint names from the report.
+
+--- BEGIN REPORT ---
+{report}
+--- END REPORT ---
+"""
+
+
+@dataclass
+class AiOptions:
+    """Options controlling the AI diagnostics step in :func:`check_lp`.
+
+    Attributes
+    ----------
+    enabled:
+        When ``True`` (default), send the combined report to *provider* for
+        an expert diagnosis.
+    provider:
+        AI backend: ``"claude"`` (Anthropic) or ``"openai"``.
+    model:
+        Model override.  Empty string → use the provider default.
+    prompt:
+        Prompt template override.  Empty string → use the built-in
+        :data:`_AI_INFEASIBILITY_PROMPT`.
+    key:
+        API key override.  Empty string → read from the environment.
+    timeout:
+        HTTP timeout for the AI API call in seconds.
+    """
+
+    enabled: bool = True
+    provider: str = _AI_DEFAULT_PROVIDER
+    model: str = ""
+    prompt: str = ""
+    key: str = ""
+    timeout: int = 60
+
+
+def query_ai(
+    report: str,
+    provider: str = _AI_DEFAULT_PROVIDER,
+    model: Optional[str] = None,
+    prompt_template: str = _AI_INFEASIBILITY_PROMPT,
+    api_key: Optional[str] = None,
+    timeout: int = 60,
+) -> tuple[bool, str]:
+    """
+    Send the LP analysis *report* to an AI provider and return ``(ok, response)``.
+
+    Parameters
+    ----------
+    report:
+        The full text of the LP analysis report (static + solver output).
+    provider:
+        AI provider: ``"claude"`` (Anthropic) or ``"openai"``.
+    model:
+        Model name override.  Defaults to ``claude-opus-4-5`` for Claude and
+        ``gpt-4o`` for OpenAI.
+    prompt_template:
+        Prompt template containing a ``{report}`` placeholder.
+    api_key:
+        API key override.  When ``None``, the key is read from the environment
+        variable ``ANTHROPIC_API_KEY`` (Claude) or ``OPENAI_API_KEY`` (OpenAI).
+    timeout:
+        HTTP request timeout in seconds (default 60).
+
+    Returns
+    -------
+    ``(True, response_text)`` on success, or ``(False, error_message)`` on failure.
+    """
+    provider = provider.lower()
+    if provider not in _AI_PROVIDERS:
+        return False, f"Unknown AI provider '{provider}'. Supported: {_AI_PROVIDERS}"
+
+    effective_model = model or _AI_DEFAULT_MODEL.get(provider, "")
+    full_prompt = prompt_template.format(report=report)
+
+    if provider == "claude":
+        return _query_claude(full_prompt, effective_model, api_key, timeout)
+    if provider == "openai":
+        return _query_openai(full_prompt, effective_model, api_key, timeout)
+
+    return False, f"Provider '{provider}' is not yet implemented."
+
+
+def _query_claude(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """Call the Anthropic Claude API."""
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return (
+            False,
+            "No API key found for Claude.  Set the ANTHROPIC_API_KEY environment "
+            "variable or pass --ai-key KEY.",
+        )
+
+    url = "https://api.anthropic.com/v1/messages"
+    payload = {
+        "model": model,
+        "max_tokens": 2048,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    return _http_post_json(url, payload, headers, timeout)
+
+
+def _query_openai(
+    prompt: str,
+    model: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """Call the OpenAI Chat Completions API."""
+    key = api_key or os.environ.get("OPENAI_API_KEY", "")
+    if not key:
+        return (
+            False,
+            "No API key found for OpenAI.  Set the OPENAI_API_KEY environment "
+            "variable or pass --ai-key KEY.",
+        )
+
+    url = "https://api.openai.com/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "content-type": "application/json",
+    }
+    return _http_post_json(url, payload, headers, timeout)
+
+
+def _http_post_json(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout: int,
+) -> tuple[bool, str]:
+    """
+    POST JSON *payload* to *url* with *headers* and return ``(ok, text)``.
+
+    The response text is extracted from known response shapes for Claude and
+    OpenAI; otherwise the raw JSON body is returned.
+    """
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        # Anthropic Claude response shape
+        if "content" in body and isinstance(body["content"], list):
+            parts = [
+                c.get("text", "") for c in body["content"] if c.get("type") == "text"
+            ]
+            return True, "\n".join(parts).strip()
+        # OpenAI response shape
+        if "choices" in body and isinstance(body["choices"], list):
+            text = body["choices"][0].get("message", {}).get("content", "")
+            return True, text.strip()
+        return True, json.dumps(body, indent=2)
+    except urllib.error.HTTPError as exc:
+        try:
+            err_body = json.loads(exc.read().decode("utf-8"))
+            msg = err_body.get("error", {}).get("message", str(exc))
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            msg = str(exc)
+        return False, f"AI API error (HTTP {exc.code}): {msg}"
+    except urllib.error.URLError as exc:
+        return False, f"Network error connecting to AI provider: {exc.reason}"
+    except (OSError, ValueError) as exc:
+        return False, f"AI request failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -981,9 +1216,12 @@ def run_local_highs_binary(lp_path: Path, timeout: int = 120) -> tuple[bool, str
         return False, f"Failed to run HiGHS: {exc}"
 
 
-def run_local_highs_python(lp_path: Path) -> tuple[bool, str]:
+def run_local_highs_python(lp_path: Path, timeout: int = 30) -> tuple[bool, str]:
     """
     Use the ``highspy`` Python package to find the IIS (if installed).
+
+    Runs in a background thread so that the *timeout* (in seconds) is
+    respected even if highspy blocks internally.
 
     Returns ``(success, output)``.
     """
@@ -992,36 +1230,52 @@ def run_local_highs_python(lp_path: Path) -> tuple[bool, str]:
     except ImportError:
         return False, "highspy Python package not installed."
 
-    log.debug("Using highspy for IIS analysis")
-    lines: list[str] = []
-    try:
-        h = highspy.Highs()
-        h.silent()
-        h.readModel(str(lp_path))
-        h.run()
-        info = h.getInfoValue("primal_solution_status")
-        model_status = str(h.getModelStatus())
-        lines.append(f"HiGHS model status: {model_status}")
+    log.debug("Using highspy for IIS analysis (timeout=%ds)", timeout)
 
-        # Try IIS via conflict analysis (available in highspy >= 1.7)
+    result_holder: list[tuple[bool, str]] = []
+
+    def _run() -> None:
+        lines: list[str] = []
         try:
-            iis = h.getIis()
-            lines.append("\n-- HiGHS IIS (Irreducible Infeasible Subsystem) --")
-            if hasattr(iis, "col_index") and iis.col_index:
-                lines.append(f"  Infeasible variable bounds ({len(iis.col_index)}):")
-                for ci in iis.col_index:
-                    lines.append(f"    • column index {ci}")
-            if hasattr(iis, "row_index") and iis.row_index:
-                lines.append(f"  Infeasible constraints ({len(iis.row_index)}):")
-                for ri in iis.row_index:
-                    lines.append(f"    • row index {ri}")
-        except (AttributeError, Exception) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-            lines.append(f"  IIS not available: {exc}")
-            lines.append(f"  Solution status info: {info}")
+            h = highspy.Highs()
+            h.silent()
+            h.readModel(str(lp_path))
+            h.run()
+            info = h.getInfoValue("primal_solution_status")
+            model_status = str(h.getModelStatus())
+            lines.append(f"HiGHS model status: {model_status}")
 
-        return True, "\n".join(lines)
-    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        return False, f"highspy error: {exc}"
+            # Try IIS via conflict analysis (available in highspy >= 1.7)
+            try:
+                iis = h.getIis()
+                lines.append("\n-- HiGHS IIS (Irreducible Infeasible Subsystem) --")
+                if hasattr(iis, "col_index") and iis.col_index:
+                    lines.append(
+                        f"  Infeasible variable bounds ({len(iis.col_index)}):"
+                    )
+                    for ci in iis.col_index:
+                        lines.append(f"    • column index {ci}")
+                if hasattr(iis, "row_index") and iis.row_index:
+                    lines.append(f"  Infeasible constraints ({len(iis.row_index)}):")
+                    for ri in iis.row_index:
+                        lines.append(f"    • row index {ri}")
+            except (AttributeError, Exception) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                lines.append(f"  IIS not available: {exc}")
+                lines.append(f"  Solution status info: {info}")
+
+            result_holder.append((True, "\n".join(lines)))
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            result_holder.append((False, f"highspy error: {exc}"))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(timeout=timeout)
+    if worker.is_alive():
+        log.debug("highspy timed out after %ds", timeout)
+        return False, f"highspy timed out after {timeout}s."
+    if result_holder:
+        return result_holder[0]
+    return False, "highspy worker exited without a result."
 
 
 # ---------------------------------------------------------------------------
@@ -1404,7 +1658,7 @@ def run_all_solvers(
             _section("CPLEX (local)", ok, out)
         elif binary == "highs" and installed:
             # Prefer Python bindings (more info) over binary
-            ok, out = run_local_highs_python(lp_path)
+            ok, out = run_local_highs_python(lp_path, timeout=timeout)
             if ok:
                 _section("HiGHS (Python)", ok, out)
             else:
@@ -1459,7 +1713,7 @@ def run_iis(
 
     def _try_highs() -> tuple[bool, str, str]:
         # Prefer Python bindings (more info) over binary
-        ok, out = run_local_highs_python(lp_path)
+        ok, out = run_local_highs_python(lp_path, timeout=timeout)
         if ok:
             return (ok, "HiGHS (Python)", out)
         ok, out = run_local_highs_binary(lp_path, timeout=timeout)
@@ -1537,14 +1791,40 @@ def check_lp(
     solver: str = "all",
     email: str = "",
     neos_url: str = _NEOS_DEFAULT_URL,
-    timeout: int = 10,
+    timeout: int = 5,
     output_file: Optional[Path] = None,
+    ai: Optional[AiOptions] = None,
 ) -> int:
     """
     Run the full infeasibility analysis pipeline on *lp_path*.
 
-    Returns 0 on success, 1 on error.
+    Parameters
+    ----------
+    lp_path:
+        Path to the LP file to analyze.
+    analyze_only:
+        When True, perform only static analysis (no solver invocation).
+    solver:
+        Solver strategy: ``"all"``, ``"auto"``, ``"cplex"``, ``"highs"``,
+        ``"coinor"``, ``"glpk"``, or ``"neos"``.
+    email:
+        E-mail address for NEOS submissions.
+    neos_url:
+        NEOS XML-RPC endpoint.
+    timeout:
+        Maximum seconds to wait for any local/NEOS solver (default 5).
+    output_file:
+        If set, write the full report to this file.
+    ai:
+        :class:`AiOptions` controlling the optional AI diagnostics step.
+        ``None`` (default) is equivalent to ``AiOptions()`` (enabled, Claude).
+
+    Returns
+    -------
+    0 on success, 1 on fatal error.
     """
+    ai_opts = ai if ai is not None else AiOptions()
+
     if not lp_path.exists():
         print(_c(_RED, f"Error: file not found: {lp_path}"), file=sys.stderr)
         return 1
@@ -1594,10 +1874,63 @@ def check_lp(
         print(hint)
         report_parts.append(hint)
 
+    # 3 ── AI diagnostics ───────────────────────────────────────────────────
+    if ai_opts.enabled:
+        _run_ai_diagnostics(
+            report_parts,
+            provider=ai_opts.provider,
+            model=ai_opts.model or None,
+            prompt_template=ai_opts.prompt or _AI_INFEASIBILITY_PROMPT,
+            api_key=ai_opts.key or None,
+            timeout=ai_opts.timeout,
+        )
+
     if output_file:
         _write_report(output_file, report_parts)
 
     return 0
+
+
+def _run_ai_diagnostics(
+    report_parts: list[str],
+    *,
+    provider: str,
+    model: Optional[str],
+    prompt_template: str,
+    api_key: Optional[str],
+    timeout: int,
+) -> None:
+    """
+    Call the AI provider with the combined report and print the response.
+
+    The AI response is appended to *report_parts* in-place.
+    """
+    full_report = "\n\n".join(report_parts)
+    print(f"\n  Querying AI provider ({provider}) for diagnostics …")
+    log.debug(
+        "AI query: provider=%s model=%s timeout=%ds prompt_len=%d",
+        provider,
+        model,
+        timeout,
+        len(prompt_template),
+    )
+    ok, response = query_ai(
+        full_report,
+        provider=provider,
+        model=model,
+        prompt_template=prompt_template,
+        api_key=api_key,
+        timeout=timeout,
+    )
+    ai_section = _header(f"AI Diagnostics ({provider})")
+    if not ok:
+        msg = f"\n{_c(_YELLOW, 'AI diagnostic unavailable:')} {response}"
+        print(msg)
+        report_parts.append(ai_section + msg)
+    else:
+        print(f"\n{ai_section}")
+        print(response)
+        report_parts.append(f"{ai_section}\n{response}")
 
 
 def _format_iis_report(solver_name: str, success: bool, output: str) -> str:
@@ -1722,7 +2055,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="SECONDS",
-        help="Maximum time to wait for a solver result (default: 120 s).",
+        help="Maximum time to wait for a solver result (default: 5 s).",
     )
 
     parser.add_argument(
@@ -1779,6 +2112,73 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Print the active configuration (from file + CLI overrides) and exit.",
+    )
+
+    # ── AI diagnostics ──────────────────────────────────────────────────────
+    ai_group = parser.add_argument_group(
+        "AI diagnostics",
+        "Send the analysis report to an AI provider (Claude/OpenAI) for an\n"
+        "expert diagnosis of the infeasibility cause.  Requires an API key\n"
+        "in the environment (ANTHROPIC_API_KEY or OPENAI_API_KEY).",
+    )
+
+    ai_group.add_argument(
+        "--ai",
+        dest="ai_enabled",
+        action="store_true",
+        default=None,
+        help="Enable AI diagnostics (default: on when an API key is available).",
+    )
+
+    ai_group.add_argument(
+        "--no-ai",
+        dest="ai_enabled",
+        action="store_false",
+        help="Disable AI diagnostics.",
+    )
+
+    ai_group.add_argument(
+        "--ai-provider",
+        default=None,
+        choices=list(_AI_PROVIDERS),
+        metavar="PROVIDER",
+        help=(
+            f"AI provider to use: {', '.join(_AI_PROVIDERS)}  "
+            f"(default: {_AI_DEFAULT_PROVIDER}).  "
+            "Requires ANTHROPIC_API_KEY (claude) or OPENAI_API_KEY (openai)."
+        ),
+    )
+
+    ai_group.add_argument(
+        "--ai-model",
+        default=None,
+        metavar="MODEL",
+        help=(
+            "Model name override.  Defaults to "
+            f"{_AI_DEFAULT_MODEL['claude']} (Claude) or "
+            f"{_AI_DEFAULT_MODEL['openai']} (OpenAI)."
+        ),
+    )
+
+    ai_group.add_argument(
+        "--ai-prompt",
+        default=None,
+        metavar="PROMPT",
+        help=(
+            "Custom prompt template for the AI query.  Must contain a "
+            "'{report}' placeholder.  Defaults to the built-in infeasibility "
+            "analysis prompt."
+        ),
+    )
+
+    ai_group.add_argument(
+        "--ai-key",
+        default=None,
+        metavar="KEY",
+        help=(
+            "API key override.  When omitted, the key is read from "
+            "ANTHROPIC_API_KEY or OPENAI_API_KEY environment variables."
+        ),
     )
 
     parser.add_argument(
@@ -1849,7 +2249,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     effective_solver = (
         args.solver if args.solver is not None else cfg.get("solver", "auto")
     )
-    effective_timeout_str = cfg.get("timeout", "120")
+    effective_timeout_str = cfg.get("timeout", "5")
     effective_timeout = (
         args.timeout if args.timeout is not None else int(effective_timeout_str)
     )
@@ -1858,6 +2258,24 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.solver_url is not None
         else cfg.get("neos_url", _NEOS_DEFAULT_URL)
     )
+
+    # ── AI settings ───────────────────────────────────────────────────────────
+    cfg_ai_enabled = cfg.get("ai_enabled", "true").lower() not in ("false", "0", "no")
+    effective_ai_enabled = (
+        args.ai_enabled if args.ai_enabled is not None else cfg_ai_enabled
+    )
+    effective_ai_provider = (
+        args.ai_provider
+        if args.ai_provider is not None
+        else cfg.get("ai_provider", _AI_DEFAULT_PROVIDER)
+    )
+    effective_ai_model = (
+        args.ai_model if args.ai_model is not None else cfg.get("ai_model", "")
+    )
+    effective_ai_prompt = (
+        args.ai_prompt if args.ai_prompt is not None else cfg.get("ai_prompt", "")
+    )
+    effective_ai_key = args.ai_key if args.ai_key is not None else ""
 
     # ── Resolve LP file ───────────────────────────────────────────────────────
     if args.last:
@@ -1885,6 +2303,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         neos_url=effective_neos_url,
         timeout=effective_timeout,
         output_file=output_file,
+        ai=AiOptions(
+            enabled=effective_ai_enabled,
+            provider=effective_ai_provider,
+            model=effective_ai_model,
+            prompt=effective_ai_prompt,
+            key=effective_ai_key,
+        ),
     )
 
 
