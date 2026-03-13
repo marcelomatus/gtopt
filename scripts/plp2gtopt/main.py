@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .plp2gtopt import convert_plp_case
+from .info_display import display_plp_info
 
 try:
     from importlib.metadata import version as _pkg_version, PackageNotFoundError
@@ -34,8 +35,11 @@ writes either:
 
 _EPILOG = """
 examples:
-  # Convert a PLP case in the current directory (uses ./input → ./output)
-  plp2gtopt
+  # Convert plp_case_2y using all simulations/apertures, stage 1 only
+  plp2gtopt -i plp_case_2y -o gtopt_case_2y -s 1
+
+  # All simulations and all apertures (defaults — same as above without -s)
+  plp2gtopt -i plp_case_2y -o gtopt_case_2y
 
   # Specify directories explicitly
   plp2gtopt -i /data/plp_case -o /data/gtopt_case
@@ -49,17 +53,22 @@ examples:
   # Limit conversion to the first 5 stages
   plp2gtopt -i input/ -s 5
 
-  # Single hydrology (1-based, default)
-  plp2gtopt -i input/ -y 1
+  # All simulations (explicit) with all apertures
+  plp2gtopt -i input/ -y all -a all
 
-  # Two hydrology scenarios (1-based) with explicit probability weights
-  plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
-
-  # Range selector: hydrologies 1, 2, and 5 through 10
+  # Specific simulations: scenarios 1, 2, and 5 through 10 (1-based, Fortran)
+  # When plpidsim.dat is present these are simulation indices mapped via idsim;
+  # otherwise they are raw hydrology column indices.
   plp2gtopt -i input/ -y 1,2,5-10
 
+  # Two simulation scenarios with explicit probability weights
+  plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
+
+  # Select first 5 apertures explicitly
+  plp2gtopt -i input/ -a 1-5
+
   # Group PLP stages 1–4 into phase 1, then one stage per phase after
-  plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
+  plp2gtopt -i input/ -g '1:4,5,6,7,8,9,10,...'
 
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
@@ -175,6 +184,7 @@ def make_parser() -> argparse.ArgumentParser:
         help="output file format: parquet or csv (default: %(default)s)",
     )
     parser.add_argument(
+        "-I",
         "--input-format",
         dest="input_format",
         metavar="FORMAT",
@@ -234,6 +244,7 @@ def make_parser() -> argparse.ArgumentParser:
         help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
     )
     parser.add_argument(
+        "-L",
         "--use-line-losses",
         dest="use_line_losses",
         action="store_true",
@@ -244,11 +255,16 @@ def make_parser() -> argparse.ArgumentParser:
         "-y",
         "--hydrologies",
         dest="hydrologies",
-        metavar="H1[,H2,…]",
-        default="1",
-        help="Hydrology scenario indices using 1-based (Fortran) convention. "
-        "Accepts comma-separated values and ranges, e.g. '1', '1,2', '1,2,5-10,11'. "
-        "(default: %(default)s)",
+        metavar="SPEC",
+        default="all",
+        help=(
+            "Simulation/hydrology scenario selector using 1-based (Fortran) "
+            "indices.  Accepts 'all' (default), a single index, "
+            "comma-separated values, or ranges: '1', '1,2', '1,2,5-10'. "
+            "When plpidsim.dat is present the indices are simulation numbers "
+            "mapped to hydrology columns via plpidsim.dat; otherwise they are "
+            "raw 1-based hydrology column indices.  (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "-p",
@@ -262,6 +278,7 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-S",
         "--solver",
         dest="solver_type",
         metavar="TYPE",
@@ -277,19 +294,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-a",
         "--num-apertures",
         dest="num_apertures",
-        metavar="N",
-        type=int,
-        default=None,
+        metavar="SPEC",
+        type=str,
+        default="all",
         help=(
-            "number of SDDP backward-pass apertures (hydrological realisations "
-            "to solve per phase per iteration). 0 disables apertures, -1 uses "
-            "all available scenarios, N > 0 uses the first N scenarios. "
-            "When omitted, the gtopt default (0 = disabled) is used."
+            "SDDP backward-pass aperture selector. "
+            "Accepts 'all' (default), a single count N, a range '1-5', or a "
+            "comma-separated list '1,2,3'. "
+            "'all' auto-detects the count from plpidap2.dat; "
+            "0 disables apertures; N > 0 uses the first N apertures. "
+            "(default: %(default)s)"
         ),
     )
     parser.add_argument(
+        "-A",
         "--aperture-directory",
         dest="aperture_directory",
         metavar="DIR",
@@ -303,6 +324,7 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "-g",
         "--stages-phase",
         dest="stages_phase",
         metavar="SPEC",
@@ -367,6 +389,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--info",
+        dest="show_info",
+        action="store_true",
+        default=False,
+        help=(
+            "display a summary of the PLP case (buses, generators, stages, "
+            "available hydrology classes, simulation-to-hydrology mapping from "
+            "plpidsim.dat, aperture structure from plpidap2.dat) and exit. "
+            "Use this to discover which -y / -a values to pass. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -421,6 +456,8 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
+    no_args = len(sys.argv) == 1
+
     parser = make_parser()
     args = parser.parse_args()
 
@@ -429,7 +466,29 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    convert_plp_case(build_options(args))
+    if args.show_info:
+        display_plp_info(
+            {
+                "input_dir": args.input_dir,
+                "last_stage": args.last_stage,
+                "hydrologies": args.hydrologies,
+            }
+        )
+        return
+
+    try:
+        convert_plp_case(build_options(args))
+    except (RuntimeError, FileNotFoundError) as exc:
+        if no_args:
+            print(
+                f"error: {exc}\n"
+                "Usage: plp2gtopt -i <input_dir> -o <output_dir> [options]\n"
+                "Run 'plp2gtopt -h' for the full list of options, "
+                "or 'plp2gtopt --info -i <input_dir>' to inspect a case.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":
