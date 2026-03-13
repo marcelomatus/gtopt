@@ -290,6 +290,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--aperture-directory",
+        dest="aperture_directory",
+        metavar="DIR",
+        default=None,
+        help=(
+            "directory for aperture-specific scenario data files. "
+            "When PLP aperture index files (plpidape.dat / plpidap2.dat) "
+            "reference hydrology classes not in the forward-scenario set, "
+            "the extra affluent data is written to this directory. "
+            "If not set, defaults to <output-dir>/apertures when needed."
+        ),
+    )
+    parser.add_argument(
         "--stages-phase",
         dest="stages_phase",
         metavar="SPEC",
@@ -394,6 +407,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "solver_type": args.solver_type,
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
+        "aperture_directory": args.aperture_directory,
     }
     if args.reserve_fail_cost is not None:
         opts["reserve_fail_cost"] = args.reserve_fail_cost
