@@ -134,10 +134,14 @@ template<typename T>
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
        "print system statistics before and after solving")  //
-      ("lp-algorithm,a",
-       po::value<std::string>(),
-       "LP solution algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
-       "[default: barrier]")  //
+      ("lp-debug",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "save debug LP files to the log directory (one per scene/phase for "
+       "monolithic; one per iteration/scene/phase for SDDP)")(
+          "lp-algorithm,a",
+          po::value<std::string>(),
+          "LP solution algorithm: 0/default, 1/primal, 2/dual, 3/barrier "
+          "[default: barrier]")  //
       ("lp-threads,t",
        po::value<int>(),
        "number of solver threads (0=automatic)")  //
@@ -210,7 +214,8 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
-    const std::optional<int>& sddp_num_apertures = {})
+    const std::optional<int>& sddp_num_apertures = {},
+    const std::optional<bool>& lp_debug = {})
 {
   if (use_single_bus) {
     planning.options.use_single_bus = use_single_bus;
@@ -283,6 +288,10 @@ inline void apply_cli_options(
   if (sddp_num_apertures) {
     planning.options.sddp_options.sddp_num_apertures = sddp_num_apertures;
   }
+
+  if (lp_debug) {
+    planning.options.lp_debug = lp_debug;
+  }
 }
 
 /**
@@ -315,7 +324,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
-                    opts.sddp_num_apertures);
+                    opts.sddp_num_apertures,
+                    opts.lp_debug);
 }
 
 /**
@@ -374,6 +384,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .just_create = get_opt<bool>(vm, "just-create"),
       .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
       .print_stats = get_opt<bool>(vm, "stats"),
+      .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),

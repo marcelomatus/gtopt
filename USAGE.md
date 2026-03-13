@@ -115,6 +115,34 @@ Solver and I/O settings:
 | `use_kirchhoff` | bool | Use DC power flow (Kirchhoff's laws) |
 | `demand_fail_cost` | float | Penalty cost for unserved demand ($/MWh) |
 | `scale_objective` | float | Objective function scaling factor |
+| `log_directory` | string | Directory for log and error LP files (default: `"logs"`) |
+| `lp_debug` | bool | Save LP debug files to `log_directory` before solving (see below) |
+
+#### `lp_debug` — LP debug file output
+
+When `lp_debug` is set to `true`, gtopt saves the LP model as a `.lp` text
+file to the `log_directory` before solving.  This is useful for diagnosing
+unexpected solver behaviour (infeasibility, unboundedness, suspicious
+objective values).
+
+- **Monolithic solver**: one file per `(scene, phase)` →
+  `logs/gtopt_lp_<scene>_<phase>.lp`
+- **SDDP solver**: one file per `(iteration, scene, phase)` →
+  `logs/gtopt_iter_<iter>_<scene>_<phase>.lp`
+
+If `output_compression` is `"gzip"` (or any value other than `"uncompressed"`),
+the files are gzip-compressed and the originals are removed.  Compression runs
+asynchronously so it does not add latency to the solve.
+
+Via JSON:
+```json
+{ "options": { "lp_debug": true, "log_directory": "logs", "output_compression": "gzip" } }
+```
+
+Via CLI:
+```
+gtopt mycase --lp-debug --log-directory logs --output-compression gzip
+```
 
 ### Simulation
 

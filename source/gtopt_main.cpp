@@ -7,6 +7,20 @@
  *
  * Implementation of the gtopt_main() function, which ties together JSON
  * parsing, option application, LP construction, solving, and output writing.
+ *
+ * Key options handled here:
+ *  - `planning_files`: list of JSON case file stems to load and merge.
+ *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
+ *  - `just_create`: build the LP model but skip solving; useful for
+ *    validating input without running the solver.
+ *  - `json_file`: write the merged Planning to a JSON file before solving.
+ *  - `lp_file`: write the flat LP model to a `.lp` file before solving.
+ *  - `print_stats`: log pre- and post-solve system statistics.
+ *  - `lp_presolve`: enable/disable LP presolve in the solver.
+ *  - `lp_debug`: when true, save LP debug files (one per scene/phase for
+ *    the monolithic solver; one per iteration/scene/phase for SDDP) to the
+ *    `log_directory`.  If `output_compression` is set (e.g. `"gzip"`), the
+ *    files are compressed automatically and the originals removed.
  */
 
 #include <chrono>

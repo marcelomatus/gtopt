@@ -1052,6 +1052,11 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("lp_threads", "Number of LP solver threads (0=auto)", None),
     ("lp_presolve", "Enable LP presolve (true/false)", None),
     ("log_directory", "Directory for solver log files", "logs"),
+    (
+        "lp_debug",
+        "Save debug LP files to log directory (true/false)",
+        None,
+    ),
     # SDDP options
     (
         "sddp_solver_type",

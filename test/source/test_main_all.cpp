@@ -34,4 +34,5 @@ using namespace gtopt;
 
 #include "test_benchmark_map.hpp"
 #include "test_gtopt_main.hpp"
+#include "test_lp_debug_writer.hpp"
 #include "test_work_pool.hpp"

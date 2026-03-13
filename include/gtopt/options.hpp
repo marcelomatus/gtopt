@@ -189,6 +189,11 @@ struct Options
    * Used for error LP dumps (both monolithic and SDDP) and SDDP iteration
    * logs. */
   OptName log_directory {};
+  /** @brief When true, save LP debug files to the log directory.
+   * Monolithic solver: saves one LP file per (scene, phase) after building the
+   * model.  SDDP solver: saves one LP file per (iteration, scene, phase) during
+   * the forward pass. */
+  OptBool lp_debug {};
 
   // ── SDDP-specific options (grouped sub-object) ────────────────────────────
   /** @brief SDDP solver configuration (sub-object with sddp_* fields) */
@@ -226,6 +231,7 @@ struct Options
     merge_opt(lp_threads, opts.lp_threads);
     merge_opt(lp_presolve, opts.lp_presolve);
     merge_opt(log_directory, std::move(opts.log_directory));
+    merge_opt(lp_debug, opts.lp_debug);
 
     // Merge SDDP-specific options
     sddp_options.merge(std::move(opts.sddp_options));

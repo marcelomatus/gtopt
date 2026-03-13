@@ -85,6 +85,7 @@ struct json_data_contract<Options>
                        json_bool_null<"lp_presolve", OptBool>,
 
                        json_string_null<"log_directory", OptName>,
+                       json_bool_null<"lp_debug", OptBool>,
 
                        json_class_null<"sddp_options", SddpOptions>>;
 
@@ -114,6 +115,7 @@ struct json_data_contract<Options>
                                  opt.lp_presolve,
 
                                  opt.log_directory,
+                                 opt.lp_debug,
 
                                  opt.sddp_options);
   }
