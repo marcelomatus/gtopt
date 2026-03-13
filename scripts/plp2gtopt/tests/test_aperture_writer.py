@@ -62,7 +62,7 @@ def test_build_aperture_array_extra_hydros(idap2_parser: IdAp2Parser) -> None:
 def test_build_aperture_array_no_parser() -> None:
     """No parser → empty array."""
     result = build_aperture_array(None, {}, 3)
-    assert result == []
+    assert not result
 
 
 def test_build_aperture_array_empty_parser(tmp_path: Path) -> None:
@@ -72,7 +72,7 @@ def test_build_aperture_array_empty_parser(tmp_path: Path) -> None:
     parser = IdAp2Parser(p)
     parser.parse()
     result = build_aperture_array(parser, {}, 3)
-    assert result == []
+    assert not result
 
 
 def test_aperture_uids_are_sequential(idap2_parser: IdAp2Parser) -> None:
