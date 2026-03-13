@@ -315,7 +315,7 @@ TEST_CASE("User constraint - constraint_type field preserved")
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
   REQUIRE(uc.constraint_type.has_value());
-  CHECK(*uc.constraint_type == "power");
+  CHECK(*uc.constraint_type == "power");  // NOLINT
 }
 
 // clang-format off

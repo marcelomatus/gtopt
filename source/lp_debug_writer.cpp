@@ -26,9 +26,9 @@ namespace
 /// Compress @p src_path using gzip, writing @p src_path + ".gz", then remove
 /// the original.  Returns the path of the created .gz file on success, or an
 /// empty string on failure.
-static std::string gzip_lp_file(const std::string& src_path)
+std::string gzip_lp_file(const std::string& src_path)
 {
-  const std::string gz_path = src_path + ".gz";
+  std::string gz_path = src_path + ".gz";
 
   std::ifstream src(src_path, std::ios::binary);
   if (!src.is_open()) {

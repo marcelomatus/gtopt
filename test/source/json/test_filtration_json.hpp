@@ -223,13 +223,15 @@ TEST_CASE("Filtration with per-stage slope/constant array JSON")
   REQUIRE(filt.slope.has_value());
   REQUIRE(filt.constant.has_value());
 
-  const auto& slope_vec = std::get<std::vector<Real>>(filt.slope.value());
+  const auto& slope_vec =
+      std::get<std::vector<Real>>(filt.slope.value());  // NOLINT
   REQUIRE(slope_vec.size() == 3);
   CHECK(slope_vec[0] == doctest::Approx(0.001));
   CHECK(slope_vec[1] == doctest::Approx(0.002));
   CHECK(slope_vec[2] == doctest::Approx(0.003));
 
-  const auto& const_vec = std::get<std::vector<Real>>(filt.constant.value());
+  const auto& const_vec =
+      std::get<std::vector<Real>>(filt.constant.value());  // NOLINT
   REQUIRE(const_vec.size() == 3);
   CHECK(const_vec[0] == doctest::Approx(1.0));
   CHECK(const_vec[1] == doctest::Approx(1.5));
@@ -254,6 +256,6 @@ TEST_CASE("Filtration with filename slope/constant JSON")
   CHECK(filt.uid == 8);
   REQUIRE(filt.slope.has_value());
   REQUIRE(filt.constant.has_value());
-  CHECK(std::get<FileSched>(filt.slope.value()) == "slope");
-  CHECK(std::get<FileSched>(filt.constant.value()) == "constant");
+  CHECK(std::get<FileSched>(filt.slope.value()) == "slope");  // NOLINT
+  CHECK(std::get<FileSched>(filt.constant.value()) == "constant");  // NOLINT
 }

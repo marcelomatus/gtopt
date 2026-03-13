@@ -273,7 +273,7 @@ std::vector<UserConstraint> do_parse(std::string_view source, Uid start_uid)
 std::vector<UserConstraint> PamplParser::parse_file(std::string_view filepath,
                                                     Uid start_uid)
 {
-  std::ifstream file {std::string {filepath}};
+  const std::ifstream file {std::string {filepath}};
   if (!file) {
     throw std::runtime_error(
         std::format("PAMPL: cannot open file '{}'", filepath));
