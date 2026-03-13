@@ -45,13 +45,16 @@ def build_aperture_array(
 ) -> List[Dict[str, Any]]:
     """Build the ``aperture_array`` for the simulation JSON block.
 
-    Uses ``plpidap2.dat`` (simulation-independent) as the primary source
-    since it defines a single aperture set shared by all simulations,
-    which maps naturally to the gtopt ``aperture_array`` (also global).
+    Uses ``plpidap2.dat`` (simulation-independent) as the primary source.
+    ``plpidap2.dat`` is **stage-indexed**: each stage entry lists the 1-based
+    hydrology class indices that serve as apertures at that stage.  The global
+    aperture set is the union of all stages 1..``num_stages``, collected in
+    first-appearance order so that late-stage wrapping indices (e.g. hydros
+    ``01``, ``02`` at the end of a two-year case) are included.
 
-    Each unique hydrology index referenced by the apertures is mapped to
-    a gtopt scenario UID (either an existing forward scenario or a new
-    aperture-only scenario).
+    Each unique hydrology index is mapped to a gtopt scenario UID: an existing
+    forward-scenario UID when the hydrology is in the forward set, or the
+    1-based hydrology index as a new aperture-only scenario UID otherwise.
 
     Parameters
     ----------
@@ -60,7 +63,7 @@ def build_aperture_array(
     scenario_hydro_map : dict
         Maps 0-based hydrology index → gtopt scenario UID.
     num_stages : int
-        Total number of PLP stages (1-based).
+        Number of output stages (only stages 1..num_stages are considered).
 
     Returns
     -------
@@ -71,28 +74,29 @@ def build_aperture_array(
     if idap2_parser is None:
         return []
 
-    # Use the aperture set from stage 1 as the canonical definition.
-    # (In most PLP cases the aperture set is the same for all stages.)
-    stage1 = idap2_parser.get_apertures(1)
-    if not stage1:
-        # Try first available stage
-        if idap2_parser.items:
-            stage1 = idap2_parser.items[0]["indices"]
-        else:
-            return []
-
-    # De-duplicate while preserving order
+    # Collect the union of all used stages' aperture indices preserving
+    # first-appearance order.  plpidap2.dat is stage-indexed — we must
+    # iterate over all output stages, not only stage 1.
     seen: set = set()
     unique_hydros: list = []
-    for h in stage1:
-        if h not in seen:
-            seen.add(h)
-            unique_hydros.append(h)
+    for entry in idap2_parser.items:
+        if 1 <= entry["stage"] <= num_stages:
+            for h in entry["indices"]:
+                if h not in seen:
+                    seen.add(h)
+                    unique_hydros.append(h)
 
-    num_apertures = len(unique_hydros)
-    if num_apertures == 0:
+    # Fallback: if num_stages filter yielded nothing, use the first entry
+    if not unique_hydros and idap2_parser.items:
+        for h in idap2_parser.items[0]["indices"]:
+            if h not in seen:
+                seen.add(h)
+                unique_hydros.append(h)
+
+    if not unique_hydros:
         return []
 
+    num_apertures = len(unique_hydros)
     prob = 1.0 / num_apertures
 
     aperture_array: List[Dict[str, Any]] = []
@@ -101,8 +105,8 @@ def build_aperture_array(
         # Look up the gtopt scenario UID for this hydrology
         scenario_uid = scenario_hydro_map.get(hydro_0based)
         if scenario_uid is None:
-            # This hydrology isn't in the forward set → use the hydro index
-            # as the scenario UID (will be served from aperture_directory)
+            # Not in the forward set → use 1-based hydro index as scenario UID
+            # (served from the aperture_directory)
             scenario_uid = hydro_1based
 
         aperture_array.append(
@@ -160,48 +164,61 @@ def write_aperture_afluents(
     if aflce_parser is None or central_parser is None or block_parser is None:
         return
 
+    # block_parser provides the ordered list of blocks (block-indexed info).
+    # plpidap2/plpidape are stage-indexed; we use them only to determine
+    # *which* hydrology indices are extra — not to drive the block iteration.
     blocks = block_parser.items
 
-    for central in aflce_parser.items:
-        central_name = central["name"]
-        flows = central.get("flows", [])
-        if not flows:
+    for central_data in aflce_parser.items:
+        central_name = central_data["name"]
+        # plpaflce.dat stores flow data as a 2-D numpy array:
+        # shape = (num_central_blocks, num_hydrologies).
+        # Key is "flow" (not "flows").
+        flow_matrix = central_data.get("flow")
+        if flow_matrix is None or len(flow_matrix) == 0:
             continue
 
-        # Build columns for the extra hydrology scenarios
-        # Each hydrology becomes a scenario column: "uid:<scenario_uid>"
-        scenario_col = []
-        stage_col = []
-        block_col = []
-        value_cols: Dict[int, List[float]] = {}
+        # The afflce block list may not start at 1; build a mapping so we
+        # can look up the correct row by block number.
+        central_block_nums = central_data.get("block")  # numpy array of block numbers
+        block_num_to_row: Dict[int, int] = {}
+        if central_block_nums is not None:
+            for row_idx, blk_num in enumerate(central_block_nums):
+                block_num_to_row[int(blk_num)] = row_idx
 
+        num_hydro_cols: int = (
+            flow_matrix.shape[1] if len(flow_matrix.shape) > 1 else 0
+        )
+
+        # One scenario column per extra hydrology
+        stage_col: List[int] = []
+        block_col: List[int] = []
+        value_cols: Dict[int, List[float]] = {}
         for hydro_0based in extra_hydros:
-            # The scenario UID for aperture hydros = hydro_1based
+            # The scenario UID for aperture-only hydros = 1-based hydro index
             scenario_uid = hydro_0based + 1
             value_cols[scenario_uid] = []
 
-        for block_idx, block in enumerate(blocks):
+        for block in blocks:
+            block_num = block["number"]
             stage_num = block.get("stage", 1)
-            block_num = block_idx + 1
+            row_idx = block_num_to_row.get(block_num)
 
             for hydro_0based in extra_hydros:
                 scenario_uid = hydro_0based + 1
-                # Get flow value for this (block, hydrology)
-                if block_idx < len(flows) and hydro_0based < len(flows[block_idx]):
-                    value = flows[block_idx][hydro_0based]
+                if row_idx is not None and hydro_0based < num_hydro_cols:
+                    value = float(flow_matrix[row_idx, hydro_0based])
                 else:
                     value = 0.0
                 value_cols[scenario_uid].append(value)
 
-            scenario_col.append(0)  # placeholder; actual scenario in col name
             stage_col.append(stage_num)
             block_col.append(block_num)
 
-        # Write one Parquet file per central, with scenario columns
         if not value_cols:
             continue
 
-        arrays = {
+        arrays: Dict[str, Any] = {
             "stage": pa.array(stage_col, type=pa.int32()),
             "block": pa.array(block_col, type=pa.int32()),
         }
