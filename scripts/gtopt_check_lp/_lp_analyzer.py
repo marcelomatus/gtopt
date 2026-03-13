@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import _colors as col
+from ._compress import read_lp_text
 
 _LARGE_COEFF_THRESHOLD = 1e10
 _SMALL_COEFF_THRESHOLD = 1e-10
@@ -107,8 +108,11 @@ def _parse_coefficients(expr: str) -> list[float]:
 
 def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     """
-    Parse *lp_path* (CPLEX LP format) and return an :class:`LPStats` object
-    describing problem statistics and any detected issues.
+    Parse *lp_path* (CPLEX LP format, plain or gzip-compressed) and return
+    an :class:`LPStats` object describing problem statistics and any detected
+    issues.
+
+    Recognised compressed extensions: ``.lp.gz``, ``.lp.gzip``.
 
     Raises :class:`FileNotFoundError` when *lp_path* does not exist or cannot
     be read.
@@ -119,7 +123,7 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     all_var_names: set[str] = set()
 
     try:
-        text = lp_path.read_text(encoding="utf-8", errors="replace")
+        text = read_lp_text(lp_path)
     except OSError as exc:
         raise FileNotFoundError(f"Cannot read LP file: {exc}") from exc
 

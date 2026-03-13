@@ -29,6 +29,8 @@ import xmlrpc.client
 from pathlib import Path
 from typing import Optional
 
+from ._compress import read_lp_text
+
 _NEOS_DEFAULT_URL = "https://neos-server.org:3333"
 
 # NEOS CPLEX LP XML template.
@@ -115,9 +117,11 @@ class NeosClient:
         """
         Submit an LP file to NEOS for CPLEX conflict analysis.
 
+        Accepts plain or gzip-compressed LP files.
+
         Returns ``(job_number, password)`` or ``(None, error_message)``.
         """
-        lp_content = lp_path.read_text(encoding="utf-8", errors="replace")
+        lp_content = read_lp_text(lp_path)
         xml = _NEOS_LP_CPLEX_XML.format(
             email=email,
             lp_content=lp_content,

@@ -60,7 +60,9 @@ Usage
 ::
 
     gtopt_check_lp problem.lp
-    gtopt_check_lp --last                       # auto-find newest error*.lp
+    gtopt_check_lp problem.lp.gz             # gzip-compressed LP file
+    gtopt_check_lp problem.lp.gzip           # alternative gzip extension
+    gtopt_check_lp --last                       # auto-find newest error*.lp[.gz]
     gtopt_check_lp problem.lp --analyze-only
     gtopt_check_lp problem.lp --quiet           # non-failing, used by gtopt
     gtopt_check_lp problem.lp --solver coinor
@@ -91,6 +93,7 @@ from ._ai import (
     _AI_PROVIDERS,
     query_ai,
 )
+from ._compress import is_compressed, resolve_lp_path
 from ._config import (
     default_config_path,
     get_solver_status,
@@ -173,10 +176,15 @@ def run_all_solvers(
 
 def _find_latest_error_lp(search_dirs: Optional[list[Path]] = None) -> Optional[Path]:
     """
-    Find the most recently modified ``error*.lp`` file.
+    Find the most recently modified ``error*.lp`` or compressed error LP file.
 
     Searches *search_dirs* (default: current directory and its ``logs/``
     and ``output/`` subdirectories) and returns the newest file, or ``None``.
+
+    Recognised file patterns:
+      - ``error*.lp``
+      - ``error*.lp.gz``
+      - ``error*.lp.gzip``
     """
     if search_dirs is None:
         cwd = Path.cwd()
@@ -186,6 +194,8 @@ def _find_latest_error_lp(search_dirs: Optional[list[Path]] = None) -> Optional[
     for d in search_dirs:
         if d.is_dir():
             candidates.extend(d.glob("error*.lp"))
+            candidates.extend(d.glob("error*.lp.gz"))
+            candidates.extend(d.glob("error*.lp.gzip"))
 
     if not candidates:
         return None
@@ -239,7 +249,10 @@ def check_lp(
     Parameters
     ----------
     lp_path:
-        Path to the LP file to analyze.
+        Path to the LP file to analyze.  Plain ``.lp`` files and
+        gzip-compressed ``.lp.gz`` / ``.lp.gzip`` files are both accepted.
+        When the exact path does not exist, the function automatically tries
+        ``lp_path + ".gz"`` and ``lp_path + ".gzip"`` as fallbacks.
     analyze_only:
         When True, perform only static analysis (no solver invocation).
     solver:
@@ -260,8 +273,8 @@ def check_lp(
         When True, the function **never fails**: it always returns 0.
         In quiet mode:
 
-        * Missing or unreadable LP files produce a warning instead of an
-          error, and the function returns 0.
+        * Missing or unreadable LP files (including decompression errors)
+          produce a warning instead of an error, and the function returns 0.
         * The solver analysis step always runs (even when ``solver="auto"``
           and no local solvers are available).
         * If local solvers are unavailable and *email* is configured, NEOS
@@ -282,6 +295,27 @@ def check_lp(
     # variable avoids shadowing the caller's `email` parameter.
     filtered_email = "" if no_neos else email
 
+    # Resolve LP path: if the given path doesn't exist, try .gz / .gzip
+    # compressed variants automatically.
+    resolved = resolve_lp_path(lp_path)
+    if resolved is None:
+        if quiet:
+            print(
+                _c(_YELLOW, f"Warning: LP file not found: {lp_path}"),
+                file=sys.stderr,
+            )
+            return 0
+        print(_c(_RED, f"Error: file not found: {lp_path}"), file=sys.stderr)
+        return 1
+
+    # Tell the user when we resolved to a different (compressed) path.
+    if resolved != lp_path:
+        print(
+            _c(_YELLOW, f"Note: {lp_path} not found; using {resolved}"),
+        )
+    lp_path = resolved
+
+    # Validate that the resolved path is actually readable.
     if not lp_path.exists():
         if quiet:
             print(
@@ -294,8 +328,13 @@ def check_lp(
 
     report_parts: list[str] = []
 
+    # Show a note when the file is compressed.
+    compression_note = ""
+    if is_compressed(lp_path):
+        compression_note = _c(_CYAN, " [compressed]")
+
     # 1 ── Static analysis ────────────────────────────────────────────────────
-    print(f"\nAnalyzing: {_c(_BOLD, str(lp_path))}")
+    print(f"\nAnalyzing: {_c(_BOLD, str(lp_path))}{compression_note}")
     print("  Running static analysis …")
 
     try:
@@ -482,6 +521,8 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  gtopt_check_lp error_0.lp\n"
+            "  gtopt_check_lp error_0.lp.gz         # gzip-compressed LP\n"
+            "  gtopt_check_lp error_0.lp.gzip        # alternative gzip extension\n"
             "  gtopt_check_lp error_0.lp --analyze-only\n"
             "  gtopt_check_lp error_0.lp --quiet\n"
             "  gtopt_check_lp error_0.lp --solver coinor\n"
@@ -489,7 +530,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "  gtopt_check_lp error_0.lp --solver neos --email user@example.com\n"
             "  gtopt_check_lp error_0.lp --no-neos --solver coinor\n"
             "  gtopt_check_lp error_0.lp --output report.txt\n"
-            "  gtopt_check_lp --last                  # auto-find latest error*.lp\n"
+            "  gtopt_check_lp --last                  # auto-find latest error*.lp[.gz]\n"
             "  gtopt_check_lp --init-config           # create/update config file\n"
         ),
     )
