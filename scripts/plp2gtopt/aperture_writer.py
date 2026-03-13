@@ -10,12 +10,15 @@ Reads the parsed PLP aperture index files (``plpidape.dat`` /
    set, requiring separate affluent data.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+_LOG = logging.getLogger(__name__)
 
 
 def _unique_hydro_indices(
@@ -200,13 +203,19 @@ def write_aperture_afluents(
         for block in blocks:
             block_num = block["number"]
             stage_num = block.get("stage", 1)
-            row_idx = block_num_to_row.get(block_num)
+            mat_row: Optional[int] = block_num_to_row.get(block_num)
 
             for hydro_0based in extra_hydros:
                 scenario_uid = hydro_0based + 1
-                if row_idx is not None and hydro_0based < num_hydro_cols:
-                    value = float(flow_matrix[row_idx, hydro_0based])
+                if mat_row is not None and hydro_0based < num_hydro_cols:
+                    value = float(flow_matrix[mat_row, hydro_0based])
                 else:
+                    if mat_row is None:
+                        _LOG.debug(
+                            "Block %d not found in afluent data for central %s; using 0.0",
+                            block_num,
+                            central_name,
+                        )
                     value = 0.0
                 value_cols[scenario_uid].append(value)
 

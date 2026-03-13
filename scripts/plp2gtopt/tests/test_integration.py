@@ -1403,13 +1403,25 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
         "No extra Afluent files needed when all aperture hydros are in forward set"
     )
 
-    # Main Afluent directory has parquet files for the 16 forward scenarios
+    # Main Afluent directory has parquet files for the 16 forward scenarios.
+    # afluent.parquet format: rows = (scenario × block), columns = scenario +
+    # stage + block + one uid:N per hydro-capable central (not per scenario).
     afluent_dir = Path(opts["output_dir"]) / "Afluent"
     parquet_files = list(afluent_dir.glob("*.parquet"))
     assert len(parquet_files) > 0, "Main Afluent/*.parquet files should be written"
     df = pd.read_parquet(parquet_files[0])
-    scenario_cols = [c for c in df.columns if c.startswith("uid:")]
-    assert len(scenario_cols) == 16, "Each parquet file should have 16 scenario columns"
+    # The file must have a 'scenario' column with 16 unique scenario UIDs (1-16)
+    assert "scenario" in df.columns, "afluent.parquet should have a 'scenario' column"
+    unique_scen = sorted(df["scenario"].unique())
+    assert len(unique_scen) == 16, (
+        f"Expected 16 unique scenario values in afluent.parquet, got {len(unique_scen)}"
+    )
+    assert unique_scen == list(range(1, 17)), "Scenario UIDs should be 1-16"
+    # uid:N columns represent hydro-capable centrals (there are many in this case)
+    central_cols = [c for c in df.columns if c.startswith("uid:")]
+    assert len(central_cols) > 0, (
+        "afluent.parquet must have at least one uid:N central column"
+    )
 
     # sddp_num_apertures auto-set to 16 (one per aperture in aperture_array)
     sddp = data["options"]["sddp_options"]
@@ -1418,12 +1430,15 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
 
 @pytest.mark.integration
 def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
-    """plp_case_2y: all stages — late-stage apertures include hydros 1+2 → extra files.
+    """plp_case_2y: all stages — apertures from stages 28+ include extra hydros.
 
-    plpidap2.dat stages 49-51 reference hydrology indices 1 and 2 in addition
-    to 53-66.  When hydros 1 and 2 are NOT in the forward set (forward set =
-    {50,...,65}, i.e. hydros 51-66), the aperture writer must create parquet
-    files for those extra hydros in the apertures/Afluent/ directory.
+    According to plpidap2.dat (verified via --info):
+    - Stages  1-27: 16 apertures {51-66}       (all in active forward set)
+    - Stages 28-39: 16 apertures {1, 52-66}    (hydro 1 first appears here)
+    - Stages 40-51: 16 apertures {1-2, 53-66}  (hydro 2 also appears)
+    Union = {1,2,51,52,...,66} = 18 unique hydro classes.
+    Hydros 1 and 2 are NOT in the active forward set (51-66), so extra
+    Afluent parquet files are required in apertures/Afluent/.
     """
     opts = _make_opts_2y(tmp_path, "gtopt_case_2y_all")
     # All 51 stages
@@ -1435,34 +1450,68 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     # 51 stages
     assert len(sim["stage_array"]) == 51
 
-    # Aperture array covers the union of all 51 stages:
-    # stages 1-48: {51,...,66}; stages 49-51: {53,...,66,1,2}
-    # union = {1,2,51,52,...,66} = 18 unique hydros
+    # Aperture array: union of all 51 stages = {1, 2, 51, 52, ..., 66} = 18 hydros
     aps = sim.get("aperture_array", [])
     assert len(aps) == 18, (
-        f"Expected 18 apertures (union across all 51 stages), got {len(aps)}"
+        f"Expected 18 apertures (union of all 51 stages), got {len(aps)}"
     )
 
-    # Extra hydros (0-based 0 and 1, i.e. Fortran hydros 1 and 2)
-    # should have parquet files in apertures/Afluent/
+    # Extra hydros (Fortran 1-based 1 and 2) need their own Afluent files
     aperture_afluent = Path(opts["output_dir"]) / "apertures" / "Afluent"
     assert aperture_afluent.exists(), "apertures/Afluent/ should be created"
 
     pfiles = list(aperture_afluent.glob("*.parquet"))
     assert len(pfiles) > 0, "Extra hydro Afluent parquet files should be written"
 
-    # Each file must have columns uid:1 and uid:2 (for extra hydros 1 and 2)
+    # Each file must have uid:1 and uid:2 (extra hydro scenario UIDs = 1-based hydro index)
     df = pd.read_parquet(pfiles[0])
-    assert "uid:1" in df.columns, "Column uid:1 (hydro 1) missing from aperture parquet"
-    assert "uid:2" in df.columns, "Column uid:2 (hydro 2) missing from aperture parquet"
+    assert "uid:1" in df.columns, "Column uid:1 (Fortran hydro 1) missing"
+    assert "uid:2" in df.columns, "Column uid:2 (Fortran hydro 2) missing"
     assert "stage" in df.columns
     assert "block" in df.columns
-    # Values must be finite floats
     assert np.isfinite(df["uid:1"].values).all()
     assert np.isfinite(df["uid:2"].values).all()
+
+    # sddp_num_apertures auto-set to 18 (total unique apertures)
+    sddp = data["options"]["sddp_options"]
+    assert sddp.get("sddp_num_apertures") == 18
 
     # Forward afluent files for the 16 scenarios (hydros 51-66)
     afluent_dir = Path(opts["output_dir"]) / "Afluent"
     assert afluent_dir.exists()
     fwd_files = list(afluent_dir.glob("*.parquet"))
     assert len(fwd_files) > 0
+
+
+@pytest.mark.integration
+def test_plp_case_2y_info(capsys):
+    """plp_case_2y --info: displays simulation mapping and aperture structure."""
+    from plp2gtopt.info_display import display_plp_info
+
+    display_plp_info({"input_dir": _PLPCase2Y, "last_stage": -1})
+    out = capsys.readouterr().out
+
+    # System section
+    assert "SYSTEM" in out
+    assert "236" in out  # 236 buses
+
+    # Hydrology section
+    assert "66" in out  # 66 hydrology classes
+    assert "167" in out  # 167 centrals with flow data
+
+    # Simulation mapping
+    assert "plpidsim.dat" in out
+    assert "16 simulations" in out
+    assert "Hydrology  51" in out  # Simulation 1 → Hydrology 51
+    assert "Hydrology  66" in out  # Simulation 16 → Hydrology 66
+    assert "51-66" in out  # Active hydrology class range
+
+    # Aperture section
+    assert "plpidap2.dat" in out
+    assert "18 total" in out  # 18 unique aperture hydros across all stages
+    assert "1-2" in out  # Extra hydros 1 and 2
+
+    # Suggested command
+    assert "plp2gtopt" in out
+    assert "-y all" in out
+    assert "-a all" in out
