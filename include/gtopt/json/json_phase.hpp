@@ -22,11 +22,13 @@ using gtopt::Size;
 template<>
 struct json_data_contract<Phase>
 {
-  using type = json_member_list<json_number<"uid", Uid>,
-                                json_string_null<"name", OptName>,
-                                json_number_null<"active", OptBool>,
-                                json_number<"first_stage", Size>,
-                                json_number<"count_stage", Size>>;
+  using type = json_member_list<
+      json_number<"uid", Uid>,
+      json_string_null<"name", OptName>,
+      json_number_null<"active", OptBool>,
+      json_number<"first_stage", Size>,
+      json_number<"count_stage", Size>,
+      json_array_null<"aperture_set", Array<Uid>, json_number_no_name<Uid>>>;
 
   [[nodiscard]] constexpr static auto to_json_data(Phase const& phase)
   {
@@ -34,7 +36,8 @@ struct json_data_contract<Phase>
                                  phase.name,
                                  phase.active,
                                  phase.first_stage,
-                                 phase.count_stage);
+                                 phase.count_stage,
+                                 phase.aperture_set);
   }
 };
 }  // namespace daw::json

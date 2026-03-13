@@ -15,7 +15,7 @@ from plp2gtopt.central_parser import CentralParser
 from plp2gtopt.demand_parser import DemandParser
 from plp2gtopt.gtopt_writer import GTOptWriter
 from plp2gtopt.line_parser import LineParser
-from plp2gtopt.main import build_options, main, make_parser
+from plp2gtopt.main import _resolve_input_dir, build_options, main, make_parser
 from plp2gtopt.plp2gtopt import convert_plp_case, create_zip_output
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
@@ -594,3 +594,62 @@ def test_build_options_short_flags_aperture_directory():
     args = make_parser().parse_args(["-A", "/tmp/apes"])
     opts = build_options(args)
     assert opts["aperture_directory"] == "/tmp/apes"
+
+
+# ---------------------------------------------------------------------------
+# Positional input_dir argument
+# ---------------------------------------------------------------------------
+
+
+def test_positional_input_dir():
+    """Positional argument works as input_dir."""
+
+    args = make_parser().parse_args(["my_case"])
+    resolved = _resolve_input_dir(args)
+    assert resolved == Path("my_case")
+
+
+def test_positional_input_dir_same_as_flag():
+    """'plp2gtopt case' is equivalent to 'plp2gtopt -i case'."""
+
+    args_pos = make_parser().parse_args(["my_case"])
+    args_flag = make_parser().parse_args(["-i", "my_case"])
+    assert _resolve_input_dir(args_pos) == _resolve_input_dir(args_flag)
+
+
+def test_flag_overrides_positional():
+    """-i flag takes priority over positional argument."""
+
+    args = make_parser().parse_args(["pos_case", "-i", "flag_case"])
+    assert _resolve_input_dir(args) == Path("flag_case")
+
+
+def test_default_input_dir():
+    """Default input dir is 'input' when nothing is specified."""
+
+    args = make_parser().parse_args([])
+    assert _resolve_input_dir(args) == Path("input")
+
+
+# ---------------------------------------------------------------------------
+# --info error handling
+# ---------------------------------------------------------------------------
+
+
+def test_info_nonexistent_dir(tmp_path: Path):
+    """--info with a non-existent directory should exit gracefully."""
+    nonexistent = str(tmp_path / "does_not_exist")
+    with pytest.raises(SystemExit) as exc_info:
+        with patch("sys.argv", ["plp2gtopt", "--info", nonexistent]):
+            main()
+    assert exc_info.value.code == 1
+
+
+def test_info_empty_dir(tmp_path: Path):
+    """--info with an empty directory should exit gracefully."""
+    empty_dir = tmp_path / "empty_case"
+    empty_dir.mkdir()
+    with pytest.raises(SystemExit) as exc_info:
+        with patch("sys.argv", ["plp2gtopt", "--info", str(empty_dir)]):
+            main()
+    assert exc_info.value.code == 1
