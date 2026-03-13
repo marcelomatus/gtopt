@@ -7,8 +7,15 @@
  *
  * Provides run_check_lp_diagnostic() which looks for the gtopt_check_lp
  * script on PATH and, if found, spawns it directly via @c posix_spawn (no
- * shell) with @c --analyze-only @c --no-color, returning the captured output
- * for logging.
+ * shell) with @c --quiet @c --no-color, returning the captured output for
+ * logging.
+ *
+ * The @c --quiet flag makes gtopt_check_lp:
+ *   - never fail (always exits with code 0),
+ *   - never block for user input,
+ *   - try every available local solver and optionally NEOS,
+ *   - warn instead of error on missing config, missing LP file, or solver
+ *     failures.
  */
 
 #pragma once
@@ -24,12 +31,15 @@ namespace gtopt
  * Searches PATH for the @c gtopt_check_lp binary.  If found, spawns it
  * directly (without invoking a shell) via @c posix_spawn with:
  * @code
- *   gtopt_check_lp --analyze-only --no-color --timeout <timeout_seconds>
- *   <lp_file>
+ *   gtopt_check_lp --quiet --no-color --timeout <timeout_seconds> <lp_file>
  * @endcode
  * and returns the captured stdout+stderr.  If the binary is not on PATH or
  * the file does not exist, an empty string is returned so callers can skip
  * logging silently.
+ *
+ * The @c --quiet flag ensures the child process never stalls waiting for
+ * input and always exits with code 0, even when no solver is available or
+ * NEOS is unreachable.
  *
  * @param lp_file        Full path to the LP file (may include or omit the
  *                       .lp extension).
