@@ -450,11 +450,11 @@ public:
     return m_options_.sddp_options.sddp_num_apertures.value_or(0);
   }
 
-  /// Directory for aperture-specific scenario data (empty = use input_directory)
+  /// Directory for aperture-specific scenario data (empty = use
+  /// input_directory)
   [[nodiscard]] auto sddp_aperture_directory() const -> Name
   {
-    return m_options_.sddp_options.sddp_aperture_directory.value_or(
-        Name {});
+    return m_options_.sddp_options.sddp_aperture_directory.value_or(Name {});
   }
 
 private:

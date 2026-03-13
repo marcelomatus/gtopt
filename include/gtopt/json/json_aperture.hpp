@@ -25,8 +25,7 @@ struct json_data_contract<Aperture>
                        json_number<"source_scenario", Uid>,
                        json_number_null<"probability_factor", OptReal>>;
 
-  [[nodiscard]] constexpr static auto to_json_data(
-      Aperture const& aperture)
+  [[nodiscard]] constexpr static auto to_json_data(Aperture const& aperture)
   {
     return std::forward_as_tuple(aperture.uid,
                                  aperture.name,

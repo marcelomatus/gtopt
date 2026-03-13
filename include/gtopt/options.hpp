@@ -121,8 +121,7 @@ struct SddpOptions
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
     merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
     merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
-    merge_opt(sddp_aperture_directory,
-              std::move(opts.sddp_aperture_directory));
+    merge_opt(sddp_aperture_directory, std::move(opts.sddp_aperture_directory));
 
     auto _ = std::move(opts);
   }
