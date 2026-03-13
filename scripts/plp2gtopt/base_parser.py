@@ -98,8 +98,12 @@ class BaseParser(ABC):
             raise ValueError(f"Path is not a file: {self.file_path}")
 
     def _read_non_empty_lines(self) -> List[str]:
-        """Read file and return non-empty, non-comment lines."""
-        with open(self.file_path, "r", encoding="utf-8") as f:
+        """Read file and return non-empty, non-comment lines.
+
+        Uses ASCII encoding with errors='ignore' to handle PLP files that may
+        contain non-ASCII characters (e.g., accented letters in comments).
+        """
+        with open(self.file_path, "r", encoding="ascii", errors="ignore") as f:
             result = []
             for line in f:
                 stripped = line.strip()
