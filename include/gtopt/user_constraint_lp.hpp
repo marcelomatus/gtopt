@@ -32,7 +32,6 @@
 
 #pragma once
 
-#include <string>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -88,7 +87,7 @@ struct UserConstraintState
  */
 [[nodiscard]] std::vector<UserConstraintState> add_user_constraints_to_lp(
     const std::vector<UserConstraint>& constraints,
-    SystemContext& sc,
+    const SystemContext& sc,
     const PhaseLP& phase,
     const SceneLP& scene,
     LinearProblem& lp);

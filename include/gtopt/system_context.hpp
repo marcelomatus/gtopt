@@ -189,7 +189,7 @@ public:
   //
 
   template<typename Element>
-  constexpr auto&& elements() const
+  [[nodiscard]] constexpr auto&& elements() const
   {
     return get_elements<Element>(*this);
   }
