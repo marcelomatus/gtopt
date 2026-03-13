@@ -26,6 +26,9 @@ from .manbat_parser import ManbatParser
 from .ess_parser import EssParser
 from .maness_parser import ManessParser
 from .indhor_parser import IndhorParser
+from .idsim_parser import IdSimParser
+from .idape_parser import IdApeParser
+from .idap2_parser import IdAp2Parser
 
 
 class PLPParser:
@@ -120,3 +123,24 @@ class PLPParser:
             indhor = IndhorParser(indhor_path)
             indhor.parse()
             self.parsed_data["indhor_parser"] = indhor
+
+        # Optional: plpidsim.dat — simulation scenario index mapping
+        idsim_path = self.input_path / "plpidsim.dat"
+        if idsim_path.exists():
+            idsim = IdSimParser(idsim_path)
+            idsim.parse(self.parsed_data)
+            self.parsed_data["idsim_parser"] = idsim
+
+        # Optional: plpidape.dat — per-simulation aperture indices
+        idape_path = self.input_path / "plpidape.dat"
+        if idape_path.exists():
+            idape = IdApeParser(idape_path)
+            idape.parse(self.parsed_data)
+            self.parsed_data["idape_parser"] = idape
+
+        # Optional: plpidap2.dat — simulation-independent aperture indices
+        idap2_path = self.input_path / "plpidap2.dat"
+        if idap2_path.exists():
+            idap2 = IdAp2Parser(idap2_path)
+            idap2.parse(self.parsed_data)
+            self.parsed_data["idap2_parser"] = idap2

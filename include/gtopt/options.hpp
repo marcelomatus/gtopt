@@ -95,6 +95,14 @@ struct SddpOptions
    *         pass. 0 = disabled (default); -1 = all scenarios; N > 0 = first N
    */
   OptInt sddp_num_apertures {};
+  /** @brief Directory for aperture-specific scenario data.
+   *
+   * When present, scenarios referenced by `Aperture::source_scenario` are
+   * first looked up in this directory.  If not found there, they fall back
+   * to the regular `input_directory`.  This allows backward-pass apertures
+   * to use different affluent data than the forward-pass scenarios.
+   */
+  OptName sddp_aperture_directory {};
 
   void merge(SddpOptions&& opts)
   {
@@ -113,6 +121,8 @@ struct SddpOptions
     merge_opt(sddp_elastic_mode, std::move(opts.sddp_elastic_mode));
     merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
     merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
+    merge_opt(sddp_aperture_directory,
+              std::move(opts.sddp_aperture_directory));
 
     auto _ = std::move(opts);
   }
