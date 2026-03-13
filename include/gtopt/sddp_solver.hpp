@@ -66,6 +66,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
@@ -106,6 +107,8 @@ constexpr auto scene_cuts_fmt = "scene_{}.csv";
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// Error LP file pattern for infeasible scene/phase
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
+/// Debug LP file pattern: format with iteration, scene, phase indices
+constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves cuts.
 /// Created externally (e.g. by the webservice stop endpoint).
@@ -205,6 +208,15 @@ struct SDDPOptions
   /// Directory for log and error LP files (default: "logs").
   /// Error LP files for infeasible scenes are saved here.
   std::string log_directory {"logs"};
+
+  /// When true, save a debug LP file for every (iteration, scene, phase)
+  /// during the forward pass to log_directory.
+  /// Files are named using sddp_file::debug_lp_fmt.
+  bool lp_debug {false};
+
+  /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
+  /// Empty or "uncompressed" means no compression; any other value uses gzip.
+  std::string lp_debug_compression {};
 
   /// Enable the monitoring API: write a JSON status file after each iteration
   /// and periodically update real-time workpool statistics.  Consumers
@@ -748,6 +760,10 @@ private:
   /// while solve() is running; reset to nullptr when solve() returns.
   /// Used by resolve_via_pool() and resolve_clone_via_pool().
   AdaptiveWorkPool* m_pool_ {nullptr};
+
+  /// LP debug writer — active when lp_debug is enabled and log_directory is
+  /// set.  Initialised at the start of solve() and drained at the end.
+  LpDebugWriter m_lp_debug_writer_ {};
 
   // ── Monitoring API (SolverMonitor owns the background thread) ──
 

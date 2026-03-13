@@ -10,9 +10,11 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <future>
 #include <mutex>
 #include <vector>
 
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/options_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
@@ -48,6 +50,26 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
   try {
     using future_t = std::future<std::expected<void, Error>>;
+
+    LpDebugWriter lp_writer(lp_debug ? lp_debug_directory : std::string {},
+                            lp_debug_compression,
+                            pool.get());
+    if (lp_writer.is_active()) {
+      std::filesystem::create_directories(lp_debug_directory);
+      const auto lp_stem =
+          (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
+      for (const auto& phase_systems : planning_lp.systems()) {
+        for (const auto& system : phase_systems) {
+          lp_writer.compress_async(system.write_lp(lp_stem));
+        }
+      }
+      spdlog::info("MonolithicSolver: wrote LP debug file(s) to {}_*.lp{}",
+                   lp_stem,
+                   (lp_debug_compression.empty()
+                    || lp_debug_compression == "uncompressed")
+                       ? ""
+                       : " (compressing async)");
+    }
 
     std::vector<future_t> futures;
     futures.reserve(planning_lp.systems().size());
@@ -88,6 +110,9 @@ auto MonolithicSolver::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         return std::unexpected(std::move(result.error()));
       }
     }
+
+    // Drain LP compression tasks (run in parallel with solve)
+    lp_writer.drain();
 
     // ── Write monitoring status file ──
     monitor.stop();
@@ -184,6 +209,8 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
 
     // Logging and API
     sddp_opts.log_directory = std::string(options.log_directory());
+    sddp_opts.lp_debug = options.lp_debug();
+    sddp_opts.lp_debug_compression = std::string(options.output_compression());
     sddp_opts.enable_api = options.sddp_api_enabled();
     if (!output_dir.empty()) {
       sddp_opts.api_status_file =
@@ -208,6 +235,9 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
         (std::filesystem::path(output_dir_m) / "monolithic_status.json")
             .string();
   }
+  solver->lp_debug = options.lp_debug();
+  solver->lp_debug_directory = std::string(options.log_directory());
+  solver->lp_debug_compression = std::string(options.output_compression());
   return solver;
 }
 
