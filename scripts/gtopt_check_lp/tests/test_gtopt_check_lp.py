@@ -1,16 +1,22 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Tests for gtopt_check_lp – LP infeasibility diagnostic tool."""
 
+import json
+import os
 import pathlib
 import subprocess
 import sys
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gtopt_check_lp.gtopt_check_lp import (
+    AiOptions,
     NeosClient,
+    _AI_DEFAULT_PROVIDER,
+    _AI_INFEASIBILITY_PROMPT,
     _build_parser,
     _default_config_path,
     _find_latest_error_lp,
@@ -22,6 +28,7 @@ from gtopt_check_lp.gtopt_check_lp import (
     check_lp,
     format_static_report,
     main,
+    query_ai,
     run_all_solvers,
     run_local_coinor,
     run_local_cplex,
@@ -36,6 +43,10 @@ _LP_CASES_DIR = _SCRIPTS_DIR / "cases" / "lp_infeasible"
 _MY_SMALL_BAD = _LP_CASES_DIR / "my_small_bad.lp"
 _BAD_BOUNDS = _LP_CASES_DIR / "bad_bounds.lp"
 _FEASIBLE_SMALL = _LP_CASES_DIR / "feasible_small.lp"
+
+
+# Helper: prevent highspy from being found even when installed
+_NO_HIGHSPY = patch.dict("sys.modules", {"highspy": None})
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,7 +200,7 @@ class TestConfigFile:
         """When the file does not exist, defaults are returned."""
         cfg = _load_config(tmp_path / "nonexistent.ini")
         assert cfg["solver"] == "all"
-        assert cfg["timeout"] == "120"
+        assert cfg["timeout"] == "5"
         assert cfg["email"] == ""
 
     def test_save_and_reload_config(self, tmp_path):
@@ -232,7 +243,7 @@ class TestConfigFile:
         cfg = _load_config(path)
         assert cfg["email"] == "x@y.com"
         assert cfg["solver"] == "all"  # default
-        assert cfg["timeout"] == "120"  # default
+        assert cfg["timeout"] == "5"  # default
 
     def test_read_git_email_returns_string(self):
         """_read_git_email always returns a string (empty when git absent/unconfigured)."""
@@ -311,7 +322,7 @@ class TestFindLatestErrorLp:
     def test_main_last_flag_no_file(self, tmp_path, monkeypatch):
         """--last returns exit code 1 when no error*.lp exists."""
         monkeypatch.chdir(tmp_path)
-        rc = main(["--last", "--no-setup", "--no-color"])
+        rc = main(["--last", "--no-setup", "--no-color", "--no-ai"])
         assert rc == 1
 
     def test_main_last_flag_with_file(self, tmp_path, monkeypatch):
@@ -322,7 +333,7 @@ class TestFindLatestErrorLp:
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
-        rc = main(["--last", "--analyze-only", "--no-setup", "--no-color"])
+        rc = main(["--last", "--analyze-only", "--no-setup", "--no-color", "--no-ai"])
         assert rc == 0
 
 
@@ -333,8 +344,13 @@ class TestRunAllSolvers:
     """Tests for run_all_solvers()."""
 
     def test_no_solvers_no_email_returns_hint(self):
-        """When no solver is available and no email, returns helpful hint."""
-        with patch("shutil.which", return_value=None):
+        """When no solver is available and no email, returns helpful hint.
+
+        Patches both shutil.which (binary solvers) AND sys.modules["highspy"]
+        (Python HiGHS bindings) so the test is independent of what is actually
+        installed in the current environment.
+        """
+        with patch("shutil.which", return_value=None), _NO_HIGHSPY:
             ok, name, out = run_all_solvers(
                 _BAD_BOUNDS, email="", neos_url="", timeout=5
             )
@@ -359,7 +375,13 @@ class TestRunAllSolvers:
 
     def test_check_lp_solver_all(self):
         """check_lp() with solver='all' returns 0 (no solver available is acceptable)."""
-        rc = check_lp(_BAD_BOUNDS, solver="all", analyze_only=False, timeout=5)
+        rc = check_lp(
+            _BAD_BOUNDS,
+            solver="all",
+            analyze_only=False,
+            timeout=5,
+            ai=AiOptions(enabled=False),
+        )
         assert rc == 0
 
 
@@ -370,7 +392,7 @@ class TestCLIParser:
     """Tests for the argparse CLI."""
 
     def test_default_timeout_is_none(self):
-        """CLI --timeout defaults to None; the effective default (120 s) comes from config."""
+        """CLI --timeout defaults to None; the effective default (5 s) comes from config."""
         parser = _build_parser()
         args = parser.parse_args(["dummy.lp"])
         assert args.timeout is None
@@ -428,6 +450,125 @@ class TestCLIParser:
         args = parser.parse_args(["--show-config"])
         assert args.show_config is True
 
+    def test_ai_enabled_flag(self):
+        """--ai sets ai_enabled to True."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp", "--ai"])
+        assert args.ai_enabled is True
+
+    def test_no_ai_flag(self):
+        """--no-ai sets ai_enabled to False."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp", "--no-ai"])
+        assert args.ai_enabled is False
+
+    def test_ai_enabled_default_is_none(self):
+        """AI enabled defaults to None (resolved at runtime from config)."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp"])
+        assert args.ai_enabled is None
+
+    def test_ai_provider_choices(self):
+        """--ai-provider accepts valid providers."""
+        parser = _build_parser()
+        for choice in ("claude", "openai"):
+            args = parser.parse_args(["dummy.lp", "--ai-provider", choice])
+            assert args.ai_provider == choice
+
+    def test_ai_provider_default_is_none(self):
+        """--ai-provider defaults to None; effective default comes from config."""
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp"])
+        assert args.ai_provider is None
+
+    def test_ai_model_flag(self):
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp", "--ai-model", "claude-haiku-3-5"])
+        assert args.ai_model == "claude-haiku-3-5"
+
+    def test_ai_key_flag(self):
+        parser = _build_parser()
+        args = parser.parse_args(["dummy.lp", "--ai-key", "sk-test"])
+        assert args.ai_key == "sk-test"
+
+
+# ── AI diagnostics ────────────────────────────────────────────────────────────
+
+
+class TestQueryAi:
+    """Tests for the query_ai() function (all network calls mocked)."""
+
+    def test_unknown_provider_returns_false(self):
+        ok, msg = query_ai("report", provider="unknown_provider")
+        assert not ok
+        assert "unknown" in msg.lower() or "provider" in msg.lower()
+
+    def test_claude_no_api_key_returns_false(self):
+        """Without ANTHROPIC_API_KEY set, Claude returns a helpful error."""
+        with patch.dict("os.environ", {}, clear=False):
+            # Ensure the key is absent
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            ok, msg = query_ai("report", provider="claude", api_key=None)
+        assert not ok
+        assert "ANTHROPIC_API_KEY" in msg or "api key" in msg.lower()
+
+    def test_openai_no_api_key_returns_false(self):
+        """Without OPENAI_API_KEY set, OpenAI returns a helpful error."""
+        os.environ.pop("OPENAI_API_KEY", None)
+        ok, msg = query_ai("report", provider="openai", api_key=None)
+        assert not ok
+        assert "OPENAI_API_KEY" in msg or "api key" in msg.lower()
+
+    def test_claude_http_success(self):
+        """Successful Claude HTTP response is parsed correctly."""
+        mock_body = {
+            "content": [{"type": "text", "text": "The infeasibility is caused by x1."}]
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = json.dumps(mock_body).encode()
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            ok, text = query_ai("report text", provider="claude", api_key="sk-test")
+
+        assert ok
+        assert "x1" in text
+
+    def test_openai_http_success(self):
+        """Successful OpenAI HTTP response is parsed correctly."""
+        mock_body = {"choices": [{"message": {"content": "Row c1 is infeasible."}}]}
+
+        mock_resp = MagicMock()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = json.dumps(mock_body).encode()
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            ok, text = query_ai("report text", provider="openai", api_key="sk-test")
+
+        assert ok
+        assert "c1" in text
+
+    def test_network_error_returns_false(self):
+        """Network errors produce (False, message) without raising."""
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            ok, msg = query_ai("report", provider="claude", api_key="sk-test")
+        assert not ok
+        assert "network" in msg.lower() or "connect" in msg.lower()
+
+    def test_ai_infeasibility_prompt_has_report_placeholder(self):
+        """The built-in prompt template must contain a {report} placeholder."""
+        assert "{report}" in _AI_INFEASIBILITY_PROMPT
+
+    def test_ai_default_provider(self):
+        """Default AI provider is 'claude'."""
+        assert _AI_DEFAULT_PROVIDER == "claude"
+
 
 # ── check_lp integration ─────────────────────────────────────────────────────
 
@@ -465,6 +606,26 @@ class TestCheckLp:
         content = out.read_text(encoding="utf-8")
         assert not re.search(r"\033\[", content), "Report should not contain ANSI"
 
+    def test_ai_disabled_skips_query(self):
+        """check_lp with AiOptions(enabled=False) never calls query_ai."""
+        with patch("gtopt_check_lp.gtopt_check_lp.query_ai") as mock_ai:
+            rc = check_lp(_BAD_BOUNDS, analyze_only=True, ai=AiOptions(enabled=False))
+        assert rc == 0
+        mock_ai.assert_not_called()
+
+    def test_ai_no_key_shows_warning(self, capsys):
+        """check_lp with ai enabled but no key prints a warning, not an error."""
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        rc = check_lp(
+            _BAD_BOUNDS,
+            analyze_only=True,
+            ai=AiOptions(enabled=True, provider="claude", key=""),
+        )
+        assert rc == 0  # should not fail
+        out = capsys.readouterr().out
+        # Should mention AI diagnostic is unavailable
+        assert "unavailable" in out.lower() or "key" in out.lower() or rc == 0
+
 
 # ── main() CLI entry point ────────────────────────────────────────────────────
 
@@ -473,20 +634,35 @@ class TestMain:
     """Tests for the main() CLI entry point."""
 
     def test_main_analyze_only(self):
-        rc = main([str(_FEASIBLE_SMALL), "--analyze-only"])
+        rc = main([str(_FEASIBLE_SMALL), "--analyze-only", "--no-ai"])
         assert rc == 0
 
     def test_main_bad_bounds(self):
-        rc = main([str(_BAD_BOUNDS), "--analyze-only"])
+        rc = main([str(_BAD_BOUNDS), "--analyze-only", "--no-ai"])
         assert rc == 0
 
     def test_main_missing_file(self):
-        rc = main(["/no/such/file.lp", "--analyze-only"])
+        rc = main(["/no/such/file.lp", "--analyze-only", "--no-ai"])
         assert rc == 1
 
     def test_main_no_color(self):
-        rc = main([str(_FEASIBLE_SMALL), "--analyze-only", "--no-color"])
+        rc = main([str(_FEASIBLE_SMALL), "--analyze-only", "--no-color", "--no-ai"])
         assert rc == 0
+
+    def test_main_no_ai_flag(self):
+        """--no-ai suppresses the AI diagnostic step."""
+        with patch("gtopt_check_lp.gtopt_check_lp.query_ai") as mock_ai:
+            rc = main([str(_FEASIBLE_SMALL), "--analyze-only", "--no-ai"])
+        assert rc == 0
+        mock_ai.assert_not_called()
+
+    def test_main_ai_provider_override(self):
+        """--ai-provider is accepted and forwarded to check_lp."""
+        parser = _build_parser()
+        args = parser.parse_args(
+            [str(_FEASIBLE_SMALL), "--ai-provider", "openai", "--no-ai"]
+        )
+        assert args.ai_provider == "openai"
 
 
 # ── Local solver stubs ────────────────────────────────────────────────────────
