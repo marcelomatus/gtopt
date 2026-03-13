@@ -191,9 +191,9 @@ class TestConfigFile:
     """Tests for config file load/save helpers."""
 
     def test_default_config_path(self):
-        """Default config path is ~/.gtopt_check_lp."""
+        """Default config path is ~/.gtopt_check_lp.conf."""
         p = _default_config_path()
-        assert p.name == ".gtopt_check_lp"
+        assert p.name == ".gtopt_check_lp.conf"
         assert p.parent == Path.home()
 
     def test_load_config_missing_file_returns_defaults(self, tmp_path):
@@ -469,9 +469,9 @@ class TestCLIParser:
         assert args.ai_enabled is None
 
     def test_ai_provider_choices(self):
-        """--ai-provider accepts valid providers."""
+        """--ai-provider accepts valid providers (claude, openai, deepseek, github)."""
         parser = _build_parser()
-        for choice in ("claude", "openai"):
+        for choice in ("claude", "openai", "deepseek", "github"):
             args = parser.parse_args(["dummy.lp", "--ai-provider", choice])
             assert args.ai_provider == choice
 
@@ -853,7 +853,13 @@ class TestNeosClient:
         assert "e-mail" in msg.lower() or "email" in msg.lower()
 
     def test_xml_template_uses_post_not_commands(self):
-        """XML template must use <post> (not <commands>) and <comments> (not <comment>)."""
+        """XML template must use <post> (not <commands>) and <comments> (not <comment>).
+        Also must use 'refineconflict' (not the non-existent 'conflict' command).
+        'conflict' was removed in CPLEX 20.1+; the session reports
+        "Command 'conflict' does not exist."
+        """
+        import re  # noqa: PLC0415
+
         from gtopt_check_lp.gtopt_check_lp import _NEOS_LP_CPLEX_XML  # noqa: PLC0415
 
         xml = _NEOS_LP_CPLEX_XML.format(
@@ -864,6 +870,34 @@ class TestNeosClient:
         assert "<comments>" in xml
         assert "<comment>" not in xml
         assert "<client>" not in xml
+        # 'conflict' is not a valid CPLEX 20.1+ command; must use 'refineconflict'
+        assert "refineconflict" in xml
+        # Bare 'conflict' (not part of 'refineconflict' or 'display conflict')
+        # must not appear as a standalone command line.
+        assert not re.search(r"(?<![a-z])conflict\s*$", xml, re.MULTILINE)
+
+    def test_cplex_local_script_uses_refineconflict(self, tmp_path):
+        """Local CPLEX script must use 'refineconflict', not the defunct 'conflict'.
+
+        CPLEX Interactive Optimizer v20.1+ removed the 'conflict' command.
+        The correct command sequence to identify the minimal infeasible subsystem is:
+          1. set preprocessing presolve 0  (disable presolve, build LP basis)
+          2. optimize                      (simplex confirms infeasibility)
+          3. refineconflict                (run the conflict refiner)
+          4. display conflict all          (show the minimal conflict set)
+        """
+        import re  # noqa: PLC0415
+
+        from gtopt_check_lp._solvers import _cplex_script  # noqa: PLC0415
+
+        lp = tmp_path / "test.lp"
+        lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
+        script = _cplex_script(lp)
+        assert "refineconflict" in script
+        # Bare 'conflict' must not appear as a standalone command line
+        assert not re.search(r"(?<![a-z])conflict\s*$", script, re.MULTILINE)
+        # Presolve must be disabled before optimize so the refiner has a basis
+        assert "set preprocessing presolve 0" in script
 
 
 # ── Integration: run the script as a subprocess ───────────────────────────────
