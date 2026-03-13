@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gtopt/json/json_aperture.hpp>
 #include <gtopt/json/json_block.hpp>
 #include <gtopt/json/json_phase.hpp>
 #include <gtopt/json/json_scenario.hpp>
