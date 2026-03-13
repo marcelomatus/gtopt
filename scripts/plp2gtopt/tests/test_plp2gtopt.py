@@ -396,7 +396,7 @@ def test_build_options_defaults():
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
     assert opts["compression"] == "gzip"
-    assert opts["hydrologies"] == "1"
+    assert opts["hydrologies"] == "all"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)
     assert opts["management_factor"] == pytest.approx(0.0)
@@ -534,21 +534,63 @@ def test_main_zip_creates_archive(tmp_path):
 
 
 def test_build_options_num_apertures():
-    """build_options() maps --num-apertures to num_apertures key."""
+    """build_options() maps --num-apertures to num_apertures as a string."""
     args = make_parser().parse_args(["--num-apertures", "5"])
     opts = build_options(args)
-    assert opts["num_apertures"] == 5
+    assert opts["num_apertures"] == "5"
+
+
+def test_build_options_num_apertures_short():
+    """-a is the short form for --num-apertures."""
+    args = make_parser().parse_args(["-a", "5"])
+    opts = build_options(args)
+    assert opts["num_apertures"] == "5"
+
+
+def test_build_options_num_apertures_range():
+    """build_options() maps --num-apertures range to a string."""
+    args = make_parser().parse_args(["--num-apertures", "1-5"])
+    opts = build_options(args)
+    assert opts["num_apertures"] == "1-5"
+
+
+def test_build_options_num_apertures_all_keyword():
+    """build_options() maps --num-apertures all to the string 'all'."""
+    args = make_parser().parse_args(["--num-apertures", "all"])
+    opts = build_options(args)
+    assert opts["num_apertures"] == "all"
 
 
 def test_build_options_num_apertures_all():
-    """build_options() maps --num-apertures -1 to num_apertures=-1 (all scenarios)."""
+    """build_options() maps --num-apertures -1 to '-1' (legacy all)."""
     args = make_parser().parse_args(["--num-apertures", "-1"])
     opts = build_options(args)
-    assert opts["num_apertures"] == -1
+    assert opts["num_apertures"] == "-1"
 
 
 def test_build_options_num_apertures_default():
-    """build_options() defaults num_apertures to None when not specified."""
+    """build_options() defaults num_apertures to 'all' when not specified."""
     args = make_parser().parse_args([])
     opts = build_options(args)
-    assert opts["num_apertures"] is None
+    assert opts["num_apertures"] == "all"
+
+
+def test_build_options_short_flags_solver():
+    """-S is the short form for --solver."""
+    args = make_parser().parse_args(["-S", "mono"])
+    opts = build_options(args)
+    assert opts["solver_type"] == "mono"
+
+
+def test_build_options_short_flags_stages_phase():
+    """-g is the short form for --stages-phase."""
+    args = make_parser().parse_args(["-g", "1:4,5,..."])
+    opts = build_options(args)
+    assert opts["stages_phase"] == "1:4,5,..."
+
+
+def test_build_options_short_flags_aperture_directory():
+    """-A is the short form for --aperture-directory."""
+    args = make_parser().parse_args(["-A", "/tmp/apes"])
+    opts = build_options(args)
+    assert opts["aperture_directory"] == "/tmp/apes"
