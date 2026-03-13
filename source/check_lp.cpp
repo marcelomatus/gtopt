@@ -133,18 +133,12 @@ struct UniqueFd
 std::string run_check_lp_diagnostic(const std::string& lp_file,
                                     int timeout_seconds)
 {
-  // Ensure the LP file path has the .lp extension.
-  const std::string lp_path =
-      lp_file.ends_with(".lp") ? lp_file : lp_file + ".lp";
+  // Ensure the LP file path has an extension, if not, add ".lp" by default.
+  const std::string lp_path = lp_file.contains('.') ? lp_file : lp_file + ".lp";
 
-  // Bail out silently if the file does not exist.
-  std::error_code ec;
-  if (!std::filesystem::exists(lp_path, ec)) {
-    SPDLOG_DEBUG("check_lp: file not found: {}", lp_path);
-    return {};
-  }
-
-  // Locate the gtopt_check_lp binary on PATH.
+  // Locate the gtopt_check_lp binary on PATH. Only check the binary, the
+  // lp_file will be checked out by gtopt_check_lp itself. If not found, return
+  // empty string (caller should log and skip diagnostics).
   const std::string bin = find_on_path("gtopt_check_lp");
   if (bin.empty()) {
     SPDLOG_DEBUG("check_lp: gtopt_check_lp not found on PATH");
