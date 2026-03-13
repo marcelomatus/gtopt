@@ -164,15 +164,21 @@ class TestGTOptWriterProcessMethods:
     def test_process_options_num_apertures(self):
         """process_options writes sddp_num_apertures inside sddp_options."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "num_apertures": 5})
+        writer.process_options({"output_dir": "out", "num_apertures": "5"})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["sddp_num_apertures"] == 5
 
     def test_process_options_num_apertures_all(self):
-        """process_options writes sddp_num_apertures=-1 for 'all scenarios'."""
+        """process_options with 'all'/-1 does not set sddp_num_apertures (auto-detect)."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "num_apertures": -1})
-        assert writer.planning["options"]["sddp_options"]["sddp_num_apertures"] == -1
+        writer.process_options({"output_dir": "out", "num_apertures": "all"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert "sddp_num_apertures" not in sddp
+
+        writer2 = GTOptWriter(MagicMock())
+        writer2.process_options({"output_dir": "out", "num_apertures": "-1"})
+        sddp2 = writer2.planning["options"]["sddp_options"]
+        assert "sddp_num_apertures" not in sddp2
 
     def test_process_options_no_apertures_by_default(self):
         """sddp_num_apertures is absent when num_apertures not supplied."""

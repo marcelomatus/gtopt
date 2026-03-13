@@ -434,7 +434,12 @@ cmake --build build -j$(nproc)
 > # Step 2 — ruff check (REQUIRED before every Python commit)
 > cd scripts && ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 >
-> # Step 3 — pylint (REQUIRED; must score 10.00/10 with no warnings)
+> # Step 3 — pylint (REQUIRED; exit code MUST be 0 — no messages of any category)
+> # CRITICAL: pylint prints "10.00/10" even when convention/refactor/warning messages
+> # are present.  The EXIT CODE is what CI checks, not the score.
+> # Exit codes: 0=clean, 1=fatal, 2=error, 4=warning, 8=refactor, 16=convention.
+> # A single C1803 convention message → exit code 16 → CI failure.
+> # Always verify: run pylint, then check `echo $?` is 0.
 > cd scripts && pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 >
 > # Step 4 — mypy (REQUIRED; no errors allowed)
@@ -552,11 +557,18 @@ It is **independent** of the root `pyproject.toml`.
 > **This includes any new files you create** — run on every `.py` file
 > in the affected package before committing:
 >
+> **CRITICAL — pylint exit code**: pylint prints a score (`10.00/10`) even when
+> convention/refactor/warning messages are present.  The **exit code** is what
+> CI checks — it must be **0**.  Any message category (C/R/W/E/F) makes the
+> exit code non-zero: 16=convention, 8=refactor, 4=warning, 2=error.  Always
+> verify `echo $?` after running pylint; a non-zero value means CI will fail.
+>
 > ```bash
 > # Step 1 — format (REQUIRED, same command the CI autoformat uses)
 > ruff format scripts/ guiservice/
 >
 > # Step 2 — lint, type-check (scripts/)
+> # pylint MUST exit 0 — any C/R/W message (even with 10.00/10 score) = CI failure
 > cd scripts
 > ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 > pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
@@ -583,7 +595,7 @@ ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt
 # Lint (ruff)
 ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
-# Lint (pylint — must pass at 10.00/10)
+# Lint (pylint — exit code must be 0; any C/R/W message = CI failure even with 10.00/10 score)
 pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt sddp_monitor ts2gtopt
 
 # Type check

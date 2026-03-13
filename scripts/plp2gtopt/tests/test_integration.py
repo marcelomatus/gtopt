@@ -1,4 +1,4 @@
-"""Integration tests for plp2gtopt using the plp_dat_ex sample case."""
+"""Integration tests for plp2gtopt using the plp_dat_ex and plp_case_2y sample cases."""
 
 import json
 import sys
@@ -21,6 +21,8 @@ _PLPMin2Bus = _CASES_DIR / "plp_min_2bus"
 _PLPMinBess = _CASES_DIR / "plp_min_bess"
 _PLPMinBattery = _CASES_DIR / "plp_min_battery"
 _PLPMinEss = _CASES_DIR / "plp_min_ess"
+# plp_case_2y — 2-year (51-stage) full PLP case with plpidsim/idap2/idape
+_PLPCase2Y = _CASES_DIR / "plp_case_2y"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1229,7 +1231,7 @@ def test_min_hydro_ms_num_apertures(tmp_path):
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures")
     opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
-    opts["num_apertures"] = 2
+    opts["num_apertures"] = "2"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -1240,15 +1242,18 @@ def test_min_hydro_ms_num_apertures(tmp_path):
 
 @pytest.mark.integration
 def test_min_hydro_ms_num_apertures_all(tmp_path):
-    """plp_min_hydro_ms + --num-apertures -1: use all scenarios as apertures."""
+    """plp_min_hydro_ms + --num-apertures all/-1: auto-detect (no explicit count set)."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures_all")
     opts["hydrologies"] = "1,2"
     opts["solver_type"] = "sddp"
-    opts["num_apertures"] = -1
+    # "all" (or legacy -1) means auto-detect from aperture files.
+    # plp_min_hydro_ms has no plpidap2.dat, so no sddp_num_apertures is set.
+    opts["num_apertures"] = "-1"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    assert data["options"]["sddp_options"]["sddp_num_apertures"] == -1
+    sddp = data["options"].get("sddp_options", {})
+    assert "sddp_num_apertures" not in sddp
 
 
 @pytest.mark.integration
@@ -1262,3 +1267,251 @@ def test_min_hydro_ms_no_apertures_by_default(tmp_path):
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
     sddp = data["options"].get("sddp_options", {})
     assert "sddp_num_apertures" not in sddp
+
+
+# ---------------------------------------------------------------------------
+# plp_case_2y — full 2-year (51-stage) reference case
+# ---------------------------------------------------------------------------
+# plp_case_2y uses plpidsim.dat (16 simulations → hydros 51-66) and
+# plpidap2.dat (16 apertures per stage, with hydros 1 and 2 appearing in
+# the last 3 stages, wrapping around the 66-hydrology plpaflce.dat).
+# This is the reference case for testing idsim-based scenario mapping,
+# stage-indexed aperture handling, and the aperture Afluent writer.
+# ---------------------------------------------------------------------------
+
+
+def _make_opts_2y(tmp_path: Path, case_name: str = "gtopt_case_2y") -> dict:
+    """Build conversion options for the plp_case_2y reference case."""
+    out_dir = tmp_path / case_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "input_dir": _PLPCase2Y,
+        "output_dir": out_dir,
+        "output_file": out_dir.parent / f"{case_name}.json",
+        "hydrologies": "all",
+        "num_apertures": "all",
+        "last_stage": -1,
+        "last_time": -1,
+        "compression": "gzip",
+        "probability_factors": None,
+        "discount_rate": 0.0,
+        "management_factor": 0.0,
+    }
+
+
+@pytest.mark.integration
+def test_plp_case_2y_parse():
+    """plp_case_2y: parsers including idsim, idap2, and idape load correctly."""
+    parser = PLPParser({"input_dir": _PLPCase2Y})
+    parser.parse_all()
+
+    # Simulation scenario mapping
+    idsim = parser.parsed_data.get("idsim_parser")
+    assert idsim is not None, "plpidsim.dat should be parsed"
+    assert idsim.num_simulations == 16
+    assert idsim.num_stages == 51
+    # Simulation 1 (0-based 0) at stage 1 → hydrology 51
+    assert idsim.get_index(0, 1) == 51
+    # Simulation 16 (0-based 15) at stage 1 → hydrology 66
+    assert idsim.get_index(15, 1) == 66
+
+    # Aperture definitions (stage-indexed, simulation-independent)
+    idap2 = parser.parsed_data.get("idap2_parser")
+    assert idap2 is not None, "plpidap2.dat should be parsed"
+    assert idap2.num_stages == 51
+    # Stage 1: 16 apertures in range 51-66
+    stage1_aps = idap2.get_apertures(1)
+    assert len(stage1_aps) == 16
+    assert set(stage1_aps) == set(range(51, 67))
+    # Stages 49-51: apertures wrap around to include hydros 1 and 2
+    stage51_aps = idap2.get_apertures(51)
+    assert 1 in stage51_aps or 2 in stage51_aps, (
+        "Late stages should reference hydros 1 and 2"
+    )
+
+    # Per-simulation apertures
+    idape = parser.parsed_data.get("idape_parser")
+    assert idape is not None, "plpidape.dat should be parsed"
+    assert idape.num_simulations == 16
+
+    # Affluent data
+    aflce = parser.parsed_data.get("aflce_parser")
+    assert aflce is not None
+    assert aflce.items[0]["num_hydrologies"] == 66
+    assert len(aflce.items) == 167
+
+
+@pytest.mark.integration
+def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
+    """plp_case_2y: -y all -a all -s 1 produces 16 scenarios using hydros 51-66.
+
+    This is the canonical reference test:
+      plp2gtopt --num-apertures all -y all -s 1 -i plp_case_2y -o gtopt_case_2y
+
+    With plpidsim.dat present, '-y all' expands to all 16 simulations and
+    maps each to its actual hydrology column (51-66).  '-s 1' limits to
+    stage 1 only.  For stage 1, all aperture hydros (51-66) are already in
+    the forward set, so no extra Afluent files are needed.
+    """
+    opts = _make_opts_2y(tmp_path)
+    opts["last_stage"] = 1
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sim = data["simulation"]
+
+    # 16 forward scenarios (one per simulation from plpidsim.dat)
+    assert len(sim["scenario_array"]) == 16
+
+    # Hydrology indices are 0-based: simulations map to hydros 51-66
+    # (Fortran 1-based 51-66 → Python 0-based 50-65)
+    hydro_indices = {s["hydrology"] for s in sim["scenario_array"]}
+    assert hydro_indices == set(range(50, 66)), (
+        "Expected 0-based hydrology indices 50-65 (1-based 51-66 from idsim)"
+    )
+
+    # UIDs are sequential 1-based
+    uids = sorted(s["uid"] for s in sim["scenario_array"])
+    assert uids == list(range(1, 17))
+
+    # Equal probability weights
+    for s in sim["scenario_array"]:
+        assert s["probability_factor"] == pytest.approx(1.0 / 16)
+
+    # Only one stage
+    assert len(sim["stage_array"]) == 1
+    assert sim["stage_array"][0]["uid"] == 1
+
+    # SDDP mode: one phase per stage, one scene per scenario
+    assert len(sim["phase_array"]) == 1
+    assert len(sim["scene_array"]) == 16
+
+    # Aperture array: stage 1 apertures are all in the forward set
+    # → 16 apertures referencing existing scenario UIDs
+    assert "aperture_array" in sim
+    aps = sim["aperture_array"]
+    assert len(aps) == 16
+    source_uids = {a["source_scenario"] for a in aps}
+    # All apertures reference forward scenario UIDs 1-16
+    assert source_uids.issubset(set(range(1, 17))), (
+        "Stage-1 apertures all map to forward scenarios, no extra UIDs expected"
+    )
+
+    # No aperture Afluent directory (all hydros already in forward set)
+    aperture_afluent = Path(opts["output_dir"]) / "apertures" / "Afluent"
+    assert not aperture_afluent.exists(), (
+        "No extra Afluent files needed when all aperture hydros are in forward set"
+    )
+
+    # Main Afluent directory has parquet files for the 16 forward scenarios.
+    # afluent.parquet format: rows = (scenario × block), columns = scenario +
+    # stage + block + one uid:N per hydro-capable central (not per scenario).
+    afluent_dir = Path(opts["output_dir"]) / "Afluent"
+    parquet_files = list(afluent_dir.glob("*.parquet"))
+    assert len(parquet_files) > 0, "Main Afluent/*.parquet files should be written"
+    df = pd.read_parquet(parquet_files[0])
+    # The file must have a 'scenario' column with 16 unique scenario UIDs (1-16)
+    assert "scenario" in df.columns, "afluent.parquet should have a 'scenario' column"
+    unique_scen = sorted(df["scenario"].unique())
+    assert len(unique_scen) == 16, (
+        f"Expected 16 unique scenario values in afluent.parquet, got {len(unique_scen)}"
+    )
+    assert unique_scen == list(range(1, 17)), "Scenario UIDs should be 1-16"
+    # uid:N columns represent hydro-capable centrals (there are many in this case)
+    central_cols = [c for c in df.columns if c.startswith("uid:")]
+    assert len(central_cols) > 0, (
+        "afluent.parquet must have at least one uid:N central column"
+    )
+
+    # sddp_num_apertures auto-set to 16 (one per aperture in aperture_array)
+    sddp = data["options"]["sddp_options"]
+    assert sddp.get("sddp_num_apertures") == 16
+
+
+@pytest.mark.integration
+def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
+    """plp_case_2y: all stages — apertures from stages 28+ include extra hydros.
+
+    According to plpidap2.dat (verified via --info):
+    - Stages  1-27: 16 apertures {51-66}       (all in active forward set)
+    - Stages 28-39: 16 apertures {1, 52-66}    (hydro 1 first appears here)
+    - Stages 40-51: 16 apertures {1-2, 53-66}  (hydro 2 also appears)
+    Union = {1,2,51,52,...,66} = 18 unique hydro classes.
+    Hydros 1 and 2 are NOT in the active forward set (51-66), so extra
+    Afluent parquet files are required in apertures/Afluent/.
+    """
+    opts = _make_opts_2y(tmp_path, "gtopt_case_2y_all")
+    # All 51 stages
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    sim = data["simulation"]
+
+    # 51 stages
+    assert len(sim["stage_array"]) == 51
+
+    # Aperture array: union of all 51 stages = {1, 2, 51, 52, ..., 66} = 18 hydros
+    aps = sim.get("aperture_array", [])
+    assert len(aps) == 18, (
+        f"Expected 18 apertures (union of all 51 stages), got {len(aps)}"
+    )
+
+    # Extra hydros (Fortran 1-based 1 and 2) need their own Afluent files
+    aperture_afluent = Path(opts["output_dir"]) / "apertures" / "Afluent"
+    assert aperture_afluent.exists(), "apertures/Afluent/ should be created"
+
+    pfiles = list(aperture_afluent.glob("*.parquet"))
+    assert len(pfiles) > 0, "Extra hydro Afluent parquet files should be written"
+
+    # Each file must have uid:1 and uid:2 (extra hydro scenario UIDs = 1-based hydro index)
+    df = pd.read_parquet(pfiles[0])
+    assert "uid:1" in df.columns, "Column uid:1 (Fortran hydro 1) missing"
+    assert "uid:2" in df.columns, "Column uid:2 (Fortran hydro 2) missing"
+    assert "stage" in df.columns
+    assert "block" in df.columns
+    assert np.isfinite(df["uid:1"].values).all()
+    assert np.isfinite(df["uid:2"].values).all()
+
+    # sddp_num_apertures auto-set to 18 (total unique apertures)
+    sddp = data["options"]["sddp_options"]
+    assert sddp.get("sddp_num_apertures") == 18
+
+    # Forward afluent files for the 16 scenarios (hydros 51-66)
+    afluent_dir = Path(opts["output_dir"]) / "Afluent"
+    assert afluent_dir.exists()
+    fwd_files = list(afluent_dir.glob("*.parquet"))
+    assert len(fwd_files) > 0
+
+
+@pytest.mark.integration
+def test_plp_case_2y_info(capsys):
+    """plp_case_2y --info: displays simulation mapping and aperture structure."""
+    from plp2gtopt.info_display import display_plp_info
+
+    display_plp_info({"input_dir": _PLPCase2Y, "last_stage": -1})
+    out = capsys.readouterr().out
+
+    # System section
+    assert "SYSTEM" in out
+    assert "236" in out  # 236 buses
+
+    # Hydrology section
+    assert "66" in out  # 66 hydrology classes
+    assert "167" in out  # 167 centrals with flow data
+
+    # Simulation mapping
+    assert "plpidsim.dat" in out
+    assert "16 simulations" in out
+    assert "Hydrology  51" in out  # Simulation 1 → Hydrology 51
+    assert "Hydrology  66" in out  # Simulation 16 → Hydrology 66
+    assert "51-66" in out  # Active hydrology class range
+
+    # Aperture section
+    assert "plpidap2.dat" in out
+    assert "18 total" in out  # 18 unique aperture hydros across all stages
+    assert "1-2" in out  # Extra hydros 1 and 2
+
+    # Suggested command
+    assert "plp2gtopt" in out
+    assert "-y all" in out
+    assert "-a all" in out

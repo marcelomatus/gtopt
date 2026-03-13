@@ -73,7 +73,22 @@ class GTOptWriter:
         sddp_opts: dict = {"sddp_solver_type": solver_type}
         num_apertures = options.get("num_apertures")
         if num_apertures is not None:
-            sddp_opts["sddp_num_apertures"] = int(num_apertures)
+            spec_str = str(num_apertures).strip().lower()
+            # "all", empty, or "-1" → auto-detect in process_apertures; don't set here
+            if spec_str not in ("all", "", "-1"):
+                try:
+                    # Try as a plain integer first (handles "0", "5", etc.)
+                    n = int(spec_str)
+                    if n >= 0:
+                        sddp_opts["sddp_num_apertures"] = n
+                    # negative (e.g. -2) treated as "all" → not set
+                except ValueError:
+                    # Not a plain integer → treat as range or comma list
+                    try:
+                        indices = parse_index_range(num_apertures)
+                        sddp_opts["sddp_num_apertures"] = len(indices)
+                    except (ValueError, TypeError):
+                        pass  # Ignore invalid spec; process_apertures auto-detects
 
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
@@ -184,31 +199,66 @@ class GTOptWriter:
     def process_scenarios(self, options):
         """Process scenario data to include block and stage information.
 
-        Hydrology indices in the ``hydrologies`` option follow the Fortran
-        (1-based) convention: ``"1"`` means the first hydrology column in the
-        PLP data file.  Internally, each hydrology is converted to a 0-based
-        array index (used by :class:`~.aflce_writer.AflceWriter`).
+        **Hydrology index convention (Fortran 1-based)**
 
-        All PLP scenarios are considered equally probable unless explicit
-        ``probability_factors`` are provided.  When no explicit weights are
-        given, each exported scenario receives probability ``1/N`` where *N*
-        is the number of exported hydrologies.  When ``probability_factors``
-        is provided, those explicit weights are used instead.
+        The ``-y`` / ``hydrologies`` option uses **raw 1-based hydrology class
+        indices** — the column numbers in ``plpaflce.dat``.  For example,
+        ``-y 51,52`` selects hydrology classes 51 and 52 directly from the
+        plpaflce flow matrix, regardless of what ``plpidsim.dat`` maps to.
 
-        For ``solver_type='sddp'`` (default), each PLP hydrology becomes its
-        own gtopt scenario **and** its own gtopt scene (one-to-one mapping),
-        so the SDDP solver processes each scenario independently.
+        The special value ``"all"`` selects the active hydrology classes:
 
-        For ``solver_type='monolithic'`` (or ``'mono'``), all PLP hydrologies
-        map to individual gtopt scenarios but are grouped into a **single**
-        gtopt scene so the monolithic solver processes them together.
+        * When ``plpidsim.dat`` is present: the union of all hydrology classes
+          referenced by any simulation (using the stage-1 mapping), preserving
+          the order in which simulations are listed in the file.
+        * When ``plpidsim.dat`` is absent: all hydrology columns (1..N_hydro)
+          from ``plpaflce.dat``.
+
+        Use ``plp2gtopt --info -i <input_dir>`` to see which hydrology classes
+        are active and what the idsim mapping looks like.
+
+        **Internal representation**
+
+        The 0-based hydrology index (``hydro_1based - 1``) is stored in each
+        scenario's ``"hydrology"`` field so that
+        :class:`~.aflce_writer.AflceWriter` can look up the correct column
+        from the flow matrix.  The C++ solver does not use this field.
         """
-        # Support range syntax like "1,2,5-10,11"; default "1" = first hydrology
-        hydro_spec = options.get("hydrologies", "1")
-        hydrologies_1based = parse_index_range(hydro_spec)
-        num_scenarios = len(hydrologies_1based)
+        # ---------------------------------------------------------------
+        # Resolve the '-y' / 'hydrologies' spec to 1-based hydro indices
+        # ---------------------------------------------------------------
+        idsim_parser = self.parser.parsed_data.get("idsim_parser")
+        hydro_spec = options.get("hydrologies", "all")
+        spec = (hydro_spec or "all").strip().lower()
 
-        # Always use 1/N equal probability unless explicitly overridden.
+        if spec == "all":
+            if idsim_parser is not None and idsim_parser.num_simulations > 0:
+                # Collect the active hydrology classes from plpidsim.dat in
+                # simulation order (stage 1).  get_index: 0-based sim, 1-based stage.
+                hydro_indices_1based: list = []
+                seen: set = set()
+                for sim_idx in range(idsim_parser.num_simulations):
+                    h = idsim_parser.get_index(sim_idx, 1)
+                    if h is not None and h not in seen:
+                        seen.add(h)
+                        hydro_indices_1based.append(h)
+            else:
+                # No idsim → all raw hydrology columns in plpaflce.dat
+                aflce = self.parser.parsed_data.get("aflce_parser")
+                if aflce and aflce.items:
+                    num_hydro = aflce.items[0].get("num_hydrologies", 1)
+                else:
+                    num_hydro = 1
+                hydro_indices_1based = list(range(1, num_hydro + 1))
+        else:
+            # Explicit 1-based raw hydrology column indices (Fortran convention).
+            # "-y 55,56" = hydrology classes 55 and 56 from plpaflce.dat.
+            # No idsim remapping: the user specifies the hydrology numbers directly.
+            hydro_indices_1based = parse_index_range(hydro_spec)
+
+        num_scenarios = len(hydro_indices_1based)
+
+        # Equal probability unless explicitly overridden
         probability_factors = options.get("probability_factors", None)
         if probability_factors is None or len(probability_factors) == 0:
             probability_factors = [1.0 / num_scenarios] * num_scenarios
@@ -219,10 +269,10 @@ class GTOptWriter:
 
         scenarios = []
         for i, (hydro_1based, factor) in enumerate(
-            zip(hydrologies_1based, probability_factors)
+            zip(hydro_indices_1based, probability_factors)
         ):
-            uid = i + 1  # Unique 1-based UID per PLP scenario
-            # Convert Fortran 1-based hydrology index to 0-based internal index
+            uid = i + 1  # 1-based UID
+            # Store 0-based index for plpaflce.dat column lookup
             hydro_0based = hydro_1based - 1
             scenarios.append(
                 {
@@ -236,7 +286,6 @@ class GTOptWriter:
         solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
 
         if solver_type == "monolithic":
-            # One scene with all scenarios grouped together
             scenes = [
                 {
                     "uid": 1,
@@ -245,7 +294,6 @@ class GTOptWriter:
                 }
             ]
         else:
-            # SDDP: one scene per scenario (first_scenario = 0-based index)
             scenes = [
                 {
                     "uid": i + 1,
@@ -303,16 +351,21 @@ class GTOptWriter:
 
         self.planning["simulation"]["aperture_array"] = aperture_array
 
-        # Determine which aperture hydros are NOT in the forward set
+        # Determine which aperture hydros are NOT in the forward set.
+        # Only consider stages that are actually included in the output
+        # (num_stages); plpidap2/plpidape are stage-indexed and the late
+        # stages may reference hydros outside the forward set.
         aperture_hydros_0based: list = []
         if idap2_parser is not None:
             for entry in idap2_parser.items:
-                for h in entry["indices"]:
-                    aperture_hydros_0based.append(h - 1)
+                if 1 <= entry["stage"] <= num_stages:
+                    for h in entry["indices"]:
+                        aperture_hydros_0based.append(h - 1)
         if idape_parser is not None:
             for entry in idape_parser.items:
-                for h in entry["indices"]:
-                    aperture_hydros_0based.append(h - 1)
+                if 1 <= entry["stage"] <= num_stages:
+                    for h in entry["indices"]:
+                        aperture_hydros_0based.append(h - 1)
 
         extra_hydros = set(aperture_hydros_0based) - forward_hydros
 
