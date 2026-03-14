@@ -1598,3 +1598,83 @@ def test_name_to_uid_resolution_end_to_end(tmp_path):
     )
     assert "uid:1" in prof.column_names, "gp_solar not resolved to uid:1"
     assert "gp_solar" not in prof.column_names, "element name 'gp_solar' still present"
+
+
+# ---------------------------------------------------------------------------
+# Tests for --validate and --ignore-errors flags
+# ---------------------------------------------------------------------------
+
+
+def _make_args(xlsx, tmp_path, **kwargs):
+    """Return a minimal argparse.Namespace for _igtopt_run."""
+    json_out = tmp_path / (xlsx.stem + ".json")
+    input_dir = tmp_path / xlsx.stem
+    defaults = {
+        "filenames": [str(xlsx)],
+        "json_file": json_out,
+        "input_directory": input_dir,
+        "input_format": "parquet",
+        "name": xlsx.stem,
+        "compression": "gzip",
+        "skip_nulls": True,
+        "parse_unexpected_sheets": False,
+        "pretty": False,
+        "zip": False,
+        "validate": False,
+        "ignore_errors": False,
+    }
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+@pytest.mark.skipif(not _C0_XLSX.exists(), reason="igtopt_c0 case not present")
+def test_validate_mode_passes_on_good_workbook(tmp_path):
+    """--validate on a valid workbook returns 0 and writes no output."""
+    args = _make_args(_C0_XLSX, tmp_path, validate=True)
+    rc = _igtopt_run(args)
+    assert rc == 0, "--validate should return 0 for a valid workbook"
+    assert not args.json_file.exists(), "--validate must not write any output file"
+
+
+def test_validate_mode_fails_on_missing_file(tmp_path):
+    """--validate on a non-existent workbook returns 1."""
+    missing = tmp_path / "does_not_exist.xlsx"
+    args = _make_args(missing, tmp_path, validate=True)
+    rc = _igtopt_run(args)
+    assert rc == 1, "--validate should return 1 when the file is missing"
+
+
+def test_ignore_errors_skips_missing_file(tmp_path, caplog):
+    """--ignore-errors does not abort when a file is missing; returns 0."""
+    missing = tmp_path / "does_not_exist.xlsx"
+    with caplog.at_level(logging.ERROR):
+        args = _make_args(missing, tmp_path, ignore_errors=True)
+        rc = _igtopt_run(args)
+    # Should complete (no crash) even with a missing file
+    assert rc == 0
+    assert any("not found" in msg.lower() for msg in caplog.messages)
+
+
+@pytest.mark.skipif(not _C0_XLSX.exists(), reason="igtopt_c0 case not present")
+def test_unexpected_sheet_warning_message(tmp_path, caplog):
+    """An unexpected sheet triggers a warning that lists expected sheet names."""
+    import openpyxl  # pylint: disable=import-outside-toplevel
+
+    # Create a workbook with one unexpected sheet
+    wb_path = tmp_path / "unexpected.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "not_a_known_sheet"
+    ws.append(["uid", "name"])
+    ws.append([1, "foo"])
+    wb.save(str(wb_path))
+
+    with caplog.at_level(logging.WARNING):
+        args = _make_args(wb_path, tmp_path)
+        _igtopt_run(args)
+
+    assert any(
+        "not_a_known_sheet" in msg and "Known sheets" in msg for msg in caplog.messages
+    ), (
+        "Expected a warning message that names the unexpected sheet and lists known sheets"
+    )

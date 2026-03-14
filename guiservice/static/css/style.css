@@ -676,9 +676,37 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .topo-header h2 { margin: 0; }
+
+/* Sub-tab buttons inside the topology header */
+.topo-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.topo-subtab {
+  padding: 5px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.topo-subtab:hover { background: var(--bg); color: var(--text); }
+.topo-subtab.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* Sub-panel wrapper */
+.topo-subpanel { margin-top: 4px; }
+
 .topo-controls {
   display: flex;
   flex-wrap: wrap;
