@@ -78,7 +78,8 @@ class TestPlanosParser:
 
         cut = parser.cuts[0]
         assert cut["name"] == "bc_1_1"
-        assert cut["scenario"] == 1
+        assert cut["iteration"] == 1
+        assert cut["scene"] == 0  # PLP ISimul=1 → 0-based scene=0
         # PLP stores negative intercept: rhs = -LDPhiPrv = -(-1000.5) = 1000.5
         assert cut["rhs"] == pytest.approx(1000.5)
         assert cut["coefficients"]["Rapel"] == pytest.approx(0.25)
@@ -91,8 +92,20 @@ class TestPlanosParser:
 
         cut = parser.cuts[1]
         assert cut["name"] == "bc_1_2"
-        assert cut["scenario"] == 2
+        assert cut["iteration"] == 1
+        assert cut["scene"] == 1  # PLP ISimul=2 → 0-based scene=1
         assert cut["rhs"] == pytest.approx(2000.3)
+
+    def test_parse_iteration_preserved(self, planos_files):
+        """The iteration (IPDNumIte) field should be preserved per cut."""
+        plaem1, plaem2 = planos_files
+        parser = PlanosParser(plaem1, plaem2)
+        parser.parse()
+
+        # Cut 0 and 1 are from iteration 1, cut 2 from iteration 2
+        assert parser.cuts[0]["iteration"] == 1
+        assert parser.cuts[1]["iteration"] == 1
+        assert parser.cuts[2]["iteration"] == 2
 
     def test_stage_filter(self, planos_files):
         """Cuts not matching the boundary stage should be excluded."""
@@ -155,7 +168,14 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
-        assert header == ["name", "scenario", "rhs", "Rapel", "Colbun"]
+        assert header == [
+            "name",
+            "iteration",
+            "scene",
+            "rhs",
+            "Rapel",
+            "Colbun",
+        ]
         assert len(rows) == 3
 
     def test_csv_values(self, planos_files, tmp_path):
@@ -172,7 +192,8 @@ class TestPlanosWriter:
             row = next(reader)
 
         assert row["name"] == "bc_1_1"
-        assert row["scenario"] == "1"
+        assert row["iteration"] == "1"
+        assert row["scene"] == "0"  # PLP ISimul=1 → 0-based scene=0
         assert float(row["rhs"]) == pytest.approx(1000.5)
         assert float(row["Rapel"]) == pytest.approx(0.25)
         assert float(row["Colbun"]) == pytest.approx(0.75)
@@ -187,5 +208,5 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
-        assert header == ["name", "scenario", "rhs", "R1", "R2"]
+        assert header == ["name", "iteration", "scene", "rhs", "R1", "R2"]
         assert not rows

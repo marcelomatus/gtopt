@@ -5,13 +5,14 @@ CSV format understood by the SDDP solver's ``load_boundary_cuts()`` method.
 
 The CSV format is::
 
-    name,scenario,rhs,Reservoir1,Reservoir2,...
-    bc_1_1,1,-5000.0,0.25,0.75,...
-    bc_1_2,2,-4800.0,0.30,0.60,...
+    name,iteration,scene,rhs,Reservoir1,Reservoir2,...
+    bc_1_1,1,0,-5000.0,0.25,0.75,...
+    bc_1_2,1,1,-4800.0,0.30,0.60,...
 
 Column headers after ``rhs`` are the state-variable names (reservoirs or
-junctions) that the solver maps to LP columns.  Coefficients represent
-the gradient of the future-cost function with respect to each
+junctions) that the solver maps to LP columns.  The ``scene`` column uses
+0-based indexing (converted from PLP's 1-based ISimul).  Coefficients
+represent the gradient of the future-cost function with respect to each
 state variable (reservoir volume).
 """
 
@@ -48,7 +49,7 @@ def write_boundary_cuts_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["name", "scenario", "rhs"] + list(reservoir_names)
+    header = ["name", "iteration", "scene", "rhs"] + list(reservoir_names)
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
@@ -57,7 +58,8 @@ def write_boundary_cuts_csv(
         for cut in cuts:
             row = [
                 cut["name"],
-                cut["scenario"],
+                cut.get("iteration", 0),
+                cut["scene"],
                 f"{cut['rhs']:.10g}",
             ]
             coeffs = cut.get("coefficients", {})

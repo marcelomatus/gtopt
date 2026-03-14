@@ -113,13 +113,13 @@ struct SddpOptions
    *   α ≥ rhs + Σ_i  coeff_i · state_var_i
    *
    * The CSV header row names the state variables (reservoir / battery);
-   * subsequent rows provide the cut name, scenario index, RHS, and
-   * gradient coefficients.
+   * subsequent rows provide the cut name, iteration, scene index (0-based),
+   * RHS, and gradient coefficients.
    *
    * Format:
    * ```
-   * name,scenario,rhs,Reservoir1,Reservoir2,...
-   * cut_001,0,-5000.0,0.25,0.75,...
+   * name,iteration,scene,rhs,Reservoir1,Reservoir2,...
+   * cut_001,1,0,-5000.0,0.25,0.75,...
    * ```
    *
    * The solver maps column headers to the LP state-variable columns in the
@@ -127,6 +127,22 @@ struct SddpOptions
    * cost variable α.  If empty, no boundary cuts are loaded.
    */
   OptName sddp_boundary_cuts_file {};
+
+  /** @brief How boundary cuts are loaded: `"noload"`, `"separated"` (default),
+   * or `"combined"`.
+   *
+   * - `"noload"` — do not load boundary cuts even if a file is given.
+   * - `"separated"` — load cuts per scene: each cut is assigned to the
+   *   scene matching its `scenario` column (1-based ISimul in PLP).
+   * - `"combined"` — load all cuts into all scenes (broadcast).
+   */
+  OptName sddp_boundary_cuts_mode {};
+
+  /** @brief Maximum number of SDDP iterations to load from the boundary
+   * cuts file.  Only cuts from the last N iterations (by `iteration`
+   * column, i.e. PLP's IPDNumIte) are loaded.  0 = load all (default).
+   */
+  OptInt sddp_boundary_max_iterations {};
 
   void merge(SddpOptions&& opts)
   {
@@ -147,6 +163,8 @@ struct SddpOptions
     merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
     merge_opt(sddp_aperture_directory, std::move(opts.sddp_aperture_directory));
     merge_opt(sddp_boundary_cuts_file, std::move(opts.sddp_boundary_cuts_file));
+    merge_opt(sddp_boundary_cuts_mode, std::move(opts.sddp_boundary_cuts_mode));
+    merge_opt(sddp_boundary_max_iterations, opts.sddp_boundary_max_iterations);
 
     auto _ = std::move(opts);
   }
