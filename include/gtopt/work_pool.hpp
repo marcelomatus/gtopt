@@ -25,19 +25,6 @@
  * To obtain the reverse ordering (larger key = higher priority), instantiate
  * the pool with `KeyCompare = std::greater<Key>`.
  *
- * ## SDDP task key
- *
- * For the SDDP solver, the key type is `SDDPTaskKey` (a 4-tuple):
- *   `(iteration_index, is_backward, phase_index, is_nonlp)`
- * where:
- *  - `is_backward`: 0 = forward pass, 1 = backward pass
- *  - `is_nonlp`:    0 = LP solve / resolve call, 1 = other (e.g. write_lp)
- *
- * The default `std::less<SDDPTaskKey>` lexicographic comparison gives:
- *  - Lower iteration → higher priority
- *  - Forward pass (0) → higher priority than backward pass (1)
- *  - Lower phase index → higher priority
- *  - LP solve (0) → higher priority than non-LP (1)
  */
 
 #pragma once
@@ -57,7 +44,6 @@
 #include <string>
 #include <system_error>
 #include <thread>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -130,28 +116,6 @@ struct BasicTaskRequirements
 /// Backward-compatible alias: `TaskRequirements` is
 /// `BasicTaskRequirements<int64_t>`.
 using TaskRequirements = BasicTaskRequirements<>;
-
-/// @brief SDDP solver task priority key.
-///
-/// A 4-tuple `(iteration_index, is_backward, phase_index, is_nonlp)`:
-///  - `iteration_index`: SDDP iteration number (0, 1, …)
-///  - `is_backward`:     0 = forward pass, 1 = backward pass
-///  - `phase_index`:     phase within the iteration (0, 1, …)
-///  - `is_nonlp`:        0 = LP solve/resolve, 1 = other (e.g. write_lp)
-///
-/// With the default `std::less<SDDPTaskKey>` comparator, the tuple is
-/// compared lexicographically: lower iteration → lower `is_backward` →
-/// lower phase → lower `is_nonlp` → higher execution priority.
-using SDDPTaskKey = std::tuple<int, int, int, int>;
-
-/// @brief A named constant for the `is_nonlp` field of `SDDPTaskKey`.
-/// LP solve/resolve calls use 0; all other tasks (e.g. write_lp) use 1.
-inline constexpr int kSDDPKeyIsLP = 0;
-inline constexpr int kSDDPKeyIsNonLP = 1;
-
-/// @brief A named constant for the `is_backward` field of `SDDPTaskKey`.
-inline constexpr int kSDDPKeyForward = 0;
-inline constexpr int kSDDPKeyBackward = 1;
 
 /// @brief Generic task wrapper with type-erased key type.
 ///
@@ -602,18 +566,6 @@ class AdaptiveWorkPool final : public BasicWorkPool<>
 {
 public:
   using BasicWorkPool::BasicWorkPool;
-};
-
-/// @brief Work pool specialised for the SDDP solver with tuple priority key.
-///
-/// Uses `SDDPTaskKey = std::tuple<int,int,int,int>` as the secondary sort
-/// key with the default `std::less<SDDPTaskKey>` comparator (lexicographic).
-/// A concrete derived class so that `class SDDPWorkPool;` can be forward-
-/// declared in headers that only need the pointer type.
-class SDDPWorkPool final : public BasicWorkPool<SDDPTaskKey>
-{
-public:
-  using BasicWorkPool<SDDPTaskKey>::BasicWorkPool;
 };
 
 }  // namespace gtopt

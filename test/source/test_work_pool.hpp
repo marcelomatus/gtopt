@@ -1,7 +1,6 @@
 #include <chrono>
 #include <random>
 #include <thread>
-#include <tuple>
 
 #include <doctest/doctest.h>
 #include <gtopt/cpu_monitor.hpp>
@@ -29,26 +28,15 @@ TEST_CASE("BasicTaskRequirements template key")  // NOLINT
     CHECK(req.priority_key == 42);
   }
 
-  SUBCASE("SDDPTaskKey uses tuple")
+  SUBCASE("custom string key type")
   {
-    static_assert(std::same_as<SDDPTaskKey, std::tuple<int, int, int, int>>);
-    BasicTaskRequirements<SDDPTaskKey> req {
-        .priority = TaskPriority::Medium,
-        .priority_key = SDDPTaskKey {1, 0, 2, 0},
+    const BasicTaskRequirements<std::string> req {
+        .priority = TaskPriority::High,
+        .priority_key = "my_task",
         .name = {},
     };
-    CHECK(std::get<0>(req.priority_key) == 1);
-    CHECK(std::get<1>(req.priority_key) == kSDDPKeyForward);
-    CHECK(std::get<2>(req.priority_key) == 2);
-    CHECK(std::get<3>(req.priority_key) == kSDDPKeyIsLP);
-  }
-
-  SUBCASE("kSDDPKey constants have correct values")
-  {
-    CHECK(kSDDPKeyIsLP == 0);
-    CHECK(kSDDPKeyIsNonLP == 1);
-    CHECK(kSDDPKeyForward == 0);
-    CHECK(kSDDPKeyBackward == 1);
+    CHECK(req.priority_key == "my_task");
+    CHECK(req.priority == TaskPriority::High);
   }
 }
 
@@ -94,56 +82,6 @@ TEST_CASE(
     // High priority always beats medium, regardless of key value
     CHECK(medium < high);  // medium has lower priority
     CHECK_FALSE(high < medium);
-  }
-
-  SUBCASE("SDDPTaskKey tuple comparison is lexicographic")
-  {
-    using STask = Task<void, SDDPTaskKey, std::less<>>;
-    using SReq = BasicTaskRequirements<SDDPTaskKey>;
-
-    // (0,0,0,0) < (1,0,0,0): iteration 0 has higher priority than iteration 1
-    STask iter0 {[] {},
-                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
-    STask iter1 {[] {},
-                 SReq {.priority_key = SDDPTaskKey {1, 0, 0, 0}, .name = {}}};
-    CHECK_FALSE(iter0 < iter1);  // iter0 has higher priority
-    CHECK(iter1 < iter0);  // iter1 has lower priority
-
-    // (0,0,0,0) < (0,1,0,0): forward (0) has higher priority than backward (1)
-    STask fwd {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
-                   .name = {},
-               }};
-    STask bwd {[] {},
-               SReq {
-                   .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
-                   .name = {},
-               }};
-    CHECK_FALSE(fwd < bwd);  // forward has higher priority
-    CHECK(bwd < fwd);  // backward has lower priority
-
-    // (0,0,0,0) < (0,0,0,1): LP solve (0) has higher priority than non-LP (1)
-    STask lp {[] {},
-              SReq {
-                  .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP},
-                  .name = {},
-              }};
-    STask nonlp {[] {},
-                 SReq {
-                     .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
-                     .name = {},
-                 }};
-    CHECK_FALSE(lp < nonlp);  // LP has higher priority
-    CHECK(nonlp < lp);  // non-LP has lower priority
-
-    // Phase ordering: phase 0 < phase 2
-    STask ph0 {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
-    STask ph2 {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, 0, 2, 0}, .name = {}}};
-    CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
-    CHECK(ph2 < ph0);  // phase 2 has lower priority
   }
 
   SUBCASE("std::greater semantics: larger key = higher priority")
@@ -220,107 +158,6 @@ TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
   }
 
   pool.shutdown();
-}
-
-TEST_CASE("SDDPWorkPool with SDDPTaskKey tuple")  // NOLINT
-{
-  using namespace std::chrono_literals;
-
-  SUBCASE("SDDPWorkPool key_type is SDDPTaskKey")
-  {
-    static_assert(std::same_as<SDDPWorkPool::key_type, SDDPTaskKey>);
-    static_assert(
-        std::same_as<SDDPWorkPool::key_compare, std::less<SDDPTaskKey>>);
-    CHECK(true);
-  }
-
-  SUBCASE("submit tasks with SDDP tuple key")
-  {
-    SDDPWorkPool pool;
-    pool.start();
-
-    std::atomic<int> result {0};
-    using Req = BasicTaskRequirements<SDDPTaskKey>;
-
-    auto fut = pool.submit(
-        [&] { result = 42; },
-        Req {
-            .priority = TaskPriority::Medium,
-            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
-            .name = {},
-        });
-
-    REQUIRE(fut.has_value());
-    fut->wait();
-    CHECK(result == 42);
-
-    pool.shutdown();
-  }
-
-  SUBCASE("SDDPWorkPool ordering: forward before backward")
-  {
-    SDDPWorkPool pool;
-    pool.start();
-
-    std::vector<int> order;
-    std::mutex mu;
-    std::atomic<int> done {0};
-
-    using Req = BasicTaskRequirements<SDDPTaskKey>;
-
-    auto fwd = pool.submit(
-        [&]
-        {
-          const std::scoped_lock lk {mu};
-          order.push_back(0);  // forward
-          done++;
-        },
-        Req {
-            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
-            .name = {},
-        });
-
-    auto bwd = pool.submit(
-        [&]
-        {
-          const std::scoped_lock lk {mu};
-          order.push_back(1);  // backward
-          done++;
-        },
-        Req {
-            .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, kSDDPKeyIsLP},
-            .name = {},
-        });
-
-    REQUIRE(fwd.has_value());
-    REQUIRE(bwd.has_value());
-    fwd->wait();
-    bwd->wait();
-    CHECK(done == 2);
-
-    pool.shutdown();
-  }
-}
-
-// ─── make_sddp_work_pool factory test ────────────────────────────────────────
-
-TEST_CASE("make_sddp_work_pool factory")  // NOLINT
-{
-  SUBCASE("creates and starts SDDPWorkPool")
-  {
-    auto pool = make_sddp_work_pool(0.5);
-    REQUIRE(pool != nullptr);
-
-    std::atomic<int> result {0};
-    using Req = BasicTaskRequirements<SDDPTaskKey>;
-    auto fut = pool->submit(
-        [&] { result = 99; },
-        Req {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}});
-
-    REQUIRE(fut.has_value());
-    fut->wait();
-    CHECK(result == 99);
-  }
 }
 
 // ─── Backward compatibility tests ────────────────────────────────────────────
