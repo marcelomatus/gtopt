@@ -5,6 +5,11 @@
 > (LP/MIP). This document describes the complete mathematical formulation in
 > detail.
 
+> **Rendering note:** This document uses [GitHub Flavored Markdown LaTeX math](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/writing-mathematical-expressions).
+> View it on GitHub or in a Markdown renderer with math support.
+> In VS Code, install the **Markdown Preview Enhanced** extension and enable `markdown-preview-enhanced.enableEHTML`.
+> All display formulas use `$$...$$` blocks and all inline symbols use `$...$` notation.
+
 ## Table of Contents
 
 1. [Overview](#1-overview)

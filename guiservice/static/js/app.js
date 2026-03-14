@@ -1977,15 +1977,24 @@ var TOPO_POPUP_WIDTH  = 288;
 var TOPO_POPUP_HEIGHT = 280;
 
 /**
+ * Sub-tab button element IDs for each supported subsystem.
+ * Kept as an explicit map to avoid fragile string manipulation.
+ */
+var _TOPO_SUBTAB_BTN_IDS = {
+  electrical: "topoSubtabElectrical",
+  hydro:      "topoSubtabHydro",
+};
+
+/**
  * Switch to a topology sub-tab ("electrical" or "hydro").
  * Shows the correct sub-panel and hides the other.
  * Auto-renders if the network has not been built yet.
  */
 function switchTopoSubtab(subsystem) {
   _activeTopoSubtab = subsystem;
-  ["electrical", "hydro"].forEach(function (s) {
+  Object.keys(_TOPO_SUBTAB_BTN_IDS).forEach(function (s) {
     var panel = document.getElementById("topoSubpanel-" + s);
-    var btn   = document.getElementById("topoSubtab" + s.charAt(0).toUpperCase() + s.slice(1));
+    var btn   = document.getElementById(_TOPO_SUBTAB_BTN_IDS[s]);
     if (panel) panel.style.display = (s === subsystem) ? "" : "none";
     if (btn)   btn.classList.toggle("active", s === subsystem);
   });
