@@ -277,6 +277,54 @@ void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
 
 // ── Forward pass ────────────────────────────────────────────────────────────
 
+// ── SDDP task priority helpers ───────────────────────────────────────────────
+
+namespace
+{
+
+/// Compute the priority key for an LP solve task.
+///
+/// The key is `1_000_000 - iteration*100 - phase*10`.
+///
+/// Coefficients rationale:
+///  - `*100` per iteration: supports up to 10 000 iterations before the key
+///    wraps through zero (far beyond any practical SDDP run).
+///  - `*10`  per phase:     supports up to 10 phases per iteration without
+///    aliasing; the phase contribution is always smaller than the iteration
+///    step so iteration ordering dominates.
+///
+/// Forward and backward passes share the same key formula but differ in
+/// their `TaskPriority` enum level (High vs Medium), ensuring all forward
+/// tasks beat all backward tasks regardless of iteration/phase index.
+///
+/// All priority_key values are positive for typical inputs (iteration < 10 000,
+/// phase < 100 000); collision with other task types (compress) is harmless
+/// since those use `TaskPriority::Low` which is always lower than High/Medium.
+
+TaskRequirements make_forward_lp_task_req(int iteration,
+                                          PhaseIndex phase) noexcept
+{
+  return TaskRequirements {
+      .priority = TaskPriority::High,
+      .priority_key = 1'000'000LL - (static_cast<int64_t>(iteration) * 100LL)
+          - (static_cast<int64_t>(phase) * 10LL),
+      .name = {},
+  };
+}
+
+TaskRequirements make_backward_lp_task_req(int iteration,
+                                           PhaseIndex phase) noexcept
+{
+  return TaskRequirements {
+      .priority = TaskPriority::Medium,
+      .priority_key = 1'000'000LL - (static_cast<int64_t>(iteration) * 100LL)
+          - (static_cast<int64_t>(phase) * 10LL),
+      .name = {},
+  };
+}
+
+}  // namespace
+
 auto SDDPSolver::forward_pass(SceneIndex scene,
                               int iteration,
                               const SolverOptions& opts)
@@ -312,8 +360,9 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
       m_lp_debug_writer_.write(li, dbg_stem);
     }
 
-    // Solve this phase via the work pool
-    auto result = resolve_via_pool(li, opts);
+    // Solve this phase via the work pool with forward-pass priority
+    auto result =
+        resolve_via_pool(li, opts, make_forward_lp_task_req(iteration, phase));
 
     if (!result.has_value() || !li.is_optimal()) {
       // Clone the LP, apply elastic filter, and solve the clone.
@@ -428,7 +477,8 @@ void SDDPSolver::store_cut(SceneIndex scene,
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
 
 auto SDDPSolver::resolve_via_pool(LinearInterface& li,
-                                  const SolverOptions& opts)
+                                  const SolverOptions& opts,
+                                  const TaskRequirements& task_req)
     -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
@@ -436,7 +486,8 @@ auto SDDPSolver::resolve_via_pool(LinearInterface& li,
     return li.resolve(opts);
   }
 
-  auto fut = m_pool_->submit([&li, &opts] { return li.resolve(opts); });
+  auto fut =
+      m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
   if (fut.has_value()) {
     return fut->get();
   }
@@ -448,7 +499,8 @@ auto SDDPSolver::resolve_via_pool(LinearInterface& li,
 // ── Helper: resolve a clone via the work pool ───────────────────────────────
 
 auto SDDPSolver::resolve_clone_via_pool(LinearInterface& clone,
-                                        const SolverOptions& opts)
+                                        const SolverOptions& opts,
+                                        const TaskRequirements& task_req)
     -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
@@ -457,7 +509,8 @@ auto SDDPSolver::resolve_clone_via_pool(LinearInterface& clone,
 
   // Submit resolve to the pool.  The clone reference is safe because we
   // call future.get() synchronously before this scope exits.
-  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); });
+  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
+                             task_req);
   if (fut.has_value()) {
     return fut->get();
   }
@@ -577,7 +630,8 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
         }
 
         // Re-solve the previous phase with updated cuts or bounds
-        auto r3 = resolve_via_pool(prev_li, opts);
+        auto r3 = resolve_via_pool(
+            prev_li, opts, make_backward_lp_task_req(0, PhaseIndex {back_pi}));
         if (r3.has_value() && prev_li.is_optimal()) {
           break;  // Feasibility restored
         }
@@ -602,8 +656,9 @@ auto SDDPSolver::feasibility_backpropagate(SceneIndex scene,
 
 // ── Backward pass with iterative feasibility backpropagation ────────────────
 
-auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
-    -> std::expected<int, Error>
+auto SDDPSolver::backward_pass(SceneIndex scene,
+                               const SolverOptions& opts,
+                               int iteration) -> std::expected<int, Error>
 {
   const auto num_phases =
       static_cast<Index>(planning_lp().simulation().phases().size());
@@ -644,7 +699,8 @@ auto SDDPSolver::backward_pass(SceneIndex scene, const SolverOptions& opts)
     // If adding the cut makes phase k infeasible, build a feasibility
     // cut for phase k-1, continuing all the way to phase 0 if necessary.
     if (pi > 1) {
-      auto r = resolve_via_pool(src_li, opts);
+      auto r = resolve_via_pool(
+          src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
         auto bp_result =
             feasibility_backpropagate(scene, pi - 1, total_cuts, opts);
@@ -1202,10 +1258,14 @@ auto SDDPSolver::run_forward_pass_all_scenes(int iter,
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
 
+  // Forward-pass scene tasks use High priority; lower iteration = higher key.
+  const auto fwd_req = make_forward_lp_task_req(iter, PhaseIndex {0});
+
   for (Index si = 0; si < num_scenes; ++si) {
     const auto scene = SceneIndex {si};
     auto fut = pool.submit([this, scene, iter, &opts]
-                           { return forward_pass(scene, iter, opts); });
+                           { return forward_pass(scene, iter, opts); },
+                           fwd_req);
     futures.push_back(std::move(fut.value()));
   }
 
@@ -1242,7 +1302,8 @@ auto SDDPSolver::run_forward_pass_all_scenes(int iter,
 auto SDDPSolver::run_backward_pass_all_scenes(
     std::span<const uint8_t> scene_feasible,
     AdaptiveWorkPool& pool,
-    const SolverOptions& opts) -> BackwardPassOutcome
+    const SolverOptions& opts,
+    int iter) -> BackwardPassOutcome
 {
   const auto num_scenes =
       static_cast<Index>(planning_lp().simulation().scenes().size());
@@ -1251,16 +1312,23 @@ auto SDDPSolver::run_backward_pass_all_scenes(
   std::vector<std::future<std::expected<int, Error>>> futures;
   futures.reserve(num_scenes);
 
+  // Backward-pass scene tasks use Medium priority; scenes with lower index
+  // get slightly higher priority_key (phase 0 = lowest phase index).
+  const auto bwd_req = make_backward_lp_task_req(iter, PhaseIndex {0});
+
   for (Index si = 0; si < num_scenes; ++si) {
     if (scene_feasible[static_cast<std::size_t>(si)] == 0U) {
       continue;
     }
     const auto scene = SceneIndex {si};
     auto fut = (m_options_.num_apertures != 0)
-        ? pool.submit([this, scene, &opts]
-                      { return backward_pass_with_apertures(scene, opts); })
-        : pool.submit([this, scene, &opts]
-                      { return backward_pass(scene, opts); });
+        ? pool.submit(
+              [this, scene, &opts, iter]
+              { return backward_pass_with_apertures(scene, opts, iter); },
+              bwd_req)
+        : pool.submit([this, scene, &opts, iter]
+                      { return backward_pass(scene, opts, iter); },
+                      bwd_req);
     futures.push_back(std::move(fut.value()));
   }
 
@@ -1514,7 +1582,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     // ── Backward pass ──
     const auto cuts_before = m_stored_cuts_.size();
     auto bwd =
-        run_backward_pass_all_scenes(fwd->scene_feasible, *pool, lp_opts);
+        run_backward_pass_all_scenes(fwd->scene_feasible, *pool, lp_opts, iter);
     ir.cuts_added = bwd.total_cuts;
     ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
     ir.backward_pass_s = bwd.elapsed_s;
@@ -1594,7 +1662,8 @@ auto SDDPPlanningSolver::solve(PlanningLP& planning_lp,
 // ────────────────────────────────────────────────────
 
 auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
-                                              const SolverOptions& opts)
+                                              const SolverOptions& opts,
+                                              int iteration)
     -> std::expected<int, Error>
 {
   const auto& simulation = planning_lp().simulation();
@@ -1612,7 +1681,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
         : std::min(m_options_.num_apertures, num_all_scenarios);
 
     if (n_aps <= 0 || num_all_scenarios == 0) {
-      return backward_pass(scene, opts);
+      return backward_pass(scene, opts, iteration);
     }
 
     // Build synthetic aperture definitions from the first N scenarios
@@ -1639,7 +1708,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     const auto& scene_lp = simulation.scenes()[scene];
     const auto& scene_scenarios = scene_lp.scenarios();
     if (scene_scenarios.empty()) {
-      return backward_pass(scene, opts);
+      return backward_pass(scene, opts, iteration);
     }
     const auto& base_scenario = scene_scenarios.front();
 
@@ -1680,7 +1749,8 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
                    expected_cut->lowb);
 
       if (pi > 1) {
-        auto r = resolve_via_pool(src_li, opts);
+        auto r = resolve_via_pool(
+            src_li, opts, make_backward_lp_task_req(iteration, src_phase));
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
               "SDDP aperture: scene {} phase {} infeasible after adding "
@@ -1703,7 +1773,7 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
   const auto& scene_lp = simulation.scenes()[scene];
   const auto& scene_scenarios = scene_lp.scenarios();
   if (scene_scenarios.empty()) {
-    return backward_pass(scene, opts);
+    return backward_pass(scene, opts, iteration);
   }
   const auto& base_scenario = scene_scenarios.front();
 
@@ -1748,7 +1818,8 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     // Re-solve source phase after adding the cut (same as regular backward
     // pass) to propagate feasibility.
     if (pi > 1) {
-      auto r = resolve_via_pool(src_li, opts);
+      auto r = resolve_via_pool(
+          src_li, opts, make_backward_lp_task_req(iteration, src_phase));
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
             "SDDP aperture: scene {} phase {} infeasible after adding "
@@ -1852,8 +1923,9 @@ auto SDDPSolver::solve_apertures_for_phase(
       }
     }
 
-    // Solve the clone via the work pool
-    auto result = resolve_clone_via_pool(clone, opts);
+    // Solve the clone via the work pool with backward priority
+    auto result = resolve_clone_via_pool(
+        clone, opts, make_backward_lp_task_req(0, phase));
     if (!result.has_value() || !clone.is_optimal()) {
       SPDLOG_DEBUG(
           "SDDP aperture: scene {} phase {} aperture {} infeasible "

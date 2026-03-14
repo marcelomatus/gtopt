@@ -73,6 +73,14 @@ struct TaskRequirements
   int estimated_threads = 1;
   std::chrono::milliseconds estimated_duration {1000};
   TaskPriority priority = TaskPriority::Medium;
+  /// Secondary sort key: higher value = higher priority within the same
+  /// `TaskPriority` level.  When two tasks share the same `TaskPriority`,
+  /// the one with the larger `priority_key` is dequeued first.  The key is
+  /// independent of (and compared after) the `priority` enum, so a task with
+  /// `TaskPriority::Low` and a very large `priority_key` is still scheduled
+  /// after any task with `TaskPriority::Medium` or higher.  There are no
+  /// reserved ranges; any `int64_t` value is valid.
+  int64_t priority_key = 0;
   std::optional<std::string> name;
 };
 
@@ -122,6 +130,9 @@ public:
   {
     if (requirements_.priority != other.requirements_.priority) {
       return requirements_.priority < other.requirements_.priority;
+    }
+    if (requirements_.priority_key != other.requirements_.priority_key) {
+      return requirements_.priority_key < other.requirements_.priority_key;
     }
     return submit_time_ > other.submit_time_;
   }
