@@ -2437,7 +2437,6 @@ auto SDDPSolver::solve_apertures_for_phase(
         // Submit gtopt_check_lp diagnostic as a non-LP task with low
         // priority so it doesn't block LP solves.
         if (m_pool_ != nullptr) {
-          const auto diag_stem = err_stem;
           auto diag_req = BasicTaskRequirements<SDDPTaskKey> {
               .priority_key =
                   SDDPTaskKey {
@@ -2452,13 +2451,13 @@ auto SDDPSolver::solve_apertures_for_phase(
                                   ap_idx),
           };
           [[maybe_unused]] auto diag_fut = m_pool_->submit(
-              [diag_stem]
+              [err_stem]
               {
-                if (const auto diag = run_check_lp_diagnostic(diag_stem);
+                if (const auto diag = run_check_lp_diagnostic(err_stem);
                     !diag.empty())
                 {
                   spdlog::error("LP infeasibility diagnostic for {}.lp:\n{}",
-                                diag_stem,
+                                err_stem,
                                 diag);
                 }
                 return std::expected<int, Error>(0);
