@@ -774,8 +774,7 @@ void SDDPSolver::share_cuts_for_phase(
 
       // Sum all cuts into one accumulated cut
       const auto accumulated = accumulate_benders_cuts(
-          all_cuts,
-          sddp_label("sddp", "accum", "cut", "ph", phase));
+          all_cuts, sddp_label("sddp", "accum", "cut", "ph", phase));
 
       // Add the accumulated cut to all scenes
       for (Index si = 0; si < num_scenes; ++si) {
@@ -799,8 +798,8 @@ void SDDPSolver::share_cuts_for_phase(
       // automatically get weight 0. The weights are then normalised to sum
       // to 1.
       const auto& scenes = planning_lp().simulation().scenes();
-      std::vector<double> scene_probs(
-          static_cast<std::size_t>(num_scenes), 0.0);
+      std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes),
+                                      0.0);
       double total_prob = 0.0;
 
       for (Index si = 0; si < num_scenes; ++si) {
@@ -841,8 +840,8 @@ void SDDPSolver::share_cuts_for_phase(
         if (w <= 0.0) {
           continue;
         }
-        scene_avg_cuts.push_back(average_benders_cut(
-            cuts, sddp_label("sddp", "tmp", "ph", phase)));
+        scene_avg_cuts.push_back(
+            average_benders_cut(cuts, sddp_label("sddp", "tmp", "ph", phase)));
         weights.push_back(w);
       }
 
@@ -1240,8 +1239,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     std::vector<std::optional<ColIndex>> header_col_map;
     header_col_map.reserve(num_state_cols);
 
-    for (int hi = state_var_start; std::cmp_less(hi, headers.size()); ++hi)
-    {
+    for (int hi = state_var_start; std::cmp_less(hi, headers.size()); ++hi) {
       const auto& hdr = headers[hi];
       std::optional<ColIndex> found_col;
 
@@ -1360,10 +1358,9 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
           --it;
           keep_iters.insert(*it);
         }
-        std::erase_if(
-            raw_cuts,
-            [&keep_iters](const RawCut& rc)
-            { return !keep_iters.contains(rc.iteration); });
+        std::erase_if(raw_cuts,
+                      [&keep_iters](const RawCut& rc)
+                      { return !keep_iters.contains(rc.iteration); });
         SPDLOG_INFO(
             "SDDP: boundary cuts filtered to last {} iterations ({} cuts)",
             max_iters,
@@ -2161,19 +2158,18 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
         // Fallback: build a regular Benders cut from the cached
         // forward-pass reduced costs and objective (same as backward_pass).
         const auto& target_state = phase_states[phase];
-        auto fallback_cut = build_benders_cut(
-            src_state.alpha_col,
-            src_state.outgoing_links,
-            target_state.forward_col_cost,
-            target_state.forward_full_obj,
-            sddp_label("sddp",
-                        "fallback-cut",
-                        "sc",
-                        scene,
-                        "ph",
-                        pi,
-                        "n",
-                        total_cuts));
+        auto fallback_cut = build_benders_cut(src_state.alpha_col,
+                                              src_state.outgoing_links,
+                                              target_state.forward_col_cost,
+                                              target_state.forward_full_obj,
+                                              sddp_label("sddp",
+                                                         "fallback-cut",
+                                                         "sc",
+                                                         scene,
+                                                         "ph",
+                                                         pi,
+                                                         "n",
+                                                         total_cuts));
 
         store_cut(scene, src_phase, fallback_cut);
         src_li.add_row(fallback_cut);
@@ -2271,14 +2267,8 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
           src_state.outgoing_links,
           target_state.forward_col_cost,
           target_state.forward_full_obj,
-          sddp_label("sddp",
-                      "fallback-cut",
-                      "sc",
-                      scene,
-                      "ph",
-                      pi,
-                      "n",
-                      total_cuts));
+          sddp_label(
+              "sddp", "fallback-cut", "sc", scene, "ph", pi, "n", total_cuts));
 
       store_cut(scene, src_phase, fallback_cut);
       src_li.add_row(fallback_cut);
@@ -2440,18 +2430,16 @@ auto SDDPSolver::solve_apertures_for_phase(
       // tasks with low priority, submitted to the SDDP work pool.
       if (!m_options_.log_directory.empty()) {
         std::filesystem::create_directories(m_options_.log_directory);
-        const auto err_stem =
-            (std::filesystem::path(m_options_.log_directory)
-             / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
-                           scene_uid(scene),
-                           phase_uid(phase),
-                           ap_idx))
-                .string();
+        const auto err_stem = (std::filesystem::path(m_options_.log_directory)
+                               / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
+                                             scene_uid(scene),
+                                             phase_uid(phase),
+                                             ap_idx))
+                                  .string();
 
         // Write LP file synchronously (clone will be moved out of scope)
         clone.write_lp(err_stem);
-        spdlog::warn(
-            "SDDP aperture: saved infeasible LP to {}.lp", err_stem);
+        spdlog::warn("SDDP aperture: saved infeasible LP to {}.lp", err_stem);
 
         // Submit gtopt_check_lp diagnostic as a non-LP task with low
         // priority so it doesn't block LP solves.
@@ -2459,27 +2447,26 @@ auto SDDPSolver::solve_apertures_for_phase(
           const auto diag_stem = err_stem;
           auto diag_req = SDDPTaskReq {
               .priority_key =
-                  SDDPTaskKey {0,
-                               kSDDPKeyBackward,
-                               static_cast<int>(phase),
-                               kSDDPKeyIsNonLP,},
-              .name = std::format(
-                  "check_lp_aper_sc{}_ph{}_ap{}",
-                  scene_uid(scene),
-                  phase_uid(phase),
-                  ap_idx),
+                  SDDPTaskKey {
+                      0,
+                      kSDDPKeyBackward,
+                      static_cast<int>(phase),
+                      kSDDPKeyIsNonLP,
+                  },
+              .name = std::format("check_lp_aper_sc{}_ph{}_ap{}",
+                                  scene_uid(scene),
+                                  phase_uid(phase),
+                                  ap_idx),
           };
           [[maybe_unused]] auto diag_fut = m_pool_->submit(
               [diag_stem]
               {
-                if (const auto diag =
-                        run_check_lp_diagnostic(diag_stem);
+                if (const auto diag = run_check_lp_diagnostic(diag_stem);
                     !diag.empty())
                 {
-                  spdlog::error(
-                      "LP infeasibility diagnostic for {}.lp:\n{}",
-                      diag_stem,
-                      diag);
+                  spdlog::error("LP infeasibility diagnostic for {}.lp:\n{}",
+                                diag_stem,
+                                diag);
                 }
                 return std::expected<int, Error>(0);
               },
@@ -2490,9 +2477,7 @@ auto SDDPSolver::solve_apertures_for_phase(
               !diag.empty())
           {
             spdlog::error(
-                "LP infeasibility diagnostic for {}.lp:\n{}",
-                err_stem,
-                diag);
+                "LP infeasibility diagnostic for {}.lp:\n{}", err_stem, diag);
           }
         }
       }
