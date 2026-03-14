@@ -11,6 +11,7 @@ from typing import Dict, Any
 from pathlib import Path
 
 from .plp_parser import PLPParser
+from .planos_writer import write_boundary_cuts_csv
 
 from .block_writer import BlockWriter
 from .stage_writer import StageWriter
@@ -607,6 +608,27 @@ class GTOptWriter:
         if "converter_array" in result:
             self.planning["system"]["converter_array"] = result["converter_array"]
 
+    def process_boundary_cuts(self, options):
+        """Write boundary-cut CSV from parsed PLP planos data.
+
+        If the PLP input contained ``plpplaem1.dat`` and ``plpplaem2.dat``,
+        the parsed boundary cuts are written to a CSV file in the output
+        directory and the ``sddp_boundary_cuts_file`` option is set so that
+        the gtopt SDDP solver loads them as the future-cost approximation
+        for the last planning stage (the ``varphi`` boundary condition).
+        """
+        planos = self.parser.parsed_data.get("planos_parser")
+        if planos is None or not planos.cuts:
+            return
+
+        output_dir = Path(options.get("output_dir", ""))
+        csv_path = output_dir / "boundary_cuts.csv"
+        write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
+
+        # Set the option so the C++ solver picks up the file
+        sddp_opts = self.planning["options"].setdefault("sddp_options", {})
+        sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+
     def to_json(self, options=None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
@@ -625,6 +647,7 @@ class GTOptWriter:
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_battery(options)
+        self.process_boundary_cuts(options)
 
         # Organize into planning structure
         name = options.get("name", "plp2gtopt") if options else "plp2gtopt"
