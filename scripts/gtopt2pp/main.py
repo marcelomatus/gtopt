@@ -128,18 +128,14 @@ def main(argv: list[str] | None = None) -> int:
     if len(block_indices) == 1:
         bi = block_indices[0]
         net = convert(case, scenario=args.scenario, block=bi)
-        out = args.output or args.case_file.with_name(
-            f"{args.case_file.stem}_pp.json"
-        )
+        out = args.output or args.case_file.with_name(f"{args.case_file.stem}_pp.json")
         pp.to_json(net, str(out))
         print(f"Written: {out}")
     else:
         stem = args.case_file.stem
         for bi in block_indices:
             net = convert(case, scenario=args.scenario, block=bi)
-            out = args.output or args.case_file.with_name(
-                f"{stem}_pp_b{bi}.json"
-            )
+            out = args.output or args.case_file.with_name(f"{stem}_pp_b{bi}.json")
             pp.to_json(net, str(out))
             print(f"Block {bi}: written {out}")
     return 0
