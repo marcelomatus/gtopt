@@ -274,6 +274,19 @@ struct SDDPOptions
   /// each cut as a lower-bound constraint on the future cost variable α.
   /// Empty = no boundary cuts.
   std::string boundary_cuts_file {};
+
+  /// How boundary cuts are loaded:
+  /// - "noload"    — skip loading even if a file is specified
+  /// - "separated" — assign each cut to the scene matching its scenario
+  ///                 column (1-based ISimul); unmatched cuts are skipped
+  /// - "combined"  — broadcast all cuts to all scenes
+  /// Default: "separated".
+  std::string boundary_cuts_mode {"separated"};
+
+  /// Maximum number of SDDP iterations to load from the boundary cuts
+  /// file.  Only cuts from the last N distinct iterations (by the
+  /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
+  int boundary_max_iterations {0};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────

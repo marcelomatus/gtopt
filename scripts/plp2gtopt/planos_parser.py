@@ -146,7 +146,8 @@ class PlanosParser(BaseParser):
                 self.cuts.append(
                     {
                         "name": f"bc_{iter_num}_{scenario}",
-                        "scenario": scenario,
+                        "iteration": iter_num,
+                        "scene": scenario - 1,  # PLP ISimul is 1-based → 0-based
                         "rhs": -ld_phi_prv,  # PLP stores negative intercept
                         "coefficients": coefficients,
                     }

@@ -18,6 +18,7 @@
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <set>
 #include <span>
 #include <sstream>
 #include <unordered_map>
@@ -487,11 +488,10 @@ void SDDPSolver::store_cut(SceneIndex scene,
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
 
-auto SDDPSolver::resolve_via_pool(
-    LinearInterface& li,
-    const SolverOptions& opts,
-    const BasicTaskRequirements<SDDPTaskKey>& task_req)
-    -> std::expected<int, Error>
+auto SDDPSolver::resolve_via_pool(LinearInterface& li,
+                                  const SolverOptions& opts,
+                                  const BasicTaskRequirements<SDDPTaskKey>&
+                                      task_req) -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
     // No pool available — fall back to direct solve
@@ -882,9 +882,8 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
   }
 }
 
-auto SDDPSolver::save_scene_cuts(SceneIndex scene,
-                                 const std::string& directory) const
-    -> std::expected<void, Error>
+auto SDDPSolver::save_scene_cuts(SceneIndex scene, const std::string& directory)
+    const -> std::expected<void, Error>
 {
   try {
     std::filesystem::create_directories(directory);
@@ -1073,6 +1072,15 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
 auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     -> std::expected<int, Error>
 {
+  // ── Mode check ────────────────────────────────────────────────────────────
+  const auto& mode = m_options_.boundary_cuts_mode;
+  if (mode == "noload") {
+    SPDLOG_INFO("SDDP: boundary cuts mode is 'noload' — skipping");
+    return 0;
+  }
+
+  const bool separated = (mode == "separated");
+
   try {
     std::ifstream ifs(filepath);
     if (!ifs.is_open()) {
@@ -1084,9 +1092,8 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     }
 
     // ── Parse header ────────────────────────────────────────────────────────
-    // Expected: name,scenario,rhs,StateVar1,StateVar2,...
-    // StateVar columns use the convention "ClassName:ElementName" to identify
-    // the state variable (e.g. "Reservoir:Rapel", "Battery:BESS1").
+    // Expected: name,iteration,scene,rhs,StateVar1,StateVar2,...
+    // (Legacy format without iteration column is auto-detected.)
     std::string header_line;
     std::getline(ifs, header_line);
 
@@ -1099,13 +1106,20 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       }
     }
 
-    // First 3 columns must be name, scenario, rhs; rest are state variables
-    if (headers.size() < 4) {
+    // Detect whether the CSV has the `iteration` column.
+    // New format: name,iteration,scene,rhs,<state_vars>
+    // Legacy:     name,scene,rhs,<state_vars>
+    const bool has_iteration_col =
+        (headers.size() >= 2 && headers[1] == "iteration");
+    const int state_var_start = has_iteration_col ? 4 : 3;
+
+    if (static_cast<int>(headers.size()) < state_var_start + 1) {
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message =
-              std::format("Boundary cuts CSV must have at least 4 columns "
-                          "(name,scenario,rhs,<state_vars>); got {}",
+              std::format("Boundary cuts CSV must have at least {} columns "
+                          "(name,[iteration,]scene,rhs,<state_vars>); got {}",
+                          state_var_start + 1,
                           headers.size()),
       });
     }
@@ -1134,11 +1148,14 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     // cuts are broadcast to all scenes).
     const auto& svar_map = sim.state_variables(SceneIndex {0}, last_phase);
 
-    // Map from CSV column index (starting at 3) → LP ColIndex in last phase
+    // Map from CSV column index → LP ColIndex in last phase
+    const auto num_state_cols =
+        static_cast<int>(headers.size()) - state_var_start;
     std::vector<std::optional<ColIndex>> header_col_map;
-    header_col_map.reserve(headers.size() - 3);
+    header_col_map.reserve(num_state_cols);
 
-    for (std::size_t hi = 3; hi < headers.size(); ++hi) {
+    for (int hi = state_var_start; hi < static_cast<int>(headers.size()); ++hi)
+    {
       const auto& hdr = headers[hi];
       std::optional<ColIndex> found_col;
 
@@ -1187,9 +1204,88 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       header_col_map.push_back(found_col);
     }
 
+    // ── Pre-scan: collect all iterations for max_iterations filtering ────────
+    // If max_iterations > 0, we first read all rows to find the distinct
+    // iteration numbers, then keep only those from the last N iterations.
+    struct RawCut
+    {
+      std::string name;
+      int iteration;
+      int scene;  // 0-based scene index
+      double rhs;
+      std::string coeff_line;  // everything after rhs (the coefficient fields)
+    };
+
+    std::vector<RawCut> raw_cuts;
+    std::string line;
+    while (std::getline(ifs, line)) {
+      if (line.empty()) {
+        continue;
+      }
+
+      std::istringstream iss(line);
+      std::string token;
+
+      // Column 0: name
+      std::getline(iss, token, ',');
+      auto cut_name = token;
+
+      int iteration = 0;
+      if (has_iteration_col) {
+        // Column 1: iteration
+        std::getline(iss, token, ',');
+        iteration = std::stoi(token);
+      }
+
+      // Next column: scene (0-based index)
+      std::getline(iss, token, ',');
+      const auto scene_idx = std::stoi(token);
+
+      // Next column: rhs
+      std::getline(iss, token, ',');
+      const auto rhs = std::stod(token);
+
+      // The rest of the line contains the coefficient values
+      std::string remainder;
+      std::getline(iss, remainder);
+
+      raw_cuts.push_back(RawCut {
+          .name = std::move(cut_name),
+          .iteration = iteration,
+          .scene = scene_idx,
+          .rhs = rhs,
+          .coeff_line = std::move(remainder),
+      });
+    }
+
+    // ── Filter by max_iterations ────────────────────────────────────────────
+    const auto max_iters = m_options_.boundary_max_iterations;
+    if (max_iters > 0 && has_iteration_col) {
+      // Find distinct iteration numbers and keep the last N
+      std::set<int> distinct_iters;
+      for (const auto& rc : raw_cuts) {
+        distinct_iters.insert(rc.iteration);
+      }
+      if (static_cast<int>(distinct_iters.size()) > max_iters) {
+        // Keep only the last max_iters iteration values
+        std::set<int> keep_iters;
+        auto it = distinct_iters.end();
+        for (int i = 0; i < max_iters; ++i) {
+          --it;
+          keep_iters.insert(*it);
+        }
+        std::erase_if(
+            raw_cuts,
+            [&keep_iters](const RawCut& rc)
+            { return keep_iters.find(rc.iteration) == keep_iters.end(); });
+        SPDLOG_INFO(
+            "SDDP: boundary cuts filtered to last {} iterations ({} cuts)",
+            max_iters,
+            raw_cuts.size());
+      }
+    }
+
     // ── Ensure the last phase has an alpha column ───────────────────────────
-    // Boundary cuts add a future-cost approximation to the last phase,
-    // which normally has no alpha variable.
     for (Index si = 0; si < num_scenes; ++si) {
       const auto scene = SceneIndex {si};
       auto& state = m_scene_phase_states_[scene][last_phase];
@@ -1203,49 +1299,41 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       }
     }
 
-    // ── Parse cut rows ──────────────────────────────────────────────────────
+    // ── Add cuts to the LP ──────────────────────────────────────────────────
     int cuts_loaded = 0;
-    std::string line;
-    while (std::getline(ifs, line)) {
-      if (line.empty()) {
-        continue;
+    for (const auto& rc : raw_cuts) {
+      // Determine which scenes get this cut
+      Index scene_start = 0;
+      Index scene_end = num_scenes;
+      if (separated) {
+        // In "separated" mode, the scene column is already 0-based
+        const auto target_scene = rc.scene;
+        if (target_scene < 0 || target_scene >= num_scenes) {
+          SPDLOG_TRACE(
+              "Boundary cut '{}' scene {} out of range [0,{}) — skipping",
+              rc.name,
+              rc.scene,
+              num_scenes);
+          continue;
+        }
+        scene_start = target_scene;
+        scene_end = target_scene + 1;
       }
 
-      std::istringstream iss(line);
-      std::string token;
-
-      // Column 0: name
-      std::getline(iss, token, ',');
-      const auto cut_name = token;
-
-      // Column 1: scenario (0 = all scenarios)
-      std::getline(iss, token, ',');
-      [[maybe_unused]] const auto scenario_idx = std::stoi(token);
-
-      // Column 2: rhs
-      std::getline(iss, token, ',');
-      const auto rhs = std::stod(token);
-
-      // Build SparseRow for this cut
-      // (one row per scene; use scene-0's alpha_col as representative)
-      for (Index si = 0; si < num_scenes; ++si) {
+      for (Index si = scene_start; si < scene_end; ++si) {
         const auto scene = SceneIndex {si};
         const auto& state = m_scene_phase_states_[scene][last_phase];
 
         auto row = SparseRow {
-            .name = as_label("boundary", cut_name),
-            .lowb = rhs,
+            .name = as_label("boundary", rc.name),
+            .lowb = rc.rhs,
             .uppb = LinearProblem::DblMax,
         };
         row[state.alpha_col] = 1.0;
 
-        // Parse coefficient columns (indices 3..N in header)
-        std::istringstream coeff_ss(line);
-        // Skip name, scenario, rhs
-        std::getline(coeff_ss, token, ',');
-        std::getline(coeff_ss, token, ',');
-        std::getline(coeff_ss, token, ',');
-
+        // Parse coefficient values from the remainder string
+        std::istringstream coeff_ss(rc.coeff_line);
+        std::string token;
         for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
           if (!std::getline(coeff_ss, token, ',')) {
             break;
@@ -1265,7 +1353,11 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       ++cuts_loaded;
     }
 
-    SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}", cuts_loaded, filepath);
+    SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (mode={}, max_iters={})",
+                cuts_loaded,
+                filepath,
+                mode,
+                max_iters);
     return cuts_loaded;
 
   } catch (const std::exception& e) {

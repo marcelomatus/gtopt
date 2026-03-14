@@ -464,6 +464,19 @@ public:
     return m_options_.sddp_options.sddp_boundary_cuts_file.value_or(Name {});
   }
 
+  /// Boundary cuts load mode: "noload", "separated" (default), or "combined".
+  [[nodiscard]] auto sddp_boundary_cuts_mode() const -> Name
+  {
+    return m_options_.sddp_options.sddp_boundary_cuts_mode.value_or(
+        Name {"separated"});
+  }
+
+  /// Maximum boundary cut iterations to load (0 = all).
+  [[nodiscard]] auto sddp_boundary_max_iterations() const -> int
+  {
+    return m_options_.sddp_options.sddp_boundary_max_iterations.value_or(0);
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
