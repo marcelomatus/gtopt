@@ -102,13 +102,13 @@ generator('uid:23').generation  -- by UID
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
 | `reservoir` | `volume` | Reservoir water volume (hm³) |
-| `bus` | `theta` | Voltage angle at bus (radians) |
+| `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
-| `reserve_provision` | `up` | Up-reserve provision variable (MW reserved up) |
-| `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down) |
-| `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve) |
-| `reserve_zone` | `dn` | Down-reserve requirement variable (MW of down-reserve) |
+| `reserve_provision` | `up` | Up-reserve provision variable (MW reserved up); also accepts `uprovision`, `up_provision` |
+| `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down); also accepts `dprovision`, `dn_provision`, `down` |
+| `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve); also accepts `urequirement`, `up_requirement` |
+| `reserve_zone` | `dn` | Down-reserve requirement variable (MW of down-reserve); also accepts `drequirement`, `dn_requirement`, `down` |
 
 ---
 
