@@ -1,0 +1,7 @@
+# Control file for warm-start (hot start)
+# Filename
+plpplanos.csv
+# Range of iterations (beg, end)
+0 9999
+# Open Mode (0=no cuts, 1=cuts from plpplanos.csv, 2=append cuts)
+0
