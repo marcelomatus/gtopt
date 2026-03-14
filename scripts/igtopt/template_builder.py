@@ -151,7 +151,30 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "reactance",
             _J_SCHED,
             False,
-            "Series reactance [Ω] (required for Kirchhoff DC OPF)",
+            "Series reactance [p.u.] (required for Kirchhoff DC OPF)",
+            None,
+        ),
+        (
+            "type",
+            _J_STR,
+            False,
+            'Element type tag; use "transformer" for tap-changing / PST branches',
+            None,
+        ),
+        (
+            "tap_ratio",
+            _J_SCHED,
+            False,
+            "Off-nominal tap ratio τ [p.u.] (default 1.0); "
+            "effective susceptance = B/τ (per-stage schedule supported)",
+            None,
+        ),
+        (
+            "phase_shift_deg",
+            _J_SCHED,
+            False,
+            "Phase-shift angle φ [degrees] for PSTs (default 0); "
+            "shifts Kirchhoff RHS by -σ_θ·φ_rad (per-stage schedule supported)",
             None,
         ),
         (

@@ -166,10 +166,36 @@ If no cost data is available, `gcost` defaults to `0.0`.
 
 ### 4. Transformer modelling
 
-pandapower transformers are converted to **lossless transmission lines** with
-the transformer's short-circuit reactance as the line reactance.  Tap ratio
-effects on reactance are included.  Thermal limits (`max_i_ka`) are disabled
-(set to infinity) to avoid artificial constraints.
+pandapower transformers (`net.trafo`) are converted to gtopt `Line` entries
+with `"type": "transformer"` and the following field mapping:
+
+| pandapower field | gtopt field | Notes |
+|---|---|---|
+| `hv_bus` / `lv_bus` | `bus_a` / `bus_b` | Bus indices (after remapping) |
+| `vk_percent` / `sn_mva` | `reactance` | Short-circuit reactance in p.u.: `(vk_percent/100) × (base_mva/sn_mva)` |
+| `sn_mva × max_loading_percent/100` | `tmax_ab`, `tmax_ba` | Thermal limit in MW |
+| tap position | `tap_ratio` | Off-nominal tap ratio τ = 1 + (tap_pos − tap_neutral) × tap_step_percent/100; omitted when τ = 1.0 |
+| `shift_degree` | `phase_shift_deg` | Phase-shift angle in degrees; omitted when 0 |
+
+**Tap ratio**: the `tap_ratio` field is emitted only when the tap position
+differs from the neutral position (τ ≠ 1.0).  In gtopt the tap ratio scales
+the effective susceptance: $B_{\text{eff}} = B / \tau$, so a transformer with
+τ > 1 has a lower effective susceptance (harder to drive power through).
+
+**Phase-shifting transformer (PST)**: when `shift_degree` is non-zero the
+`phase_shift_deg` field is set.  In the DC OPF formulation the phase shift
+modifies the right-hand side of the Kirchhoff constraint:
+
+$$
+-\theta_a + \theta_b + \tau \chi f^+ - \tau \chi f^- = -\sigma_\theta \cdot \varphi_{\text{rad}}
+$$
+
+enabling the model to replicate PST-controlled power flow for large meshed
+networks (CAISO, XM, PJM, CEN Chile).
+
+**Thermal limits**: `tmax_ab` and `tmax_ba` are set to
+`sn_mva × max_loading_percent / 100` MW.  For unconstrained transformers
+(very high `max_loading_percent`), the limit is simply carried over as-is.
 
 ### 5. Load / demand extraction
 
