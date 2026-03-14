@@ -38,7 +38,7 @@ Add a `user_constraint_array` to the `system` section of your JSON case file:
       {
         "uid": 1,
         "name": "gen_pair_limit",
-        "expression": "generator(\"G1\").generation + generator(\"G2\").generation <= 300"
+        "expression": "generator('G1').generation + generator('G2').generation <= 300"
       }
     ]
   }
@@ -60,7 +60,7 @@ A constraint expression has three parts:
 
 | Part | Description | Example |
 |------|-------------|---------|
-| Linear expression | Sum of `coefficient * element.attribute` terms | `2 * generator("G1").generation - demand("D1").load` |
+| Linear expression | Sum of `coefficient * element.attribute` terms | `2 * generator('G1').generation - demand('D1').load` |
 | Operator | Comparison: `<=`, `>=`, or `=` | `<=` |
 | RHS | Right-hand side: number or another linear expression | `300` |
 | Domain (optional) | Index restriction: `for(stage in ..., block in ...)` | `for(stage in {1,2,3}, block in 1..24)` |
@@ -70,7 +70,7 @@ A constraint expression has three parts:
 Range constraints bound an expression from both sides:
 
 ```
-100 <= generator("G1").generation <= 500
+100 <= generator('G1').generation <= 500
 ```
 
 This creates a single LP row with both lower and upper bounds.
@@ -80,8 +80,8 @@ This creates a single LP row with both lower and upper bounds.
 Elements are referenced by type and identifier (name or UID):
 
 ```
-generator("TORO").generation    -- by name
-generator("uid:23").generation  -- by UID
+generator('TORO').generation    -- by name
+generator('uid:23').generation  -- by UID
 ```
 
 ---
@@ -102,36 +102,40 @@ generator("uid:23").generation  -- by UID
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
 | `reservoir` | `volume` | Reservoir water volume (hm³) |
-| `bus` | `theta` | Voltage angle at bus (radians) |
+| `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
+| `reserve_provision` | `up` | Up-reserve provision variable (MW reserved up); also accepts `uprovision`, `up_provision` |
+| `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down); also accepts `dprovision`, `dn_provision`, `down` |
+| `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve); also accepts `urequirement`, `up_requirement` |
+| `reserve_zone` | `dn` | Down-reserve requirement variable (MW of down-reserve); also accepts `drequirement`, `dn_requirement`, `down` |
 
 ---
 
 ## 4. Element Identification
 
-Elements can be referenced by **name** (quoted string) or by **numeric UID**
+Elements can be referenced by **name** (single-quoted string) or by **numeric UID**
 (bare integer):
 
 ```
-# By name (quoted string)
-generator("TORO").generation
-demand("D1").load
-line("L1_2").flow
+# By name (single-quoted string)
+generator('TORO').generation
+demand('D1').load
+line('L1_2').flow
 
-# By explicit UID prefix (quoted string)
-generator("uid:23").generation
+# By explicit UID prefix (single-quoted string)
+generator('uid:23').generation
 
 # By bare numeric UID (integer — automatically treated as uid:N)
-generator(3).generation        -- equivalent to generator("uid:3")
-demand(7).load                 -- equivalent to demand("uid:7")
-battery(1).energy              -- equivalent to battery("uid:1")
+generator(3).generation        -- equivalent to generator('uid:3')
+demand(7).load                 -- equivalent to demand('uid:7')
+battery(1).energy              -- equivalent to battery('uid:1')
 ```
 
 **Mixing name and UID references** in the same expression is allowed:
 
 ```
-generator("G1").generation + generator(5).generation <= 300
+generator('G1').generation + generator(5).generation <= 300
 ```
 
 ---
@@ -149,29 +153,29 @@ sum( element_type ( id_list ) . attribute )
 ```
 
 Where `id_list` is one of:
-- **Explicit list**: `"G1", "G2", "G3"` or `1, 2, 3` or mixed
+- **Explicit list**: `'G1', 'G2', 'G3'` or `1, 2, 3` or mixed
 - **All elements**: `all`
 
 ### Examples
 
 ```
 # Sum generation over specific generators (by name)
-sum(generator("G1", "G2", "G3").generation) <= 500
+sum(generator('G1', 'G2', 'G3').generation) <= 500
 
 # Sum generation over specific generators (by UID)
 sum(generator(1, 2, 3).generation) <= 500
 
 # Mixed name and UID references
-sum(generator("G1", 2, "uid:3").generation) <= 500
+sum(generator('G1', 2, 'uid:3').generation) <= 500
 
 # Sum over ALL generators in the system
 sum(generator(all).generation) <= 1000
 
 # Sum with a coefficient
-0.5 * sum(demand("D1", "D2").load) <= 200
+0.5 * sum(demand('D1', 'D2').load) <= 200
 
 # Combined: sum + individual elements
-sum(generator("G1", "G2").generation) + demand("D1").load <= 1000
+sum(generator('G1', 'G2').generation) + demand('D1').load <= 1000
 
 # Balance constraint: total generation minus total demand
 sum(generator(all).generation) - sum(demand(all).load) = 0
@@ -181,7 +185,7 @@ sum(generator(all).generation) - sum(demand(all).load) = 0
 
 | gtopt | AMPL equivalent |
 |-------|-----------------|
-| `sum(generator("G1","G2").generation)` | `sum{g in {"G1","G2"}} generation[g]` |
+| `sum(generator('G1','G2').generation)` | `sum{g in {"G1","G2"}} generation[g]` |
 | `sum(generator(all).generation)` | `sum{g in GENERATORS} generation[g]` |
 | `0.5 * sum(demand(all).load)` | `0.5 * sum{d in DEMANDS} load[d]` |
 
@@ -233,10 +237,10 @@ Expressions support line comments using `#` or `//`. Everything after the
 comment marker to the end of the line is ignored:
 
 ```
-generator("G1").generation <= 100   # limit gen output
+generator('G1').generation <= 100   # limit gen output
 
-generator("G1").generation          // first gen
-+ generator("G2").generation        // second gen
+generator('G1').generation          // first gen
++ generator('G2').generation        // second gen
 <= 300
 ```
 
@@ -262,7 +266,7 @@ Limit generator G1 to 100 MW:
 {
   "uid": 1,
   "name": "g1_cap",
-  "expression": "generator(\"G1\").generation <= 100"
+  "expression": "generator('G1').generation <= 100"
 }
 ```
 
@@ -274,7 +278,7 @@ The sum of two generators must not exceed 300 MW:
 {
   "uid": 2,
   "name": "gen_pair_limit",
-  "expression": "generator(\"TORO\").generation + generator(\"uid:23\").generation <= 300, for(stage in {4,5,6}, block in 1..30)"
+  "expression": "generator('TORO').generation + generator('uid:23').generation <= 300, for(stage in {4,5,6}, block in 1..30)"
 }
 ```
 
@@ -286,7 +290,7 @@ Generator G1 must produce at least 50 MW:
 {
   "uid": 3,
   "name": "min_gen",
-  "expression": "generator(\"G1\").generation >= 50"
+  "expression": "generator('G1').generation >= 50"
 }
 ```
 
@@ -298,7 +302,7 @@ Restrict flow on line L1_2 to 200 MW:
 {
   "uid": 4,
   "name": "flow_limit",
-  "expression": "line(\"L1_2\").flow <= 200"
+  "expression": "line('L1_2').flow <= 200"
 }
 ```
 
@@ -310,7 +314,7 @@ Generator G1 output must equal demand D1 load:
 {
   "uid": 5,
   "name": "gen_demand_balance",
-  "expression": "generator(\"G1\").generation = demand(\"D1\").load"
+  "expression": "generator('G1').generation = demand('D1').load"
 }
 ```
 
@@ -322,7 +326,7 @@ Generator output must be between 50 and 250 MW:
 {
   "uid": 6,
   "name": "gen_range",
-  "expression": "50 <= generator(\"G1\").generation <= 250"
+  "expression": "50 <= generator('G1').generation <= 250"
 }
 ```
 
@@ -334,7 +338,7 @@ Partial contributions from two generators:
 {
   "uid": 7,
   "name": "weighted_cap",
-  "expression": "0.8 * generator(\"G1\").generation + 0.5 * generator(\"G2\").generation <= 200"
+  "expression": "0.8 * generator('G1').generation + 0.5 * generator('G2').generation <= 200"
 }
 ```
 
@@ -347,7 +351,7 @@ load):
 {
   "uid": 8,
   "name": "chp_coupling",
-  "expression": "generator(\"CHP\").generation - 1.5 * demand(\"HeatLoad\").load = 0"
+  "expression": "generator('CHP').generation - 1.5 * demand('HeatLoad').load = 0"
 }
 ```
 
@@ -359,7 +363,7 @@ Limit battery state of energy during peak blocks:
 {
   "uid": 9,
   "name": "bess_peak_limit",
-  "expression": "battery(\"BESS1\").energy <= 400, for(block in {18, 19, 20, 21})"
+  "expression": "battery('BESS1').energy <= 400, for(block in {18, 19, 20, 21})"
 }
 ```
 
@@ -371,7 +375,7 @@ Different limit in scenarios 1 and 2 only:
 {
   "uid": 10,
   "name": "scenario_limit",
-  "expression": "generator(\"G1\").generation <= 150, for(scenario in {1, 2})"
+  "expression": "generator('G1').generation <= 150, for(scenario in {1, 2})"
 }
 ```
 
@@ -384,7 +388,7 @@ A constraint that is defined but not active:
   "uid": 11,
   "name": "maintenance_limit",
   "active": false,
-  "expression": "generator(\"G1\").generation <= 10"
+  "expression": "generator('G1').generation <= 10"
 }
 ```
 
@@ -396,13 +400,13 @@ Force no load curtailment on demand D1:
 {
   "uid": 12,
   "name": "no_curtailment",
-  "expression": "demand(\"D1\").fail = 0"
+  "expression": "demand('D1').fail = 0"
 }
 ```
 
 ### Example 13 — Generator referenced by numeric UID
 
-Use the bare integer syntax instead of `"uid:3"`:
+Use the bare integer syntax instead of `'uid:3'`:
 
 ```json
 {
@@ -432,7 +436,7 @@ Constrain a subset of generators:
 {
   "uid": 15,
   "name": "thermal_limit",
-  "expression": "sum(generator(\"G1\", \"G2\", \"G3\").generation) <= 500, for(block in 1..12)"
+  "expression": "sum(generator('G1', 'G2', 'G3').generation) <= 500, for(block in 1..12)"
 }
 ```
 
@@ -444,7 +448,7 @@ Weighted sum of demand served:
 {
   "uid": 16,
   "name": "weighted_demand",
-  "expression": "0.5 * sum(demand(\"D1\", \"D2\").load) <= 200"
+  "expression": "0.5 * sum(demand('D1', 'D2').load) <= 200"
 }
 ```
 
@@ -468,7 +472,7 @@ Limit reservoir volume during dry season:
 {
   "uid": 18,
   "name": "reservoir_min_vol",
-  "expression": "reservoir(\"RES1\").volume >= 1000, for(stage in {3, 4})"
+  "expression": "reservoir('RES1').volume >= 1000, for(stage in {3, 4})"
 }
 ```
 
@@ -480,7 +484,7 @@ Limit total converter throughput:
 {
   "uid": 19,
   "name": "converter_limit",
-  "expression": "converter(\"CV1\").charge + converter(\"CV1\").discharge <= 100"
+  "expression": "converter('CV1').charge + converter('CV1').discharge <= 100"
 }
 ```
 
@@ -492,7 +496,31 @@ Use `#` or `//` for inline documentation (useful in external files):
 {
   "uid": 20,
   "name": "documented_limit",
-  "expression": "generator(\"G1\").generation + generator(\"G2\").generation <= 300 # peak capacity"
+  "expression": "generator('G1').generation + generator('G2').generation <= 300 # peak capacity"
+}
+```
+
+### Example 21 — Reserve provision limit
+
+Limit up-reserve provision of a specific provider:
+
+```json
+{
+  "uid": 21,
+  "name": "up_reserve_limit",
+  "expression": "reserve_provision('RP1').up <= 50"
+}
+```
+
+### Example 22 — Reserve zone total up-reserve
+
+Constrain total up-reserve in a zone across all provisions:
+
+```json
+{
+  "uid": 22,
+  "name": "zone_up_reserve_min",
+  "expression": "reserve_zone('RZ1').up >= 100"
 }
 ```
 
@@ -520,12 +548,12 @@ When there are many constraints, store them in a separate JSON file:
   {
     "uid": 1,
     "name": "gen_limit",
-    "expression": "generator(\"G1\").generation <= 100"
+    "expression": "generator('G1').generation <= 100"
   },
   {
     "uid": 2,
     "name": "flow_limit",
-    "expression": "line(\"L1\").flow <= 200"
+    "expression": "line('L1').flow <= 200"
   }
 ]
 ```
@@ -576,12 +604,13 @@ sum_expr       := 'sum' '(' element_type '(' id_list ')' '.' IDENT ')'
 id_list        := 'all'
                |  element_id (',' element_id)*
 
-element_id     := STRING          -- name: "G1" or "uid:3"
+element_id     := STRING          -- name: 'G1' or 'uid:3'
                |  number          -- bare UID: 3 → uid:3
 
 element_type   := 'generator' | 'demand' | 'line' | 'battery'
                |  'converter' | 'reservoir' | 'bus'
                |  'waterway' | 'turbine'
+               |  'reserve_provision' | 'reserve_zone'
 
 comp_op        := '<=' | '>=' | '='
 
@@ -603,7 +632,7 @@ index_value    := number
 
 comment        := ('#' | '//') <anything to end of line>
 
-STRING         := '"' <characters> '"'
+STRING         := '"' <characters> '"' | "'" <characters> "'"
 IDENT          := [a-zA-Z_][a-zA-Z0-9_]*
 number         := [0-9]+ ('.' [0-9]+)?
 ```
@@ -616,13 +645,13 @@ number         := [0-9]+ ('.' [0-9]+)?
 
 ```ampl
 # ── gtopt: simple capacity constraint ──
-# generator("G1").generation <= 100
+# generator('G1').generation <= 100
 # AMPL:
 subject to g1_cap:
   generation["G1"] <= 100;
 
 # ── gtopt: sum over element group ──
-# sum(generator("G1","G2","G3").generation) <= 500, for(block in 1..12)
+# sum(generator('G1','G2','G3').generation) <= 500, for(block in 1..12)
 # AMPL:
 subject to thermal_limit {b in 1..12}:
   sum{g in {"G1","G2","G3"}} generation[g,b] <= 500;
@@ -640,7 +669,7 @@ subject to balance:
   sum{g in GENERATORS} generation[g] - sum{d in DEMANDS} load[d] = 0;
 
 # ── gtopt: weighted sum with domain ──
-# 0.8 * generator("G1").generation + 0.5 * generator("G2").generation <= 200,
+# 0.8 * generator('G1').generation + 0.5 * generator('G2').generation <= 200,
 #     for(stage in {4,5,6}, block in 1..30)
 # AMPL:
 subject to weighted_cap {s in STAGES, b in BLOCKS: s in {4,5,6} and b >= 1 and b <= 30}:
@@ -651,7 +680,7 @@ subject to weighted_cap {s in STAGES, b in BLOCKS: s in {4,5,6} and b >= 1 and b
 
 | Aspect | AMPL | gtopt |
 |--------|------|-------|
-| Element access | `generation["G1",s,b]` | `generator("G1").generation` |
+| Element access | `generation["G1",s,b]` | `generator('G1').generation` |
 | Element by UID | Not applicable | `generator(3).generation` |
 | Sum syntax | `sum{g in SET} expr` | `sum(element_type(list).attr)` |
 | Index sets | `{s in STAGES: s >= 4}` | `for(stage in {4,5,6})` |
@@ -670,7 +699,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
   generators in the system, without requiring a `set GENERATORS;` declaration.
 
 - **Element-centric**: Variables are accessed via element references
-  (`generator("G1").generation`) rather than indexed arrays
+  (`generator('G1').generation`) rather than indexed arrays
   (`generation["G1",s,b]`). This is more natural for power system engineers.
 
 - **JSON-native**: Constraints live in JSON files alongside the rest of the
@@ -686,8 +715,8 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 2. **Start without domain restrictions**: let the constraint apply to all
    time steps first, then narrow with `for(...)` as needed.
 
-3. **Use UIDs for stability**: `generator("uid:5")` or `generator(5)` is
-   stable across name changes; `generator("TORO")` breaks if the generator
+3. **Use UIDs for stability**: `generator('uid:5')` or `generator(5)` is
+   stable across name changes; `generator('TORO')` breaks if the generator
    is renamed.
 
 4. **Prefer `sum()` over manual expansion**: use
