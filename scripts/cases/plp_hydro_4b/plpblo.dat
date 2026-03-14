@@ -1,0 +1,13 @@
+# Archivo con la duracion de los bloques
+# Bloques
+     9
+# Bloque   Etapa   NHoras  Ano   Mes  TipoBloque
+    001    001      004    001    001    'Block01'
+    002    001      004    001    001    'Block02'
+    003    001      004    001    001    'Block03'
+    004    002      004    001    002    'Block04'
+    005    002      004    001    002    'Block05'
+    006    002      004    001    002    'Block06'
+    007    003      004    001    003    'Block07'
+    008    003      004    001    003    'Block08'
+    009    003      004    001    003    'Block09'
