@@ -29,6 +29,7 @@ from .indhor_parser import IndhorParser
 from .idsim_parser import IdSimParser
 from .idape_parser import IdApeParser
 from .idap2_parser import IdAp2Parser
+from .planos_parser import PlanosParser
 
 
 class PLPParser:
@@ -144,3 +145,13 @@ class PLPParser:
             idap2 = IdAp2Parser(idap2_path)
             idap2.parse(self.parsed_data)
             self.parsed_data["idap2_parser"] = idap2
+
+        # Optional: plpplaem1.dat + plpplaem2.dat — boundary cuts (planos)
+        # These define the future-cost function at the last planning stage
+        # boundary, analogous to the SDDP varphi variable.
+        plaem1_path = self.input_path / "plpplaem1.dat"
+        plaem2_path = self.input_path / "plpplaem2.dat"
+        if plaem1_path.exists() and plaem2_path.exists():
+            planos = PlanosParser(plaem1_path, plaem2_path)
+            planos.parse(self.parsed_data)
+            self.parsed_data["planos_parser"] = planos

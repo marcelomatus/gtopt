@@ -23,6 +23,7 @@ from .ess_parser import EssParser
 from .maness_parser import ManessParser
 from .cenre_parser import CenreParser
 from .cenfi_parser import CenfiParser
+from .planos_parser import PlanosParser
 
 __all__ = [
     "convert_plp_case",
@@ -37,4 +38,5 @@ __all__ = [
     "ManessParser",
     "CenreParser",
     "CenfiParser",
+    "PlanosParser",
 ]

@@ -1089,6 +1089,11 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("sddp_alpha_min", "Minimum alpha (future cost) lower bound", None),
     ("sddp_alpha_max", "Maximum alpha (future cost) upper bound", None),
     ("sddp_cuts_input_file", "Path to pre-computed Benders cuts file", None),
+    (
+        "sddp_boundary_cuts_file",
+        "Path to boundary (future-cost) cuts CSV for last stage (varphi)",
+        None,
+    ),
     ("sddp_sentinel_file", "Path to sentinel file that stops SDDP early", None),
     (
         "sddp_elastic_mode",
@@ -1598,6 +1603,30 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
     ws_ts2.cell(row=2, column=3, value=1)
     ws_ts2.cell(row=2, column=4, value=0.75)
     ws_ts2.freeze_panes = "A2"
+
+    # ------------------------------------------------------------------
+    # Boundary cuts sheet (SDDP future-cost function / varphi)
+    # ------------------------------------------------------------------
+    ws_bc = wb.create_sheet("boundary_cuts")
+    bc_headers = ["name", "scenario", "rhs", "Reservoir1", "Reservoir2"]
+    for col_idx, header in enumerate(bc_headers, start=1):
+        cell = ws_bc.cell(row=1, column=col_idx, value=header)
+        cell.font = HEADER_FONT_WHITE
+        cell.fill = HEADER_FILL
+    # Example row
+    ws_bc.cell(row=2, column=1, value="bc_1_1")
+    ws_bc.cell(row=2, column=2, value=1)
+    ws_bc.cell(row=2, column=3, value=-5000.0)
+    ws_bc.cell(row=2, column=4, value=0.25)
+    ws_bc.cell(row=2, column=5, value=0.75)
+    ws_bc.freeze_panes = "A2"
+    # Add a note explaining the sheet
+    ws_bc.cell(row=4, column=1, value="# Columns after 'rhs' are state-variable names")
+    ws_bc.cell(
+        row=5,
+        column=1,
+        value="# (reservoir/junction names). Values are gradient coefficients.",
+    )
 
     wb.save(output_path)
     print(f"Template written to: {output_path}", file=sys.stderr)

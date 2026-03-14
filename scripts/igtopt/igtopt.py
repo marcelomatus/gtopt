@@ -70,7 +70,9 @@ _SYSTEM_SHEETS = frozenset(
     }
 )
 
-expected_sheets = ["options"] + sorted(_SIMULATION_SHEETS) + sorted(_SYSTEM_SHEETS)
+expected_sheets = (
+    ["options", "boundary_cuts"] + sorted(_SIMULATION_SHEETS) + sorted(_SYSTEM_SHEETS)
+)
 
 _COMPACT_INDENT = 0
 _COMPACT_SEPARATORS = (",", ":")
@@ -258,6 +260,23 @@ def _resolve_at_sheet_columns(
         )
         return df.rename(columns=rename_map)
     return df
+
+
+def _write_boundary_cuts_csv(df, input_path):
+    """Write a ``boundary_cuts`` Excel sheet to a CSV file.
+
+    The sheet is expected to have columns ``name``, ``scenario``, ``rhs``,
+    followed by one column per state variable (reservoir/junction name).
+
+    The CSV is written to ``<input_path>/boundary_cuts.csv`` and the
+    returned path should be stored in the ``sddp_boundary_cuts_file``
+    option so the C++ solver can load it.
+    """
+    out_dir = pathlib.Path(input_path)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / "boundary_cuts.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
 
 
 def df_to_file(df, input_path, cname, fname, input_format, compression):
@@ -552,6 +571,25 @@ def _run(args) -> int:
 
             if sheet_name == "options":
                 options = df_to_opts(df, options)
+                continue
+
+            if sheet_name == "boundary_cuts":
+                try:
+                    csv_path = _write_boundary_cuts_csv(df, args.input_directory)
+                    # Place inside sddp_options so the C++ parser maps it
+                    # to Options::sddp_options::sddp_boundary_cuts_file.
+                    sddp_opts = options.setdefault("sddp_options", {})
+                    if isinstance(sddp_opts, dict):
+                        sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
+                    else:
+                        options["sddp_boundary_cuts_file"] = str(csv_path)
+                    logging.info(
+                        "boundary_cuts sheet → %s (%d cuts)", csv_path, len(df)
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    msg = f"could not write boundary_cuts: {exc}"
+                    logging.error(msg)
+                    errors.append(msg)
                 continue
 
             try:
