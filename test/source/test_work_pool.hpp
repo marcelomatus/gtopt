@@ -80,11 +80,16 @@ TEST_CASE(
     Task<void, int64_t, std::less<>> medium {
         [] {},
         TaskRequirements {
-            .priority = TaskPriority::Medium, .priority_key = 0, .name = {}}};
-    Task<void, int64_t, std::less<>> high {
-        [] {},
-        TaskRequirements {
-            .priority = TaskPriority::High, .priority_key = 999, .name = {}}};
+            .priority = TaskPriority::Medium,
+            .priority_key = 0,
+            .name = {},
+        }};
+    Task<void, int64_t, std::less<>> high {[] {},
+                                           TaskRequirements {
+                                               .priority = TaskPriority::High,
+                                               .priority_key = 999,
+                                               .name = {},
+                                           }};
 
     // High priority always beats medium, regardless of key value
     CHECK(medium < high);  // medium has lower priority
@@ -106,21 +111,29 @@ TEST_CASE(
 
     // (0,0,0,0) < (0,1,0,0): forward (0) has higher priority than backward (1)
     STask fwd {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
-                     .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
+                   .name = {},
+               }};
     STask bwd {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
-                     .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
+                   .name = {},
+               }};
     CHECK_FALSE(fwd < bwd);  // forward has higher priority
     CHECK(bwd < fwd);  // backward has lower priority
 
     // (0,0,0,0) < (0,0,0,1): LP solve (0) has higher priority than non-LP (1)
-    STask lp {
-        [] {},
-        SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP}, .name = {}}};
+    STask lp {[] {},
+              SReq {
+                  .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP},
+                  .name = {},
+              }};
     STask nonlp {[] {},
-                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
-                       .name = {}}};
+                 SReq {
+                     .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
+                     .name = {},
+                 }};
     CHECK_FALSE(lp < nonlp);  // LP has higher priority
     CHECK(nonlp < lp);  // non-LP has lower priority
 
@@ -180,7 +193,10 @@ TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
           done++;
         },
         TaskRequirements {
-            .priority = TaskPriority::Medium, .priority_key = 10, .name = {}});
+            .priority = TaskPriority::Medium,
+            .priority_key = 10,
+            .name = {},
+        });
 
     auto t2 = pool.submit(
         [&]
@@ -190,7 +206,10 @@ TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
           done++;
         },
         TaskRequirements {
-            .priority = TaskPriority::Medium, .priority_key = 1, .name = {}});
+            .priority = TaskPriority::Medium,
+            .priority_key = 1,
+            .name = {},
+        });
 
     REQUIRE(t1.has_value());
     REQUIRE(t2.has_value());
@@ -256,8 +275,10 @@ TEST_CASE("SDDPWorkPool with SDDPTaskKey tuple")  // NOLINT
           order.push_back(0);  // forward
           done++;
         },
-        Req {.priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
-             .name = {}});
+        Req {
+            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
+            .name = {},
+        });
 
     auto bwd = pool.submit(
         [&]
@@ -266,8 +287,10 @@ TEST_CASE("SDDPWorkPool with SDDPTaskKey tuple")  // NOLINT
           order.push_back(1);  // backward
           done++;
         },
-        Req {.priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, kSDDPKeyIsLP},
-             .name = {}});
+        Req {
+            .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, kSDDPKeyIsLP},
+            .name = {},
+        });
 
     REQUIRE(fwd.has_value());
     REQUIRE(bwd.has_value());
