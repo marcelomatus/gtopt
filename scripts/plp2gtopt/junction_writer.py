@@ -301,7 +301,7 @@ class JunctionWriter(BaseWriter):
 
         # Process reservoir efficiency data (plpcenre.dat)
         if self.cenre_parser and central_parser:
-            self._process_reservoir_efficiencies(system, central_parser)
+            self._process_reservoir_efficiencies(system)
 
         return [cast(Dict[str, Any], system)]
 
@@ -637,7 +637,6 @@ class JunctionWriter(BaseWriter):
     def _process_reservoir_efficiencies(
         self,
         system: HydroSystemOutput,
-        central_parser: CentralParser,
     ) -> None:
         """Process reservoir efficiency data into reservoir_efficiency_array.
 
@@ -663,29 +662,24 @@ class JunctionWriter(BaseWriter):
             central_name = entry["name"]
             reservoir_name = entry["reservoir"]
 
-            # Resolve turbine uid
+            # Resolve turbine uid — only use turbines that were actually
+            # created (centrals with bus <= 0 have no turbine).
             turb_uid = turbine_uid.get(central_name)
             if turb_uid is None:
-                central = central_parser.get_central_by_name(central_name)
-                if central is None:
-                    _logger.warning(
-                        "Efficiency central '%s' not found; skipping.",
-                        central_name,
-                    )
-                    continue
-                turb_uid = central["number"]
+                _logger.warning(
+                    "Efficiency central '%s': no matching turbine; skipping.",
+                    central_name,
+                )
+                continue
 
             # Resolve reservoir uid
             rsv_uid = reservoir_uid.get(reservoir_name)
             if rsv_uid is None:
-                central = central_parser.get_central_by_name(reservoir_name)
-                if central is None:
-                    _logger.warning(
-                        "Efficiency reservoir '%s' not found; skipping.",
-                        reservoir_name,
-                    )
-                    continue
-                rsv_uid = central["number"]
+                _logger.warning(
+                    "Efficiency reservoir '%s' not found; skipping.",
+                    reservoir_name,
+                )
+                continue
 
             segments: List[EfficiencySegment] = [
                 {
