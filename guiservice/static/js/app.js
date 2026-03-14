@@ -102,9 +102,10 @@ function switchTab(tab) {
     renderSimulation();
   } else if (tab === "topology") {
     showPanel("panel-topology");
-    // Auto-render on first visit if there is case data
-    if (!topoNetwork) {
-      renderTopology();
+    // Auto-render the active sub-tab on first visit if there is case data
+    if (!_activeTopoSubtab) _activeTopoSubtab = "electrical";
+    if (!topoNetworks[_activeTopoSubtab]) {
+      renderTopoSubtab(_activeTopoSubtab);
     }
   } else if (tab === "results") {
     showPanel("panel-results");
@@ -1958,85 +1959,120 @@ function minimizeAssistant() {
 // ── Topology diagram ──────────────────────────────────────────────────────
 
 /** @type {import('vis-network/standalone').Network | null} */
-var topoNetwork = null;
-var topoNodes   = null;
-var topoEdges   = null;
+/** Active topology sub-tab: "electrical" or "hydro". */
+var _activeTopoSubtab = "electrical";
+
+/** Per-subsystem vis.js Network instances. */
+var topoNetworks = { electrical: null, hydro: null };
+var topoNodeSets = { electrical: null, hydro: null };
+var topoEdgeSets = { electrical: null, hydro: null };
+
+// Legacy alias (kept for backward compat with code that checks topoNetwork)
+Object.defineProperty(window, "topoNetwork", {
+  get: function () { return topoNetworks[_activeTopoSubtab]; },
+});
 
 /** Dimensions of the node-detail popup (must match CSS .topo-popup width). */
 var TOPO_POPUP_WIDTH  = 288;
 var TOPO_POPUP_HEIGHT = 280;
 
 /**
- * Fetch topology data from the backend and render it in vis-network.
- * Automatically called when the Topology tab is first opened, and
- * explicitly by the "Render" button.
+ * Switch to a topology sub-tab ("electrical" or "hydro").
+ * Shows the correct sub-panel and hides the other.
+ * Auto-renders if the network has not been built yet.
  */
-async function renderTopology() {
-  const statusEl = document.getElementById("topoStatus");
-  const container = document.getElementById("topoNetwork");
+function switchTopoSubtab(subsystem) {
+  _activeTopoSubtab = subsystem;
+  ["electrical", "hydro"].forEach(function (s) {
+    var panel = document.getElementById("topoSubpanel-" + s);
+    var btn   = document.getElementById("topoSubtab" + s.charAt(0).toUpperCase() + s.slice(1));
+    if (panel) panel.style.display = (s === subsystem) ? "" : "none";
+    if (btn)   btn.classList.toggle("active", s === subsystem);
+  });
+  if (!topoNetworks[subsystem]) {
+    renderTopoSubtab(subsystem);
+  }
+}
+
+/**
+ * Fetch topology data from the backend and render it in the vis-network
+ * for the given subsystem ("electrical" or "hydro").
+ * Called by the per-sub-tab "Render" buttons and auto-called on tab open.
+ */
+async function renderTopoSubtab(subsystem) {
+  var statusEl  = document.getElementById("topoStatus-" + subsystem);
+  var container = document.getElementById("topoNetwork-" + subsystem);
   if (!container) return;
 
   statusEl.textContent = "⏳ Building topology…";
-  closeTopoPopup();
+  closeTopoPopup(subsystem);
 
-  const subsystem  = document.getElementById("topoSubsystem").value;
-  const aggregate  = document.getElementById("topoAggregate").value;
-  const noGen      = document.getElementById("topoNoGenerators").checked;
-  const compact    = document.getElementById("topoCompact").checked;
+  var aggregate = document.getElementById("topoAggregate-" + subsystem);
+  var noGenEl   = document.getElementById("topoNoGenerators-" + subsystem);
+  var compactEl = document.getElementById("topoCompact-" + subsystem);
+
+  var aggregateVal = aggregate ? aggregate.value : "auto";
+  var noGen        = noGenEl  ? noGenEl.checked  : false;
+  var compact      = compactEl ? compactEl.checked : false;
 
   try {
-    const resp = await fetch("/api/diagram/topology", {
+    var resp = await fetch("/api/diagram/topology", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
-        caseData:     caseData,
-        subsystem:    subsystem,
-        aggregate:    aggregate,
+        caseData:      caseData,
+        subsystem:     subsystem,
+        aggregate:     aggregateVal,
         no_generators: noGen,
-        compact:      compact,
+        compact:       compact,
       }),
     });
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
+      var err = await resp.json().catch(function () { return {}; });
       statusEl.textContent = "❌ Error: " + (err.error || resp.statusText);
       return;
     }
-    const data = await resp.json();
+    var data = await resp.json();
     if (data.error) {
       statusEl.textContent = "❌ " + data.error;
       return;
     }
 
-    // Build status line
-    const m = data.meta || {};
-    let statusParts = [`${m.n_nodes} nodes · ${m.n_edges} edges`];
-    if (m.aggregate && m.aggregate !== "none") statusParts.push(`aggregate=${m.aggregate}`);
-    if (m.voltage_threshold > 0) statusParts.push(`voltage≥${m.voltage_threshold} kV`);
+    var m = data.meta || {};
+    var statusParts = [(m.n_nodes || 0) + " nodes · " + (m.n_edges || 0) + " edges"];
+    if (m.aggregate && m.aggregate !== "none") statusParts.push("aggregate=" + m.aggregate);
+    if (m.voltage_threshold > 0) statusParts.push("voltage≥" + m.voltage_threshold + " kV");
     if (m.no_generators) statusParts.push("no generators");
-    if (m.auto_mode && m.n_total) statusParts.push(`auto (${m.n_total} elements)`);
+    if (m.auto_mode && m.n_total) statusParts.push("auto (" + m.n_total + " elements)");
     statusEl.textContent = statusParts.join(" · ");
 
-    _drawTopoNetwork(container, data.nodes, data.edges);
+    _drawTopoNetwork(subsystem, container, data.nodes, data.edges);
   } catch (e) {
     statusEl.textContent = "❌ " + e.message;
   }
 }
 
 /**
- * Draw (or redraw) the vis-network inside *container* using the given
- * vis.js nodes and edges returned by the API.
+ * Legacy wrapper: render the currently-active sub-tab.
+ * Kept so that any remaining references to renderTopology() still work.
  */
-function _drawTopoNetwork(container, nodes, edges) {
-  // Destroy previous instance so the canvas is recreated cleanly
-  if (topoNetwork) {
-    topoNetwork.destroy();
-    topoNetwork = null;
+function renderTopology() {
+  renderTopoSubtab(_activeTopoSubtab || "electrical");
+}
+
+/**
+ * Draw (or redraw) the vis-network for *subsystem* inside *container*.
+ */
+function _drawTopoNetwork(subsystem, container, nodes, edges) {
+  if (topoNetworks[subsystem]) {
+    topoNetworks[subsystem].destroy();
+    topoNetworks[subsystem] = null;
   }
 
-  topoNodes = new vis.DataSet(nodes);
-  topoEdges = new vis.DataSet(edges);
+  topoNodeSets[subsystem] = new vis.DataSet(nodes);
+  topoEdgeSets[subsystem] = new vis.DataSet(edges);
 
-  const options = {
+  var options = {
     physics: {
       enabled: true,
       solver: "forceAtlas2Based",
@@ -2066,65 +2102,63 @@ function _drawTopoNetwork(container, nodes, edges) {
     },
   };
 
-  topoNetwork = new vis.Network(container, { nodes: topoNodes, edges: topoEdges }, options);
+  var net = new vis.Network(
+    container,
+    { nodes: topoNodeSets[subsystem], edges: topoEdgeSets[subsystem] },
+    options
+  );
+  topoNetworks[subsystem] = net;
 
-  // Show popup on node click
-  topoNetwork.on("click", function (params) {
+  net.on("click", function (params) {
     if (params.nodes.length === 0) {
-      closeTopoPopup();
+      closeTopoPopup(subsystem);
       return;
     }
-    const nodeId = params.nodes[0];
-    const nodeData = topoNodes.get(nodeId);
-    if (nodeData) _showTopoPopup(nodeData, params.pointer.DOM);
+    var nodeData = topoNodeSets[subsystem].get(params.nodes[0]);
+    if (nodeData) _showTopoPopup(subsystem, nodeData, params.pointer.DOM);
   });
 
-  // Hide popup when canvas is double-clicked (fit view)
-  topoNetwork.on("doubleClick", function (params) {
+  net.on("doubleClick", function (params) {
     if (params.nodes.length === 0) {
-      topoNetwork.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
-      closeTopoPopup();
+      net.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+      closeTopoPopup(subsystem);
     }
   });
 }
 
-/** Fit the vis-network viewport to show all nodes. */
-function topoFitView() {
-  if (topoNetwork) {
-    topoNetwork.fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
+/** Fit the vis-network for *subsystem* to show all nodes. */
+function topoFitView(subsystem) {
+  var s = subsystem || _activeTopoSubtab || "electrical";
+  if (topoNetworks[s]) {
+    topoNetworks[s].fit({ animation: { duration: 400, easingFunction: "easeInOutQuad" } });
   }
 }
 
 /**
- * Show the floating popup for a clicked node.
- * @param {object} node  - vis.js node data object
- * @param {{x: number, y: number}} domPos - canvas-relative DOM position
+ * Show the floating popup for a clicked node in the given subsystem.
  */
-function _showTopoPopup(node, domPos) {
-  const popup     = document.getElementById("topoPopup");
-  const titleEl   = document.getElementById("topoPopupTitle");
-  const bodyEl    = document.getElementById("topoPopupBody");
-  const container = document.getElementById("topoNetwork");
+function _showTopoPopup(subsystem, node, domPos) {
+  var popup     = document.getElementById("topoPopup-" + subsystem);
+  var titleEl   = document.getElementById("topoPopupTitle-" + subsystem);
+  var bodyEl    = document.getElementById("topoPopupBody-" + subsystem);
+  var container = document.getElementById("topoNetwork-" + subsystem);
   if (!popup || !container) return;
 
-  // Parse structured info from the tooltip (which gtopt_diagram already
-  // formats as "key: value\nkey2: value2" lines).
-  const title = node.label || node.id;
-  titleEl.textContent = title;
+  titleEl.textContent = node.label || node.id;
 
   // Build the table safely using DOM to prevent HTML injection
-  const tooltip = (node.title || "");
-  const lines   = tooltip.split(/\n/).filter(Boolean);
-  const table   = document.createElement("table");
+  var tooltip = (node.title || "");
+  var lines   = tooltip.split(/\n/).filter(Boolean);
+  var table   = document.createElement("table");
 
-  lines.forEach((line) => {
-    const row = table.insertRow();
-    const idx  = line.indexOf(":");
+  lines.forEach(function (line) {
+    var row = table.insertRow();
+    var idx  = line.indexOf(":");
     if (idx > 0) {
       row.insertCell().textContent = line.slice(0, idx).trim();
       row.insertCell().textContent = line.slice(idx + 1).trim();
     } else if (line.trim()) {
-      const cell = row.insertCell();
+      var cell = row.insertCell();
       cell.colSpan = 2;
       cell.textContent = line.trim();
     }
@@ -2134,8 +2168,8 @@ function _showTopoPopup(node, domPos) {
   bodyEl.appendChild(table);
 
   // Position popup near the click, but keep it inside the panel
-  let left = domPos.x + 12;
-  let top  = domPos.y - 20;
+  var left = domPos.x + 12;
+  var top  = domPos.y - 20;
   if (left + TOPO_POPUP_WIDTH  > container.offsetWidth)  left = domPos.x - TOPO_POPUP_WIDTH  - 12;
   if (top  + TOPO_POPUP_HEIGHT > container.offsetHeight) top  = container.offsetHeight - TOPO_POPUP_HEIGHT - 8;
   popup.style.left    = Math.max(0, left) + "px";
@@ -2143,7 +2177,8 @@ function _showTopoPopup(node, domPos) {
   popup.style.display = "flex";
 }
 
-function closeTopoPopup() {
-  const popup = document.getElementById("topoPopup");
+function closeTopoPopup(subsystem) {
+  var s = subsystem || _activeTopoSubtab || "electrical";
+  var popup = document.getElementById("topoPopup-" + s);
   if (popup) popup.style.display = "none";
 }
