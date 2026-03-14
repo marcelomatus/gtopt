@@ -326,6 +326,42 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   return result;
 }
 
+auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
+                             std::string_view name) -> SparseRow
+{
+  if (cuts.empty()) {
+    return {};
+  }
+  if (cuts.size() == 1) {
+    auto result = cuts.front();
+    result.name = std::string(name);
+    return result;
+  }
+
+  // Accumulate (sum) all cuts: no division by count or weight normalisation
+  flat_map<ColIndex, double> sum_coeffs;
+  double sum_rhs = 0.0;
+
+  for (const auto& cut : cuts) {
+    sum_rhs += cut.lowb;
+    for (const auto& [col, coeff] : cut.cmap) {
+      sum_coeffs[col] += coeff;
+    }
+  }
+
+  auto result = SparseRow {
+      .name = std::string(name),
+      .lowb = sum_rhs,
+      .uppb = LinearProblem::DblMax,
+  };
+
+  for (const auto& [col, coeff] : sum_coeffs) {
+    result[col] = coeff;
+  }
+
+  return result;
+}
+
 // ─── BendersCut class ────────────────────────────────────────────────────────
 
 auto BendersCut::elastic_filter_solve(const LinearInterface& li,

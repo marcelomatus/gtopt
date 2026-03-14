@@ -67,6 +67,14 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   return ElasticFilterMode::FeasibilityCut;
 }
 
+CutCombinationMode parse_cut_combination_mode(std::string_view name)
+{
+  if (name == "accumulate") {
+    return CutCombinationMode::Accumulate;
+  }
+  return CutCombinationMode::Average;
+}
+
 // ─── Free utility functions ──────────────────────────────────────────────────
 
 std::vector<double> compute_scene_weights(
@@ -746,76 +754,122 @@ void SDDPSolver::share_cuts_for_phase(
   }
 
   if (m_options_.cut_sharing == CutSharingMode::Expected) {
-    // Get scenario probability for each scene (sum of all scenario
-    // probability_factors in that scene). Scenes with no cuts (infeasible)
-    // automatically get weight 0. The weights are then normalised to sum to 1.
-    const auto& scenes = planning_lp().simulation().scenes();
-    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
-    double total_prob = 0.0;
-
-    for (Index si = 0; si < num_scenes; ++si) {
-      if (scene_cuts[SceneIndex {si}].empty()) {
-        // Infeasible or no cuts generated — skip this scene
-        continue;
+    if (m_options_.cut_combination == CutCombinationMode::Accumulate) {
+      // Accumulate mode: when LP objectives already include probability
+      // factors, the correct expected cut is the sum of all individual
+      // scene cuts (no averaging needed).  Each cut's coefficients and RHS
+      // are already probability-weighted by the LP objective.
+      //
+      // Reference: Birge & Louveaux (2011) §5.1 — when the subproblem
+      // objective is  prob_s · c_s'x_s,  the Benders cut coefficients
+      // inherit the probability weighting and should be accumulated.
+      std::vector<SparseRow> all_cuts;
+      for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
+        all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
       }
-      if (std::cmp_less(si, scenes.size())) {
-        for (const auto& sc : scenes[si].scenarios()) {
-          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
+
+      if (all_cuts.empty()) {
+        return;
+      }
+
+      // Sum all cuts into one accumulated cut
+      const auto accumulated = accumulate_benders_cuts(
+          all_cuts,
+          sddp_label("sddp", "accum", "cut", "ph", phase));
+
+      // Add the accumulated cut to all scenes
+      for (Index si = 0; si < num_scenes; ++si) {
+        auto& li =
+            planning_lp().system(SceneIndex {si}, phase).linear_interface();
+        li.add_row(accumulated);
+      }
+
+      SPDLOG_TRACE(
+          "SDDP sharing: added accumulated cut to phase {} "
+          "({} scene cuts summed)",
+          phase,
+          all_cuts.size());
+
+    } else {
+      // Average mode (default): compute probability-weighted average cut.
+      // Correct when LP objectives do NOT include probability factors.
+
+      // Get scenario probability for each scene (sum of all scenario
+      // probability_factors in that scene). Scenes with no cuts (infeasible)
+      // automatically get weight 0. The weights are then normalised to sum
+      // to 1.
+      const auto& scenes = planning_lp().simulation().scenes();
+      std::vector<double> scene_probs(
+          static_cast<std::size_t>(num_scenes), 0.0);
+      double total_prob = 0.0;
+
+      for (Index si = 0; si < num_scenes; ++si) {
+        if (scene_cuts[SceneIndex {si}].empty()) {
+          // Infeasible or no cuts generated — skip this scene
+          continue;
         }
+        if (std::cmp_less(si, scenes.size())) {
+          for (const auto& sc : scenes[si].scenarios()) {
+            scene_probs[static_cast<std::size_t>(si)] +=
+                sc.probability_factor();
+          }
+        }
+        if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
+          // No positive probability weight — fall back to equal weight
+          scene_probs[static_cast<std::size_t>(si)] = 1.0;
+        }
+        total_prob += scene_probs[static_cast<std::size_t>(si)];
       }
-      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
-        // No positive probability weight — fall back to equal weight
-        scene_probs[static_cast<std::size_t>(si)] = 1.0;
+
+      if (total_prob <= 0.0) {
+        return;
       }
-      total_prob += scene_probs[static_cast<std::size_t>(si)];
-    }
 
-    if (total_prob <= 0.0) {
-      return;
-    }
+      // For each scene with positive weight, compute the average of its
+      // cuts, then compute the probability-weighted average across scenes.
+      std::vector<SparseRow> scene_avg_cuts;
+      std::vector<double> weights;
+      scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
+      weights.reserve(static_cast<std::size_t>(num_scenes));
 
-    // For each scene with positive weight, compute the average of its cuts,
-    // then compute the probability-weighted average across scenes.
-    std::vector<SparseRow> scene_avg_cuts;
-    std::vector<double> weights;
-    scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
-    weights.reserve(static_cast<std::size_t>(num_scenes));
-
-    for (Index si = 0; si < num_scenes; ++si) {
-      const auto& cuts = scene_cuts[SceneIndex {si}];
-      if (cuts.empty()) {
-        continue;
+      for (Index si = 0; si < num_scenes; ++si) {
+        const auto& cuts = scene_cuts[SceneIndex {si}];
+        if (cuts.empty()) {
+          continue;
+        }
+        const double w = scene_probs[static_cast<std::size_t>(si)];
+        if (w <= 0.0) {
+          continue;
+        }
+        scene_avg_cuts.push_back(average_benders_cut(
+            cuts, sddp_label("sddp", "tmp", "ph", phase)));
+        weights.push_back(w);
       }
-      const double w = scene_probs[static_cast<std::size_t>(si)];
-      if (w <= 0.0) {
-        continue;
+
+      if (scene_avg_cuts.empty()) {
+        return;
       }
-      scene_avg_cuts.push_back(
-          average_benders_cut(cuts, sddp_label("sddp", "tmp", "ph", phase)));
-      weights.push_back(w);
+
+      // Compute probability-weighted average cut
+      const auto avg = weighted_average_benders_cut(
+          scene_avg_cuts,
+          weights,
+          sddp_label("sddp", "avg", "cut", "ph", phase));
+
+      // Add the average cut to all scenes
+      for (Index si = 0; si < num_scenes; ++si) {
+        auto& li =
+            planning_lp().system(SceneIndex {si}, phase).linear_interface();
+        li.add_row(avg);
+      }
+
+      SPDLOG_TRACE(
+          "SDDP sharing: added probability-weighted average cut to phase {} "
+          "({} scenes with cuts, total_prob={:.4f})",
+          phase,
+          scene_avg_cuts.size(),
+          total_prob);
     }
-
-    if (scene_avg_cuts.empty()) {
-      return;
-    }
-
-    // Compute probability-weighted average cut
-    const auto avg = weighted_average_benders_cut(
-        scene_avg_cuts, weights, sddp_label("sddp", "avg", "cut", "ph", phase));
-
-    // Add the average cut to all scenes
-    for (Index si = 0; si < num_scenes; ++si) {
-      auto& li =
-          planning_lp().system(SceneIndex {si}, phase).linear_interface();
-      li.add_row(avg);
-    }
-
-    SPDLOG_TRACE(
-        "SDDP sharing: added probability-weighted average cut to phase {} "
-        "({} scenes with cuts, total_prob={:.4f})",
-        phase,
-        scene_avg_cuts.size(),
-        total_prob);
 
   } else if (m_options_.cut_sharing == CutSharingMode::Max) {
     // Add ALL cuts from ALL scenes to ALL scenes for this phase
@@ -1186,7 +1240,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     std::vector<std::optional<ColIndex>> header_col_map;
     header_col_map.reserve(num_state_cols);
 
-    for (int hi = state_var_start; hi < static_cast<int>(headers.size()); ++hi)
+    for (int hi = state_var_start; std::cmp_less(hi, headers.size()); ++hi)
     {
       const auto& hdr = headers[hi];
       std::optional<ColIndex> found_col;
@@ -1298,7 +1352,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       for (const auto& rc : raw_cuts) {
         distinct_iters.insert(rc.iteration);
       }
-      if (static_cast<int>(distinct_iters.size()) > max_iters) {
+      if (std::cmp_greater(distinct_iters.size(), max_iters)) {
         // Keep only the last max_iters iteration values
         std::set<int> keep_iters;
         auto it = distinct_iters.end();
@@ -1309,7 +1363,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
         std::erase_if(
             raw_cuts,
             [&keep_iters](const RawCut& rc)
-            { return keep_iters.find(rc.iteration) == keep_iters.end(); });
+            { return !keep_iters.contains(rc.iteration); });
         SPDLOG_INFO(
             "SDDP: boundary cuts filtered to last {} iterations ({} cuts)",
             max_iters,
@@ -1367,16 +1421,16 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
         // Parse coefficient values from the remainder string
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
-        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
+        for (const auto& col_opt : header_col_map) {
           if (!std::getline(coeff_ss, token, ',')) {
             break;
           }
-          if (!header_col_map[ci].has_value()) {
+          if (!col_opt.has_value()) {
             continue;
           }
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
-            row[header_col_map[ci].value()] = -coeff;
+            row[*col_opt] = -coeff;
           }
         }
 
@@ -2100,9 +2154,49 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
       if (!expected_cut.has_value()) {
         SPDLOG_WARN(
             "SDDP aperture: scene {} phase {} — all apertures infeasible, "
-            "skipping cut for this phase",
+            "falling back to regular Benders cut from forward-pass solution",
             scene,
             phase);
+
+        // Fallback: build a regular Benders cut from the cached
+        // forward-pass reduced costs and objective (same as backward_pass).
+        const auto& target_state = phase_states[phase];
+        auto fallback_cut = build_benders_cut(
+            src_state.alpha_col,
+            src_state.outgoing_links,
+            target_state.forward_col_cost,
+            target_state.forward_full_obj,
+            sddp_label("sddp",
+                        "fallback-cut",
+                        "sc",
+                        scene,
+                        "ph",
+                        pi,
+                        "n",
+                        total_cuts));
+
+        store_cut(scene, src_phase, fallback_cut);
+        src_li.add_row(fallback_cut);
+        ++total_cuts;
+
+        SPDLOG_TRACE(
+            "SDDP aperture fallback: scene {} cut for phase {} rhs={:.4f}",
+            scene,
+            src_phase,
+            fallback_cut.lowb);
+
+        if (pi > 1) {
+          auto r = resolve_via_pool(
+              src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+          if (!r.has_value() || !src_li.is_optimal()) {
+            SPDLOG_WARN(
+                "SDDP aperture fallback: scene {} phase {} infeasible after "
+                "adding fallback cut (skipping further backpropagation)",
+                scene,
+                src_phase);
+          }
+        }
+
         continue;
       }
 
@@ -2165,9 +2259,49 @@ auto SDDPSolver::backward_pass_with_apertures(SceneIndex scene,
     if (!expected_cut.has_value()) {
       SPDLOG_WARN(
           "SDDP aperture: scene {} phase {} — all apertures infeasible, "
-          "skipping cut for this phase",
+          "falling back to regular Benders cut from forward-pass solution",
           scene,
           phase);
+
+      // Fallback: build a regular Benders cut from the cached
+      // forward-pass reduced costs and objective (same as backward_pass).
+      const auto& target_state = phase_states[phase];
+      auto fallback_cut = build_benders_cut(
+          src_state.alpha_col,
+          src_state.outgoing_links,
+          target_state.forward_col_cost,
+          target_state.forward_full_obj,
+          sddp_label("sddp",
+                      "fallback-cut",
+                      "sc",
+                      scene,
+                      "ph",
+                      pi,
+                      "n",
+                      total_cuts));
+
+      store_cut(scene, src_phase, fallback_cut);
+      src_li.add_row(fallback_cut);
+      ++total_cuts;
+
+      SPDLOG_TRACE(
+          "SDDP aperture fallback: scene {} cut for phase {} rhs={:.4f}",
+          scene,
+          src_phase,
+          fallback_cut.lowb);
+
+      if (pi > 1) {
+        auto r = resolve_via_pool(
+            src_li, opts, make_backward_lp_task_req(iteration, src_phase));
+        if (!r.has_value() || !src_li.is_optimal()) {
+          SPDLOG_WARN(
+              "SDDP aperture fallback: scene {} phase {} infeasible after "
+              "adding fallback cut (skipping further backpropagation)",
+              scene,
+              src_phase);
+        }
+      }
+
       continue;
     }
 
@@ -2301,6 +2435,68 @@ auto SDDPSolver::solve_apertures_for_phase(
           phase,
           ap_idx,
           clone.get_status());
+
+      // Save the infeasible aperture LP and run diagnostics as non-LP
+      // tasks with low priority, submitted to the SDDP work pool.
+      if (!m_options_.log_directory.empty()) {
+        std::filesystem::create_directories(m_options_.log_directory);
+        const auto err_stem =
+            (std::filesystem::path(m_options_.log_directory)
+             / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
+                           scene_uid(scene),
+                           phase_uid(phase),
+                           ap_idx))
+                .string();
+
+        // Write LP file synchronously (clone will be moved out of scope)
+        clone.write_lp(err_stem);
+        spdlog::warn(
+            "SDDP aperture: saved infeasible LP to {}.lp", err_stem);
+
+        // Submit gtopt_check_lp diagnostic as a non-LP task with low
+        // priority so it doesn't block LP solves.
+        if (m_pool_ != nullptr) {
+          const auto diag_stem = err_stem;
+          auto diag_req = SDDPTaskReq {
+              .priority_key =
+                  SDDPTaskKey {0,
+                               kSDDPKeyBackward,
+                               static_cast<int>(phase),
+                               kSDDPKeyIsNonLP,},
+              .name = std::format(
+                  "check_lp_aper_sc{}_ph{}_ap{}",
+                  scene_uid(scene),
+                  phase_uid(phase),
+                  ap_idx),
+          };
+          [[maybe_unused]] auto diag_fut = m_pool_->submit(
+              [diag_stem]
+              {
+                if (const auto diag =
+                        run_check_lp_diagnostic(diag_stem);
+                    !diag.empty())
+                {
+                  spdlog::error(
+                      "LP infeasibility diagnostic for {}.lp:\n{}",
+                      diag_stem,
+                      diag);
+                }
+                return std::expected<int, Error>(0);
+              },
+              diag_req);
+        } else {
+          // No pool available — run diagnostic synchronously
+          if (const auto diag = run_check_lp_diagnostic(err_stem);
+              !diag.empty())
+          {
+            spdlog::error(
+                "LP infeasibility diagnostic for {}.lp:\n{}",
+                err_stem,
+                diag);
+          }
+        }
+      }
+
       continue;
     }
 

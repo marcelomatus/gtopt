@@ -96,6 +96,46 @@ enum class CutSharingMode : uint8_t
 /// Parse a cut-sharing mode from a string ("none", "expected", "max")
 [[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
+// ─── Cut combination mode ───────────────────────────────────────────────────
+
+/**
+ * @brief How optimality cuts from multiple scenes are combined in Expected
+ *        cut-sharing mode
+ *
+ * In standard SDDP/Benders decomposition, when each scenario subproblem's
+ * objective already includes the probability factor (i.e. the LP objective
+ * is weighted by the scenario probability), the correct way to form the
+ * "expected cut" is to simply accumulate (sum) the cuts from all scenarios
+ * rather than computing a weighted average.  This is because the reduced
+ * costs and objective values returned by the solver already contain the
+ * probability weighting.
+ *
+ * Conversely, when the LP objectives are unweighted, the expected cut
+ * should be formed as a probability-weighted average of the individual
+ * scenario cuts (the original behaviour).
+ *
+ * - `Average` (default): compute a probability-weighted average of the
+ *   scenario cuts.  This is correct when LP objectives do NOT include
+ *   the probability factor.
+ *
+ * - `Accumulate`: accumulate (sum) all scenario cuts without averaging.
+ *   This is correct when LP objectives already include the probability
+ *   factor, as each cut's coefficients and RHS are already weighted.
+ *
+ * Reference: Birge & Louveaux (2011), "Introduction to Stochastic
+ * Programming", §5.1; Pereira & Pinto (1991), "Multi-stage stochastic
+ * optimization applied to energy planning", Math. Programming 52(1-3).
+ */
+enum class CutCombinationMode : uint8_t
+{
+  Average = 0,  ///< Probability-weighted average (LP objectives unweighted)
+  Accumulate,  ///< Direct accumulation/sum (LP objectives already weighted)
+};
+
+/// Parse a cut-combination mode from a string ("average", "accumulate")
+[[nodiscard]] CutCombinationMode parse_cut_combination_mode(
+    std::string_view name);
+
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 /// File naming patterns for per-scene cut files
@@ -177,6 +217,13 @@ struct SDDPOptions
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
   CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
+
+  /// How cuts are combined in Expected cut-sharing mode and aperture mode.
+  /// `Average` (default) computes a probability-weighted average — correct
+  /// when LP objectives do NOT include probability factors.
+  /// `Accumulate` sums all cuts directly — correct when LP objectives
+  /// already include probability factors (each cut is pre-weighted).
+  CutCombinationMode cut_combination {CutCombinationMode::Average};
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
   /// `FeasibilityCut` / "single-cut" (default) adds a single Benders

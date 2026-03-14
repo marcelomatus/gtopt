@@ -216,6 +216,23 @@ struct FeasibilityCutResult
     const std::vector<double>& weights,
     std::string_view name) -> SparseRow;
 
+/// Accumulate (sum) all cuts into a single combined cut.
+///
+/// When LP subproblem objectives already include probability factors,
+/// the correct "expected cut" is the sum of all individual cuts rather
+/// than a weighted average.  Each cut's coefficients and RHS are assumed
+/// to be pre-weighted by the scenario probability.
+///
+/// The resulting cut has:
+///   lowb = Σ_i cuts[i].lowb
+///   coefficients = Σ_i cuts[i].coefficients  (for each column)
+///   uppb = DblMax (unchanged)
+///
+/// @param cuts  Collection of Benders optimality cuts (SparseRow)
+/// @param name  Name for the resulting accumulated cut row
+[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
+                                           std::string_view name) -> SparseRow;
+
 // ─── BendersCut class ────────────────────────────────────────────────────────
 
 /**
