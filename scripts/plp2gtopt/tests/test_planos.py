@@ -79,8 +79,7 @@ class TestPlanosParser:
         cut = parser.cuts[0]
         assert cut["name"] == "bc_1_1"
         assert cut["iteration"] == 1
-        assert cut["scene"] == 0  # PLP ISimul=1 → 0-based scene=0
-        # PLP stores negative intercept: rhs = -LDPhiPrv = -(-1000.5) = 1000.5
+        assert cut["scene"] == 1  # PLP ISimul=1 → scene UID=1
         assert cut["rhs"] == pytest.approx(1000.5)
         assert cut["coefficients"]["Rapel"] == pytest.approx(0.25)
         assert cut["coefficients"]["Colbun"] == pytest.approx(0.75)
@@ -93,7 +92,7 @@ class TestPlanosParser:
         cut = parser.cuts[1]
         assert cut["name"] == "bc_1_2"
         assert cut["iteration"] == 1
-        assert cut["scene"] == 1  # PLP ISimul=2 → 0-based scene=1
+        assert cut["scene"] == 2  # PLP ISimul=2 → scene UID=2
         assert cut["rhs"] == pytest.approx(2000.3)
 
     def test_parse_iteration_preserved(self, planos_files):
@@ -193,7 +192,7 @@ class TestPlanosWriter:
 
         assert row["name"] == "bc_1_1"
         assert row["iteration"] == "1"
-        assert row["scene"] == "0"  # PLP ISimul=1 → 0-based scene=0
+        assert row["scene"] == "1"  # PLP ISimul=1 → scene UID=1
         assert float(row["rhs"]) == pytest.approx(1000.5)
         assert float(row["Rapel"]) == pytest.approx(0.25)
         assert float(row["Colbun"]) == pytest.approx(0.75)

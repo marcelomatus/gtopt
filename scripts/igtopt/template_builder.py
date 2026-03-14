@@ -1633,7 +1633,7 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
     # Example row
     ws_bc.cell(row=2, column=1, value="bc_1_1")
     ws_bc.cell(row=2, column=2, value=1)
-    ws_bc.cell(row=2, column=3, value=0)
+    ws_bc.cell(row=2, column=3, value=1)
     ws_bc.cell(row=2, column=4, value=-5000.0)
     ws_bc.cell(row=2, column=5, value=0.25)
     ws_bc.cell(row=2, column=6, value=0.75)
@@ -1653,7 +1653,7 @@ def _build_workbook(  # noqa: PLR0912,PLR0915
         row=6,
         column=1,
         value="# 'iteration' = SDDP iteration (PLP IPDNumIte); "
-        "'scene' = 0-based scene index (PLP ISimul - 1).",
+        "'scene' = scene UID (PLP ISimul maps to scene UID in plp2gtopt).",
     )
 
     wb.save(output_path)

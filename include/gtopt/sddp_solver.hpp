@@ -103,13 +103,13 @@ namespace sddp_file
 {
 /// Combined cut file name
 constexpr auto combined_cuts = "sddp_cuts.csv";
-/// Per-scene cut file pattern: format with scene index
+/// Per-scene cut file pattern: format with scene UID
 constexpr auto scene_cuts_fmt = "scene_{}.csv";
-/// Error-prefixed cut file pattern for infeasible scenes
+/// Error-prefixed cut file pattern for infeasible scenes (scene UID)
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
-/// Error LP file pattern for infeasible scene/phase
+/// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
-/// Debug LP file pattern: format with iteration, scene, phase indices
+/// Debug LP file pattern: format with iteration, scene UID, phase UID
 constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves cuts.
@@ -277,8 +277,8 @@ struct SDDPOptions
 
   /// How boundary cuts are loaded:
   /// - "noload"    — skip loading even if a file is specified
-  /// - "separated" — assign each cut to the scene matching its scenario
-  ///                 column (1-based ISimul); unmatched cuts are skipped
+  /// - "separated" — assign each cut to the scene matching its `scene`
+  ///                 column (scene UID); unmatched UIDs are skipped
   /// - "combined"  — broadcast all cuts to all scenes
   /// Default: "separated".
   std::string boundary_cuts_mode {"separated"};
@@ -371,8 +371,8 @@ struct PhaseStateInfo
 /// A serialisable representation of a Benders cut
 struct StoredCut
 {
-  int phase {};  ///< Phase index this cut was added to
-  int scene {};  ///< Scene that generated this cut (-1 = shared)
+  int phase {};  ///< Phase UID this cut was added to
+  int scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
   /// Coefficient pairs: (column_index, coefficient)
@@ -767,6 +767,18 @@ private:
   [[nodiscard]] const PlanningLP& planning_lp() const noexcept
   {
     return m_planning_lp_.get();
+  }
+
+  /// Get the scene UID for a given SceneIndex.
+  [[nodiscard]] int scene_uid(SceneIndex si) const noexcept
+  {
+    return static_cast<int>(planning_lp().simulation().scenes()[si].uid());
+  }
+
+  /// Get the phase UID for a given PhaseIndex.
+  [[nodiscard]] int phase_uid(PhaseIndex pi) const noexcept
+  {
+    return static_cast<int>(planning_lp().simulation().phases()[pi].uid());
   }
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
