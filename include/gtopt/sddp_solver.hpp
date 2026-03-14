@@ -71,10 +71,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_solver.hpp>
 #include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
-#include <gtopt/work_pool.hpp>
 
 namespace gtopt
 {

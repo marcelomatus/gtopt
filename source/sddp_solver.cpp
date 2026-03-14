@@ -27,10 +27,10 @@
 #include <gtopt/check_lp.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_pool.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
-#include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
