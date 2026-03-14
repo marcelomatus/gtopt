@@ -1,16 +1,310 @@
 #include <chrono>
 #include <random>
 #include <thread>
+#include <tuple>
 
 #include <doctest/doctest.h>
 #include <gtopt/cpu_monitor.hpp>
+#include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>
+
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+// ─── BasicTaskRequirements template tests ───────────────────────────────────
+
+TEST_CASE("BasicTaskRequirements template key")  // NOLINT
+{
+  SUBCASE("default key type is int64_t")
+  {
+    const BasicTaskRequirements<> req;
+    CHECK(req.estimated_threads == 1);
+    CHECK(req.priority == TaskPriority::Medium);
+    CHECK(req.priority_key == int64_t {0});
+  }
+
+  SUBCASE("TaskRequirements alias uses int64_t")
+  {
+    static_assert(std::same_as<TaskRequirements::key_type, int64_t>);
+    const TaskRequirements req {.priority_key = 42, .name = {}};
+    CHECK(req.priority_key == 42);
+  }
+
+  SUBCASE("SDDPTaskKey uses tuple")
+  {
+    static_assert(std::same_as<SDDPTaskKey, std::tuple<int, int, int, int>>);
+    BasicTaskRequirements<SDDPTaskKey> req {
+        .priority = TaskPriority::Medium,
+        .priority_key = SDDPTaskKey {1, 0, 2, 0},
+        .name = {},
+    };
+    CHECK(std::get<0>(req.priority_key) == 1);
+    CHECK(std::get<1>(req.priority_key) == kSDDPKeyForward);
+    CHECK(std::get<2>(req.priority_key) == 2);
+    CHECK(std::get<3>(req.priority_key) == kSDDPKeyIsLP);
+  }
+
+  SUBCASE("kSDDPKey constants have correct values")
+  {
+    CHECK(kSDDPKeyIsLP == 0);
+    CHECK(kSDDPKeyIsNonLP == 1);
+    CHECK(kSDDPKeyForward == 0);
+    CHECK(kSDDPKeyBackward == 1);
+  }
+}
+
+// ─── Task<> ordering with std::less (smaller key = higher priority) ──────────
+
+TEST_CASE(
+    "Task ordering: std::less semantics (smaller key = higher priority)")  // NOLINT
+{
+  SUBCASE("smaller int64_t key → higher priority in max-heap")
+  {
+    // Lower key = higher priority (operator< returns true when this has LOWER
+    // priority, i.e., when other.key is smaller)
+    Task<void, int64_t, std::less<>> low_prio {
+        [] {}, TaskRequirements {.priority_key = 100, .name = {}}};
+    Task<void, int64_t, std::less<>> high_prio {
+        [] {}, TaskRequirements {.priority_key = 1, .name = {}}};
+
+    // In max-heap: "less than" means lower priority → gets pushed down
+    // high_prio (key=1) < low_prio (key=100) should be false (high has higher
+    // priority)
+    CHECK_FALSE(high_prio < low_prio);
+    // low_prio (key=100) < high_prio (key=1) should be true (low has lower
+    // priority)
+    CHECK(low_prio < high_prio);
+  }
+
+  SUBCASE("TaskPriority tier overrides key ordering")
+  {
+    Task<void, int64_t, std::less<>> medium {
+        [] {},
+        TaskRequirements {
+            .priority = TaskPriority::Medium, .priority_key = 0, .name = {}}};
+    Task<void, int64_t, std::less<>> high {
+        [] {},
+        TaskRequirements {
+            .priority = TaskPriority::High, .priority_key = 999, .name = {}}};
+
+    // High priority always beats medium, regardless of key value
+    CHECK(medium < high);  // medium has lower priority
+    CHECK_FALSE(high < medium);
+  }
+
+  SUBCASE("SDDPTaskKey tuple comparison is lexicographic")
+  {
+    using STask = Task<void, SDDPTaskKey, std::less<>>;
+    using SReq = BasicTaskRequirements<SDDPTaskKey>;
+
+    // (0,0,0,0) < (1,0,0,0): iteration 0 has higher priority than iteration 1
+    STask iter0 {[] {},
+                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
+    STask iter1 {[] {},
+                 SReq {.priority_key = SDDPTaskKey {1, 0, 0, 0}, .name = {}}};
+    CHECK_FALSE(iter0 < iter1);  // iter0 has higher priority
+    CHECK(iter1 < iter0);  // iter1 has lower priority
+
+    // (0,0,0,0) < (0,1,0,0): forward (0) has higher priority than backward (1)
+    STask fwd {[] {},
+               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
+                     .name = {}}};
+    STask bwd {[] {},
+               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
+                     .name = {}}};
+    CHECK_FALSE(fwd < bwd);  // forward has higher priority
+    CHECK(bwd < fwd);  // backward has lower priority
+
+    // (0,0,0,0) < (0,0,0,1): LP solve (0) has higher priority than non-LP (1)
+    STask lp {
+        [] {},
+        SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP}, .name = {}}};
+    STask nonlp {[] {},
+                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
+                       .name = {}}};
+    CHECK_FALSE(lp < nonlp);  // LP has higher priority
+    CHECK(nonlp < lp);  // non-LP has lower priority
+
+    // Phase ordering: phase 0 < phase 2
+    STask ph0 {[] {},
+               SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
+    STask ph2 {[] {},
+               SReq {.priority_key = SDDPTaskKey {0, 0, 2, 0}, .name = {}}};
+    CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
+    CHECK(ph2 < ph0);  // phase 2 has lower priority
+  }
+
+  SUBCASE("std::greater semantics: larger key = higher priority")
+  {
+    // Reverse ordering: larger key = higher priority (old-style behavior)
+    Task<void, int64_t, std::greater<>> low_prio {
+        [] {}, TaskRequirements {.priority_key = 1, .name = {}}};
+    Task<void, int64_t, std::greater<>> high_prio {
+        [] {}, TaskRequirements {.priority_key = 100, .name = {}}};
+
+    CHECK_FALSE(high_prio < low_prio);  // high_prio (100) has higher priority
+    CHECK(low_prio < high_prio);  // low_prio (1) has lower priority
+  }
+}
+
+// ─── BasicWorkPool template tests ────────────────────────────────────────────
+
+TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
+{
+  using namespace std::chrono_literals;
+
+  AdaptiveWorkPool pool;
+  pool.start();
+
+  SUBCASE("key_type exposed as int64_t")
+  {
+    static_assert(std::same_as<AdaptiveWorkPool::key_type, int64_t>);
+    static_assert(
+        std::same_as<AdaptiveWorkPool::key_compare, std::less<int64_t>>);
+    CHECK(true);
+  }
+
+  SUBCASE("submit with int64_t priority_key – smaller key dequeued first")
+  {
+    // Submit tasks with different priority keys; smaller = higher priority
+    std::vector<int> order;
+    std::mutex mu;
+    std::atomic<int> done {0};
+
+    // Stop the scheduler so we can queue up tasks before any run
+    // (We submit them quickly and check they all complete)
+    auto t1 = pool.submit(
+        [&]
+        {
+          const std::scoped_lock lk {mu};
+          order.push_back(10);
+          done++;
+        },
+        TaskRequirements {
+            .priority = TaskPriority::Medium, .priority_key = 10, .name = {}});
+
+    auto t2 = pool.submit(
+        [&]
+        {
+          const std::scoped_lock lk {mu};
+          order.push_back(1);
+          done++;
+        },
+        TaskRequirements {
+            .priority = TaskPriority::Medium, .priority_key = 1, .name = {}});
+
+    REQUIRE(t1.has_value());
+    REQUIRE(t2.has_value());
+    t1->wait();
+    t2->wait();
+    CHECK(done == 2);
+    CHECK(order.size() == 2);
+  }
+
+  pool.shutdown();
+}
+
+TEST_CASE("SDDPWorkPool with SDDPTaskKey tuple")  // NOLINT
+{
+  using namespace std::chrono_literals;
+
+  SUBCASE("SDDPWorkPool key_type is SDDPTaskKey")
+  {
+    static_assert(std::same_as<SDDPWorkPool::key_type, SDDPTaskKey>);
+    static_assert(
+        std::same_as<SDDPWorkPool::key_compare, std::less<SDDPTaskKey>>);
+    CHECK(true);
+  }
+
+  SUBCASE("submit tasks with SDDP tuple key")
+  {
+    SDDPWorkPool pool;
+    pool.start();
+
+    std::atomic<int> result {0};
+    using Req = BasicTaskRequirements<SDDPTaskKey>;
+
+    auto fut = pool.submit(
+        [&] { result = 42; },
+        Req {
+            .priority = TaskPriority::Medium,
+            .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
+            .name = {},
+        });
+
+    REQUIRE(fut.has_value());
+    fut->wait();
+    CHECK(result == 42);
+
+    pool.shutdown();
+  }
+
+  SUBCASE("SDDPWorkPool ordering: forward before backward")
+  {
+    SDDPWorkPool pool;
+    pool.start();
+
+    std::vector<int> order;
+    std::mutex mu;
+    std::atomic<int> done {0};
+
+    using Req = BasicTaskRequirements<SDDPTaskKey>;
+
+    auto fwd = pool.submit(
+        [&]
+        {
+          const std::scoped_lock lk {mu};
+          order.push_back(0);  // forward
+          done++;
+        },
+        Req {.priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, kSDDPKeyIsLP},
+             .name = {}});
+
+    auto bwd = pool.submit(
+        [&]
+        {
+          const std::scoped_lock lk {mu};
+          order.push_back(1);  // backward
+          done++;
+        },
+        Req {.priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, kSDDPKeyIsLP},
+             .name = {}});
+
+    REQUIRE(fwd.has_value());
+    REQUIRE(bwd.has_value());
+    fwd->wait();
+    bwd->wait();
+    CHECK(done == 2);
+
+    pool.shutdown();
+  }
+}
+
+// ─── make_sddp_work_pool factory test ────────────────────────────────────────
+
+TEST_CASE("make_sddp_work_pool factory")  // NOLINT
+{
+  SUBCASE("creates and starts SDDPWorkPool")
+  {
+    auto pool = make_sddp_work_pool(0.5);
+    REQUIRE(pool != nullptr);
+
+    std::atomic<int> result {0};
+    using Req = BasicTaskRequirements<SDDPTaskKey>;
+    auto fut = pool->submit(
+        [&] { result = 99; },
+        Req {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}});
+
+    REQUIRE(fut.has_value());
+    fut->wait();
+    CHECK(result == 99);
+  }
+}
+
+// ─── Backward compatibility tests ────────────────────────────────────────────
 
 TEST_CASE("WorkPool basic functionality")
 {
   using namespace std::chrono_literals;
-
-  using namespace gtopt;
 
   AdaptiveWorkPool pool;
   pool.start();

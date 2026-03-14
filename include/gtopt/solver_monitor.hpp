@@ -33,6 +33,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -61,11 +62,7 @@ namespace gtopt
 /**
  * @brief Create and start an AdaptiveWorkPool configured for solver use.
  *
- * Both MonolithicSolver and SDDPSolver use the same work-pool
- * configuration.  This factory eliminates the duplication and provides
- * a single place to tune the pool parameters.
- *
- * The pool is started (ready to accept tasks) before it is returned.
+ * Both MonolithicSolver and SDDPSolver (auxiliary pool) use this factory.
  *
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
  *                    Default 1.25 (25 % more threads than physical cores).
@@ -83,6 +80,35 @@ namespace gtopt
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
   pool->start();
   SPDLOG_TRACE("Solver work pool started: max_threads={} cpu_threshold={:.0f}%",
+               pool_config.max_threads,
+               pool_config.max_cpu_threshold);
+  return pool;
+}
+
+/**
+ * @brief Create and start an SDDPWorkPool configured for the SDDP solver.
+ *
+ * Uses `SDDPTaskKey` (tuple) as the secondary priority key so that the
+ * SDDP forward/backward LP solves are ordered by
+ * (iteration, is_backward, phase, is_nonlp) with the default
+ * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
+ *
+ * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
+ *                    Default 1.25.
+ * @return A started SDDPWorkPool (heap-allocated, non-movable).
+ */
+[[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
+    double cpu_factor = 1.25)
+{
+  WorkPoolConfig pool_config {};
+  pool_config.max_threads = static_cast<int>(
+      std::lround(cpu_factor * std::thread::hardware_concurrency()));
+  pool_config.max_cpu_threshold = static_cast<int>(
+      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+
+  auto pool = std::make_unique<SDDPWorkPool>(pool_config);
+  pool->start();
+  SPDLOG_TRACE("SDDP work pool started: max_threads={} cpu_threshold={:.0f}%",
                pool_config.max_threads,
                pool_config.max_cpu_threshold);
   return pool;
@@ -132,10 +158,12 @@ public:
   ~SolverMonitor() = default;
 
   /// Start the background sampling thread.
+  /// @tparam Pool        Any work pool type that provides `get_statistics()`.
   /// @param pool         The work pool to sample statistics from.
   /// @param start_time   Reference time-point for timestamp computation.
   /// @param thread_name  Name to assign the background thread (Linux only).
-  void start(AdaptiveWorkPool& pool,
+  template<typename Pool>
+  void start(Pool& pool,
              std::chrono::steady_clock::time_point start_time,
              [[maybe_unused]] const char* thread_name = "SolverMonitor")
   {
