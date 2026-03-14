@@ -339,7 +339,8 @@ public:
               }
               std::this_thread::sleep_for(scheduler_interval_);
             }
-          }};
+          },
+      };
       spdlog::info(
           std::format("  WorkPool started with {} max threads", max_threads_));
     } catch (const std::exception& e) {
@@ -379,7 +380,7 @@ public:
 
   template<typename Func, typename... Args>
   [[nodiscard]] auto submit(Func&& func,
-                            const Requirements& req = Requirements {},
+                            const Requirements& req = Requirements(),
                             Args&&... args)
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
