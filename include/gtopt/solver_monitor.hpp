@@ -193,7 +193,8 @@ public:
             }
             std::this_thread::sleep_for(m_update_interval_);
           }
-        }};
+        },
+    };
   }
 
   /// Request the background thread to stop (non-blocking).
