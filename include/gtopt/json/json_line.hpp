@@ -37,6 +37,10 @@ struct json_data_contract<Line>
                         jvtl_TRealFieldSched>,
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"tap_ratio", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"phase_shift_deg",
+                        OptTRealFieldSched,
                         jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Line const& line)
@@ -61,7 +65,9 @@ struct json_data_contract<Line>
                                  line.expmod,
                                  line.capmax,
                                  line.annual_capcost,
-                                 line.annual_derating);
+                                 line.annual_derating,
+                                 line.tap_ratio,
+                                 line.phase_shift_deg);
   }
 };
 }  // namespace daw::json

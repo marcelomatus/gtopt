@@ -34,6 +34,8 @@ TEST_CASE("Line construction and default values")
   CHECK_FALSE(line.capmax.has_value());
   CHECK_FALSE(line.annual_capcost.has_value());
   CHECK_FALSE(line.annual_derating.has_value());
+  CHECK_FALSE(line.tap_ratio.has_value());
+  CHECK_FALSE(line.phase_shift_deg.has_value());
 }
 
 TEST_CASE("Line attribute assignment")
@@ -901,4 +903,201 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     const auto obj = lp.get_obj_value();
     CHECK(obj == doctest::Approx(1.0));
   }
+}
+
+// ── Transformer (tap_ratio + phase_shift_deg) tests ──────────────────────
+
+TEST_CASE(
+    "Transformer with off-nominal tap ratio changes Kirchhoff susceptance")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Two-bus system: bus1 → bus2 via a transformer.
+  // With tap_ratio = τ the effective susceptance is B/τ, so for equal
+  // generation and demand the optimal power flow decreases with larger τ.
+  // We verify feasibility and a non-trivial objective at τ = 2 (half B).
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1", .reference_theta = 0.0},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 20.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .lmax = 100.0},
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              Block {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              Stage {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              Scenario {.uid = Uid {1}, .probability_factor = 1},
+          },
+  };
+
+  const Array<Line> line_array_nominal = {
+      {
+          .uid = Uid {1},
+          .name = "t1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .tap_ratio = 1.0,
+      },
+  };
+  const Array<Line> line_array_tap = {
+      {
+          .uid = Uid {1},
+          .name = "t1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .tap_ratio = 2.0,  // half the susceptance → larger angle difference
+      },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = true;
+  opts.use_line_losses = false;
+  const OptionsLP options_lp(opts);
+
+  // Nominal tap test
+  {
+    System system = {
+        .name = "TapNominal",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array_nominal,
+    };
+    SimulationLP simulation_lp(simulation, options_lp);
+    system.setup_reference_bus(options_lp);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp_iface = system_lp.linear_interface();
+    auto result = lp_iface.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+
+  // Off-nominal tap test
+  {
+    System system = {
+        .name = "TapOffNominal",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array_tap,
+    };
+    SimulationLP simulation_lp(simulation, options_lp);
+    system.setup_reference_bus(options_lp);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp_iface = system_lp.linear_interface();
+    auto result = lp_iface.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+  }
+}
+
+TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Simple 2-bus system connected by a PST.  With a non-zero phase shift the
+  // Kirchhoff equality RHS changes from 0 to -scale_theta * phi_rad; the LP
+  // must still be feasible (the PST just requires a different angle gap to
+  // carry the same power).
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1", .reference_theta = 0.0},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .lmax = 100.0},
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              Block {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              Stage {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              Scenario {.uid = Uid {1}, .probability_factor = 1},
+          },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "pst_1_2",
+          .type = "transformer",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 300.0,
+          .tmax_ab = 300.0,
+          .phase_shift_deg = 2.0,
+      },
+  };
+
+  Options opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = true;
+  opts.use_line_losses = false;
+  const OptionsLP options_lp(opts);
+
+  System system = {
+      .name = "PSTTwoBus",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  SimulationLP simulation_lp(simulation, options_lp);
+  system.setup_reference_bus(options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp_iface = system_lp.linear_interface();
+  auto result = lp_iface.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Objective should equal 100 MW * $10/MWh / scale_objective (1000) = 1.0
+  CHECK(lp_iface.get_obj_value() == doctest::Approx(1.0));
 }
