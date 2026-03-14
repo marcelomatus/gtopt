@@ -517,6 +517,12 @@ igtopt system.xlsx --zip
 # Convert multiple workbooks in one run (merges into a single JSON)
 igtopt case_a.xlsx case_b.xlsx -d /data/input
 
+# Validate the workbook without writing output (exit 0 = OK, 1 = errors)
+igtopt system.xlsx --validate
+
+# Proceed even if some sheets have errors (partial output)
+igtopt system.xlsx --ignore-errors
+
 # Show debug log messages
 igtopt system.xlsx -l DEBUG
 ```
@@ -599,7 +605,7 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 | `block_array` | Time blocks (`uid`, `name`, `duration`) |
 | `stage_array` | Investment stages (`uid`, `first_block`, `count_block`, `discount_factor`) |
 | `scenario_array` | Scenarios (`uid`, `probability_factor`) |
-| `phase_array` | SDDP phases (`uid`, `first_stage`, `count_stage`) — leave empty for monolithic solver |
+| `phase_array` | SDDP phases (`uid`, `first_stage`, `count_stage`, `aperture_set`) — leave empty for monolithic solver; `aperture_set` is a JSON array of aperture UIDs to restrict the SDDP backward pass for this phase |
 | `scene_array` | SDDP scenes (`uid`, `first_scenario`, `count_scenario`) — leave empty for monolithic solver |
 | `bus_array` | Electrical buses (`uid`, `name`, `voltage`, `reference_theta`, `use_kirchhoff`) |
 | `generator_array` | Generators (`uid`, `name`, `bus`, `gcost`, `pmax`, `capacity`, …) |
@@ -615,9 +621,10 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 | `waterway_array` | Water channels between junctions (`uid`, `name`, `junction_a`, `junction_b`, `fmax`) |
 | `flow_array` | External inflows/outflows at junctions (`uid`, `name`, `junction`, `discharge`, `direction`) |
 | `reservoir_array` | Storage lakes/dams (`uid`, `name`, `junction`, `emin`, `emax`, `ecost`) |
-| `filtration_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`) |
+| `filtration_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`, `slope`, `constant`, `segments` — `segments` is a JSON array of `{"volume", "slope", "constant"}` for piecewise-linear seepage) |
 | `turbine_array` | Hydro turbines (`uid`, `name`, `waterway`, `generator`, `conversion_rate`) |
 | `reservoir_efficiency_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_efficiency`) |
+| `user_constraint_array` | User-defined custom LP constraints added to the problem |
 
 #### Time-series sheets (`@` convention)
 
@@ -673,6 +680,8 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 | `-N, --skip-nulls` | off | Omit keys with null/NaN values from JSON output |
 | `-U, --parse-unexpected-sheets` | off | Also process sheets not in the expected list |
 | `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
+| `--validate` | off | Check workbook for errors without writing output (exit 0 = OK, 1 = errors) |
+| `--ignore-errors` | off | Proceed despite errors in individual sheets (output may be incomplete) |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `-V, --version` | — | Print version and exit |
 | `-T, --make-template` | off | Generate the Excel template from C++ JSON headers instead of converting |
