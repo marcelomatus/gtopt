@@ -99,6 +99,23 @@ public:
     return lazy_add_theta(sc, scenario, stage, lp, blocks);
   }
 
+  /// Look up an already-created theta column without lazy initialisation.
+  /// Returns std::nullopt if no theta column exists for this (scenario, stage,
+  /// block) triple (e.g. single-bus or reference bus).
+  [[nodiscard]]
+  std::optional<ColIndex> lookup_theta_col(const ScenarioLP& scenario,
+                                           const StageLP& stage,
+                                           BlockUid buid) const noexcept
+  {
+    const auto key = std::pair {scenario.uid(), stage.uid()};
+    if (const auto mit = theta_cols.find(key); mit != theta_cols.end()) {
+      if (const auto it = mit->second.find(buid); it != mit->second.end()) {
+        return it->second;
+      }
+    }
+    return std::nullopt;
+  }
+
 private:
   [[nodiscard]]
   auto lazy_add_theta(const SystemContext& sc,

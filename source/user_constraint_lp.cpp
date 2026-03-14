@@ -25,6 +25,8 @@
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/reserve_provision_lp.hpp>
+#include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -237,6 +239,50 @@ namespace
       return std::nullopt;
     }
 
+    // ── bus: voltage angle θ ─────────────────────────────────────────────
+    if (ref.element_type == "bus") {
+      const auto& bus_lp = sc.get_element(ObjectSingleId<BusLP> {single_id});
+      if (ref.attribute == "theta" || ref.attribute == "angle") {
+        return bus_lp.lookup_theta_col(scenario, stage, buid);
+      }
+      return std::nullopt;
+    }
+
+    // ── reserve_provision: up/dn reserve provision column ────────────────
+    if (ref.element_type == "reserve_provision") {
+      const auto& rp =
+          sc.get_element(ObjectSingleId<ReserveProvisionLP> {single_id});
+      if (ref.attribute == "up" || ref.attribute == "uprovision"
+          || ref.attribute == "up_provision")
+      {
+        return rp.lookup_up_provision_col(scenario, stage, buid);
+      }
+      if (ref.attribute == "dn" || ref.attribute == "down"
+          || ref.attribute == "dprovision" || ref.attribute == "dn_provision")
+      {
+        return rp.lookup_dn_provision_col(scenario, stage, buid);
+      }
+      return std::nullopt;
+    }
+
+    // ── reserve_zone: up/dn requirement column ───────────────────────────
+    if (ref.element_type == "reserve_zone") {
+      const auto& rz =
+          sc.get_element(ObjectSingleId<ReserveZoneLP> {single_id});
+      if (ref.attribute == "up" || ref.attribute == "urequirement"
+          || ref.attribute == "up_requirement")
+      {
+        return rz.lookup_urequirement_col(scenario, stage, buid);
+      }
+      if (ref.attribute == "dn" || ref.attribute == "down"
+          || ref.attribute == "drequirement"
+          || ref.attribute == "dn_requirement")
+      {
+        return rz.lookup_drequirement_col(scenario, stage, buid);
+      }
+      return std::nullopt;
+    }
+
   } catch (const std::exception& ex) {
     SPDLOG_WARN(std::format("user_constraint: cannot resolve {}.{}('{}'): {}",
                             ref.element_type,
@@ -369,6 +415,30 @@ void collect_sum_cols(const SystemContext& sc,
       }
       for (const auto& c : sc.elements<ConverterLP>()) {
         add_one(std::to_string(static_cast<int>(c.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "reserve_provision") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& rp : sc.elements<ReserveProvisionLP>()) {
+        add_one(std::to_string(static_cast<int>(rp.uid())));
+      }
+    } else if (sum_ref.element_type
+               == "reserve_zone") {  // NOLINT(bugprone-branch-clone)
+      if (sum_ref.type_filter) {
+        SPDLOG_WARN(std::format(
+            "user_constraint sum({}): type_filter is not supported for "
+            "element type '{}' — filter ignored",
+            sum_ref.element_type,
+            sum_ref.element_type));
+      }
+      for (const auto& rz : sc.elements<ReserveZoneLP>()) {
+        add_one(std::to_string(static_cast<int>(rz.uid())));
       }
     }
   } else {
