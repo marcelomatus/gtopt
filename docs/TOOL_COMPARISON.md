@@ -44,6 +44,10 @@ results should be directly comparable.
   - [13.3 Cases with Structural Differences](#133-cases-with-structural-differences)
 - [14. Unit Convention Summary](#14-unit-convention-summary)
 - [15. Conversion Tools Reference](#15-conversion-tools-reference)
+- [16. Worked Examples](#16-worked-examples)
+  - [16.1 Single-Bus Dispatch: gtopt vs pandapower](#161-single-bus-dispatch-gtopt-vs-pandapower)
+  - [16.2 4-Bus DC OPF: gtopt vs pandapower](#162-4-bus-dc-opf-gtopt-vs-pandapower)
+  - [16.3 PLP Conversion Workflow: plp2gtopt → gtopt](#163-plp-conversion-workflow-plp2gtopt--gtopt)
 - [See Also](#see-also)
 
 ---
@@ -622,6 +626,263 @@ gtopt_compare --output-dir results/ --tol-mw 0.5 # custom tolerance
 ```
 
 See [gtopt_compare documentation](scripts/gtopt_compare.md) for full usage.
+
+---
+
+## 16. Worked Examples
+
+The following examples demonstrate end-to-end workflows using the conversion
+tools and solver. Each example includes the network diagram, the commands to
+run, and a side-by-side comparison of results.
+
+### 16.1 Single-Bus Dispatch: gtopt vs pandapower
+
+The simplest possible power system: one bus, two generators, one load.
+This case (`s1b`) verifies that the merit-order dispatch logic in gtopt
+produces identical results to pandapower's DC OPF.
+
+**Network diagram** (generated with `gtopt_diagram`):
+
+![s1b network](diagrams/s1b_example.svg)
+
+```mermaid
+---
+title: s1b — Single-Bus Dispatch
+---
+flowchart LR
+    bus_1["🔌 b1"]
+    gen_1[/"⚡ g1<br/>200 MW  $20/MWh"\]
+    gen_2[/"⚡ g2<br/>300 MW  $40/MWh"\]
+    dem_1[\"📊 d1<br/>250 MW"/]
+    gen_1 --> bus_1
+    gen_2 --> bus_1
+    bus_1 --> dem_1
+```
+
+**System definition** (`cases/s1b/s1b.json`):
+- 1 bus, 2 generators, 1 demand (250 MW)
+- g1: 200 MW capacity, $20/MWh — g2: 300 MW capacity, $40/MWh
+- Single block, single stage, single scenario
+
+#### Running gtopt
+
+```bash
+cd cases/s1b
+gtopt s1b
+```
+
+#### Running pandapower (equivalent)
+
+```python
+import pandapower as pp
+
+net = pp.create_empty_network(sn_mva=100.0)
+pp.create_bus(net, vn_kv=10.0, name="b1")
+pp.create_ext_grid(net, bus=0, max_p_mw=200.0, min_p_mw=0.0)
+pp.create_gen(net, bus=0, p_mw=0, max_p_mw=300.0, min_p_mw=0.0,
+              controllable=True)
+pp.create_load(net, bus=0, p_mw=250.0)
+pp.create_poly_cost(net, 0, "ext_grid", cp1_eur_per_mw=20.0)
+pp.create_poly_cost(net, 0, "gen", cp1_eur_per_mw=40.0)
+pp.rundcopp(net, verbose=False)
+```
+
+#### Result Comparison
+
+| Metric | **gtopt** | **pandapower** | Match |
+|--------|-----------|----------------|-------|
+| g1 dispatch | 200 MW | 200 MW | ✅ Exact |
+| g2 dispatch | 50 MW | 50 MW | ✅ Exact |
+| Total cost | 6000 $/h | 6000 $/h | ✅ Exact |
+| Status | optimal (0) | converged | ✅ |
+| Load served | 250 MW | 250 MW | ✅ Exact |
+
+**Interpretation**: g1 (cheaper at $20/MWh) dispatches at full capacity
+(200 MW). The remaining 50 MW is served by g2 ($40/MWh). Total cost =
+200×20 + 50×40 = 6000 $/h. Both tools produce identical results because
+this is a pure merit-order dispatch with no network constraints.
+
+---
+
+### 16.2 4-Bus DC OPF: gtopt vs pandapower
+
+The `ieee_4b_ori` case is a 4-bus network with 2 generators, 2 loads,
+and 5 transmission lines. It tests DC power flow (Kirchhoff's voltage
+law) constraints.
+
+**Network diagram** (generated with `gtopt_diagram`):
+
+![ieee_4b_ori network](diagrams/ieee4b_ori_example.svg)
+
+```mermaid
+---
+title: ieee_4b_ori — 4-Bus DC OPF
+---
+flowchart LR
+    bus_1["🔌 b1"]
+    bus_2["🔌 b2"]
+    bus_3["🔌 b3"]
+    bus_4["🔌 b4"]
+    gen_1[/"⚡ g1<br/>300 MW  $20/MWh"\]
+    gen_2[/"⚡ g2<br/>200 MW  $35/MWh"\]
+    dem_1[\"📊 d3<br/>150 MW"/]
+    dem_2[\"📊 d4<br/>100 MW"/]
+    gen_1 --> bus_1
+    gen_2 --> bus_2
+    bus_3 --> dem_1
+    bus_4 --> dem_2
+    bus_1 ---|"l1_2  x=0.02"| bus_2
+    bus_1 ---|"l1_3  x=0.02"| bus_3
+    bus_2 ---|"l2_3  x=0.03"| bus_3
+    bus_2 ---|"l2_4  x=0.02"| bus_4
+    bus_3 ---|"l3_4  x=0.03"| bus_4
+```
+
+**System definition** (`cases/ieee_4b_ori/ieee_4b_ori.json`):
+- 4 buses, 2 generators, 2 demands (150 + 100 = 250 MW total)
+- 5 transmission lines with per-unit reactances
+- Kirchhoff DC OPF enabled (`use_kirchhoff: true`)
+
+#### Running gtopt
+
+```bash
+cd cases/ieee_4b_ori
+gtopt ieee_4b_ori
+cat output/solution.csv          # obj_value=5, status=0
+cat output/Generator/generation_sol.csv
+cat output/Bus/balance_dual.csv  # LMPs
+cat output/Line/flowp_sol.csv    # line flows
+```
+
+#### Generating the diagram
+
+```bash
+gtopt_diagram cases/ieee_4b_ori/ieee_4b_ori.json -o ieee4b.svg
+```
+
+#### Result Comparison
+
+**Generator dispatch:**
+
+| Generator | Bus | Cost | **gtopt** | **pandapower** | Match |
+|-----------|-----|------|-----------|----------------|-------|
+| g1 | b1 | $20/MWh | 250 MW | 250 MW | ✅ Exact |
+| g2 | b2 | $35/MWh | 0 MW | 0 MW | ✅ Exact |
+
+**Bus marginal prices (LMP):**
+
+| Bus | **gtopt** | **pandapower** | Match |
+|-----|-----------|----------------|-------|
+| b1 | $20.00/MWh | $20.00/MWh | ✅ Exact |
+| b2 | $20.00/MWh | $20.00/MWh | ✅ Exact |
+| b3 | $20.00/MWh | $20.00/MWh | ✅ Exact |
+| b4 | $20.00/MWh | $20.00/MWh | ✅ Exact |
+
+**Line flows (MW):**
+
+| Line | **gtopt** | **pandapower** | Diff |
+|------|-----------|----------------|------|
+| l1_2 | 104.26 | 122.22 | ≈18 MW |
+| l1_3 | 145.74 | 127.78 | ≈18 MW |
+| l2_3 | 27.66 | 44.44 | ≈17 MW |
+| l2_4 | 76.60 | 77.78 | ≈1 MW |
+| l3_4 | 23.40 | 22.22 | ≈1 MW |
+
+**Total cost:**
+
+| Metric | **gtopt** | **pandapower** | Match |
+|--------|-----------|----------------|-------|
+| Objective | 5000 $/h | 5000 $/h | ✅ Exact |
+
+**Interpretation**: Both tools dispatch g1 at 250 MW (cheapest generator
+covers all demand) and find the same total cost ($5000/h) and identical
+LMPs ($20/MWh everywhere — no congestion). The small differences in
+individual line flows arise from the reactance values used: gtopt reads
+the exact values from the JSON (`reactance` field in per-unit), while
+the pandapower equivalent network was built with approximate physical
+parameters. The power balance and economic dispatch are identical.
+
+> **Automated validation**: `gtopt_compare --case ieee_4b_ori --gtopt-output
+> output/` performs this comparison programmatically with configurable
+> tolerances.
+
+---
+
+### 16.3 PLP Conversion Workflow: plp2gtopt → gtopt
+
+This example demonstrates converting a PLP case to gtopt format and
+solving it. The `plp_min_1bus` case is a minimal 1-bus system from the
+PLP `.dat` file format.
+
+**Network diagram** (generated with `gtopt_diagram`):
+
+![plp_min_1bus network](diagrams/plp_min_1bus_example.svg)
+
+```mermaid
+---
+title: plp_min_1bus — PLP Single-Bus Thermal
+---
+flowchart LR
+    bus_1["🔌 Bus1<br/>1.0 kV"]
+    gen_1[/"⚡ Thermal1<br/>100 MW  $50/MWh"\]
+    dem_1[\"📊 Bus1<br/>demand"/]
+    gen_1 --> bus_1
+    bus_1 --> dem_1
+```
+
+**PLP source files** (in `scripts/cases/plp_min_1bus/`):
+
+| File | Contents |
+|------|----------|
+| `plpbar.dat` | 1 bus definition |
+| `plpcnfce.dat` | 1 thermal central (100 MW) |
+| `plpcosce.dat` | Cost: $50/MWh |
+| `plpdem.dat` | Demand: 80 MW |
+| `plpblo.dat` | 1 block (1 hour) |
+| `plpeta.dat` | 1 stage |
+
+#### Step 1: Convert PLP → gtopt
+
+```bash
+plp2gtopt \
+    -i scripts/cases/plp_min_1bus \
+    -o /tmp/plp_min_1bus \
+    -f /tmp/plp_min_1bus/plp_min_1bus.json \
+    -S mono
+```
+
+> **Note**: `-S mono` selects the monolithic solver (single scene/phase),
+> suitable for small deterministic cases. For stochastic multi-stage
+> problems, use the default `-S sddp`.
+
+#### Step 2: Solve with gtopt
+
+```bash
+cd /tmp/plp_min_1bus
+gtopt plp_min_1bus
+```
+
+#### Step 3: Generate diagram
+
+```bash
+gtopt_diagram /tmp/plp_min_1bus/plp_min_1bus.json -o plp_min_1bus.svg
+```
+
+#### Results
+
+| Metric | Value |
+|--------|-------|
+| Status | optimal (0) |
+| Generator dispatch (Thermal1) | 80 MW |
+| Load served (Bus1) | 80 MW |
+| Total cost (scaled) | 4 (= 4000 $/h ÷ scale_objective=1000) |
+| Bus marginal price | $50/MWh |
+| Demand curtailment | 0 MW |
+
+**Interpretation**: The single thermal generator (100 MW capacity,
+$50/MWh) dispatches exactly 80 MW to meet the demand. No load shedding
+occurs. The bus marginal price equals the generator's marginal cost
+($50/MWh), as expected for a single-bus unconstrained dispatch.
 
 ---
 
