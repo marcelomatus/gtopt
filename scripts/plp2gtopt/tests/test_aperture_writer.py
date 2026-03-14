@@ -173,3 +173,40 @@ def test_phase_aperture_sets_empty_inputs() -> None:
     phase_array: list = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
     build_phase_aperture_sets(None, [{"uid": 1}], phase_array, 1)
     assert "aperture_set" not in phase_array[0]
+
+
+def test_phase_aperture_sets_multistage_duplicates(
+    idap2_varying: IdAp2Parser,
+) -> None:
+    """Multi-stage phase preserves duplicate aperture UIDs.
+
+    Stage 1 has apertures [51,52] and Stage 2 has [51,52,53].
+    A phase spanning both stages should include duplicates for the
+    apertures that appear in both stages (51 and 52), so the C++
+    solver can weight them correctly by their repetition count.
+    """
+    scenario_hydro_map = {0: 10, 50: 1, 51: 2, 52: 3}
+    aperture_array = build_aperture_array(idap2_varying, scenario_hydro_map, 3)
+    # Phase 1 spans stages 1+2, Phase 2 covers stage 3 only
+    phase_array = [
+        {"uid": 1, "first_stage": 0, "count_stage": 2},
+        {"uid": 2, "first_stage": 2, "count_stage": 1},
+    ]
+    build_phase_aperture_sets(idap2_varying, aperture_array, phase_array, 3)
+
+    # Phase 1 (stages 1+2): stage 1 → [51,52], stage 2 → [51,52,53]
+    # With extend: hydros = [51,52,51,52,53] → sorted UIDs with duplicates
+    ap_set_1 = phase_array[0]["aperture_set"]
+    from collections import Counter
+
+    counts_1 = Counter(ap_set_1)
+    # hydro 51 → UID 1 appears 2× (stage 1 + stage 2)
+    # hydro 52 → UID 2 appears 2× (stage 1 + stage 2)
+    # hydro 53 → UID 3 appears 1× (stage 2 only)
+    assert counts_1[1] == 2
+    assert counts_1[2] == 2
+    assert counts_1[3] == 1
+
+    # Phase 2 (stage 3): [1,51,52,53] → 4 unique aperture UIDs, no duplicates
+    ap_set_2 = phase_array[1]["aperture_set"]
+    assert len(ap_set_2) == len(set(ap_set_2))
