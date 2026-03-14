@@ -484,10 +484,11 @@ void SDDPSolver::store_cut(SceneIndex scene,
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
 
-auto SDDPSolver::resolve_via_pool(LinearInterface& li,
-                                  const SolverOptions& opts,
-                                  const BasicTaskRequirements<SDDPTaskKey>&
-                                      task_req) -> std::expected<int, Error>
+auto SDDPSolver::resolve_via_pool(
+    LinearInterface& li,
+    const SolverOptions& opts,
+    const BasicTaskRequirements<SDDPTaskKey>& task_req)
+    -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
     // No pool available — fall back to direct solve
@@ -878,8 +879,9 @@ auto SDDPSolver::save_cuts(const std::string& filepath) const
   }
 }
 
-auto SDDPSolver::save_scene_cuts(SceneIndex scene, const std::string& directory)
-    const -> std::expected<void, Error>
+auto SDDPSolver::save_scene_cuts(SceneIndex scene,
+                                 const std::string& directory) const
+    -> std::expected<void, Error>
 {
   try {
     std::filesystem::create_directories(directory);
