@@ -146,26 +146,47 @@ private:
   IndexHolder2<ScenarioUid, StageUid, BCoeffMap> m_coeff_indices_;
 };
 
+// ─── HasUpdateLP concept ─────────────────────────────────────────────────────
+
+/**
+ * @brief Concept satisfied by LP element types that implement `update_lp()`.
+ *
+ * Used by `update_lp_coefficients()` to iterate over the LP element collection
+ * with `visit_elements()` and dispatch `update_lp()` only to types that
+ * implement it (currently `TurbineLP` and `FiltrationLP`).
+ */
+template<typename T>
+concept HasUpdateLP = requires(T& obj,
+                               SystemLP& system_lp,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               PhaseIndex phase,
+                               int iteration) {
+  {
+    obj.update_lp(system_lp, scenario, stage, phase, iteration)
+  } -> std::same_as<int>;
+};
+
 // ─── Generalized LP coefficient update ──────────────────────────────────────
 
 /**
  * @brief Update all volume-dependent LP coefficients for a (scene, phase)
  *
  * This is the **generalized coefficient update hook** called by the SDDP
- * solver before each phase solve.  It currently handles:
+ * solver before each phase solve.  It iterates over ALL LP element types in
+ * the collection via `visit_elements` and, for each type that satisfies the
+ * `HasUpdateLP` concept, calls `element.update_lp()`.  Currently this
+ * dispatches to:
  *
- * 1. **Turbine efficiency** — calls TurbineLP::update_lp() for each turbine
- *    that has a `ReservoirEfficiency` element, using the current reservoir
- *    volume to evaluate the piecewise-linear efficiency curve.
+ * 1. **TurbineLP::update_lp()** — recomputes the turbine conversion rate from
+ *    the current reservoir volume and updates the LP constraint coefficient.
  *
- * 2. **Filtration** — calls FiltrationLP::update_lp() which, when the
- *    Filtration has piecewise-linear segments, selects the active segment
- *    based on the reservoir's current volume and updates the constraint
- *    slope coefficient and RHS.  Only dispatches set_coeff/set_rhs calls
- *    when the new value differs from the previously stored one.
+ * 2. **FiltrationLP::update_lp()** — selects the active piecewise-linear
+ *    segment based on the current reservoir volume and updates the seepage
+ *    constraint slope and RHS.
  *
- * Future extensions (linearised losses, etc.) can be added in the
- * TurbineLP::update_lp or FiltrationLP::update_lp methods.
+ * Future extensions simply require implementing `update_lp()` on the new LP
+ * element type; no changes to this function are necessary.
  *
  * @param system_lp  The SystemLP for this (scene, phase)
  * @param options    Global LP options (provides default skip count)

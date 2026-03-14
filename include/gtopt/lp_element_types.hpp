@@ -43,6 +43,7 @@ class ReserveZoneLP;
 class ReservoirEfficiencyLP;
 class ReservoirLP;
 class TurbineLP;
+class UserConstraintLP;
 class WaterwayLP;
 
 // ── Authoritative ordered type list
@@ -55,6 +56,10 @@ class WaterwayLP;
  * The order matches `SystemLP::collections_t` for readability, but correctness
  * does not depend on that — the indices are always looked up via
  * `lp_type_index_v<T>`, never assumed to match positionally.
+ *
+ * `UserConstraintLP` is always the LAST type so that user constraints are
+ * added to the LP after all other elements (user constraints reference
+ * columns created by the earlier elements).
  */
 using lp_element_types_t = std::tuple<BusLP,
                                       DemandLP,
@@ -72,7 +77,8 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ReservoirLP,
                                       FiltrationLP,
                                       TurbineLP,
-                                      ReservoirEfficiencyLP>;
+                                      ReservoirEfficiencyLP,
+                                      UserConstraintLP>;
 
 /// Total number of LP element types.
 inline constexpr std::size_t lp_type_count_v =
