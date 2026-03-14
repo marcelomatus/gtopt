@@ -524,7 +524,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "energy_scale",
             _J_NUM,
             False,
-            "Energy scale factor: LP variable = physical_energy / energy_scale (default: 1.0)",
+            "Energy scale for LP numerics: LP var = energy / scale"
+            " (optional, default: 1.0)",
             None,
         ),
     ],
