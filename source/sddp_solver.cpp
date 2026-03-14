@@ -2397,8 +2397,17 @@ auto SDDPSolver::solve_apertures_for_phase(
     const auto& aperture = ap_ref.get();
     const auto ap_uid = aperture.uid;
     const double pf = aperture.probability_factor.value_or(1.0);
-    // The effective weight is N * probability_factor
-    const double weight = static_cast<double>(ap_count) * (pf > 0.0 ? pf : 1.0);
+    if (pf <= 0.0) {
+      SPDLOG_WARN(
+          "SDDP aperture uid {}: non-positive probability_factor {:.6f}, "
+          "using 1.0 as fallback",
+          ap_uid,
+          pf);
+    }
+    // The effective weight is N * probability_factor.
+    // This makes the result equivalent to solving the LP N separate times.
+    const double effective_pf = pf > 0.0 ? pf : 1.0;
+    const double weight = static_cast<double>(ap_count) * effective_pf;
 
     // Find the scenario corresponding to this aperture's source_scenario UID
     const ScenarioLP* aperture_scenario_ptr = nullptr;

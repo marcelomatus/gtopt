@@ -201,14 +201,14 @@ def build_phase_aperture_sets(
         )
         phase_sets.append(ap_uids)
 
-    # Only add aperture_set if phases differ; otherwise leave empty.
-    # For the uniform check, compare the sorted *unique* sets — a phase
-    # that spans two stages produces duplicates but still uses the same
-    # aperture definitions as a single-stage phase.
+    # Write aperture_set when phases differ OR any phase contains duplicates.
+    # Duplicates carry semantic weight: the C++ solver scales the aperture
+    # probability by the repetition count, so they must be preserved.
     all_ap_uids = sorted(hydro_to_aperture_uid.values())
     all_same = all(sorted(set(s)) == all_ap_uids for s in phase_sets)
+    has_duplicates = any(len(s) != len(set(s)) for s in phase_sets)
 
-    if not all_same:
+    if not all_same or has_duplicates:
         for phase, ap_set in zip(phase_array, phase_sets):
             phase["aperture_set"] = ap_set
 
