@@ -108,6 +108,12 @@ def main(argv: list[str] | None = None) -> int:
     block_indices = _parse_block_spec(args.block)
 
     if args.solve:
+        if len(block_indices) > 1:
+            print(
+                "Warning: --solve uses only the first block; "
+                f"ignoring blocks {block_indices[1:]}",
+                file=sys.stderr,
+            )
         bi = block_indices[0]
         net = run_dcopp(case, scenario=args.scenario, block=bi)
         print(f"DC OPF converged: {net.OPF_converged}")
@@ -135,7 +141,11 @@ def main(argv: list[str] | None = None) -> int:
         stem = args.case_file.stem
         for bi in block_indices:
             net = convert(case, scenario=args.scenario, block=bi)
-            out = args.output or args.case_file.with_name(f"{stem}_pp_b{bi}.json")
+            if args.output:
+                # Insert block index before extension for user-provided path
+                out = args.output.with_stem(f"{args.output.stem}_b{bi}")
+            else:
+                out = args.case_file.with_name(f"{stem}_pp_b{bi}.json")
             pp.to_json(net, str(out))
             print(f"Block {bi}: written {out}")
     return 0
