@@ -20,23 +20,26 @@ using gtopt::SddpOptions;
 template<>
 struct json_data_contract<SddpOptions>
 {
-  using type =
-      json_member_list<json_string_null<"sddp_solver_type", OptName>,
-                       json_string_null<"sddp_cut_sharing_mode", OptName>,
-                       json_string_null<"sddp_cut_directory", OptName>,
-                       json_bool_null<"sddp_api_enabled", OptBool>,
-                       json_number_null<"sddp_efficiency_update_skip", OptInt>,
-                       json_number_null<"sddp_max_iterations", OptInt>,
-                       json_number_null<"sddp_convergence_tol", OptReal>,
-                       json_number_null<"sddp_elastic_penalty", OptReal>,
-                       json_number_null<"sddp_alpha_min", OptReal>,
-                       json_number_null<"sddp_alpha_max", OptReal>,
-                       json_string_null<"sddp_cuts_input_file", OptName>,
-                       json_string_null<"sddp_sentinel_file", OptName>,
-                       json_string_null<"sddp_elastic_mode", OptName>,
-                       json_number_null<"sddp_multi_cut_threshold", OptInt>,
-                       json_number_null<"sddp_num_apertures", OptInt>,
-                       json_string_null<"sddp_aperture_directory", OptName>>;
+  using type = json_member_list<
+      json_string_null<"sddp_solver_type", OptName>,
+      json_string_null<"sddp_cut_sharing_mode", OptName>,
+      json_string_null<"sddp_cut_directory", OptName>,
+      json_bool_null<"sddp_api_enabled", OptBool>,
+      json_number_null<"sddp_efficiency_update_skip", OptInt>,
+      json_number_null<"sddp_max_iterations", OptInt>,
+      json_number_null<"sddp_convergence_tol", OptReal>,
+      json_number_null<"sddp_elastic_penalty", OptReal>,
+      json_number_null<"sddp_alpha_min", OptReal>,
+      json_number_null<"sddp_alpha_max", OptReal>,
+      json_string_null<"sddp_cuts_input_file", OptName>,
+      json_string_null<"sddp_sentinel_file", OptName>,
+      json_string_null<"sddp_elastic_mode", OptName>,
+      json_number_null<"sddp_multi_cut_threshold", OptInt>,
+      json_number_null<"sddp_num_apertures", OptInt>,
+      json_string_null<"sddp_aperture_directory", OptName>,
+      json_string_null<"sddp_boundary_cuts_file", OptName>,
+      json_string_null<"sddp_boundary_cuts_mode", OptName>,
+      json_number_null<"sddp_boundary_max_iterations", OptInt>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -55,7 +58,10 @@ struct json_data_contract<SddpOptions>
                                  opt.sddp_elastic_mode,
                                  opt.sddp_multi_cut_threshold,
                                  opt.sddp_num_apertures,
-                                 opt.sddp_aperture_directory);
+                                 opt.sddp_aperture_directory,
+                                 opt.sddp_boundary_cuts_file,
+                                 opt.sddp_boundary_cuts_mode,
+                                 opt.sddp_boundary_max_iterations);
   }
 };
 

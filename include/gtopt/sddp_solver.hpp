@@ -103,13 +103,13 @@ namespace sddp_file
 {
 /// Combined cut file name
 constexpr auto combined_cuts = "sddp_cuts.csv";
-/// Per-scene cut file pattern: format with scene index
+/// Per-scene cut file pattern: format with scene UID
 constexpr auto scene_cuts_fmt = "scene_{}.csv";
-/// Error-prefixed cut file pattern for infeasible scenes
+/// Error-prefixed cut file pattern for infeasible scenes (scene UID)
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
-/// Error LP file pattern for infeasible scene/phase
+/// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
 constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
-/// Debug LP file pattern: format with iteration, scene, phase indices
+/// Debug LP file pattern: format with iteration, scene UID, phase UID
 constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves cuts.
@@ -261,6 +261,32 @@ struct SDDPOptions
   /// updated.  State variable bounds remain fixed at the forward-pass
   /// trial values.
   int num_apertures {0};
+
+  /// CSV file with boundary (future-cost) cuts for the last phase.
+  ///
+  /// These cuts approximate the expected future cost beyond the planning
+  /// horizon, analogous to PLP's "planos de embalse" (reservoir future-cost
+  /// function).  Each cut has the form:
+  ///   α ≥ rhs + Σ_i coeff_i · state_var_i
+  ///
+  /// The CSV header row names the state variables (reservoirs / batteries).
+  /// The solver maps these names to LP columns in the last phase and adds
+  /// each cut as a lower-bound constraint on the future cost variable α.
+  /// Empty = no boundary cuts.
+  std::string boundary_cuts_file {};
+
+  /// How boundary cuts are loaded:
+  /// - "noload"    — skip loading even if a file is specified
+  /// - "separated" — assign each cut to the scene matching its `scene`
+  ///                 column (scene UID); unmatched UIDs are skipped
+  /// - "combined"  — broadcast all cuts to all scenes
+  /// Default: "separated".
+  std::string boundary_cuts_mode {"separated"};
+
+  /// Maximum number of SDDP iterations to load from the boundary cuts
+  /// file.  Only cuts from the last N distinct iterations (by the
+  /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
+  int boundary_max_iterations {0};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -345,8 +371,8 @@ struct PhaseStateInfo
 /// A serialisable representation of a Benders cut
 struct StoredCut
 {
-  int phase {};  ///< Phase index this cut was added to
-  int scene {};  ///< Scene that generated this cut (-1 = shared)
+  int phase {};  ///< Phase UID this cut was added to
+  int scene {};  ///< Scene UID that generated this cut (-1 = shared)
   std::string name {};  ///< Cut name
   double rhs {};  ///< Right-hand side (lower bound)
   /// Coefficient pairs: (column_index, coefficient)
@@ -551,6 +577,17 @@ public:
   [[nodiscard]] auto load_scene_cuts_from_directory(
       const std::string& directory) -> std::expected<int, Error>;
 
+  /// Load boundary (future-cost) cuts from a named-variable CSV file.
+  ///
+  /// The CSV header names the state variables (e.g. reservoir or battery
+  /// names); subsequent rows provide {name, scenario, rhs, coefficients}.
+  /// Cuts are added only to the last phase, with an alpha column created
+  /// if needed.  This is analogous to PLP's "planos de embalse".
+  ///
+  /// @return Number of cuts loaded, or an error.
+  [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
+      -> std::expected<int, Error>;
+
 private:
   using scene_phase_states_t =
       StrongIndexVector<SceneIndex,
@@ -730,6 +767,18 @@ private:
   [[nodiscard]] const PlanningLP& planning_lp() const noexcept
   {
     return m_planning_lp_.get();
+  }
+
+  /// Get the scene UID for a given SceneIndex.
+  [[nodiscard]] int scene_uid(SceneIndex si) const noexcept
+  {
+    return static_cast<int>(planning_lp().simulation().scenes()[si].uid());
+  }
+
+  /// Get the phase UID for a given PhaseIndex.
+  [[nodiscard]] int phase_uid(PhaseIndex pi) const noexcept
+  {
+    return static_cast<int>(planning_lp().simulation().phases()[pi].uid());
   }
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
