@@ -2340,25 +2340,49 @@ auto SDDPSolver::solve_apertures_for_phase(
   double total_weight = 0.0;
 
   // Build the effective aperture list for this phase.
-  // If phase_apertures is non-empty, filter aperture_defs to only those
-  // whose UID is in the phase's aperture_set.
-  std::vector<std::reference_wrapper<const Aperture>> effective_apertures;
+  //
+  // Each entry is a pair: (aperture reference, repetition count N).
+  // When phase_apertures contains duplicates (e.g. [1,2,3,3,3]),
+  // each unique aperture is solved only once but its weight is
+  // scaled by N (the number of occurrences).
+  struct ApertureEntry
+  {
+    std::reference_wrapper<const Aperture> aperture;
+    int count;
+  };
+
+  std::vector<ApertureEntry> effective_apertures;
+
   if (phase_apertures.empty()) {
-    // Use all aperture definitions
+    // Use all aperture definitions (each with count = 1)
     for (const auto& ap : aperture_defs) {
       if (ap.is_active()) {
-        effective_apertures.emplace_back(ap);
+        effective_apertures.push_back({std::cref(ap), 1});
       }
     }
   } else {
-    // Filter to only the apertures listed in phase_apertures
-    for (const auto& ap : aperture_defs) {
-      if (!ap.is_active()) {
-        continue;
+    // Count occurrences of each UID in the phase_apertures list.
+    // Preserving order of first appearance keeps results deterministic.
+    std::vector<std::pair<Uid, int>> uid_counts;
+    for (const auto ap_uid : phase_apertures) {
+      bool found = false;
+      for (auto& [uid, cnt] : uid_counts) {
+        if (uid == ap_uid) {
+          ++cnt;
+          found = true;
+          break;
+        }
       }
-      for (const auto ap_uid : phase_apertures) {
-        if (ap.uid == ap_uid) {
-          effective_apertures.emplace_back(ap);
+      if (!found) {
+        uid_counts.emplace_back(ap_uid, 1);
+      }
+    }
+
+    // Map each unique UID to its aperture definition
+    for (const auto& [uid, cnt] : uid_counts) {
+      for (const auto& ap : aperture_defs) {
+        if (ap.uid == uid && ap.is_active()) {
+          effective_apertures.push_back({std::cref(ap), cnt});
           break;
         }
       }
@@ -2369,9 +2393,12 @@ auto SDDPSolver::solve_apertures_for_phase(
     return std::nullopt;
   }
 
-  for (size_t ap_idx = 0; ap_idx < effective_apertures.size(); ++ap_idx) {
-    const auto& aperture = effective_apertures[ap_idx].get();
-    const double weight = aperture.probability_factor.value_or(1.0);
+  for (const auto& [ap_ref, ap_count] : effective_apertures) {
+    const auto& aperture = ap_ref.get();
+    const auto ap_uid = aperture.uid;
+    const double pf = aperture.probability_factor.value_or(1.0);
+    // The effective weight is N * probability_factor
+    const double weight = static_cast<double>(ap_count) * (pf > 0.0 ? pf : 1.0);
 
     // Find the scenario corresponding to this aperture's source_scenario UID
     const ScenarioLP* aperture_scenario_ptr = nullptr;
@@ -2388,7 +2415,7 @@ auto SDDPSolver::solve_apertures_for_phase(
           "source_scenario {} not found, skipping",
           scene,
           phase,
-          aperture.uid,
+          ap_uid,
           aperture.source_scenario);
       continue;
     }
@@ -2412,11 +2439,11 @@ auto SDDPSolver::solve_apertures_for_phase(
         clone, opts, make_backward_lp_task_req(0, phase));
     if (!result.has_value() || !clone.is_optimal()) {
       SPDLOG_DEBUG(
-          "SDDP aperture: scene {} phase {} aperture {} infeasible "
+          "SDDP aperture: scene {} phase {} aperture uid {} infeasible "
           "(status {}), skipping",
           scene,
           phase,
-          ap_idx,
+          ap_uid,
           clone.get_status());
 
       // Save the infeasible aperture LP and run diagnostics as non-LP
@@ -2427,7 +2454,7 @@ auto SDDPSolver::solve_apertures_for_phase(
                                / std::format("error_aperture_sc_{}_ph_{}_ap_{}",
                                              scene_uid(scene),
                                              phase_uid(phase),
-                                             ap_idx))
+                                             ap_uid))
                                   .string();
 
         // Write LP file synchronously (clone will be moved out of scope)
@@ -2448,7 +2475,7 @@ auto SDDPSolver::solve_apertures_for_phase(
               .name = std::format("check_lp_aper_sc{}_ph{}_ap{}",
                                   scene_uid(scene),
                                   phase_uid(phase),
-                                  ap_idx),
+                                  ap_uid),
           };
           [[maybe_unused]] auto diag_fut = m_pool_->submit(
               [err_stem]
@@ -2477,7 +2504,8 @@ auto SDDPSolver::solve_apertures_for_phase(
       continue;
     }
 
-    // Build a Benders cut from the clone's reduced costs
+    // Build a Benders cut from the clone's reduced costs.
+    // Use aperture UID (not 0-based index) in user-facing labels.
     const auto cut_name = sddp_label("sddp",
                                      "aper-cut",
                                      "sc",
@@ -2485,7 +2513,7 @@ auto SDDPSolver::solve_apertures_for_phase(
                                      "ph",
                                      pi,
                                      "ap",
-                                     ap_idx,
+                                     ap_uid,
                                      "n",
                                      total_cuts);
     auto cut = build_benders_cut(src_state.alpha_col,
@@ -2494,9 +2522,13 @@ auto SDDPSolver::solve_apertures_for_phase(
                                  clone.get_obj_value(),
                                  cut_name);
 
+    // Accumulate the cut with weight = N * probability_factor.
+    // Both the cut contribution and the denominator use the same
+    // effective weight, so repeated optimal apertures correctly
+    // amplify their influence in the weighted average.
     aperture_cuts.push_back(std::move(cut));
-    aperture_weights.push_back(weight > 0.0 ? weight : 1.0);
-    total_weight += aperture_weights.back();
+    aperture_weights.push_back(weight);
+    total_weight += weight;
   }
 
   if (aperture_cuts.empty()) {
