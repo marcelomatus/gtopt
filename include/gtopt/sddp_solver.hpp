@@ -261,6 +261,19 @@ struct SDDPOptions
   /// updated.  State variable bounds remain fixed at the forward-pass
   /// trial values.
   int num_apertures {0};
+
+  /// CSV file with boundary (future-cost) cuts for the last phase.
+  ///
+  /// These cuts approximate the expected future cost beyond the planning
+  /// horizon, analogous to PLP's "planos de embalse" (reservoir future-cost
+  /// function).  Each cut has the form:
+  ///   α ≥ rhs + Σ_i coeff_i · state_var_i
+  ///
+  /// The CSV header row names the state variables (reservoirs / batteries).
+  /// The solver maps these names to LP columns in the last phase and adds
+  /// each cut as a lower-bound constraint on the future cost variable α.
+  /// Empty = no boundary cuts.
+  std::string boundary_cuts_file {};
 };
 
 // ─── Iteration result ───────────────────────────────────────────────────────
@@ -550,6 +563,17 @@ public:
   /// prevent loading invalid cuts during hot-start.
   [[nodiscard]] auto load_scene_cuts_from_directory(
       const std::string& directory) -> std::expected<int, Error>;
+
+  /// Load boundary (future-cost) cuts from a named-variable CSV file.
+  ///
+  /// The CSV header names the state variables (e.g. reservoir or battery
+  /// names); subsequent rows provide {name, scenario, rhs, coefficients}.
+  /// Cuts are added only to the last phase, with an alpha column created
+  /// if needed.  This is analogous to PLP's "planos de embalse".
+  ///
+  /// @return Number of cuts loaded, or an error.
+  [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
+      -> std::expected<int, Error>;
 
 private:
   using scene_phase_states_t =

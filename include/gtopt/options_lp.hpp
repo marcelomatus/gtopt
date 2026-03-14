@@ -457,6 +457,13 @@ public:
     return m_options_.sddp_options.sddp_aperture_directory.value_or(Name {});
   }
 
+  /// CSV file with boundary (future-cost) cuts for the last phase.
+  /// Empty = no boundary cuts.
+  [[nodiscard]] auto sddp_boundary_cuts_file() const -> Name
+  {
+    return m_options_.sddp_options.sddp_boundary_cuts_file.value_or(Name {});
+  }
+
 private:
   /** @brief The wrapped Options object */
   Options m_options_;
