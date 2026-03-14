@@ -282,43 +282,51 @@ void SDDPSolver::update_coefficients_for_phase(SceneIndex scene,
 namespace
 {
 
-/// Compute the priority key for an LP solve task.
+/// Build an `SDDPTaskKey` tuple for an SDDP LP solve task.
 ///
-/// The key is `1_000_000 - iteration*100 - phase*10`.
+/// The key is `(iteration, is_backward, phase, is_nonlp)` where:
+///  - `is_backward`: 0 = forward pass, 1 = backward pass
+///  - `is_nonlp`:    0 = LP solve/resolve, 1 = other (e.g. write_lp)
 ///
-/// Coefficients rationale:
-///  - `*100` per iteration: supports up to 10 000 iterations before the key
-///    wraps through zero (far beyond any practical SDDP run).
-///  - `*10`  per phase:     supports up to 10 phases per iteration without
-///    aliasing; the phase contribution is always smaller than the iteration
-///    step so iteration ordering dominates.
+/// With the default `std::less<SDDPTaskKey>` comparator (lexicographic),
+/// smaller tuples have **higher** execution priority:
+///  - Lower iteration → higher priority
+///  - Forward pass (0) → higher priority than backward (1)
+///  - Lower phase index → higher priority
+///  - LP solve (0) → higher priority than non-LP (1)
 ///
-/// Forward and backward passes share the same key formula but differ in
-/// their `TaskPriority` enum level (High vs Medium), ensuring all forward
-/// tasks beat all backward tasks regardless of iteration/phase index.
-///
-/// All priority_key values are positive for typical inputs (iteration < 10 000,
-/// phase < 100 000); collision with other task types (compress) is harmless
-/// since those use `TaskPriority::Low` which is always lower than High/Medium.
+/// Both forward and backward LP solves use `TaskPriority::Medium`.
+/// The tuple key alone provides the full SDDP ordering, removing the
+/// need for the old High/Medium tier split.
 
-TaskRequirements make_forward_lp_task_req(int iteration,
-                                          PhaseIndex phase) noexcept
+BasicTaskRequirements<SDDPTaskKey> make_forward_lp_task_req(
+    int iteration, PhaseIndex phase) noexcept
 {
-  return TaskRequirements {
-      .priority = TaskPriority::High,
-      .priority_key = 1'000'000LL - (static_cast<int64_t>(iteration) * 100LL)
-          - (static_cast<int64_t>(phase) * 10LL),
+  return BasicTaskRequirements<SDDPTaskKey> {
+      .priority = TaskPriority::Medium,
+      .priority_key =
+          SDDPTaskKey {
+              iteration,
+              kSDDPKeyForward,
+              static_cast<int>(phase),
+              kSDDPKeyIsLP,
+          },
       .name = {},
   };
 }
 
-TaskRequirements make_backward_lp_task_req(int iteration,
-                                           PhaseIndex phase) noexcept
+BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
+    int iteration, PhaseIndex phase) noexcept
 {
-  return TaskRequirements {
+  return BasicTaskRequirements<SDDPTaskKey> {
       .priority = TaskPriority::Medium,
-      .priority_key = 1'000'000LL - (static_cast<int64_t>(iteration) * 100LL)
-          - (static_cast<int64_t>(phase) * 10LL),
+      .priority_key =
+          SDDPTaskKey {
+              iteration,
+              kSDDPKeyBackward,
+              static_cast<int>(phase),
+              kSDDPKeyIsLP,
+          },
       .name = {},
   };
 }
@@ -476,9 +484,10 @@ void SDDPSolver::store_cut(SceneIndex scene,
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
 
-auto SDDPSolver::resolve_via_pool(LinearInterface& li,
-                                  const SolverOptions& opts,
-                                  const TaskRequirements& task_req)
+auto SDDPSolver::resolve_via_pool(
+    LinearInterface& li,
+    const SolverOptions& opts,
+    const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
@@ -498,9 +507,10 @@ auto SDDPSolver::resolve_via_pool(LinearInterface& li,
 
 // ── Helper: resolve a clone via the work pool ───────────────────────────────
 
-auto SDDPSolver::resolve_clone_via_pool(LinearInterface& clone,
-                                        const SolverOptions& opts,
-                                        const TaskRequirements& task_req)
+auto SDDPSolver::resolve_clone_via_pool(
+    LinearInterface& clone,
+    const SolverOptions& opts,
+    const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
   if (m_pool_ == nullptr) {
@@ -1247,7 +1257,7 @@ void SDDPSolver::reset_live_state() noexcept
 }
 
 auto SDDPSolver::run_forward_pass_all_scenes(int iter,
-                                             AdaptiveWorkPool& pool,
+                                             SDDPWorkPool& pool,
                                              const SolverOptions& opts)
     -> std::expected<ForwardPassOutcome, Error>
 {
@@ -1301,7 +1311,7 @@ auto SDDPSolver::run_forward_pass_all_scenes(int iter,
 
 auto SDDPSolver::run_backward_pass_all_scenes(
     std::span<const uint8_t> scene_feasible,
-    AdaptiveWorkPool& pool,
+    SDDPWorkPool& pool,
     const SolverOptions& opts,
     int iter) -> BackwardPassOutcome
 {
@@ -1528,12 +1538,17 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(err.error()));
   }
 
-  // Set up work pool for parallel scene processing
-  auto pool = make_solver_work_pool();
-  m_benders_cut_.set_pool(pool.get());
-  m_pool_ = pool.get();
+  // Set up work pools for parallel scene processing:
+  //  - sddp_pool: SDDPWorkPool with tuple key for main LP solve ordering
+  //  - aux_pool:  AdaptiveWorkPool (int64_t key) for BendersCut and
+  //               LpDebugWriter (gzip compression)
+  auto sddp_pool = make_sddp_work_pool();
+  auto aux_pool = make_solver_work_pool();
+  m_pool_ = sddp_pool.get();
+  m_aux_pool_ = aux_pool.get();
+  m_benders_cut_.set_pool(m_aux_pool_);
   m_lp_debug_writer_ = LpDebugWriter(
-      m_options_.log_directory, m_options_.lp_debug_compression, m_pool_);
+      m_options_.log_directory, m_options_.lp_debug_compression, m_aux_pool_);
 
   reset_live_state();
 
@@ -1542,7 +1557,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   const std::string& status_file = m_options_.api_status_file;
   SolverMonitor monitor(m_options_.api_update_interval);
   if (m_options_.enable_api && !status_file.empty()) {
-    monitor.start(*pool, solve_start, "SDDPMonitor");
+    monitor.start(*sddp_pool, solve_start, "SDDPMonitor");
   }
 
   std::vector<SDDPIterationResult> results;
@@ -1563,7 +1578,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
     m_benders_cut_.reset_infeasible_cut_count();
 
     // ── Forward pass ──
-    auto fwd = run_forward_pass_all_scenes(iter, *pool, lp_opts);
+    auto fwd = run_forward_pass_all_scenes(iter, *sddp_pool, lp_opts);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));
@@ -1581,8 +1596,8 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
 
     // ── Backward pass ──
     const auto cuts_before = m_stored_cuts_.size();
-    auto bwd =
-        run_backward_pass_all_scenes(fwd->scene_feasible, *pool, lp_opts, iter);
+    auto bwd = run_backward_pass_all_scenes(
+        fwd->scene_feasible, *sddp_pool, lp_opts, iter);
     ir.cuts_added = bwd.total_cuts;
     ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
     ir.backward_pass_s = bwd.elapsed_s;
@@ -1619,6 +1634,7 @@ auto SDDPSolver::solve(const SolverOptions& lp_opts)
   m_lp_debug_writer_.drain();
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
+  m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
 
   return results;
