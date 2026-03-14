@@ -1,115 +1,103 @@
 /**
  * @file      user_constraint_lp.hpp
- * @brief     LP application of user-defined constraints
+ * @brief     LP element for user-defined constraints
  * @date      Thu Mar 12 00:00:00 2026
  * @author    copilot
  * @copyright BSD-3-Clause
  *
- * Declares `add_user_constraints_to_lp()`, which translates a vector of
- * `UserConstraint` objects into rows in a `LinearProblem` **before** it is
- * flattened into the internal solver structure.
+ * Declares `UserConstraintLP`, an LP element class (similar to `DemandLP`)
+ * that wraps a single `UserConstraint` and participates in the standard
+ * LP element collection mechanism.
+ *
+ * ### Collection registration
+ *
+ * `UserConstraintLP` is registered as the LAST type in `lp_element_types_t`
+ * (see `lp_element_types.hpp`) so that user constraints are added to the LP
+ * after all other elements — user constraint expressions reference LP columns
+ * created by the earlier elements.
  *
  * ### Dual-value output
  *
- * `add_user_constraints_to_lp()` returns a vector of `UserConstraintState`
- * objects, one per active constraint that successfully added at least one row.
- * Each state holds the constraint UID/name, the resolved `ConstraintScaleType`,
- * and the per-(scenario, stage, block) row indices.
+ * `add_to_output()` writes dual (shadow-price) values for the constraint rows
+ * to `output/UserConstraint/constraint_dual.{csv,parquet}`.
  *
- * After the LP is solved, pass the returned states to
- * `add_user_constraints_to_output()` to write dual (shadow-price) values to
- * the output context under the `"UserConstraint"` class name with field name
- * `"constraint"`, yielding
- * `output/UserConstraint/constraint_dual.{csv,parquet}`.
- *
- * Dual scaling per `ConstraintScaleType`:
- *  - `Power`  (default) → `scale_obj / (prob × discount × Δt)` — same as demand
- * rows
- *  - `Energy`           → `scale_obj / (prob × discount × Δt)` — same scaling,
- * unit $/MWh
+ * Dual scaling follows the `ConstraintScaleType` stored on the constraint:
+ *  - `Power`  (default) → `scale_obj / (prob × discount × Δt)`
+ *  - `Energy`           → same scaling as Power, unit $/MWh
  *  - `Raw`              → `scale_obj / discount` — discount factor only
  */
 
 #pragma once
 
-#include <vector>
+#include <optional>
 
-#include <gtopt/basic_types.hpp>
+#include <gtopt/constraint_expr.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/object_lp.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/phase_lp.hpp>
-#include <gtopt/scene_lp.hpp>
-#include <gtopt/system_context.hpp>
 #include <gtopt/user_constraint.hpp>
 
 namespace gtopt
 {
 
 /**
- * @brief Per-constraint LP state: row indices produced during `add_to_lp`.
+ * @brief LP element wrapping a single user-defined constraint.
  *
- * One `UserConstraintState` is created for each active `UserConstraint` that
- * successfully adds at least one row to the `LinearProblem`.  The `rows` map
- * provides the `RowIndex` for every (scenario, stage, block) tuple so that
- * dual values can be retrieved after the LP is solved.
+ * Follows the same pattern as `DemandLP`, `GeneratorLP`, etc.:
+ *  - Constructor parses and caches the constraint expression.
+ *  - `add_to_lp()` is called once per (scenario, stage) by the system LP
+ *    loop; it adds one SparseRow per block to the LinearProblem.
+ *  - `add_to_output()` writes the LP dual values after solving.
+ *
+ * An empty or unparseable expression is silently skipped (no rows added).
  */
-struct UserConstraintState
+class UserConstraintLP : public ObjectLP<UserConstraint>
 {
-  Uid uid {};  ///< Constraint UID (from UserConstraint)
-  Name name {};  ///< Constraint name (from UserConstraint)
-  ConstraintScaleType scale_type {ConstraintScaleType::Power};  ///< Resolved
-                                                                ///< scale type
-  STBIndexHolder<RowIndex>
-      rows {};  ///< Row indices per (scenario, stage, block)
+public:
+  static constexpr LPClassName ClassName {"UserConstraint", "uc"};
+
+  explicit UserConstraintLP(const UserConstraint& uc, InputContext& ic);
+
+  [[nodiscard]] constexpr auto&& user_constraint(this auto&& self) noexcept
+  {
+    return self.object();
+  }
+
+  /**
+   * @brief Add LP rows for this constraint for one (scenario, stage) pair.
+   *
+   * Iterates over all blocks in @p stage; for each block that falls within
+   * the constraint's domain, builds one `SparseRow` with the constraint
+   * coefficients and bounds, and adds it to @p lp.  Stores the resulting
+   * `RowIndex` values for later use in `add_to_output()`.
+   *
+   * @return true (always; skipped blocks are not errors)
+   */
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
+
+  /**
+   * @brief Write dual (shadow-price) values for this constraint to output.
+   *
+   * Writes per-(scenario, stage, block) duals to
+   * `output/UserConstraint/constraint_dual.{csv,parquet}`.
+   * Scaling is determined by the `constraint_type` field on the underlying
+   * `UserConstraint` object.
+   *
+   * @return true (always)
+   */
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
+
+private:
+  /// Cached parsed expression (nullopt if expression was empty or invalid)
+  std::optional<ConstraintExpr> m_expr_ {};
+  /// How the LP dual should be scaled for output
+  ConstraintScaleType m_scale_type_ {ConstraintScaleType::Power};
+  /// Per-(scenario, stage) row indices produced by add_to_lp
+  STBIndexHolder<RowIndex> m_rows_ {};
 };
-
-/**
- * @brief Add user-defined constraints to a `LinearProblem` before flattening.
- *
- * For each active `UserConstraint` in @p constraints:
- *  1. Parses `uc.expression` into a `ConstraintExpr` AST.
- *  2. Resolves `uc.constraint_type` to a `ConstraintScaleType` enum
- *     (defaulting to `Power` when absent).
- *  3. Iterates over every (scenario, stage, block) combination that falls
- *     inside the expression's domain restriction.
- *  4. Resolves each term's LP column by name or UID via @p sc.
- *  5. Adds one `SparseRow` per (scenario, stage, block) to @p lp.
- *  6. Saves the resulting `RowIndex` in the returned `UserConstraintState`.
- *
- * @param constraints   The user constraint definitions.
- * @param sc            System context (provides element lookup + labels).
- * @param phase         Phase whose stages are being built.
- * @param scene         Scene whose scenarios are being built.
- * @param lp            Target linear problem (modified in-place).
- * @return              One `UserConstraintState` per active constraint that
- *                      added at least one row.
- */
-[[nodiscard]] std::vector<UserConstraintState> add_user_constraints_to_lp(
-    const std::vector<UserConstraint>& constraints,
-    const SystemContext& sc,
-    const PhaseLP& phase,
-    const SceneLP& scene,
-    LinearProblem& lp);
-
-/**
- * @brief Write dual (shadow-price) values for user constraints to output.
- *
- * For each `UserConstraintState` in @p uc_states, calls `out.add_row_dual()`
- * (or the discount-only variant for `Raw`) to write per-(scenario,stage,block)
- * dual values.  The output goes to
- * `output/UserConstraint/constraint_dual.{csv,parquet}`.
- *
- * Scaling selected by `UserConstraintState::scale_type`:
- *  - `Power`  → `out.add_row_dual(...)` — uses `block_cost_factors`
- *  - `Energy` → `out.add_row_dual(...)` — uses `block_cost_factors`
- *  - `Raw`    → `out.add_row_dual_raw(...)` — uses
- * `discount_block_cost_factors`
- *
- * @param uc_states     States returned by `add_user_constraints_to_lp`.
- * @param out           Output context to write to.
- */
-void add_user_constraints_to_output(
-    const std::vector<UserConstraintState>& uc_states, OutputContext& out);
 
 }  // namespace gtopt

@@ -74,6 +74,7 @@
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/work_pool.hpp>
 
 namespace gtopt
 {
@@ -567,7 +568,9 @@ private:
                                   const SolverOptions& opts)
       -> std::expected<double, Error>;
 
-  [[nodiscard]] auto backward_pass(SceneIndex scene, const SolverOptions& opts)
+  [[nodiscard]] auto backward_pass(SceneIndex scene,
+                                   const SolverOptions& opts,
+                                   int iteration = 0)
       -> std::expected<int, Error>;
 
   /**
@@ -591,7 +594,8 @@ private:
    * Uses the work pool for parallel aperture solves when available.
    */
   [[nodiscard]] auto backward_pass_with_apertures(SceneIndex scene,
-                                                  const SolverOptions& opts)
+                                                  const SolverOptions& opts,
+                                                  int iteration = 0)
       -> std::expected<int, Error>;
 
   /// Update volume-dependent LP coefficients (turbine efficiency, etc.)
@@ -618,14 +622,16 @@ private:
   /// Resolve an LP via the work pool.  Falls back to direct resolve if the
   /// pool is not available.  Avoids naked direct resolve() calls.
   [[nodiscard]] auto resolve_via_pool(LinearInterface& li,
-                                      const SolverOptions& opts)
+                                      const SolverOptions& opts,
+                                      const TaskRequirements& task_req = {})
       -> std::expected<int, Error>;
 
   /// Resolve a cloned LP via the work pool.  The clone is moved into a
   /// shared_ptr for the pool task, then moved back after completion.
-  [[nodiscard]] auto resolve_clone_via_pool(LinearInterface& clone,
-                                            const SolverOptions& opts)
-      -> std::expected<int, Error>;
+  [[nodiscard]] auto resolve_clone_via_pool(
+      LinearInterface& clone,
+      const SolverOptions& opts,
+      const TaskRequirements& task_req = {}) -> std::expected<int, Error>;
 
   /// Iterative feasibility backpropagation: propagate from start_phase
   /// backward to phase 0 using elastic filter and cuts.
@@ -687,7 +693,8 @@ private:
   [[nodiscard]] auto run_backward_pass_all_scenes(
       std::span<const uint8_t> scene_feasible,
       AdaptiveWorkPool& pool,
-      const SolverOptions& opts) -> BackwardPassOutcome;
+      const SolverOptions& opts,
+      int iter) -> BackwardPassOutcome;
 
   /// Compute and fill ir.upper_bound, ir.lower_bound, ir.scene_lower_bounds.
   void compute_iteration_bounds(SDDPIterationResult& ir,

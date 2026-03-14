@@ -123,21 +123,24 @@ int update_lp_coefficients(SystemLP& system_lp,
 
   int total = 0;
 
-  // Iterate over all (scenario, stage) pairs in this SystemLP and
-  // delegate to per-element update_lp() methods.
+  // Iterate over all (scenario, stage) pairs in this SystemLP and dispatch
+  // update_lp() to every collection element that satisfies HasUpdateLP.
+  // This uses visit_elements with a compile-time if constexpr dispatch, so
+  // only types implementing update_lp() (TurbineLP, FiltrationLP, ...) are
+  // called — no separate per-type loops needed.
   for (auto&& stage : system_lp.phase().stages()) {
     for (auto&& scenario : system_lp.scene().scenarios()) {
-      // 1. Turbine efficiency updates (via TurbineLP::update_lp)
-      for (auto& turbine : system_lp.elements<TurbineLP>()) {
-        total +=
-            turbine.update_lp(system_lp, scenario, stage, phase, iteration);
-      }
-
-      // 2. Filtration updates — piecewise-linear volume-dependent seepage
-      for (auto& filtration : system_lp.elements<FiltrationLP>()) {
-        total +=
-            filtration.update_lp(system_lp, scenario, stage, phase, iteration);
-      }
+      visit_elements(system_lp.collections(),
+                     [&total, &system_lp, &scenario, &stage, phase, iteration](
+                         auto& element) -> bool
+                     {
+                       using T = std::decay_t<decltype(element)>;
+                       if constexpr (HasUpdateLP<T>) {
+                         total += element.update_lp(
+                             system_lp, scenario, stage, phase, iteration);
+                       }
+                       return true;
+                     });
     }
   }
 
