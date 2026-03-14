@@ -332,6 +332,22 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--cut-sharing-mode",
+        dest="cut_sharing_mode",
+        metavar="MODE",
+        default=None,
+        choices=["none", "expected", "accumulate", "max"],
+        help=(
+            "SDDP cut sharing mode: "
+            "'none' keeps cuts in their originating scene; "
+            "'expected' computes a probability-weighted average cut; "
+            "'accumulate' sums all cuts directly (correct when LP "
+            "objectives include probability factors); "
+            "'max' shares all cuts from all scenes to all scenes. "
+            "(default: max)"
+        ),
+    )
+    parser.add_argument(
         "-g",
         "--stages-phase",
         dest="stages_phase",
@@ -465,6 +481,8 @@ def build_options(args: argparse.Namespace) -> dict:
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
     }
+    if args.cut_sharing_mode is not None:
+        opts["cut_sharing_mode"] = args.cut_sharing_mode
     if args.reserve_fail_cost is not None:
         opts["reserve_fail_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:

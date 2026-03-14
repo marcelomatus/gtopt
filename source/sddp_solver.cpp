@@ -48,10 +48,17 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
   if (name == "expected") {
     return CutSharingMode::Expected;
   }
+  if (name == "accumulate") {
+    return CutSharingMode::Accumulate;
+  }
   if (name == "max") {
     return CutSharingMode::Max;
   }
-  return CutSharingMode::None;
+  if (name == "none") {
+    return CutSharingMode::None;
+  }
+  // Default to Max when unrecognised (matches SDDPOptions default)
+  return CutSharingMode::Max;
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
@@ -65,14 +72,6 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
   // "single-cut" is the canonical name; "cut" is kept as a backward-compat
   // alias
   return ElasticFilterMode::FeasibilityCut;
-}
-
-CutCombinationMode parse_cut_combination_mode(std::string_view name)
-{
-  if (name == "accumulate") {
-    return CutCombinationMode::Accumulate;
-  }
-  return CutCombinationMode::Average;
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -753,125 +752,123 @@ void SDDPSolver::share_cuts_for_phase(
     return;
   }
 
-  if (m_options_.cut_sharing == CutSharingMode::Expected) {
-    if (m_options_.cut_combination == CutCombinationMode::Accumulate) {
-      // Accumulate mode: when LP objectives already include probability
-      // factors, the correct expected cut is the sum of all individual
-      // scene cuts (no averaging needed).  Each cut's coefficients and RHS
-      // are already probability-weighted by the LP objective.
-      //
-      // Reference: Birge & Louveaux (2011) §5.1 — when the subproblem
-      // objective is  prob_s · c_s'x_s,  the Benders cut coefficients
-      // inherit the probability weighting and should be accumulated.
-      std::vector<SparseRow> all_cuts;
-      for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
-        all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
-      }
-
-      if (all_cuts.empty()) {
-        return;
-      }
-
-      // Sum all cuts into one accumulated cut
-      const auto accumulated = accumulate_benders_cuts(
-          all_cuts, sddp_label("sddp", "accum", "cut", "ph", phase));
-
-      // Add the accumulated cut to all scenes
-      for (Index si = 0; si < num_scenes; ++si) {
-        auto& li =
-            planning_lp().system(SceneIndex {si}, phase).linear_interface();
-        li.add_row(accumulated);
-      }
-
-      SPDLOG_TRACE(
-          "SDDP sharing: added accumulated cut to phase {} "
-          "({} scene cuts summed)",
-          phase,
-          all_cuts.size());
-
-    } else {
-      // Average mode (default): compute probability-weighted average cut.
-      // Correct when LP objectives do NOT include probability factors.
-
-      // Get scenario probability for each scene (sum of all scenario
-      // probability_factors in that scene). Scenes with no cuts (infeasible)
-      // automatically get weight 0. The weights are then normalised to sum
-      // to 1.
-      const auto& scenes = planning_lp().simulation().scenes();
-      std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes),
-                                      0.0);
-      double total_prob = 0.0;
-
-      for (Index si = 0; si < num_scenes; ++si) {
-        if (scene_cuts[SceneIndex {si}].empty()) {
-          // Infeasible or no cuts generated — skip this scene
-          continue;
-        }
-        if (std::cmp_less(si, scenes.size())) {
-          for (const auto& sc : scenes[si].scenarios()) {
-            scene_probs[static_cast<std::size_t>(si)] +=
-                sc.probability_factor();
-          }
-        }
-        if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
-          // No positive probability weight — fall back to equal weight
-          scene_probs[static_cast<std::size_t>(si)] = 1.0;
-        }
-        total_prob += scene_probs[static_cast<std::size_t>(si)];
-      }
-
-      if (total_prob <= 0.0) {
-        return;
-      }
-
-      // For each scene with positive weight, compute the average of its
-      // cuts, then compute the probability-weighted average across scenes.
-      std::vector<SparseRow> scene_avg_cuts;
-      std::vector<double> weights;
-      scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
-      weights.reserve(static_cast<std::size_t>(num_scenes));
-
-      for (Index si = 0; si < num_scenes; ++si) {
-        const auto& cuts = scene_cuts[SceneIndex {si}];
-        if (cuts.empty()) {
-          continue;
-        }
-        const double w = scene_probs[static_cast<std::size_t>(si)];
-        if (w <= 0.0) {
-          continue;
-        }
-        scene_avg_cuts.push_back(
-            average_benders_cut(cuts, sddp_label("sddp", "tmp", "ph", phase)));
-        weights.push_back(w);
-      }
-
-      if (scene_avg_cuts.empty()) {
-        return;
-      }
-
-      // Compute probability-weighted average cut
-      const auto avg = weighted_average_benders_cut(
-          scene_avg_cuts,
-          weights,
-          sddp_label("sddp", "avg", "cut", "ph", phase));
-
-      // Add the average cut to all scenes
-      for (Index si = 0; si < num_scenes; ++si) {
-        auto& li =
-            planning_lp().system(SceneIndex {si}, phase).linear_interface();
-        li.add_row(avg);
-      }
-
-      SPDLOG_TRACE(
-          "SDDP sharing: added probability-weighted average cut to phase {} "
-          "({} scenes with cuts, total_prob={:.4f})",
-          phase,
-          scene_avg_cuts.size(),
-          total_prob);
+  if (m_options_.cut_sharing == CutSharingMode::Accumulate) {
+    // Accumulate mode: when LP objectives already include probability
+    // factors, the correct expected cut is the sum of all individual
+    // scene cuts (no averaging needed).  Each cut's coefficients and RHS
+    // are already probability-weighted by the LP objective.
+    //
+    // Reference: Birge & Louveaux (2011) §5.1 — when the subproblem
+    // objective is  prob_s · c_s'x_s,  the Benders cut coefficients
+    // inherit the probability weighting and should be accumulated.
+    std::vector<SparseRow> all_cuts;
+    for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
+      all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
     }
 
+    if (all_cuts.empty()) {
+      return;
+    }
+
+    // Sum all cuts into one accumulated cut
+    const auto accumulated = accumulate_benders_cuts(
+        all_cuts, sddp_label("sddp", "accum", "cut", "ph", phase));
+
+    // Add the accumulated cut to all scenes
+    for (Index si = 0; si < num_scenes; ++si) {
+      auto& li =
+          planning_lp().system(SceneIndex {si}, phase).linear_interface();
+      li.add_row(accumulated);
+    }
+
+    SPDLOG_TRACE(
+        "SDDP sharing: added accumulated cut to phase {} "
+        "({} scene cuts summed)",
+        phase,
+        all_cuts.size());
+
+  } else if (m_options_.cut_sharing == CutSharingMode::Expected) {
+    // Expected mode: compute probability-weighted average cut.
+    // Correct when LP objectives do NOT include probability factors.
+
+    // Get scenario probability for each scene (sum of all scenario
+    // probability_factors in that scene). Scenes with no cuts (infeasible)
+    // automatically get weight 0. The weights are then normalised to sum
+    // to 1.
+    const auto& scenes = planning_lp().simulation().scenes();
+    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes),
+                                    0.0);
+    double total_prob = 0.0;
+
+    for (Index si = 0; si < num_scenes; ++si) {
+      if (scene_cuts[SceneIndex {si}].empty()) {
+        // Infeasible or no cuts generated — skip this scene
+        continue;
+      }
+      if (std::cmp_less(si, scenes.size())) {
+        for (const auto& sc : scenes[si].scenarios()) {
+          scene_probs[static_cast<std::size_t>(si)] +=
+              sc.probability_factor();
+        }
+      }
+      if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
+        // No positive probability weight — fall back to equal weight
+        scene_probs[static_cast<std::size_t>(si)] = 1.0;
+      }
+      total_prob += scene_probs[static_cast<std::size_t>(si)];
+    }
+
+    if (total_prob <= 0.0) {
+      return;
+    }
+
+    // For each scene with positive weight, compute the average of its
+    // cuts, then compute the probability-weighted average across scenes.
+    std::vector<SparseRow> scene_avg_cuts;
+    std::vector<double> weights;
+    scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
+    weights.reserve(static_cast<std::size_t>(num_scenes));
+
+    for (Index si = 0; si < num_scenes; ++si) {
+      const auto& cuts = scene_cuts[SceneIndex {si}];
+      if (cuts.empty()) {
+        continue;
+      }
+      const double w = scene_probs[static_cast<std::size_t>(si)];
+      if (w <= 0.0) {
+        continue;
+      }
+      scene_avg_cuts.push_back(
+          average_benders_cut(cuts, sddp_label("sddp", "tmp", "ph", phase)));
+      weights.push_back(w);
+    }
+
+    if (scene_avg_cuts.empty()) {
+      return;
+    }
+
+    // Compute probability-weighted average cut
+    const auto avg = weighted_average_benders_cut(
+        scene_avg_cuts,
+        weights,
+        sddp_label("sddp", "avg", "cut", "ph", phase));
+
+    // Add the average cut to all scenes
+    for (Index si = 0; si < num_scenes; ++si) {
+      auto& li =
+          planning_lp().system(SceneIndex {si}, phase).linear_interface();
+      li.add_row(avg);
+    }
+
+    SPDLOG_TRACE(
+        "SDDP sharing: added probability-weighted average cut to phase {} "
+        "({} scenes with cuts, total_prob={:.4f})",
+        phase,
+        scene_avg_cuts.size(),
+        total_prob);
+
   } else if (m_options_.cut_sharing == CutSharingMode::Max) {
-    // Add ALL cuts from ALL scenes to ALL scenes for this phase
+    // Max mode: add ALL cuts from ALL scenes to ALL scenes for this phase
     std::vector<SparseRow> all_cuts;
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
@@ -2445,7 +2442,7 @@ auto SDDPSolver::solve_apertures_for_phase(
         // priority so it doesn't block LP solves.
         if (m_pool_ != nullptr) {
           const auto diag_stem = err_stem;
-          auto diag_req = SDDPTaskReq {
+          auto diag_req = BasicTaskRequirements<SDDPTaskKey> {
               .priority_key =
                   SDDPTaskKey {
                       0,
