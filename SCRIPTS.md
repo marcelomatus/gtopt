@@ -19,6 +19,7 @@ preparing, converting, visualising, and post-processing data for use with gtopt.
 - [gtopt_compare](#gtopt_compare) · [full docs](docs/scripts/gtopt_compare.md)
 - [sddp_monitor](#sddp_monitor)
 - [gtopt_field_extractor](#gtopt_field_extractor)
+- [Tool Comparison (gtopt vs PLP vs pandapower)](docs/TOOL_COMPARISON.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
