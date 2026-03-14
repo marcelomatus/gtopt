@@ -796,8 +796,7 @@ void SDDPSolver::share_cuts_for_phase(
     // automatically get weight 0. The weights are then normalised to sum
     // to 1.
     const auto& scenes = planning_lp().simulation().scenes();
-    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes),
-                                    0.0);
+    std::vector<double> scene_probs(static_cast<std::size_t>(num_scenes), 0.0);
     double total_prob = 0.0;
 
     for (Index si = 0; si < num_scenes; ++si) {
@@ -807,8 +806,7 @@ void SDDPSolver::share_cuts_for_phase(
       }
       if (std::cmp_less(si, scenes.size())) {
         for (const auto& sc : scenes[si].scenarios()) {
-          scene_probs[static_cast<std::size_t>(si)] +=
-              sc.probability_factor();
+          scene_probs[static_cast<std::size_t>(si)] += sc.probability_factor();
         }
       }
       if (scene_probs[static_cast<std::size_t>(si)] <= 0.0) {
@@ -849,9 +847,7 @@ void SDDPSolver::share_cuts_for_phase(
 
     // Compute probability-weighted average cut
     const auto avg = weighted_average_benders_cut(
-        scene_avg_cuts,
-        weights,
-        sddp_label("sddp", "avg", "cut", "ph", phase));
+        scene_avg_cuts, weights, sddp_label("sddp", "avg", "cut", "ph", phase));
 
     // Add the average cut to all scenes
     for (Index si = 0; si < num_scenes; ++si) {
