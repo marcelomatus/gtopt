@@ -1633,8 +1633,7 @@ def test_validate_mode_passes_on_good_workbook(tmp_path):
     args = _make_args(_C0_XLSX, tmp_path, validate=True)
     rc = _igtopt_run(args)
     assert rc == 0, "--validate should return 0 for a valid workbook"
-    json_out = tmp_path / (args.json_file.name)
-    assert not json_out.exists(), "--validate must not write any output file"
+    assert not args.json_file.exists(), "--validate must not write any output file"
 
 
 def test_validate_mode_fails_on_missing_file(tmp_path):

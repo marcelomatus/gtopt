@@ -231,7 +231,7 @@ specifies which scenarios participate in the forward or backward pass.
 
 ### 5.3 System Sheets
 
-Each sheet becomes a JSON array under the `system` key. The 19 recognized
+Each sheet becomes a JSON array under the `system` key. The 18 recognized
 system sheets are:
 
 | Sheet name | Key columns | Description |

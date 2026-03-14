@@ -476,8 +476,22 @@ def _run(args) -> int:
 
         try:
             xls = pd.read_excel(str(filepath), sheet_name=None, engine="openpyxl")
+        except FileNotFoundError:
+            msg = f"file not found while opening '{filepath}' (may have been removed)"
+            logging.error(msg)
+            errors.append(msg)
+            continue
+        except PermissionError as exc:
+            msg = f"permission denied reading '{filepath}': {exc}"
+            logging.error(msg)
+            errors.append(msg)
+            continue
         except Exception as exc:  # pylint: disable=broad-except
-            msg = f"could not read '{filepath}': {exc}"
+            msg = (
+                f"could not read '{filepath}': {exc}. "
+                "Check that the file is a valid Excel workbook and is not "
+                "open in another application."
+            )
             logging.error(msg)
             errors.append(msg)
             continue
@@ -492,14 +506,14 @@ def _run(args) -> int:
 
             if "@" in sheet_name:
                 parts = sheet_name.split("@", 1)
-                if len(parts) != 2 or not parts[0] or not parts[1]:
+                if not parts[0].strip() or not parts[1].strip():
                     logging.warning(
                         "ignoring malformed '@'-sheet name '%s' "
                         "(expected 'ElementType@field', e.g. 'Demand@lmax')",
                         sheet_name,
                     )
                     continue
-                cname, fname = parts
+                cname, fname = parts[0].strip(), parts[1].strip()
                 # Resolve element-name columns (e.g. "LAJA") to uid:N format
                 # (e.g. "uid:5") if a mapping is available for this type.
                 resolved_df = _resolve_at_sheet_columns(
