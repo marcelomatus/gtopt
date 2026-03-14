@@ -272,6 +272,8 @@ public:
   static constexpr auto default_sddp_solver_type = "monolithic";
   /** @brief Default cut sharing mode for SDDP */
   static constexpr auto default_sddp_cut_sharing_mode = "none";
+  /** @brief Default cut combination mode for SDDP */
+  static constexpr auto default_sddp_cut_combination_mode = "average";
   /** @brief Default directory for Benders cut files */
   static constexpr auto default_sddp_cut_directory = "cuts";
   /** @brief Default directory for log/trace files */
@@ -315,6 +317,16 @@ public:
   {
     return m_options_.sddp_options.sddp_cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
+  }
+
+  /**
+   * @brief Gets the SDDP cut combination mode, using default if not set
+   * @return The cut combination mode ("average" or "accumulate")
+   */
+  [[nodiscard]] constexpr auto sddp_cut_combination_mode() const
+  {
+    return m_options_.sddp_options.sddp_cut_combination_mode.value_or(
+        default_sddp_cut_combination_mode);
   }
 
   /**

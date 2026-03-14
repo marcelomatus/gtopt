@@ -54,6 +54,11 @@ struct SddpOptions
   OptName sddp_solver_type {};
   /** @brief Cut sharing mode: `"none"`, `"expected"`, or `"max"` */
   OptName sddp_cut_sharing_mode {};
+  /** @brief Cut combination mode: `"average"` (default) or `"accumulate"`.
+   *  Controls how cuts are combined in Expected cut-sharing and aperture
+   *  mode.  `"accumulate"` sums cuts directly (correct when LP objectives
+   *  already include probability factors). */
+  OptName sddp_cut_combination_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName sddp_cut_directory {};
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
@@ -150,6 +155,8 @@ struct SddpOptions
   {
     merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
     merge_opt(sddp_cut_sharing_mode, std::move(opts.sddp_cut_sharing_mode));
+    merge_opt(
+        sddp_cut_combination_mode, std::move(opts.sddp_cut_combination_mode));
     merge_opt(sddp_cut_directory, std::move(opts.sddp_cut_directory));
     merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
     merge_opt(sddp_efficiency_update_skip, opts.sddp_efficiency_update_skip);
