@@ -19,6 +19,7 @@ This project includes comprehensive documentation for different use cases:
 - **[INPUT_DATA.md](INPUT_DATA.md)** - Input data structure and file format reference
 - **[USER_CONSTRAINTS.md](USER_CONSTRAINTS.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
 - **[SCRIPTS.md](SCRIPTS.md)** - Python conversion utilities ([igtopt](docs/scripts/igtopt.md), [plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt_diagram](docs/scripts/gtopt_diagram.md))
+- **[TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
 - **[SDDP_SOLVER.md](docs/SDDP_SOLVER.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
