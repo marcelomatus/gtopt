@@ -155,8 +155,8 @@ struct SddpOptions
   {
     merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
     merge_opt(sddp_cut_sharing_mode, std::move(opts.sddp_cut_sharing_mode));
-    merge_opt(
-        sddp_cut_combination_mode, std::move(opts.sddp_cut_combination_mode));
+    merge_opt(sddp_cut_combination_mode,
+              std::move(opts.sddp_cut_combination_mode));
     merge_opt(sddp_cut_directory, std::move(opts.sddp_cut_directory));
     merge_opt(sddp_api_enabled, opts.sddp_api_enabled);
     merge_opt(sddp_efficiency_update_skip, opts.sddp_efficiency_update_skip);
