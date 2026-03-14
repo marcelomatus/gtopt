@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <numbers>
 #include <ranges>
 #include <string>
 
@@ -20,6 +21,8 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     , reactance(ic, ClassName, id(), std::move(line().reactance))
     , voltage(ic, ClassName, id(), std::move(line().voltage))
     , resistance(ic, ClassName, id(), std::move(line().resistance))
+    , tap_ratio(ic, ClassName, id(), std::move(line().tap_ratio))
+    , phase_shift_deg(ic, ClassName, id(), std::move(line().phase_shift_deg))
 {
   SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
 }
@@ -211,6 +214,18 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   const double V = voltage.at(stage.uid()).value_or(1);
   const double x = scale_theta * (X / (V * V));
 
+  // Off-nominal tap ratio: scales effective susceptance by 1/τ.
+  // Kirchhoff becomes: -θ_a + θ_b + τ·x·fp − τ·x·fn = −scale_θ·φ
+  const double tau = tap_ratio.at(stage.uid()).value_or(1.0);
+  const double x_tau = tau * x;
+
+  // Phase-shift angle in radians; shifts the equality constraint RHS.
+  const double phi_deg = phase_shift_deg.at(stage.uid()).value_or(0.0);
+  const double phi_rad = phi_deg * std::numbers::pi / 180.0;
+  // RHS of the Kirchhoff row: -scale_theta * phi_rad
+  // (positive phi reduces power flow from bus_a to bus_b)
+  const double kirchhoff_rhs = -(scale_theta * phi_rad);
+
   BIndexHolder<RowIndex> trows;
   map_reserve(trows, blocks.size());
 
@@ -220,17 +235,17 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
         SparseRow {
             .name = sc.lp_label(scenario, stage, block, cname, "theta", uid()),
         }
-            .equal(0);
+            .equal(kirchhoff_rhs);
 
     trow.reserve(4);
 
     trow[theta_a_cols.at(buid)] = -1.0;
     trow[theta_b_cols.at(buid)] = +1.0;
     if (!fpcols.empty()) {
-      trow[fpcols.at(buid)] = +x;
+      trow[fpcols.at(buid)] = +x_tau;
     }
     if (!fncols.empty()) {
-      trow[fncols.at(buid)] = -x;
+      trow[fncols.at(buid)] = -x_tau;
     }
 
     trows[buid] = lp.add_row(std::move(trow));

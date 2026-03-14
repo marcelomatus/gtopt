@@ -10,7 +10,7 @@
  * reactance determines the flow split between parallel paths. The line also
  * supports capacity-expansion planning.
  *
- * ### JSON Example
+ * ### JSON Example (transmission line)
  * ```json
  * {
  *   "uid": 1,
@@ -20,6 +20,22 @@
  *   "reactance": 0.0576,
  *   "tmax_ab": 250,
  *   "tmax_ba": 250
+ * }
+ * ```
+ *
+ * ### JSON Example (phase-shifting transformer)
+ * ```json
+ * {
+ *   "uid": 5,
+ *   "name": "pst_1_2",
+ *   "bus_a": 1,
+ *   "bus_b": 2,
+ *   "reactance": 0.05,
+ *   "type": "transformer",
+ *   "tap_ratio": 1.02,
+ *   "phase_shift_deg": -5.0,
+ *   "tmax_ab": 300,
+ *   "tmax_ba": 300
  * }
  * ```
  *
@@ -82,6 +98,19 @@ struct Line
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+
+  /// Off-nominal tap ratio [p.u.].  For transformers only; ignored for
+  /// plain lines.  When set to a value other than 1.0 the effective
+  /// susceptance of the branch in the DC power-flow (Kirchhoff) constraint
+  /// is scaled by `1/tap_ratio`, i.e. `B_eff = V²/(tap_ratio · X)`.
+  /// Defaults to 1.0 (nominal tap, no correction).
+  OptTRealFieldSched tap_ratio {};
+
+  /// Phase-shift angle [degrees].  Models a phase-shifting transformer
+  /// (PST) by adding a constant angle offset φ to the Kirchhoff equality
+  /// constraint: `f = B_eff · (θ_a − θ_b − φ)`.  Positive values reduce
+  /// the natural power flow from bus_a to bus_b.  Defaults to 0.0.
+  OptTRealFieldSched phase_shift_deg {};
 };
 
 }  // namespace gtopt
