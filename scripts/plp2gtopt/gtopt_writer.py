@@ -95,6 +95,10 @@ class GTOptWriter:
                     except (ValueError, TypeError):
                         pass  # Ignore invalid spec; process_apertures auto-detects
 
+        cut_sharing_mode = options.get("cut_sharing_mode")
+        if cut_sharing_mode is not None:
+            sddp_opts["sddp_cut_sharing_mode"] = cut_sharing_mode
+
         planning_opts = {
             "input_directory": str(options.get("output_dir", "")),
             "input_format": input_format,
