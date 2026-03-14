@@ -92,6 +92,8 @@ private:
   OptTRealSched reactance;
   OptTRealSched voltage;
   OptTRealSched resistance;
+  OptTRealSched tap_ratio;
+  OptTRealSched phase_shift_deg;
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
