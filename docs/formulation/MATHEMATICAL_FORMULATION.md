@@ -29,6 +29,12 @@
    - [5.10 Hydro Cascade Constraints](#510-hydro-cascade-constraints)
    - [5.11 Capacity Expansion Constraints](#511-capacity-expansion-constraints)
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
+   - [6.1 Objective Scaling](#61-objective-scaling)
+   - [6.2 Voltage Angle Scaling](#62-voltage-angle-scaling)
+   - [6.3 Key Options Affecting the Formulation](#63-key-options-affecting-the-formulation)
+   - [6.4 Modeling Modes Summary](#64-modeling-modes-summary)
+   - [6.5 Stochastic Dual Dynamic Programming (SDDP)](#65-stochastic-dual-dynamic-programming-sddp)
+   - [6.6 Apertures — Backward-Pass Scenario Sampling](#66-apertures--backward-pass-scenario-sampling)
 7. [Mapping: JSON Fields → Mathematical Symbols](#7-mapping-json-fields--mathematical-symbols)
 8. [Cross-References](#8-cross-references)
 9. [References](#9-references)
@@ -931,6 +937,135 @@ power systems literature [[11]](#ref11) [[12]](#ref12):
 | **Transport model** | `use_kirchhoff = false`, multi-bus | $p, \ell, q, f$ | Bus balance + line capacity |
 | **DC OPF** | `use_kirchhoff = true`, multi-bus | $p, \ell, q, f, \theta$ | Bus balance + Kirchhoff VL + line capacity |
 
+### 6.5 Stochastic Dual Dynamic Programming (SDDP)
+
+When solving multi-stage problems with many scenarios, gtopt supports the
+**Stochastic Dual Dynamic Programming (SDDP)** algorithm
+[[4]](#ref4) [[5]](#ref5) [[6]](#ref6). SDDP decomposes the full problem
+into a series of smaller LP sub-problems linked by **Benders cuts** that
+approximate the expected future cost.
+
+#### Problem Decomposition
+
+For a planning horizon of $T$ stages and $S$ scenarios, the SDDP algorithm
+alternates between:
+
+1. **Forward pass** — solve each stage LP sequentially, using available
+   cuts to approximate future costs:
+
+$$
+\underset{x_t}{\min} \;\; c_t^\top x_t + \alpha_{t+1}
+\quad \text{s.t.} \quad A_t x_t = b_t(s),\; x_t \ge 0,\; \alpha_{t+1} \ge \hat{\alpha}_{t+1}
+$$
+
+   where $\alpha_{t+1}$ is the future-cost approximation (Benders value
+   function) and $\hat{\alpha}_{t+1}$ are the cuts accumulated across
+   iterations.
+
+2. **Backward pass** — starting from the last stage, compute a new Benders
+   cut from the dual solution of the stage LP and add it to the previous
+   stage:
+
+$$
+\hat{\alpha}_t^{(k)} : \alpha_t \ge z_t^{(k)}
++ \sum_i \bar{\pi}_i^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i}^{(k)} \bigr)
+$$
+
+   where $z_t^{(k)}$ is the optimal value of the stage-$t$ LP in iteration
+   $k$, $\bar{\pi}_i^{(k)}$ are the dual prices (reduced costs) of the
+   linking constraints, and $\hat{x}_{t-1,i}^{(k)}$ is the trial solution
+   from the forward pass.
+
+#### Convergence
+
+The algorithm terminates when the **optimality gap** falls below a
+tolerance $\varepsilon$:
+
+$$
+\text{gap}^{(k)} = \frac{\text{UB}^{(k)} - \text{LB}^{(k)}}{\max\bigl(1, \lvert \text{UB}^{(k)} \rvert\bigr)} < \varepsilon
+$$
+
+where:
+- $\text{LB}^{(k)}$ = average phase-0 objective across scenes (lower bound
+  on the expected cost);
+- $\text{UB}^{(k)}$ = average total forward-pass cost across scenes (upper
+  bound, feasible but not optimal).
+
+#### Cut Sharing
+
+Cuts generated in one scenario can be shared across scenarios to accelerate
+convergence. Three modes are supported:
+
+| Mode | Description |
+|------|-------------|
+| `none` | No sharing — each scene uses only its own cuts |
+| `expected` | Compute probability-weighted average cut; share to all scenes |
+| `max` | Share every cut from every scene to all other scenes |
+
+### 6.6 Apertures — Backward-Pass Scenario Sampling
+
+An **aperture** (from the Portuguese *abertura hidrológica* in PLP) is a
+hydrological or stochastic realisation used during the SDDP backward pass
+to compute the expected future-cost cut. Apertures provide a Monte Carlo
+sample of uncertain parameters (typically river inflows / affluents) that
+are different from the forward-pass scenarios.
+
+#### Aperture Set $\mathcal{A}$
+
+Let $\mathcal{A} = \{1, \ldots, A\}$ be the set of apertures with
+probability weights $\{\rho_a\}_{a \in \mathcal{A}}$ normalised so that
+
+$$
+\sum_{a \in \mathcal{A}} \rho_a = 1.
+$$
+
+Each aperture $a$ references a **source scenario** $s_a$ whose affluent
+data (flow column bounds) are applied to the cloned backward-pass LP.
+
+#### Expected Benders Cut
+
+Instead of a single backward-pass solve, the solver generates one cut per
+aperture and computes the **probability-weighted average** cut:
+
+$$
+\hat{\alpha}_t^{(k)} : \alpha_t \;\ge\;
+\sum_{a \in \mathcal{A}} \rho_a \Bigl[
+  z_{t,a}^{(k)}
+  + \sum_i \bar{\pi}_{i,a}^{(k)} \bigl( x_{t-1,i} - \hat{x}_{t-1,i,a}^{(k)} \bigr)
+\Bigr]
+$$
+
+where $z_{t,a}^{(k)}$ and $\bar{\pi}_{i,a}^{(k)}$ are the objective value
+and dual prices from solving the stage-$t$ LP with aperture $a$'s parameter
+values.
+
+#### JSON Configuration
+
+```json
+{
+  "simulation": {
+    "aperture_array": [
+      {"uid": 1, "source_scenario": 1, "probability_factor": 0.5},
+      {"uid": 2, "source_scenario": 5, "probability_factor": 0.3},
+      {"uid": 3, "source_scenario": 10, "probability_factor": 0.2}
+    ]
+  }
+}
+```
+
+| Field | Symbol | Description |
+|-------|--------|-------------|
+| `source_scenario` | $s_a$ | UID of the scenario providing affluent data |
+| `probability_factor` | $\rho_a$ (pre-normalisation) | Weight of this aperture in the expected cut |
+
+When `aperture_array` is absent, the solver falls back to the legacy
+`sddp_num_apertures` option: `N > 0` uses the first $N$ scenarios
+(equal weights), `N = -1` uses all scenarios, `N = 0` disables apertures.
+
+> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) for the
+> complete SDDP algorithm description, convergence criteria, and
+> implementation notes.
+
 ---
 
 ## 7. Mapping: JSON Fields → Mathematical Symbols
@@ -958,6 +1093,8 @@ mathematical symbols used in this formulation.
 | `simulation.scenario_array[].probability_factor` | $\pi_s$ | Scenario weight |
 | `simulation.stage_array[].discount_factor` | $\delta_t^{\text{user}}$ | Stage discount |
 | `simulation.block_array[].duration` | $\Delta_b$ | Block duration (h) |
+| `simulation.aperture_array[].source_scenario` | $s_a$ | Source scenario UID for aperture |
+| `simulation.aperture_array[].probability_factor` | $\rho_a$ | Aperture probability weight |
 
 ### Generator
 
