@@ -1830,7 +1830,19 @@ def _find_plp_binary():
     return None
 
 
-def _run_gtopt(gtopt_bin, case_dir, json_stem, timeout=120):
+# plp_hydro_4b reservoir bounds and solver tolerances
+_RESERVOIR_EMIN = 100.0
+_RESERVOIR_EMAX = 1200.0
+_RESERVOIR_EINI = 600.0
+_RESERVOIR_EFIN = 500.0
+_VOLUME_TOLERANCE = 1.0  # numerical tolerance for volume bound checks
+_CMG_TOLERANCE = 1.0  # small negative CMg from LP solver numerics
+_FAILURE_COST = 500.0  # failure generator cost ($/MWh)
+
+
+def _run_gtopt(
+    gtopt_bin: str, case_dir: Path, json_stem: str, timeout: int = 120
+) -> tuple[int, str]:
     """Run gtopt on json_stem.json inside case_dir. Returns (rc, stderr)."""
     import subprocess
 
@@ -1845,7 +1857,7 @@ def _run_gtopt(gtopt_bin, case_dir, json_stem, timeout=120):
     return result.returncode, result.stderr
 
 
-def _run_plp(plp_bin, case_dir, timeout=120):
+def _run_plp(plp_bin: str, case_dir: Path, timeout: int = 120) -> tuple[int, str]:
     """Run PLP solver in case_dir. Returns (rc, stderr)."""
     import subprocess
 
@@ -1860,12 +1872,12 @@ def _run_plp(plp_bin, case_dir, timeout=120):
     return result.returncode, result.stderr
 
 
-def _read_solution_csv(results_dir: Path) -> dict:
+def _read_solution_csv(results_dir: Path) -> dict[str, int | float | str]:
     """Parse gtopt solution.csv (key,value format) into a dict."""
     solution_csv = results_dir / "solution.csv"
     if not solution_csv.exists():
         return {}
-    result: dict = {}
+    result: dict[str, int | float | str] = {}
     for line in solution_csv.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -1884,7 +1896,7 @@ def _read_solution_csv(results_dir: Path) -> dict:
     return result
 
 
-def _read_output(results_dir: Path, component: str, name: str):
+def _read_output(results_dir: Path, component: str, name: str) -> pd.DataFrame | None:
     """Read a parquet or csv output from results_dir/component/name.{parquet,csv}."""
     parquet_path = results_dir / component / f"{name}.parquet"
     csv_path = results_dir / component / f"{name}.csv"
@@ -1929,10 +1941,10 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path):
         uid_cols = [c for c in rsv_df.columns if c.startswith("uid:")]
         for col in uid_cols:
             vols = rsv_df[col].astype(float)
-            assert vols.min() >= 100.0 - 1.0, (
+            assert vols.min() >= _RESERVOIR_EMIN - _VOLUME_TOLERANCE, (
                 f"Reservoir volume below emin: {vols.min()}"
             )
-            assert vols.max() <= 1200.0 + 1.0, (
+            assert vols.max() <= _RESERVOIR_EMAX + _VOLUME_TOLERANCE, (
                 f"Reservoir volume above emax: {vols.max()}"
             )
 
@@ -1978,10 +1990,14 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path):
             uid_cols = [c for c in df.columns if c.startswith("uid:")]
             for col in uid_cols:
                 vols = df[col].astype(float)
-                assert vols.min() >= 100.0 - 1.0, f"{name}: below emin ({vols.min()})"
-                assert vols.max() <= 1200.0 + 1.0, f"{name}: above emax ({vols.max()})"
+                assert vols.min() >= _RESERVOIR_EMIN - _VOLUME_TOLERANCE, (
+                    f"{name}: below emin ({vols.min()})"
+                )
+                assert vols.max() <= _RESERVOIR_EMAX + _VOLUME_TOLERANCE, (
+                    f"{name}: above emax ({vols.max()})"
+                )
 
-    # Verify eini at stage 1 starts at initial volume (600 Mm³)
+    # Verify eini at stage 1 starts at initial volume
     eini_df = _read_output(results_dir, "Reservoir", "eini_sol")
     if eini_df is not None and "stage" in eini_df.columns:
         uid_cols = [c for c in eini_df.columns if c.startswith("uid:")]
@@ -1989,8 +2005,8 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path):
             stage1 = eini_df[eini_df["stage"] == 1]
             if len(stage1) > 0:
                 v_ini = stage1[uid_cols[0]].astype(float).iloc[0]
-                assert v_ini == pytest.approx(600.0, abs=1.0), (
-                    f"Initial volume should be 600 Mm³, got {v_ini}"
+                assert v_ini == pytest.approx(_RESERVOIR_EINI, abs=_VOLUME_TOLERANCE), (
+                    f"Initial volume should be {_RESERVOIR_EINI} Mm³, got {v_ini}"
                 )
 
 
@@ -2022,10 +2038,12 @@ def test_hydro_4b_gtopt_marginal_costs(tmp_path):
 
     for col in uid_cols:
         vals = dual_df[col].astype(float)
-        # Marginal costs should be non-negative (hydro + thermal system)
-        assert vals.min() >= -1.0, f"Negative marginal cost at bus {col}: {vals.min()}"
-        # Should not exceed failure cost (500 $/MWh)
-        assert vals.max() <= 600.0, (
+        # Marginal costs: allow small negative values from LP numerics
+        assert vals.min() >= -_CMG_TOLERANCE, (
+            f"Negative marginal cost at bus {col}: {vals.min()}"
+        )
+        # Should not exceed failure cost + tolerance
+        assert vals.max() <= _FAILURE_COST + _CMG_TOLERANCE, (
             f"Marginal cost exceeds failure cost at bus {col}: {vals.max()}"
         )
 
@@ -2073,7 +2091,9 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path):
     gtopt_uid_cols = [c for c in gtopt_dual.columns if c.startswith("uid:")]
     for col in gtopt_uid_cols:
         vals = gtopt_dual[col].astype(float)
-        assert vals.min() >= -1.0, f"gtopt negative CMg at {col}: {vals.min()}"
+        assert vals.min() >= -_CMG_TOLERANCE, (
+            f"gtopt negative CMg at {col}: {vals.min()}"
+        )
 
     # Read PLP marginal costs (plpbar.csv)
     plpbar_csv = plp_dir / "plpbar.csv"
@@ -2100,7 +2120,7 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path):
     if plp_cmg:
         for block_idx, bus_cmgs in plp_cmg.items():
             for bus_name, plp_val in bus_cmgs.items():
-                assert plp_val >= -1.0, (
+                assert plp_val >= -_CMG_TOLERANCE, (
                     f"PLP negative CMg at block {block_idx}, bus {bus_name}"
                 )
 
@@ -2109,9 +2129,8 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path):
     plp_emb_csv = plp_dir / "plpemb.csv"
 
     if gtopt_eini is not None and plp_emb_csv.exists():
-        # Both should have reservoir volumes in [emin, emax]
         uid_cols = [c for c in gtopt_eini.columns if c.startswith("uid:")]
         for col in uid_cols:
             vols = gtopt_eini[col].astype(float)
-            assert vols.min() >= 100.0 - 1.0
-            assert vols.max() <= 1200.0 + 1.0
+            assert vols.min() >= _RESERVOIR_EMIN - _VOLUME_TOLERANCE
+            assert vols.max() <= _RESERVOIR_EMAX + _VOLUME_TOLERANCE
