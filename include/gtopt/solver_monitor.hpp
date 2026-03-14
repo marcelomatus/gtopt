@@ -43,6 +43,7 @@
 #include <thread>
 #include <vector>
 
+#include <gtopt/sddp_pool.hpp>
 #include <gtopt/work_pool.hpp>
 
 #ifdef __linux__
@@ -80,35 +81,6 @@ namespace gtopt
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
   pool->start();
   SPDLOG_TRACE("Solver work pool started: max_threads={} cpu_threshold={:.0f}%",
-               pool_config.max_threads,
-               pool_config.max_cpu_threshold);
-  return pool;
-}
-
-/**
- * @brief Create and start an SDDPWorkPool configured for the SDDP solver.
- *
- * Uses `SDDPTaskKey` (tuple) as the secondary priority key so that the
- * SDDP forward/backward LP solves are ordered by
- * (iteration, is_backward, phase, is_nonlp) with the default
- * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
- *
- * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
- *                    Default 1.25.
- * @return A started SDDPWorkPool (heap-allocated, non-movable).
- */
-[[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 1.25)
-{
-  WorkPoolConfig pool_config {};
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
-
-  auto pool = std::make_unique<SDDPWorkPool>(pool_config);
-  pool->start();
-  SPDLOG_TRACE("SDDP work pool started: max_threads={} cpu_threshold={:.0f}%",
                pool_config.max_threads,
                pool_config.max_cpu_threshold);
   return pool;
