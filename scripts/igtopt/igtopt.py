@@ -269,8 +269,9 @@ def _resolve_at_sheet_columns(
 def _write_boundary_cuts_csv(df, input_path):
     """Write a ``boundary_cuts`` Excel sheet to a CSV file.
 
-    The sheet is expected to have columns ``name``, ``scenario``, ``rhs``,
-    followed by one column per state variable (reservoir/junction name).
+    The sheet is expected to have columns ``name``, ``iteration``, ``scene``,
+    ``rhs``, followed by one column per state variable (reservoir/junction
+    name).
 
     The CSV is written to ``<input_path>/boundary_cuts.csv`` and the
     returned path should be stored in the ``sddp_boundary_cuts_file``

@@ -36,8 +36,9 @@ def write_boundary_cuts_csv(
     Parameters
     ----------
     cuts
-        List of cut dicts, each with keys ``name``, ``scenario``, ``rhs``,
-        and ``coefficients`` (a dict mapping reservoir names to floats).
+        List of cut dicts, each with keys ``name``, ``iteration``, ``scene``,
+        ``rhs``, and ``coefficients`` (a dict mapping reservoir names to
+        floats).  The ``scene`` value is the scene UID.
     reservoir_names
         Ordered list of reservoir/junction names for column headers.
     output_path

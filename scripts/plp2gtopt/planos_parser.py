@@ -45,8 +45,9 @@ class PlanosParser(BaseParser):
     boundary_stage : int
         The PLP stage number to which the cuts apply (1-based).
     cuts : list[dict]
-        Parsed cuts, each with keys ``name``, ``scenario``, ``rhs``,
-        and a ``coefficients`` dict mapping reservoir names to floats.
+        Parsed cuts, each with keys ``name``, ``iteration``, ``scene``,
+        ``rhs``, and a ``coefficients`` dict mapping reservoir names to
+        floats.  The ``scene`` value is the scene UID (PLP ISimul).
     """
 
     def __init__(
