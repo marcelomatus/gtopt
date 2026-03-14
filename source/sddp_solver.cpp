@@ -1241,7 +1241,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
     {
       std::string name;
       int iteration;
-      int scene;  // 0-based scene index
+      int scene;  // scene UID (matched to scene_array in separated mode)
       double rhs;
       std::string coeff_line;  // everything after rhs (the coefficient fields)
     };
@@ -1267,9 +1267,9 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
         iteration = std::stoi(token);
       }
 
-      // Next column: scene (0-based index)
+      // Next column: scene UID (matched to scene_array in separated mode)
       std::getline(iss, token, ',');
-      const auto scene_idx = std::stoi(token);
+      const auto scene_val = std::stoi(token);
 
       // Next column: rhs
       std::getline(iss, token, ',');
@@ -1282,7 +1282,7 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
       raw_cuts.push_back(RawCut {
           .name = std::move(cut_name),
           .iteration = iteration,
-          .scene = scene_idx,
+          .scene = scene_val,
           .rhs = rhs,
           .coeff_line = std::move(remainder),
       });
