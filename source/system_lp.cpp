@@ -16,7 +16,6 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <gtopt/user_constraint_lp.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/options_lp.hpp"
@@ -123,13 +122,11 @@ constexpr auto add_to_lp(auto& collections,
   return count;
 }
 
-constexpr auto create_linear_interface(
-    auto& collections,
-    SystemContext& system_context,
-    const PhaseLP& phase,
-    const SceneLP& scene,
-    const auto& flat_opts,
-    std::vector<UserConstraintState>& uc_states)
+constexpr auto create_linear_interface(auto& collections,
+                                       SystemContext& system_context,
+                                       const PhaseLP& phase,
+                                       const SceneLP& scene,
+                                       const auto& flat_opts)
 {
   LinearProblem lp;
   // Process all active stages in phase
@@ -138,17 +135,6 @@ constexpr auto create_linear_interface(
     for (auto&& scenario : scene.scenarios()) {
       add_to_lp(collections, system_context, scenario, stage, lp);
     }
-  }
-
-  // Apply user-defined constraints to the LP before flattening.
-  // The constraints are stored in the System object (accessible via the
-  // SystemLP that owns this system_context).
-  // The returned states hold row indices for later dual-value output.
-  const auto& user_constraints =
-      system_context.system().system().user_constraint_array;
-  if (!user_constraints.empty()) {
-    uc_states = add_user_constraints_to_lp(
-        user_constraints, system_context, phase, scene, lp);
   }
 
   // Convert and store the flattened LP representation
@@ -205,6 +191,11 @@ void create_collections(const auto& system_context,
       make_collection<ReservoirEfficiencyLP>(ic,
                                              sys.reservoir_efficiency_array);
 
+  // UserConstraintLP is placed LAST so that user-constraint rows are added to
+  // the LP after all other elements whose columns they reference.
+  std::get<Collection<UserConstraintLP>>(colls) =
+      make_collection<UserConstraintLP>(ic, sys.user_constraint_array);
+
 #ifdef GTOPT_EXTRA
   std::get<Collection<EmissionZoneLP>>(colls) =
       make_collection<EmissionZoneLP>(ic, sys.emission_zones);
@@ -221,12 +212,8 @@ namespace gtopt
 {
 void SystemLP::create_lp(const FlatOptions& flat_opts)
 {
-  m_linear_interface_ = create_linear_interface(collections(),
-                                                system_context(),
-                                                phase(),
-                                                scene(),
-                                                flat_opts,
-                                                m_user_constraint_states_);
+  m_linear_interface_ = create_linear_interface(
+      collections(), system_context(), phase(), scene(), flat_opts);
 }
 
 SystemLP::SystemLP(const System& system,
@@ -266,11 +253,6 @@ void SystemLP::write_out() const
   if (count <= 0) {
     SPDLOG_WARN("No elements added to output");
     return;
-  }
-
-  // Write dual values for user-defined constraints (if any were added).
-  if (!m_user_constraint_states_.empty()) {
-    add_user_constraints_to_output(m_user_constraint_states_, oc);
   }
 
   oc.write();

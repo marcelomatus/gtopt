@@ -87,6 +87,7 @@ static_assert(AddToLP<ReservoirLP>);
 static_assert(AddToLP<FiltrationLP>);
 static_assert(AddToLP<TurbineLP>);
 static_assert(AddToLP<ReservoirEfficiencyLP>);
+static_assert(AddToLP<UserConstraintLP>);
 
 /**
  * @class SystemLP
@@ -142,7 +143,9 @@ public:
   {
   }
 
-  /// Tuple of collections for all LP component types
+  /// Tuple of collections for all LP component types.
+  /// `UserConstraintLP` is placed LAST so that user-constraint rows are
+  /// added to the LP after all other elements whose columns they reference.
   using collections_t = std::tuple<Collection<BusLP>,
                                    Collection<DemandLP>,
                                    Collection<GeneratorLP>,
@@ -159,7 +162,8 @@ public:
                                    Collection<ReservoirLP>,
                                    Collection<FiltrationLP>,
                                    Collection<TurbineLP>,
-                                   Collection<ReservoirEfficiencyLP>>;
+                                   Collection<ReservoirEfficiencyLP>,
+                                   Collection<UserConstraintLP>>;
 
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
@@ -338,7 +342,6 @@ private:
   SceneLP m_scene_;
   LinearInterface m_linear_interface_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
-  std::vector<UserConstraintState> m_user_constraint_states_ {};
 };
 
 }  // namespace gtopt

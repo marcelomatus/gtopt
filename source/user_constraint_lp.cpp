@@ -1,6 +1,6 @@
 /**
  * @file      user_constraint_lp.cpp
- * @brief     LP application of user-defined constraints (pre-flattening)
+ * @brief     LP element implementation for user-defined constraints
  * @date      Thu Mar 12 00:00:00 2026
  * @author    copilot
  * @copyright BSD-3-Clause
@@ -23,6 +23,7 @@
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/input_context.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -409,169 +410,130 @@ void apply_constraint_bounds(SparseRow& row, const ConstraintExpr& expr)
   }
 }
 
-// ── Per-constraint row building
-// ───────────────────────────────────────────────
-
-void add_constraint_rows(const ConstraintExpr& expr,
-                         const std::string& row_name_base,
-                         const SystemContext& sc,
-                         const PhaseLP& phase,
-                         const SceneLP& scene,
-                         LinearProblem& lp,
-                         STBIndexHolder<RowIndex>& row_state)
-{
-  const auto& domain = expr.domain;
-
-  for (auto&& stage : phase.stages()) {
-    if (!in_range(domain.stages, static_cast<int>(stage.uid()))) {
-      continue;
-    }
-
-    for (auto&& scenario : scene.scenarios()) {
-      if (!in_range(domain.scenarios, static_cast<int>(scenario.uid()))) {
-        continue;
-      }
-
-      BIndexHolder<RowIndex> block_rows;
-      map_reserve(block_rows, stage.blocks().size());
-
-      for (auto&& block : stage.blocks()) {
-        if (!in_range(domain.blocks, static_cast<int>(block.uid()))) {
-          continue;
-        }
-
-        SparseRow row;
-        row.name = std::format("{}_s{}_t{}_b{}",
-                               row_name_base,
-                               static_cast<int>(scenario.uid()),
-                               static_cast<int>(stage.uid()),
-                               static_cast<int>(block.uid()));
-
-        // Build coefficients from expression terms
-        bool has_vars = false;
-        for (const auto& term : expr.terms) {
-          if (term.element) {
-            if (auto col = resolve_single_col(
-                    sc, scenario, stage, block, *term.element))
-            {
-              row[*col] += term.coefficient;
-              has_vars = true;
-            }
-          } else if (term.sum_ref) {
-            const std::size_t before = row.size();
-            collect_sum_cols(sc,
-                             scenario,
-                             stage,
-                             block,
-                             *term.sum_ref,
-                             term.coefficient,
-                             row);
-            if (row.size() > before) {
-              has_vars = true;
-            }
-          }
-          // Pure constant terms (no element) shift only the RHS, which is
-          // already encoded in expr.rhs / lower_bound / upper_bound.
-        }
-
-        if (!has_vars) {
-          SPDLOG_DEBUG(
-              std::format("user_constraint '{}': no LP columns resolved "
-                          "for block {} — skipping",
-                          row_name_base,
-                          static_cast<int>(block.uid())));
-          continue;
-        }
-
-        apply_constraint_bounds(row, expr);
-        const auto row_idx = lp.add_row(std::move(row));
-        block_rows[block.uid()] = row_idx;
-      }
-
-      if (!block_rows.empty()) {
-        row_state[{scenario.uid(), stage.uid()}] = std::move(block_rows);
-      }
-    }
-  }
-}
-
 }  // anonymous namespace
 
-// ── Public function
-// ───────────────────────────────────────────────────────────
+// ── UserConstraintLP implementation ─────────────────────────────────────────
 
-// NOLINTNEXTLINE(misc-use-internal-linkage): declared in user_constraint_lp.hpp
-[[nodiscard]] std::vector<UserConstraintState> add_user_constraints_to_lp(
-    const std::vector<UserConstraint>& constraints,
-    const SystemContext& sc,
-    const PhaseLP& phase,
-    const SceneLP& scene,
-    LinearProblem& lp)
+UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
+    : ObjectLP<UserConstraint>(uc, ic, ClassName)
+    , m_scale_type_(
+          parse_constraint_scale_type(uc.constraint_type.value_or("power")))
 {
-  std::vector<UserConstraintState> states;
-  states.reserve(constraints.size());
-
-  for (const auto& uc : constraints) {
-    if (!uc.active.value_or(true)) {
-      SPDLOG_DEBUG(
-          std::format("user_constraint '{}': inactive — skipping", uc.name));
-      continue;
-    }
-
-    if (uc.expression.empty()) {
-      SPDLOG_WARN(std::format(
-          "user_constraint '{}': empty expression — skipping", uc.name));
-      continue;
-    }
-
+  if (!uc.expression.empty()) {
     try {
-      const auto expr = ConstraintParser::parse(uc.name, uc.expression);
-
-      UserConstraintState state;
-      state.uid = uc.uid;
-      state.name = uc.name;
-      state.scale_type =
-          parse_constraint_scale_type(uc.constraint_type.value_or("power"));
-
-      add_constraint_rows(expr, uc.name, sc, phase, scene, lp, state.rows);
-
-      if (!state.rows.empty()) {
-        states.push_back(std::move(state));
-      }
+      m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
     } catch (const std::exception& ex) {
       SPDLOG_ERROR(std::format(
-          "user_constraint '{}': parse/apply error: {}", uc.name, ex.what()));
+          "user_constraint '{}': expression parse error: {} — "
+          "check expression syntax and refer to the user-constraint "
+          "documentation; constraint will be silently skipped",
+          uc.name,
+          ex.what()));
+      // m_expr_ stays nullopt; add_to_lp will skip this constraint silently
     }
   }
-
-  return states;
 }
 
-// NOLINTNEXTLINE(misc-use-internal-linkage): declared in user_constraint_lp.hpp
-void add_user_constraints_to_output(
-    const std::vector<UserConstraintState>& uc_states, OutputContext& out)
+bool UserConstraintLP::add_to_lp(const SystemContext& sc,
+                                 const ScenarioLP& scenario,
+                                 const StageLP& stage,
+                                 LinearProblem& lp)
 {
-  static constexpr std::string_view cname = "UserConstraint";
-  static constexpr std::string_view row_name = "constraint";
+  if (!m_expr_.has_value()) {
+    return true;
+  }
 
-  for (const auto& state : uc_states) {
-    if (state.rows.empty()) {
+  if (!is_active(stage)) {
+    return true;
+  }
+
+  const auto& expr = *m_expr_;
+  const auto& domain = expr.domain;
+
+  // Check domain filters for this (scenario, stage)
+  if (!in_range(domain.scenarios, static_cast<int>(scenario.uid()))) {
+    return true;
+  }
+  if (!in_range(domain.stages, static_cast<int>(stage.uid()))) {
+    return true;
+  }
+
+  const auto& uc = user_constraint();
+  BIndexHolder<RowIndex> block_rows;
+  map_reserve(block_rows, stage.blocks().size());
+
+  for (const auto& block : stage.blocks()) {
+    if (!in_range(domain.blocks, static_cast<int>(block.uid()))) {
       continue;
     }
 
-    const Id pid {state.uid, state.name};
+    SparseRow row;
+    row.name = std::format("{}_s{}_t{}_b{}",
+                           uc.name,
+                           static_cast<int>(scenario.uid()),
+                           static_cast<int>(stage.uid()),
+                           static_cast<int>(block.uid()));
 
-    if (state.scale_type == ConstraintScaleType::Raw) {
-      // Raw / unitless constraints: scale by discount factor only
-      // (scale_obj / discount[t]), no probability and no block duration.
-      out.add_row_dual_raw(cname, row_name, pid, state.rows);
-    } else {
-      // Power and Energy constraints: standard block_cost_factors scaling
-      // (scale_obj / (prob × discount × Δt)).
-      // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
-      out.add_row_dual(cname, row_name, pid, state.rows);
+    bool has_vars = false;
+    for (const auto& term : expr.terms) {
+      if (term.element) {
+        if (auto col =
+                resolve_single_col(sc, scenario, stage, block, *term.element))
+        {
+          row[*col] += term.coefficient;
+          has_vars = true;
+        }
+      } else if (term.sum_ref) {
+        const std::size_t before = row.size();
+        collect_sum_cols(
+            sc, scenario, stage, block, *term.sum_ref, term.coefficient, row);
+        if (row.size() > before) {
+          has_vars = true;
+        }
+      }
     }
+
+    if (!has_vars) {
+      SPDLOG_DEBUG(
+          std::format("user_constraint '{}': no LP columns resolved "
+                      "for block {} — skipping",
+                      uc.name,
+                      static_cast<int>(block.uid())));
+      continue;
+    }
+
+    apply_constraint_bounds(row, expr);
+    const auto row_idx = lp.add_row(std::move(row));
+    block_rows[block.uid()] = row_idx;
   }
+
+  if (!block_rows.empty()) {
+    m_rows_[{scenario.uid(), stage.uid()}] = std::move(block_rows);
+  }
+
+  return true;
+}
+
+bool UserConstraintLP::add_to_output(OutputContext& out) const
+{
+  if (m_rows_.empty()) {
+    return true;
+  }
+
+  const Id pid {uid(), user_constraint().name};
+
+  if (m_scale_type_ == ConstraintScaleType::Raw) {
+    // Raw / unitless constraints: scale by discount factor only
+    // (scale_obj / discount[t]), no probability and no block duration.
+    out.add_row_dual_raw(ClassName.full_name(), "constraint", pid, m_rows_);
+  } else {
+    // Power and Energy constraints: standard block_cost_factors scaling
+    // (scale_obj / (prob × discount × Δt)).
+    // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
+    out.add_row_dual(ClassName.full_name(), "constraint", pid, m_rows_);
+  }
+
+  return true;
 }
 
 }  // namespace gtopt

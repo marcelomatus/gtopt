@@ -120,7 +120,14 @@ void LpDebugWriter::compress_async(const std::string& lp_path)
   }
 
   if (m_pool_ != nullptr) {
-    auto fut = m_pool_->submit([lp_path] { return gzip_lp_file(lp_path); });
+    // Assign lowest priority to compress tasks (they don't block solving)
+    const TaskRequirements kCompressReq {
+        .priority = TaskPriority::Low,
+        .priority_key = 0,
+        .name = {},
+    };
+    auto fut = m_pool_->submit([lp_path] { return gzip_lp_file(lp_path); },
+                               kCompressReq);
     if (fut.has_value()) {
       m_compress_futures_.push_back(std::move(*fut));
       return;
