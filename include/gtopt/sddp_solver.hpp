@@ -619,19 +619,21 @@ private:
   /// Writes to both per-scene storage and shared storage.
   void store_cut(SceneIndex scene, PhaseIndex src_phase, const SparseRow& cut);
 
-  /// Resolve an LP via the work pool.  Falls back to direct resolve if the
-  /// pool is not available.  Avoids naked direct resolve() calls.
-  [[nodiscard]] auto resolve_via_pool(LinearInterface& li,
-                                      const SolverOptions& opts,
-                                      const TaskRequirements& task_req = {})
+  /// Resolve an LP via the SDDP work pool.  Falls back to direct resolve if
+  /// the pool is not available.  Avoids naked direct resolve() calls.
+  [[nodiscard]] auto resolve_via_pool(
+      LinearInterface& li,
+      const SolverOptions& opts,
+      const BasicTaskRequirements<SDDPTaskKey>& task_req = {})
       -> std::expected<int, Error>;
 
-  /// Resolve a cloned LP via the work pool.  The clone is moved into a
+  /// Resolve a cloned LP via the SDDP work pool.  The clone is moved into a
   /// shared_ptr for the pool task, then moved back after completion.
   [[nodiscard]] auto resolve_clone_via_pool(
       LinearInterface& clone,
       const SolverOptions& opts,
-      const TaskRequirements& task_req = {}) -> std::expected<int, Error>;
+      const BasicTaskRequirements<SDDPTaskKey>& task_req = {})
+      -> std::expected<int, Error>;
 
   /// Iterative feasibility backpropagation: propagate from start_phase
   /// backward to phase 0 using elastic filter and cuts.
@@ -685,14 +687,14 @@ private:
   /// Run the forward pass for all scenes in parallel.
   /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
   [[nodiscard]] auto run_forward_pass_all_scenes(int iter,
-                                                 AdaptiveWorkPool& pool,
+                                                 SDDPWorkPool& pool,
                                                  const SolverOptions& opts)
       -> std::expected<ForwardPassOutcome, Error>;
 
   /// Run the backward pass for all feasible scenes in parallel.
   [[nodiscard]] auto run_backward_pass_all_scenes(
       std::span<const uint8_t> scene_feasible,
-      AdaptiveWorkPool& pool,
+      SDDPWorkPool& pool,
       const SolverOptions& opts,
       int iter) -> BackwardPassOutcome;
 
@@ -764,13 +766,20 @@ private:
 
   // ── BendersCut: wraps elastic-filter LP solves via the work pool ──
   /// Constructed with null pool; updated in solve() once the pool is created.
-  /// Used by elastic_solve() to submit elastic-filter LP solves to the pool.
+  /// Uses m_aux_pool_ (AdaptiveWorkPool) for LP solve monitoring.
   BendersCut m_benders_cut_;
 
-  /// Non-owning pointer to the work pool created in solve().  Set to non-null
-  /// while solve() is running; reset to nullptr when solve() returns.
+  /// Non-owning pointer to the SDDP work pool (SDDPWorkPool) created in
+  /// solve().  Uses SDDPTaskKey for tuple-based priority ordering.
+  /// Set to non-null while solve() is running; reset to nullptr on return.
   /// Used by resolve_via_pool() and resolve_clone_via_pool().
-  AdaptiveWorkPool* m_pool_ {nullptr};
+  SDDPWorkPool* m_pool_ {nullptr};
+
+  /// Non-owning pointer to the auxiliary AdaptiveWorkPool used by
+  /// BendersCut (elastic LP solves) and LpDebugWriter (gzip compression).
+  /// Separate from m_pool_ so that those helpers continue to use the
+  /// simple int64_t key while the main SDDP LP solves use SDDPTaskKey.
+  AdaptiveWorkPool* m_aux_pool_ {nullptr};
 
   /// LP debug writer — active when lp_debug is enabled and log_directory is
   /// set.  Initialised at the start of solve() and drained at the end.
