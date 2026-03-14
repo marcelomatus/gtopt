@@ -520,6 +520,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Reset SoC to eini at the start of each day (true/false)",
             None,
         ),
+        (
+            "energy_scale",
+            _J_NUM,
+            False,
+            "Energy scale for LP numerics: LP var = energy / scale"
+            " (optional, default: 1.0)",
+            None,
+        ),
     ],
     "converter_array": [
         ("uid", _J_INT, True, "Unique converter identifier", 1),
