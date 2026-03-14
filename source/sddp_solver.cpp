@@ -1256,7 +1256,6 @@ auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
             row[header_col_map[ci].value()] = -coeff;
-            row.lowb -= coeff * 0.0;  // trial value = 0 initially
           }
         }
 

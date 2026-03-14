@@ -70,6 +70,10 @@ _SYSTEM_SHEETS = frozenset(
     }
 )
 
+# All known sheet names.  None of these are strictly required; sheets that
+# are absent in the input workbook are simply not generated.  The list is
+# used to warn when an unrecognised sheet name is encountered (unless the
+# user passes -U/--parse-unexpected-sheets).
 expected_sheets = (
     ["options", "boundary_cuts"] + sorted(_SIMULATION_SHEETS) + sorted(_SYSTEM_SHEETS)
 )
@@ -578,11 +582,11 @@ def _run(args) -> int:
                     csv_path = _write_boundary_cuts_csv(df, args.input_directory)
                     # Place inside sddp_options so the C++ parser maps it
                     # to Options::sddp_options::sddp_boundary_cuts_file.
+                    # setdefault always returns a dict here; the explicit
+                    # type guard is only for safety if options["sddp_options"]
+                    # was pre-populated with a non-dict value by the user.
                     sddp_opts = options.setdefault("sddp_options", {})
-                    if isinstance(sddp_opts, dict):
-                        sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
-                    else:
-                        options["sddp_boundary_cuts_file"] = str(csv_path)
+                    sddp_opts["sddp_boundary_cuts_file"] = str(csv_path)
                     logging.info(
                         "boundary_cuts sheet → %s (%d cuts)", csv_path, len(df)
                     )
