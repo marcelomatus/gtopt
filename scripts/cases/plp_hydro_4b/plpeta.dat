@@ -1,0 +1,7 @@
+# Archivo con la duracion de las etapas
+# Etapas
+      3   'H'
+# Ano  Mes  Etapa FDesh   NHoras    FactTasa    TipoEtapa
+  001  001    001     F       12    1.000000    'Stage01'
+  001  002    002     F       12    1.000000    'Stage02'
+  001  003    003     F       12    1.000000    'Stage03'

@@ -1,0 +1,7 @@
+# Archivo de indices de aperturas 2 (plpidap2.dat)
+# Numero de etapas con caudales
+      3
+# Mes  Etapa  NApert  ListApert(1,...,NApert)
+  001    001      3    1   2   3
+  002    002      3    1   2   3
+  003    003      3    1   2   3
