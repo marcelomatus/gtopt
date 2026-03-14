@@ -104,6 +104,30 @@ struct SddpOptions
    */
   OptName sddp_aperture_directory {};
 
+  /** @brief CSV file with boundary (future-cost) cuts for the last phase.
+   *
+   * These are analogous to PLP's "planos de embalse" — external optimality
+   * cuts that approximate the expected future cost beyond the planning
+   * horizon.  Each cut is of the form:
+   *
+   *   α ≥ rhs + Σ_i  coeff_i · state_var_i
+   *
+   * The CSV header row names the state variables (reservoir / battery);
+   * subsequent rows provide the cut name, scenario index, RHS, and
+   * gradient coefficients.
+   *
+   * Format:
+   * ```
+   * name,scenario,rhs,Reservoir1,Reservoir2,...
+   * cut_001,0,-5000.0,0.25,0.75,...
+   * ```
+   *
+   * The solver maps column headers to the LP state-variable columns in the
+   * last phase and adds each cut as a lower-bound constraint on the future
+   * cost variable α.  If empty, no boundary cuts are loaded.
+   */
+  OptName sddp_boundary_cuts_file {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
@@ -122,6 +146,7 @@ struct SddpOptions
     merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
     merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
     merge_opt(sddp_aperture_directory, std::move(opts.sddp_aperture_directory));
+    merge_opt(sddp_boundary_cuts_file, std::move(opts.sddp_boundary_cuts_file));
 
     auto _ = std::move(opts);
   }

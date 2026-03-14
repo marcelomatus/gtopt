@@ -19,10 +19,13 @@
 #include <fstream>
 #include <ranges>
 #include <span>
+#include <sstream>
+#include <unordered_map>
 #include <utility>
 
 #include <gtopt/check_lp.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -1065,6 +1068,216 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
   return total_loaded;
 }
 
+// ── Boundary (future-cost) cuts ─────────────────────────────────────────────
+
+auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
+    -> std::expected<int, Error>
+{
+  try {
+    std::ifstream ifs(filepath);
+    if (!ifs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format(
+              "Cannot open boundary cuts file for reading: {}", filepath),
+      });
+    }
+
+    // ── Parse header ────────────────────────────────────────────────────────
+    // Expected: name,scenario,rhs,StateVar1,StateVar2,...
+    // StateVar columns use the convention "ClassName:ElementName" to identify
+    // the state variable (e.g. "Reservoir:Rapel", "Battery:BESS1").
+    std::string header_line;
+    std::getline(ifs, header_line);
+
+    std::vector<std::string> headers;
+    {
+      std::istringstream hss(header_line);
+      std::string token;
+      while (std::getline(hss, token, ',')) {
+        headers.push_back(token);
+      }
+    }
+
+    // First 3 columns must be name, scenario, rhs; rest are state variables
+    if (headers.size() < 4) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message =
+              std::format("Boundary cuts CSV must have at least 4 columns "
+                          "(name,scenario,rhs,<state_vars>); got {}",
+                          headers.size()),
+      });
+    }
+
+    // ── Determine last phase and build name→column mapping ──────────────────
+    const auto& sim = planning_lp().simulation();
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto last_phase = PhaseIndex {num_phases - 1};
+
+    // Build element-name → uid lookup from the System.
+    // We support Reservoir (via Junction) and Battery state variables.
+    const auto& sys = planning_lp().planning().system;
+
+    std::unordered_map<std::string, std::pair<std::string_view, Uid>>
+        name_to_class_uid;
+    for (const auto& junc : sys.junction_array) {
+      name_to_class_uid[junc.name] = {"Junction", junc.uid};
+    }
+    for (const auto& bat : sys.battery_array) {
+      name_to_class_uid[bat.name] = {"Battery", bat.uid};
+    }
+
+    // For each state-variable header column, find the corresponding LP column
+    // in the last phase (scene 0 is used as representative for column lookup;
+    // cuts are broadcast to all scenes).
+    const auto& svar_map = sim.state_variables(SceneIndex {0}, last_phase);
+
+    // Map from CSV column index (starting at 3) → LP ColIndex in last phase
+    std::vector<std::optional<ColIndex>> header_col_map;
+    header_col_map.reserve(headers.size() - 3);
+
+    for (std::size_t hi = 3; hi < headers.size(); ++hi) {
+      const auto& hdr = headers[hi];
+      std::optional<ColIndex> found_col;
+
+      // Parse "ClassName:ElementName" or plain "ElementName"
+      std::string_view class_filter;
+      std::string element_name;
+      if (const auto colon = hdr.find(':'); colon != std::string::npos) {
+        class_filter = std::string_view(hdr).substr(0, colon);
+        element_name = hdr.substr(colon + 1);
+      } else {
+        element_name = hdr;
+      }
+
+      // Look up element name → (class_name, uid)
+      if (auto it = name_to_class_uid.find(element_name);
+          it != name_to_class_uid.end())
+      {
+        const auto& [cname, elem_uid] = it->second;
+        if (!class_filter.empty() && class_filter != cname) {
+          SPDLOG_WARN(
+              "Boundary cuts: header '{}' class '{}' does not match "
+              "element '{}' class '{}'; skipping",
+              hdr,
+              class_filter,
+              element_name,
+              cname);
+        } else {
+          // Find the efin state variable for this element in the last phase
+          for (const auto& [key, svar] : svar_map) {
+            if (key.uid == elem_uid
+                && (key.col_name == "efin" || key.col_name == "soc"))
+            {
+              found_col = svar.col();
+              break;
+            }
+          }
+        }
+      }
+
+      if (!found_col.has_value()) {
+        SPDLOG_WARN(
+            "Boundary cuts: could not find state variable for header '{}'; "
+            "coefficients in this column will be ignored",
+            hdr);
+      }
+      header_col_map.push_back(found_col);
+    }
+
+    // ── Ensure the last phase has an alpha column ───────────────────────────
+    // Boundary cuts add a future-cost approximation to the last phase,
+    // which normally has no alpha variable.
+    for (Index si = 0; si < num_scenes; ++si) {
+      const auto scene = SceneIndex {si};
+      auto& state = m_scene_phase_states_[scene][last_phase];
+      if (state.alpha_col == ColIndex {unknown_index}) {
+        auto& li = planning_lp().system(scene, last_phase).linear_interface();
+        state.alpha_col = li.add_col(
+            sddp_label("sddp", "alpha", "sc", scene, "ph", last_phase),
+            m_options_.alpha_min,
+            m_options_.alpha_max);
+        li.set_obj_coeff(state.alpha_col, 1.0);
+      }
+    }
+
+    // ── Parse cut rows ──────────────────────────────────────────────────────
+    int cuts_loaded = 0;
+    std::string line;
+    while (std::getline(ifs, line)) {
+      if (line.empty()) {
+        continue;
+      }
+
+      std::istringstream iss(line);
+      std::string token;
+
+      // Column 0: name
+      std::getline(iss, token, ',');
+      const auto cut_name = token;
+
+      // Column 1: scenario (0 = all scenarios)
+      std::getline(iss, token, ',');
+      [[maybe_unused]] const auto scenario_idx = std::stoi(token);
+
+      // Column 2: rhs
+      std::getline(iss, token, ',');
+      const auto rhs = std::stod(token);
+
+      // Build SparseRow for this cut
+      // (one row per scene; use scene-0's alpha_col as representative)
+      for (Index si = 0; si < num_scenes; ++si) {
+        const auto scene = SceneIndex {si};
+        const auto& state = m_scene_phase_states_[scene][last_phase];
+
+        auto row = SparseRow {
+            .name = as_label("boundary", cut_name),
+            .lowb = rhs,
+            .uppb = LinearProblem::DblMax,
+        };
+        row[state.alpha_col] = 1.0;
+
+        // Parse coefficient columns (indices 3..N in header)
+        std::istringstream coeff_ss(line);
+        // Skip name, scenario, rhs
+        std::getline(coeff_ss, token, ',');
+        std::getline(coeff_ss, token, ',');
+        std::getline(coeff_ss, token, ',');
+
+        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
+          if (!std::getline(coeff_ss, token, ',')) {
+            break;
+          }
+          if (!header_col_map[ci].has_value()) {
+            continue;
+          }
+          const auto coeff = std::stod(token);
+          if (coeff != 0.0) {
+            row[header_col_map[ci].value()] = -coeff;
+            row.lowb -= coeff * 0.0;  // trial value = 0 initially
+          }
+        }
+
+        auto& li = planning_lp().system(scene, last_phase).linear_interface();
+        li.add_row(row);
+      }
+      ++cuts_loaded;
+    }
+
+    SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}", cuts_loaded, filepath);
+    return cuts_loaded;
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format(
+            "Error loading boundary cuts from {}: {}", filepath, e.what()),
+    });
+  }
+}
+
 // ── Monitoring API ───────────────────────────────────────────────────────────
 
 void SDDPSolver::write_api_status(
@@ -1233,6 +1446,19 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
                     *result,
                     cut_dir.string());
       }
+    }
+  }
+
+  // ── Load boundary cuts (future-cost function for last phase) ──────────────
+  if (!m_options_.boundary_cuts_file.empty()) {
+    auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
+    if (result.has_value()) {
+      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
+                  *result,
+                  m_options_.boundary_cuts_file);
+    } else {
+      SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
+                  result.error().message);
     }
   }
 

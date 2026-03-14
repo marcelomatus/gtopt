@@ -36,7 +36,8 @@ struct json_data_contract<SddpOptions>
                        json_string_null<"sddp_elastic_mode", OptName>,
                        json_number_null<"sddp_multi_cut_threshold", OptInt>,
                        json_number_null<"sddp_num_apertures", OptInt>,
-                       json_string_null<"sddp_aperture_directory", OptName>>;
+                       json_string_null<"sddp_aperture_directory", OptName>,
+                       json_string_null<"sddp_boundary_cuts_file", OptName>>;
 
   constexpr static auto to_json_data(SddpOptions const& opt)
   {
@@ -55,7 +56,8 @@ struct json_data_contract<SddpOptions>
                                  opt.sddp_elastic_mode,
                                  opt.sddp_multi_cut_threshold,
                                  opt.sddp_num_apertures,
-                                 opt.sddp_aperture_directory);
+                                 opt.sddp_aperture_directory,
+                                 opt.sddp_boundary_cuts_file);
   }
 };
 

@@ -200,6 +200,11 @@ std::unique_ptr<PlanningSolver> make_planning_solver(const OptionsLP& options)
       sddp_opts.cuts_input_file = cuts_input;
     }
 
+    const auto boundary_cuts = options.sddp_boundary_cuts_file();
+    if (!boundary_cuts.empty()) {
+      sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
+    }
+
     // Sentinel: honour the user-configured path when explicitly set.
     const auto sentinel = options.sddp_sentinel_file();
     const auto output_dir = options.output_directory();
