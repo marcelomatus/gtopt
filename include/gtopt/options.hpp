@@ -113,18 +113,20 @@ struct SddpOptions
    *   α ≥ rhs + Σ_i  coeff_i · state_var_i
    *
    * The CSV header row names the state variables (reservoir / battery);
-   * subsequent rows provide the cut name, iteration, scene index (0-based),
+   * subsequent rows provide the cut name, iteration, scene UID,
    * RHS, and gradient coefficients.
    *
    * Format:
    * ```
    * name,iteration,scene,rhs,Reservoir1,Reservoir2,...
-   * cut_001,1,0,-5000.0,0.25,0.75,...
+   * cut_001,1,1,-5000.0,0.25,0.75,...
    * ```
    *
-   * The solver maps column headers to the LP state-variable columns in the
-   * last phase and adds each cut as a lower-bound constraint on the future
-   * cost variable α.  If empty, no boundary cuts are loaded.
+   * The `scene` column contains the scene UID (matching the `uid` field
+   * in gtopt's `scene_array`).  The solver maps column headers to the LP
+   * state-variable columns in the last phase and adds each cut as a
+   * lower-bound constraint on the future cost variable α.
+   * If empty, no boundary cuts are loaded.
    */
   OptName sddp_boundary_cuts_file {};
 
@@ -133,7 +135,7 @@ struct SddpOptions
    *
    * - `"noload"` — do not load boundary cuts even if a file is given.
    * - `"separated"` — load cuts per scene: each cut is assigned to the
-   *   scene matching its `scenario` column (1-based ISimul in PLP).
+   *   scene matching its `scene` column (scene UID from `scene_array`).
    * - `"combined"` — load all cuts into all scenes (broadcast).
    */
   OptName sddp_boundary_cuts_mode {};

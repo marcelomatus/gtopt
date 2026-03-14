@@ -6,12 +6,14 @@ CSV format understood by the SDDP solver's ``load_boundary_cuts()`` method.
 The CSV format is::
 
     name,iteration,scene,rhs,Reservoir1,Reservoir2,...
-    bc_1_1,1,0,-5000.0,0.25,0.75,...
-    bc_1_2,1,1,-4800.0,0.30,0.60,...
+    bc_1_1,1,1,-5000.0,0.25,0.75,...
+    bc_1_2,1,2,-4800.0,0.30,0.60,...
 
 Column headers after ``rhs`` are the state-variable names (reservoirs or
-junctions) that the solver maps to LP columns.  The ``scene`` column uses
-0-based indexing (converted from PLP's 1-based ISimul).  Coefficients
+junctions) that the solver maps to LP columns.  The ``scene`` column
+contains the **scene UID** (matching the ``uid`` field in gtopt's
+``scene_array``).  For PLP cases, ISimul maps directly to the scene UID
+because plp2gtopt assigns ``uid = i + 1`` for scene *i*.  Coefficients
 represent the gradient of the future-cost function with respect to each
 state variable (reservoir volume).
 """

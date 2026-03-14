@@ -224,6 +224,8 @@ by the `cut_sharing_mode` option:
    state variables and their dependent columns in the next phase
 4. **Load hot-start cuts** (optional): previously saved cuts are loaded
    from a file to accelerate convergence
+5. **Load boundary cuts** (optional): external future-cost cuts for the
+   last phase are loaded from a CSV file (see §4.11)
 
 ### 4.2 Forward Pass
 
