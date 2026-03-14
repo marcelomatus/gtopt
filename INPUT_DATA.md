@@ -228,6 +228,9 @@ A transmission line connecting two buses.
 | `resistance`       | number\|array\|string| p.u.        | No       | Series resistance |
 | `reactance`        | number\|array\|string| p.u.        | No       | Series reactance (DC power flow) |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
+| `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
+| `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
+| `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
 | `tmax_ab`          | number\|array\|string| MW          | No       | Max flow in A→B direction |
 | `tmax_ba`          | number\|array\|string| MW          | No       | Max flow in B→A direction |
 | `tcost`            | number\|array\|string| $/MWh       | No       | Variable transmission cost |

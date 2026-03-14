@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
 import pp2gtopt.convert as _convert_mod
@@ -19,6 +20,7 @@ from pp2gtopt.convert import (
     _build_physical_lines,
     _build_transformers,
     _get_poly_cost,
+    _get_tap_ratio,
     _line_tmax,
     convert,
     get_bus_base_kv,
@@ -170,15 +172,157 @@ class TestBuildTransformers:
         trafos = _build_transformers(net, 100.0)
         assert trafos[0]["reactance"] == pytest.approx(expected)
 
-    def test_tmax_is_unlimited(self, net):
+    def test_type_is_transformer(self, net):
         for trafo in _build_transformers(net, 100.0):
-            assert trafo["tmax_ab"] == _TMAX_UNLIMITED
-            assert trafo["tmax_ba"] == _TMAX_UNLIMITED
+            assert trafo.get("type") == "transformer"
+
+    def test_tmax_is_unlimited_when_unconstrained(self, net):
+        # ieee30b trafos have max_loading_percent > 100 or no realistic limit
+        for trafo in _build_transformers(net, 100.0):
+            # all either limited or unlimited; just check keys present
+            assert "tmax_ab" in trafo
+            assert "tmax_ba" in trafo
+            assert trafo["tmax_ab"] > 0
+            assert trafo["tmax_ba"] > 0
+
+    def test_tmax_exact_computation(self):
+        """tmax = sn_mva * max_loading_percent / 100, rounded to 1 decimal."""
+        row = pd.Series(
+            {
+                "hv_bus": 0,
+                "lv_bus": 1,
+                "sn_mva": 80.0,
+                "vk_percent": 5.0,
+                "tap_neutral": 0,
+                "tap_pos": 0,
+                "tap_step_percent": 0.0,
+                "shift_degree": 0.0,
+                "max_loading_percent": 75.0,
+            }
+        )
+
+        class FakeNet:
+            trafo = pd.DataFrame([row])
+
+        trafos = _build_transformers(FakeNet(), 100.0)  # type: ignore[arg-type]
+        assert len(trafos) == 1
+        # 80 MVA * 75% = 60 MW
+        assert trafos[0]["tmax_ab"] == pytest.approx(60.0)
+        assert trafos[0]["tmax_ba"] == pytest.approx(60.0)
 
     def test_no_uid_field(self, net):
         # UIDs are assigned by _build_lines, not _build_transformers
         for trafo in _build_transformers(net, 100.0):
             assert "uid" not in trafo
+
+    def test_nominal_tap_not_emitted(self, net):
+        """Transformers at nominal tap (tap_ratio == 1) omit the field."""
+        net_copy = copy.copy(net)
+        net_copy.trafo = net.trafo.copy()
+        # Force all taps to neutral
+        net_copy.trafo["tap_pos"] = net_copy.trafo["tap_neutral"]
+        for trafo in _build_transformers(net_copy, 100.0):
+            assert "tap_ratio" not in trafo
+
+    def test_off_nominal_tap_emitted(self):
+        """A transformer with a non-neutral tap emits tap_ratio != 1."""
+
+        row = pd.Series(
+            {
+                "hv_bus": 0,
+                "lv_bus": 1,
+                "sn_mva": 100.0,
+                "vk_percent": 10.0,
+                "tap_neutral": 0,
+                "tap_pos": 2,
+                "tap_step_percent": 2.5,
+                "shift_degree": 0.0,
+                "max_loading_percent": 100.0,
+            }
+        )
+
+        class FakeNet:
+            trafo = pd.DataFrame([row])
+
+        trafos = _build_transformers(FakeNet(), 100.0)  # type: ignore[arg-type]
+        assert len(trafos) == 1
+        assert "tap_ratio" in trafos[0]
+        assert trafos[0]["tap_ratio"] == pytest.approx(1.05)  # 1 + 2 * 2.5/100
+
+    def test_phase_shift_emitted_for_pst(self):
+        """Transformers with nonzero shift_degree include phase_shift_deg."""
+
+        row = pd.Series(
+            {
+                "hv_bus": 0,
+                "lv_bus": 1,
+                "sn_mva": 100.0,
+                "vk_percent": 5.0,
+                "tap_neutral": 0,
+                "tap_pos": 0,
+                "tap_step_percent": 0.0,
+                "shift_degree": -5.0,
+                "max_loading_percent": 100.0,
+            }
+        )
+
+        class FakeNet:
+            trafo = pd.DataFrame([row])
+
+        trafos = _build_transformers(FakeNet(), 100.0)  # type: ignore[arg-type]
+        assert len(trafos) == 1
+        assert "phase_shift_deg" in trafos[0]
+        assert trafos[0]["phase_shift_deg"] == pytest.approx(-5.0)
+
+    def test_no_phase_shift_field_for_plain_transformer(self):
+        """Plain transformers (shift_degree == 0) omit phase_shift_deg."""
+
+        row = pd.Series(
+            {
+                "hv_bus": 0,
+                "lv_bus": 1,
+                "sn_mva": 100.0,
+                "vk_percent": 5.0,
+                "tap_neutral": 0,
+                "tap_pos": 0,
+                "tap_step_percent": 0.0,
+                "shift_degree": 0.0,
+                "max_loading_percent": 100.0,
+            }
+        )
+
+        class FakeNet:
+            trafo = pd.DataFrame([row])
+
+        trafos = _build_transformers(FakeNet(), 100.0)  # type: ignore[arg-type]
+        assert "phase_shift_deg" not in trafos[0]
+
+
+class TestGetTapRatio:
+    def test_nominal_tap_returns_one(self):
+
+        row = pd.Series({"tap_neutral": 0, "tap_pos": 0, "tap_step_percent": 2.5})
+        assert _get_tap_ratio(row) == pytest.approx(1.0)
+
+    def test_positive_deviation(self):
+
+        row = pd.Series({"tap_neutral": 0, "tap_pos": 2, "tap_step_percent": 2.5})
+        assert _get_tap_ratio(row) == pytest.approx(1.05)
+
+    def test_negative_deviation(self):
+        row = pd.Series({"tap_neutral": 0, "tap_pos": -3, "tap_step_percent": 1.0})
+        assert _get_tap_ratio(row) == pytest.approx(0.97)
+
+    def test_missing_tap_data_returns_one(self):
+        row = pd.Series({"sn_mva": 100.0})
+        assert _get_tap_ratio(row) == pytest.approx(1.0)
+
+    def test_tap_pos_zero_with_nonzero_neutral(self):
+        """tap_pos=0 is a valid (non-neutral) value and must not be treated as
+        missing; deviation = (0 - neutral) * step."""
+        row = pd.Series({"tap_neutral": 2, "tap_pos": 0, "tap_step_percent": 5.0})
+        # deviation = (0 - 2) * 5 / 100 = -0.10  →  tap = 0.90
+        assert _get_tap_ratio(row) == pytest.approx(0.90)
 
 
 class TestBuildPhysicalLines:

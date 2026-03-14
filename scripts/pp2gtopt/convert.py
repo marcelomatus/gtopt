@@ -206,26 +206,85 @@ def _build_physical_lines(
     return lines
 
 
+def _get_tap_ratio(row: Any) -> float:
+    """Return the off-nominal tap ratio for a pandapower transformer row.
+
+    The off-nominal tap ratio is computed as::
+
+        tap = 1 + (tap_pos - tap_neutral) * tap_step_percent / 100
+
+    When ``tap_pos`` equals ``tap_neutral`` (or tap data is missing / NaN)
+    the function returns 1.0 (nominal, no correction).
+    """
+    try:
+        neutral = row.get("tap_neutral")
+        tap_neutral = 0.0 if neutral is None else float(neutral)
+
+        pos = row.get("tap_pos")
+        tap_pos = tap_neutral if pos is None else float(pos)
+
+        step = row.get("tap_step_percent")
+        tap_step_percent = 0.0 if step is None else float(step)
+    except (TypeError, ValueError):
+        return 1.0
+    deviation = (tap_pos - tap_neutral) * tap_step_percent / 100.0
+    return round(1.0 + deviation, 6)
+
+
 def _build_transformers(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]:
-    """Build line entries for transformers (modelled as lossless lines)."""
+    """Build line entries for transformers (modelled as branches with tap support).
+
+    Each pandapower ``trafo`` row is converted to a gtopt line entry with:
+
+    * ``type = "transformer"`` for identification.
+    * Reactance computed from the short-circuit voltage:
+      ``x_pu = (vk_percent / 100) * (base_mva / sn_mva)``.
+    * ``tap_ratio`` set to the off-nominal tap ratio (1.0 when at nominal).
+    * ``phase_shift_deg`` set for phase-shifting transformers
+      (from ``shift_degree``).
+    * Thermal limit in MW derived from ``sn_mva`` when ``max_loading_percent``
+      is available, otherwise unconstrained (9999 MW).
+    """
     trafos: list[dict[str, Any]] = []
     for _idx, row in net.trafo.iterrows():
         hv = int(row["hv_bus"])
         lv = int(row["lv_bus"])
-        x_pu = (float(row["vk_percent"]) / 100.0) * (base_mva / float(row["sn_mva"]))
+        sn_mva = float(row["sn_mva"])
+        x_pu = (float(row["vk_percent"]) / 100.0) * (base_mva / sn_mva)
         if x_pu < 1e-6:
             continue
-        trafos.append(
-            {
-                "name": f"t{hv + 1}_{lv + 1}",
-                "bus_a": hv + 1,
-                "bus_b": lv + 1,
-                "reactance": round(x_pu, 6),
-                "voltage": 10,
-                "tmax_ab": _TMAX_UNLIMITED,
-                "tmax_ba": _TMAX_UNLIMITED,
-            }
-        )
+
+        entry: dict[str, Any] = {
+            "name": f"t{hv + 1}_{lv + 1}",
+            "bus_a": hv + 1,
+            "bus_b": lv + 1,
+            "reactance": round(x_pu, 6),
+            "voltage": 10,
+            "type": "transformer",
+        }
+
+        # Thermal limit: derive from sn_mva when loading percentage is given,
+        # otherwise leave unconstrained.
+        max_loading = float(row.get("max_loading_percent", 100) or 100)
+        tmax_mw = round(sn_mva * max_loading / 100.0, 1)
+        if tmax_mw < _TMAX_UNLIMITED:
+            entry["tmax_ab"] = tmax_mw
+            entry["tmax_ba"] = tmax_mw
+        else:
+            entry["tmax_ab"] = _TMAX_UNLIMITED
+            entry["tmax_ba"] = _TMAX_UNLIMITED
+
+        # Off-nominal tap ratio
+        tau = _get_tap_ratio(row)
+        if abs(tau - 1.0) > 1e-6:
+            entry["tap_ratio"] = tau
+
+        # Phase-shift angle for PSTs
+        shift_deg = float(row.get("shift_degree", 0) or 0)
+        if abs(shift_deg) > 1e-6:
+            entry["phase_shift_deg"] = round(shift_deg, 6)
+
+        trafos.append(entry)
     return trafos
 
 

@@ -127,6 +127,8 @@ scenarios, stages, and blocks.
 | $\overline{F}_l^{ab}$ | `tmax_ab` | Line capacity $a \to b$ | MW |
 | $\overline{F}_l^{ba}$ | `tmax_ba` | Line capacity $b \to a$ | MW |
 | $X_l$ | `reactance` | Line reactance | p.u. |
+| $\tau_l$ | `tap_ratio` | Off-nominal tap ratio (transformer) | p.u. |
+| $\varphi_l$ | `phase_shift_deg` | Phase-shift angle (PST) | degrees |
 | $\lambda_g$ | `lossfactor` (gen) | Generator injection loss fraction | — |
 | $\lambda_d$ | `lossfactor` (demand) | Demand withdrawal loss fraction | — |
 | $\lambda_l$ | `lossfactor` (line) | Line transmission loss fraction | — |
@@ -518,6 +520,51 @@ $$
 -\theta_{a,s,t,b} + \theta_{b,s,t,b} + \chi_l \, f_{l,s,t,b}^{+} - \chi_l \, f_{l,s,t,b}^{-} = 0
 \qquad \forall \; l, s, t, b
 $$
+
+#### Transformer and Phase-Shifting Transformer Model
+
+A **tap-changing transformer** or **phase-shifting transformer (PST)** extends
+the standard Kirchhoff constraint with two additional parameters:
+
+- **Off-nominal tap ratio** $\tau_l$ (JSON field `tap_ratio`, default 1.0):
+  scales the effective susceptance by $1/\tau_l$, so the line carries less
+  (or more) power for the same angle difference.
+- **Phase-shift angle** $\varphi_l$ (JSON field `phase_shift_deg`, default
+  0°, converted internally to radians): shifts the right-hand side of the
+  equality constraint, enabling direct control of power flow through the PST.
+
+The generalised Kirchhoff constraint for a transformer branch is:
+
+$$
+-\theta_{a,s,t,b} + \theta_{b,s,t,b}
++ (\tau_l \, \chi_l) \, f_{l,s,t,b}^{+}
+- (\tau_l \, \chi_l) \, f_{l,s,t,b}^{-}
+= -\sigma_\theta \cdot \varphi_{l,\text{rad}}
+\qquad \forall \; l, s, t, b
+$$
+
+where $\varphi_{l,\text{rad}} = \varphi_l \cdot \pi / 180$.
+
+When $\tau_l = 1$ and $\varphi_l = 0$ the expression reduces to the standard
+line constraint above. The parameters support per-stage schedules (scalar,
+inline array, or Parquet filename) — useful for OLTC (on-load tap changer)
+models where the tap position can vary across planning stages.
+
+To model a transformer element in the JSON input, set `"type": "transformer"`
+on the line entry (optional tag used by the `pp2gtopt` converter and for
+documentation purposes):
+
+```json
+{
+  "uid": 5, "name": "T1_2_5",
+  "type": "transformer",
+  "bus_a": 2, "bus_b": 5,
+  "voltage": 220.0,
+  "reactance": 0.0625,
+  "tmax_ab": 150.0, "tmax_ba": 150.0,
+  "tap_ratio": 1.05
+}
+```
 
 #### Reference Bus
 
