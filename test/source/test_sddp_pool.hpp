@@ -56,9 +56,15 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
   SUBCASE("lower iteration index has higher priority")
   {
     STask iter0 {[] {},
-                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
+                 SReq {
+                     .priority_key = SDDPTaskKey {0, 0, 0, 0},
+                     .name = {},
+                 }};
     STask iter1 {[] {},
-                 SReq {.priority_key = SDDPTaskKey {1, 0, 0, 0}, .name = {}}};
+                 SReq {
+                     .priority_key = SDDPTaskKey {1, 0, 0, 0},
+                     .name = {},
+                 }};
     CHECK_FALSE(iter0 < iter1);  // iter0 has higher priority
     CHECK(iter1 < iter0);  // iter1 has lower priority
   }
@@ -66,23 +72,31 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
   SUBCASE("forward (0) has higher priority than backward (1)")
   {
     STask fwd {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
-                     .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, kSDDPKeyForward, 0, 0},
+                   .name = {},
+               }};
     STask bwd {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
-                     .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, kSDDPKeyBackward, 0, 0},
+                   .name = {},
+               }};
     CHECK_FALSE(fwd < bwd);  // forward has higher priority
     CHECK(bwd < fwd);  // backward has lower priority
   }
 
   SUBCASE("LP solve (0) has higher priority than non-LP (1)")
   {
-    STask lp {
-        [] {},
-        SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP}, .name = {}}};
+    STask lp {[] {},
+              SReq {
+                  .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsLP},
+                  .name = {},
+              }};
     STask nonlp {[] {},
-                 SReq {.priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
-                       .name = {}}};
+                 SReq {
+                     .priority_key = SDDPTaskKey {0, 0, 0, kSDDPKeyIsNonLP},
+                     .name = {},
+                 }};
     CHECK_FALSE(lp < nonlp);  // LP has higher priority
     CHECK(nonlp < lp);  // non-LP has lower priority
   }
@@ -90,9 +104,15 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
   SUBCASE("lower phase index has higher priority")
   {
     STask ph0 {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, 0, 0, 0}, .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, 0, 0, 0},
+                   .name = {},
+               }};
     STask ph2 {[] {},
-               SReq {.priority_key = SDDPTaskKey {0, 0, 2, 0}, .name = {}}};
+               SReq {
+                   .priority_key = SDDPTaskKey {0, 0, 2, 0},
+                   .name = {},
+               }};
     CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
     CHECK(ph2 < ph0);  // phase 2 has lower priority
   }

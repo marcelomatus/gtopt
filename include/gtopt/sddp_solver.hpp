@@ -84,16 +84,28 @@ namespace gtopt
 /**
  * @brief How optimality cuts are shared between scenes at the same phase
  *
- * In PLP, only None and Expected are implemented.  gtopt supports all three.
+ * Four modes are supported:
+ *
+ * - `None`:       No sharing; cuts stay in their originating scene.
+ * - `Expected`:   Probability-weighted average cut across scenes, added to
+ *                 all scenes.  Correct when LP objectives do NOT include
+ *                 probability factors.
+ * - `Accumulate`: Sum all scenario cuts into one accumulated cut, added to
+ *                 all scenes.  Correct when LP objectives already include
+ *                 probability factors (each cut is pre-weighted).
+ *                 Reference: Birge & Louveaux (2011) §5.1.
+ * - `Max`:        All cuts from all scenes added to all scenes (default).
  */
 enum class CutSharingMode : uint8_t
 {
   None = 0,  ///< No sharing; cuts stay in their originating scene
-  Expected,  ///< Average cut across scenes, added to all scenes
+  Expected,  ///< Probability-weighted average cut shared to all scenes
+  Accumulate,  ///< Sum all cuts directly (LP objectives pre-weighted)
   Max,  ///< All cuts from all scenes added to all scenes
 };
 
-/// Parse a cut-sharing mode from a string ("none", "expected", "max")
+/// Parse a cut-sharing mode from a string
+/// ("none", "expected", "accumulate", "max")
 [[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -176,7 +188,7 @@ struct SDDPOptions
   double elastic_penalty {1e6};  ///< Penalty for elastic slack variables
   double alpha_min {0.0};  ///< Lower bound for future cost variable α ($)
   double alpha_max {1e12};  ///< Upper bound for future cost variable α ($)
-  CutSharingMode cut_sharing {CutSharingMode::None};  ///< Cut sharing mode
+  CutSharingMode cut_sharing {CutSharingMode::Max};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
   /// `FeasibilityCut` / "single-cut" (default) adds a single Benders

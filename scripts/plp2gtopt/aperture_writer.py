@@ -177,31 +177,38 @@ def build_phase_aperture_sets(
     for ap_idx, hydro_1based in enumerate(unique_hydros):
         hydro_to_aperture_uid[hydro_1based] = ap_idx + 1
 
-    # For each phase, collect the union of aperture hydros across its stages
+    # For each phase, collect the aperture hydros across its stages.
+    # Duplicates are preserved: if the same hydro index appears in multiple
+    # stages of a phase, the corresponding aperture UID is listed once per
+    # occurrence.  The C++ solver then solves each unique aperture LP once
+    # and scales its weight by the repetition count N.
     # (PLP stages are 1-based; phase["first_stage"] is 0-based).
     phase_sets: List[List[int]] = []
     for phase in phase_array:
         first_stage_0 = phase["first_stage"]
         count = phase["count_stage"]
-        phase_hydros: set = set()
+        phase_hydros: list = []
         for stage_0 in range(first_stage_0, first_stage_0 + count):
             plp_stage = stage_0 + 1  # convert to 1-based PLP stage
             if plp_stage > num_stages:
                 break
             aps = idap2_parser.get_apertures(plp_stage)
             if aps:
-                phase_hydros.update(aps)
-        # Map hydro indices to aperture UIDs
+                phase_hydros.extend(aps)
+        # Map hydro indices to aperture UIDs (preserving duplicates)
         ap_uids = sorted(
             hydro_to_aperture_uid[h] for h in phase_hydros if h in hydro_to_aperture_uid
         )
         phase_sets.append(ap_uids)
 
-    # Only add aperture_set if phases differ; otherwise leave empty
+    # Write aperture_set when phases differ OR any phase contains duplicates.
+    # Duplicates carry semantic weight: the C++ solver scales the aperture
+    # probability by the repetition count, so they must be preserved.
     all_ap_uids = sorted(hydro_to_aperture_uid.values())
-    all_same = all(s == all_ap_uids for s in phase_sets)
+    all_same = all(sorted(set(s)) == all_ap_uids for s in phase_sets)
+    has_duplicates = any(len(s) != len(set(s)) for s in phase_sets)
 
-    if not all_same:
+    if not all_same or has_duplicates:
         for phase, ap_set in zip(phase_array, phase_sets):
             phase["aperture_set"] = ap_set
 

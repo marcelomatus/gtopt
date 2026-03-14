@@ -52,7 +52,8 @@ struct SddpOptions
 {
   /** @brief Solver type: `"monolithic"` (default) or `"sddp"` */
   OptName sddp_solver_type {};
-  /** @brief Cut sharing mode: `"none"`, `"expected"`, or `"max"` */
+  /** @brief Cut sharing mode: `"none"`, `"expected"`, `"accumulate"`,
+   *  or `"max"` (default) */
   OptName sddp_cut_sharing_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName sddp_cut_directory {};

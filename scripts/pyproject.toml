@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-scripts"
 version = "1.0.0"
-description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+description = "gtopt conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.26.0,<2.4",
@@ -36,6 +36,7 @@ gtopt_check_lp        = "gtopt_check_lp.gtopt_check_lp:main"
 igtopt                = "igtopt.igtopt:main"
 plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
+gtopt2pp              = "gtopt2pp.main:main"
 sddp_monitor          = "sddp_monitor:main"
 ts2gtopt              = "ts2gtopt.main:main"
 
@@ -58,7 +59,7 @@ diagram = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "sddp_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "igtopt*", "plp2gtopt*", "pp2gtopt*", "gtopt2pp*", "sddp_monitor*", "ts2gtopt*"]
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ testpaths = [
     "cvs2parquet/tests",
     "gtopt_diagram/tests",
     "gtopt_check_lp/tests",
+    "gtopt2pp/tests",
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
@@ -84,7 +86,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "igtopt", "plp2gtopt", "pp2gtopt", "sddp_monitor", "ts2gtopt"]
+source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "igtopt", "plp2gtopt", "pp2gtopt", "sddp_monitor", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -101,7 +103,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "igtopt", "plp2gtopt", "pp2gtopt", "sddp_monitor", "ts2gtopt"]
+known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "igtopt", "plp2gtopt", "pp2gtopt", "sddp_monitor", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88
