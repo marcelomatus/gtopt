@@ -31,10 +31,29 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  // Locate the turbine and its stored conversion rows and flow columns
-  const auto& turbine = sc.element<TurbineLP>(turbine_sid());
-  const auto& waterway =
-      sc.element<WaterwayLP>(WaterwayLPSId {turbine.turbine().waterway});
+  // Locate the turbine — may be absent if the central has no electrical bus.
+  const TurbineLP* turbine_ptr = nullptr;
+  try {
+    turbine_ptr = &sc.element<TurbineLP>(turbine_sid());
+  } catch (const std::exception&) {
+    SPDLOG_WARN(
+        "ReservoirEfficiency uid={}: turbine not found in LP; skipping.",
+        uid());
+    return true;
+  }
+  const auto& turbine = *turbine_ptr;
+
+  const WaterwayLP* waterway_ptr = nullptr;
+  try {
+    waterway_ptr =
+        &sc.element<WaterwayLP>(WaterwayLPSId {turbine.turbine().waterway});
+  } catch (const std::exception&) {
+    SPDLOG_WARN(
+        "ReservoirEfficiency uid={}: waterway not found in LP; skipping.",
+        uid());
+    return true;
+  }
+  const auto& waterway = *waterway_ptr;
 
   const auto& conv_rows = turbine.conversion_rows_at(scenario, stage);
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
