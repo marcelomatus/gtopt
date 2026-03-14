@@ -46,6 +46,43 @@ public:
   [[nodiscard]] auto&& drequirement_rows() const { return dr.requirement_rows; }
   [[nodiscard]] auto&& drequirement_cols() const { return dr.requirement_cols; }
 
+  /// Look up the up-requirement column for (scenario, stage, block).
+  /// Returns std::nullopt when no up-requirement variable exists for
+  /// this period (e.g. not configured or block not active).
+  [[nodiscard]] std::optional<ColIndex> lookup_urequirement_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = ur.requirement_cols.find({scenario.uid(), stage.uid()});
+    if (mit == ur.requirement_cols.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  /// Look up the down-requirement column for (scenario, stage, block).
+  /// Returns std::nullopt when no down-requirement variable exists.
+  [[nodiscard]] std::optional<ColIndex> lookup_drequirement_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = dr.requirement_cols.find({scenario.uid(), stage.uid()});
+    if (mit == dr.requirement_cols.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
 private:
   struct Requirement
   {
