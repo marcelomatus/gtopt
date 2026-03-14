@@ -632,3 +632,23 @@ def test_efficiency_skips_unknown_central():
     writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
     result = writer.to_json_array()[0]
     assert result["reservoir_efficiency_array"] == []
+
+
+def test_efficiency_skips_central_without_turbine():
+    """Efficiency entry is skipped when the central exists but has no turbine (bus<=0)."""
+    central_parser = _make_hydro_parser()
+    # Dam1 exists in central_parser with bus=0, so no turbine is created for it.
+    cenre_parser = MockCenreParser(
+        [
+            {
+                "name": "Dam1",
+                "reservoir": "Dam1",
+                "mean_efficiency": 1.2,
+                "segments": [],
+            }
+        ]
+    )
+    writer = JunctionWriter(central_parser=central_parser, cenre_parser=cenre_parser)
+    result = writer.to_json_array()[0]
+    # Dam1 has bus=0 so no turbine was created — efficiency entry must be skipped
+    assert result["reservoir_efficiency_array"] == []
