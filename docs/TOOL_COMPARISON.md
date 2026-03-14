@@ -760,6 +760,40 @@ cat output/Line/flowp_sol.csv    # line flows
 gtopt_diagram cases/ieee_4b_ori/ieee_4b_ori.json -o ieee4b.svg
 ```
 
+#### Running pandapower (equivalent)
+
+```python
+import pandapower as pp
+
+net = pp.create_empty_network(sn_mva=100.0)
+for i in range(4):
+    pp.create_bus(net, vn_kv=10.0, name=f"b{i+1}")
+pp.create_ext_grid(net, bus=0, max_p_mw=300.0, min_p_mw=0.0)
+pp.create_gen(net, bus=1, p_mw=0, max_p_mw=200.0, min_p_mw=0.0,
+              controllable=True)
+pp.create_load(net, bus=2, p_mw=150.0)
+pp.create_load(net, bus=3, p_mw=100.0)
+pp.create_poly_cost(net, 0, "ext_grid", cp1_eur_per_mw=20.0)
+pp.create_poly_cost(net, 0, "gen", cp1_eur_per_mw=35.0)
+# x_ohm = x_pu * Z_base; Z_base = vn_kv²/sn_mva = 10²/100 = 1.0 Ω
+pp.create_line_from_parameters(net, 0, 1, length_km=1,
+    r_ohm_per_km=0, x_ohm_per_km=0.02, c_nf_per_km=0, max_i_ka=3.0)
+pp.create_line_from_parameters(net, 0, 2, length_km=1,
+    r_ohm_per_km=0, x_ohm_per_km=0.02, c_nf_per_km=0, max_i_ka=3.0)
+pp.create_line_from_parameters(net, 1, 2, length_km=1,
+    r_ohm_per_km=0, x_ohm_per_km=0.03, c_nf_per_km=0, max_i_ka=3.0)
+pp.create_line_from_parameters(net, 1, 3, length_km=1,
+    r_ohm_per_km=0, x_ohm_per_km=0.02, c_nf_per_km=0, max_i_ka=3.0)
+pp.create_line_from_parameters(net, 2, 3, length_km=1,
+    r_ohm_per_km=0, x_ohm_per_km=0.03, c_nf_per_km=0, max_i_ka=3.0)
+pp.rundcopp(net, verbose=False)
+```
+
+> **Reactance conversion**: gtopt uses per-unit reactance directly.
+> In pandapower, `x_ohm = x_pu × Z_base` where
+> `Z_base = vn_kv² / sn_mva`. With `vn_kv=10` and `sn_mva=100`,
+> `Z_base = 1.0 Ω`, so the numeric values are identical.
+
 #### Result Comparison
 
 **Generator dispatch:**
@@ -780,13 +814,13 @@ gtopt_diagram cases/ieee_4b_ori/ieee_4b_ori.json -o ieee4b.svg
 
 **Line flows (MW):**
 
-| Line | **gtopt** | **pandapower** | Diff |
-|------|-----------|----------------|------|
-| l1_2 | 104.26 | 122.22 | ≈18 MW |
-| l1_3 | 145.74 | 127.78 | ≈18 MW |
-| l2_3 | 27.66 | 44.44 | ≈17 MW |
-| l2_4 | 76.60 | 77.78 | ≈1 MW |
-| l3_4 | 23.40 | 22.22 | ≈1 MW |
+| Line | **gtopt** | **pandapower** | Match |
+|------|-----------|----------------|-------|
+| l1_2 | 104.26 | 104.26 | ✅ Exact |
+| l1_3 | 145.74 | 145.74 | ✅ Exact |
+| l2_3 | 27.66 | 27.66 | ✅ Exact |
+| l2_4 | 76.60 | 76.60 | ✅ Exact |
+| l3_4 | 23.40 | 23.40 | ✅ Exact |
 
 **Total cost:**
 
@@ -794,13 +828,13 @@ gtopt_diagram cases/ieee_4b_ori/ieee_4b_ori.json -o ieee4b.svg
 |--------|-----------|----------------|-------|
 | Objective | 5000 $/h | 5000 $/h | ✅ Exact |
 
-**Interpretation**: Both tools dispatch g1 at 250 MW (cheapest generator
-covers all demand) and find the same total cost ($5000/h) and identical
-LMPs ($20/MWh everywhere — no congestion). The small differences in
-individual line flows arise from the reactance values used: gtopt reads
-the exact values from the JSON (`reactance` field in per-unit), while
-the pandapower equivalent network was built with approximate physical
-parameters. The power balance and economic dispatch are identical.
+**Interpretation**: Both tools produce **identical results** across all
+metrics: generator dispatch, bus marginal prices, line flows, and total
+cost. The cheap generator (g1 at $20/MWh) supplies all 250 MW of demand.
+All LMPs are $20/MWh because no transmission lines are congested — the
+marginal cost is set by g1 everywhere. Line flows are determined by the
+DC power flow equations (Kirchhoff's voltage law) and match exactly when
+the same per-unit reactance values are used.
 
 > **Automated validation**: `gtopt_compare --case ieee_4b_ori --gtopt-output
 > output/` performs this comparison programmatically with configurable
