@@ -66,6 +66,7 @@ _SYSTEM_SHEETS = frozenset(
         "filtration_array",
         "turbine_array",
         "reservoir_efficiency_array",
+        "user_constraint_array",
     }
 )
 
@@ -127,6 +128,12 @@ examples:
 
   # Convert multiple workbooks in one run
   igtopt case_a.xlsx case_b.xlsx -d /data/input
+
+  # Validate the workbook without writing any output (check-only mode)
+  igtopt system.xlsx --validate
+
+  # Proceed even if some sheets fail to convert (partial output)
+  igtopt system.xlsx --ignore-errors
 
   # Show debug log messages
   igtopt system.xlsx -l DEBUG
@@ -403,10 +410,13 @@ def log_conversion_stats(
     logging.info("  Turbines        : %d", counts.get("turbine_array", 0))
     logging.info("  Filtrations     : %d", counts.get("filtration_array", 0))
     logging.info("  Res. effics     : %d", counts.get("reservoir_efficiency_array", 0))
+    logging.info("  User constraints: %d", counts.get("user_constraint_array", 0))
     logging.info("=== Simulation statistics ===")
     logging.info("  Blocks          : %d", counts.get("block_array", 0))
     logging.info("  Stages          : %d", counts.get("stage_array", 0))
     logging.info("  Scenarios       : %d", counts.get("scenario_array", 0))
+    logging.info("  Phases          : %d", counts.get("phase_array", 0))
+    logging.info("  Scenes          : %d", counts.get("scene_array", 0))
     logging.info("=== Key options ===")
     logging.info("  use_single_bus  : %s", options.get("use_single_bus", False))
     logging.info("  scale_objective : %s", options.get("scale_objective", 1000))
@@ -443,47 +453,85 @@ def _run(args) -> int:
     filenames = args.filenames
     # Pre-initialise with zeros so log_conversion_stats always has every key.
     counts: dict[str, int] = {s: 0 for s in expected_sheets if s != "options"}
+    errors: list[str] = []
     for filename in filenames:
         filepath = pathlib.Path(filename)
         if filepath.is_dir() or not filepath.exists():
             filepath = filepath.with_suffix(".xlsx")
         if not filepath.exists():
-            logging.info("skipping not existing file %s", filepath)
+            msg = f"file not found: {filepath}"
+            logging.error(msg)
+            errors.append(msg)
             continue
 
-        xls = pd.read_excel(str(filepath), sheet_name=None, engine="openpyxl")
+        suffix = filepath.suffix.lower()
+        if suffix not in {".xlsx", ".xls", ".xlsm", ".ods"}:
+            msg = (
+                f"unsupported file type '{suffix}' for '{filepath}'. "
+                "Expected an Excel workbook (.xlsx, .xls, .xlsm) or ODS file."
+            )
+            logging.error(msg)
+            errors.append(msg)
+            continue
+
+        try:
+            xls = pd.read_excel(str(filepath), sheet_name=None, engine="openpyxl")
+        except Exception as exc:  # pylint: disable=broad-except
+            msg = f"could not read '{filepath}': {exc}"
+            logging.error(msg)
+            errors.append(msg)
+            continue
+
         # Build element-name → uid:N maps from array sheets in this workbook.
         # Used below to resolve human-readable column names in @-sheets.
         name_to_uid_maps = _build_name_to_uid_maps(xls)
         for sheet_name, df in xls.items():
-            if sheet_name[0] == ".":
+            if not sheet_name or sheet_name[0] == ".":
                 logging.info("skipping sheet %s", sheet_name)
                 continue
 
             if "@" in sheet_name:
-                [cname, fname] = sheet_name.split("@")
+                parts = sheet_name.split("@", 1)
+                if len(parts) != 2 or not parts[0] or not parts[1]:
+                    logging.warning(
+                        "ignoring malformed '@'-sheet name '%s' "
+                        "(expected 'ElementType@field', e.g. 'Demand@lmax')",
+                        sheet_name,
+                    )
+                    continue
+                cname, fname = parts
                 # Resolve element-name columns (e.g. "LAJA") to uid:N format
                 # (e.g. "uid:5") if a mapping is available for this type.
                 resolved_df = _resolve_at_sheet_columns(
                     df, name_to_uid_maps.get(cname, {})
                 )
-                input_file = df_to_file(
-                    resolved_df,
-                    args.input_directory,
-                    cname,
-                    fname,
-                    args.input_format,
-                    args.compression,
-                )
-                logging.info("sheet %s saved as %s", sheet_name, input_file)
-
+                try:
+                    input_file = df_to_file(
+                        resolved_df,
+                        args.input_directory,
+                        cname,
+                        fname,
+                        args.input_format,
+                        args.compression,
+                    )
+                    logging.info("sheet %s saved as %s", sheet_name, input_file)
+                except Exception as exc:  # pylint: disable=broad-except
+                    msg = f"could not write data file for sheet '{sheet_name}': {exc}"
+                    logging.error(msg)
+                    errors.append(msg)
                 continue
 
             if sheet_name in expected_sheets:
                 logging.info("processing sheet %s", sheet_name)
             else:
                 if not args.parse_unexpected_sheets:
-                    logging.warning("skipping unexpected sheet %s", sheet_name)
+                    logging.warning(
+                        "skipping unexpected sheet '%s'. "
+                        "Known sheets: %s. "
+                        "Use -U/--parse-unexpected-sheets to process it anyway.",
+                        sheet_name,
+                        ", ".join(sorted(expected_sheets)),
+                    )
                     continue
 
                 logging.warning("processing unexpected sheet %s", sheet_name)
@@ -492,15 +540,50 @@ def _run(args) -> int:
                 options = df_to_opts(df, options)
                 continue
 
-            df_parsed = json.loads(
-                df_to_str(df, args.skip_nulls, indent=_indent, separators=_separators)
-            )
+            try:
+                df_parsed = json.loads(
+                    df_to_str(
+                        df, args.skip_nulls, indent=_indent, separators=_separators
+                    )
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                msg = f"could not parse sheet '{sheet_name}': {exc}"
+                logging.error(msg)
+                errors.append(msg)
+                continue
+
             counts[sheet_name] = len(df_parsed)
 
             if sheet_name in _SIMULATION_SHEETS:
                 simulation[sheet_name] = df_parsed
             else:
                 system[sheet_name] = df_parsed
+
+    # In validate mode, report findings and exit without writing any output.
+    if getattr(args, "validate", False):
+        if errors:
+            logging.error(
+                "Validation found %d error(s). The workbook would NOT produce "
+                "a valid gtopt input file.",
+                len(errors),
+            )
+            for err in errors:
+                logging.error("  • %s", err)
+            return 1
+        logging.info(
+            "Validation passed. The workbook can be converted to a valid "
+            "gtopt input file."
+        )
+        log_conversion_stats(counts, options, time.monotonic() - t_start)
+        return 0
+
+    if errors and not getattr(args, "ignore_errors", False):
+        logging.error(
+            "%d error(s) occurred during conversion. "
+            "Use --ignore-errors to proceed despite errors.",
+            len(errors),
+        )
+        return 1
 
     has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
     if has_data:
@@ -628,6 +711,24 @@ def main(argv: list[str] | None = None) -> None:
             help=(
                 "bundle the JSON file and all data files into a single ZIP archive "
                 "(compatible with gtopt_guisrv and gtopt_websrv)"
+            ),
+        )
+        parser.add_argument(
+            "--validate",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "validate the workbook (check for errors) without writing any output "
+                "files; exits with code 0 on success, 1 on error"
+            ),
+        )
+        parser.add_argument(
+            "--ignore-errors",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "proceed with conversion even if some sheets or data files have "
+                "errors; the output may be incomplete (default: abort on first error)"
             ),
         )
         parser.add_argument(

@@ -80,12 +80,42 @@ igtopt system.xlsx -l DEBUG
 | `-N` | `--skip-nulls` | bool | `False` | Omit keys with null/NaN values from JSON |
 | `-U` | `--parse-unexpected-sheets` | bool | `False` | Process sheets not in the expected list |
 | `-z` | `--zip` | bool | `False` | Bundle JSON + data files into a single ZIP archive |
+| `--validate` | `--validate` | bool | `False` | Check the workbook for errors without writing output (exit 0 = OK, 1 = errors) |
+| `--ignore-errors` | `--ignore-errors` | bool | `False` | Proceed with conversion even if some sheets fail (output may be incomplete) |
 | `-l` | `--log-level` | level | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `-V` | `--version` | — | — | Print version and exit |
 
 The `<stem>` is the filename of the first workbook without its `.xlsx`
 extension. For example, `igtopt ieee57b.xlsx` produces `ieee57b.json` and
 writes time-series files to `ieee57b/`.
+
+### Error Handling
+
+`igtopt` is designed to give clear error messages when the workbook contains
+problems:
+
+- **File not found**: if an XLSX file cannot be located, igtopt logs an error
+  and skips it (or fails, unless `--ignore-errors` is set).
+- **Unsupported format**: passing a `.csv` or other non-spreadsheet file logs
+  a descriptive error.
+- **Corrupt workbook**: `openpyxl` errors are caught and reported with the
+  filename and exception message.
+- **Unexpected sheets**: any sheet whose name is not in the known list triggers
+  a `WARNING` message listing all expected sheet names. Use
+  `--parse-unexpected-sheets` to force processing.
+- **Malformed `@` sheet names**: a sheet named `Bad@` or `@field` (missing one
+  side of the `@`) logs a warning and is skipped.
+- **Parse errors**: if a sheet's data cannot be serialized to JSON (e.g., mixed
+  types, circular references), the error is logged and that sheet is skipped
+  when `--ignore-errors` is active.
+
+**Check-only mode** (`--validate`):
+
+```bash
+# Validate the workbook, print errors, and exit — no files written
+igtopt system.xlsx --validate
+echo "exit code: $?"   # 0 = OK, 1 = errors found
+```
 
 ---
 
@@ -150,14 +180,58 @@ stage.
 
 For deterministic problems, use a single scenario with `probability_factor=1`.
 
-#### `phase_array` and `scene_array`
+#### `phase_array` and `scene_array` — Advanced Multi-Phase / Multi-Scene Support
 
-Optional sheets for advanced multi-phase / multi-scene simulations. Most cases
-do not need them — gtopt auto-creates defaults when they are absent.
+Optional sheets for SDDP multi-phase simulations. Most deterministic OPF
+cases do not need them — gtopt auto-creates a single default phase and scene
+when these sheets are absent.
+
+**`phase_array`** groups consecutive planning stages into investment / operational
+windows. Each phase can optionally restrict the set of apertures evaluated during
+the SDDP backward pass.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `uid` | integer | — | Unique identifier |
+| `name` | string | — | Optional human-readable label |
+| `active` | integer | `1` | 1 = active, 0 = inactive |
+| `first_stage` | integer | `0` | 0-based index of the first stage in this phase |
+| `count_stage` | integer | all remaining | Number of stages in the phase |
+| `aperture_set` | JSON array of uids | `[]` | Aperture UIDs to use in the SDDP backward pass for this phase; empty = use all apertures |
+
+**`aperture_set` column example** — enter a JSON integer array directly in the cell:
+
+```
+[1, 3, 5]
+```
+
+This tells the SDDP solver to compute backward-pass cuts only from apertures
+with UIDs 1, 3, and 5 during the backward pass for this phase.
+
+**Example `phase_array` sheet for a 3-phase SDDP problem:**
+
+| uid | name | first_stage | count_stage | aperture_set |
+|-----|------|-------------|-------------|--------------|
+| 1 | construction | 0 | 5 | |
+| 2 | early_ops | 5 | 10 | [1, 2] |
+| 3 | mature_ops | 15 | | [1, 2, 3] |
+
+`count_stage` left blank means "all remaining stages after `first_stage`".
+`aperture_set` left blank means use the global aperture list for that phase.
+
+**`scene_array`** selects a subset of scenarios for SDDP evaluation. Each scene
+specifies which scenarios participate in the forward or backward pass.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `uid` | integer | Unique identifier |
+| `name` | string | Optional label |
+| `active` | integer | 1 = active (default) |
+| `scenario_set` | JSON array of uids | Scenario UIDs to include in this scene |
 
 ### 5.3 System Sheets
 
-Each sheet becomes a JSON array under the `system` key. The 20 recognized
+Each sheet becomes a JSON array under the `system` key. The 19 recognized
 system sheets are:
 
 | Sheet name | Key columns | Description |
@@ -174,14 +248,13 @@ system sheets are:
 | `reserve_provision_array` | uid, name, generator, reserve_zone, urmax | Reserve contributions |
 | `junction_array` | uid, name | Hydraulic nodes |
 | `waterway_array` | uid, name, junction_a, junction_b | Water channels |
-| `reservoir_array` | uid, name, junction | Hydro reservoirs |
+| `reservoir_array` | uid, name, junction | Hydro reservoirs (see § below) |
 | `turbine_array` | uid, name, waterway, generator | Hydro turbines |
 | `flow_array` | uid, name, junction | Inflows / evaporation |
 | `filtration_array` | uid, name, waterway, reservoir, slope, constant, segments | Water seepage (piecewise-linear model) |
-| `outflow_array` | uid, name, junction | Water outflows |
-| `emission_zone_array` | uid, name | Emission zones |
-| `generator_emission_array` | uid, name, generator, emission_zone | Generator emissions |
-| `demand_emissions` | uid, name, demand, emission_zone | Demand emissions |
+| `reservoir_efficiency_array` | uid, name, reservoir | Per-reservoir efficiency LP coefficients |
+| `user_constraint_array` | uid, name, ... | User-defined custom LP constraints |
+
 
 #### `filtration_array` — Piecewise-Linear Seepage Model
 
@@ -239,6 +312,49 @@ per-stage schedules) are applied directly.
 | 1 | filt_embalse1 | ww_emb1 | embalse1 | | | [{"volume":0,"slope":0.00016132,"constant":2.18918},{"volume":500000,"slope":0.0001,"constant":4.8}] |
 | 2 | filt_embalse2 | ww_emb2 | embalse2 | 0.00005 | 1.2 | |
 
+#### `reservoir_array` — Hydro Reservoirs
+
+Each row defines a reservoir connected to a hydraulic junction. Key fields:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `uid` | integer | Unique identifier |
+| `name` | string | Reservoir name |
+| `junction` | uid or name | Associated hydraulic junction |
+| `spillway_capacity` | number | Maximum uncontrolled spill [m³/s] |
+| `spillway_cost` | number | Penalty cost per unit spilled [$/dam³] |
+| `capacity` | number \| schedule | Maximum storage [dam³] |
+| `annual_loss` | number \| schedule | Fractional evaporation/seepage loss per year [p.u.] |
+| `emin` | number \| schedule | Minimum storage volume [dam³] |
+| `emax` | number \| schedule | Maximum storage volume [dam³] |
+| `ecost` | number \| schedule | Shadow cost of stored water [$/dam³] |
+| `eini` | number | Initial stored volume [dam³] |
+| `efin` | number | Target stored volume [dam³] |
+| `fmin` | number | Minimum net inflow [m³/s] |
+| `fmax` | number | Maximum net inflow [m³/s] |
+| `vol_scale` | number | LP scaling factor (default: 1000) |
+| `flow_conversion_rate` | number | m³/s × hours → dam³ (default: 0.0036) |
+| `use_state_variable` | bool | Enable stage/phase coupling via SDDP (default: false) |
+| `daily_cycle` | bool | Enable daily cycle operation (default: false) |
+
+**Tip**: `emin` and `emax` accept a per-stage schedule written as a JSON array
+`[v_stage1, v_stage2, ...]` or a Parquet file path. To enter a per-stage array
+inline, use the `@`-sheet approach (`Reservoir@emin`) or enter a JSON array
+string directly in the cell: `[100, 150, 200]`.
+
+#### `reservoir_efficiency_array` — Turbine Efficiency Adjustments
+
+Each row overrides the linear approximation of the turbine efficiency function
+at one operating point. Used by `ReservoirEfficiencyLP` to update the LP
+coefficients at each SDDP phase.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `uid` | integer | Unique identifier |
+| `name` | string | Name |
+| `reservoir` | uid or name | Parent reservoir |
+| *LP coefficient fields* | number | Overridden efficiency coefficients |
+
 ### 5.4 Time-Series Sheets (`@` Sheets)
 
 Sheets named `Component@field` are written as data files to the input
@@ -255,6 +371,8 @@ directory. The naming convention is:
 | `Demand@lmax` | `input/Demand/lmax.parquet` | Hourly demand limits |
 | `GeneratorProfile@profile` | `input/GeneratorProfile/profile.parquet` | Solar/wind capacity factors |
 | `Battery@emax` | `input/Battery/emax.parquet` | Time-varying energy limits |
+| `Reservoir@emin` | `input/Reservoir/emin.parquet` | Per-stage minimum volumes |
+| `Reservoir@emax` | `input/Reservoir/emax.parquet` | Per-stage maximum volumes |
 
 **Required columns:**
 
@@ -285,6 +403,7 @@ and reads the column named `"d1"`.
 ---
 
 ## Tutorial: IEEE 57-Bus Case (Step by Step)
+
 
 This tutorial walks through creating an Excel workbook for the standard IEEE
 57-bus test network. The result is a single-snapshot DC Optimal Power Flow

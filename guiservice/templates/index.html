@@ -144,16 +144,20 @@
     <div class="tab-panel" id="panel-topology">
       <div class="topo-header">
         <h2>Network Topology</h2>
+        <!-- Sub-tabs: Electrical / Hydro -->
+        <div class="topo-subtabs">
+          <button class="topo-subtab active" id="topoSubtabElectrical"
+                  onclick="switchTopoSubtab('electrical')">⚡ Electrical</button>
+          <button class="topo-subtab" id="topoSubtabHydro"
+                  onclick="switchTopoSubtab('hydro')">💧 Hydro</button>
+        </div>
+      </div>
+
+      <!-- ── Electrical sub-panel ─────────────────────────────────────────── -->
+      <div id="topoSubpanel-electrical" class="topo-subpanel">
         <div class="topo-controls">
-          <label>Subsystem
-            <select id="topoSubsystem">
-              <option value="full">Full</option>
-              <option value="electrical">Electrical</option>
-              <option value="hydro">Hydro</option>
-            </select>
-          </label>
           <label>Aggregation
-            <select id="topoAggregate">
+            <select id="topoAggregate-electrical">
               <option value="auto" selected>Auto</option>
               <option value="none">None (all elements)</option>
               <option value="bus">Per Bus</option>
@@ -162,28 +166,51 @@
             </select>
           </label>
           <label class="topo-checkbox">
-            <input type="checkbox" id="topoNoGenerators"> Hide generators
+            <input type="checkbox" id="topoNoGenerators-electrical"> Hide generators
           </label>
           <label class="topo-checkbox">
-            <input type="checkbox" id="topoCompact"> Compact labels
+            <input type="checkbox" id="topoCompact-electrical"> Compact labels
           </label>
-          <button class="primary" onclick="renderTopology()">🔄 Render</button>
-          <button class="btn-sm" onclick="topoFitView()">⊞ Fit</button>
+          <button class="primary" onclick="renderTopoSubtab('electrical')">🔄 Render</button>
+          <button class="btn-sm" onclick="topoFitView('electrical')">⊞ Fit</button>
+        </div>
+        <div id="topoStatus-electrical" class="topo-status"></div>
+        <div id="topoNetwork-electrical" class="topo-network"></div>
+        <div id="topoPopup-electrical" class="topo-popup" style="display:none">
+          <div class="topo-popup-header">
+            <strong id="topoPopupTitle-electrical">Node</strong>
+            <button onclick="closeTopoPopup('electrical')">&times;</button>
+          </div>
+          <div id="topoPopupBody-electrical" class="topo-popup-body"></div>
         </div>
       </div>
 
-      <div id="topoStatus" class="topo-status"></div>
-
-      <!-- vis.js network container -->
-      <div id="topoNetwork" class="topo-network"></div>
-
-      <!-- Node detail popup -->
-      <div id="topoPopup" class="topo-popup" style="display:none">
-        <div class="topo-popup-header">
-          <strong id="topoPopupTitle">Node</strong>
-          <button onclick="closeTopoPopup()">&times;</button>
+      <!-- ── Hydro sub-panel ──────────────────────────────────────────────── -->
+      <div id="topoSubpanel-hydro" class="topo-subpanel" style="display:none">
+        <div class="topo-controls">
+          <label>Aggregation
+            <select id="topoAggregate-hydro">
+              <option value="auto" selected>Auto</option>
+              <option value="none">None (all elements)</option>
+              <option value="type">Per Type</option>
+              <option value="global">Global</option>
+            </select>
+          </label>
+          <label class="topo-checkbox">
+            <input type="checkbox" id="topoCompact-hydro"> Compact labels
+          </label>
+          <button class="primary" onclick="renderTopoSubtab('hydro')">🔄 Render</button>
+          <button class="btn-sm" onclick="topoFitView('hydro')">⊞ Fit</button>
         </div>
-        <div id="topoPopupBody" class="topo-popup-body"></div>
+        <div id="topoStatus-hydro" class="topo-status"></div>
+        <div id="topoNetwork-hydro" class="topo-network"></div>
+        <div id="topoPopup-hydro" class="topo-popup" style="display:none">
+          <div class="topo-popup-header">
+            <strong id="topoPopupTitle-hydro">Node</strong>
+            <button onclick="closeTopoPopup('hydro')">&times;</button>
+          </div>
+          <div id="topoPopupBody-hydro" class="topo-popup-body"></div>
+        </div>
       </div>
     </div>
 
