@@ -1109,6 +1109,35 @@ When `aperture_array` is absent, the solver falls back to the legacy
 `sddp_num_apertures` option: `N > 0` uses the first $N$ scenarios
 (equal weights), `N = -1` uses all scenarios, `N = 0` disables apertures.
 
+#### Boundary Cuts
+
+Boundary cuts approximate the expected future cost **beyond the planning
+horizon** — i.e. the value function at the terminal stage.  They are
+analogous to PLP's "planos de embalse" (reservoir future-cost function).
+Each cut constrains the future-cost variable $\alpha$ at the last phase:
+
+$$\alpha_{T} \;\ge\; \beta_0^{(k)} \;+\; \sum_{i} \rho_i^{(k)} \cdot x_{i,T}$$
+
+where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
+at the last phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
+$\beta_0^{(k)}$ is the intercept.  Index $k$ runs over the set of
+external cuts loaded from the boundary cuts CSV file.
+
+The boundary cuts are loaded according to three modes:
+
+- **`"noload"`** — skip loading (no terminal value function).
+- **`"separated"`** (default) — each cut is assigned to the scene whose
+  UID matches the `scene` column in the CSV.  This corresponds to PLP's
+  per-simulation future-cost planes.
+- **`"combined"`** — all cuts are broadcast to all scenes.
+
+An optional `sddp_boundary_max_iterations` parameter limits loading to
+the last $N$ distinct SDDP iterations (by the `iteration` column in the
+CSV, corresponding to PLP's `IPDNumIte`).
+
+> **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) §4.11 for
+> the CSV format specification and configuration details.
+
 > **See also**: [`docs/SDDP_SOLVER.md`](../SDDP_SOLVER.md) for the
 > complete SDDP algorithm description, convergence criteria, and
 > implementation notes.
@@ -1132,6 +1161,10 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
+| `options.solver_type` | — | Solver: `"monolithic"` or `"sddp"` |
+| `options.sddp_boundary_cuts_file` | — | CSV with boundary cuts for last phase (§6.5) |
+| `options.sddp_boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"` |
+| `options.sddp_boundary_max_iterations` | — | Max iterations to load from boundary cuts |
 
 ### Simulation Structure
 

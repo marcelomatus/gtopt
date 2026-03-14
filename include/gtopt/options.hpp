@@ -104,6 +104,48 @@ struct SddpOptions
    */
   OptName sddp_aperture_directory {};
 
+  /** @brief CSV file with boundary (future-cost) cuts for the last phase.
+   *
+   * These are analogous to PLP's "planos de embalse" — external optimality
+   * cuts that approximate the expected future cost beyond the planning
+   * horizon.  Each cut is of the form:
+   *
+   *   α ≥ rhs + Σ_i  coeff_i · state_var_i
+   *
+   * The CSV header row names the state variables (reservoir / battery);
+   * subsequent rows provide the cut name, iteration, scene UID,
+   * RHS, and gradient coefficients.
+   *
+   * Format:
+   * ```
+   * name,iteration,scene,rhs,Reservoir1,Reservoir2,...
+   * cut_001,1,1,-5000.0,0.25,0.75,...
+   * ```
+   *
+   * The `scene` column contains the scene UID (matching the `uid` field
+   * in gtopt's `scene_array`).  The solver maps column headers to the LP
+   * state-variable columns in the last phase and adds each cut as a
+   * lower-bound constraint on the future cost variable α.
+   * If empty, no boundary cuts are loaded.
+   */
+  OptName sddp_boundary_cuts_file {};
+
+  /** @brief How boundary cuts are loaded: `"noload"`, `"separated"` (default),
+   * or `"combined"`.
+   *
+   * - `"noload"` — do not load boundary cuts even if a file is given.
+   * - `"separated"` — load cuts per scene: each cut is assigned to the
+   *   scene matching its `scene` column (scene UID from `scene_array`).
+   * - `"combined"` — load all cuts into all scenes (broadcast).
+   */
+  OptName sddp_boundary_cuts_mode {};
+
+  /** @brief Maximum number of SDDP iterations to load from the boundary
+   * cuts file.  Only cuts from the last N iterations (by `iteration`
+   * column, i.e. PLP's IPDNumIte) are loaded.  0 = load all (default).
+   */
+  OptInt sddp_boundary_max_iterations {};
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(sddp_solver_type, std::move(opts.sddp_solver_type));
@@ -122,6 +164,9 @@ struct SddpOptions
     merge_opt(sddp_multi_cut_threshold, opts.sddp_multi_cut_threshold);
     merge_opt(sddp_num_apertures, opts.sddp_num_apertures);
     merge_opt(sddp_aperture_directory, std::move(opts.sddp_aperture_directory));
+    merge_opt(sddp_boundary_cuts_file, std::move(opts.sddp_boundary_cuts_file));
+    merge_opt(sddp_boundary_cuts_mode, std::move(opts.sddp_boundary_cuts_mode));
+    merge_opt(sddp_boundary_max_iterations, opts.sddp_boundary_max_iterations);
 
     auto _ = std::move(opts);
   }

@@ -18,11 +18,15 @@
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <set>
 #include <span>
+#include <sstream>
+#include <unordered_map>
 #include <utility>
 
 #include <gtopt/check_lp.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_solver.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -361,10 +365,12 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
     // If lp_debug is enabled, write LP file (pre-solve state) then optionally
     // submit gzip compression as a fire-and-forget async task.
     if (m_options_.lp_debug) {
-      const auto dbg_stem =
-          (std::filesystem::path(m_options_.log_directory)
-           / std::format(sddp_file::debug_lp_fmt, iteration, scene, phase))
-              .string();
+      const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
+                             / std::format(sddp_file::debug_lp_fmt,
+                                           iteration,
+                                           scene_uid(scene),
+                                           phase_uid(phase)))
+                                .string();
       m_lp_debug_writer_.write(li, dbg_stem);
     }
 
@@ -409,7 +415,8 @@ auto SDDPSolver::forward_pass(SceneIndex scene,
           std::filesystem::create_directories(m_options_.log_directory);
           const auto err_file =
               (std::filesystem::path(m_options_.log_directory)
-               / std::format(sddp_file::error_lp_fmt, scene, phase))
+               / std::format(
+                   sddp_file::error_lp_fmt, scene_uid(scene), phase_uid(phase)))
                   .string();
           li.write_lp(err_file);
           spdlog::warn("SDDP: saved infeasible LP to {}.lp", err_file);
@@ -467,8 +474,8 @@ void SDDPSolver::store_cut(SceneIndex scene,
                            const SparseRow& cut)
 {
   StoredCut stored {
-      .phase = static_cast<int>(src_phase),
-      .scene = static_cast<int>(scene),
+      .phase = phase_uid(src_phase),
+      .scene = scene_uid(scene),
       .name = cut.name,
       .rhs = cut.lowb,
   };
@@ -888,7 +895,7 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
 
     const auto filepath =
         (std::filesystem::path(directory)
-         / std::format(sddp_file::scene_cuts_fmt, static_cast<int>(scene)))
+         / std::format(sddp_file::scene_cuts_fmt, scene_uid(scene)))
             .string();
 
     const auto& cuts = m_scene_cuts_[scene];
@@ -911,15 +918,17 @@ auto SDDPSolver::save_scene_cuts(SceneIndex scene,
       ofs << "\n";
     }
 
-    SPDLOG_TRACE(
-        "SDDP: saved {} cuts for scene {} to {}", cuts.size(), scene, filepath);
+    SPDLOG_TRACE("SDDP: saved {} cuts for scene UID {} to {}",
+                 cuts.size(),
+                 scene_uid(scene),
+                 filepath);
     return {};
 
   } catch (const std::exception& e) {
     return std::unexpected(Error {
         .code = ErrorCode::FileIOError,
-        .message = std::format("Error saving scene {} cuts to {}: {}",
-                               static_cast<int>(scene),
+        .message = std::format("Error saving scene UID {} cuts to {}: {}",
+                               scene_uid(scene),
                                directory,
                                e.what()),
     });
@@ -958,8 +967,16 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
     std::getline(ifs, line);  // Skip header
 
     int cuts_loaded = 0;
-    const auto num_scenes =
-        static_cast<Index>(planning_lp().simulation().scenes().size());
+    const auto& sim = planning_lp().simulation();
+    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+
+    // Build phase UID → PhaseIndex lookup
+    std::unordered_map<int, PhaseIndex> phase_uid_to_index;
+    for (Index pi = 0; pi < num_phases; ++pi) {
+      phase_uid_to_index[static_cast<int>(sim.phases()[pi].uid())] =
+          PhaseIndex {pi};
+    }
 
     while (std::getline(ifs, line)) {
       if (line.empty()) {
@@ -971,12 +988,12 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
       std::string token;
 
       std::getline(iss, token, ',');
-      const auto phase_idx = std::stoi(token);
+      const auto phase_val = std::stoi(token);
 
       std::getline(iss, token, ',');
-      // scene_idx is parsed but intentionally ignored: loaded cuts are
+      // scene is parsed but intentionally ignored: loaded cuts are
       // broadcast to all scenes as warm-start approximations.
-      [[maybe_unused]] const auto scene_idx = std::stoi(token);
+      [[maybe_unused]] const auto scene_val = std::stoi(token);
 
       std::getline(iss, token, ',');
       const auto cut_name = token;
@@ -999,8 +1016,19 @@ auto SDDPSolver::load_cuts(const std::string& filepath)
         }
       }
 
+      // Resolve the phase UID to a PhaseIndex
+      auto pit = phase_uid_to_index.find(phase_val);
+      if (pit == phase_uid_to_index.end()) {
+        SPDLOG_WARN(
+            "SDDP load_cuts: unknown phase UID {} in {}, skipping cut '{}'",
+            phase_val,
+            filepath,
+            cut_name);
+        continue;
+      }
+      const auto phase = pit->second;
+
       // Add the loaded cut to all scenes for this phase
-      const auto phase = PhaseIndex {phase_idx};
       for (Index si = 0; si < num_scenes; ++si) {
         auto& li =
             planning_lp().system(SceneIndex {si}, phase).linear_interface();
@@ -1063,6 +1091,315 @@ auto SDDPSolver::load_scene_cuts_from_directory(const std::string& directory)
   }
 
   return total_loaded;
+}
+
+// ── Boundary (future-cost) cuts ─────────────────────────────────────────────
+
+auto SDDPSolver::load_boundary_cuts(const std::string& filepath)
+    -> std::expected<int, Error>
+{
+  // ── Mode check ────────────────────────────────────────────────────────────
+  const auto& mode = m_options_.boundary_cuts_mode;
+  if (mode == "noload") {
+    SPDLOG_INFO("SDDP: boundary cuts mode is 'noload' — skipping");
+    return 0;
+  }
+
+  const bool separated = (mode == "separated");
+
+  try {
+    std::ifstream ifs(filepath);
+    if (!ifs.is_open()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format(
+              "Cannot open boundary cuts file for reading: {}", filepath),
+      });
+    }
+
+    // ── Parse header ────────────────────────────────────────────────────────
+    // Expected: name,iteration,scene,rhs,StateVar1,StateVar2,...
+    // (Legacy format without iteration column is auto-detected.)
+    std::string header_line;
+    std::getline(ifs, header_line);
+
+    std::vector<std::string> headers;
+    {
+      std::istringstream hss(header_line);
+      std::string token;
+      while (std::getline(hss, token, ',')) {
+        headers.push_back(token);
+      }
+    }
+
+    // Detect whether the CSV has the `iteration` column.
+    // New format: name,iteration,scene,rhs,<state_vars>
+    // Legacy:     name,scene,rhs,<state_vars>
+    const bool has_iteration_col =
+        (headers.size() >= 2 && headers[1] == "iteration");
+    const int state_var_start = has_iteration_col ? 4 : 3;
+
+    if (static_cast<int>(headers.size()) < state_var_start + 1) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message =
+              std::format("Boundary cuts CSV must have at least {} columns "
+                          "(name,[iteration,]scene,rhs,<state_vars>); got {}",
+                          state_var_start + 1,
+                          headers.size()),
+      });
+    }
+
+    // ── Determine last phase and build name→column mapping ──────────────────
+    const auto& sim = planning_lp().simulation();
+    const auto num_phases = static_cast<Index>(sim.phases().size());
+    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto last_phase = PhaseIndex {num_phases - 1};
+
+    // Build scene UID → SceneIndex lookup (for "separated" mode)
+    std::unordered_map<int, Index> scene_uid_to_index;
+    for (Index si = 0; si < num_scenes; ++si) {
+      scene_uid_to_index[static_cast<int>(sim.scenes()[si].uid())] = si;
+    }
+
+    // Build element-name → uid lookup from the System.
+    // We support Reservoir (via Junction) and Battery state variables.
+    const auto& sys = planning_lp().planning().system;
+
+    std::unordered_map<std::string, std::pair<std::string_view, Uid>>
+        name_to_class_uid;
+    for (const auto& junc : sys.junction_array) {
+      name_to_class_uid[junc.name] = {"Junction", junc.uid};
+    }
+    for (const auto& bat : sys.battery_array) {
+      name_to_class_uid[bat.name] = {"Battery", bat.uid};
+    }
+
+    // For each state-variable header column, find the corresponding LP column
+    // in the last phase (scene 0 is used as representative for column lookup;
+    // cuts are broadcast to all scenes).
+    const auto& svar_map = sim.state_variables(SceneIndex {0}, last_phase);
+
+    // Map from CSV column index → LP ColIndex in last phase
+    const auto num_state_cols =
+        static_cast<int>(headers.size()) - state_var_start;
+    std::vector<std::optional<ColIndex>> header_col_map;
+    header_col_map.reserve(num_state_cols);
+
+    for (int hi = state_var_start; hi < static_cast<int>(headers.size()); ++hi)
+    {
+      const auto& hdr = headers[hi];
+      std::optional<ColIndex> found_col;
+
+      // Parse "ClassName:ElementName" or plain "ElementName"
+      std::string_view class_filter;
+      std::string element_name;
+      if (const auto colon = hdr.find(':'); colon != std::string::npos) {
+        class_filter = std::string_view(hdr).substr(0, colon);
+        element_name = hdr.substr(colon + 1);
+      } else {
+        element_name = hdr;
+      }
+
+      // Look up element name → (class_name, uid)
+      if (auto it = name_to_class_uid.find(element_name);
+          it != name_to_class_uid.end())
+      {
+        const auto& [cname, elem_uid] = it->second;
+        if (!class_filter.empty() && class_filter != cname) {
+          SPDLOG_WARN(
+              "Boundary cuts: header '{}' class '{}' does not match "
+              "element '{}' class '{}'; skipping",
+              hdr,
+              class_filter,
+              element_name,
+              cname);
+        } else {
+          // Find the efin state variable for this element in the last phase
+          for (const auto& [key, svar] : svar_map) {
+            if (key.uid == elem_uid
+                && (key.col_name == "efin" || key.col_name == "soc"))
+            {
+              found_col = svar.col();
+              break;
+            }
+          }
+        }
+      }
+
+      if (!found_col.has_value()) {
+        SPDLOG_WARN(
+            "Boundary cuts: could not find state variable for header '{}'; "
+            "coefficients in this column will be ignored",
+            hdr);
+      }
+      header_col_map.push_back(found_col);
+    }
+
+    // ── Pre-scan: collect all iterations for max_iterations filtering ────────
+    // If max_iterations > 0, we first read all rows to find the distinct
+    // iteration numbers, then keep only those from the last N iterations.
+    struct RawCut
+    {
+      std::string name;
+      int iteration;
+      int scene;  // scene UID (matched to scene_array in separated mode)
+      double rhs;
+      std::string coeff_line;  // everything after rhs (the coefficient fields)
+    };
+
+    std::vector<RawCut> raw_cuts;
+    std::string line;
+    while (std::getline(ifs, line)) {
+      if (line.empty()) {
+        continue;
+      }
+
+      std::istringstream iss(line);
+      std::string token;
+
+      // Column 0: name
+      std::getline(iss, token, ',');
+      auto cut_name = token;
+
+      int iteration = 0;
+      if (has_iteration_col) {
+        // Column 1: iteration
+        std::getline(iss, token, ',');
+        iteration = std::stoi(token);
+      }
+
+      // Next column: scene UID (matched to scene_array in separated mode)
+      std::getline(iss, token, ',');
+      const auto scene_val = std::stoi(token);
+
+      // Next column: rhs
+      std::getline(iss, token, ',');
+      const auto rhs = std::stod(token);
+
+      // The rest of the line contains the coefficient values
+      std::string remainder;
+      std::getline(iss, remainder);
+
+      raw_cuts.push_back(RawCut {
+          .name = std::move(cut_name),
+          .iteration = iteration,
+          .scene = scene_val,
+          .rhs = rhs,
+          .coeff_line = std::move(remainder),
+      });
+    }
+
+    // ── Filter by max_iterations ────────────────────────────────────────────
+    const auto max_iters = m_options_.boundary_max_iterations;
+    if (max_iters > 0 && has_iteration_col) {
+      // Find distinct iteration numbers and keep the last N
+      std::set<int> distinct_iters;
+      for (const auto& rc : raw_cuts) {
+        distinct_iters.insert(rc.iteration);
+      }
+      if (static_cast<int>(distinct_iters.size()) > max_iters) {
+        // Keep only the last max_iters iteration values
+        std::set<int> keep_iters;
+        auto it = distinct_iters.end();
+        for (int i = 0; i < max_iters; ++i) {
+          --it;
+          keep_iters.insert(*it);
+        }
+        std::erase_if(
+            raw_cuts,
+            [&keep_iters](const RawCut& rc)
+            { return keep_iters.find(rc.iteration) == keep_iters.end(); });
+        SPDLOG_INFO(
+            "SDDP: boundary cuts filtered to last {} iterations ({} cuts)",
+            max_iters,
+            raw_cuts.size());
+      }
+    }
+
+    // ── Ensure the last phase has an alpha column ───────────────────────────
+    for (Index si = 0; si < num_scenes; ++si) {
+      const auto scene = SceneIndex {si};
+      auto& state = m_scene_phase_states_[scene][last_phase];
+      if (state.alpha_col == ColIndex {unknown_index}) {
+        auto& li = planning_lp().system(scene, last_phase).linear_interface();
+        state.alpha_col = li.add_col(
+            sddp_label("sddp", "alpha", "sc", scene, "ph", last_phase),
+            m_options_.alpha_min,
+            m_options_.alpha_max);
+        li.set_obj_coeff(state.alpha_col, 1.0);
+      }
+    }
+
+    // ── Add cuts to the LP ──────────────────────────────────────────────────
+    int cuts_loaded = 0;
+    for (const auto& rc : raw_cuts) {
+      // Determine which scenes get this cut
+      Index scene_start = 0;
+      Index scene_end = num_scenes;
+      if (separated) {
+        // In "separated" mode, the scene column is a scene UID;
+        // look up the corresponding SceneIndex via the scene_array.
+        auto it = scene_uid_to_index.find(rc.scene);
+        if (it == scene_uid_to_index.end()) {
+          SPDLOG_TRACE(
+              "Boundary cut '{}' scene UID {} not found in scene_array "
+              "— skipping",
+              rc.name,
+              rc.scene);
+          continue;
+        }
+        scene_start = it->second;
+        scene_end = it->second + 1;
+      }
+
+      for (Index si = scene_start; si < scene_end; ++si) {
+        const auto scene = SceneIndex {si};
+        const auto& state = m_scene_phase_states_[scene][last_phase];
+
+        auto row = SparseRow {
+            .name = as_label("boundary", rc.name),
+            .lowb = rc.rhs,
+            .uppb = LinearProblem::DblMax,
+        };
+        row[state.alpha_col] = 1.0;
+
+        // Parse coefficient values from the remainder string
+        std::istringstream coeff_ss(rc.coeff_line);
+        std::string token;
+        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
+          if (!std::getline(coeff_ss, token, ',')) {
+            break;
+          }
+          if (!header_col_map[ci].has_value()) {
+            continue;
+          }
+          const auto coeff = std::stod(token);
+          if (coeff != 0.0) {
+            row[header_col_map[ci].value()] = -coeff;
+          }
+        }
+
+        auto& li = planning_lp().system(scene, last_phase).linear_interface();
+        li.add_row(row);
+      }
+      ++cuts_loaded;
+    }
+
+    SPDLOG_INFO("SDDP: loaded {} boundary cuts from {} (mode={}, max_iters={})",
+                cuts_loaded,
+                filepath,
+                mode,
+                max_iters);
+    return cuts_loaded;
+
+  } catch (const std::exception& e) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format(
+            "Error loading boundary cuts from {}: {}", filepath, e.what()),
+    });
+  }
 }
 
 // ── Monitoring API ───────────────────────────────────────────────────────────
@@ -1233,6 +1570,19 @@ auto SDDPSolver::initialize_solver() -> std::expected<void, Error>
                     *result,
                     cut_dir.string());
       }
+    }
+  }
+
+  // ── Load boundary cuts (future-cost function for last phase) ──────────────
+  if (!m_options_.boundary_cuts_file.empty()) {
+    auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
+    if (result.has_value()) {
+      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
+                  *result,
+                  m_options_.boundary_cuts_file);
+    } else {
+      SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
+                  result.error().message);
     }
   }
 
@@ -1507,10 +1857,11 @@ void SDDPSolver::save_cuts_for_iteration(
     if (scene_feasible[static_cast<std::size_t>(si)] != 0U) {
       continue;
     }
+    const auto suid = scene_uid(SceneIndex {si});
     const auto scene_file =
-        cut_dir / std::format(sddp_file::scene_cuts_fmt, si);
+        cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
     const auto error_file =
-        cut_dir / std::format(sddp_file::error_scene_cuts_fmt, si);
+        cut_dir / std::format(sddp_file::error_scene_cuts_fmt, suid);
     std::error_code ec;
     if (std::filesystem::exists(scene_file, ec)) {
       std::filesystem::rename(scene_file, error_file, ec);
