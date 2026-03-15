@@ -122,11 +122,11 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts
-        # Default solver type is sddp (nested inside sddp_options)
-        assert opts["sddp_options"]["sddp_solver_type"] == "sddp"
+        # Default solver type is sddp (top-level field)
+        assert opts["solver_type"] == "sddp"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
-        """options block contains sddp_solver_type=monolithic when requested."""
+        """options block contains solver_type=monolithic when requested."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
@@ -134,7 +134,7 @@ class TestGTOptWriterWithRealParser:
         opts = _make_opts(tmp_path)
         opts["solver_type"] = "mono"
         result = writer.to_json(opts)
-        assert result["options"]["sddp_options"]["sddp_solver_type"] == "monolithic"
+        assert result["options"]["solver_type"] == "monolithic"
 
 
 class TestGTOptWriterProcessMethods:
@@ -147,19 +147,16 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["options"]["annual_discount_rate"] == 0.0
 
     def test_process_options_default_solver_type(self):
-        """process_options defaults to sddp_solver_type='sddp' (nested in sddp_options)."""
+        """process_options defaults to solver_type='sddp' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["sddp_options"]["sddp_solver_type"] == "sddp"
+        assert writer.planning["options"]["solver_type"] == "sddp"
 
     def test_process_options_monolithic_solver_type(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "solver_type": "mono"})
-        assert (
-            writer.planning["options"]["sddp_options"]["sddp_solver_type"]
-            == "monolithic"
-        )
+        assert writer.planning["options"]["solver_type"] == "monolithic"
 
     def test_process_options_num_apertures(self):
         """process_options writes sddp_num_apertures inside sddp_options."""
