@@ -2,10 +2,16 @@
 """Helper to run pandapower diagnostics on a gtopt planning case."""
 
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+
+# Sentinel value for unconstrained line thermal limits (matches gtopt2pp.convert)
+_TMAX_UNLIMITED = 9999.0
+# Default voltage base (kV) used as fallback when a bus has no voltage data
+_DEFAULT_KV = 110.0
 
 
 def get_pandapower_diagnostics(planning: dict[str, Any]) -> str:
@@ -104,17 +110,44 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
                 tmax_val = line.get("tmax_ab")
                 if isinstance(tmax_val, (int, float)):
                     tmax = float(tmax_val)
-                pp.create_line_from_parameters(
-                    net,
-                    from_bus=a_idx,
-                    to_bus=b_idx,
-                    length_km=1.0,
-                    r_ohm_per_km=0.01,
-                    x_ohm_per_km=0.1,
-                    c_nf_per_km=0,
-                    max_i_ka=tmax / 110.0,
-                    name=line.get("name", str(line.get("uid", ""))),
-                )
+
+                kv_a = float(net.bus.at[a_idx, "vn_kv"])
+                kv_b = float(net.bus.at[b_idx, "vn_kv"])
+                kv_max = max(kv_a, kv_b)
+
+                if kv_max > 0 and abs(kv_a - kv_b) / kv_max > 0.1:
+                    # Different voltage levels: model as transformer to avoid
+                    # "different_voltage_levels_connected" diagnostics.
+                    sn_mva = tmax / math.sqrt(3) if tmax < _TMAX_UNLIMITED else 100.0
+                    hv_bus = a_idx if kv_a >= kv_b else b_idx
+                    lv_bus = b_idx if kv_a >= kv_b else a_idx
+                    hv_kv = max(kv_a, kv_b)
+                    lv_kv = min(kv_a, kv_b)
+                    pp.create_transformer_from_parameters(
+                        net,
+                        hv_bus=hv_bus,
+                        lv_bus=lv_bus,
+                        sn_mva=sn_mva,
+                        vn_hv_kv=hv_kv,
+                        vn_lv_kv=lv_kv,
+                        vkr_percent=0.0,
+                        vk_percent=5.0,
+                        pfe_kw=0.0,
+                        i0_percent=0.0,
+                        name=line.get("name", str(line.get("uid", ""))),
+                    )
+                else:
+                    pp.create_line_from_parameters(
+                        net,
+                        from_bus=a_idx,
+                        to_bus=b_idx,
+                        length_km=1.0,
+                        r_ohm_per_km=0.01,
+                        x_ohm_per_km=0.1,
+                        c_nf_per_km=0,
+                        max_i_ka=tmax / max(kv_a, _DEFAULT_KV),
+                        name=line.get("name", str(line.get("uid", ""))),
+                    )
 
         diag = pp.diagnostic(net, report_style=None)
         if not diag:

@@ -517,6 +517,155 @@ class TestTransformerConversion:
         assert len(net.trafo) == 1
         assert len(net.line) == 0
 
+    def test_different_voltage_levels_auto_transformer(self) -> None:
+        """Lines between buses at significantly different voltage levels are
+        automatically modelled as pandapower transformers even when 'type' is
+        not set to 'transformer'."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "auto_trafo_test",
+                "bus_array": [
+                    {
+                        "uid": 1,
+                        "name": "b1_hv",
+                        "voltage": 220.0,
+                        "reference_theta": 0,
+                    },
+                    {"uid": 2, "name": "b2_lv", "voltage": 110.0},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "xfmr_hv_lv",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.1,
+                        "tmax_ab": 200,
+                        "tmax_ba": 200,
+                        # type intentionally not set to "transformer"
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        # Must be modelled as a transformer, not a standard line
+        assert len(net.trafo) == 1
+        assert len(net.line) == 0
+
+    def test_auto_transformer_hv_lv_assignment(self) -> None:
+        """When bus_b has a higher voltage than bus_a, hv_bus must still be
+        the high-voltage bus (pandapower requires vn_hv_kv >= vn_lv_kv)."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "reversed_hv_lv",
+                "bus_array": [
+                    # bus_a is 110 kV (lower), bus_b is 220 kV (higher)
+                    {"uid": 1, "name": "b1_lv", "voltage": 110.0},
+                    {
+                        "uid": 2,
+                        "name": "b2_hv",
+                        "voltage": 220.0,
+                        "reference_theta": 0,
+                    },
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 2,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 1, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "xfmr_lv_hv",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.1,
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        assert len(net.trafo) == 1
+        assert len(net.line) == 0
+        # pandapower transformer must have vn_hv_kv >= vn_lv_kv
+        trafo = net.trafo.iloc[0]
+        assert trafo["vn_hv_kv"] >= trafo["vn_lv_kv"]
+        assert trafo["vn_hv_kv"] == pytest.approx(220.0)
+        assert trafo["vn_lv_kv"] == pytest.approx(110.0)
+
+    def test_same_voltage_stays_line(self) -> None:
+        """Lines between buses at the same voltage level remain standard lines."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "same_kv",
+                "bus_array": [
+                    {"uid": 1, "name": "b1", "voltage": 220.0, "reference_theta": 0},
+                    {"uid": 2, "name": "b2", "voltage": 220.0},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 200,
+                        "gcost": 20,
+                        "capacity": 200,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 100},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "l1_2",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.05,
+                    },
+                ],
+            },
+        }
+        net = convert(case)
+        assert len(net.line) == 1
+        assert len(net.trafo) == 0
+
 
 class TestLoadGtoptCase:
     """Test load_gtopt_case."""
