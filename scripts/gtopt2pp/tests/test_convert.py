@@ -340,6 +340,100 @@ class TestConvert:
         with pytest.raises(ValueError, match="block UID 999"):
             convert(_MINIMAL_CASE, scenario=1, block=999)
 
+    def test_no_reference_theta_uses_first_generator_bus_as_ext_grid(self) -> None:
+        """When no bus has reference_theta, first generator's bus becomes ext_grid."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "no_ref_theta",
+                "bus_array": [
+                    {"uid": 1, "name": "b1"},  # no reference_theta
+                    {"uid": 2, "name": "b2"},
+                ],
+                "generator_array": [
+                    {
+                        "uid": 1,
+                        "name": "g1",
+                        "bus": 1,
+                        "pmax": 100,
+                        "gcost": 20,
+                        "capacity": 100,
+                    },
+                    {
+                        "uid": 2,
+                        "name": "g2",
+                        "bus": 2,
+                        "pmax": 50,
+                        "gcost": 30,
+                        "capacity": 50,
+                    },
+                ],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 40},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "l1_2",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.05,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                ],
+            },
+        }
+        net = convert(case, scenario=1, block=1)
+        # First generator (g1 on bus 0) should be ext_grid
+        assert len(net.ext_grid) == 1
+        assert net.ext_grid.iloc[0]["bus"] == 0
+        # Second generator (g2 on bus 1) should be a regular gen
+        assert len(net.gen) == 1
+        assert net.gen.iloc[0]["bus"] == 1
+        # Cost must be assigned to the ext_grid
+        eg_costs = net.poly_cost[net.poly_cost["et"] == "ext_grid"]
+        assert len(eg_costs) == 1
+        assert eg_costs.iloc[0]["cp1_eur_per_mw"] == pytest.approx(20.0)
+
+    def test_no_generators_adds_slack_ext_grid(self) -> None:
+        """When there are no generators, an ext_grid is added on the first bus."""
+        case = {
+            "options": {},
+            "simulation": {
+                "block_array": [{"uid": 1, "duration": 1}],
+                "scenario_array": [{"uid": 1, "probability_factor": 1}],
+            },
+            "system": {
+                "name": "no_gens",
+                "bus_array": [
+                    {"uid": 1, "name": "b1"},
+                    {"uid": 2, "name": "b2"},
+                ],
+                "generator_array": [],
+                "demand_array": [
+                    {"uid": 1, "name": "d1", "bus": 2, "lmax": 40},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "l1_2",
+                        "bus_a": 1,
+                        "bus_b": 2,
+                        "reactance": 0.05,
+                    },
+                ],
+            },
+        }
+        net = convert(case, scenario=1, block=1)
+        # A fallback ext_grid must exist to avoid "no reference bus" errors
+        assert len(net.ext_grid) == 1
+        assert net.ext_grid.iloc[0]["bus"] == 0
+
 
 class TestConvertNameReferences:
     """Test conversion with string (name) bus references."""
